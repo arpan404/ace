@@ -1,3 +1,4 @@
+import { provisionalTitle } from "./thread-title.ts";
 import { permissionResolutionError } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
@@ -133,7 +134,14 @@ export function engineHandler(
             id: threadId,
             ...(p.permissionMode ? { permissionMode: p.permissionMode } : {}),
             workspaceId: p.workspaceId,
-            title: p.title ?? "New thread",
+            title:
+              p.title ?? (p.type === "thread.create" ? provisionalTitle(p.input) : "New thread"),
+            titleSource:
+              p.title &&
+              p.title !== "New thread" &&
+              (p.type !== "thread.create" || p.title !== provisionalTitle(p.input))
+                ? "person"
+                : "provisional",
             ...(acpIdentity ? { acpIdentity } : {}),
             capabilities: entry.capabilities,
             ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),

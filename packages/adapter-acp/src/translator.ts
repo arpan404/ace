@@ -172,6 +172,26 @@ class AcpTranslator implements Translator {
   update(agent: AgentState, update: Data, frame: unknown, facts: Fact[]): boolean {
     const s = this.state;
     const kind = string(update["sessionUpdate"]);
+    if (
+      kind === "session_info_update" &&
+      agent.key === s.root.key &&
+      typeof update["title"] === "string"
+    ) {
+      facts.push({
+        type: "item.upsert",
+        agent: agent.key,
+        item: "provider:title",
+        draft: {
+          type: "notice",
+          code: "thread_title",
+          title: update["title"],
+          text: update["title"],
+          level: "info",
+          complete: true,
+        },
+      });
+      return true;
+    }
     if (childUpdate(s, agent, update, frame, facts)) return true;
     if (kind === "tool_call" || kind === "tool_call_update") {
       const id = string(update["toolCallId"]);

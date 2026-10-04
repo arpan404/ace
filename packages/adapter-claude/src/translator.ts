@@ -23,6 +23,22 @@ export function createTranslator(init: { rootKey: Key }): Translator {
   let diagnostics: import("@ace/protocol").RawPayload[] = [];
   function sdk(data: Data, frame: Frame, now: number): boolean {
     const type = string(data["type"]);
+    if (type === "summary" && typeof data["summary"] === "string") {
+      state.emit({
+        type: "item.upsert",
+        agent: state.root,
+        item: "provider:title",
+        draft: {
+          type: "notice",
+          code: "thread_title",
+          title: data["summary"],
+          text: data["summary"],
+          level: "info",
+          complete: true,
+        },
+      });
+      return true;
+    }
     if (type === "system") {
       if (taskFrame(state, data, now)) return true;
       const subtype = string(data["subtype"]);

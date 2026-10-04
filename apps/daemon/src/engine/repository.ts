@@ -1,3 +1,4 @@
+import { provisionalTitle } from "./thread-title.ts";
 import { InputJournal, inputOrigin } from "./input-journal.ts";
 import { coalesceFacts } from "./delta-batch.ts";
 import { Permissions } from "./permissions.ts";
@@ -203,6 +204,26 @@ export class EngineRepository {
         const batch = new FactBatch(state);
         let continuationStarted = false;
         const events = coalesceFacts(facts).flatMap((input) => {
+          if (
+            (input.type === "item.upsert" || input.type === "item.reconciled") &&
+            input.agent === (state.rootKey ?? "root") &&
+            input.draft.type === "notice" &&
+            input.draft.code === "thread_title"
+          ) {
+            const thread = this.store.getThread(id);
+            const title = input.draft.title?.trim();
+            if (
+              title &&
+              (thread?.titleSource === "provisional" ||
+                (!thread?.titleSource && thread?.title === "New thread"))
+            )
+              this.store.appendEvents(
+                id,
+                [{ type: "thread.updated", title, titleSource: "provider" }],
+                now,
+              );
+            return [];
+          }
           const queue = input.type === "turn.started" ? this.queue.get(id) : undefined;
           if (
             input.type === "turn.started" &&
@@ -329,6 +350,13 @@ export class EngineRepository {
   admitInput(command: Command, id: ThreadId, at: number): void {
     const p = command.payload;
     if (p.type !== "thread.create" && p.type !== "thread.send") return;
+    const thread = this.store.getThread(id);
+    if (thread?.titleSource === "provisional" && thread.title === "New thread")
+      this.store.appendEvents(
+        id,
+        [{ type: "thread.updated", title: provisionalTitle(p.input), titleSource: "provisional" }],
+        at,
+      );
     const key = `input:${command.id}`;
     const origin = inputOrigin(command);
     this.inputs.register(id, key, p.input, origin);
