@@ -114,7 +114,13 @@ function placedAt(
   };
 }
 const viewportStyle = { paddingRight: "var(--summary-inset, 0px)" } as CSSProperties;
-const rowGap = (row: Row) => (row.kind === "block" ? gap[row.block.kind] : "pb-1");
+/** A progress note followed straight by another sits close to it; a turn's last answer doesn't. */
+function rowGap(row: Row, next: Row | undefined): string {
+  if (row.kind !== "block") return "pb-1";
+  if (row.block.kind === "message" && next?.kind === "block" && next.block.kind === "message")
+    return "pb-1.5";
+  return gap[row.block.kind];
+}
 const rowKey = (row: Row) => row.key;
 const highlight = {
   boxShadow: "0 0 0 2px color-mix(in oklab, var(--ring) 45%, transparent)",
@@ -441,7 +447,7 @@ export function Feed(props: FeedProps) {
                   aria-posinset={item.index + 1}
                   aria-setsize={hasOlder ? -1 : rows.length}
                   {...(lit && flash?.hit ? { "data-hit": "" } : {})}
-                  className={cn("absolute inset-x-0 top-0", rowGap(row))}
+                  className={cn("absolute inset-x-0 top-0", rowGap(row, rows[item.index + 1]))}
                   style={{ transform: `translateY(${item.start - margin}px)` }}
                 >
                   <div
