@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, symlink, rm } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { renderLauncher } from "./index.ts";
 
 async function installation(home: string, version: string) {
   const root = join(home, ".ace-next");
@@ -13,9 +14,7 @@ async function installation(home: string, version: string) {
   await mkdir(join(root, "bin"));
   await writeFile(
     join(root, "bin/ace"),
-    version.startsWith("0.")
-      ? "#!/bin/sh\nexit 99\n"
-      : '#!/bin/sh\ntarget=$(readlink "$ACE_HOME/current")\nartifact="$ACE_HOME/$target"\nexec "$artifact/bin/node" "$artifact/ace.mjs" "$@"\n',
+    version.startsWith("0.") ? "#!/bin/sh\nexit 99\n" : renderLauncher(root),
     { mode: 0o700 },
   );
   await writeFile(
@@ -87,3 +86,25 @@ test("a legacy executable cannot borrow a compatible release's metadata", async 
   );
   await expect(readFile(join(root, "executed"))).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+for (const extra of [
+  'exec "$HOME/.ace/bin/ace" "$@"',
+  'artifact="$HOME/.ace"',
+  'touch "$ACE_HOME/extra-command"',
+])
+  test(`release metadata cannot authorize a launcher with ${extra}`, async ({ onTestFinished }) => {
+    const home = await mkdtemp(join(tmpdir(), "ace-extra-launcher-"));
+    onTestFinished(() => rm(home, { recursive: true, force: true }));
+    const root = await installation(home, "1.2.3");
+    const launcher = await readFile(join(root, "bin/ace"), "utf8");
+    await writeFile(
+      join(root, "bin/ace"),
+      extra.startsWith("exec ")
+        ? launcher.replace("#!/bin/sh\n", `#!/bin/sh\n${extra}\n`)
+        : launcher.replace('exec "$artifact/bin/node"', `${extra}\nexec "$artifact/bin/node"`),
+    );
+    await expect(command(home, root, "start")).rejects.toThrow(
+      /Incompatible or legacy ace installation/,
+    );
+    await expect(readFile(join(root, "extra-command"))).rejects.toMatchObject({ code: "ENOENT" });
+  });

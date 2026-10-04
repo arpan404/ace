@@ -1,114 +1,255 @@
-import {
-  existsSync,
-  mkdirSync,
-  lstatSync,
-  statSync,
-  readFileSync,
-  readdirSync,
-  readlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { join, resolve } from "node:path";
+import { closeSync, readlinkSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { z } from "zod";
 import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
+import { PinnedDirectory } from "@ace/workspace/pinned-directory";
+import { renderLauncher } from "./launcher.ts";
+import { selectDefaultHome, type HomeLayout } from "./home-policy.ts";
+
+const MARKER = "legacy-home.json";
+const LOCK = ".ace-home-selection.lock";
+const IsolationMarker = z.strictObject({
+  version: z.literal(1),
+  owner: z.number().int().nonnegative(),
+  legacyHome: z.string().max(2048),
+  reason: z.string().min(1).max(1024),
+});
+function missing(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+function has(directory: PinnedDirectory, name: string): boolean {
+  try {
+    directory.metadata(name);
+    return true;
+  } catch (error) {
+    if (missing(error)) return false;
+    throw error;
+  }
+}
+function child(parent: PinnedDirectory, name: string): PinnedDirectory | undefined {
+  try {
+    return parent.child(name);
+  } catch (error) {
+    if (missing(error)) return undefined;
+    throw error;
+  }
+}
 
 /** Inspect metadata only. Never execute a binary to discover whether it is legacy. */
 export function installedVersion(root: string): string {
+  const directories: PinnedDirectory[] = [];
   try {
+    const home = PinnedDirectory.atBoundary(root);
+    directories.push(home);
     const target = ReleaseDirectory.parse(readlinkSync(join(root, "current")));
-    const manifest = join(root, target, "release.json");
-    if (statSync(manifest).size > 16 * 1024) throw new Error("Release metadata limit exceeded");
-    const release = InstalledRelease.parse(JSON.parse(readFileSync(manifest, "utf8")));
+    if (!home.matchesBoundary(root)) throw new Error("Home changed during validation");
+    const releases = home.child("releases");
+    directories.push(releases);
+    const generation = releases.child(target.slice("releases/".length));
+    directories.push(generation);
+    const release = InstalledRelease.parse(
+      JSON.parse(generation.readText("release.json", 16 * 1024)),
+    );
     if (release.version.startsWith("0.")) throw new Error("legacy version");
     if (target !== `releases/${release.version}-${release.target}`)
       throw new Error("Release metadata does not match its directory");
-    const launcherPath = join(root, "bin/ace");
-    if (existsSync(launcherPath)) {
-      if (statSync(launcherPath).size > 8192) throw new Error("Unrecognized launcher");
-      const lines = readFileSync(launcherPath, "utf8").trimEnd().split("\n");
-      // Only the rewrite's pointer-based shell launcher may use this metadata.
-      // An old executable alongside a new current pointer is still incompatible.
-      if (
-        lines[0] !== "#!/bin/sh" ||
-        !lines.includes('target=$(readlink "$ACE_HOME/current")') ||
-        !lines.includes('artifact="$ACE_HOME/$target"') ||
-        lines.at(-1) !== 'exec "$artifact/bin/node" "$artifact/ace.mjs" "$@"'
-      )
-        throw new Error("Launcher does not use the validated release pointer");
-    }
+    const bin = home.child("bin");
+    directories.push(bin);
+    if (bin.readText("ace", 8192) !== renderLauncher(root))
+      throw new Error("Launcher differs from the complete validated program");
     return release.version;
   } catch (cause) {
     throw new Error(
       `Incompatible or legacy ace installation at ${root}. Refusing to execute or adopt its binary/service. Choose a separate ACE_HOME; migration requires an explicit owner decision.`,
       { cause },
     );
+  } finally {
+    for (const directory of directories.toReversed()) directory.closeSync();
   }
 }
-
-export function assertCompatibleHome(root: string): void {
-  if (existsSync(root) && lstatSync(root).isSymbolicLink())
-    throw new Error(`Refusing ace home ${root}: it is a symbolic link`);
-  if (existsSync(join(root, "bin/ace")) || existsSync(join(root, "current"))) {
+function inspect(root: string, directory: PinnedDirectory): HomeLayout {
+  if (["ace.db", "ace.sqlite", "db.sqlite"].some((name) => has(directory, name)))
+    return "incompatible";
+  const bin = child(directory, "bin");
+  let executable = false;
+  try {
+    executable = bin ? has(bin, "ace") : false;
+  } finally {
+    bin?.closeSync();
+  }
+  if (executable || has(directory, "current")) {
     installedVersion(root);
-    return;
+    return "rewrite";
   }
-  // Recognize old layout by names only, never by opening its databases.
-  if (["ace.db", "ace.sqlite", "db.sqlite"].some((name) => existsSync(join(root, name))))
-    throw new Error(
-      `Legacy ace data at ${root}. Choose a separate ACE_HOME; no automatic migration is allowed.`,
-    );
+  if (has(directory, "host-id")) return "rewrite";
+  return directory.empty() ? "empty" : "unknown";
 }
-
-export function resolveDaemonHome(home: string, requested?: string): string {
-  if (requested !== undefined) {
-    const root = resolve(requested);
-    assertCompatibleHome(root);
-    return root;
-  }
-  const root = join(home, ".ace");
-  const next = join(home, ".ace-next");
-  if (existsSync(join(next, "legacy-home.json"))) {
-    assertCompatibleHome(next);
-    return next;
+export function assertCompatibleHome(root: string): void {
+  let directory: PinnedDirectory;
+  try {
+    directory = PinnedDirectory.atBoundary(root);
+  } catch (error) {
+    if (missing(error)) {
+      // Even absent homes must not be created below a symbolic-link ancestor.
+      let parent = dirname(root);
+      for (;;) {
+        try {
+          const pinned = PinnedDirectory.atBoundary(parent);
+          pinned.closeSync();
+          return;
+        } catch (cause) {
+          if (!missing(cause) || dirname(parent) === parent) throw cause;
+        }
+        parent = dirname(parent);
+      }
+    }
+    throw new Error(`Refusing ace home ${root}: symbolic link or unsafe directory`, {
+      cause: error,
+    });
   }
   try {
-    assertCompatibleHome(root);
-    if (
-      existsSync(root) &&
-      readdirSync(root).length &&
-      !existsSync(join(root, "host-id")) &&
-      !existsSync(join(root, "current"))
-    )
-      throw new Error("Unrecognized default home");
-    return root;
-  } catch {
-    assertCompatibleHome(next);
-    if (
-      existsSync(next) &&
-      readdirSync(next).length &&
-      !existsSync(join(next, "host-id")) &&
-      !existsSync(join(next, "current"))
-    )
+    if (inspect(root, directory) === "incompatible")
       throw new Error(
-        `Unrecognized data at ${next}. Refusing to modify it; choose an empty ACE_HOME.`,
+        `Legacy ace data at ${root}. Choose a separate ACE_HOME; no automatic migration is allowed.`,
       );
-    mkdirSync(next, { recursive: true, mode: 0o700 });
-    try {
-      writeFileSync(
-        join(next, "legacy-home.json"),
-        JSON.stringify(
-          {
-            legacyHome: root,
-            reason:
-              "Legacy or incompatible ace data was detected. This home isolates the rewrite; migration requires an explicit owner decision. The old home is untouched.",
-          },
-          null,
-          2,
-        ) + "\n",
-        { flag: "wx", mode: 0o600 },
-      );
-    } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
-    }
-    return next;
+  } finally {
+    directory.closeSync();
   }
 }
+function marker(
+  directory: PinnedDirectory | undefined,
+  legacyHome: string,
+  owner: number,
+): boolean {
+  if (!directory || !has(directory, MARKER)) return false;
+  try {
+    const parsed = IsolationMarker.parse(JSON.parse(directory.readText(MARKER, 4096, owner)));
+    if (parsed.owner !== owner || parsed.legacyHome !== legacyHome)
+      throw new Error("Marker ownership or legacy home mismatch");
+    return true;
+  } catch (cause) {
+    throw new Error("Refusing invalid legacy isolation marker; no data was modified", { cause });
+  }
+}
+function selectionLock(parent: PinnedDirectory): number {
+  const wait = new Int32Array(new SharedArrayBuffer(4));
+  for (let attempt = 0; attempt < 500; attempt++) {
+    try {
+      return parent.createExclusive(LOCK);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+      // Reject links, directories, foreign owners and oversized lock files, rather than following them.
+      try {
+        parent.readText(LOCK, 128, parent.stat().uid);
+      } catch (cause) {
+        if (missing(cause)) continue;
+        throw cause;
+      }
+      Atomics.wait(wait, 0, 0, 10);
+    }
+  }
+  throw new Error(
+    "Ace home selection is locked. Close other launches; remove the stale .ace-home-selection.lock only after confirming its owner has exited.",
+  );
+}
+
+function closeSelection(
+  parent: PinnedDirectory,
+  lock: number | undefined,
+  primary: PinnedDirectory | undefined,
+  isolated: PinnedDirectory | undefined,
+): void {
+  let failure: unknown;
+  for (const close of [
+    () => primary?.closeSync(),
+    () => isolated?.closeSync(),
+    () => {
+      if (lock !== undefined) closeSync(lock);
+    },
+    () => {
+      if (lock !== undefined) parent.unlink(LOCK);
+    },
+    () => parent.closeSync(),
+  ]) {
+    try {
+      close();
+    } catch (error) {
+      failure ??= error;
+    }
+  }
+  if (failure !== undefined) throw failure;
+}
+
+/** Stable shared API for daemon and desktop; the caller's home is an I/O boundary. */
+export interface HomeFileSystem {
+  open(path: string): PinnedDirectory;
+}
+export function createDaemonHomeResolver(filesystem: HomeFileSystem) {
+  return function resolveHome(home: string, requested?: string): string {
+    if (requested !== undefined) {
+      const root = resolve(requested);
+      assertCompatibleHome(root);
+      return root;
+    }
+    const canonicalHome = resolve(home);
+    const parent = filesystem.open(canonicalHome);
+    const root = join(canonicalHome, ".ace"),
+      next = join(canonicalHome, ".ace-next");
+    let lock: number | undefined,
+      primary: PinnedDirectory | undefined,
+      isolated: PinnedDirectory | undefined;
+    try {
+      lock = selectionLock(parent);
+      // All inspection and publication are inside one parent lock, with descriptor-relative writes.
+      let primaryLayout: HomeLayout;
+      try {
+        primary = child(parent, ".ace");
+        primaryLayout = primary ? inspect(root, primary) : "empty";
+      } catch {
+        primaryLayout = "incompatible";
+      }
+      isolated = child(parent, ".ace-next");
+      const marked = marker(isolated, root, parent.stat().uid);
+      const isolatedLayout = isolated ? inspect(next, isolated) : "empty";
+      const selected = selectDefaultHome({
+        primary: primaryLayout,
+        isolated: isolatedLayout,
+        isolatedMarker: marked,
+      });
+      if (selected === "primary") {
+        if (!parent.matchesBoundary(canonicalHome) || (primary && !primary.matchesBoundary(root)))
+          throw new Error("Ace home changed during selection");
+        return root;
+      }
+      if (!isolated) {
+        isolated = parent.mkdir(".ace-next");
+        // mkdir and open are separate syscalls. Validate the inode actually opened before any write.
+        const createdLayout = inspect(next, isolated);
+        if (createdLayout !== "empty")
+          throw new Error("Refusing substituted isolated directory before marker publication");
+      }
+      if (!marked)
+        isolated.publish(
+          MARKER,
+          JSON.stringify(
+            IsolationMarker.parse({
+              version: 1,
+              owner: parent.stat().uid,
+              legacyHome: root,
+              reason:
+                "Legacy or incompatible ace data was detected. This home isolates the rewrite; migration requires an explicit owner decision. The old home is untouched.",
+            }),
+            null,
+            2,
+          ) + "\n",
+        );
+      if (!parent.matchesBoundary(canonicalHome) || !isolated.matchesBoundary(next))
+        throw new Error("Ace home changed during marker publication; refusing startup");
+      return next;
+    } finally {
+      closeSelection(parent, lock, primary, isolated);
+    }
+  };
+}
+export const resolveDaemonHome: (home: string, requested?: string) => string =
+  createDaemonHomeResolver({ open: PinnedDirectory.atBoundary });

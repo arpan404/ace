@@ -22,4 +22,12 @@ export { BoundedLog } from "./log.ts";
 export { localService, serviceCommand } from "./local.ts";
 export { runSupervisor, recoveryDelay, type SupervisorPorts } from "./supervisor.ts";
 
-export { resolveDaemonHome, assertCompatibleHome, installedVersion } from "./home.ts";
+export {
+  resolveDaemonHome,
+  createDaemonHomeResolver,
+  type HomeFileSystem,
+  assertCompatibleHome,
+  installedVersion,
+} from "./home.ts";
+
+export { renderLauncher } from "./launcher.ts";
