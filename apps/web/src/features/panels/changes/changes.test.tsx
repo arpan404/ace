@@ -176,15 +176,20 @@ test("a line comment stays on its line when the diff switches between Unified an
 test("Changes says what is uncommitted in the checkout, and follows a commit", async () => {
   const { panel } = await openChanges();
   const tree = await within(panel).findByRole("status", { name: "Working tree" });
-  expect(tree.textContent).toContain("2 files uncommitted on fix/cold-start-cap");
+  expect(tree.textContent).toContain("Working tree: 2 files uncommitted on fix/cold-start-cap");
   expect(tree.textContent).toContain("38 added, 6 removed");
+  // The tab's own count says it is the whole thread's, not the scope's or the checkout's.
+  await userEvent.hover(
+    within(within(panel).getByRole("tab", { name: /Changes/ })).getByText(/^\+/),
+  );
+  expect(await screen.findByText(/^This thread: \+\d+ −\d+$/, {}, { timeout: 2000 })).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Commit" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Commit" }));
   await waitFor(() =>
     expect(within(panel).getByRole("status", { name: "Working tree" }).textContent).toContain(
-      "Everything is committed on fix/cold-start-cap · 1 to push",
+      "Working tree: Everything is committed on fix/cold-start-cap · 1 to push",
     ),
   );
 });

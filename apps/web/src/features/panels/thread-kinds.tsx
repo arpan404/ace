@@ -48,7 +48,7 @@ export const changesKind = defineTabKind({
   singleton: true,
   pinned: true,
   launcher: 10,
-  Badge: (props) => <ThreadDiffStat threadId={props.scope} />,
+  Badge: (props) => <ThreadDiffStat threadId={props.scope} folded={props.folded} />,
   load: () => views().then((m) => ({ default: m.ChangesView })),
 });
 
