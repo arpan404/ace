@@ -1,4 +1,6 @@
-import { projectsApi } from "./projects.ts";
+import { projectCalls } from "./project-calls.ts";
+import { projectEvents } from "./projects.ts";
+import type { ProjectsApi } from "./projects-types.ts";
 import type {
   TurnsPageInput,
   ItemsWindowInput,
@@ -57,7 +59,8 @@ type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
 
 export class Client implements ClientApi {
-  readonly projects = projectsApi(this);
+  /** Project calls forward through `command`/`request`; pushes arrive through `onMessage`. */
+  readonly projects: ProjectsApi = { ...projectCalls(this), ...projectEvents(this) };
   private options: ClientOptions;
   private connection: Connection;
   /** Core frames decode at once; the service schemas load with `start()`. */

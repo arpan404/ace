@@ -1,4 +1,4 @@
-import type { ProjectsApi } from "./projects.ts";
+import type { ProjectsApi } from "./projects-types.ts";
 import type {
   TurnsPageInput,
   ItemsWindowInput,

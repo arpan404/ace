@@ -71,6 +71,8 @@ UI code depends on `ClientApi` (with `ThreadSource` and `SidebarSource` stores),
 ## Projects
 
 `Client` and `ClientApi` expose `projects`; shared-worker `RemoteClient` forwards the same methods.
+`RemoteClient` loads the project calls and the schemas that validate them on its first project call
+(`@ace/client/project-calls`), so a tab's first paint does without classic Zod (ADR 0056).
 Mutations use durable commands. Pass a stable command id as the third argument when retrying.
 An accepted add/create/clone receipt contains `workspace: { id, name, path }`; use its `id` for
 client project selection and the existing `thread.create.workspaceId` field.

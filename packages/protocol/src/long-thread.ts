@@ -193,9 +193,5 @@ export const ThreadReadStateResponse = z.object({
   updatedAt: Timestamp.nullable(),
 });
 export type ThreadReadStateResponse = z.infer<typeof ThreadReadStateResponse>;
-export const ThreadMarkReadCommand = z.object({
-  type: z.literal("thread.markRead"),
-  threadId: ThreadId,
-  lastSeenSeq: count,
-});
-export type ThreadMarkReadCommand = z.infer<typeof ThreadMarkReadCommand>;
+/** The core stream carries this command; it lives apart so the core skips the long-thread reads. */
+export { ThreadMarkReadCommand } from "./thread-mark-read.ts";

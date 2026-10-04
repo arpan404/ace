@@ -3,7 +3,7 @@ import {
   ProjectsResult,
   WorkspaceChanged,
   WorkspaceCloneProgress,
-} from "./projects.ts";
+} from "./project-requests.ts";
 import {
   TurnsPageRequest,
   TurnsPageResponse,
