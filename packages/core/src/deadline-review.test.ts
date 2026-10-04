@@ -181,3 +181,37 @@ it("a settled startup failure does not preempt a restarted child's silence deadl
   expect(h.agent("child")?.status).toEqual({ state: "unresponsive", lastSignalAt: 200 });
   expect(nextDeadline(h.state)).toBeUndefined();
 });
+
+it("incremental deadlines preserve independent siblings and schedule their unresponsive transitions", async () => {
+  const { DeadlineIndex } = await import("./index.ts");
+  const h = harness("codex", { silenceMs: 100 });
+  h.send({ type: "turn.started", agent: "root", trigger: "user" }, 100);
+  for (const agent of ["a", "b"]) {
+    h.send(
+      {
+        type: "agent.seen",
+        agent,
+        parent: "root",
+        origin: "provider_subagent",
+        native: { provider: "codex" },
+        fidelity: "full",
+        cwd: "/repo",
+      },
+      100,
+    );
+    h.send({ type: "turn.started", agent, trigger: "spawn" }, 100);
+    h.send({ type: "item.delta", agent, item: agent, field: "text", append: "seed" }, 100);
+  }
+  const index = new DeadlineIndex(h.state);
+  h.send({ type: "item.delta", agent: "a", item: "a", field: "text", append: "next" }, 150);
+  index.signal("a", 150, 100);
+  expect(index.next()).toBe(201);
+  h.send({ type: "item.delta", agent: "b", item: "b", field: "text", append: "next" }, 160);
+  index.signal("b", 160, 100);
+  expect(index.next()).toBe(251);
+  h.send({ type: "tick" }, 251);
+  expect(h.agent("a")?.status.state).toBe("unresponsive");
+  expect(h.agent("b")?.status.state).toBe("working");
+  index.rebuild(h.state);
+  expect(index.next()).toBe(261);
+});

@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { AgentRecord, ThreadState, Fact } from "@ace/core";
+import { DeadlineIndex, type AgentRecord, type ThreadState, type Fact } from "@ace/core";
 import { RunId, type Item, type EventPayload } from "@ace/protocol";
 import { z } from "zod";
 import { recordSchemas } from "./snapshot.ts";
@@ -11,6 +11,7 @@ const nativeRunId = z.custom<RunId>((value) => RunId.safeParse(value).success);
 /** A complete core snapshot is a small header plus native-keyed entity records. */
 export class Snapshot {
   readonly state: ThreadState;
+  private deadlines: DeadlineIndex | undefined;
   private items: Records<Item>;
   private metadata: Records<Item>;
   private sections: { flush(): void; begin(): void }[] = [];
@@ -119,8 +120,11 @@ export class Snapshot {
             event.item.id === item.id) ||
           (event.type === "item.delta" && event.itemId === item.id),
       )
-    )
-      this.metadata.values[fact.item] = itemMetadata(item);
+    ) {
+      const next = itemMetadata(item);
+      const previous = this.metadata.values[fact.item];
+      if (JSON.stringify(next) !== JSON.stringify(previous)) this.metadata.values[fact.item] = next;
+    }
   }
   delta(fact: Extract<Fact, { type: "item.delta" }>): void {
     const item = this.state.items[fact.item];
@@ -133,6 +137,21 @@ export class Snapshot {
       });
     else if (item.type === "reasoning" || item.type === "notice")
       this.items.append(fact.item, { path: ["text"], text: fact.append });
+  }
+  deadline(providerDeadline?: number): number | undefined {
+    this.deadlines ??= new DeadlineIndex(this.state);
+    return this.deadlines.next(providerDeadline);
+  }
+  updateDeadlines(facts: readonly Fact[], events: readonly EventPayload[], now: number): void {
+    if (!this.deadlines) return;
+    if (
+      facts.every((fact) => fact.type === "item.delta" || fact.type === "signal") &&
+      events.every((event) => event.type === "item.delta")
+    ) {
+      for (const fact of facts)
+        if (fact.type === "item.delta" || fact.type === "signal")
+          this.deadlines.signal(fact.agent, now, this.state.config.silenceMs);
+    } else this.deadlines.rebuild(this.state);
   }
   header(): string {
     return JSON.stringify({
