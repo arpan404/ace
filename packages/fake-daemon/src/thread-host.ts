@@ -61,9 +61,27 @@ export class ThreadHost {
   }
   /** Fold one adapter fact through core. Scripts are our own code, so a rejected fact is a bug. */
   fold(fact: Fact, now: number): EventPayload[] {
+    if (
+      fact.type === "item.upsert" &&
+      fact.draft.type === "message" &&
+      fact.draft.origin?.kind === "interaction_answer" &&
+      fact.draft.origin.interactionId
+    ) {
+      const interaction = this.interaction(fact.draft.origin.interactionId);
+      if (interaction)
+        fact = {
+          ...fact,
+          draft: { ...fact.draft, origin: { ...fact.draft.origin, interactionId: interaction.id } },
+        };
+    }
     const events = apply(this.state, fact, {
       now,
-      ids: { next: (kind) => `${this.id}.${kind}.${++this.counter}` },
+      ids: {
+        next: (kind) =>
+          kind === "item" && fact.type === "item.upsert" && fact.item.startsWith("input:")
+            ? fact.item
+            : `${this.id}.${kind}.${++this.counter}`,
+      },
     });
     for (const event of events)
       if (

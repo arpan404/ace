@@ -518,6 +518,15 @@ export class FakeDaemon implements Host {
     this.connections.delete(connection);
     this.services.release(connection.push);
   }
+  /** Scripted metadata changes use the same event stream as command effects. */
+  updateThread(
+    id: string,
+    changes: Omit<Extract<EventPayload, { type: "thread.updated" }>, "type">,
+    agoMs = 0,
+  ): void {
+    const now = this.at(agoMs);
+    this.append(this.thread(id), [{ type: "thread.updated", ...changes }], now);
+  }
   /** Drop every socket, as a daemon restart or network loss would. */
   disconnectAll(code = 1006): void {
     // Deleting the current entry during Set iteration is safe.
@@ -857,7 +866,7 @@ export class FakeDaemon implements Host {
             payload.workspaceId,
             id,
           );
-        const started = startedThread(id, payload);
+        const started = startedThread(id, payload, commandId);
         this.createThread({
           ...started.thread,
           ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),
