@@ -347,6 +347,38 @@ export class EngineRepository {
     }
   }
 
+  syntheticInput(
+    id: ThreadId,
+    key: string,
+    text: string,
+    origin: import("@ace/protocol").MessageOrigin,
+    at: number,
+  ): void {
+    const parts = [{ type: "text" as const, text }];
+    this.inputs.register(id, key, parts, origin);
+    this.inputs.sending(id, key, parts);
+    this.apply(
+      id,
+      [
+        {
+          type: "item.upsert",
+          agent: this.requireState(id).rootKey ?? "root",
+          item: key,
+          draft: {
+            type: "message",
+            role: "user",
+            parts,
+            origin,
+            synthetic: true,
+            complete: true,
+            raw: [],
+          },
+        },
+      ],
+      at,
+    );
+  }
+
   admitInput(command: Command, id: ThreadId, at: number): void {
     const p = command.payload;
     if (p.type !== "thread.create" && p.type !== "thread.send") return;

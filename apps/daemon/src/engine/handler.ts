@@ -188,6 +188,30 @@ export function engineHandler(
               },
             },
           });
+          if (handoff && p.handoffFrom && p.type === "thread.create") {
+            const source = repo.store.getThread(p.handoffFrom);
+            const previous = repo.transitions.get(threadId);
+            repo.transitions.set(threadId, {
+              ...previous,
+              context: [...previous.context, handoff.text],
+            });
+            repo.syntheticInput(
+              threadId,
+              `handoff:${command.id}`,
+              handoff.text,
+              {
+                kind: "handoff",
+                commandId: command.id,
+                threadIds: [p.handoffFrom],
+                lossy: true,
+                ...(source
+                  ? { from: { provider: source.provider, model: source.execution?.model } }
+                  : {}),
+                to: { provider: p.provider, model: p.model },
+              },
+              at,
+            );
+          }
           if (handoff && p.handoffFrom)
             repo.transitions.history.grant(threadId, p.handoffFrom, handoff.source.throughSeq);
           if (p.type === "thread.prepare") {
