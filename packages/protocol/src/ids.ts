@@ -42,3 +42,7 @@ export type DeviceId = z.infer<typeof DeviceId>;
 /** Milliseconds since the Unix epoch. */
 export const Timestamp = z.number().int().nonnegative();
 export type Timestamp = z.infer<typeof Timestamp>;
+
+/** Provider identity, shared across execution, accounts and persisted sessions. */
+export const NativeSessionId = z.string().min(1).max(512);
+export type NativeSessionId = z.infer<typeof NativeSessionId>;

@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ProviderAdapter, SessionContext, ProviderSession } from "@ace/engine-api";
 import type { AceMcpConnection } from "@ace/mcp-server";
 import { cursorCapabilities } from "./policy.ts";
@@ -26,7 +26,10 @@ export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
 export function createCursorAdapter(
   options: CursorAdapterOptions = {},
 ): ProviderAdapter & { close(): Promise<void>; stopInstance(id: string): Promise<void> } {
-  const selected = CursorInstance.parse(options.instance ?? defaultCursorInstance(homedir()));
+  const selected = CursorInstance.parse(
+    options.instance ??
+      defaultCursorInstance(resolve(process.env.ACE_HOME ?? join(homedir(), ".ace-next"))),
+  );
   const sessions = new Map<ProviderSession, string>();
   const limits = Limits.parse(options.limits ?? {});
   const slots = options.slots ?? new CursorHostSlots(limits.maxWorkers);

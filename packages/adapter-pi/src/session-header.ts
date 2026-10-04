@@ -9,16 +9,20 @@ const Header = z.looseObject({
   id: z.string().min(1).max(128),
   cwd: Path,
 });
-const Reference = z.object({ path: Path, id: z.string().min(1).max(128) });
-export type SessionReference = z.infer<typeof Reference>;
+export const SessionReference = z.object({ path: Path, id: z.string().min(1).max(128) });
+export type SessionReference = z.infer<typeof SessionReference>;
 export function encodeSessionReference(reference: SessionReference): string {
-  return "ace-pi:" + Buffer.from(JSON.stringify(Reference.parse(reference))).toString("base64url");
+  return (
+    "ace-pi:" + Buffer.from(JSON.stringify(SessionReference.parse(reference))).toString("base64url")
+  );
 }
 export function decodeSessionReference(value: string): { path: string; id?: string } {
   if (!value.startsWith("ace-pi:")) return { path: Path.parse(value) };
   if (value.length > 16_384) throw new PiHistoryError("header");
   try {
-    return Reference.parse(JSON.parse(Buffer.from(value.slice(7), "base64url").toString("utf8")));
+    return SessionReference.parse(
+      JSON.parse(Buffer.from(value.slice(7), "base64url").toString("utf8")),
+    );
   } catch {
     throw new PiHistoryError("header");
   }

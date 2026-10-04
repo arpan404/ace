@@ -1,3 +1,4 @@
+import { NativeSessionId } from "./ids.ts";
 import { z } from "zod";
 import { AgentId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -31,7 +32,7 @@ export const ExecutionSelection = z.object({
 });
 export type ExecutionSelection = z.infer<typeof ExecutionSelection>;
 export const ExecutionSource = z.object({
-  nativeSessionId: z.string().min(1).max(256),
+  nativeSessionId: NativeSessionId,
   selection: ExecutionSelection,
 });
 export type ExecutionSource = z.infer<typeof ExecutionSource>;

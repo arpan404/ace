@@ -2,6 +2,12 @@
 
 Start the daemon with `bun run --filter @ace/daemon dev`. Node 24+ executes the TypeScript directly. It prints its WebSocket URL and token-file path. Configuration comes from `ACE_HOME` (default `~/.ace`), `ACE_PORT` (default 4242, 0 selects an available port), and `ACE_LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`). The local listener always binds to 127.0.0.1. [Remote access](remote-access.md) adds an opt-in TLS listener with device pairing and scoped tickets.
 
+The default Cursor SDK account lives in `<ACE_HOME>/instances/cursor-sdk-default`.
+`ACE_CURSOR_SDK_HOME=/absolute/fixture-instance` overrides its instance root for
+isolated SDK use. The SDK receives `<root>/user` as HOME and owns its own login
+store there. Existing accounts retain their registered homes; no credentials are
+copied by this setting.
+
 `ACE_DEV=1` enables the development creator. On an empty database the CLI creates a workspace for its current directory and a starter thread. `thread.create` then creates threads in an existing workspace. The exported store workspace API lets development tools supply other local paths. Without this flag, creation returns `not_implemented`.
 
 ## Storage and ownership

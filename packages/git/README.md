@@ -64,3 +64,10 @@ Bare repositories are unsupported. Sparse checkouts explicitly refuse snapshots,
 Run `bun run test packages/git/src` for the real-repository tests. Run `bun run --filter @ace/git benchmark` for a non-gating synthetic 25,000-file benchmark, or `bun run --filter @ace/git benchmark 5000` for a different size. It reports first, unchanged and changed checkpoint times and removes its temporary repository. It never runs a provider CLI. `bun run --filter @ace/git benchmark:history 100` reports early/late allocation averages and listing time for a growing checkpoint history; an optional final module path allows comparison with an earlier version of our service. All benchmarks are non-gating. `bun run --filter @ace/git benchmark:diff 5000` measures a commit diff with one binary and one text change and reports temporary-index bytes; the optional final module path permits an earlier-version comparison. The POSIX resource-quota regression test uses Python 3 to impose an OS file-size limit on Git writes and skips when that host facility is unavailable.
 
 The implementation follows primary Git documentation for [status porcelain v2](https://git-scm.com/docs/git-status), [NUL diff metadata](https://git-scm.com/docs/git-diff), [index plumbing](https://git-scm.com/docs/git-update-index), [tree restore](https://git-scm.com/docs/git-read-tree), [atomic refs](https://git-scm.com/docs/git-update-ref) and [worktrees](https://git-scm.com/docs/git-worktree).
+
+`GitService.init` initializes an unborn repository with an empty commit named
+`Initialize ace project`. It uses ace's local author identity and the injected
+clock, so creating a project does not require user.name/user.email or signing
+configuration. Templates and existing files remain uncommitted. Worktree threads
+can start immediately from HEAD. Reinitializing an existing HEAD preserves it;
+adding an existing project does not create commits.

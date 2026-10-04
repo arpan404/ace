@@ -51,3 +51,13 @@ Before the event-store publication lease, the host's `HistoryAdapterPort.pausePe
 `close()` aborts pending work, returns suspended generators, rolls back private archive writes, closes SQLite handles and removes scratch files before terminating the worker. Async scan progress callbacks are acknowledged before scanning resumes. `openHistory` accepts an injected worker factory for instrumentation. `openArchiveReader`, `findImported`, and `deleteImported` support bounded engine publication and staging cleanup.
 
 The owner requires tests to run once at merge. During this review round, run only `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. Behaviour tests, mutation cases and revised performance measurements need run at merge. The benchmark scripts create synthetic temporary homes; they never read real accounts or spend provider quota. `bench/scan.ts` covers 5,000 files and a 20,000-message transcript. `bench/native-stores.ts` covers SQLite snapshots and legacy ordering. `bench/tools.ts` covers call/result correlation, and `apps/daemon/bench/history.ts` covers selected ancestry plus publication through an authenticated socket. `apps/daemon/bench/history-live.ts` covers publication backpressure with 2,000 live frames and an exit. See [historical benchmark baseline](BENCHMARKS.md) and [mutation cases](MUTATIONS.md). Shared file and lineage contracts for ADR 0018 live in `@ace/native-session`.
+
+Live SQLite scans copy the main database and a fixed WAL prefix into private
+scratch storage. A streamed SHA-256 comparison verifies that the copied prefix
+has not changed, while allowing newer commits to append. Main-file changes and
+WAL resets retry up to three attempts, then preserve cached rows with a retry
+reason. Scans publish the consistent private snapshot even when the provider
+commits during pagination; the prior fingerprint keeps newer data eligible for
+the next scan. Source databases and WAL shared-memory files are never opened by
+SQLite. Display titles are selected with a bounded SQL expression; a large title
+does not reject the whole Codex inventory. Identity and cwd bounds remain enforced.

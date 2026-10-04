@@ -346,3 +346,53 @@ test("legacy storage follows message timestamps rather than directory creation o
     "earlier later",
   );
 });
+
+test("an oversized Codex title does not hide other sessions or restart the scan", async () => {
+  const env = await environment();
+  cleanup.push(env.close);
+  const home = join(env.root, "codex");
+  await mkdir(home);
+  const db = new DatabaseSync(join(home, "state_5.sqlite"));
+  db.exec("CREATE TABLE threads(id TEXT,cwd TEXT,title TEXT,updated_at INTEGER)");
+  const insert = db.prepare("INSERT INTO threads VALUES(?,?,?,?)");
+  insert.run(nativeId, cwd, "long title ".repeat(10000), 10);
+  insert.run(otherId, cwd, "normal title", 20);
+  db.close();
+  const service = await env.start([{ id: "codex", provider: "codex", homeDir: home }]);
+  expect((await service.scan()).unsupported).toEqual([]);
+  const rows = (await service.list({ type: "history.list", cwd })).sessions;
+  expect(rows.find((row) => row.nativeId === nativeId)?.title).toBe(
+    "long title ".repeat(10000).slice(0, 256),
+  );
+  expect(rows.find((row) => row.nativeId === otherId)?.title).toBe("normal title");
+  expect((await service.scan()).reads).toBe(0);
+});
+
+test("commits during database pagination publish the consistent snapshot and refresh on the next scan", async () => {
+  const { start, home, db } = await database();
+  cleanup.push(async () => db.close());
+  db.exec("PRAGMA journal_mode=WAL");
+  const insert = db.prepare("INSERT INTO session VALUES(?,?,?,?,?)");
+  for (let i = 0; i < 70; i++) insert.run(`session-${i}`, cwd, `title ${i}`, i, null);
+  const service = await start([{ id: "oc", provider: "opencode", homeDir: home }]);
+  let changed = false;
+  const result = await service.scan(undefined, () => {
+    if (!changed) {
+      changed = true;
+      db.exec("UPDATE session SET title='new title' WHERE id='session-root'");
+    }
+  });
+  expect(changed).toBe(true);
+  expect(result.unsupported).toEqual([]);
+  expect(
+    (await service.list({ type: "history.list", cwd, limit: 100 })).sessions.find(
+      (row) => row.nativeId === "session-root",
+    )?.title,
+  ).toBe("OpenCode title");
+  expect((await service.scan()).unsupported).toEqual([]);
+  expect(
+    (await service.list({ type: "history.list", cwd, limit: 100 })).sessions.find(
+      (row) => row.nativeId === "session-root",
+    )?.title,
+  ).toBe("new title");
+});

@@ -969,7 +969,7 @@ Example:
 | type | yes | `"accounts.migrate"` |  |
 | requestId | yes | string | {"maxLength":128} |
 | provider | yes | [AccountProvider.json](schema/AccountProvider.json) |  |
-| nativeSessionId | yes | string | {"maxLength":128} |
+| nativeSessionId | yes | [NativeSessionId.json](schema/NativeSessionId.json) |  |
 | from | yes | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
 | to | yes | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
 

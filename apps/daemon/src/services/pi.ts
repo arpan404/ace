@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import {
   createPiAdapter,
@@ -24,6 +25,7 @@ export async function startPi(context: ServiceContext): Promise<void> {
       cli = source;
       if (!piProfile(source).supported) return;
       const adapter = createPiAdapter({
+        sessionReferenceDir: join(context.config.dataDir, "pi-session-references"),
         ...context.options.pi,
         cli: source,
         openMcp(ctx, lifetime) {
