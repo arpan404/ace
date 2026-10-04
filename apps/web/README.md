@@ -213,6 +213,46 @@ rows. In a strip: arrows
 move between tabs and show them, Home and End jump, Delete closes, Alt+Shift+arrows reorder;
 right-click (or the context-menu key) for pin, move, full view and close.
 
+## Long threads
+
+A thread can run for days: millions of items, thousands of approvals, dozens of subagents. The
+thread screen reads it through the daemon's long-thread APIs (ADR 0062), never by holding it.
+`features/thread/long/` owns this:
+
+- **Navigation state** (`nav.tsx`): one `ThreadNavProvider` per open thread holds the jump
+  controller, which tools are open, and two values the transcript reports as the reader scrolls
+  (the turn at the top, whether the reader follows the live end), as small external stores so
+  a scroll re-renders only what reads them. It also tracks the newest turn the live tail shows.
+- **Jumping** (`jump-controller.ts`): beside the leased live tail, at most one window of up to
+  200 items (`items.window`) around a turn or a sequence (a search hit). A new jump replaces it.
+  It slides 100 items at a time only as the reader scrolls toward an edge (code moving the view
+  never slides it), never growing. When it overlaps the tail it joins it: the transcript shows
+  the window then the tail's newer items, deduplicated, until the reader follows the live end
+  and the window is dropped. The transcript renders both through `ThreadWindowProvider` from
+  `@ace/client-react`, so every thread hook reads the window's items while agents, runs and
+  interactions stay live. Pure rules (sliding, meeting the tail, a window item's turn) are in
+  `@ace/ui-core` (`jump-window.ts`).
+- **Turn index** (`turn-index.ts`): `turns.page` read in fixed blocks of 50 ordinals, each a
+  TanStack Query entry dropped 20 s after nothing shows it. The newest turn the live tail shows
+  keys the head read, so new turns re-read the head and the block they land in without polling.
+- **Transcript rows** (`transcript/rows.ts`): live, the three newest turns show whole and older
+  ones fold to one digest row (`FoldedTurn`); in a jumped window the turn jumped to and later
+  ones show whole and earlier ones fold. Opening a folded turn adds a header that folds it again.
+- **Follow mode**: at the live end new output scrolls into view; scrolling up pauses it and
+  `LivePill` offers Jump to live with how many items arrived meanwhile.
+- **Catch-up and read state** (`catch-up.ts`): on opening, this device's `thread.readState`; if
+  the thread moved on since, `thread.catchUp` from that cursor fills the card (lazy). Reading it
+  never asks a provider; Summarise sends one ordinary `thread.send`. While the reader follows the
+  live end of a visible page the cursor advances (`markThreadRead`, coalesced by the client).
+- The timeline (`timeline.tsx`), search (`search-bar.tsx`, CSS Custom Highlight marks in the
+  transcript) and the catch-up card load after first paint through `deferred.ts`.
+
+Shortcuts: ⇧⌘O turns, ⌘F search this thread (a file or terminal tab's own find wins while it
+has focus), ⌥⌘↑ and ⌥⌘↓ the previous and next turn (past the loaded turns they jump), and in
+the timeline ↑↓, Page Up/Down, Home/End, Enter and Esc. `/t/<id>?seq=<n>&q=<words>` opens a
+thread at an item (a search hit in a linked subagent thread). `bun run --filter @ace/web-perf
+long-thread` measures all of it on the synthetic million-item thread (`?long=1` in perf mode).
+
 ## Daemon services and protocol gaps
 
 One-off daemon reads and writes go through `Client.request` (correlated, never queued while
