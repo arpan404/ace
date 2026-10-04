@@ -1,25 +1,32 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { ContextMeter as Meter } from "@ace/protocol";
-import { contextUsage } from "@ace/ui-core";
-import { useCallback } from "react";
+import { contextUsage, modelLabel } from "@ace/ui-core";
+import { Suspense, useCallback } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { DeferredThreadUsage } from "./deferred-parts.tsx";
 
-/** The root agent's latest sample, or the thread's live summary when no sample has arrived. */
+/**
+ * The root agent's latest sample, or the thread's live summary when no sample has arrived, with
+ * the model the provider confirmed (else the one the thread runs on).
+ */
 function useRootMeter(threadId: string): Meter | undefined {
   const read = useCallback((reader: ThreadReader): Meter | undefined => {
-    if (reader.context) return reader.context;
-    const summary = reader.thread?.live?.contextMeter;
-    const root = reader.thread?.rootAgentId;
+    const thread = reader.thread;
+    const model = reader.context?.model ?? thread?.live?.model ?? thread?.execution?.model;
+    const named = (meter: Meter): Meter => (model ? { ...meter, model } : meter);
+    if (reader.context) return named(reader.context);
+    const summary = thread?.live?.contextMeter;
+    const root = thread?.rootAgentId;
     return summary && root
-      ? {
+      ? named({
           agentId: root,
           epoch: 0,
           usedTokens: summary.used,
           windowTokens: summary.limit,
           source: "provider",
-        }
+        })
       : undefined;
   }, []);
   const root = useThread(threadId, ["thread"], rootOf);
@@ -40,6 +47,7 @@ const sameMeter = (a: Meter | undefined, b: Meter | undefined) =>
     a.epoch === b.epoch &&
     a.usedTokens === b.usedTokens &&
     a.windowTokens === b.windowTokens &&
+    a.model === b.model &&
     a.source === b.source);
 
 const size = 16;
@@ -48,14 +56,26 @@ const circumference = 2 * Math.PI * radius;
 
 /**
  * How full the main agent's context window is: a small ring beside the model, the numbers on
- * hover. Nothing until the provider has reported a sample; compaction resets it.
+ * hover with the model and what the thread has cost so far. Nothing until the provider has
+ * reported a sample; compaction resets it.
  */
 export function ContextMeter(props: { threadId: string }) {
-  const usage = contextUsage(useRootMeter(props.threadId));
+  const meter = useRootMeter(props.threadId);
+  const usage = contextUsage(meter);
   if (!usage) return null;
   const share = (usage.percent ?? 0) / 100;
+  const context = usage.high ? `${usage.long}. It may compact soon.` : usage.long;
   return (
-    <Tip label={usage.high ? `${usage.long}. It may compact soon.` : usage.long}>
+    <Tip
+      label={
+        <span className="flex flex-col gap-0.5">
+          <span>{meter?.model ? `${modelLabel(meter.model)} · ${context}` : context}</span>
+          <Suspense>
+            <DeferredThreadUsage.Component threadId={props.threadId} />
+          </Suspense>
+        </span>
+      }
+    >
       <span
         role="meter"
         aria-label="Context used"

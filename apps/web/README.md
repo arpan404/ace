@@ -313,7 +313,8 @@ One-off daemon reads and writes go through `Client.request` (correlated, never q
 offline) with `useDaemonQuery` from `lib/daemon-query.ts`, which waits for a ready connection
 and reads again after a reconnect. Live state still comes only from `@ace/client-react`.
 
-Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.series`), threads
+Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.series`,
+`usage.summary`, `usage.session_totals`), threads
 per account from the live list and moving a limited thread (`queue.get`, `thread.limit` /
 `migrate_now`), search (`search.query`), models (`models.list`, `models.refresh`), settings
 (`settings.subscribe` / `settings.set`, every key in the protocol's `SettingsValues`, including the
