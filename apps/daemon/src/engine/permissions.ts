@@ -126,6 +126,34 @@ export class Permissions {
       [{ type: "thread.updated", permission: { ...this.state(id), pending: true } }],
       at,
     );
+    const state = this.repo.requireState(id);
+    if (state.config.provider !== "codex" && state.hasRun && !this.repo.quiescent(state))
+      this.repo.apply(
+        id,
+        [
+          {
+            type: "item.upsert",
+            agent: state.rootKey ?? "root",
+            item: `permission-change:${this.repo.nextCommandId()}`,
+            draft: {
+              type: "notice",
+              level: "info",
+              code: "permission_change_pending",
+              title: "Permission change queued",
+              text: "Applies when the running command finishes",
+              detail: "This provider needs a new session to apply its permission policy.",
+              complete: true,
+              raw: [
+                {
+                  type: "permission.pending",
+                  data: { pending_reason: "busy", permissionMode: mode },
+                },
+              ],
+            },
+          },
+        ],
+        at,
+      );
     return undefined;
   }
   async resolve(id: ThreadId, settings?: PermissionSettings): Promise<PermissionMode> {

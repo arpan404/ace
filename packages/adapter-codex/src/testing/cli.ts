@@ -142,6 +142,10 @@ for await (const line of createInterface({ input: process.stdin })) {
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
     if (process.env["ACE_FAKE_RESUME"] === "policy-boundary") {
+      if (text === "invalid-policy") {
+        respond({ turn: {} });
+        continue;
+      }
       if (text === "reject-policy") {
         write({ id, error: { code: -32000, message: "Turn rejected" } });
         continue;

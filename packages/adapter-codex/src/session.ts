@@ -25,7 +25,7 @@ export type CodexOptions = {
 export async function openCodexSession(
   ctx: CodexSessionContext,
   options: CodexOptions = {},
-): Promise<ProviderSession & { permissionModePerTurn: true }> {
+): Promise<ProviderSession> {
   let permissionMode = ctx.permissionMode ?? "auto-review";
   let selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
@@ -114,7 +114,7 @@ export async function openCodexSession(
           if (control.method === "turn/start") {
             const id = str(obj(result["turn"])["id"]);
             if (id) active.set(control.thread, id);
-            if (control.thread === nativeSessionId)
+            if (id && control.thread === nativeSessionId)
               emit("note", { event: "permission-mode-applied", mode: control.mode });
           } else {
             nativeSessionId = str(snapshot["id"]);
@@ -394,8 +394,8 @@ export async function openCodexSession(
   function assertOpen(): void {
     if (closed) throw new Error("Codex session is closed");
   }
+  emit("note", { event: "permission-turn-policy-supported" });
   return {
-    permissionModePerTurn: true,
     nativeSessionId,
     async configure(selection) {
       const executionOptions = CodexSelectionOptions.parse(selection.options);

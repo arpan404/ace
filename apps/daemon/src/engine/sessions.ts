@@ -8,7 +8,7 @@ import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
 
-const TurnPermissionSession = z.object({ permissionModePerTurn: z.literal(true) });
+const TurnPermissionSupport = z.object({ event: z.literal("permission-turn-policy-supported") });
 const AppliedPermission = z.object({
   event: z.literal("permission-mode-applied"),
   mode: PermissionMode,
@@ -43,6 +43,7 @@ interface SessionDependencies {
 export class Sessions {
   private dependencies: SessionDependencies;
   private closing = new Set<ThreadId>();
+  private turnPermissions = new Map<ThreadId, number>();
   isClosing(id: ThreadId): boolean {
     return this.closing.has(id);
   }
@@ -52,7 +53,7 @@ export class Sessions {
   async open(actor: ThreadActor): Promise<void> {
     await this.dependencies.repo.store.writable();
     const stateBefore = this.dependencies.repo.requireState(actor.id);
-    if (actor.session && TurnPermissionSession.safeParse(actor.session).success) return;
+    if (actor.session && this.turnPermissions.get(actor.id) === actor.generation) return;
     // A prepared root is starting before its first turn, not a pinned live policy.
     const ownLive = stateBefore.hasRun && !this.dependencies.repo.quiescent(stateBefore);
     if (actor.session && ownLive) return;
@@ -125,30 +126,28 @@ export class Sessions {
       const context = await this.dependencies.context?.(actor.id, lifetime.signal);
       await this.dependencies.repo.store.writable();
       this.dependencies.repo.store.workspaceReservations.assertAvailable(metadata.cwd);
+      const codexContext = {
+        getPermissionMode: async () => {
+          const next = await this.dependencies.repo.permissions.resolve(
+            actor.id,
+            this.dependencies.permissionSettings,
+          );
+          if (generation !== actor.generation || lifetime.signal.aborted)
+            throw new Error("Codex turn policy requested after session closed");
+          if (
+            !supportsPermissionMode((actor.effectiveCapabilities ?? capabilities).permissions, next)
+          )
+            throw new Error("permission_mode_unsupported");
+          return next;
+        },
+        interactionId: (key: string) =>
+          this.dependencies.repo.requireState(actor.id).interactions[key]?.id,
+      };
       const session = await adapter.openSession({
         ...context,
         outputFlow: actor.outputFlow,
         permissionMode: mode,
-        ...{
-          getPermissionMode: async () => {
-            const next = await this.dependencies.repo.permissions.resolve(
-              actor.id,
-              this.dependencies.permissionSettings,
-            );
-            if (generation !== actor.generation || lifetime.signal.aborted)
-              throw new Error("Codex turn policy requested after session closed");
-            if (
-              !supportsPermissionMode(
-                (actor.effectiveCapabilities ?? capabilities).permissions,
-                next,
-              )
-            )
-              throw new Error("permission_mode_unsupported");
-            return next;
-          },
-          interactionId: (key: string) =>
-            this.dependencies.repo.requireState(actor.id).interactions[key]?.id,
-        },
+        ...codexContext,
         ...(aceMcp ? { aceMcp } : {}),
         options: transition.selection?.options ?? metadata.options ?? {},
         ...(identity ? { acpIdentity: identity } : {}),
@@ -205,6 +204,11 @@ export class Sessions {
         },
         onFrame: (frame) => {
           if (state.config.provider === "codex" && frame.dir === "note") {
+            if (TurnPermissionSupport.safeParse(frame.data).success)
+              actor.enqueue(() => {
+                if (generation === actor.generation && !lifetime.signal.aborted)
+                  this.turnPermissions.set(actor.id, generation);
+              });
             const permission = AppliedPermission.safeParse(frame.data);
             if (permission.success)
               actor.enqueue(() => {
@@ -229,6 +233,7 @@ export class Sessions {
           actor.enqueue(() => {
             if (generation !== actor.generation) return;
             actor.session = undefined;
+            this.turnPermissions.delete(actor.id);
             lifetime.abort();
             actor.generation++;
             this.dependencies.expireDelivery(actor);
@@ -251,7 +256,7 @@ export class Sessions {
         throw new Error("Provider session closed while opening");
       }
       actor.session = session;
-      if (state.config.provider === "codex" && !TurnPermissionSession.safeParse(session).success)
+      if (state.config.provider === "codex" && this.turnPermissions.get(actor.id) !== generation)
         this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.store.atomic(() => {
@@ -293,6 +298,7 @@ export class Sessions {
           /* Opening failure remains authoritative. */
         }
         actor.generation++;
+        this.turnPermissions.delete(actor.id);
         actor.translator = undefined;
         actor.lifetime = undefined;
         lifetime.abort();
@@ -349,6 +355,7 @@ export class Sessions {
       actor.schedule();
     } finally {
       this.closing.delete(actor.id);
+      if (!actor.session) this.turnPermissions.delete(actor.id);
       if (!actor.session && !actor.poisoned) this.dependencies.released(actor.id);
     }
   }

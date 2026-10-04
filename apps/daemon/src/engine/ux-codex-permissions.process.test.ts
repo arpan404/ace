@@ -244,3 +244,60 @@ test("a full-access secret read still waits for a person", async () => {
     await h.close();
   }
 });
+
+test("a fixed-session provider reports why a permission change is waiting", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start)] }], frames, {
+    provider: "claude",
+  });
+  try {
+    const id = await h.create();
+    expect(
+      h.command({ type: "thread.permission.set", threadId: id, permissionMode: "full-access" }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    expect(h.store.getThread(id)?.permission).toMatchObject({
+      effective: "auto-review",
+      pending: true,
+    });
+    expect(Object.values(h.store.snapshotThread(id).items)).toContainEqual(
+      expect.objectContaining({
+        type: "notice",
+        code: "permission_change_pending",
+        raw: [
+          {
+            type: "permission.pending",
+            data: { pending_reason: "busy", permissionMode: "full-access" },
+          },
+        ],
+      }),
+    );
+    expect(h.contexts).toHaveLength(1);
+  } finally {
+    await h.close();
+  }
+});
+
+test("an account-bound Codex session applies a new policy without reopening at an idle boundary", async () => {
+  const fixture = await codexHarness();
+  const { h } = fixture;
+  try {
+    const id = await h.create();
+    await until(h, () => backgroundShell(h, id));
+    const task = Object.values(h.store.snapshotThread(id).backgroundTasks).find(
+      (candidate) => candidate.kind === "shell",
+    );
+    if (!task) throw new Error("No background shell");
+    expect(h.command({ type: "background_task.stop", taskId: task.id }).ok).toBe(true);
+    await until(h, () => h.store.getThread(id)?.status.state === "done");
+    h.command({ type: "thread.permission.set", threadId: id, permissionMode: "full-access" });
+    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "next" }] });
+    await until(h, () => h.store.getThread(id)?.permission?.effective === "full-access");
+    await h.engine.flush();
+    expect(h.contexts).toHaveLength(1);
+    expect(h.store.getThread(id)?.live?.account).toBe("codex-scripted");
+    expect(h.errors).toEqual([]);
+  } finally {
+    await fixture.close();
+  }
+});
