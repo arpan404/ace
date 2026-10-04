@@ -22,9 +22,10 @@ async function openDevices() {
   const app = harness({ clock: () => Date.now() });
   app.play(flakyCheckout()).runThrough("explorer-spawned");
   await app.open("/t/thread-checkout");
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  // ⌃⇧M opens the Devices tool in the side panel.
+  await userEvent.keyboard("{Control>}{Shift>}m{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
+  expect(within(panel).getByRole("tab", { name: "Devices", selected: true })).toBeTruthy();
   return { app, panel };
 }
 

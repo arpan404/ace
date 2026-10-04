@@ -6,11 +6,11 @@ import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
-import { threadPanels } from "@/features/panels/index.ts";
+import { threadWorkspace } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
-import { ThreadMenuItems } from "./header/thread-menu.tsx";
+import { PinnedSummary, SummaryToggle } from "./header/summary.tsx";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkOpener } from "./transitions/fork-opener.ts";
 
@@ -24,11 +24,11 @@ const ForkDialog = lazy(() =>
 import { Transcript } from "./transcript/transcript.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
-import { preloadDeferred } from "./deferred.ts";
+import { DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 
 /**
  * A thread: the transcript and composer in the main column, Run · Open · Commit in the header,
- * Changes · Preview · Agents on the right and Terminal · Logs below.
+ * and its workspace (Changes, Agents, Preview, Devices, … beside it; Terminal and Logs below).
  */
 export function ThreadView(props: { threadId: string }) {
   const meta = useThreadMeta(props.threadId);
@@ -50,7 +50,13 @@ export function ThreadView(props: { threadId: string }) {
       subtitle={meta && projectName(meta.workspaceId)}
       menu={
         thread && (
-          <ThreadMenuItems thread={thread} onRename={() => setRenaming(true)} onFork={setForking} />
+          <Suspense fallback={null}>
+            <DeferredThreadMenu.Component
+              thread={thread}
+              onRename={() => setRenaming(true)}
+              onFork={setForking}
+            />
+          </Suspense>
         )
       }
       actions={
@@ -62,7 +68,8 @@ export function ThreadView(props: { threadId: string }) {
           </>
         )
       }
-      {...threadPanels(id)}
+      summary={thread && <SummaryToggle thread={thread} />}
+      workspace={{ scope: id, definition: threadWorkspace }}
     >
       {error ? (
         <div role="alert" className="h-full">
@@ -81,7 +88,8 @@ export function ThreadView(props: { threadId: string }) {
         <TranscriptSkeleton />
       ) : (
         <ForkOpener value={setForking}>
-          <div className="flex h-full min-h-0 flex-col">
+          <div className="relative flex h-full min-h-0 flex-col">
+            {thread && <PinnedSummary thread={thread} />}
             <div className="min-h-0 flex-1">
               <Transcript threadId={id} />
             </div>

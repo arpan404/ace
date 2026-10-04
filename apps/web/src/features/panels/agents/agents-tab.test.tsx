@@ -11,7 +11,7 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
   await app.open("/t/thread-settings");
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
 
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();
   await within(panel).findByRole("group", { name: "Main agent: Working" });
@@ -32,7 +32,7 @@ test("the Agents tab shows what each agent is doing, the background shell, and w
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
 
   const root = await within(panel).findByRole("group", {
@@ -60,7 +60,7 @@ test("Stop ends a background shell, and the thread settles once nothing else is 
   script.runThrough("root-replied");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const why = await within(panel).findByRole("region", { name: "Why isn't this done?" });
   expect(why.textContent).toContain(
@@ -82,7 +82,7 @@ test("Stop on a subagent interrupts only that subagent", async () => {
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const audit = await within(panel).findByRole("group", { name: "resume-sweep: Working" });
   await userEvent.hover(audit);
@@ -99,7 +99,7 @@ test("a message queued in the composer shows in the Agents tab and in why the th
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("group", { name: "Main agent: Waiting on subagents" });
   // Each agent row carries its provider.

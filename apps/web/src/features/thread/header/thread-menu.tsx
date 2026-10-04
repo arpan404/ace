@@ -6,7 +6,7 @@ import { threadRowFlags } from "@ace/ui-core";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { ThreadActionItems, useOrganizerState } from "@/features/organize/index.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useLayout } from "@/lib/layout.tsx";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useLatestForkPoint } from "../transitions/use-fork-point.ts";
@@ -26,7 +26,7 @@ export function ThreadMenuItems(props: {
   const { baseline } = useOrganizerState();
   const now = useNow();
   const navigate = useNavigate();
-  const { setTab, setPanelOpen } = useLayout();
+  const workspace = useWorkspaceActions(props.thread.id);
   if (!meta) return null;
   const flags = threadRowFlags(meta, { baseline, now, settled: meta.settledAt !== undefined });
   return (
@@ -40,10 +40,7 @@ export function ThreadMenuItems(props: {
         <MenuItem
           icon={<TreeStructureIcon aria-hidden size={16} />}
           keys={keymap.agents.keys}
-          onClick={() => {
-            setTab("right", "agents");
-            setPanelOpen("right", true);
-          }}
+          onClick={() => workspace.open({ kind: "agents" })}
         >
           Open agent tree
         </MenuItem>

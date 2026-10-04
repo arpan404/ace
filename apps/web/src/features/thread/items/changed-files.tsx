@@ -1,7 +1,7 @@
 import { FileCodeIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { useLayout } from "@/lib/layout.tsx";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { fileChanges, type Turn } from "@ace/ui-core";
 import type { Item } from "@ace/protocol";
 import { useFileStats } from "@/lib/diffs/use-file-diffs.ts";
@@ -36,7 +36,7 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
   const edits = useItemsSelect(props.threadId, props.itemIds, selectEdits, sameEdits) ?? none;
   const files = useFileStats(edits);
   const [open, setOpen] = useState(false);
-  const { setPanelOpen, setTab } = useLayout();
+  const workspace = useWorkspaceActions(props.threadId);
   const list = useId();
   if (!files.length) return null;
   const counted = files.every((file) => file.stat);
@@ -63,14 +63,7 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
           >
             {open ? "Hide files" : "Show files"}
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setTab("right", "changes");
-              setPanelOpen("right", true);
-            }}
-          >
+          <Button variant="ghost" size="sm" onClick={() => workspace.open({ kind: "changes" })}>
             Open diff
           </Button>
         </span>

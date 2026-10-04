@@ -7,7 +7,11 @@ test("enabling devices lists them, and a device is approved for the thread and w
   await page.goto("/t/thread-install-page");
   await page.getByRole("button", { name: "Right panel" }).click();
   const panel = page.getByRole("region", { name: "Thread panel" });
-  await panel.getByRole("tab", { name: "Devices" }).click();
+  await panel.getByRole("button", { name: "New tab" }).click();
+  await panel
+    .getByRole("list", { name: "Tools" })
+    .getByRole("button", { name: /^Devices/ })
+    .click();
   await panel.getByRole("button", { name: "Enable devices" }).click();
 
   const devices = panel.getByRole("list", { name: "Devices" });

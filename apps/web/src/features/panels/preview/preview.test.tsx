@@ -16,9 +16,10 @@ async function openPreview(
   seedPanels(app.daemon);
   await app.open(path);
   await screen.findByRole("heading", { level: 1, name: scenario.thread.title });
-  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  // ⌃⇧P opens the Preview tool in the side panel.
+  await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+  expect(within(panel).getByRole("tab", { name: "Preview", selected: true })).toBeTruthy();
   return { app, panel, browser: app.daemon.browser, script };
 }
 

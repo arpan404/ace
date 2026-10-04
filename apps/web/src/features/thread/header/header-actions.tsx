@@ -24,7 +24,7 @@ import { revealRunningTerminal, revealTerminal } from "@/features/panels/index.t
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useEditors } from "@/lib/editors.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useLayout } from "@/lib/layout.tsx";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Script } from "../sources/workspace-source.ts";
@@ -45,7 +45,7 @@ export function RunButton(props: { thread: ThreadRef }) {
   const sources = useThreadSources();
   const client = useClient();
   const toast = useToast();
-  const { setTab, setPanelOpen } = useLayout();
+  const workspace = useWorkspaceActions(props.thread.id);
   const query = useDaemonQuery({
     queryKey: ["thread", "scripts", props.thread.id],
     staleTime: 60_000,
@@ -55,8 +55,7 @@ export function RunButton(props: { thread: ThreadRef }) {
   const scripts = query.data;
   const first = scripts?.[0];
   const show = (terminalId?: string) => {
-    setTab("bottom", "terminal");
-    setPanelOpen("bottom", true);
+    workspace.open({ kind: "terminal" });
     // The bottom panel opening on the running tab is the confirmation.
     if (terminalId) void revealTerminal(client, props.thread.id, terminalId);
   };
@@ -222,7 +221,7 @@ export function GitButton(props: { thread: ThreadRef }) {
   const { change, pending } = useGitActions(props.thread, checkout);
   const [dialog, setDialog] = useState<GitDialogKind>();
   const toast = useToast();
-  const { setTab, setPanelOpen } = useLayout();
+  const workspace = useWorkspaceActions(props.thread.id);
   if (!checkout)
     return (
       <GitPlaceholder
@@ -327,10 +326,7 @@ export function GitButton(props: { thread: ThreadRef }) {
             <MenuItem
               icon={<GitDiffIcon aria-hidden size={16} />}
               keys={keymap.changes.keys}
-              onClick={() => {
-                setTab("right", "changes");
-                setPanelOpen("right", true);
-              }}
+              onClick={() => workspace.open({ kind: "changes" })}
             >
               View diff
             </MenuItem>
