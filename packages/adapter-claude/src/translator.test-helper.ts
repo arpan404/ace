@@ -35,6 +35,16 @@ export function harness() {
     send,
     tick,
     items,
+    rawPayloads: () => [
+      ...diagnostics,
+      ...items().flatMap((item) =>
+        item.type === "tool_call"
+          ? (item.call.raw ?? [])
+          : item.type === "compaction"
+            ? []
+            : (item.raw ?? []),
+      ),
+    ],
     init: () => send({ type: "system", subtype: "init", session_id: "s", cwd: "/repo" }),
     result: (extra = {}) =>
       send({ type: "result", is_error: false, terminal_reason: "completed", ...extra }),

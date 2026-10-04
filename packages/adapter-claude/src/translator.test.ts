@@ -230,24 +230,18 @@ test("process death expires open approvals and marks surviving tasks unknown", (
 test("unknown and malformed JSON frames survive in raw without throwing", () => {
   const h = harness();
   h.init();
-  for (const value of [
+  const values = [
     null,
     7,
     [],
     { type: "new_native_type", extra: { future: true } },
     { type: "system", subtype: "new_subtype" },
     { type: "assistant", message: { content: [{ type: "future_block", payload: 4 }] } },
-  ])
-    h.send(value);
-  expect(
-    h
-      .items()
-      .filter((i) => i.type === "notice")
-      .flatMap((i) => {
-        const payload = i.raw[0];
-        return payload && "data" in payload ? [payload.data] : [];
-      }),
-  ).toContainEqual({ type: "new_native_type", extra: { future: true } });
+  ];
+  for (const value of values) h.send(value);
+  const data = h.rawPayloads().flatMap((payload) => ("data" in payload ? [payload.data] : []));
+  for (const value of values) expect(data).toContainEqual(value);
+  expect(h.items().filter((item) => item.type === "notice")).toEqual([]);
   h.tool("future", "toString", { arbitrary: "input" });
   expect(h.items().find((i) => i.type === "tool_call")).toMatchObject({
     call: { kind: "custom", raw: [expect.objectContaining({ name: "toString" })] },
@@ -282,27 +276,39 @@ test("late background result origin preserves the child wake trigger", () => {
 });
 
 // Browser artifact entries broaden Item, while provider output remains AgentItem.
-test("provider notices keep their source payload through subsequent assistant output", () => {
+test("provider diagnostics and human-readable notices keep their source payload through subsequent assistant output", () => {
   const h = harness();
   h.init();
   const unknown = { type: "future-provider-frame", marker: "browser-integration-raw" };
   h.send(unknown);
+  const warning = {
+    type: "system",
+    subtype: "informational",
+    level: "warning",
+    content: "Quota is nearly exhausted",
+    future: "kept",
+  };
+  h.send(warning);
   h.send({
     type: "assistant",
     message: { id: "next", content: [{ type: "text", text: "next answer" }] },
   });
   h.result();
-  const notice = h
-    .items()
-    .find(
-      (item) =>
-        item.type === "notice" &&
-        item.raw.some(
-          (payload) =>
-            "data" in payload && JSON.stringify(payload.data).includes("browser-integration-raw"),
-        ),
-    );
-  expect(notice).toMatchObject({ type: "notice", complete: true, raw: [{ data: unknown }] });
+  expect(
+    h.diagnostics.filter(
+      (payload) =>
+        "data" in payload && JSON.stringify(payload.data).includes("browser-integration-raw"),
+    ),
+  ).toMatchObject([{ data: unknown }]);
+  expect(h.items().filter((item) => item.type === "notice")).toMatchObject([
+    {
+      type: "notice",
+      complete: true,
+      level: "warning",
+      text: warning.content,
+      raw: [{ data: warning }],
+    },
+  ]);
   expect(
     h
       .items()
@@ -312,4 +318,28 @@ test("provider notices keep their source payload through subsequent assistant ou
           item.parts.some((part) => part.type === "text" && part.text === "next answer"),
       ),
   ).toMatchObject({ type: "message", complete: true });
+});
+
+test("assistant reasoning retains its source once without a transcript notice", () => {
+  const h = harness();
+  h.init();
+  const source = {
+    type: "assistant",
+    marker: "reasoning-raw",
+    message: { id: "thought", content: [{ type: "thinking", thinking: "Check the edge case" }] },
+  };
+  h.send(source);
+  expect(h.items().find((item) => item.type === "reasoning")).toMatchObject({
+    text: "Check the edge case",
+    complete: true,
+    raw: [{ data: source }],
+  });
+  expect(
+    h
+      .rawPayloads()
+      .filter(
+        (payload) => "data" in payload && JSON.stringify(payload.data).includes("reasoning-raw"),
+      ),
+  ).toHaveLength(1);
+  expect(h.items().filter((item) => item.type === "notice")).toEqual([]);
 });

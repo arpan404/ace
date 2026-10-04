@@ -233,7 +233,10 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       for (const spawn of bindings)
         for (const deferred of pending.take(state, spawn)) {
           const start = state.facts.length;
+          const diagnosticStart = state.diagnostics.length;
           sdk(object(deferred.data), deferred, now);
+          // Receipt already retained this payload; replay only enriches canonical facts.
+          state.diagnostics.length = diagnosticStart;
           for (let index = start; index < state.facts.length; index++) {
             const fact = state.facts[index];
             if (fact) state.facts[index] = canonicalOnly(fact);
@@ -247,7 +250,10 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           (payload) => "data" in payload && (payload.data === frame.data || payload.data === data),
         ),
       );
-      if (!carriesRaw && !state.diagnostics.length && frame.channel !== "lifecycle")
+      const diagnosed = state.diagnostics.some(
+        (payload) => "data" in payload && (payload.data === frame.data || payload.data === data),
+      );
+      if (!carriesRaw && !diagnosed && frame.channel !== "lifecycle")
         diagnostics.push(raw(frame.data));
       return state.facts;
     },
