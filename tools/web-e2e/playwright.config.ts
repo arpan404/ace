@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import { daemonHome, webPort as realPort } from "./src/real-daemon-config.ts";
 
-const fakePort = 5190;
+const fakePort = Number(process.env.ACE_E2E_FAKE_PORT ?? 5190);
 const web = new URL("../../apps/web", import.meta.url).pathname;
 
 /**

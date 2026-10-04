@@ -13,8 +13,11 @@ import {
   MenuLabel,
   MenuRadioGroup,
   MenuRadioItem,
+  MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
+import type { ReactNode } from "react";
+import { AddProjectItem } from "@/features/projects/index.ts";
 import { WorkMode } from "./choices.ts";
 
 const modes: Record<WorkMode, { label: string; hint: string }> = {
@@ -49,6 +52,7 @@ export function ContextBar(props: {
         current={props.project ?? ""}
         options={props.projects.map((p) => ({ value: p, label: props.projectName(p) }))}
         onChange={props.onProject}
+        footer={<AddProjectItem />}
       />
       <Divider />
       <Picker
@@ -99,6 +103,8 @@ function Picker(props: {
   options: { value: string; label: string; hint?: string }[];
   onChange(value: string): void;
   mono?: boolean;
+  /** Below the choices: an action such as Add project. */
+  footer?: ReactNode;
 }) {
   return (
     <Menu>
@@ -128,6 +134,12 @@ function Picker(props: {
             ))}
           </MenuRadioGroup>
         </MenuGroup>
+        {props.footer && (
+          <>
+            {props.options.length > 0 && <MenuSeparator />}
+            {props.footer}
+          </>
+        )}
       </MenuContent>
     </Menu>
   );

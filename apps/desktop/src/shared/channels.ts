@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  AbsolutePath,
   AppInfo,
   BrowserControlRequest,
   BrowserController,
@@ -43,6 +44,11 @@ export const requests = {
   "shell.openInEditor": { request: OpenInEditor, result: z.boolean() },
   "shell.reveal": { request: RevealPath, result: z.boolean() },
   "shell.openExternal": { request: ExternalUrl, result: z.boolean() },
+  /**
+   * The native folder picker, for Add project: the absolute path chosen, or null when the
+   * person cancels. Nothing else about the folder crosses; the daemon checks it.
+   */
+  "dialog.openFolder": { request: None, result: AbsolutePath.nullable() },
   "notify.show": { request: NotifyRequest, result: z.boolean() },
   "badge.set": { request: Count, result: None },
   "window.action": { request: WindowAction, result: WindowState },
@@ -66,6 +72,7 @@ export const MenuCommand = z.enum([
   "palette",
   "new-thread",
   "new-deck",
+  "add-project",
   "back",
   "forward",
   "toggle-sidebar",

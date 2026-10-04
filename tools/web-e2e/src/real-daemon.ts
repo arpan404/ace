@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { createTurnProvider, ScriptedTurnConfig } from "@ace/adapter-testkit";
@@ -31,6 +31,10 @@ import {
   limitTitle,
   webOrigin,
   pairedDeviceName,
+  projectsRoot,
+  existingFolder,
+  linkedFolder,
+  clonedFile,
 } from "./real-daemon-config.ts";
 
 /**
@@ -118,6 +122,7 @@ git("commit", "-q", "-m", "Add a script");
 writeFileSync(join(project, "README.md"), "# e2e project\n\nEdited by the workspace journey.\n");
 
 seedPluginMarket();
+seedProjects();
 
 // An editor on the daemon's PATH, so Open has the same choice on every machine. The daemon only
 // lists and validates it; the app hands the launch to this machine, so it never runs.
@@ -143,6 +148,13 @@ const daemon = await startDaemon({
     webOrigins: [webOrigin],
   },
   engine: { registry },
+  // Test-only: the project journeys work in their own root, and their clone reaches a local
+  // bare repository through Git's file transport (see seedProjects). No client can set either.
+  projects: {
+    home: realpathSync(projectsRoot),
+    roots: async () => [realpathSync(projectsRoot)],
+    gitPolicy: { protocols: ["https", "ssh", "file"] },
+  },
 });
 // Context and files resolve only canonical roots (macOS's tmpdir is behind a symlink).
 const workspace = daemon.store.createWorkspace(realpathSync(project), workspaceName);
@@ -260,4 +272,69 @@ function commitAll(cwd: string, subject: string): void {
   run("init", "-q", "-b", "main");
   run("add", ".");
   run("commit", "-q", "-m", subject);
+}
+
+/**
+ * The project journeys' folders: a root the daemon may open, holding a repository for Open
+ * folder and a folder for the deep link, and a bare repository to clone outside it. The daemon
+ * home's global Git config (HOME is the daemon home) rewrites the clone address to that bare
+ * repository and paces its pack through a hook, so the clone takes long enough to show progress
+ * and be cancelled.
+ */
+function seedProjects(): void {
+  rmSync(projectsRoot, { recursive: true, force: true });
+  const existing = join(projectsRoot, existingFolder);
+  mkdirSync(existing, { recursive: true });
+  writeFileSync(join(existing, "README.md"), "# An existing project\n");
+  commitAll(existing, "Existing project");
+  mkdirSync(join(projectsRoot, linkedFolder), { recursive: true });
+
+  const remotes = join(daemonHome, "remotes");
+  const source = join(daemonHome, "remote-source");
+  mkdirSync(source, { recursive: true });
+  writeFileSync(join(source, clonedFile), "# Cloned by the e2e journey\n");
+  // Many incompressible files: the paced pack takes a few seconds, and Git counts its
+  // progress in objects, so the bar moves in small steps.
+  mkdirSync(join(source, "data"));
+  for (let index = 0; index < 300; index++)
+    writeFileSync(join(source, "data", `${index}.bin`), randomBytes(3_000));
+  commitAll(source, "Sample repository");
+  mkdirSync(remotes, { recursive: true });
+  execFileSync("git", ["clone", "-q", "--bare", source, join(remotes, "sample.git")]);
+
+  const pacer = join(daemonHome, "pace-pack.mjs");
+  writeFileSync(pacer, pacePackObjects());
+  writeFileSync(
+    join(daemonHome, ".gitconfig"),
+    [
+      `[url "file://${remotes}/"]`,
+      "\tinsteadOf = https://git.e2e.invalid/",
+      "[uploadpack]",
+      `\tpackObjectsHook = ${JSON.stringify(process.execPath)} ${JSON.stringify(pacer)}`,
+      "",
+    ].join("\n"),
+  );
+}
+
+/** A hook that runs `git pack-objects` and forwards its pack in 16 KiB steps every 100 ms. */
+function pacePackObjects(): string {
+  return `import { spawn } from "node:child_process";
+const [command, ...args] = process.argv.slice(2);
+const child = spawn(command, args, { stdio: ["inherit", "pipe", "inherit"] });
+// A cancelled clone closes the pipe: stop at once rather than pace out the rest.
+const stop = () => { child.kill(); process.exit(0); };
+process.stdout.on("error", stop);
+process.on("SIGTERM", stop);
+const queue = [];
+let done = false;
+child.stdout.on("data", (chunk) => {
+  for (let offset = 0; offset < chunk.length; offset += 16384) queue.push(chunk.subarray(offset, offset + 16384));
+});
+child.on("close", (code) => { done = true; if (code) process.exitCode = code; });
+const timer = setInterval(() => {
+  const next = queue.shift();
+  if (next) process.stdout.write(next);
+  else if (done) clearInterval(timer);
+}, 100);
+`;
 }

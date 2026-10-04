@@ -1,4 +1,5 @@
 import { CaretDownIcon, FolderSimpleIcon } from "@phosphor-icons/react";
+import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import {
   Menu,
@@ -11,17 +12,31 @@ import {
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
+import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts";
 
 const all = "\u0000all";
 
-/** "All projects ▾" in the Threads header: narrow Home to one project. */
+/**
+ * "All projects ▾" in the Threads header: narrow Home to one project, add a project, and
+ * rename or remove the one Home shows. Every project the daemon lists is here, with or without
+ * threads, beside any project only threads still mention.
+ */
 export function ProjectFilter() {
   const organizer = useOrganizer();
   const { project } = useOrganizerState();
-  const projects = useProjects();
-  const { name } = useProjectDirectory();
+  const withThreads = useProjects();
+  const directory = useProjectDirectory();
+  const { name } = directory;
   const label = project === null ? "All projects" : name(project);
-  const total = projects.reduce((sum, p) => sum + p.threads, 0);
+  const total = withThreads.reduce((sum, p) => sum + p.threads, 0);
+  const rows = useMemo(() => {
+    const counts = new Map(withThreads.map((p) => [p.id, p.threads]));
+    const ids = [...new Set([...directory.projects.map((p) => p.id), ...counts.keys()])];
+    return ids
+      .map((id) => ({ id, label: name(id), threads: counts.get(id) ?? 0 }))
+      .toSorted((a, b) => a.label.localeCompare(b.label));
+  }, [withThreads, directory.projects, name]);
+  const registered = project !== null && directory.projects.some((p) => p.id === project);
   return (
     <Menu>
       <MenuTrigger
@@ -31,7 +46,7 @@ export function ProjectFilter() {
         <span className="truncate">{label}</span>
         <CaretDownIcon aria-hidden size={14} className="shrink-0" />
       </MenuTrigger>
-      <MenuContent align="end" className="min-w-[220px]">
+      <MenuContent align="end" className="max-h-[60vh] min-w-[220px] overflow-y-auto">
         <MenuRadioGroup
           value={project ?? all}
           onValueChange={(value) =>
@@ -39,11 +54,14 @@ export function ProjectFilter() {
           }
         >
           <ProjectItem value={all} label="All projects" count={total} />
-          {projects.length > 0 && <MenuSeparator />}
-          {projects.map((p) => (
-            <ProjectItem key={p.id} value={p.id} label={name(p.id)} count={p.threads} />
+          {rows.length > 0 && <MenuSeparator />}
+          {rows.map((row) => (
+            <ProjectItem key={row.id} value={row.id} label={row.label} count={row.threads} />
           ))}
         </MenuRadioGroup>
+        <MenuSeparator />
+        <AddProjectItem />
+        {registered && <ManageProjectItems projectId={project} name={label} />}
       </MenuContent>
     </Menu>
   );
