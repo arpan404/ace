@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { BuildOptions } from "esbuild";
+import {
+  electronBinary as electronBinaryFrom,
+  electronDist,
+} from "../src/packaging/electron-dist.ts";
 import { zodEnglishOnly } from "./zod-english.ts";
 
 export const desktop = resolve(import.meta.dirname, "..");
@@ -101,13 +105,14 @@ export function electronVersion(): string {
   return manifest.version;
 }
 
-/** The Electron binary from the `electron` package (it exports the path). */
+/** The Electron binary from the `electron` package, downloaded on first use. */
 export async function electronBinary(): Promise<string> {
-  const { createRequire } = await import("node:module");
-  const path: unknown = createRequire(join(desktop, "package.json"))("electron");
-  if (typeof path !== "string")
-    throw new Error("The electron package did not return a binary path");
-  return path;
+  return electronBinaryFrom(join(desktop, "package.json"));
+}
+
+/** The installed Electron build a local package reuses, downloaded on first use. */
+export function installedElectronDist(): string {
+  return electronDist(join(desktop, "package.json"));
 }
 
 /**
