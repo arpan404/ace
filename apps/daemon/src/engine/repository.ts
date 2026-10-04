@@ -233,10 +233,12 @@ export class EngineRepository {
             this.recoveryAcknowledgement(id)
           )
             input = { ...input, trigger: queue.trigger };
+          const correlated = this.inputs.correlate(id, input, state.rootKey ?? "root", generation);
+          if (!correlated) return [];
           let fact = capFact(
             (raw) => this.store.capRaw(raw, id),
             shapeProviderError(
-              this.inputs.correlate(id, input, state.rootKey ?? "root", generation),
+              correlated,
               state.config.provider,
             ),
           );

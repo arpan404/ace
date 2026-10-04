@@ -1,3 +1,5 @@
+import { piInput } from "@ace/adapter-pi";
+import { claudeInputContent } from "@ace/adapter-claude";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { MessageOrigin, type Command, type ContentPart, type ThreadId } from "@ace/protocol";
@@ -76,39 +78,28 @@ export class InputJournal {
     this.store
       .statement("UPDATE engine_inputs SET signature=?,sent=1,generation=? WHERE thread_id=? AND item_key=?")
       .run(
-        signature(
-          provider === "claude"
-            ? parts.map((part) =>
-                part.type === "file" ? { type: "text", text: `@${part.path}` } : part,
-              )
-            : provider === "pi" ? parts.map((part) => part.type === "file" ? { type: "text", text: `File: ${part.path}` } : part) : parts,
-        ),
+        provider === "pi" ? signature([{ type: "text", text: piInput(parts).message }])
+          : provider === "claude" ? createHash("sha256").update(claudeInputContent(parts).flatMap((part) => typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n")).digest("hex")
+          : signature(parts),
         generation ?? null,
         thread,
         key,
       );
   }
-  correlate(thread: ThreadId, fact: Fact, root: string, generation?: number): Fact {
-    if (
-      (fact.type !== "item.upsert" && fact.type !== "item.reconciled") ||
-      fact.agent !== root ||
-      fact.draft.type !== "message" ||
-      fact.draft.role !== "user" ||
-      !fact.draft.parts
-    )
-      return fact;
-    if (fact.draft.origin && fact.draft.origin.kind !== "person" && !fact.draft.origin.commandId)
-      return fact;
-    const alias = this.store
-      .statement("SELECT item_key FROM engine_input_echoes WHERE thread_id=? AND native_key=?")
-      .get(thread, fact.item);
+  correlate(thread: ThreadId, fact: Fact, root: string, generation?: number): Fact | undefined {
+    if (fact.agent !== root) return fact;
+    const alias = this.store.statement("SELECT item_key FROM engine_input_echoes WHERE thread_id=? AND native_key=?").get(thread, "item" in fact ? fact.item : "");
+    if (fact.type === "item.delta") return alias && fact.field === "text" ? undefined : fact;
+    if ((fact.type !== "item.upsert" && fact.type !== "item.reconciled") || fact.draft.type !== "message" || (fact.draft.role !== "user" && !alias)) return fact;
+    if (fact.draft.origin && fact.draft.origin.kind !== "person" && !fact.draft.origin.commandId) return fact;
+    if (!alias && !fact.draft.parts) return fact;
     const row =
       alias ??
       this.store
         .statement(
           "SELECT item_key,origin FROM engine_inputs WHERE thread_id=? AND signature=? AND generation=? AND sent=1 AND matched=0 ORDER BY ordinal LIMIT 1",
         )
-        .get(thread, signature(fact.draft.parts), generation ?? null);
+        .get(thread, signature(fact.draft.parts ?? []), generation ?? null);
     if (!row) return fact;
     const key = z.string().parse(row.item_key);
     if (key === fact.item && !alias) return fact;

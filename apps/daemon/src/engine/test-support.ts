@@ -102,6 +102,7 @@ export async function harness(
     provider?: ProviderKind;
     capabilities?: Capabilities;
     nativeAdapter?: ProviderAdapter;
+    createTranslator?: ProviderAdapter["createTranslator"];
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-engine-"));
@@ -128,11 +129,11 @@ export async function harness(
         imageInput: true,
         rewindFiles: false,
       }),
-    createTranslator: () => ({
+    createTranslator: options.createTranslator ?? (() => ({
       translate: frames.translate,
       tick: options.tick ?? (() => []),
       ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
-    }),
+    })),
     steps,
   });
   const registry = new AdapterRegistry();

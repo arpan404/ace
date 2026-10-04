@@ -87,10 +87,11 @@ class AcpTranslator implements Translator {
         agent.terminal = false;
         s.promptOpen = true;
         s.start(agent, facts, "user");
+        agent.inputKey = s.key("input");
         facts.push({
           type: "item.upsert",
           agent: agent.key,
-          item: s.key("input"),
+          item: agent.inputKey,
           draft: {
             type: "message",
             role: "user",
@@ -190,6 +191,7 @@ class AcpTranslator implements Translator {
           complete: true,
         },
       });
+      s.notice(facts, frame, "session/update", "Session metadata", agent);
       return true;
     }
     if (childUpdate(s, agent, update, frame, facts)) return true;
@@ -322,6 +324,12 @@ class AcpTranslator implements Translator {
       return true;
     }
     if (["agent_message_chunk", "agent_thought_chunk", "user_message_chunk"].includes(kind)) {
+      if (kind === "user_message_chunk" && agent.inputKey && s.promptOpen) {
+        // The outgoing prompt is authoritative; streamed echoes retain raw data only.
+        facts.push({ type: "item.reconciled", agent: agent.key, item: agent.inputKey,
+          draft: { type: "message", role: "user", raw: [raw(frame, "session/update")] } });
+        return true;
+      }
       if (!agent.suspended && kind !== "user_message_chunk")
         s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
       const content = object(update["content"]);

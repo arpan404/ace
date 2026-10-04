@@ -39,3 +39,5 @@ export { discoverClaudeModels } from "./model-discovery.ts";
 export { forkClaudeSession } from "./fork.ts";
 export type { ClaudeMcpServers } from "./mcp-controls.ts";
 export { ClaudeRateLimitObservation } from "./rate-limits.ts";
+
+export { content as claudeInputContent } from "./input.ts";
