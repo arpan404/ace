@@ -1,3 +1,4 @@
+import { unwrapShellCommand } from "@ace/provider-kit/shell-command";
 import type { ItemDraft, ToolDetailDraft } from "@ace/core";
 import type { ContentPart, FileChange, ToolStatus } from "@ace/protocol";
 import type { ThreadItem } from "./generated/v2/ThreadItem.ts";
@@ -103,7 +104,16 @@ export function itemDraft(item: Obj, complete: boolean): ItemDraft {
   let title = type;
   let name: unknown = item["name"];
   if (type === "commandExecution") {
-    const action = obj(list(item["commandActions"])[0]);
+    const actions = list(item["commandActions"]);
+    const action = obj(actions[0]);
+    const rawCommand = str(item["command"]);
+    const command = actions.length
+      ? actions
+          .map((value) =>
+            str(obj(value)["command"], unwrapShellCommand(rawCommand)?.inner ?? rawCommand),
+          )
+          .join(" && ")
+      : (unwrapShellCommand(rawCommand)?.inner ?? rawCommand);
     detail =
       action["type"] === "read"
         ? { kind: "file.read", path: str(action["path"]) }
@@ -115,11 +125,12 @@ export function itemDraft(item: Obj, complete: boolean): ItemDraft {
             }
           : {
               kind: "shell",
-              command: str(item["command"]),
+              command,
+              ...(command !== rawCommand ? { rawCommand } : {}),
               cwd: str(item["cwd"]),
               ...(typeof item["exitCode"] === "number" ? { exitCode: item["exitCode"] } : {}),
             };
-    title = str(item["command"]);
+    title = `Run ${command}`;
   } else if (type === "fileChange") {
     const changes = list(item["changes"]).map(fileChange);
     const kind = changes[0]?.kind;
