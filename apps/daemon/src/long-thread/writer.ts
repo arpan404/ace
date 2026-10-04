@@ -1,16 +1,18 @@
 import { ThreadId as importThreadIdSchema } from "@ace/protocol";
 import { z } from "zod";
 import { AgentStatus, Interaction, ThreadStatus, type Event, type Thread } from "@ace/protocol";
-import {
-  agentThreadStatus,
-  itemMessagePreview,
-  itemDigestContribution,
-  turnIsSettled,
-  approvalAutoReviewed,
-} from "@ace/projection";
-import { counterPolicy, accountSample, Counts } from "@ace/usage";
-import { LongThreadDatabase, decodeCounters, type Counters } from "./database.ts";
+import { itemMessagePreview, itemDigestContribution, approvalAutoReviewed } from "@ace/projection";
+import { counterPolicy, accountSample, Counts, countsTowardTurnUsage } from "@ace/usage";
+import { LongThreadDatabase, decodeCounters } from "./database.ts";
 import { Digests } from "./digests.ts";
+import {
+  itemTurnOrdinal,
+  createdAgentTurnOrdinal,
+  startedRunTurnOrdinal,
+  agentActivityCounters,
+  agentActivityTransition,
+  turnSettlementTransition,
+} from "./decisions.ts";
 
 const Head = z.object({ ordinal: z.number(), root: z.string().nullable(), status: z.string() });
 const ApprovalData = Interaction.pick({
@@ -92,11 +94,21 @@ export class TurnWriter {
     if (p.type === "agent.created") {
       if (p.agent.origin === "root")
         this.data.run("UPDATE long_heads SET root=? WHERE thread_id=?", p.agent.id, event.threadId);
-      const ordinal =
-        p.agent.origin === "root"
-          ? (this.head(event.threadId)?.ordinal ?? 0)
-          : ((p.agent.spawnedBy ? this.itemOrdinal(event, p.agent.spawnedBy) : undefined) ??
-            (p.agent.parentId ? this.agentOrdinal(event, p.agent.parentId) : this.current(event)));
+      const headOrdinal = this.head(event.threadId)?.ordinal ?? 0;
+      const spawnedByOrdinal =
+        p.agent.origin !== "root" && p.agent.spawnedBy
+          ? this.itemOrdinal(event, p.agent.spawnedBy)
+          : undefined;
+      const ordinal = createdAgentTurnOrdinal({
+        origin: p.agent.origin,
+        headOrdinal,
+        spawnedByOrdinal,
+        parentOrdinal:
+          p.agent.origin !== "root" && spawnedByOrdinal === undefined && p.agent.parentId
+            ? this.agentOrdinal(event, p.agent.parentId)
+            : undefined,
+        currentOrdinal: Math.max(1, headOrdinal),
+      });
       this.agent(
         event,
         p.agent.id,
@@ -141,10 +153,13 @@ export class TurnWriter {
         .get(event.threadId, p.run.id);
       const ordinal = this.ensure(
         event,
-        root
-          ? (p.run.ordinal ??
-              Number(known?.ordinal ?? (this.head(event.threadId)?.ordinal ?? 0) + 1))
-          : this.agentOrdinal(event, p.run.agentId),
+        startedRunTurnOrdinal({
+          root,
+          providerOrdinal: p.run.ordinal,
+          knownOrdinal: known ? Number(known.ordinal) : undefined,
+          headOrdinal: this.head(event.threadId)?.ordinal ?? 0,
+          agentOrdinal: root ? 0 : this.agentOrdinal(event, p.run.agentId),
+        }),
       );
       const old = this.data
         .sql("SELECT live FROM long_runs WHERE thread_id=? AND id=?")
@@ -247,6 +262,7 @@ export class TurnWriter {
           event.threadId,
           p.itemId,
         );
+        this.repairPreviews(event.threadId, Number(old.ordinal));
       }
     } else if (p.type === "interaction.opened") {
       const interaction = p.interaction;
@@ -295,7 +311,7 @@ export class TurnWriter {
         });
     } else if (p.type === "usage.updated") {
       // Inclusive session snapshots are separate from agent counters, never summed twice.
-      if (p.usageScope === undefined || p.usageScope === "agent") {
+      if (countsTowardTurnUsage(p)) {
         const ordinal = this.agentOrdinal(event, p.agentId);
         const run = this.data
           .sql("SELECT id FROM long_runs WHERE thread_id=? AND ordinal=? AND root=1 LIMIT 1")
@@ -347,6 +363,20 @@ export class TurnWriter {
     if (p.type === "thread.updated" && p.status) this.refreshParents(event);
     this.data.run("UPDATE long_meta SET seq=? WHERE id=1", event.seq);
   }
+  repairPreviews(thread: string, ordinal: number): void {
+    this.data.run(
+      `UPDATE long_turns SET
+        initiating=COALESCE((SELECT preview FROM long_items WHERE thread_id=? AND ordinal=? AND role='user' ORDER BY created_seq LIMIT 1),''),
+        latest=COALESCE((SELECT preview FROM long_items WHERE thread_id=? AND ordinal=? AND role='assistant' ORDER BY created_seq DESC LIMIT 1),'')
+        WHERE thread_id=? AND ordinal=?`,
+      thread,
+      ordinal,
+      thread,
+      ordinal,
+      thread,
+      ordinal,
+    );
+  }
   private preview(
     event: Event,
     ordinal: number,
@@ -384,26 +414,31 @@ export class TurnWriter {
           .sql("SELECT ordinal FROM long_runs WHERE thread_id=? AND id=?")
           .get(event.threadId, item.runId)
       : undefined;
-    let ordinal = old
-      ? Number(old.ordinal)
-      : run
-        ? Number(run.ordinal)
-        : item.agentId
+    const head = this.head(event.threadId);
+    const rootUserMessage =
+      item.type === "message" && item.role === "user" && item.agentId === head?.root;
+    const active =
+      rootUserMessage && !old && !run
+        ? this.data
+            .sql("SELECT root_run,initiating FROM long_turns WHERE thread_id=? AND ordinal=?")
+            .get(event.threadId, head?.ordinal ?? 0)
+        : undefined;
+    const ordinal = itemTurnOrdinal({
+      existingOrdinal: old ? Number(old.ordinal) : undefined,
+      runOrdinal: run ? Number(run.ordinal) : undefined,
+      fallbackOrdinal:
+        !old && !run && item.agentId
           ? this.agentOrdinal(event, item.agentId)
-          : this.current(event);
-    if (
-      !old &&
-      !run &&
-      item.type === "message" &&
-      item.role === "user" &&
-      item.agentId === this.head(event.threadId)?.root
-    ) {
-      const head = this.head(event.threadId);
-      const active = this.data
-        .sql("SELECT root_run,initiating FROM long_turns WHERE thread_id=? AND ordinal=?")
-        .get(event.threadId, head?.ordinal ?? 0);
-      if (!active || active.root_run || active.initiating) ordinal = (head?.ordinal ?? 0) + 1;
-    }
+          : Math.max(1, head?.ordinal ?? 1),
+      rootUserMessage,
+      headOrdinal: head?.ordinal ?? 0,
+      currentTurn: active
+        ? {
+            hasRootRun: Boolean(active.root_run),
+            hasInitiatingPreview: Boolean(active.initiating),
+          }
+        : undefined,
+    });
     this.ensure(event, ordinal);
     const contribution = itemDigestContribution(item);
     this.digests.replace(
@@ -488,31 +523,36 @@ export class TurnWriter {
       .get(event.threadId, id);
     const isRoot = id === this.head(event.threadId)?.root;
     const childHead = child ? this.head(child) : undefined;
-    const childLive = childHead
-      ? !turnIsSettled(ThreadStatus.parse(JSON.parse(childHead.status)))
-      : false;
-    const counters = (s: import("@ace/protocol").AgentStatus): Counters => ({
-      "live:agents": Number(!turnIsSettled(agentThreadStatus(s)) || childLive),
-      subagentsStarted: Number(!isRoot),
-      subagentsFinished: Number(!isRoot && turnIsSettled(agentThreadStatus(s)) && !childLive),
-    });
+    const linkedChildStatus = childHead
+      ? ThreadStatus.parse(JSON.parse(childHead.status))
+      : undefined;
+    const previousStatus = old ? AgentStatus.parse(JSON.parse(String(old.status))) : undefined;
+    const previousCounters = previousStatus
+      ? agentActivityCounters({
+          root: isRoot,
+          status: previousStatus,
+          linkedChildStatus,
+        })
+      : {};
+    const nextCounters = agentActivityCounters({ root: isRoot, status, linkedChildStatus });
     const snapshot = this.data
       .sql("SELECT counters FROM long_entities WHERE thread_id=? AND kind='agentActivity' AND id=?")
       .get(event.threadId, id);
-    const historicalRoot =
-      isRoot &&
-      old &&
-      Number(old.ordinal) === ordinal &&
-      this.data
-        .sql("SELECT settled_seq FROM long_turns WHERE thread_id=? AND ordinal=?")
-        .get(event.threadId, ordinal)?.settled_seq != null &&
-      !turnIsSettled(agentThreadStatus(status));
-    if (ordinal > 0 && !historicalRoot) {
-      if (
-        status.state === "failed" &&
-        (!old || AgentStatus.parse(JSON.parse(String(old.status))).state !== "failed")
-      )
-        this.digests.bump(event, ordinal, "errors", 1);
+    const activity = agentActivityTransition({
+      root: isRoot,
+      ordinal,
+      previousOrdinal: old ? Number(old.ordinal) : undefined,
+      turnSettled:
+        isRoot && old && Number(old.ordinal) === ordinal
+          ? this.data
+              .sql("SELECT settled_seq FROM long_turns WHERE thread_id=? AND ordinal=?")
+              .get(event.threadId, ordinal)?.settled_seq != null
+          : false,
+      status,
+      previousStatus,
+    });
+    if (activity.recordActivity) {
+      if (activity.recordError) this.digests.bump(event, ordinal, "errors", 1);
       if (old && Number(old.ordinal) > 0) this.affected.add(Number(old.ordinal));
       this.digests.move(
         event,
@@ -521,9 +561,9 @@ export class TurnWriter {
         snapshot
           ? decodeCounters(snapshot.counters)
           : old && Number(old.ordinal) > 0
-            ? counters(AgentStatus.parse(JSON.parse(String(old.status))))
+            ? previousCounters
             : {},
-        counters(status),
+        nextCounters,
       );
     }
     this.data.run(
@@ -532,11 +572,7 @@ export class TurnWriter {
       id,
       ordinal,
       JSON.stringify(
-        ordinal > 0 && !historicalRoot
-          ? counters(status)
-          : snapshot
-            ? decodeCounters(snapshot.counters)
-            : {},
+        activity.recordActivity ? nextCounters : snapshot ? decodeCounters(snapshot.counters) : {},
       ),
       "{}",
       event.seq,
@@ -553,7 +589,7 @@ export class TurnWriter {
       end ?? null,
       event.seq,
     );
-    if (ordinal > 0 && !historicalRoot) this.ensure(event, ordinal);
+    if (activity.recordActivity) this.ensure(event, ordinal);
   }
   private refreshParents(event: Event): void {
     const queue = [event.threadId];
@@ -602,14 +638,16 @@ export class TurnWriter {
           )
           .get(event.threadId, ordinal),
       );
-      const live =
-        linkedLive ||
-        Object.entries(counts).some(([key, value]) => key.startsWith("live:") && value > 0);
-      const settled =
-        row.root_outcome !== "active" &&
-        !live &&
-        (ordinal !== head.ordinal || turnIsSettled(ThreadStatus.parse(JSON.parse(head.status))));
-      if (settled && row.settled_seq == null) {
+      const transition = turnSettlementTransition({
+        rootOutcome: String(row.root_outcome),
+        alreadySettled: row.settled_seq != null,
+        ordinal,
+        currentOrdinal: head.ordinal,
+        currentStatus: ThreadStatus.parse(JSON.parse(head.status)),
+        linkedChildLive: linkedLive,
+        counters: counts,
+      });
+      if (transition === "settle") {
         this.data.run(
           "UPDATE long_turns SET settled_seq=?,ended_at=?,end_seq=MAX(end_seq,?) WHERE thread_id=? AND ordinal=?",
           event.seq,
@@ -619,7 +657,7 @@ export class TurnWriter {
           ordinal,
         );
         this.digests.bump(event, ordinal, "turnsCompleted", 1);
-      } else if (!settled && row.settled_seq != null && live) {
+      } else if (transition === "reopen") {
         this.data.run(
           "UPDATE long_turns SET settled_seq=NULL,ended_at=NULL WHERE thread_id=? AND ordinal=?",
           event.threadId,
