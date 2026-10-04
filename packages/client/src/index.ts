@@ -66,3 +66,12 @@ export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
 
 export { downloadFile, uploadFile } from "./files.ts";
 export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
+
+export type {
+  TurnsPageInput,
+  ItemsWindowInput,
+  ThreadSearchInput,
+  ThreadCatchUpInput,
+  ThreadReadStateInput,
+  ThreadMarkReadInput,
+} from "./long-thread.ts";

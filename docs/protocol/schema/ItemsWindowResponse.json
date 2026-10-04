@@ -1,0 +1,89 @@
+{
+  "$id": "https://ace.local/protocol/v1/ItemsWindowResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "itemSeqs": {
+      "additionalProperties": {
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991,
+        "type": "integer"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "items": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/Item.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "itemsAfter": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "itemsBefore": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "targetSeq": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "items.window",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "seq",
+    "targetSeq",
+    "items",
+    "itemSeqs",
+    "itemsBefore",
+    "itemsAfter"
+  ],
+  "type": "object"
+}

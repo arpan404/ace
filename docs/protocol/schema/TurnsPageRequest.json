@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/TurnsPageRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "after": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "before": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "limit": {
+      "default": 50,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "turns.page",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId"
+  ],
+  "type": "object",
+  "x-ace-constraint": "At most one exclusive ordinal cursor, before or after."
+}

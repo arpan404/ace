@@ -45,7 +45,7 @@ try {
   // Deterministic facts, real stdout/SQLite/WebSocket edges, bounded reconnect gaps.
   const acceptance = await run(
     process.execPath,
-    ["--expose-gc", join(import.meta.dirname, "long-thread.ts")],
+    ["--expose-gc", join(import.meta.dirname, "long-thread-reliability.ts")],
     { cwd: root, timeout: 180000, maxBuffer: 1024 * 1024 },
   );
   process.stdout.write(acceptance.stdout);

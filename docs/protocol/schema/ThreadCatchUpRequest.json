@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadCatchUpRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "sinceSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sinceTime": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "thread.catchUp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Exactly one of sinceSeq or sinceTime is required."
+}

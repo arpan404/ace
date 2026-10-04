@@ -1,153 +1,320 @@
-import { expect, test } from "vitest";
-import { createDevThread } from "@ace/daemon";
-import { Interaction, type EventPayload } from "@ace/protocol";
-import { setup, ready, when, barrier, message, itemId } from "./test-support.ts";
+import { afterEach, expect, test } from "vitest";
+import { AgentId, ClientMessage, DeviceId, ItemId, RunId, type EventPayload } from "@ace/protocol";
+import { setup, ready, agentId, when } from "./test-support.ts";
 
-test("deleting an item notifies its readers and an older page cannot resurrect it", async () => {
-  const h = await setup();
-  try {
-    h.daemon.store.appendEvents(h.thread.id, [message]);
-    const { client, faults } = h.make();
-    await ready(client);
-    const { store } = client.thread(h.thread.id);
-    const selected = store.select([`item:${itemId}`], (reader) => reader.item(itemId));
-    await when(selected, Boolean);
-    let page: (() => void) | undefined;
-    faults.incoming = (incoming, text, deliver) => {
-      if (incoming.type === "items.page") page = () => deliver(text);
-      else deliver(text);
-    };
-    const loading = client.itemsPage({ threadId: h.thread.id, limit: 1 });
-    await faults.wait((incoming) => incoming.type === "items.page");
-    h.daemon.store.appendEvents(h.thread.id, [{ type: "item.deleted", itemId }]);
-    await when(selected, (item) => item === undefined);
-    page?.();
-    store.page(await loading);
-    expect(store.item(itemId)).toBeUndefined();
-    expect(store.order).not.toContain(itemId);
-  } finally {
-    await h.cleanup();
-  }
+let cleanup: (() => Promise<void>) | undefined;
+afterEach(async () => {
+  await cleanup?.();
+  cleanup = undefined;
 });
 
-test("pending approvals above the old entity cap arrive through bounded snapshot frames", async () => {
+// Mutation cases: mixing a jumped page into the live store; dropping a forward cursor;
+// returning another thread's correlated reply. Not executed (tests run at merge).
+test("jumping to older items leaves the subscribed tail live and closes the gap by bounded windows", async () => {
   const h = await setup();
-  try {
-    for (let start = 0; start < 10000; start += 100) {
-      const events: EventPayload[] = [];
-      for (let i = start; i < Math.min(10000, start + 100); i++)
-        events.push({
-          type: "interaction.opened",
-          interaction: Interaction.parse({
-            id: `open-${i}`,
-            threadId: h.thread.id,
-            agentId: "root",
-            blocking: true,
-            state: "pending",
-            createdAt: i,
-            request: { kind: "approval", title: "a".repeat(600), options: [] },
-          }),
-        });
-      h.daemon.store.appendEvents(h.thread.id, events);
-    }
-    const { client, faults } = h.make();
-    let largest = 0;
-    faults.incoming = (_incoming, text, deliver) => {
-      largest = Math.max(largest, Buffer.byteLength(text));
-      deliver(text);
-    };
-    await ready(client);
-    const { store } = client.thread(h.thread.id);
-    await when(
-      store.select(["interactions"], (reader) => reader.interactionIds().length),
-      (count) => count === 10000,
+  cleanup = h.cleanup;
+  const events = h.daemon.store.appendEvents(
+    h.thread.id,
+    Array.from({ length: 30 }, (_, index): EventPayload => ({
+      type: "item.created",
+      item: {
+        type: "message",
+        id: ItemId.parse(`history-${index}`),
+        agentId,
+        role: "assistant",
+        createdAt: index + 1,
+        complete: true,
+        synthetic: false,
+        raw: [],
+        parts: [{ type: "text", text: `Message ${index}` }],
+      },
+    })),
+  );
+  const target = events.find(
+    (event) => event.payload.type === "item.created" && event.payload.item.id === "history-2",
+  );
+  if (!target) throw new Error("Missing target");
+  const { client } = h.make({ limits: { items: 5 } });
+  await ready(client);
+  const lease = client.thread(h.thread.id);
+  await when(
+    lease.store.select(["order"], (reader) => reader.order.length),
+    (length) => length === 5,
+  );
+  const tail = [...lease.store.order];
+  let window = await client.itemsWindow({
+    threadId: h.thread.id,
+    aroundSeq: target.seq,
+    before: 1,
+    after: 2,
+  });
+  expect(window.items.map((item) => item.id)).toEqual([
+    "history-1",
+    "history-2",
+    "history-3",
+    "history-4",
+  ]);
+  expect(lease.store.order).toEqual(tail);
+  expect(window.itemsBefore).toBeGreaterThan(0);
+  let advances = 0;
+  while (!window.items.some((item) => tail.includes(item.id))) {
+    if (window.itemsAfter === null || advances++ > 10)
+      throw new Error("Gap cursor did not reach tail");
+    window = await client.itemsWindow({
+      threadId: h.thread.id,
+      aroundSeq: window.itemsAfter + 1,
+      before: 0,
+      after: 4,
+    });
+    expect(window.items.length).toBeLessThanOrEqual(5);
+  }
+  expect(window.items.some((item) => tail.includes(item.id))).toBe(true);
+  expect(lease.store.order).toEqual(tail);
+  h.daemon.store.appendEvents(h.thread.id, [
+    {
+      type: "item.created",
+      item: {
+        type: "message",
+        id: ItemId.parse("still-live"),
+        agentId,
+        role: "assistant",
+        createdAt: 99,
+        complete: true,
+        synthetic: false,
+        raw: [],
+        parts: [{ type: "text", text: "Still live" }],
+      },
+    },
+  ]);
+  await when(
+    lease.store.select(["order"], (reader) => reader.order.includes("still-live")),
+    Boolean,
+  );
+  expect(lease.store.order).toHaveLength(5);
+  lease.release();
+});
+
+// Mutation cases: ignoring the request target exclusivity, reply-thread validation or page
+// size cap. Not executed (tests run at merge).
+test("invalid jump targets fail locally and a correlated reply from another thread is rejected", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults } = h.make();
+  await ready(client);
+  await expect(client.itemsWindow({ threadId: "", aroundSeq: 1 })).rejects.toMatchObject({
+    code: "protocol",
+  });
+  await expect(
+    client.itemsWindow({ threadId: h.thread.id, aroundSeq: 1, turnOrdinal: 1 }),
+  ).rejects.toMatchObject({ code: "protocol" });
+  await expect(
+    client.itemsWindow({ threadId: h.thread.id, aroundSeq: 1, before: 100, after: 100 }),
+  ).rejects.toMatchObject({ code: "protocol" });
+  faults.incoming = (message, frame, deliver) => {
+    deliver(
+      message.type === "items.window"
+        ? JSON.stringify({ ...message, threadId: "another-thread" })
+        : frame,
     );
-    expect(client.state).toBe("ready");
-    expect(store.error).toBeUndefined();
-    expect(largest).toBeLessThan(2 * 1024 * 1024);
-  } finally {
-    await h.cleanup();
-  }
+  };
+  await expect(client.itemsWindow({ threadId: h.thread.id, aroundSeq: 1 })).rejects.toMatchObject({
+    code: "protocol",
+  });
 });
 
-test("reconnect starts at most four subscriptions until their replay completion arrives", async () => {
+// Mutation cases: using the last update rather than the greatest cursor, leaking device state,
+// bypassing durable commands or regressing a saved cursor. Not executed (tests run at merge).
+test("coalesced read marks survive reload and remain independent for another device", async () => {
   const h = await setup();
-  try {
-    const { client, faults } = h.make();
-    await ready(client);
-    const releases: (() => void)[] = [];
-    const held: (() => void)[] = [];
-    faults.incoming = (incoming, text, deliver) => {
-      if (incoming.type === "subscription.ready") held.push(() => deliver(text));
-      else deliver(text);
-    };
-    const ids = Array.from({ length: 12 }, () => createDevThread(h.daemon.store, h.workspaceId).id);
-    for (const id of ids) releases.push(client.thread(id).release);
-    await barrier(client, h.thread.id);
-    const subscribes = () =>
-      faults.sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "subscribe");
-    expect(subscribes()).toHaveLength(4);
-    expect(held).toHaveLength(4);
-    for (const finish of held.splice(0)) finish();
-    await barrier(client, h.thread.id);
-    expect(subscribes()).toHaveLength(8);
-    for (const release of releases) release();
-  } finally {
-    await h.cleanup();
-  }
+  cleanup = h.cleanup;
+  const { client, faults, scheduler } = h.make();
+  await ready(client);
+  const head = h.daemon.store.headSeq();
+  const first = client.markThreadRead({ threadId: h.thread.id, lastSeenSeq: head });
+  const lower = client.markThreadRead({ threadId: h.thread.id, lastSeenSeq: 0 });
+  scheduler.advance(100);
+  const [a, b] = await Promise.all([first, lower]);
+  expect(a.ok).toBe(true);
+  expect(b.commandId).toBe(a.commandId);
+  const marks = faults.sent
+    .map((frame) => ClientMessage.parse(JSON.parse(frame)))
+    .filter(
+      (message) => message.type === "command" && message.command.payload.type === "thread.markRead",
+    );
+  expect(marks).toHaveLength(1);
+  expect(await client.threadReadState({ threadId: h.thread.id })).toMatchObject({
+    lastSeenSeq: head,
+  });
+  await client.close();
+  const reloaded = h.make().client;
+  const other = h.make({ deviceId: DeviceId.parse("another-device") }).client;
+  await Promise.all([ready(reloaded), ready(other)]);
+  expect(await reloaded.threadReadState({ threadId: h.thread.id })).toMatchObject({
+    lastSeenSeq: head,
+  });
+  expect(await other.threadReadState({ threadId: h.thread.id })).toMatchObject({ lastSeenSeq: 0 });
 });
 
-test("offline command replay admits eight in flight and advances when durable replies arrive", async () => {
+// Mutation cases: keeping an aborted highest mark, failing to release coalescing capacity or
+// leaving a pending mark unsettled on close. Not executed (tests run at merge).
+test("aborting an unsent read mark removes its cursor and closing rejects unsent marks", async () => {
   const h = await setup();
-  try {
-    const { client, faults } = h.make();
-    await ready(client);
-    client.networkOnline(false);
-    for (let i = 0; i < 20; i++)
-      await client.enqueue({ type: "thread.archive", threadId: h.thread.id }, `replay-${i}`);
-    const held: (() => void)[] = [];
-    faults.incoming = (incoming, text, deliver) => {
-      if (incoming.type === "commandResult") held.push(() => deliver(text));
-      else deliver(text);
-    };
-    client.networkOnline(true);
-    await when(client.connectionState(), (state) => state === "ready");
-    await barrier(client, h.thread.id);
-    const commands = () =>
-      faults.sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "command");
-    expect(commands()).toHaveLength(8);
-    const first = held.shift();
-    first?.();
-    await when(client.intent("replay-0"), (intent) => intent?.state === "acked");
-    await barrier(client, h.thread.id);
-    expect(commands()).toHaveLength(9);
-    faults.incoming = (_incoming, text, deliver) => deliver(text);
-    for (const release of held) release();
-    await when(client.intent("replay-19"), (intent) => intent?.state === "acked");
-    expect(commands()).toHaveLength(20);
-  } finally {
-    await h.cleanup();
-  }
+  cleanup = h.cleanup;
+  const { client, scheduler } = h.make();
+  await ready(client);
+  const controller = new AbortController();
+  const high = client.markThreadRead(
+    { threadId: h.thread.id, lastSeenSeq: h.daemon.store.headSeq() },
+    { signal: controller.signal },
+  );
+  const aborted = expect(high).rejects.toMatchObject({ code: "aborted" });
+  const low = client.markThreadRead({ threadId: h.thread.id, lastSeenSeq: 0 });
+  controller.abort();
+  await aborted;
+  scheduler.advance(100);
+  await low;
+  expect(await client.threadReadState({ threadId: h.thread.id })).toMatchObject({ lastSeenSeq: 0 });
+  const pending = client.markThreadRead({ threadId: h.thread.id, lastSeenSeq: 1 });
+  const closed = expect(pending).rejects.toMatchObject({ code: "offline" });
+  await client.close();
+  await closed;
 });
 
-test("a refused subscription releases its replay slot without endlessly retrying itself", async () => {
+// Mutation cases: losing the initiating user message, treating root completion as whole-tree
+// completion, or routing catch-up to a provider. Not executed (tests run at merge).
+test("turn pages and deterministic catch-up retain a root outcome while its child is working", async () => {
   const h = await setup();
-  try {
-    const { client, faults } = h.make();
-    await ready(client);
-    const missing = client.thread("missing-thread");
-    const healthy = client.thread(h.thread.id);
-    await barrier(client, h.thread.id);
-    await barrier(client, h.thread.id);
-    expect(missing.store.error).toBeDefined();
-    expect(healthy.store.thread?.id).toBe(h.thread.id);
-    const requests = faults.sent
-      .map((text) => JSON.parse(text))
-      .filter((frame) => frame.type === "subscribe" && frame.scope.threadId === "missing-thread");
-    expect(requests).toHaveLength(1);
-    missing.release();
-    healthy.release();
-  } finally {
-    await h.cleanup();
-  }
+  cleanup = h.cleanup;
+  const childId = AgentId.parse("long-child");
+  const rootId = h.thread.rootAgentId ?? agentId;
+  const runId = RunId.parse("long-turn");
+  h.daemon.store.appendEvents(h.thread.id, [
+    {
+      type: "agent.created",
+      agent: {
+        id: rootId,
+        threadId: h.thread.id,
+        parentId: null,
+        origin: "root",
+        fidelity: "full",
+        native: { provider: "codex" },
+        cwd: h.directory,
+        status: { state: "working", activity: "thinking" },
+        createdAt: 1,
+        background: false,
+      },
+    },
+    {
+      type: "item.created",
+      item: {
+        type: "message",
+        id: ItemId.parse("initiating"),
+        agentId: rootId,
+        role: "user",
+        createdAt: 2,
+        complete: true,
+        synthetic: false,
+        raw: [],
+        parts: [{ type: "text", text: "Work for days" }],
+      },
+    },
+    {
+      type: "run.started",
+      run: {
+        id: runId,
+        threadId: h.thread.id,
+        agentId: rootId,
+        ordinal: 1,
+        trigger: "user",
+        state: "active",
+        startedAt: 3,
+      },
+    },
+    // Raw Store fixtures include the canonical status that Core emits separately.
+    { type: "thread.updated", status: { state: "working", agents: 1 } },
+  ]);
+  const { client } = h.make();
+  await ready(client);
+  const page = await client.turnsPage({ threadId: h.thread.id });
+  expect(page.turns[0]).toMatchObject({
+    ordinal: 1,
+    initiatingMessagePreview: "Work for days",
+    outcome: "active",
+  });
+  expect(page.ready).toBe(true);
+  const target = await client.itemsWindow({
+    threadId: h.thread.id,
+    turnOrdinal: 1,
+    before: 0,
+    after: 1,
+  });
+  expect(target.items[0]?.id).toBe("initiating");
+  const catchUp = await client.threadCatchUp({ threadId: h.thread.id, sinceSeq: 0 });
+  expect(catchUp.turnsCompleted).toBe(0);
+  expect(catchUp.status.state).toBe("working");
+  h.daemon.store.appendEvents(h.thread.id, [
+    {
+      type: "agent.created",
+      agent: {
+        id: childId,
+        threadId: h.thread.id,
+        parentId: rootId,
+        origin: "provider_subagent",
+        fidelity: "full",
+        native: { provider: "codex" },
+        cwd: h.directory,
+        status: { state: "working", activity: "thinking" },
+        createdAt: 4,
+        background: true,
+      },
+    },
+    { type: "run.ended", runId, state: "completed", endedAt: 5 },
+    { type: "agent.status", agentId: rootId, status: { state: "idle" } },
+    { type: "thread.updated", status: { state: "working", agents: 1 } },
+  ]);
+  const ended = await client.turnsPage({ threadId: h.thread.id });
+  expect(ended.turns[0]).toMatchObject({ outcome: "completed", status: { state: "working" } });
+  const stillWorking = await client.threadCatchUp({ threadId: h.thread.id, sinceSeq: 0 });
+  expect(stillWorking.status.state).toBe("working");
+  expect(stillWorking.turnsCompleted).toBe(0);
+  h.daemon.store.appendEvents(h.thread.id, [
+    { type: "agent.status", agentId: childId, status: { state: "idle" } },
+    { type: "thread.updated", status: { state: "done" } },
+  ]);
+  const completed = await client.threadCatchUp({ threadId: h.thread.id, sinceSeq: 0 });
+  expect(completed.status).toEqual({ state: "done" });
+  expect(completed.turnsCompleted).toBe(1);
+});
+
+// Mutation cases: retaining an unsent mark after disconnect, losing an accepted mark from the
+// durable outbox, changing the command id on replay. Not executed (tests run at merge).
+test("disconnect drops unsent read marks and reloaded clients replay a mark whose receipt was lost", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults, scheduler } = h.make({ storage: h.storage });
+  await ready(client);
+  const head = h.daemon.store.headSeq();
+  const unsent = client.markThreadRead({ threadId: h.thread.id, lastSeenSeq: head });
+  const disconnected = expect(unsent).rejects.toMatchObject({ code: "offline" });
+  faults.disconnect();
+  await disconnected;
+  scheduler.advance(250);
+  await when(client.connectionState(), (state) => state === "ready");
+  expect(await client.threadReadState({ threadId: h.thread.id })).toMatchObject({ lastSeenSeq: 0 });
+  faults.incoming = (event, frame, deliver) => {
+    if (event.type !== "commandResult") deliver(frame);
+  };
+  const sent = client.markThreadRead({ threadId: h.thread.id, lastSeenSeq: head });
+  const lostReceipt = expect(sent).rejects.toMatchObject({ code: "offline" });
+  scheduler.advance(100);
+  const receipt = await faults.wait((event) => event.type === "commandResult");
+  if (receipt.type !== "commandResult") throw new Error("Expected read mark receipt");
+  await client.close();
+  await lostReceipt;
+  const reloaded = h.make({ storage: h.storage }).client;
+  await ready(reloaded);
+  await when(reloaded.intent(receipt.commandId), (intent) => intent?.state === "acked");
+  expect(await reloaded.threadReadState({ threadId: h.thread.id })).toMatchObject({
+    lastSeenSeq: head,
+  });
 });

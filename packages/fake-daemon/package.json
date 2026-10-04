@@ -15,7 +15,9 @@
     "@ace/core": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/search": "workspace:*",
     "@ace/settings": "workspace:*",
+    "@ace/usage": "workspace:*",
     "zod": "^4.6.5"
   }
 }

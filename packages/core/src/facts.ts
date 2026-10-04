@@ -133,6 +133,7 @@ export type Fact =
       state: "resolved" | "cancelled" | "expired";
       resolution?: InteractionResolution;
       resolvedBy?: DeviceId;
+      autoReviewed?: boolean;
     }
   | {
       type: "background.started";

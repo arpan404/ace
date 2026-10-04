@@ -1,0 +1,185 @@
+{
+  "$id": "https://ace.local/protocol/v1/TurnDigest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "approvalsAnswered": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "approvalsAsked": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "approvalsAutoReviewed": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "approvalsPending": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "commands": {
+      "items": {
+        "properties": {
+          "command": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "exitCode": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failed": {
+            "type": "boolean"
+          },
+          "itemId": {
+            "$ref": "https://ace.local/protocol/v1/ItemId.json"
+          }
+        },
+        "required": [
+          "itemId",
+          "command",
+          "failed"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "commandsFailed": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "commandsRun": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "errors": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "files": {
+      "items": {
+        "properties": {
+          "added": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "removed": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "path",
+          "added",
+          "removed"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "inputTokens": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "outputTokens": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "subagentsFinished": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "subagentsStarted": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "toolCounts": {
+      "additionalProperties": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/ToolKind.json"
+      },
+      "type": "object"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "toolCounts",
+    "files",
+    "commands",
+    "commandsRun",
+    "commandsFailed",
+    "approvalsAsked",
+    "approvalsAnswered",
+    "approvalsAutoReviewed",
+    "approvalsPending",
+    "subagentsStarted",
+    "subagentsFinished",
+    "inputTokens",
+    "outputTokens",
+    "errors",
+    "truncated"
+  ],
+  "type": "object"
+}
