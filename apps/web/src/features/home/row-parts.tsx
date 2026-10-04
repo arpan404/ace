@@ -48,12 +48,16 @@ export function ProviderMark(props: {
   return (
     <Tip label={props.label}>
       <span className="inline-flex items-center gap-[3px] text-xs text-subtle-foreground">
-        <ProviderIcon
-          provider={props.provider}
-          acpAgentId={props.acpAgentId}
-          decorative
-          className="text-muted-foreground"
-        />
+        {/* 14px in a 16px box: small enough for the row, large enough to read the mark. */}
+        <span className="grid size-4 place-items-center">
+          <ProviderIcon
+            provider={props.provider}
+            acpAgentId={props.acpAgentId}
+            size={14}
+            decorative
+            className="text-muted-foreground"
+          />
+        </span>
         {props.subagents > 0 && <span aria-hidden>{props.subagents}</span>}
         <span className="sr-only">{props.label}</span>
       </span>

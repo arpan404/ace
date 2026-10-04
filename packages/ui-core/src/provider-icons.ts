@@ -140,3 +140,15 @@ export function providerIcon(input: ProviderIconInput): ProviderIconChoice {
   }
   return { brand: providerBrands[input.provider], label: providerNames[input.provider] };
 }
+
+/**
+ * Marks whose detail (a cutout, a glyph inside a shape) blurs into a blob below 14px, and the
+ * simpler mark of the same maker drawn there instead: Codex's cloud with its prompt becomes the
+ * OpenAI blossom.
+ */
+const smallBrands: Partial<Record<Brand, Brand>> = { codex: "openai" };
+
+/** The brand to draw at `size` pixels: the mark itself, or its simpler stand-in when tiny. */
+export function brandAtSize(brand: Brand, size: number): Brand {
+  return size < 14 ? (smallBrands[brand] ?? brand) : brand;
+}
