@@ -3,6 +3,7 @@ import {
   initRepository,
   initialBranch,
   defaultBranch,
+  projectInfo,
   type CloneOptions,
   type ProjectGitPolicy,
 } from "./projects.ts";
@@ -23,6 +24,7 @@ import type { Checkpoint, DiffSide, GitOptions } from "./types.ts";
 export { validateCloneUrl } from "./projects.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError } from "./types.ts";
+export { spawnGitProcess } from "./process-runtime.ts";
 export type * from "./types.ts";
 export type { CreateWorktreeOptions } from "./worktrees.ts";
 
@@ -48,14 +50,17 @@ export class GitService {
   clone(input: CloneOptions, policy: ProjectGitPolicy = {}): Promise<void> {
     return cloneRepository(this.repository.cli, input, policy);
   }
-  init(path: string, branch?: string): Promise<void> {
-    return initRepository(this.repository.cli, path, branch);
+  init(path: string, branch?: string, directoryFd?: number): Promise<void> {
+    return initRepository(this.repository.cli, path, branch, directoryFd);
   }
   initialBranch(path: string): Promise<string> {
     return initialBranch(this.repository.cli, path);
   }
-  defaultBranch(path: string): Promise<string> {
-    return defaultBranch(this.repository.cli, path);
+  defaultBranch(path: string, directoryFd?: number, signal?: AbortSignal): Promise<string> {
+    return defaultBranch(this.repository.cli, path, directoryFd, signal);
+  }
+  projectInfo(path: string, directoryFd?: number, signal?: AbortSignal) {
+    return projectInfo(this.repository.cli, path, directoryFd, signal);
   }
 
   resourceUsage(): { checkpointCounters: number; activeCalls: number } {

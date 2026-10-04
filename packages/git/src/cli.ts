@@ -4,11 +4,13 @@ import { killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
 import { stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
+import { spawnPinned } from "./pinned-process.ts";
 import { count, decode } from "./decode.ts";
 import { GitError, toGitError, type GitOptions, type GitProcessRuntime } from "./types.ts";
 
 interface CallOptions {
-  signal?: AbortSignal;
+  directoryFd?: number | undefined;
+  signal?: AbortSignal | undefined;
   stderr?: (chunk: Buffer) => void;
   write?: boolean;
   env?: Record<string, string>;
@@ -81,7 +83,7 @@ export class GitCli {
     if (args.some((arg) => arg.includes("\0"))) {
       throw new GitError("invalid_argument", "Git arguments cannot contain NUL bytes");
     }
-    this.ready ??= this.verify(cwd).catch((error: unknown) => {
+    this.ready ??= this.verify(cwd, options.directoryFd, options.signal).catch((error: unknown) => {
       this.ready = undefined;
       throw error;
     });
@@ -90,8 +92,8 @@ export class GitCli {
     return this.execute(cwd, args, options);
   }
 
-  private async verify(cwd: string): Promise<void> {
-    const result = await this.execute(cwd, ["--version"], {});
+  private async verify(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
+    const result = await this.execute(cwd, ["--version"], { directoryFd, signal });
     const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
     const [major, minor] = version
       ? decode(z.tuple([z.string(), z.string(), z.string()]), version.slice(1), "version").map(
@@ -125,13 +127,23 @@ export class GitCli {
       ...options.env,
     });
     return new Promise((resolve, reject) => {
-      const child = this.runtime.spawn(this.binary, ["--no-pager", ...args], {
+      const spawnOptions: Parameters<GitProcessRuntime["spawn"]>[2] = {
         cwd,
         env,
         shell: false,
         detached: this.runtime.platform !== "win32",
         stdio: ["pipe", "pipe", "pipe"],
-      });
+      };
+      const child =
+        options.directoryFd === undefined
+          ? this.runtime.spawn(this.binary, ["--no-pager", ...args], spawnOptions)
+          : spawnPinned(
+              this.runtime,
+              this.binary,
+              ["--no-pager", ...args],
+              spawnOptions,
+              options.directoryFd,
+            );
       const chunks: Buffer[] = [];
       const errors: Buffer[] = [];
       const limit = options.captureBytes ?? 64 * 1024 * 1024;

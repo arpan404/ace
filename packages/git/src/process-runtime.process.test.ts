@@ -1,5 +1,5 @@
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
-import { spawn } from "node:child_process";
+import { spawnGitProcess as spawn } from "./index.ts";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";

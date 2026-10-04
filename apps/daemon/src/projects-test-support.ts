@@ -1,5 +1,6 @@
 import { once } from "node:events";
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
+import { spawnGitProcess as spawn } from "@ace/git";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
@@ -19,6 +20,7 @@ import { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { stubHandler } from "./commands.ts";
 import { Client, token } from "./socket-test-support.ts";
 import type { ServerOptions } from "./server-options.ts";
+import type { GitProcessRuntime } from "@ace/git";
 
 const execute = promisify(execFile);
 export async function projectFixture(options: ProjectsOptions = {}) {
@@ -28,16 +30,12 @@ export async function projectFixture(options: ProjectsOptions = {}) {
   const gitOptions = {
     ...options.git,
     processRuntime: {
-      spawn: (
-        command: string,
-        args: string[],
-        input: Parameters<typeof spawn>[2] & { stdio: ["pipe", "pipe", "pipe"] },
-      ) =>
-        spawn(command, args, {
+      ...options.git?.processRuntime,
+      spawn: (command: string, args: string[], input: Parameters<GitProcessRuntime["spawn"]>[2]) =>
+        (options.git?.processRuntime?.spawn ?? spawn)(command, args, {
           ...input,
           env: { ...input?.env, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: "1" },
         }),
-      ...options.git?.processRuntime,
     },
   };
   const store = new Store(join(root, "events.sqlite"), undefined, { now: () => 1000 });

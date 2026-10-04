@@ -461,6 +461,7 @@
       "name": "@ace/git",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "koffi": "3.3.2",
         "zod": "^4.6.5",
       },
       "devDependencies": {

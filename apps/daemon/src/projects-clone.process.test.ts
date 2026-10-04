@@ -1,5 +1,6 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawnGitProcess as spawn } from "@ace/git";
+import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, CommandId, Project, type WorkspaceCloneProgress } from "@ace/protocol";
@@ -34,7 +35,12 @@ test("clone uses host git against a file-protocol bare fixture and publishes pro
     const bare = join(f.root, "source.git");
     await f.git(f.root, ["clone", "--bare", "--", source, bare]);
     const progress: WorkspaceCloneProgress[] = [];
-    const stop = f.projects.onProgress((_device, value) => progress.push(value));
+    const duringTransfer: unknown[][] = [];
+    const stop = f.projects.onProgress((_device, value) => {
+      progress.push(value);
+      if (["starting", "receiving", "resolving", "checkout"].includes(value.phase))
+        duringTransfer.push(f.projects.catalog.recent(100));
+    });
     const result = await f.command(
       {
         type: "workspace.clone",
@@ -55,6 +61,8 @@ test("clone uses host git against a file-protocol bare fixture and publishes pro
       expect.arrayContaining([expect.objectContaining({ phase: "receiving", percent: 100 })]),
     );
     expect(progress.at(-1)).toMatchObject({ phase: "completed", percent: 100 });
+    expect(duringTransfer.length).toBeGreaterThan(0);
+    expect(duringTransfer.every((projects) => projects.length === 0)).toBe(true);
     expect(
       await f.command(
         { type: "workspace.clone", parent: f.root, name: "clone", url: `file://${bare}` },
@@ -84,6 +92,7 @@ test("production cloning rejects file ext and credential URLs before creating th
         await f.command({ type: "workspace.clone", parent: f.root, name: `denied-${index}`, url }),
       ).toMatchObject({ ok: false, error: "git_invalid_argument" });
       expect(f.projects.catalog.recent(100)).toEqual([]);
+      await expect(stat(join(f.root, `denied-${index}`))).rejects.toMatchObject({ code: "ENOENT" });
     }
   } finally {
     await f.close();
@@ -103,7 +112,7 @@ test("clone cancellation kills the owned child before replying and never registe
             process.execPath,
             [
               "-e",
-              'process.stderr.write("Receiving objects: 1%\\r"); setInterval(() => {}, 1000);',
+              'require("node:fs").closeSync(3); process.stderr.write("Receiving objects: 1%\\r"); setInterval(() => {}, 1000);',
             ],
             options,
           );
@@ -178,7 +187,7 @@ test("revoking a paired device cancels its stalled clone even when no more progr
             process.execPath,
             [
               "-e",
-              'process.stderr.write("Receiving objects: 1%\\r"); setInterval(() => {}, 1000);',
+              'require("node:fs").closeSync(3); process.stderr.write("Receiving objects: 1%\\r"); setInterval(() => {}, 1000);',
             ],
             options,
           );
@@ -228,7 +237,7 @@ test.skipIf(process.platform === "win32")(
             if (!args.includes("clone")) return spawn(command, args, options);
             // The fixture gate waits for a host signal, then runs the real installed Git with argv.
             const code =
-              'const {spawn}=require("node:child_process"); const [bin,...args]=process.argv.slice(1); process.on("SIGUSR1",()=>{const child=spawn(bin,args,{stdio:["ignore","inherit","inherit"]}); child.on("exit",code=>process.exit(code??1));}); process.stderr.write("Receiving objects: 0%\\r"); setInterval(()=>{},1000);';
+              'const {spawn}=require("node:child_process"); const [bin,...args]=process.argv.slice(1); process.on("SIGUSR1",()=>{const child=spawn(bin,args,{stdio:["ignore","inherit","inherit",3]}); child.on("exit",code=>process.exit(code??1));}); process.stderr.write("Receiving objects: 0%\\r"); setInterval(()=>{},1000);';
             child = spawn(process.execPath, ["-e", code, command, ...args], options);
             return child;
           },
