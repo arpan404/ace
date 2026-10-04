@@ -2,32 +2,32 @@
 
 Measured on this Mac, Darwin arm64, with real daemon services, real SQLite and WebSocket delivery. Providers are in-process scripts and receive no native CLI prompts. The empty home excludes real provider history and process RSS. These are individual observations on a shared machine, with observer overhead. They are not statistical latency guarantees.
 
-The matched comparison is source `origin/main` at `c270841c`, including #82 and #83, against the production bundle at `93823697`. Both use Node 26.8.1, 60 seconds idle, 16 active scripted sessions, 1,000 deltas and a three-minute soak with fresh thread identities. Raw data is in [deck-main-baseline.json.gz](deck-main-baseline.json.gz) and [watch-pool-after.json.gz](watch-pool-after.json.gz). Benchmark-only changes after that build improve collection, labels, deadlines and gate reporting. The third column repeats the same Node/runtime/workload after merging #86 and repairing the failures, using backend revision `cd263102`; its raw series is [merge-fixes-after.json.gz](merge-fixes-after.json.gz).
+The matched comparison is source `origin/main` at `c270841c`, including #82 and #83, against the production bundle at `93823697`. Both use Node 26.8.1, 60 seconds idle, 16 active scripted sessions, 1,000 deltas and a three-minute soak with fresh thread identities. Raw data is in [deck-main-baseline.json.gz](deck-main-baseline.json.gz) and [watch-pool-after.json.gz](watch-pool-after.json.gz). Benchmark-only changes after that build improve collection, labels, deadlines and gate reporting. The third column repeats the same Node/runtime/workload after merging #86 and repairing the failures, using backend revision `cd263102`; its raw series is [merge-fixes-after.json.gz](merge-fixes-after.json.gz). The latest repeat follows orchestrator merge `6abfe79e`, including #84, and the size-limit conductor delivery repair at `e9bc6038`, with the benchmark admission correction at `01928bd4`. Its raw series is [conductor-fix-after.json.gz](conductor-fix-after.json.gz).
 
-| Metric                                    |                                   Main before | Compiled daemon after | After #86 merge repairs |
-| ----------------------------------------- | --------------------------------------------: | --------------------: | ----------------------: |
-| Endpoint publication                      |                                    1146.83 ms |             927.83 ms |               848.29 ms |
-| Idle at 10 s RSS                          |                                    524.36 MiB |            218.64 MiB |              219.52 MiB |
-| Idle at 10 s main heap                    |                                    108.71 MiB |             44.67 MiB |               41.28 MiB |
-| Idle at 10 s main external                |                                     15.91 MiB |              7.57 MiB |                7.57 MiB |
-| Idle at 10 s OS threads                   |                                         20.00 |                 14.00 |                      14 |
-| Idle at 10 s recent worker telemetry      |                                          6.00 |                  1.00 |                       1 |
-| Idle at 10 s worker heaps, MiB            | 14.50 / 22.43 / 32.46 / 24.26 / 23.09 / 23.42 |                  8.70 |                    8.71 |
-| Idle at 60 s RSS                          |                                    526.31 MiB |            197.31 MiB |              219.92 MiB |
-| Idle at 60 s main heap                    |                                    110.51 MiB |             46.10 MiB |               42.66 MiB |
-| Idle at 60 s main external                |                                     15.91 MiB |              7.57 MiB |                7.57 MiB |
-| Idle at 60 s OS threads                   |                                         20.00 |                 15.00 |                      15 |
-| Idle at 60 s recent worker telemetry      |                                          6.00 |                  2.00 |                       2 |
-| Idle at 60 s worker heaps, MiB            | 13.99 / 22.85 / 32.88 / 24.68 / 23.61 / 24.56 |           9.83 / 6.37 |             9.85 / 6.38 |
-| RSS with 16 active scripted sessions      |                                    542.45 MiB |            252.34 MiB |              247.53 MiB |
-| Active OS threads                         |                                         21.00 |                 15.00 |                      15 |
-| WebSocket ingest                          |                               932.76 events/s |      1019.20 events/s |        1233.35 events/s |
-| WebSocket p99                             |                                       3.47 ms |               2.61 ms |                 2.63 ms |
-| Observed idle CPU                         |                             0.83% of one core |     0.43% of one core |       0.34% of one core |
-| Shutdown                                  |                                     202.68 ms |             156.63 ms |               139.32 ms |
-| Three-minute retained main heap change    |                                     -1.29 MiB |             -1.57 MiB |               -1.53 MiB |
-| Three-minute retained RSS change, main GC |                                    181.73 MiB |             59.36 MiB |               66.91 MiB |
-| Three-minute peak RSS                     |                                    804.50 MiB |            370.17 MiB |              372.45 MiB |
+| Metric                                    |                                   Main before | Compiled daemon after | After #86 merge repairs | After plan delivery repair |
+| ----------------------------------------- | --------------------------------------------: | --------------------: | ----------------------: | -------------------------: |
+| Endpoint publication                      |                                    1146.83 ms |             927.83 ms |               848.29 ms |                  624.71 ms |
+| Idle at 10 s RSS                          |                                    524.36 MiB |            218.64 MiB |              219.52 MiB |                 220.58 MiB |
+| Idle at 10 s main heap                    |                                    108.71 MiB |             44.67 MiB |               41.28 MiB |                  41.35 MiB |
+| Idle at 10 s main external                |                                     15.91 MiB |              7.57 MiB |                7.57 MiB |                   7.59 MiB |
+| Idle at 10 s OS threads                   |                                         20.00 |                 14.00 |                      14 |                         14 |
+| Idle at 10 s recent worker telemetry      |                                          6.00 |                  1.00 |                       1 |                          1 |
+| Idle at 10 s worker heaps, MiB            | 14.50 / 22.43 / 32.46 / 24.26 / 23.09 / 23.42 |                  8.70 |                    8.71 |                       8.75 |
+| Idle at 60 s RSS                          |                                    526.31 MiB |            197.31 MiB |              219.92 MiB |                 199.36 MiB |
+| Idle at 60 s main heap                    |                                    110.51 MiB |             46.10 MiB |               42.66 MiB |                  42.79 MiB |
+| Idle at 60 s main external                |                                     15.91 MiB |              7.57 MiB |                7.57 MiB |                   7.59 MiB |
+| Idle at 60 s OS threads                   |                                         20.00 |                 15.00 |                      15 |                         15 |
+| Idle at 60 s recent worker telemetry      |                                          6.00 |                  2.00 |                       2 |                          2 |
+| Idle at 60 s worker heaps, MiB            | 13.99 / 22.85 / 32.88 / 24.68 / 23.61 / 24.56 |           9.83 / 6.37 |             9.85 / 6.38 |                9.89 / 6.39 |
+| RSS with 16 active scripted sessions      |                                    542.45 MiB |            252.34 MiB |              247.53 MiB |                 254.36 MiB |
+| Active OS threads                         |                                         21.00 |                 15.00 |                      15 |                         15 |
+| WebSocket ingest                          |                               932.76 events/s |      1019.20 events/s |        1233.35 events/s |           1249.63 events/s |
+| WebSocket p99                             |                                       3.47 ms |               2.61 ms |                 2.63 ms |                    2.85 ms |
+| Observed idle CPU                         |                             0.83% of one core |     0.43% of one core |       0.34% of one core |          0.96% of one core |
+| Shutdown                                  |                                     202.68 ms |             156.63 ms |               139.32 ms |                  140.62 ms |
+| Three-minute retained main heap change    |                                     -1.29 MiB |             -1.57 MiB |               -1.53 MiB |                  -1.32 MiB |
+| Three-minute retained RSS change, main GC |                                    181.73 MiB |             59.36 MiB |               66.91 MiB |                  66.22 MiB |
+| Three-minute peak RSS                     |                                    804.50 MiB |            370.17 MiB |              372.45 MiB |                 372.00 MiB |
 
 Main GC collects only the main isolate in the matched comparison. Worker GC and allocator pages still affect RSS. A recent telemetry file can remain visible for 1.5 seconds after retirement, so the worker rows count recently observed isolates. OS thread counts are independent. Idle CPU includes the half-second telemetry writer.
 
@@ -136,7 +136,19 @@ Restart cost remains O(files). Directory mtimes cannot prove that existing trans
 
 The 150 MiB idle aim remains unmet. The Node 26 gate passes with 994.25 events/s, p99 2.42 ms, startup 812.65 ms, idle RSS 218.72 MiB and retained RSS growth 4.19 MiB. Its observed throughput also exceeds the earlier stricter 500 events/s limit. The pinned Node 24 gate passes with 1,161.66 events/s, p99 2.33 ms, startup 805.79 ms, idle RSS 223.33 MiB and retained RSS change -5.91 MiB. Raw short-gate data is in [gate-node26.json](gate-node26.json) and [gate-node24.json](gate-node24.json). Gate headroom comes from the measured release and local runtimes, and needs CI calibration at merge. Startup/filesystem and throughput measurements depend on host load. The first short gate with 16 warm-up cycles hit its 35-second measurement timeout; the gate now uses eight cycles and reports phases. Signal cleanup also handles child termination without waiting for an already emitted exit.
 
-The initial performance work ran no tests. After the merge-time failure, the owner authorized five named process-test files; all 34 tests in those files now pass. No other test files, repository `check`, web benchmarks, Docker harnesses, mutation runs or provider prompts were executed. Remaining behaviour tests are written and statically reviewed. [Merge verification and mutation cases](../../../docs/testing/daemon-performance.md) distinguishes the five executed files from remaining tests and unexecuted mutation cases. Permitted static checks are recorded in the PR. Packaged helper execution, cross-platform watch overflow/error recovery and CI budget calibration need run at merge.
+The initial performance work ran no tests. After the merge-time failure, the owner authorized five named process-test files; all 34 tests in those files now pass. The later conductor timeout exception authorized only `conductor/admission.process.test.ts`. Its complete file passed ten consecutive runs, 80/80 test cases, without raising its timeout. The new deterministic transport-pressure regression fails against the previous outbox. No full suite, repository `check`, web benchmarks, Docker harnesses, separate mutation sweeps or provider prompts were executed. Remaining behaviour tests are written and statically reviewed. [Merge verification and mutation cases](../../../docs/testing/daemon-performance.md) distinguishes both named-file exceptions from remaining tests and unexecuted mutation cases. Permitted static checks are recorded in the PR. Packaged helper execution, cross-platform watch overflow/error recovery and CI budget calibration need run at merge.
+
+## Size-limit conductor timeout repair
+
+A byte trace reproduced the failure at the transport boundary: 3,148,749 buffered bytes plus a 1,049,577-byte frame exceeded the unchanged 4,194,304-byte cap and closed the socket with 4009. The synchronous burst contained repeated full conductor views. The fixture listened only for its request's reply, so closure left the promise pending until the 120-second test timeout.
+
+The outbox now holds frames above the soft transport threshold and resumes on send completion. It replaces an unsent complete `conductor.changed` view only for the same subscription and moves the latest view after intervening replies/events. Queued and transport bytes retain one cap; non-replaceable replies remain bounded. Queue append, snapshot replacement and removal avoid scanning retained frames. Input admission and #86's security behavior are unchanged. Fixture requests reject and clean up their listeners on socket close/error.
+
+The first measurement repeat stopped before ingest because the benchmark adapter lacked #84 permission capabilities. The engine correctly rejected default auto-review admission. The tool-free script now declares only auto-review, and its new behavior test is written but not executed under the named-file restriction. The successful repeat uses that admission correction.
+
+The original compact 1 MiB plan, artifact-envelope assertion and timeout are unchanged. The additional real-WebSocket regression injects pressure rather than depending on loopback timing, verifies complete latest views across subscriptions and a reply, then verifies replies still close at the byte cap. [Ten consecutive full-file runs](conductor-repeat.json) pass 80/80 test cases. No other tests ran in this continuation. Other output/security behavior needs run at merge. Typecheck, lint and scoped formatting pass.
+
+The repeat closes 6,512 fresh sessions after 256 warm-up sessions. Main-only GC boundaries change RSS by 66.22 MiB and main heap by -1.32 MiB; the final-quarter mean RSS differs by 1.65 MiB from the preceding quarter. These boundary observations retain worker/allocator warm-up, as in the earlier matched runs. The [short daemon measurement](gate-conductor-fix.json) passes every budget: startup 878.94 ms, idle RSS 220.17 MiB, ingest 1214.97 events/s, p99 2.59 ms, all-isolate retained RSS growth 1.95 MiB and main heap change -2.35 MiB. The 150 MiB idle aim remains unmet. Idle CPU is higher in this repeat: 0.96% of one core, versus baseline 0.83% and the prior post-merge 0.34%. This is sampled before active socket delivery and includes telemetry/background startup work; it needs a repeat at merge before attributing a regression. Indexed event and engine queries remain unchanged. No new history or native-provider measurement was run in this continuation.
 
 ## UI follow-up for the Claude web agent
 
