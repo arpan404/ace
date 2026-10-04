@@ -123,7 +123,10 @@ export async function deckFixture(
         onError: (error) =>
           executionErrors.push(error instanceof Error ? error.message : "unknown"),
       },
-      modelInstances: [],
+      // Restore the same scripted account catalog before recovering persisted lanes.
+      modelInstances: (["codex", "claude"] as const).map((modelProvider) =>
+        scriptedModelInstance(modelProvider, home),
+      ),
       workspaceActions: { forgeRunner: forge.runner },
       agentControl: { policy: { maxConcurrent: options.hostCapacity ?? 4 } },
     });

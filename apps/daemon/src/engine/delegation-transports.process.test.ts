@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "vitest";
 import { OpenCodeTranslator } from "@ace/adapter-opencode";
 import { CursorTranslator } from "@ace/adapter-cursor";
-import { Capabilities, type ContentPart, type ThreadId } from "@ace/protocol";
+import { Capabilities, type ContentPart, ThreadId } from "@ace/protocol";
 import type { Frame, SessionContext } from "@ace/engine-api";
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { transitionHarness } from "./transition-test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -13,32 +14,43 @@ const inputText = (parts: ContentPart[]) =>
   parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 
 // CLI boundary doubles emit native transport frames through the production translators.
-// Not executed (tests run at merge).
 test.each([
   ["opencode", "switch"],
   ["opencode", "merge"],
-  ["cursor", "switch"],
-  ["cursor", "merge"],
+  ["cursor", "handoff"],
+  ["cursor", "merged handoff"],
 ] as const)(
   "%s result attribution survives %s context, replay and a copied user wake",
   async (provider, transition) => {
-    const h = transitionHarness();
+    const diagnostics: { threadId: ThreadId; raw: unknown }[] = [];
+    const h = transitionHarness({
+      onProviderDiagnostic: (threadId, raw) => diagnostics.push({ threadId, raw }),
+    });
     cleanup.push(h.close);
     let sequence = 0;
     let latest:
       | { context: SessionContext; commandId: string; id: string; parts: ContentPart[] }
       | undefined;
     const native = "transport-session";
-    const emit = (context: SessionContext, dir: Frame["dir"], channel: string, data: unknown) =>
-      context.onFrame({ seq: ++sequence, t: h.clock.now(), dir, channel, data });
-    function cursorEvent(
+    const emit = (context: SessionContext, dir: Frame["dir"], channel: string, data: unknown) => {
+      const payload = new ProviderPayload(JSON.stringify(data));
+      return context.onFrame({
+        seq: ++sequence,
+        t: h.clock.now(),
+        dir,
+        channel,
+        data: payload.data,
+        payload,
+      });
+    };
+    async function cursorEvent(
       context: SessionContext,
       kind: "send" | "result",
       commandId: string,
       body: unknown,
       replayed?: true,
     ) {
-      emit(context, kind === "send" ? "send" : "recv", "sdk", {
+      await emit(context, kind === "send" ? "send" : "recv", "sdk", {
         schemaVersion: 1,
         generation: "transport-generation",
         operationId: commandId,
@@ -49,30 +61,30 @@ test.each([
         ...(replayed ? { replayed } : {}),
       });
     }
-    function sendInput(
+    async function sendInput(
       context: SessionContext,
       commandId: string,
       id: string,
       parts: ContentPart[],
     ) {
       if (provider === "cursor") return cursorEvent(context, "send", commandId, { input: parts });
-      emit(context, "send", "http", {
+      await emit(context, "send", "http", {
         method: "POST",
         path: `/api/session/${native}/prompt`,
         body: { id, text: inputText(parts) },
       });
     }
-    function replayInput(
+    async function replayInput(
       context: SessionContext,
       commandId: string,
       id: string,
       parts: ContentPart[],
     ) {
       if (provider === "cursor") {
-        cursorEvent(context, "send", commandId, { input: parts }, true);
-        cursorEvent(context, "result", commandId, { status: "finished" }, true);
+        await cursorEvent(context, "send", commandId, { input: parts }, true);
+        await cursorEvent(context, "result", commandId, { status: "finished" }, true);
       } else
-        emit(context, "recv", "snapshot.message", {
+        await emit(context, "recv", "snapshot.message", {
           sessionID: native,
           message: { id, type: "user", text: inputText(parts) },
         });
@@ -87,14 +99,31 @@ test.each([
             permissions: {
               modes: ["read-only", "ask", "auto-review", "full-access"],
               toolGate: true,
+              nativeAutoReview: false,
             },
+            steer: false,
+            interruptCascades: false,
+            fork: false,
+            subagentTranscripts: false,
+            backgroundTaskControl: false,
+            backgroundVisibility: "none",
+            planMode: false,
+            tokenUsage: false,
+            imageInput: false,
+            rewindFiles: false,
           }),
         createTranslator(init) {
           return provider === "cursor" ? new CursorTranslator(init) : new OpenCodeTranslator(init);
         },
         async openSession(context) {
           if (provider === "cursor")
-            emit(context, "recv", "sdk", {
+            context.onSessionIdentity?.({
+              backend: "cursor-sdk",
+              instanceId: "account-a",
+              nativeSessionId: native,
+            });
+          if (provider === "cursor")
+            await emit(context, "recv", "sdk", {
               schemaVersion: 1,
               generation: "transport-generation",
               operationId: "open",
@@ -104,23 +133,25 @@ test.each([
               agentId: native,
             });
           else
-            emit(context, "recv", "snapshot.info", {
+            await emit(context, "recv", "snapshot.info", {
               root: true,
               info: { id: native, location: { directory: h.home } },
             });
           return {
             nativeSessionId: native,
-            ...(provider === "cursor" ? { backend: "cursor-sdk" as const } : {}),
+            ...(provider === "cursor"
+              ? { backend: "cursor-sdk" as const, instanceId: "account-a" }
+              : {}),
             async send(parts, _delivery, commandId) {
               if (!commandId) throw new Error("Missing command identity");
               const id = provider === "cursor" ? commandId : `native-${commandId}`;
               context.onInputMessage?.({ commandId, nativeId: id });
               latest = { context, commandId, id, parts };
               if (provider === "opencode")
-                emit(context, "note", "input.sending", { id, commandId });
-              sendInput(context, commandId, id, parts);
+                await emit(context, "note", "input.sending", { id, commandId });
+              await sendInput(context, commandId, id, parts);
               if (provider === "cursor")
-                emit(context, "recv", "sdk", {
+                await emit(context, "recv", "sdk", {
                   schemaVersion: 1,
                   generation: "transport-generation",
                   operationId: commandId,
@@ -130,13 +161,13 @@ test.each([
                   body: { status: "finished" },
                 });
               else {
-                replayInput(context, commandId, id, parts);
-                emit(context, "recv", "snapshot.active", {
+                await replayInput(context, commandId, id, parts);
+                await emit(context, "recv", "snapshot.active", {
                   sessionID: native,
                   running: true,
                   revision: commandId,
                 });
-                emit(context, "recv", "snapshot.active", {
+                await emit(context, "recv", "snapshot.active", {
                   sessionID: native,
                   running: false,
                   idleAt: 1,
@@ -153,13 +184,38 @@ test.each([
       },
       { installed: true, auth: "logged_in", loginHint: "mock" },
     );
-    const parent = await h.create();
-    const child = await h.fork(parent);
-    expect(h.command({ type: "thread.switch", threadId: parent, selection: { provider } }).ok).toBe(
-      true,
-    );
-    await h.engine.flush();
-    if (transition === "merge") {
+    let parent = await h.create();
+    let child = await h.fork(parent);
+    if (provider === "opencode") {
+      expect(
+        h.command({ type: "thread.switch", threadId: parent, selection: { provider } }).ok,
+      ).toBe(true);
+      await h.engine.flush();
+      expect(h.store.getThread(parent)?.provider).toBe(provider);
+    }
+    if (provider === "cursor") {
+      // SDK runtime changes preserve the source checkpoint and use a fresh portable handoff.
+      const recipient = ThreadId.parse(`cursor-${transition}`);
+      expect(
+        h.command({
+          type: "thread.create",
+          threadId: recipient,
+          title: "SDK recipient",
+          workspaceId: h.workspace,
+          provider,
+          accountId: "account-a",
+          handoffFrom: parent,
+          input: [{ type: "text", text: "Initialize SDK recipient" }],
+        }).ok,
+      ).toBe(true);
+      parent = recipient;
+      await h.engine.flush();
+      expect(latest?.parts[0]).toEqual(
+        expect.objectContaining({ type: "text", text: expect.stringContaining("source history") }),
+      );
+      child = await h.fork(parent);
+    }
+    if (transition === "merge" || transition === "merged handoff") {
       const item = Object.values(h.store.snapshotThread(child).items).find(
         (candidate) => candidate.type === "message",
       );
@@ -208,8 +264,10 @@ test.each([
     ).toBe(true);
     await h.engine.flush();
     const sent = latest;
+    expect(h.errors).toEqual([]);
     if (!sent) throw new Error("Missing native send");
-    expect(sent.parts[0]).not.toEqual({ type: "text", text: wake });
+    if (provider === "opencode" || transition === "merged handoff")
+      expect(sent.parts[0]).not.toEqual({ type: "text", text: wake });
     expect(sent.parts).toContainEqual({ type: "text", text: wake });
     assertTranscript(parent);
     await h.restart();
@@ -224,7 +282,7 @@ test.each([
     await h.engine.flush();
     const resumed = latest;
     if (!resumed) throw new Error("Missing resumed transport");
-    replayInput(resumed.context, sent.commandId, sent.id, sent.parts);
+    await replayInput(resumed.context, sent.commandId, sent.id, sent.parts);
     await h.engine.flush();
     assertTranscript(parent);
     const resultsBeforeCopy = h.store
@@ -254,7 +312,7 @@ test.each([
     await h.engine.flush();
     const reopened = latest;
     if (!reopened) throw new Error("Missing user replay session");
-    replayInput(reopened.context, copied.commandId, copied.id, copied.parts);
+    await replayInput(reopened.context, copied.commandId, copied.id, copied.parts);
     await h.engine.flush();
     const copiedPage = h.store.readItemPage(parent, h.store.headSeq() + 1, 100).items;
     expect(copiedPage).toContainEqual(
@@ -262,14 +320,14 @@ test.each([
         type: "message",
         role: "user",
         nativeId: copied.id,
-        parts: [{ type: "text", text: wake }],
+        parts: [expect.objectContaining({ type: "text", text: wake })],
       }),
     );
     expect(copiedPage.filter((entry) => entry.type === "delegation.settled")).toEqual(
       resultsBeforeCopy,
     );
     const unknownIdentity = `external-${"x".repeat(300)}`;
-    replayInput(reopened.context, unknownIdentity, unknownIdentity, [
+    await replayInput(reopened.context, unknownIdentity, unknownIdentity, [
       { type: "text", text: "Uncorrelated native input" },
     ]);
     await h.engine.flush();
@@ -284,10 +342,15 @@ test.each([
     expect(unknownInput).toMatchObject({
       type: "message",
       role: "user",
-      parts: [{ type: "text", text: "Uncorrelated native input" }],
+      parts: [expect.objectContaining({ type: "text", text: "Uncorrelated native input" })],
     });
+    // SDK envelopes are retained on the provider diagnostic stream; OpenCode attaches raw to items.
+    const retained =
+      provider === "cursor"
+        ? diagnostics.filter((entry) => entry.threadId === parent)
+        : unknownPage.items;
     expect(
-      unknownPage.items.some(
+      retained.some(
         (entry) => "raw" in entry && JSON.stringify(entry.raw).includes(unknownIdentity),
       ),
     ).toBe(true);

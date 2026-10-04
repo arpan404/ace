@@ -4,6 +4,7 @@ import { setup } from "./test-support.ts";
 
 test("Deck delegates retain display ownership and cannot widen their parent's permission mode", async () => {
   const h = setup();
+  await h.catalog.refresh();
   const workspace = h.store.createWorkspace(h.home, "workspace");
   const deck = { deckId: "deck", runId: "run", workspaceId: workspace, role: "root" as const };
   const created = h.service.command("deck-parent", {
