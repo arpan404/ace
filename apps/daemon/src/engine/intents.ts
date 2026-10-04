@@ -15,6 +15,7 @@ const Header = z.object({
   ackTarget: z.number().int().positive().optional(),
   delivery: z.enum(["queue", "steer"]),
   acknowledged: z.boolean(),
+  resolutionId: InteractionId.optional(),
   resolutionGeneration: z.number().int().nonnegative().optional(),
   submittedGeneration: z.number().int().nonnegative().optional(),
   trigger: RunTrigger.optional(),
@@ -24,7 +25,7 @@ export interface Intent extends IntentHeader {
   command: Command;
 }
 const columns =
-  "id,command_id,thread_id,kind,status,attempts,awaiting,ack_target,delivery,acknowledged,trigger,submitted_generation,resolution_generation";
+  "id,command_id,thread_id,kind,status,attempts,awaiting,ack_target,delivery,acknowledged,trigger,submitted_generation,resolution_generation,resolution_id";
 const recoveryKinds = "'thread.resume','queue.resume','thread.limit'";
 const deliveryKinds = "'thread.create','thread.send','thread.fork','thread.switch','thread.merge'";
 function header(row: Record<string, unknown>): IntentHeader {
@@ -42,6 +43,7 @@ function header(row: Record<string, unknown>): IntentHeader {
     trigger: row.trigger ?? undefined,
     submittedGeneration: row.submitted_generation ?? undefined,
     resolutionGeneration: row.resolution_generation ?? undefined,
+    resolutionId: row.resolution_id ?? undefined,
   });
 }
 /** Intent I/O: indexed headers for scheduling, payload decoding only at claim/startup. */

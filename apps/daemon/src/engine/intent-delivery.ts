@@ -7,7 +7,7 @@ import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { Sessions } from "./sessions.ts";
 import type { ThreadTransitions } from "./transitions.ts";
 import type { Fact } from "@ace/core";
-import { executeIntent, DeliveryDeferred, DeliveryNotStarted } from "./delivery.ts";
+import { executeIntent, DeliveryDeferred, DeliveryNotStarted, InteractionUnavailable } from "./delivery.ts";
 interface Dependencies {
   repo: EngineRepository;
   clock: EngineClock;
@@ -107,7 +107,7 @@ export class IntentDelivery {
         if (uncertain) this.dependencies.repo.queue.uncertain(intent.id);
         const message = error instanceof Error ? error.message : String(error);
         if (undelivered) this.retainInput(intent, message);
-        else this.fail(intent, message);
+        else this.fail(intent, message, error instanceof InteractionUnavailable ? error.code : undefined);
         if (uncertain)
           this.dependencies.repo.queue.set(
             actor.id,
@@ -168,10 +168,10 @@ export class IntentDelivery {
     await actor.flush();
     this.dependencies.recovery.release(actor.id, token);
   }
-  fail(intent: IntentHeader, message: string): void {
+  fail(intent: IntentHeader, message: string, code?: string): void {
     this.dependencies.repo.store.atomic(() => {
       this.dependencies.repo.mark(intent, "failed", message);
-      this.reportFailure(intent, message);
+      this.reportFailure(intent, message, code);
     });
   }
   private retainInput(intent: IntentHeader, message: string): void {
@@ -186,7 +186,7 @@ export class IntentDelivery {
       this.reportFailure(intent, message);
     });
   }
-  private reportFailure(intent: IntentHeader, message: string): void {
+  private reportFailure(intent: IntentHeader, message: string, code = "delivery_failed"): void {
     this.dependencies.releaseGuards(intent);
     if (intent.kind === "thread.switch") {
       const pending = this.dependencies.repo.store.getThread(intent.threadId)?.switch;
@@ -220,16 +220,17 @@ export class IntentDelivery {
       draft: {
         type: "notice",
         level: "error",
-        text: `${intent.kind}: ${message}`,
+        text: code.startsWith("interaction_") ? message : ["thread.send", "thread.create"].includes(intent.kind) ? "Message not sent" : "Action failed",
         commandId: intent.commandId,
-        code: "delivery_failed",
+        ...(intent.resolutionId ? { interactionId: intent.resolutionId } : {}),
+        code,
         title:
-          intent.kind === "thread.send" || intent.kind === "thread.create"
+          code.startsWith("interaction_") ? "This question is no longer active" : intent.kind === "thread.send" || intent.kind === "thread.create"
             ? "Not sent"
             : "Action failed",
-        detail: message,
+        detail: `${intent.kind}: ${message}`.slice(0, 4096),
         complete: true,
-        raw: [],
+        raw: [{ type: "delivery_error", data: { operation: intent.kind, message: message.slice(0, 4096) } }],
       },
     };
     this.dependencies.repo.apply(intent.threadId, [fact], this.dependencies.clock.now());

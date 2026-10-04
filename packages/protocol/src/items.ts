@@ -83,6 +83,7 @@ export const AgentItem = z.discriminatedUnion("type", [
     type: z.literal("notice"),
     level: z.enum(["info", "warning", "error"]),
     commandId: CommandId.optional(),
+    interactionId: InteractionId.optional(),
     code: z.string().optional(),
     title: z.string().optional(),
     detail: z.string().optional(),

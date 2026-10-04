@@ -10,7 +10,7 @@ test("snapshot and replay preserve resolved native requests across restart witho
   const frames = scriptFrames();
   const request = { ...question, interaction: "native-question", item: "native-question-tool" };
   const h = await harness([{ on: "send", frames: [frames.frame(start, request)] },
-    { on: "resolve", frames: [frames.frame(end)] }], frames, { permissionSettings: { defaultMode: "ask" } });
+    { on: "resolve", frames: [frames.frame(end)] }], frames, { permissionSettings: async () => "ask" });
   let restarted: Engine | undefined;
   let recoveredStore: Store | undefined;
   try {
@@ -53,7 +53,7 @@ test("snapshot and replay preserve resolved native requests across restart witho
 test("provider exit expires unanswered requests and returns a typed expired receipt", async () => {
   const frames = scriptFrames();
   const h = await harness([{ on: "send", frames: [frames.frame(start, question)], exit: { deliberate: false } }], frames,
-    { permissionSettings: { defaultMode: "ask" } });
+    { permissionSettings: async () => "ask" });
   try {
     const id = await h.create();
     const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];

@@ -1,3 +1,4 @@
+import { ThreadId } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 const closes: (() => Promise<void>)[] = [];
@@ -102,7 +103,7 @@ test("a trusted prepared agent title survives provider title replay", async () =
   const frames = scriptFrames();
   const h = await harness([{ on: "send", frames: [frames.frame(start, title("Provider replacement"), end)] }], frames);
   closes.push(h.close);
-  const receipt = h.internalCommand({ type: "thread.prepare", threadId: "prepared-agent",
+  const receipt = h.internalCommand({ type: "thread.prepare", threadId: ThreadId.parse("prepared-agent"),
     workspaceId: h.workspace, provider: "codex", title: "Agent title", titleSource: "agent" }, "prepare-agent");
   if (!receipt.threadId) throw new Error("No thread");
   h.internalCommand({ type: "thread.send", threadId: receipt.threadId,

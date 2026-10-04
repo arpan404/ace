@@ -30,6 +30,13 @@ function signature(parts: ContentPart[]): string {
     )
     .digest("hex");
 }
+function providerInput(parts: ContentPart[], provider?: import("@ace/protocol").ProviderKind): ContentPart[] {
+  if (provider === "pi") return [{ type: "text", text: piInput(parts).message }];
+  if (provider !== "claude") return parts;
+  const content = claudeInputContent(parts);
+  if (typeof content === "string") return [{ type: "text", text: content }];
+  return content.flatMap((part) => part.type === "text" ? [{ type: "text" as const, text: part.text }] : []);
+}
 /** Durable, indexed echo correlation. Transcript history is never scanned on a frame. */
 export class InputJournal {
   private store: Store;
@@ -78,9 +85,7 @@ export class InputJournal {
     this.store
       .statement("UPDATE engine_inputs SET signature=?,sent=1,generation=? WHERE thread_id=? AND item_key=?")
       .run(
-        provider === "pi" ? signature([{ type: "text", text: piInput(parts).message }])
-          : provider === "claude" ? createHash("sha256").update(claudeInputContent(parts).flatMap((part) => typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : []).join("\n")).digest("hex")
-          : signature(parts),
+        signature(providerInput(parts, provider)),
         generation ?? null,
         thread,
         key,
@@ -89,7 +94,6 @@ export class InputJournal {
   correlate(thread: ThreadId, fact: Fact, root: string, generation?: number): Fact | undefined {
     if (!("agent" in fact) || fact.agent !== root || fact.type === "item.delta") return fact;
     const alias = this.store.statement("SELECT item_key FROM engine_input_echoes WHERE thread_id=? AND native_key=?").get(thread, "item" in fact ? fact.item : "");
-    if (fact.type === "item.delta") return alias && fact.field === "text" ? undefined : fact;
     if ((fact.type !== "item.upsert" && fact.type !== "item.reconciled") || fact.draft.type !== "message" || (fact.draft.role !== "user" && !alias)) return fact;
     if (fact.draft.origin && fact.draft.origin.kind !== "person" && !fact.draft.origin.commandId) return fact;
     if (!alias && !fact.draft.parts) return fact;

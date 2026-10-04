@@ -1,3 +1,4 @@
+import { CommandId } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 const cleanups: (() => Promise<void>)[] = [];
@@ -42,9 +43,9 @@ test("removing the last uncertain copy clears its hold and identical resend owns
   const id = receipt.threadId;
   await h.engine.flush();
   const revision = h.engine.queue(id).revision;
-  expect(h.command({ type: "queue.remove", threadId: id, messageId: "removed", expectedRevision: revision }).ok).toBe(true);
+  expect(h.command({ type: "queue.remove", threadId: id, messageId: CommandId.parse("removed"), expectedRevision: revision }).ok).toBe(true);
   expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "manual", messages: [] });
-  expect(h.command({ type: "queue.remove", threadId: id, messageId: "removed", expectedRevision: revision })).toMatchObject({ ok: false, error: "queue_conflict" });
+  expect(h.command({ type: "queue.remove", threadId: id, messageId: CommandId.parse("removed"), expectedRevision: revision })).toMatchObject({ ok: false, error: "queue_conflict" });
   const base = h.registry.get("codex");
   h.registry.register({ ...base.adapter, async openSession(ctx) {
     const session = await base.adapter.openSession(ctx);

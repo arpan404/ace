@@ -1,3 +1,4 @@
+import { ThreadId } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { transitionHarness } from "./transition-test-support.ts";
 import { harness, scriptFrames, start } from "./test-support.ts";
@@ -81,15 +82,15 @@ test("prepared handoffs publish their summary before the spawn input", async () 
   const frames = scriptFrames();
   const h = await harness([], frames);
   closes.push(h.close);
-  const source = h.command({ type: "thread.prepare", threadId: "source-thread", workspaceId: h.workspace,
+  const source = h.command({ type: "thread.prepare", threadId: ThreadId.parse("source-thread"), workspaceId: h.workspace,
     provider: "codex", title: "Source" });
   expect(source.ok).toBe(true);
-  const prepared = h.internalCommand({ type: "thread.prepare", threadId: "handoff-thread",
+  const prepared = h.internalCommand({ type: "thread.prepare", threadId: ThreadId.parse("handoff-thread"),
     workspaceId: h.workspace, provider: "codex", title: "Delegate", titleSource: "agent",
-    handoffFrom: "source-thread" }, "prepared-handoff");
+    handoffFrom: ThreadId.parse("source-thread") }, "prepared-handoff");
   if (!prepared.threadId) throw new Error("No thread");
   h.internalCommand({ type: "thread.send", threadId: prepared.threadId,
-    input: [{ type: "text", text: "spawn task" }], origin: { kind: "spawn", parentThreadId: "source-thread" } }, "spawn-handoff");
+    input: [{ type: "text", text: "spawn task" }], origin: { kind: "spawn", parentThreadId: ThreadId.parse("source-thread") } }, "spawn-handoff");
   const view = h.store.snapshotThread(prepared.threadId);
   const ordered = view.itemOrder.map((id) => view.items[id]);
   const summary = ordered.find((item) => item?.type === "message" && item.origin?.kind === "handoff");
@@ -98,4 +99,18 @@ test("prepared handoffs publish their summary before the spawn input", async () 
     from: { provider: "codex" }, to: { provider: "codex" }, lossy: true } });
   expect(spawn).toMatchObject({ parts: [{ type: "text", text: "spawn task" }], origin: { kind: "spawn" } });
   expect(ordered.indexOf(summary)).toBeLessThan(ordered.indexOf(spawn));
+});
+
+test("send failures publish readable correlated notices with operation names in diagnostics", async () => {
+  const frames = scriptFrames();
+  const h = await harness([], frames, { beforeSend: async () => { throw new Error("checkpoint failed"); } });
+  closes.push(h.close);
+  const receipt = h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex",
+    input: [{ type: "text", text: "task" }] }, "device", "failure-command");
+  if (!receipt.threadId) throw new Error("No thread");
+  await h.engine.flush();
+  const notices = Object.values(h.store.snapshotThread(receipt.threadId).items).filter((item) => item.type === "notice" && item.level === "error");
+  expect(notices).toEqual([expect.objectContaining({ text: "Message not sent", code: "delivery_failed",
+    title: "Not sent", commandId: "failure-command", detail: "thread.create: checkpoint failed" })]);
+  expect(h.engine.queue(receipt.threadId).messages).toEqual([expect.objectContaining({ id: "failure-command", state: "queued" })]);
 });
