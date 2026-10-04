@@ -145,6 +145,9 @@
       "$ref": "https://ace.local/protocol/v1/WorkspaceActionRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProjectsRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/TerminalRequest.json"
     },
     {

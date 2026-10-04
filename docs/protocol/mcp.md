@@ -67,7 +67,6 @@ Example:
       "override": null,
       "pending": true
     },
-    "pinned": true,
     "provider": "pi",
     "status": {
       "on": "rate_limit",

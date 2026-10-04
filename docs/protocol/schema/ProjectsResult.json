@@ -1,0 +1,197 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectsResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "git": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/ProjectGit.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "inspection",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "suggestedRepoRoot": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "git",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "initialBranch": {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "kind": {
+              "const": "home",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "roots": {
+              "items": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "roots",
+            "initialBranch"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "folders": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/Project.json"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "kind": {
+              "const": "recentFolders",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "folders"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entries": {
+              "items": {
+                "properties": {
+                  "git": {
+                    "type": "boolean"
+                  },
+                  "modifiedAt": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "name": {
+                    "$ref": "https://ace.local/protocol/v1/ProjectDirectoryName.json"
+                  },
+                  "path": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "path",
+                  "git",
+                  "modifiedAt"
+                ],
+                "type": "object"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "kind": {
+              "const": "directories",
+              "type": "string"
+            },
+            "next": {
+              "$ref": "https://ace.local/protocol/v1/ProjectDirectoryName.json"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "entries"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "commandId": {
+              "$ref": "https://ace.local/protocol/v1/CommandId.json"
+            },
+            "kind": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "commandId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "kind": {
+              "const": "error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "code"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "projects.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}
