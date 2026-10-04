@@ -141,7 +141,9 @@ export function message(
         item,
         draft: {
           type: "message",
-          ...((role === "user" || list(m["content"]).length === 1) && string(data["uuid"])
+          ...((role === "user" || list(m["content"]).length === 1) &&
+          string(data["uuid"]) &&
+          string(data["uuid"]).length <= 256
             ? { nativeId: string(data["uuid"]) }
             : {}),
           role,

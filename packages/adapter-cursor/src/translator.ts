@@ -128,7 +128,9 @@ export class CursorTranslator implements Translator {
               role: "user",
               parts: input.data,
               complete: true,
-              ...(event.commandId ? { nativeId: event.commandId } : {}),
+              ...(event.commandId && event.commandId.length <= 256
+                ? { nativeId: event.commandId }
+                : {}),
             },
           });
         this.segment = event.segment;

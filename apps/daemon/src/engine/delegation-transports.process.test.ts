@@ -9,6 +9,8 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
 });
+const inputText = (parts: ContentPart[]) =>
+  parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 
 // CLI boundary doubles emit native transport frames through the production translators.
 // Not executed (tests run at merge).
@@ -47,8 +49,6 @@ test.each([
         ...(replayed ? { replayed } : {}),
       });
     }
-    const inputText = (parts: ContentPart[]) =>
-      parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
     function sendInput(
       context: SessionContext,
       commandId: string,
@@ -267,6 +267,28 @@ test.each([
     );
     expect(copiedPage.filter((entry) => entry.type === "delegation.settled")).toEqual(
       resultsBeforeCopy,
+    );
+    const unknownIdentity = `external-${"x".repeat(300)}`;
+    replayInput(reopened.context, unknownIdentity, unknownIdentity, [
+      { type: "text", text: "Uncorrelated native input" },
+    ]);
+    await h.engine.flush();
+    const unknownInput = h.store
+      .readItemPage(parent, h.store.headSeq() + 1, 100)
+      .items.find(
+        (entry) =>
+          entry.type === "message" &&
+          entry.parts.some(
+            (part) => part.type === "text" && part.text === "Uncorrelated native input",
+          ),
+      );
+    expect(unknownInput).toMatchObject({
+      type: "message",
+      role: "user",
+      parts: [{ type: "text", text: "Uncorrelated native input" }],
+    });
+    expect(unknownInput && "raw" in unknownInput && JSON.stringify(unknownInput.raw)).toContain(
+      unknownIdentity,
     );
     expect(h.errors).toEqual([]);
     function assertTranscript(thread: ThreadId) {
