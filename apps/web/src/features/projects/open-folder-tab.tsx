@@ -5,7 +5,7 @@ import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { FolderBrowser } from "./folder-browser.tsx";
-import { Footer, Problem } from "./form-parts.tsx";
+import { Footer, Offer, Problem } from "./form-parts.tsx";
 import { projectFailure, useProjectCommands, type Added } from "./project-commands.ts";
 import type { FolderAttempt } from "./requests.ts";
 import { useFolderInspection, useHostHome, useRecentFolders } from "./use-folders.ts";
@@ -102,7 +102,7 @@ export function OpenFolderTab(props: {
       {problem && problem.path === target ? (
         <Problem>{problem.message}</Problem>
       ) : root && target ? (
-        <Problem
+        <Offer
           action={
             <Button size="sm" disabled={adding || props.offline} onClick={() => void add(root)}>
               Add {folderName(root)}
@@ -111,7 +111,7 @@ export function OpenFolderTab(props: {
         >
           {folderName(target)} is inside the {folderName(root)} repository. Add the repository to
           work on all of it, or add just this folder.
-        </Problem>
+        </Offer>
       ) : null}
       <Footer
         note={

@@ -1,4 +1,4 @@
-import { FolderSimpleIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { FolderSimpleIcon, GitBranchIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { displayPath } from "@ace/ui-core";
 import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -59,6 +59,17 @@ export function Problem(props: { children: ReactNode; action?: ReactNode }) {
   return (
     <div role="alert" className="flex items-start gap-2 rounded-md bg-secondary px-3 py-2 text-ui">
       <Icon icon={WarningCircleIcon} className="mt-px text-status-failed" />
+      <p className="min-w-0 flex-1 text-foreground">{props.children}</p>
+      {props.action}
+    </div>
+  );
+}
+
+/** A choice the person may want instead (the repository around a folder). Not an error. */
+export function Offer(props: { children: ReactNode; action: ReactNode }) {
+  return (
+    <div role="note" className="flex items-start gap-2 rounded-md bg-secondary px-3 py-2 text-ui">
+      <Icon icon={GitBranchIcon} className="mt-px text-muted-foreground" />
       <p className="min-w-0 flex-1 text-foreground">{props.children}</p>
       {props.action}
     </div>

@@ -19,6 +19,8 @@ export type CloneRun =
       phase: ClonePhase;
       percent: number | undefined;
       cancelling: boolean;
+      /** Why Cancel didn't take, when it didn't. */
+      cancelProblem?: string | undefined;
     }
   | { status: "failed"; input: CloneInput; problem: ProjectProblem & { code: string } };
 
@@ -93,11 +95,21 @@ export function useCloneRun(options: { visible: boolean; onCloned(result: Added)
 
   const cancel = () => {
     if (run.status !== "running" || run.cancelling) return;
-    setRun({ ...run, cancelling: true });
+    setRun({ ...run, cancelling: true, cancelProblem: undefined });
     // The clone's own receipt ends the run; a cancel that came too late leaves it finishing.
-    commands.cancelClone(run.commandId).catch(() => {
+    commands.cancelClone(run.commandId).catch((error: unknown) => {
+      const problem = projectFailure(error);
       setRun((previous) =>
-        previous.status === "running" ? { ...previous, cancelling: false } : previous,
+        previous.status === "running"
+          ? {
+              ...previous,
+              cancelling: false,
+              cancelProblem:
+                problem.code === "clone_not_running"
+                  ? "Too late to cancel: the clone is finishing."
+                  : problem.message,
+            }
+          : previous,
       );
     });
   };

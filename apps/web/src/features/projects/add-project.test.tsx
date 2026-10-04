@@ -81,7 +81,7 @@ test("a folder inside a repository offers the repository, added only when chosen
   await userEvent.dblClick(await option("packages"));
   await userEvent.click(await option("web"));
 
-  const offer = await screen.findByRole("alert");
+  const offer = await screen.findByRole("note");
   expect(offer.textContent).toContain("web is inside the mono repository");
   await userEvent.click(within(offer).getByRole("button", { name: "Add mono" }));
   await screen.findByRole("heading", { name: "What should we work on in mono?" });

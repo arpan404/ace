@@ -91,12 +91,15 @@ export function CloneProjectTab(props: { offline: boolean; clone: CloneControl }
         disabled={running}
       />
       {running ? (
-        <CloneProgress
-          phase={run.phase}
-          percent={run.percent}
-          cancelling={run.cancelling}
-          onCancel={props.clone.cancel}
-        />
+        <>
+          <CloneProgress
+            phase={run.phase}
+            percent={run.percent}
+            cancelling={run.cancelling}
+            onCancel={props.clone.cancel}
+          />
+          {run.cancelProblem && <Problem>{run.cancelProblem}</Problem>}
+        </>
       ) : run.status === "failed" ? (
         <Problem>{run.problem.message}</Problem>
       ) : (
