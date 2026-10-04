@@ -65,18 +65,22 @@ export interface Anchor {
   key: string | number;
   index: number;
   offset: number;
+  /** An item the row shows, to find it again once it folds into its turn or opens out of it. */
+  itemId?: string | undefined;
 }
 
 /**
  * Keep the anchored row where the reader saw it when rows change above it: older history
- * prepended, a jumped window sliding newer (its oldest rows leave) or older. A row that is gone
- * (folded into its turn, left the window) leaves the scroll as it is.
+ * prepended, a jumped window sliding newer (its oldest rows leave) or older, or turns folding.
+ * A row that folded into its turn (or opened out of it) is found by an item it shows; a row
+ * that is gone (left the window) leaves the scroll as it is.
  */
 export function useKeepPlace(
   keys: readonly (string | number)[],
   anchorRef: RefObject<Anchor | undefined>,
   pinnedRef: RefObject<boolean>,
   restore: (index: number, offset: number) => void,
+  rowOfItem: (itemId: string) => number,
 ) {
   const previous = useRef(keys);
   useLayoutEffect(() => {
@@ -85,9 +89,10 @@ export function useKeepPlace(
     const at = anchorRef.current;
     if (before === keys || pinnedRef.current || !at) return;
     if (keys[at.index] === at.key) return;
-    const index = keys.indexOf(at.key);
+    let index = keys.indexOf(at.key);
+    if (index < 0 && at.itemId !== undefined) index = rowOfItem(at.itemId);
     if (index < 0) return;
-    anchorRef.current = { ...at, index };
+    anchorRef.current = { ...at, index, key: keys[index] ?? at.key };
     restore(index, at.offset);
-  }, [keys, anchorRef, pinnedRef, restore]);
+  }, [keys, anchorRef, pinnedRef, restore, rowOfItem]);
 }

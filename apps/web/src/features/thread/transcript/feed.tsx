@@ -185,7 +185,8 @@ export function Feed(props: FeedProps) {
     },
     [virtualizer],
   );
-  useKeepPlace(keys, anchor, pinnedRef, restore);
+  const rowOfItem = useCallback((itemId: string) => rowOf(rows, itemId), [rows]);
+  useKeepPlace(keys, anchor, pinnedRef, restore, rowOfItem);
   // Rows changing (a slide, a fold, history paging in) move the view by themselves; those
   // scroll events are not the reader's.
   useLayoutEffect(() => {
@@ -219,11 +220,16 @@ export function Feed(props: FeedProps) {
     const items = virtualizer.getVirtualItems();
     const first = items.find((item) => item.end > top);
     if (!first) return;
-    anchor.current = {
-      key: rows[first.index]?.key ?? String(first.key),
-      index: first.index,
-      offset: first.start - el.scrollTop,
-    };
+    const row = rows[first.index];
+    // While code is placing the view (a jump landing, a restored place), the place it set is
+    // the reader's; what the virtualizer last rendered may not have caught up yet.
+    if (performance.now() >= placedUntil.current)
+      anchor.current = {
+        key: row?.key ?? String(first.key),
+        index: first.index,
+        offset: first.start - el.scrollTop,
+        itemId: row ? rowItem(row) : undefined,
+      };
     const turnFrom = (index: number) => {
       for (let at = index; at < Math.min(rows.length, index + 8); at++) {
         const ordinal = rows[at]?.ordinal;
@@ -255,6 +261,12 @@ export function Feed(props: FeedProps) {
     settle(virtualizer, viewport.current, placedUntil);
     const key = rows[index]?.key;
     if (key) setFlash({ key, hit: focus.query !== undefined });
+    // The jump's row is the reader's place from now on, so rows folding or sliding around it
+    // (the window's turns arriving, say) keep it where it landed.
+    const el = viewport.current;
+    const start = virtualizer.measurementsCache[index]?.start;
+    if (key && el && start !== undefined)
+      anchor.current = { key, index, offset: start - el.scrollTop, itemId: focus.itemId };
   }, [focus, rows, focusOrdinal, virtualizer, setPinned]);
   useEffect(() => {
     if (!flash || flash.hit) return;
@@ -494,6 +506,13 @@ function RowView(props: {
         </Suspense>
       );
   }
+}
+
+/** An item a row shows, for finding it again once it folds or opens. */
+function rowItem(row: Row): string | undefined {
+  if (row.kind === "turn") return row.itemIds[0];
+  if (row.kind === "block") return "itemIds" in row.block ? row.block.itemIds[0] : row.block.itemId;
+  return undefined;
 }
 
 /** A turn's line while its row's code loads (it loads while idle, so rarely seen). */
