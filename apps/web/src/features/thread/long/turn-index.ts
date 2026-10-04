@@ -1,6 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { TurnSummary } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { useOptionalThreadNav, useWatched, Watched } from "./nav.tsx";
 
 /*
  * The thread's turn index (ADR 0062) as the timeline, collapsed turns and jumped windows read
@@ -24,24 +25,37 @@ export interface TurnIndexHead {
   ready: boolean;
 }
 
-/** The newest turn, which says how many there are. Read again while the thread works. */
+const unknownTurn = new Watched<number | undefined>(undefined);
+
+/**
+ * The newest turn, which says how many there are. Read again whenever the live tail shows a
+ * newer turn than the last read did, so new turns join the list and the block they land in is
+ * read again, without polling.
+ */
 export function useTurnHead(
   threadId: string,
-  options: { enabled?: boolean; live?: boolean } = {},
+  options: { enabled?: boolean } = {},
 ): TurnIndexHead | undefined {
-  const query = useDaemonQuery({
-    queryKey: ["thread-turns", threadId, "head"],
+  const nav = useOptionalThreadNav();
+  const liveTurn = useWatched(nav?.liveTurn ?? unknownTurn);
+  const query = useDaemonQuery<TurnIndexHead>({
+    queryKey: ["thread-turns", threadId, "head", liveTurn ?? 0],
     read: async (client: ClientApi, signal) => {
       const page = await client.turnsPage({ threadId, limit: 1 }, { signal });
       const latest = page.turns.at(-1);
       return { count: latest?.ordinal ?? 0, latest, ready: page.ready };
     },
     enabled: options.enabled ?? true,
-    staleTime: 2_000,
+    staleTime: 30_000,
     gcTime: blockGcMs,
-    refetchInterval: options.live ? 4_000 : false,
+    // A new turn's key replaces the last one; keep showing it until the new read lands.
+    placeholderData: (previous) => previous,
   });
-  return query.data;
+  const head = query.data;
+  // The live tail may already show a turn the index is about to report.
+  return head && liveTurn !== undefined && liveTurn > head.count
+    ? { ...head, count: liveTurn }
+    : head;
 }
 
 /**
@@ -69,20 +83,28 @@ async function readBlock(
   return turns;
 }
 
-/** One block of turns, while something shows it. `live` re-reads it while turns change. */
+/**
+ * One block of turns, while something shows it. The block holding the newest turn is read again
+ * as turns join it: its key carries how far the thread had got, so a block read while the
+ * thread was at turn 92 is not mistaken for one that ends at 100.
+ */
 export function useTurnBlock(
   threadId: string,
   block: number | undefined,
-  options: { live?: boolean } = {},
 ): ReadonlyMap<number, TurnSummary> | undefined {
-  const query = useDaemonQuery({
-    queryKey: ["thread-turns", threadId, "block", block],
+  const head = useTurnHead(threadId)?.count;
+  const end = ((block ?? 0) + 1) * turnBlockSize;
+  const filled = head === undefined ? undefined : head >= end ? "full" : head;
+  const query = useDaemonQuery<ReadonlyMap<number, TurnSummary>>({
+    queryKey: ["thread-turns", threadId, "block", block, filled],
+    // While a block the thread has grown into is read again, its earlier read stands in.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[3] === block ? previous : undefined,
     read: (client: ClientApi, signal) => readBlock(client, threadId, block ?? 0, signal),
-    enabled: block !== undefined && block >= 0,
+    enabled: block !== undefined && block >= 0 && filled !== undefined,
     // Settled turns rarely change (a late background result can still reach one).
-    staleTime: options.live ? 2_000 : 30_000,
+    staleTime: filled === "full" ? 30_000 : 2_000,
     gcTime: blockGcMs,
-    refetchInterval: options.live ? 4_000 : false,
   });
   return query.data;
 }
@@ -91,12 +113,7 @@ export function useTurnBlock(
 export function useTurnSummary(
   threadId: string,
   ordinal: number | undefined,
-  options: { live?: boolean } = {},
 ): TurnSummary | undefined {
-  const block = useTurnBlock(
-    threadId,
-    ordinal === undefined ? undefined : blockOf(ordinal),
-    options,
-  );
+  const block = useTurnBlock(threadId, ordinal === undefined ? undefined : blockOf(ordinal));
   return ordinal === undefined ? undefined : block?.get(ordinal);
 }

@@ -1,4 +1,3 @@
-import { useThreadMeta } from "@ace/client-react";
 import {
   asSentence,
   digestFacts,
@@ -34,9 +33,7 @@ const optionId = (ordinal: number) => `turn-option-${ordinal}`;
  */
 export function TurnsPanel(props: { nav: ThreadNav }) {
   const { nav } = props;
-  const meta = useThreadMeta(nav.threadId);
-  const settled = meta?.status.state === "done" || meta?.status.state === "new";
-  const head = useTurnHead(nav.threadId, { live: !settled });
+  const head = useTurnHead(nav.threadId);
   const count = head?.count ?? 0;
   const current = useWatched(nav.currentTurn);
   const [active, setActive] = useState<number>();
@@ -49,17 +46,20 @@ export function TurnsPanel(props: { nav: ThreadNav }) {
     estimateSize: () => rowHeight,
     overscan: 6,
   });
-  const shown = active ?? current ?? count;
-  // Open on the turn being read, once the count is known.
-  const placed = useRef(false);
+  // At the live end the newest turn is the one being read; elsewhere the turn at the top.
+  const following = useWatched(nav.following);
+  const reading = following ? count : (current ?? count);
+  const shown = active ?? reading;
+  // Open on the turn being read, and keep it in view as turns arrive until the reader moves.
+  const touched = useRef(false);
   useLayoutEffect(() => {
-    if (placed.current || !count) return;
-    placed.current = true;
+    if (touched.current || !count) return;
     virtualizer.scrollToIndex(Math.max(0, Math.min(count, shown) - 1), { align: "center" });
   }, [count, shown, virtualizer]);
   useEffect(() => list.current?.focus(), []);
 
   const move = (ordinal: number) => {
+    touched.current = true;
     const next = Math.max(1, Math.min(count, ordinal));
     setActive(next);
     virtualizer.scrollToIndex(next - 1, { align: "auto" });
@@ -112,7 +112,16 @@ export function TurnsPanel(props: { nav: ThreadNav }) {
           onClick={() => nav.setTurnsOpen(false)}
         />
       </div>
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5">
+      <div
+        ref={scroller}
+        onWheel={() => {
+          touched.current = true;
+        }}
+        onPointerDown={() => {
+          touched.current = true;
+        }}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5"
+      >
         {head && !count ? (
           <p className="px-2.5 py-3 text-ui text-muted-foreground">No turns yet.</p>
         ) : (
@@ -136,7 +145,7 @@ export function TurnsPanel(props: { nav: ThreadNav }) {
                   threadId={nav.threadId}
                   ordinal={item.index + 1}
                   active={item.index + 1 === shown}
-                  reading={item.index + 1 === current}
+                  reading={item.index + 1 === reading}
                   onPick={() => pick(item.index + 1)}
                 />
               </div>

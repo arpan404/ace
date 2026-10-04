@@ -1,5 +1,5 @@
-import type { ThreadSource } from "@ace/client";
-import { useClient, useThreadStore } from "@ace/client-react";
+import type { ThreadReader, ThreadSource } from "@ace/client";
+import { useClient, useThread, useThreadStore } from "@ace/client-react";
 import { itemTurnOrdinals } from "@ace/ui-core";
 import {
   createContext,
@@ -45,6 +45,8 @@ export interface ThreadNav {
   currentTurn: Watched<number | undefined>;
   /** The reader is at the live end and new output scrolls into view. */
   following: Watched<boolean>;
+  /** The newest root turn the live tail shows: the turn index is read again when it moves. */
+  liveTurn: Watched<number | undefined>;
   turnsOpen: boolean;
   setTurnsOpen(open: boolean): void;
   searchOpen: boolean;
@@ -54,6 +56,14 @@ export interface ThreadNav {
 }
 
 const NavContext = createContext<ThreadNav | undefined>(undefined);
+
+/** The newest root turn among the live tail's items. */
+function readLiveTurn(reader: ThreadReader): number | undefined {
+  let newest: number | undefined;
+  for (const ordinal of itemTurnOrdinals(reader))
+    if (ordinal !== undefined && (newest === undefined || ordinal > newest)) newest = ordinal;
+  return newest;
+}
 
 /** Where root turn `ordinal` starts in the live tail, if the tail holds it. */
 function firstItemOf(live: ThreadSource | undefined, ordinal: number): string | undefined {
@@ -79,6 +89,9 @@ export function ThreadNavProvider(props: { threadId: string; children: ReactNode
   useEffect(() => () => jump.dispose(), [jump]);
   const [currentTurn] = useState(() => new Watched<number | undefined>(undefined));
   const [following] = useState(() => new Watched(true));
+  const [liveTurn] = useState(() => new Watched<number | undefined>(undefined));
+  const newestTurn = useThread(props.threadId, ["order", "agents"], readLiveTurn);
+  useEffect(() => liveTurn.set(newestTurn), [liveTurn, newestTurn]);
   const [turnsOpen, setTurnsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchFocus] = useState(() => new Watched(0));
@@ -88,13 +101,14 @@ export function ThreadNavProvider(props: { threadId: string; children: ReactNode
       jump,
       currentTurn,
       following,
+      liveTurn,
       turnsOpen,
       setTurnsOpen,
       searchOpen,
       setSearchOpen,
       searchFocus,
     }),
-    [props.threadId, jump, currentTurn, following, turnsOpen, searchOpen, searchFocus],
+    [props.threadId, jump, currentTurn, following, liveTurn, turnsOpen, searchOpen, searchFocus],
   );
   return <NavContext.Provider value={value}>{props.children}</NavContext.Provider>;
 }
