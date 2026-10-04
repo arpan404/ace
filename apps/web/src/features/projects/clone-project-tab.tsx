@@ -108,7 +108,7 @@ export function CloneProjectTab(props: { offline: boolean; clone: CloneControl }
       )}
       <Footer
         {...(running
-          ? { closeLabel: "Close", note: "The clone carries on if you close this." }
+          ? { closeLabel: "Hide", note: "The clone carries on while this is hidden." }
           : {})}
       >
         <Button type="submit" variant="primary" disabled={running || props.offline || !parent}>

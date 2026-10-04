@@ -2,7 +2,7 @@ import { FolderSimpleIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import { useConnectionState } from "@ace/client-react";
 import { displayPath, folderName } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -23,12 +23,17 @@ export function OpenFolderScreen(props: { folder: string }) {
   const projects = useProjectDialogs();
   const [failure, setFailure] = useState<ReturnType<typeof projectFailure>>();
 
+  // Once per folder and connection: the latest callbacks, without re-adding when they change.
+  const latest = useRef({ commands, land });
+  useEffect(() => {
+    latest.current = { commands, land };
+  });
   useEffect(() => {
     if (!ready) return;
     let current = true;
-    commands.add(props.folder).then(
+    latest.current.commands.add(props.folder).then(
       (result) => {
-        if (current) land(result, "Opened", { replace: true });
+        if (current) latest.current.land(result, "Opened", { replace: true });
       },
       (error: unknown) => {
         if (current) setFailure(projectFailure(error));
@@ -37,7 +42,7 @@ export function OpenFolderScreen(props: { folder: string }) {
     return () => {
       current = false;
     };
-  }, [ready, commands, land, props.folder]);
+  }, [ready, props.folder]);
 
   const name = folderName(props.folder);
   return (

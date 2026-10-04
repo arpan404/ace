@@ -24,11 +24,26 @@ export function rememberProject(queryClient: QueryClient, project: Project): voi
   queryClient.setQueryData<Project[]>(projectsKey, (list) =>
     list ? [...list.filter((p) => p.id !== project.id), project] : list,
   );
+  settle(queryClient);
 }
 
 /** Drop a removed project from the shared list. */
 export function forgetProject(queryClient: QueryClient, id: string): void {
   queryClient.setQueryData<Project[]>(projectsKey, (list) => list?.filter((p) => p.id !== id));
+  settle(queryClient);
+}
+
+/**
+ * Read the list again behind the edit. A first read still in flight (sent before the change,
+ * so without it) is dropped rather than joined: Query would otherwise hand its old answer to
+ * the refetch and put the old list back.
+ */
+function settle(queryClient: QueryClient): void {
+  const exact = { queryKey: projectsKey, exact: true };
+  void queryClient
+    .cancelQueries(exact)
+    .then(() => queryClient.invalidateQueries(exact))
+    .catch(() => {});
 }
 
 /**
@@ -44,7 +59,7 @@ export function useProjectListSync(): void {
       client.projects.onChanged((change) => {
         if (change.change === "removed") forgetProject(queryClient, change.workspaceId);
         else if (change.workspace) rememberProject(queryClient, change.workspace);
-        else void queryClient.invalidateQueries({ queryKey: projectsKey });
+        else settle(queryClient);
       }),
     [client, queryClient],
   );

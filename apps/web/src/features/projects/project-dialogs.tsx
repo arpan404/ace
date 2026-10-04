@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { AddProjectDialog } from "./add-project-dialog.tsx";
 import { useLandInProject } from "./land.ts";
@@ -49,18 +49,24 @@ export default function ProjectDialogs(props: {
     onRequest(path ? { kind: "folder", path } : { kind: "add", tab: "open" });
   }, [request, onRequest]);
 
-  // A folder request is added here and never shows a dialog unless it fails.
+  // A folder request is added here and never shows a dialog unless it fails. Once per request:
+  // the latest callbacks, without adding again when they change.
+  const latest = useRef({ commands, land, onOpenChange, onRequest });
+  useEffect(() => {
+    latest.current = { commands, land, onOpenChange, onRequest };
+  });
   useEffect(() => {
     if (request.kind !== "folder") return;
     let current = true;
-    onOpenChange(false);
-    commands.add(request.path).then(
+    const run = latest.current;
+    run.onOpenChange(false);
+    run.commands.add(request.path).then(
       (result) => {
-        if (current) land(result);
+        if (current) latest.current.land(result);
       },
       (error: unknown) => {
         if (current)
-          onRequest({
+          latest.current.onRequest({
             kind: "add",
             tab: "open",
             attempt: { path: request.path, problem: projectFailure(error).message },
@@ -70,7 +76,7 @@ export default function ProjectDialogs(props: {
     return () => {
       current = false;
     };
-  }, [request, commands, land, onOpenChange, onRequest]);
+  }, [request]);
 
   if (request.kind === "rename")
     return (
