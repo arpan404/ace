@@ -52,6 +52,7 @@ export const ProjectsResult = z.object({
     z.object({
       kind: z.literal("home"),
       path,
+      canonicalPath: path,
       roots: z.array(path).max(32),
       initialBranch: z.string().max(1024),
     }),

@@ -21,6 +21,9 @@
       "$ref": "https://ace.local/protocol/v1/MachinesRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProvidersRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/PreviewRequest.json"
     },
     {

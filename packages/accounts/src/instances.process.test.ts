@@ -83,8 +83,16 @@ test("login discovery sees the selected home rather than another account", async
           : a.homeDir;
     await mkdir(actualHome, { recursive: true });
     await writeFile(join(actualHome, "logged-in"), "yes");
-    expect((await loginStatus(a, discovery)).auth).toBe("logged_in");
-    expect((await loginStatus(b, discovery)).auth).toBe("logged_out");
+    const selected = await loginStatus(a, discovery);
+    // OpenCode lists configured connections; it does not verify their entitlement.
+    expect(selected, provider).toMatchObject(
+      provider === "opencode"
+        ? { auth: "unknown", authEvidence: "credentials_configured" }
+        : { auth: "logged_in" },
+    );
+    const other = await loginStatus(b, discovery);
+    expect(other.auth, provider).toBe("logged_out");
+    expect(other.authEvidence, provider).toBeUndefined();
   }
 });
 test("add launches the CLI login in its own home and persists the resulting status", async () => {

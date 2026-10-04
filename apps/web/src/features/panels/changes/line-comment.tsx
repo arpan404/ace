@@ -9,7 +9,7 @@ import { formatAge } from "@ace/ui-core";
 import type { ReviewDraft } from "./drafts.ts";
 
 const card =
-  "my-1 mr-3 ml-14 rounded-[9px] bg-popover px-2.5 py-2 font-sans text-sm leading-[1.45] whitespace-normal shadow-[0_0_0_1px_var(--border)]";
+  "my-1 mr-3 ml-14 rounded-md bg-popover px-2.5 py-2 font-sans text-sm leading-[1.45] whitespace-normal shadow-[0_0_0_1px_var(--border)]";
 
 /** Write or edit a comment on one line. ⌘↵ saves, Esc cancels. */
 export function CommentComposer(props: {

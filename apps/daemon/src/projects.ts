@@ -1,4 +1,5 @@
 import { projectRemotes } from "./project-git.ts";
+import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { ProjectDirectory } from "./project-directory.ts";
@@ -294,6 +295,7 @@ export class Projects {
         result = {
           kind: "home",
           path: this.home,
+          canonicalPath: await realpath(this.home),
           roots: await this.paths.roots(),
           initialBranch: await this.git.initialBranch(this.home),
         };

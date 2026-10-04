@@ -1,15 +1,17 @@
+import { WorkspaceCreations } from "./creation-workspace.ts";
 import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { GitError, type GitService } from "@ace/git";
 import { repositoryFromRemote } from "@ace/forge";
-import type { ThreadId, ThreadDetails } from "@ace/protocol";
+import { ThreadId, type ThreadDetails, type Command } from "@ace/protocol";
 import type { Store } from "./store.ts";
 export type WorkspaceGit = Pick<GitService, keyof GitService>;
 /** Thin filesystem/Git shell around the provider session's durable root binding. */
 export class WorkspaceRoots {
   private preparations = new Map<ThreadId, Promise<string>>();
   private closing = false;
+  private creations: WorkspaceCreations;
   private store: Store;
   private git: WorkspaceGit;
   private directory: string;
@@ -22,6 +24,7 @@ export class WorkspaceRoots {
     now: () => number,
     machine: { host: string; name: string },
   ) {
+    this.creations = new WorkspaceCreations(store, git, directory);
     this.store = store;
     this.git = git;
     this.directory = directory;
@@ -51,21 +54,7 @@ export class WorkspaceRoots {
     if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
     const project = this.store.getWorkspacePath(thread.workspaceId);
     if (!project) throw new Error("workspace_not_found");
-    const key = createHash("sha256").update(id).digest("hex");
-    await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
-    const path = join(await realpath(join(this.directory, "worktrees")), key);
-    const branch = `ace/${key.slice(0, 24)}`;
-    const existing = (await this.git.listWorktrees(project)).find(
-      (tree) => tree.path === path && tree.branch === branch,
-    );
-    if (!existing) {
-      await this.git.createWorktree({
-        repo: project,
-        path,
-        baseRef: thread.details?.baseBranch ?? "HEAD",
-        branch,
-      });
-    }
+    const { path, branch } = await this.createWorktree(id, project, thread.details?.baseBranch);
     if (this.closing) throw new Error("workspace_closed");
     this.store.atomic(() => {
       if (!this.store.completeWorkspacePreparation(id, expectedRoot, path))
@@ -86,6 +75,32 @@ export class WorkspaceRoots {
       );
     });
     return path;
+  }
+  prepareCreation(command: Command) {
+    return this.creations.prepare(command);
+  }
+  private async createWorktree(
+    id: ThreadId,
+    project: string,
+    baseBranch?: string,
+  ): Promise<{ path: string; branch: string }> {
+    const key = createHash("sha256").update(id).digest("hex");
+    await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
+    const path = join(await realpath(join(this.directory, "worktrees")), key);
+    const branch = `ace/${key.slice(0, 24)}`;
+    const existing = (await this.git.listWorktrees(project)).find(
+      (tree) => tree.path === path && tree.branch === branch,
+    );
+    if (!existing) {
+      await this.git.createWorktree({
+        repo: project,
+        path,
+        baseRef: baseBranch ?? "HEAD",
+        branch,
+      });
+    }
+    if (this.closing) throw new Error("workspace_closed");
+    return { path, branch };
   }
   async changeRoots(id: ThreadId, mode: "local" | "worktree"): Promise<string[]> {
     const thread = this.store.getThread(id);
@@ -225,6 +240,7 @@ export class WorkspaceRoots {
   }
   async close(): Promise<void> {
     this.closing = true;
+    await this.creations.close();
     await Promise.allSettled(this.preparations.values());
   }
 }

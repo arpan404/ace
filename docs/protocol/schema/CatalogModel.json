@@ -65,6 +65,9 @@
     "isDefault": {
       "type": "boolean"
     },
+    "isNew": {
+      "type": "boolean"
+    },
     "modelConfigId": {
       "maxLength": 256,
       "minLength": 1,

@@ -66,7 +66,7 @@ export function PermissionReviewNote(props: { review: PermissionReview; waiting:
         aria-expanded={open}
         aria-controls={details}
         onClick={() => setOpen(!open)}
-        className="-mx-1.5 flex min-h-7 w-[calc(100%+12px)] min-w-0 items-center gap-2 rounded-[7px] px-1.5 text-left text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+        className="-mx-1.5 flex min-h-7 w-[calc(100%+12px)] min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
       >
         <Icon icon={glyphs[view.tone]} size={16} className="text-subtle-foreground" />
         <span className="shrink-0 font-medium text-foreground">{view.verdict}</span>
@@ -103,7 +103,7 @@ export function PermissionReviewSummary(props: { review: PermissionReview; class
   return (
     <section
       aria-label="ace's review"
-      className={cn("rounded-[9px] bg-muted px-3 py-2.5", props.className)}
+      className={cn("rounded-md bg-muted px-3 py-2.5", props.className)}
     >
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon icon={glyphs[view.tone]} size={14} className="text-subtle-foreground" />

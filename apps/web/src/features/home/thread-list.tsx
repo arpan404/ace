@@ -5,7 +5,6 @@ import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
 import { type Arrangement } from "@ace/ui-core";
-import { AutoSettleNote } from "./auto-settle-note.tsx";
 import { SettledRow } from "./settled-row.tsx";
 import { HomeMachine, useHomeMachine } from "./thread-details.ts";
 import { ThreadRow } from "./thread-row.tsx";
@@ -15,20 +14,18 @@ import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 type Row =
   | { kind: "thread"; id: string }
   | { kind: "settled-header"; count: number }
-  | { kind: "settled"; id: string }
-  | { kind: "rule" };
+  | { kind: "settled"; id: string };
 
 const estimates: Record<Row["kind"], number> = {
   thread: 74,
   "settled-header": 40,
   settled: 30,
-  rule: 52,
 };
 const keyOf = (row: Row) => (row.kind === "thread" || row.kind === "settled" ? row.id : row.kind);
 
 /**
  * The Home list, virtualized: cards in Home order, then the collapsible Settled section with
- * compact rows and the auto-settle rule. Only visible rows mount. Rows that arrive (a new thread,
+ * compact rows (when threads settle is a setting, in Settings › General). Only visible rows mount. Rows that arrive (a new thread,
  * an unsnooze) rise in, rows that go (settle, snooze, archive) fade where they were, and the
  * rest slide to their new places.
  */
@@ -41,9 +38,7 @@ export function ThreadList(props: { arrangement: Arrangement }) {
     () => [
       ...active.map((id): Row => ({ kind: "thread", id })),
       { kind: "settled-header", count: settled.length },
-      ...(settledOpen
-        ? [...settled.map((id): Row => ({ kind: "settled", id })), { kind: "rule" } as const]
-        : []),
+      ...(settledOpen ? settled.map((id): Row => ({ kind: "settled", id })) : []),
     ],
     [active, settled, settledOpen],
   );
@@ -96,13 +91,12 @@ export function ThreadList(props: { arrangement: Arrangement }) {
                 <div className={rowMotion(entry.phase)}>
                   {row.kind === "thread" && <ThreadRow threadId={row.id} />}
                   {row.kind === "settled" && <SettledRow threadId={row.id} />}
-                  {row.kind === "rule" && <AutoSettleNote />}
                   {row.kind === "settled-header" && (
                     <button
                       type="button"
                       aria-expanded={settledOpen}
                       onClick={() => organizer.setSettledOpen(!settledOpen)}
-                      className="mt-3 mb-0.5 flex w-full items-center gap-2 rounded-[7px] px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1) after:h-px after:flex-1 after:bg-sidebar-border hover:text-muted-foreground"
+                      className="mt-3 mb-0.5 flex w-full items-center gap-2 rounded-sm px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1) after:h-px after:flex-1 after:bg-sidebar-border hover:text-muted-foreground"
                     >
                       Settled ({row.count})
                       <CaretDownIcon
