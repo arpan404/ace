@@ -68,3 +68,14 @@ sandbox guarantee at open. Auto-review remains the ace default. An unsupported
 host launches with this disclosed read-only fallback, never full access.
 Source: [Cursor SDK options and executor prewarming](https://cursor.com/docs/sdk/typescript)
 and the pinned 1.0.35 public declarations.
+
+Pi 0.85.1 exposes a blocking `tool_call` extension event before execution.
+The ace extension forwards exact tool input through RPC `ui.confirm` as a
+canonical approval with Allow once and Deny. Ask and Auto-review enable the
+standard read/write/edit/bash/search tools with ambient extensions disabled.
+The engine owns deterministic review, physical path checks and durable decisions.
+Read-only also gates reads and excludes mutation tools. Missing UI, malformed
+input and failed approval delivery block execution. No OS sandbox is claimed.
+This supersedes the Pi tool-selection row and the statement that Pi cannot gate
+operations. Sources: pinned official [extension contract](https://raw.githubusercontent.com/badlogic/pi-mono/v0.85.1/packages/coding-agent/docs/extensions.md)
+and [RPC confirmation contract](https://raw.githubusercontent.com/badlogic/pi-mono/v0.85.1/packages/coding-agent/docs/rpc.md).

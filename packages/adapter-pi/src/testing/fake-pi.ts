@@ -1,5 +1,6 @@
 /** Synthetic documented RPC peer. This executable never imports or starts Pi. */
 import { createInterface } from "node:readline";
+import { writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { NativeHistory } from "./native-history.ts";
 import { registerAcePiExtension, type PiExtensionApi } from "../index.ts";
@@ -17,6 +18,9 @@ function emit(data: unknown) {
 }
 const reply = (c: z.infer<typeof Command>, data: unknown = {}) =>
   emit({ type: "response", id: c.id, command: c.type, success: true, data });
+const hooks = new Map<string, unknown>();
+const approvals = new Map<string, (confirmed: boolean) => void>();
+let approvalId = 0;
 const commands = new Map<string, Parameters<PiExtensionApi["registerCommand"]>[1]>();
 await registerAcePiExtension(
   {
@@ -27,9 +31,14 @@ await registerAcePiExtension(
       emit({ type: "entry_appended", entry: history.append(customType, data) });
     },
     registerTool() {},
-    on() {},
+    on(event, handler) {
+      hooks.set(event, handler);
+    },
   },
-  { ACE_PI_CONTROL_SECRET: process.env.ACE_PI_CONTROL_SECRET },
+  {
+    ACE_PI_CONTROL_SECRET: process.env.ACE_PI_CONTROL_SECRET,
+    ACE_PI_PERMISSION_MODE: process.env.ACE_PI_PERMISSION_MODE,
+  },
 );
 const input = createInterface({ input: process.stdin });
 input.on("line", (line) => {
@@ -42,7 +51,11 @@ async function handle(line: string) {
       reply(c, {
         commands: process.env.FAKE_PI_EXTENSION_MISSING
           ? []
-          : [{ name: "ace-rollback", source: "extension", sourceInfo: { path: extension } }],
+          : [...commands.keys()].map((name) => ({
+              name,
+              source: "extension",
+              sourceInfo: { path: extension },
+            })),
       });
       return;
     case "get_state":
@@ -138,6 +151,8 @@ async function handle(line: string) {
       reply(c);
       return;
     case "extension_ui_response":
+      approvals.get(c.id ?? "")?.(c.confirmed === true);
+      approvals.delete(c.id ?? "");
       if (c.id === "fork-confirm") {
         confirmFork?.(c.confirmed === true);
         confirmFork = undefined;
@@ -191,6 +206,65 @@ async function handle(line: string) {
         method: "notify",
         message: JSON.stringify(c),
       });
+      if (message === "gated-write") {
+        const hook = hooks.get("tool_call");
+        const path = join(process.env.FAKE_PI_HOME ?? "", "approved.txt");
+        emit({
+          type: "tool_execution_start",
+          toolCallId: "write-call",
+          toolName: "write",
+          args: { path, content: "approved" },
+        });
+        const reviewed: Promise<unknown> =
+          typeof hook === "function"
+            ? Reflect.apply(hook, undefined, [
+                {
+                  toolName: "write",
+                  toolCallId: "write-call",
+                  input: { path, content: "approved" },
+                },
+                {
+                  cwd: process.env.FAKE_PI_HOME,
+                  hasUI: true,
+                  ui: {
+                    confirm(title: string, approvalMessage: string) {
+                      const id = `tool-approval-${++approvalId}`;
+                      emit({
+                        type: "extension_ui_request",
+                        id,
+                        method: "confirm",
+                        title,
+                        message: approvalMessage,
+                      });
+                      return new Promise<boolean>((resolve) => approvals.set(id, resolve));
+                    },
+                  },
+                },
+              ])
+            : Promise.resolve({ block: true });
+        reply(c);
+        const decision = z
+          .object({ block: z.boolean().optional() })
+          .optional()
+          .parse(await reviewed);
+        if (!decision?.block) await writeFile(path, "approved");
+        emit({
+          type: "tool_execution_end",
+          toolCallId: "write-call",
+          toolName: "write",
+          isError: decision?.block === true,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: decision?.block ? "gated write denied" : "gated write completed",
+              },
+            ],
+          },
+        });
+        emit({ type: "agent_settled" });
+        return;
+      }
       if (message === "large-dialog") {
         emit({
           type: "extension_ui_request",

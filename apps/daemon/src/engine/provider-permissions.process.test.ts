@@ -40,8 +40,8 @@ const providers = [
   {
     adapter: createPiAdapter(),
     version: "0.85.1",
-    level: "tool-selection",
-    gates: [true, true, false, true],
+    level: "tool-gate",
+    gates: [true, true, true, true],
   },
   {
     adapter: createAcpAdapter(genericQuirks),

@@ -1,3 +1,5 @@
+import { PermissionMode } from "@ace/protocol";
+import { registerPiToolGate } from "./tool-approval.ts";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { AceMcpConnectionSchema } from "@ace/mcp-server";
@@ -66,6 +68,7 @@ export default async function aceExtension(
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .parse(env.ACE_PI_CONTROL_SECRET);
+  registerPiToolGate(pi, PermissionMode.parse(env.ACE_PI_PERMISSION_MODE ?? "read-only"));
   pi.registerCommand("ace-rollback", {
     description: "ace conversation navigation",
     async handler(args, ctx) {
