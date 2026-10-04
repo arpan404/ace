@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectCloneUrl.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    "https://example.invalid/repo.git",
+    "ssh://git@example.invalid/repo.git",
+    "git@example.invalid:repo.git"
+  ],
+  "maxLength": 4096,
+  "minLength": 1,
+  "pattern": "^(?:https:\\/\\/|ssh:\\/\\/|git@)[^\\s]+$",
+  "type": "string",
+  "x-ace-constraint": "HTTPS, SSH or scp-style git@ URL with a host; no passwords, HTTPS usernames, whitespace or control bytes."
+}

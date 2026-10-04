@@ -645,6 +645,131 @@
     },
     {
       "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/ProjectName.json"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "workspace.add",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "git": {
+          "properties": {
+            "initialBranch": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "gitignore": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/ProjectName.json"
+        },
+        "parent": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "workspace.create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "parent",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/ProjectName.json"
+        },
+        "parent": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "workspace.clone",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "parent",
+        "name",
+        "url"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/ProjectName.json"
+        },
+        "type": {
+          "const": "workspace.rename",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "archiveThreads": {
+          "default": false,
+          "type": "boolean"
+        },
+        "type": {
+          "const": "workspace.remove",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "link": {
           "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
         },

@@ -1,4 +1,5 @@
 import {
+  deferredProjectsApi,
   downloadFile,
   uploadFile,
   type FileDownloadInput,
@@ -102,6 +103,7 @@ const states = new Set<string>(["connecting", "ready", "reconnecting", "offline"
 const isState = (state: string): state is ConnectionState => states.has(state);
 
 export class RemoteClient implements ClientApi {
+  readonly projects = deferredProjectsApi(this, () => import("@ace/client/project-calls"));
   private port: PortLike;
   private config: unknown;
   private options: RemoteOptions;

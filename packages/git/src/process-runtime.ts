@@ -1,9 +1,9 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { GitProcessRuntime } from "./types.ts";
 
 export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitProcessRuntime {
   return {
-    spawn: (command, args, options) => spawn(command, args, options),
+    spawn: spawnGitProcess,
     scheduleTimeout: (callback, milliseconds) => {
       const timer = setTimeout(callback, milliseconds);
       return () => clearTimeout(timer);
@@ -11,6 +11,22 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
     platform: process.platform,
     ...overrides,
   };
+}
+function piped(child: ChildProcess): child is ChildProcessWithoutNullStreams {
+  return child.stdin !== null && child.stdout !== null && child.stderr !== null;
+}
+/** Node's three-pipe overload does not describe additional inherited descriptors. Check the edge. */
+export function spawnGitProcess(
+  command: string,
+  args: string[],
+  options: Parameters<GitProcessRuntime["spawn"]>[2],
+): ChildProcessWithoutNullStreams {
+  const child = spawn(command, args, options);
+  if (!piped(child)) {
+    child.kill("SIGKILL");
+    throw new Error("Git requires three owned pipes");
+  }
+  return child;
 }
 
 export function killTree(

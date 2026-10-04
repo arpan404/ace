@@ -7,7 +7,9 @@ export type { Device } from "@ace/protocol";
 export type Scope = DeviceScope;
 export const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 export const allows = (device: Pick<Device, "scopes"> | undefined, scope: Scope) =>
-  device !== undefined && (device.scopes.includes("admin") || device.scopes.includes(scope));
+  device !== undefined &&
+  (device.scopes.includes(scope) ||
+    (scope === "projects" ? device.scopes.includes("desktop") : device.scopes.includes("admin")));
 
 function decode(row: Record<string, SQLOutputValue>): Device {
   return Device.parse({

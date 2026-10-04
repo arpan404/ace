@@ -1,5 +1,6 @@
 import type { SettingsValues } from "@ace/protocol";
 export const defaults: SettingsValues = {
+  "projects.roots": [],
   "threads.followUpBehavior": "queue",
   "threads.continueAfterRestart": false,
   "threads.limitPolicy": "manual",

@@ -29,13 +29,13 @@ Example:
 
 ```json
 {
-  "concurrency": 9,
-  "enabled": false,
+  "concurrency": 1,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 7,
+  "jitterMs": 8,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "opencode",
+  "provider": "acp",
   "title": "example",
   "trigger": {
     "kind": "manual"
@@ -99,23 +99,18 @@ Example:
 {
   "automation": {
     "concurrency": 10,
-    "enabled": true,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 7,
+    "jitterMs": 6,
     "missedRun": "skip",
-    "model": "example",
     "prompt": "example",
-    "provider": "antigravity",
+    "provider": "claude",
     "title": "example",
     "trigger": {
-      "event": "issue_labelled",
-      "kind": "github",
-      "pollIntervalMs": 60003,
-      "pullRequest": 7,
-      "repository": "TzD9./48_GG41jIsb"
+      "kind": "manual"
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -189,7 +184,7 @@ Example:
 
 ```json
 {
-  "limit": 3,
+  "limit": 8,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -216,23 +211,9 @@ Example:
 {
   "automations": [],
   "error": "example",
-  "inbox": {
-    "before": 2,
-    "runs": []
-  },
   "ok": true,
   "requestId": "example",
-  "run": {
-    "automationId": "example",
-    "eventKey": "example",
-    "finishedAt": 2,
-    "id": "example",
-    "result": "example",
-    "startedAt": 7,
-    "status": "skipped",
-    "title": "example",
-    "trigger": "github"
-  },
+  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -260,13 +241,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 5,
   "id": "example",
-  "result": "example",
-  "startedAt": 8,
-  "status": "failed",
-  "threadId": "example",
+  "startedAt": 7,
+  "status": "skipped",
   "title": "example",
-  "trigger": "file"
+  "trigger": "github"
 }
 ```
 
@@ -346,11 +326,11 @@ Example:
 
 ```json
 {
-  "event": "pr_changed",
+  "event": "review_comment",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60009,
-  "repository": "imW3l72p/DH"
+  "pollIntervalMs": 60003,
+  "pullRequest": 1,
+  "repository": "w1fdXT/DAJkB"
 }
 ```
 

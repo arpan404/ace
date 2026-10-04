@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitService } from "./index.ts";
+import { spawnGitProcess } from "./process-runtime.ts";
 import { git, put, repository, scalar, scratch } from "./test-repo.ts";
 
 test("checkpoint numbering survives service restarts and deletion releases all thread refs", async () => {
@@ -142,7 +142,7 @@ test("checkpoint allocation retries a transient ref lock before its competing wr
           blocked = true;
           writeFileSync(lock, "competing transaction");
         }
-        const child = spawn(command, args, options);
+        const child = spawnGitProcess(command, args, options);
         if (collision) child.once("close", () => unlinkSync(lock));
         return child;
       },

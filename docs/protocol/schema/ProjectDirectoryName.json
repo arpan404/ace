@@ -1,0 +1,8 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectDirectoryName.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 256,
+  "minLength": 1,
+  "type": "string",
+  "x-ace-constraint": "A literal existing directory name; no separators or NUL."
+}

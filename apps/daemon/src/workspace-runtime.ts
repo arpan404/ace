@@ -149,7 +149,9 @@ export class WorkspaceRuntime {
     if (op.op === "workspaces.list")
       return this.store.atomic((db) => {
         const rows = db
-          .prepare("SELECT id,name,path FROM workspaces WHERE id>? ORDER BY id LIMIT ?")
+          .prepare(
+            "SELECT id,name,path FROM workspaces WHERE id>? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY id LIMIT ?",
+          )
           .all(op.after ?? "", op.limit + 1);
         const result = wrap({
           kind: "workspaces",

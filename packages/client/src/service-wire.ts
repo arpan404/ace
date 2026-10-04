@@ -1,10 +1,16 @@
 /*
- * The service families of the wire (settings, history, registry, files, terminals, ...): the
- * full `ClientMessage` and `ServerMessage` and the reply schemas the client checks. Loaded on
- * demand by `WireCodec`, so a client decodes its first frames with the core stream alone.
+ * The service families of the wire (settings, history, registry, files, terminals, projects,
+ * ...): the full `ClientMessage` and `ServerMessage`, the reply schemas the client checks and
+ * the long-thread read requests the client worker decodes a tab's arguments with. Loaded on
+ * demand (`loadServiceWire`), so a client decodes its first frames with the core stream alone.
  */
 export {
   ClientMessage,
+  ItemsWindowRequest,
+  ThreadCatchUpRequest,
+  ThreadReadStateRequest,
+  ThreadSearchRequest,
+  TurnsPageRequest,
   CursorAuthEvent,
   CursorAuthRequest,
   QueueResult,

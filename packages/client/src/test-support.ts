@@ -129,6 +129,7 @@ export async function setup(
   history?: import("@ace/daemon").DaemonOptions["history"],
   engine?: import("@ace/daemon").DaemonOptions["engine"],
   devices?: import("@ace/daemon").DaemonOptions["devices"],
+  projects?: import("@ace/daemon").DaemonOptions["projects"],
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ace-client-"));
   const daemon = await startDaemon({
@@ -144,6 +145,7 @@ export async function setup(
     ...(engine ? { engine } : {}),
     ...(history ? { history } : {}),
     ...(devices ? { devices } : {}),
+    ...(projects ? { projects } : {}),
   });
   const token = (await readFile(daemon.tokenPath, "utf8")).trim();
   const workspaceId = daemon.store.createWorkspace(directory, "test");

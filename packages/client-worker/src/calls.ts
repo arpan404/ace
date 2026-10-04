@@ -1,19 +1,19 @@
-import { ClientError, type Client, type RegistryQuery, type ServiceRequest } from "@ace/client";
 import {
-  CommandPayload,
-  TextSource,
-  TurnsPageRequest,
-  ItemsWindowRequest,
-  ThreadSearchRequest,
-  ThreadCatchUpRequest,
-  ThreadReadStateRequest,
-  ThreadMarkReadCommand,
-} from "@ace/protocol";
+  ClientError,
+  loadServiceWire,
+  type Client,
+  type RegistryQuery,
+  type ServiceRequest,
+  type ServiceWire,
+} from "@ace/client";
+import { CommandPayload, TextSource, ThreadMarkReadCommand } from "@ace/protocol";
 import { z } from "zod";
 
 /*
  * Requests a tab makes of the worker's client, decoded at the port. The client validates each
- * request again on its way to the daemon, as it does for an in-process caller.
+ * request again on its way to the daemon, as it does for an in-process caller. The long-thread
+ * reads are service requests: their schemas come with the client's service wire, which the
+ * worker starts without (ADR 0056).
  */
 
 const Options = z
@@ -45,21 +45,30 @@ const ServiceInput = z.custom<ServiceRequest>(
     typeof value.type === "string",
 );
 
-const schemas = {
+const longThreadSchemas = (wire: ServiceWire) => ({
   turnsPage: z.tuple([
-    z.object(TurnsPageRequest.shape).omit({ type: true, requestId: true }),
+    z.object(wire.TurnsPageRequest.shape).omit({ type: true, requestId: true }),
     Options,
   ]),
   itemsWindow: z.tuple([
-    z.object(ItemsWindowRequest.shape).omit({ type: true, requestId: true }),
+    z.object(wire.ItemsWindowRequest.shape).omit({ type: true, requestId: true }),
     Options,
   ]),
-  threadSearch: z.tuple([ThreadSearchRequest.omit({ type: true, requestId: true }), Options]),
+  threadSearch: z.tuple([wire.ThreadSearchRequest.omit({ type: true, requestId: true }), Options]),
   threadCatchUp: z.tuple([
-    z.object(ThreadCatchUpRequest.shape).omit({ type: true, requestId: true }),
+    z.object(wire.ThreadCatchUpRequest.shape).omit({ type: true, requestId: true }),
     Options,
   ]),
-  threadReadState: z.tuple([ThreadReadStateRequest.omit({ type: true, requestId: true }), Options]),
+  threadReadState: z.tuple([
+    wire.ThreadReadStateRequest.omit({ type: true, requestId: true }),
+    Options,
+  ]),
+});
+let longThread: ReturnType<typeof longThreadSchemas> | undefined;
+/** The long-thread argument schemas, built once the service wire has loaded. */
+const longThreadArgs = async () => (longThread ??= longThreadSchemas(await loadServiceWire()));
+
+const schemas = {
   markThreadRead: z.tuple([ThreadMarkReadCommand.omit({ type: true }), Options]),
   enqueue: z.tuple([CommandPayload, z.string().optional()]),
   command: z.tuple([CommandPayload, Options, z.string().optional()]),
@@ -115,23 +124,23 @@ export async function callArgs(
       return client.registry(input, options(parsed, signal));
     }
     case "turnsPage": {
-      const [input, parsed] = decode(schemas.turnsPage, args);
+      const [input, parsed] = decode((await longThreadArgs()).turnsPage, args);
       return client.turnsPage(input, options(parsed, signal));
     }
     case "itemsWindow": {
-      const [input, parsed] = decode(schemas.itemsWindow, args);
+      const [input, parsed] = decode((await longThreadArgs()).itemsWindow, args);
       return client.itemsWindow(input, options(parsed, signal));
     }
     case "threadSearch": {
-      const [input, parsed] = decode(schemas.threadSearch, args);
+      const [input, parsed] = decode((await longThreadArgs()).threadSearch, args);
       return client.threadSearch(input, options(parsed, signal));
     }
     case "threadCatchUp": {
-      const [input, parsed] = decode(schemas.threadCatchUp, args);
+      const [input, parsed] = decode((await longThreadArgs()).threadCatchUp, args);
       return client.threadCatchUp(input, options(parsed, signal));
     }
     case "threadReadState": {
-      const [input, parsed] = decode(schemas.threadReadState, args);
+      const [input, parsed] = decode((await longThreadArgs()).threadReadState, args);
       return client.threadReadState(input, options(parsed, signal));
     }
     case "markThreadRead": {

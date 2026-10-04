@@ -11,11 +11,12 @@
         "enum": [
           "read",
           "operate",
-          "admin"
+          "admin",
+          "projects"
         ],
         "type": "string"
       },
-      "maxItems": 3,
+      "maxItems": 4,
       "minItems": 1,
       "type": "array"
     }

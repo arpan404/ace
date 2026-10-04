@@ -5,7 +5,8 @@
     "read",
     "operate",
     "admin",
-    "desktop"
+    "desktop",
+    "projects"
   ],
   "type": "string"
 }
