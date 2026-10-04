@@ -38,7 +38,9 @@ export function matchesChord(event: KeyboardEvent, chord: Chord): boolean {
       : !event.metaKey && !event.ctrlKey;
   if (!modifiers || event.shiftKey !== chord.shift || event.altKey !== chord.alt) return false;
   const key = event.key.toLowerCase();
-  return key === chord.key || physical[event.code] === chord.key;
+  if (key === chord.key || physical[event.code] === chord.key) return true;
+  // ⌥ changes the character on macOS (⌥⌘P types "π"): match the letter's key instead.
+  return chord.alt && /^[a-z]$/.test(chord.key) && event.code === `Key${chord.key.toUpperCase()}`;
 }
 
 function isEditable(target: EventTarget | null): boolean {

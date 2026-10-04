@@ -316,7 +316,7 @@ test("View diff in the git menu shows the Changes tab", async () => {
 test("renaming from the ⋯ menu changes the title", async () => {
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Rename/ }));
   const field = await screen.findByRole("textbox", { name: "Thread title" });
   await userEvent.clear(field);
   await userEvent.type(field, "Cold-start replay cap{Enter}");
@@ -330,7 +330,7 @@ test("renaming from the ⋯ menu changes the title", async () => {
 test("archiving from the ⋯ menu leaves the thread", async () => {
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Archive/ }));
   expect(await screen.findByText("Archived · Replay cursor resets on every resume")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
 });
@@ -360,14 +360,57 @@ test("the ⋯ menu offers the same thread actions, in the same order, as the row
   const context = within(menu)
     .getAllByRole("menuitem")
     .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R)$/, ""));
-  // The thread screen adds only the agent tree.
-  expect(header.filter((label) => !label.startsWith("Open agent tree"))).toEqual(context);
+  // The thread screen adds a side chat and the agent tree, and shows its own shortcuts.
+  const shortcut = /(Alt\+Ctrl\+[RP]|Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
+  expect(
+    header
+      .filter((label) => !/^(Open agent tree|New side chat)/.test(label))
+      .map((label) => label.replace(shortcut, "")),
+  ).toEqual(context);
   expect(context.slice(0, 4)).toEqual([
     "New thread on main",
     "Rename",
     expect.stringMatching(/^Fork from the last turn…/),
     "Copy link",
   ]);
+});
+
+test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archive it", async () => {
+  const app = await openThread();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  for (const [name, keys] of [
+    ["Rename", /Alt\+Ctrl\+R|⌥⌘R/],
+    ["Pin", /Alt\+Ctrl\+P|⌥⌘P/],
+    ["Archive", /Shift\+Ctrl\+A|⇧⌘A/],
+  ] as const)
+    expect(
+      (await screen.findByRole("menuitem", { name: new RegExp(`^${name}`) })).textContent,
+    ).toMatch(keys);
+  await userEvent.keyboard("{Escape}");
+
+  await userEvent.keyboard("{Alt>}{Meta>}p{/Meta}{/Alt}");
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "threads" });
+    expect(view?.kind === "threads" && view.threads["thread-replay-cursor"]?.pinned).toBe(true);
+  });
+
+  await userEvent.keyboard("{Alt>}{Meta>}r{/Meta}{/Alt}");
+  expect(await screen.findByRole("textbox", { name: "Thread title" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+
+  await userEvent.keyboard("{Shift>}{Meta>}a{/Meta}{/Shift}");
+  expect(await screen.findByText("Archived · Replay cursor resets on every resume")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
+});
+
+test("New side chat in the ⋯ menu opens the Side chat tab", async () => {
+  await openThread();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  const item = await screen.findByRole("menuitem", { name: /^New side chat/ });
+  expect(item.textContent).toMatch(/Alt\+Ctrl\+S|⌥⌘S/);
+  await userEvent.click(item);
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  expect(within(panel).getByRole("tab", { name: "Side chat", selected: true })).toBeTruthy();
 });
 
 test("Fork says why it is unavailable before the first turn has finished", async () => {

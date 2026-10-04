@@ -21,6 +21,10 @@ export const DeferredStepDetail = deferredComponent(() =>
 export const DeferredThreadMenu = deferredComponent(() =>
   import("./header/thread-menu.tsx").then((module) => module.ThreadMenuItems),
 );
+/** The open thread's rename, pin and archive shortcuts, from the same chunk as its ⋯ menu. */
+export const DeferredThreadHotkeys = deferredComponent(() =>
+  import("./header/thread-menu.tsx").then((module) => module.ThreadHotkeys),
+);
 export const DeferredSummaryBody = deferredComponent(() =>
   import("./header/summary-body.tsx").then((module) => module.SummaryBody),
 );

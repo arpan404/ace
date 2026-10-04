@@ -1,10 +1,15 @@
 import { useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { TreeStructureIcon } from "@phosphor-icons/react";
+import { ChatsCircleIcon, TreeStructureIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { threadRowFlags } from "@ace/ui-core";
 import { MenuItem } from "@/components/ui/menu.tsx";
-import { ThreadActionItems, useOrganizerState } from "@/features/organize/index.ts";
+import {
+  ThreadActionItems,
+  useOrganizerState,
+  useThreadActions,
+} from "@/features/organize/index.ts";
+import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useNow } from "@/lib/time.ts";
@@ -13,8 +18,8 @@ import { useLatestForkPoint } from "../transitions/use-fork-point.ts";
 
 /**
  * The ⋯ menu beside the thread title: the same thread actions as the Home row's context menu,
- * plus the agent tree. Archiving or deleting steps back to Home. Dialogs belong to the caller,
- * since the menu closes on choosing.
+ * with the open thread's shortcuts, plus a side chat and the agent tree. Archiving or deleting
+ * steps back to Home. Dialogs belong to the caller, since the menu closes on choosing.
  */
 export function ThreadMenuItems(props: {
   thread: ThreadRef;
@@ -35,16 +40,52 @@ export function ThreadMenuItems(props: {
       flags={flags}
       onRename={props.onRename}
       fork={{ point, onFork: props.onFork }}
+      shortcuts
       onLeave={() => void navigate({ to: "/" })}
       extra={
-        <MenuItem
-          icon={<TreeStructureIcon aria-hidden size={16} />}
-          keys={keymap.agents.keys}
-          onClick={() => workspace.open({ kind: "agents" })}
-        >
-          Open agent tree
-        </MenuItem>
+        <>
+          <MenuItem
+            icon={<ChatsCircleIcon aria-hidden size={16} />}
+            keys={keymap.sideChat.keys}
+            onClick={() => workspace.open({ kind: "side-chat" })}
+          >
+            New side chat
+          </MenuItem>
+          <MenuItem
+            icon={<TreeStructureIcon aria-hidden size={16} />}
+            keys={keymap.agents.keys}
+            onClick={() => workspace.open({ kind: "agents" })}
+          >
+            Open agent tree
+          </MenuItem>
+        </>
       }
     />
   );
+}
+
+/**
+ * The open thread's own shortcuts, the ones its ⋯ menu shows: ⌥⌘R rename, ⌥⌘P pin or unpin,
+ * ⇧⌘A archive (which steps back to Home, with Undo). Loaded with the menu's code, after the
+ * transcript has painted.
+ */
+export function ThreadHotkeys(props: { thread: ThreadRef; onRename(): void }) {
+  const meta = useThreadMeta(props.thread.id);
+  const actions = useThreadActions();
+  const navigate = useNavigate();
+  const ready = meta !== undefined;
+  useHotkey(keymap.renameThread.keys, props.onRename, { enabled: ready });
+  useHotkey(keymap.pinThread.keys, () => meta && actions.setPinned(meta, meta.pinned !== true), {
+    enabled: ready,
+  });
+  useHotkey(
+    keymap.archiveThread.keys,
+    () => {
+      if (!meta) return;
+      actions.archive(meta);
+      void navigate({ to: "/" });
+    },
+    { enabled: ready },
+  );
+  return null;
 }

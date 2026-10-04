@@ -34,7 +34,7 @@ import { SideChatComposer } from "./composer/side-chat-composer.tsx";
 import { AgentComposer } from "./composer/agent-composer.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
-import { DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
+import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 
 /**
@@ -131,6 +131,11 @@ export function ThreadView(props: { threadId: string }) {
               )}
             </div>
           </ForkOpener>
+        )}
+        {thread && (
+          <Suspense fallback={null}>
+            <DeferredThreadHotkeys.Component thread={thread} onRename={() => setRenaming(true)} />
+          </Suspense>
         )}
         <Suspense fallback={null}>
           {renaming && thread && (
