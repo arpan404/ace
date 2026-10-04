@@ -13,6 +13,54 @@ function parsed(result: unknown): unknown {
   if (!text) throw new Error("Missing browser result");
   return JSON.parse(text);
 }
+it("browser reads have read-only approval actions while scripts and input remain effects", async () => {
+  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  const service = {
+    execute: async () => ({ nodes: [] }),
+    screenshot: async () => Buffer.from("jpeg"),
+  };
+  browserToolkit(service).register(registry);
+  const credentials = new CredentialRegistry(() => "a".repeat(64));
+  const lease = credentials.issue(
+    McpScope.parse({
+      sessionId: "browser",
+      threadId: "thread",
+      agentId: "root",
+      capabilities: ["browser"],
+    }),
+    new AbortController().signal,
+  );
+  try {
+    expect(registry.action("ace_browser_snapshot", {})).toMatchObject({
+      origin: "ace",
+      riskClass: "read-only",
+      access: "read",
+    });
+    expect(registry.action("ace_browser_evaluate", { expression: "location.href" })).toMatchObject({
+      origin: "ace",
+      riskClass: "external-effect",
+      access: "write",
+      description: expect.stringContaining("JavaScript"),
+    });
+    expect(registry.action("ace_browser_click", { ref: "button" })).toMatchObject({
+      riskClass: "external-effect",
+      description: expect.stringContaining("button"),
+    });
+    expect(
+      await registry.call(
+        "ace_browser_snapshot",
+        {},
+        lease.principal,
+        new AbortController().signal,
+      ),
+    ).not.toHaveProperty("isError", true);
+    expect(
+      registry.list(lease.principal).find((tool) => tool.name === "ace_browser_snapshot"),
+    ).toMatchObject({ annotations: { readOnlyHint: true, destructiveHint: false } });
+  } finally {
+    credentials.close();
+  }
+});
 describe.skipIf(!executablePath)("authorized agent browser MCP", () => {
   it("edits the caller's browser by semantic ref and respects human takeover", async () => {
     const f = await fixture();

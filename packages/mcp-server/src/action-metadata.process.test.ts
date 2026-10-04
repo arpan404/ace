@@ -7,7 +7,7 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
 
-test("a read-only MCP lease can page transcripts and receives accurate tool hints", async () => {
+test("a read-only MCP lease can call transcript reads and receives accurate tool hints", async () => {
   const h = await harness(cleanups);
   agentControlToolkit({
     async execute(_caller, operation) {

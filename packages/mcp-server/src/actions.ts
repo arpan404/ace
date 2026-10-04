@@ -26,7 +26,20 @@ export function describeAceAction(
   const scope =
     input && typeof input === "object"
       ? Object.entries(input).filter(([key]) =>
-          ["threadId", "workspaceId", "provider", "model", "role", "streamId"].includes(key),
+          [
+            "threadId",
+            "workspaceId",
+            "provider",
+            "model",
+            "role",
+            "streamId",
+            "deviceId",
+            "appId",
+            "url",
+            "ref",
+            "action",
+            "key",
+          ].includes(key),
         )
       : [];
   return {
