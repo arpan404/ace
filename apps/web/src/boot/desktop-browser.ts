@@ -11,8 +11,12 @@ export interface NativeViewPlacement {
   threadId: string;
   bounds: PageBox;
   visible: boolean;
-  /** The person holds the page's control here, so their clicks and keys on it reach the page. */
-  input: boolean;
+  /**
+   * The daemon connection through which this page holds the thread's page, as its take-control
+   * reply named it. The desktop lets the person's clicks and keys through only while the
+   * daemon's lease is that connection's.
+   */
+  owner?: string | undefined;
 }
 
 export interface DesktopBrowserViews {

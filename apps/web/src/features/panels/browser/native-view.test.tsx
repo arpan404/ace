@@ -106,7 +106,7 @@ async function openEmbeddedBrowser() {
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByText("is using this page", { exact: false });
-  return panel;
+  return { panel, browser: app.daemon.browser };
 }
 
 const last = () => placed.at(-1);
@@ -118,14 +118,12 @@ test("in the desktop app the browser tab draws the embedded page over its page a
       threadId: "thread-cold-start",
       bounds: { x: 500, y: 100, width: 400, height: 600 },
       visible: true,
-      // The agent drives the page: the person's clicks on it don't reach it.
-      input: false,
     }),
   );
 });
 
 test("switching to another tool hides the embedded page", async () => {
-  const panel = await openEmbeddedBrowser();
+  const { panel } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   await waitFor(() => expect(last()?.visible).toBe(false));
@@ -133,7 +131,7 @@ test("switching to another tool hides the embedded page", async () => {
 });
 
 test("the embedded page steps aside while the tab's menu is open over it", async () => {
-  const panel = await openEmbeddedBrowser();
+  const { panel } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
   await screen.findByRole("menu");
@@ -153,17 +151,48 @@ test("a page from the daemon's own headless browser is never placed natively", a
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByText("is using this page", { exact: false });
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-  expect(placed.filter((placement) => placement.visible)).toEqual([]);
+  // The tab has drawn the page's frame, so its layout effects have run.
+  await within(panel).findByRole("img", { name: /^Live view of / });
+  expect(placed).toEqual([]);
 });
 
-test("a click on the agent's page takes control, and then the person's input reaches it", async () => {
-  const panel = await openEmbeddedBrowser();
+test("a click on the agent's page takes control, and the page takes input once it's granted", async () => {
+  const { panel } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));
+  // The agent drives the page: nothing names this client as its holder.
+  expect(last()?.owner).toBeUndefined();
   const count = placed.length;
   act(() => wantsControl?.({ threadId: "thread-cold-start" }));
   await within(panel).findByText("have control", { exact: false });
-  await waitFor(() => expect(last()?.input).toBe(true));
+  // The connection the daemon's take-control reply named, which the desktop checks the lease
+  // against before any input reaches the page.
+  await waitFor(() => expect(last()?.owner).toBe("fake-connection"));
   // Taking control changes the placement in place: the page is never hidden meanwhile.
   expect(placed.slice(count).every((placement) => placement.visible)).toBe(true);
+});
+
+test("handing control back stops claiming the page", async () => {
+  const { panel } = await openEmbeddedBrowser();
+  await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
+  await waitFor(() => expect(last()?.owner).toBe("fake-connection"));
+  await userEvent.click(within(panel).getAllByRole("button", { name: "Hand back" })[0]!);
+  await within(panel).findByText("is using this page", { exact: false });
+  await waitFor(() => expect(last()?.owner).toBeUndefined());
+  expect(last()?.visible).toBe(true);
+});
+
+test("while another device holds the page, this one claims nothing and a click takes nothing", async () => {
+  const { panel, browser } = await openEmbeddedBrowser();
+  await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
+  await waitFor(() => expect(last()?.owner).toBe("fake-connection"));
+  // The daemon gives the page to another device's connection (this one's dropped meanwhile).
+  await act(async () => browser.takeover("thread-cold-start", "phone-connection"));
+  await waitFor(() => expect(last()?.owner).toBeUndefined());
+  await within(panel).findByText("have control", { exact: false });
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  expect(last()?.owner).toBeUndefined();
+  act(() => wantsControl?.({ threadId: "thread-cold-start" }));
+  await act(async () => Promise.resolve());
+  expect(browser.view("thread-cold-start")?.owner).toBe("phone-connection");
+  expect(last()?.owner).toBeUndefined();
 });

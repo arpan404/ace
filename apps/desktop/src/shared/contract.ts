@@ -185,10 +185,11 @@ export const BrowserPlacement = z.object({
   }),
   visible: z.boolean(),
   /**
-   * The person in this renderer holds the page's control lease (through its own daemon
-   * connection), so their clicks and keys on the view reach the page.
+   * The daemon connection through which this renderer holds the page's control lease, as its
+   * take-control reply named it. The person's input reaches the view only while the daemon's
+   * current lease is that connection's.
    */
-  input: z.boolean().optional(),
+  owner: z.string().min(1).max(256).optional(),
 });
 export type BrowserPlacement = z.infer<typeof BrowserPlacement>;
 /** The person clicked or typed on a view they don't control: the renderer should take control. */

@@ -27,6 +27,8 @@ export interface ViewHostOptions {
   window(): BaseWindow | undefined;
   platform: NodeJS.Platform;
   log(message: string): void;
+  /** The connection the renderer showing a thread's view holds the page through, if any. */
+  onClaim?(threadId: string, owner: string | undefined): void;
 }
 
 /** Schemes a view may load. http(s) requests are approved by the daemon through CDP Fetch. */
@@ -108,7 +110,11 @@ export class EmbeddedViews implements ViewHost {
       platform: this.options.platform,
       log: this.options.log,
       forget: () => {
-        if (this.pages.get(threadId) === page) this.pages.delete(threadId);
+        if (this.pages.get(threadId) === page) {
+          this.pages.delete(threadId);
+          // Its renderers place it again if the thread's page opens again.
+          this.placements.forget(threadId);
+        }
         this.byContents.delete(view.webContents.id);
       },
     });
@@ -128,13 +134,19 @@ export class EmbeddedViews implements ViewHost {
   /** Draw (or hide) a thread's view where a renderer's Browser tab shows its page. */
   place(placement: BrowserPlacement, host: PlacementHost): void {
     this.hosts.set(host.id, host.window);
+    const { threadId } = placement;
+    // Hiding a thread with no view here releases the claim: nothing of it is kept.
+    if (!placement.visible && !this.pages.has(threadId)) {
+      this.placements.release(threadId, host.id);
+      return;
+    }
     const bounds = toWindowBounds(placement.bounds, host.zoom);
-    this.placements.set(placement.threadId, host.id, {
+    this.placements.set(threadId, host.id, {
       bounds,
       visible: placement.visible,
-      input: placement.input,
+      owner: placement.owner,
     });
-    this.apply(placement.threadId);
+    this.apply(threadId);
   }
 
   /** The renderer (`webContents.id`) showing a thread's view now, if any shows it. */
@@ -158,8 +170,8 @@ export class EmbeddedViews implements ViewHost {
       window: window && !window.isDestroyed() ? window : undefined,
       bounds: placement.bounds,
       visible: placement.visible,
-      input: placement.input,
     });
+    this.options.onClaim?.(threadId, placement.owner);
   }
 
   private configure(partition: string): Session {
@@ -229,8 +241,6 @@ class EmbeddedPage implements ViewPage {
   private blocked = new Set<() => void>();
   private gate = new WebSocketGate();
   private nativeInput = false;
-  /** The renderer showing the view holds control on the person's behalf. */
-  private placedInput = false;
   /** Agent input in flight (CDP `Input.*` or a key press), which must not be blocked. */
   private agentInput = 0;
   private lastBlocked = 0;
@@ -294,12 +304,7 @@ class EmbeddedPage implements ViewPage {
   }
 
   /** Bounds are in the window's DIPs; a hidden view keeps its last box. */
-  place(target: {
-    window: BaseWindow | undefined;
-    bounds: Rect | undefined;
-    visible: boolean;
-    input: boolean;
-  }) {
+  place(target: { window: BaseWindow | undefined; bounds: Rect | undefined; visible: boolean }) {
     const view = this.options.view;
     const current = this.options.window;
     if (target.window && target.window !== current) {
@@ -309,7 +314,6 @@ class EmbeddedPage implements ViewPage {
     }
     if (target.bounds) view.setBounds(target.bounds);
     this.placed = target.visible && target.bounds !== undefined;
-    this.placedInput = this.placed && target.input;
     // Hidden views stay alive (and attached) but stop painting, and send no frames.
     view.setVisible(this.placed);
     this.updateThrottle();
@@ -455,7 +459,7 @@ class EmbeddedPage implements ViewPage {
     const decision = throttleDecision(
       {
         visible: this.placed,
-        nativeInput: this.nativeInput || this.placedInput,
+        nativeInput: this.nativeInput,
         screencasting: this.screencasting,
         lastDrivenAt: this.lastDrivenAt,
       },
@@ -476,7 +480,7 @@ class EmbeddedPage implements ViewPage {
   }
 
   private allowInput(): boolean {
-    return this.nativeInput || this.placedInput || this.agentInput > 0;
+    return this.nativeInput || this.agentInput > 0;
   }
 
   /** At most one take-control request a second, however fast the person clicks. */

@@ -167,6 +167,7 @@ export class Background {
       window: this.options.window,
       platform: process.platform,
       log,
+      onClaim: (threadId, owner) => backend.claimControl(threadId, owner),
     });
     const backend = new BrowserBackend(views, {
       onController: this.options.onController,

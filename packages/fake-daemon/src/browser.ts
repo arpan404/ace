@@ -99,8 +99,9 @@ export class FakeBrowser {
   servers(threadId: string): readonly PreviewServer[] {
     return this.entries.get(threadId)?.servers ?? [];
   }
-  async takeover(threadId: string): Promise<void> {
-    this.control(threadId, "human");
+  /** A person takes control through their client's connection (`owner`). */
+  async takeover(threadId: string, owner = "fake-connection"): Promise<void> {
+    this.control(threadId, "human", owner);
   }
   async handback(threadId: string): Promise<void> {
     this.control(threadId, "agent");
@@ -210,10 +211,11 @@ export class FakeBrowser {
     if (entry) entry.servers = entry.servers.filter((server) => server.port !== port);
     this.changed();
   }
-  private control(threadId: string, controller: "agent" | "human"): void {
+  private control(threadId: string, controller: "agent" | "human", owner?: string): void {
     const entry = this.entries.get(threadId);
     if (!entry?.view || entry.view.closed) throw new Error("no_browser");
-    entry.view = { ...entry.view, controller };
+    const { owner: _previous, ...view } = entry.view;
+    entry.view = { ...view, controller, ...(owner ? { owner } : {}) };
     this.changed();
   }
   private paint(entry: Entry, typed: string): void {

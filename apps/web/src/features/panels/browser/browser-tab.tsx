@@ -145,10 +145,12 @@ function Browser(props: TabViewProps) {
       page.state.phase !== "failed",
     {
       device: viewport.emulation,
-      input: page.live?.controller === "human",
-      // A click on the page while an agent drives it asks for control, as the button does.
+      owner: page.heldAs,
+      // A click on the page while an agent drives it takes control the way the button does;
+      // the page takes input only once the daemon has granted it. Another device's control
+      // isn't taken away.
       onWantsControl: () => {
-        if (page.live?.controller !== "human") control.toggle();
+        if (page.live && page.live.controller !== "human") control.toggle();
       },
     },
   );

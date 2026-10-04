@@ -67,23 +67,23 @@ export function useNativeView(
   active: boolean,
   options: {
     device: Size | undefined;
-    /** The person holds the page's control here: their input on the view reaches the page. */
-    input: boolean;
+    /** The connection through which this client holds the page, while it does. */
+    owner: string | undefined;
     /** They clicked or typed on the view without control. */
     onWantsControl(): void;
   },
 ): void {
   const deviceWidth = options.device?.width;
   const deviceHeight = options.device?.height;
-  const { input } = options;
+  const { owner } = options;
   const wantsControl = useEffectEvent(options.onWantsControl);
   // Control changes update the placement in place, without hiding the view in between.
-  const inputRef = useRef(input);
+  const ownerRef = useRef(owner);
   const replace = useRef<(() => void) | undefined>(undefined);
   useLayoutEffect(() => {
-    inputRef.current = input;
+    ownerRef.current = owner;
     replace.current?.();
-  }, [input]);
+  }, [owner]);
   useLayoutEffect(() => {
     const views = desktopBrowserViews();
     const element = area.current;
@@ -103,7 +103,8 @@ export function useNativeView(
         device: size,
         overlays: overlayBoxes(element),
       });
-      const next = { threadId, ...placement, input: inputRef.current };
+      const held = placement.visible ? ownerRef.current : undefined;
+      const next = { threadId, ...placement, ...(held ? { owner: held } : {}) };
       const key = JSON.stringify(next);
       if (key === sent) return;
       sent = key;
@@ -124,7 +125,7 @@ export function useNativeView(
       stopRect();
       stopOverlays();
       stopWants();
-      void views.place({ threadId, bounds, visible: false, input: false }).catch(() => {});
+      void views.place({ threadId, bounds, visible: false }).catch(() => {});
     };
   }, [threadId, area, active, deviceWidth, deviceHeight]);
 }

@@ -12,14 +12,14 @@ export interface ResolvedPlacement {
   /** In window DIPs; undefined until a renderer has placed the view. */
   bounds: Rect | undefined;
   visible: boolean;
-  /** The renderer showing the view says its person holds the page's control. */
-  input: boolean;
+  /** The connection the renderer showing the view holds the page through, if it does. */
+  owner: string | undefined;
 }
 
 interface Claim {
   bounds: Rect;
   visible: boolean;
-  input: boolean;
+  owner: string | undefined;
   order: number;
 }
 
@@ -52,17 +52,30 @@ export class PlacementBook {
   set(
     threadId: string,
     host: number,
-    claim: { bounds: Rect; visible: boolean; input?: boolean | undefined },
+    claim: { bounds: Rect; visible: boolean; owner?: string | undefined },
   ): ResolvedPlacement {
     let hosts = this.claims.get(threadId);
     if (!hosts) this.claims.set(threadId, (hosts = new Map()));
     hosts.set(host, {
       bounds: claim.bounds,
       visible: claim.visible,
-      input: claim.input ?? false,
+      owner: claim.owner,
       order: ++this.order,
     });
     return this.resolve(threadId);
+  }
+
+  /** A renderer is done with a thread's view: unlike hiding it, nothing of its claim stays. */
+  release(threadId: string, host: number): ResolvedPlacement {
+    const hosts = this.claims.get(threadId);
+    hosts?.delete(host);
+    if (hosts?.size === 0) this.claims.delete(threadId);
+    return this.resolve(threadId);
+  }
+
+  /** The thread's view is gone: forget every renderer's claim on it. */
+  forget(threadId: string): void {
+    this.claims.delete(threadId);
   }
 
   /** Drop every claim of a renderer; returns the threads whose placement may have changed. */
@@ -86,7 +99,7 @@ export class PlacementBook {
         shown = entry;
     }
     if (shown)
-      return { host: shown[0], bounds: shown[1].bounds, visible: true, input: shown[1].input };
-    return { host: latest?.[0], bounds: latest?.[1].bounds, visible: false, input: false };
+      return { host: shown[0], bounds: shown[1].bounds, visible: true, owner: shown[1].owner };
+    return { host: latest?.[0], bounds: latest?.[1].bounds, visible: false, owner: undefined };
   }
 }

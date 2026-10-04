@@ -11,7 +11,7 @@ describe("embedded view placement", () => {
       host: 1,
       bounds: panel,
       visible: true,
-      input: false,
+      owner: undefined,
     });
   });
 
@@ -20,7 +20,7 @@ describe("embedded view placement", () => {
       host: undefined,
       bounds: undefined,
       visible: false,
-      input: false,
+      owner: undefined,
     });
   });
 
@@ -31,7 +31,7 @@ describe("embedded view placement", () => {
       host: 1,
       bounds: panel,
       visible: false,
-      input: false,
+      owner: undefined,
     });
   });
 
@@ -49,7 +49,7 @@ describe("embedded view placement", () => {
       host: 2,
       bounds: other,
       visible: true,
-      input: false,
+      owner: undefined,
     });
   });
 
@@ -61,7 +61,7 @@ describe("embedded view placement", () => {
       host: 1,
       bounds: panel,
       visible: true,
-      input: false,
+      owner: undefined,
     });
   });
 
@@ -72,17 +72,45 @@ describe("embedded view placement", () => {
     book.set("t2", 2, { bounds: panel, visible: false });
     expect(book.forgetHost(1).toSorted()).toEqual(["t1", "t2"]);
     expect(book.resolve("t1").visible).toBe(false);
-    expect(book.resolve("t2")).toEqual({ host: 2, bounds: panel, visible: false, input: false });
+    expect(book.resolve("t2")).toEqual({
+      host: 2,
+      bounds: panel,
+      visible: false,
+      owner: undefined,
+    });
   });
 
-  it("lets the person's input through only where a renderer holding control shows the view", () => {
+  it("names the connection holding control only where a renderer shows the view", () => {
     const book = new PlacementBook();
-    expect(book.set("t1", 1, { bounds: panel, visible: true, input: true }).input).toBe(true);
+    const shown = { bounds: panel, visible: true, owner: "web-1" };
+    expect(book.set("t1", 1, shown).owner).toBe("web-1");
     // Hidden, the view takes no input, whoever holds control.
-    expect(book.set("t1", 1, { bounds: panel, visible: false, input: true }).input).toBe(false);
-    // Another window shows it without control: its clicks ask for control instead.
-    book.set("t1", 1, { bounds: panel, visible: true, input: true });
-    expect(book.set("t1", 2, { bounds: other, visible: true, input: false }).input).toBe(false);
+    expect(book.set("t1", 1, { ...shown, visible: false }).owner).toBeUndefined();
+    // Another window shows it without control: its person's input doesn't reach the page.
+    book.set("t1", 1, shown);
+    expect(book.set("t1", 2, { bounds: other, visible: true }).owner).toBeUndefined();
+  });
+
+  it("keeps nothing of a released claim, unlike a hidden one", () => {
+    const book = new PlacementBook();
+    book.set("t1", 1, { bounds: panel, visible: true });
+    book.set("t1", 1, { bounds: panel, visible: false });
+    expect(book.resolve("t1").host).toBe(1);
+    expect(book.release("t1", 1)).toEqual({
+      host: undefined,
+      bounds: undefined,
+      visible: false,
+      owner: undefined,
+    });
+  });
+
+  it("forgets every claim on a thread whose view is gone", () => {
+    const book = new PlacementBook();
+    book.set("t1", 1, { bounds: panel, visible: true });
+    book.set("t1", 2, { bounds: other, visible: false });
+    book.forget("t1");
+    expect(book.resolve("t1").host).toBeUndefined();
+    expect(book.forgetHost(1)).toEqual([]);
   });
 
   it("keeps thread views apart", () => {
