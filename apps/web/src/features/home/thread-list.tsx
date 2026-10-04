@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn.ts";
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
-import { homeRowKey, homeRows, type HomeRow } from "@ace/ui-core";
+import { homeRowKey, homeRowThread, homeRows, type HomeRow } from "@ace/ui-core";
 import { AutoSettleNote } from "./auto-settle-note.tsx";
 import { FolderRow, PinnedLabel, ShowMore } from "./folder-rows.tsx";
 import { useFolders } from "./folders.ts";
@@ -149,14 +149,15 @@ export function ThreadList(props: { list: HomeList }) {
  * once, without fighting the person's own scrolling afterwards.
  */
 function useRevealOpenThread(
-  drawn: readonly { key: string }[],
+  drawn: readonly { item: HomeRow }[],
   scrollToIndex: (index: number, options: { align: "auto" }) => void,
 ) {
   const threadId = useParams({ strict: false, select: (params) => params.threadId });
   const revealed = useRef<string>(undefined);
   useEffect(() => {
     if (!threadId || revealed.current === threadId) return;
-    const index = drawn.findIndex((row) => row.key === threadId);
+    // By the thread a row shows, not its key: a row's key is encoded per kind.
+    const index = drawn.findIndex((row) => homeRowThread(row.item) === threadId);
     if (index < 0) return;
     revealed.current = threadId;
     scrollToIndex(index, { align: "auto" });

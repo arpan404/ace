@@ -69,30 +69,52 @@ test("the open thread shows in its folder even past the first five", async () =>
   expect(links()).toHaveLength(6);
 });
 
-test("a closed folder stays closed after a reload and still says when a thread in it needs you", async () => {
+test("closed folders come back closed on a fresh load, and Show more starts over", async () => {
   const storage = memoryKeyValue();
-  const first = harness({ storage });
+  const first = busyRelay(storage);
   for (const scenario of workbench()) first.play(scenario).runUntilBlocked();
   const view = await first.open("/new");
   await listed();
-  expect(within(threads()).getByRole("link", { name: /^Partial refunds/ })).toBeTruthy();
-
   await userEvent.click(folder("billing-api"));
   await waitFor(() =>
     expect(within(threads()).queryByRole("link", { name: /^Partial refunds/ })).toBeNull(),
   );
-  expect(folder("billing-api").getAttribute("aria-expanded")).toBe("false");
+  // Closed, it still says a thread inside needs you.
   expect(within(folder("billing-api")).getByRole("img", { name: "A thread here needs you" }));
+  await userEvent.click(within(threads()).getByRole("button", { name: "Show more in relay" }));
+  await waitFor(() =>
+    expect(within(threads()).getByRole("button", { name: "Show less in relay" })).toBeTruthy(),
+  );
   view.unmount();
 
-  const again = harness({ storage });
+  // A new page: only what was written to storage carries over.
+  const disk = memoryKeyValue();
+  for (const [key, value] of storage.data) disk.setItem(key, value);
+  const again = busyRelay(disk);
   for (const scenario of workbench()) again.play(scenario).runUntilBlocked();
   await again.open("/new");
   await listed();
   expect(folder("billing-api").getAttribute("aria-expanded")).toBe("false");
   expect(within(threads()).queryByRole("link", { name: /^Partial refunds/ })).toBeNull();
+  expect(within(threads()).getByRole("button", { name: "Show more in relay" })).toBeTruthy();
   await userEvent.click(folder("billing-api"));
   expect(await within(threads()).findByRole("link", { name: /^Partial refunds/ })).toBeTruthy();
+});
+
+test("a thread whose id looks like a folder's still shows once, beside its folder", async () => {
+  const app = harness();
+  app.play(working(1)).runUntilBlocked();
+  app
+    .play({
+      ...working(2),
+      thread: { ...working(2).thread, id: "folder:relay", title: "Named like a folder" },
+    })
+    .runUntilBlocked();
+  await app.open("/new");
+  await listed();
+  expect(folder("relay").getAttribute("aria-expanded")).toBe("true");
+  expect(within(threads()).getAllByRole("link", { name: /^Named like a folder/ })).toHaveLength(1);
+  expect(within(threads()).getAllByRole("link", { name: /^relay task 1/ })).toHaveLength(1);
 });
 
 test("a pinned thread leads the list under Pinned and leaves its folder", async () => {

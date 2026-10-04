@@ -21,6 +21,7 @@ export * from "./diff.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";
+export * from "./first-launch.ts";
 export * from "./home-groups.ts";
 export * from "./inline-markdown.ts";
 export * from "./models.ts";

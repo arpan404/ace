@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { groupHome, homeRows, type GroupEntry, type HomeRowOptions } from "./home-groups.ts";
+import {
+  groupHome,
+  homeRowKey,
+  homeRows,
+  type GroupEntry,
+  type HomeRowOptions,
+} from "./home-groups.ts";
 
 const thread = (id: string, project: string, patch: Partial<GroupEntry> = {}): GroupEntry => ({
   id,
@@ -98,4 +104,16 @@ test("Settled lists its threads and the auto-settle rule only when open", () => 
     "s2",
     "rule",
   ]);
+});
+
+test("no thread id can take a folder's, Show more's or a heading's key, whatever it is called", () => {
+  const groups = groupHome([
+    thread("folder:ace", "ace"),
+    thread("more:ace", "ace"),
+    thread("section:settled-header", "ace"),
+    thread("thread:x", "ace", { pinned: true }),
+    ...["a", "b", "c", "d"].map((id) => thread(id, "ace")),
+  ]);
+  const keys = homeRows(groups, ["s"], options({ settledOpen: true })).map(homeRowKey);
+  expect(new Set(keys).size).toBe(keys.length);
 });

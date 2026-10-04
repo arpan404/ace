@@ -29,21 +29,45 @@ export function isUnread(entry: ThreadListEntry, baseline: number): boolean {
   return activityOf(entry) > (entry.readAt ?? baseline);
 }
 
+export type Attention = "needs-you" | "unread" | undefined;
+
 /**
- * What Home's mark on the rail says: a thread on Home needs you, or one has news the person
- * hasn't opened, or neither. Settled and snoozed threads don't count (the daemon clears a snooze
- * once it passes). The rail has no first-launch baseline, so a thread counts as unread only once
- * it was read somewhere or marked unread.
+ * What one thread adds to Home's mark on the rail: it needs you, it has news the person hasn't
+ * opened (against this device's first launch, as Home judges it), or nothing. Settled, snoozed
+ * (the daemon clears a snooze once it passes), archived and deleted threads add nothing.
  */
-export function homeAttention(
-  entries: Iterable<ThreadListEntry>,
-): "needs-you" | "unread" | undefined {
-  let unread = false;
-  for (const entry of entries) {
-    if (entry.archivedAt !== undefined || entry.deletedAt !== undefined) continue;
-    if (isSettled(entry) || entry.snoozedUntil !== undefined) continue;
-    if (entry.status.state === "needs_you") return "needs-you";
-    if (isUnread(entry, Number.POSITIVE_INFINITY)) unread = true;
+export function entryAttention(entry: ThreadListEntry | undefined, baseline: number): Attention {
+  if (!entry || entry.archivedAt !== undefined || entry.deletedAt !== undefined) return undefined;
+  if (isSettled(entry) || entry.snoozedUntil !== undefined) return undefined;
+  if (entry.status.state === "needs_you") return "needs-you";
+  return isUnread(entry, baseline) ? "unread" : undefined;
+}
+
+/**
+ * Home's mark kept as counts, so a changed thread costs one update rather than a pass over the
+ * whole list: needs you if any thread needs you, else unread if any has news.
+ */
+export class AttentionTally {
+  private each = new Map<string, "needs-you" | "unread">();
+  private needs = 0;
+  private news = 0;
+  /** What thread `id` now adds (undefined once it adds nothing or has left the list). */
+  set(id: string, attention: Attention): void {
+    const before = this.each.get(id);
+    if (before === attention) return;
+    if (before === "needs-you") this.needs--;
+    if (before === "unread") this.news--;
+    if (attention === "needs-you") this.needs++;
+    if (attention === "unread") this.news++;
+    if (attention) this.each.set(id, attention);
+    else this.each.delete(id);
   }
-  return unread ? "unread" : undefined;
+  clear(): void {
+    this.each.clear();
+    this.needs = 0;
+    this.news = 0;
+  }
+  get value(): Attention {
+    return this.needs > 0 ? "needs-you" : this.news > 0 ? "unread" : undefined;
+  }
 }

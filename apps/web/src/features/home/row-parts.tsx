@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /*
@@ -30,21 +29,28 @@ export function StatusMark(props: { mark: ThreadMarkKind; label: string }) {
   );
 }
 
-function Glyph(props: { icon: typeof MoonIcon; label: string }) {
-  return (
-    <Tip label={props.label}>
-      <span className="inline-flex text-subtle-foreground">
-        <Icon icon={props.icon} size={13} label={props.label} />
-      </span>
-    </Tip>
-  );
+/**
+ * What a row says beyond its title, in words: the status, the provider and its subagents, the
+ * worktree or branch, the pull request, another machine, a snooze. Assistive tech hears it as
+ * part of the row; the row's tooltip shows it to the pointer and the keyboard.
+ */
+export function threadDetails(card: ThreadCard): string[] {
+  const branch = card.branch;
+  return [
+    card.status.label,
+    card.providerLabel,
+    branch && `${branch.worktree ? "Worktree" : "Branch"} ${branch.name}`,
+    branch?.pr !== undefined && `Pull request #${branch.pr}`,
+    card.machine && `Running on ${card.machine}`,
+    card.wake && `Snoozed until ${card.wake}`,
+  ].filter((part): part is string => typeof part === "string" && part.length > 0);
 }
 
 /**
  * A Home row's one line: the title (medium when it needs you, is unread or is open), then on
- * the right a snooze, its worktree and pull request, and the status mark. The provider and
- * another machine are said in words to assistive tech; the thread's header shows them. The
- * right side gives way to Settle and Snooze on hover.
+ * the right a snooze, its worktree and pull request, and the status mark. Those marks are only
+ * decoration, giving way to Settle and Snooze on hover and focus; the words for them stay in
+ * the row's name (`threadDetails`), which nothing hides.
  */
 export function ThreadLine(props: { card: ThreadCard; title: ReactNode }) {
   const { card } = props;
@@ -60,16 +66,20 @@ export function ThreadLine(props: { card: ThreadCard; title: ReactNode }) {
       >
         {props.title}
         {card.announceUnread && <span className="sr-only">, unread</span>}
-        {card.machine && <span className="sr-only">, running on {card.machine}</span>}
+        <span className="sr-only">. {threadDetails(card).join(", ")}</span>
       </span>
-      <span className="flex shrink-0 items-center gap-1 group-focus-within/row:invisible group-hover/row:invisible">
-        {card.wake && <Glyph icon={MoonIcon} label={`Snoozed until ${card.wake}`} />}
-        {branch?.worktree && <Glyph icon={GitBranchIcon} label={`Worktree ${branch.name}`} />}
-        {branch?.pr !== undefined && (
-          <Glyph icon={GitPullRequestIcon} label={`Pull request #${branch.pr}`} />
+      <span
+        aria-hidden
+        className="flex shrink-0 items-center gap-1 text-subtle-foreground group-focus-within/row:invisible group-hover/row:invisible"
+      >
+        {card.wake && <Icon icon={MoonIcon} size={13} />}
+        {branch?.worktree && <Icon icon={GitBranchIcon} size={13} />}
+        {branch?.pr !== undefined && <Icon icon={GitPullRequestIcon} size={13} />}
+        {card.status.mark === "working" ? (
+          <Spinner />
+        ) : card.status.mark === "none" ? null : (
+          <Dot tone={card.status.mark} />
         )}
-        <StatusMark mark={card.status.mark} label={card.status.label} />
-        <span className="sr-only">{card.providerLabel}</span>
       </span>
     </>
   );

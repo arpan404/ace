@@ -131,18 +131,29 @@ export function homeRows(
   return rows;
 }
 
-/** A stable key per row, for the virtualizer and the list's motion. */
+/**
+ * A stable key per row, for the virtualizer and the list's motion. Each kind has its own prefix,
+ * so no thread id (ids are any string) can take a folder's or a heading's key. A thread keeps
+ * one key whether it shows pinned, in its folder or settled, so moving between them slides.
+ */
 export function homeRowKey(row: HomeRow): string {
   switch (row.kind) {
     case "pinned":
     case "thread":
     case "settled":
-      return row.id;
+      return `thread:${row.id}`;
     case "folder":
       return `folder:${row.project}`;
     case "more":
       return `more:${row.project}`;
     default:
-      return row.kind;
+      return `section:${row.kind}`;
   }
+}
+
+/** The thread a row shows, if it shows one. */
+export function homeRowThread(row: HomeRow): string | undefined {
+  return row.kind === "pinned" || row.kind === "thread" || row.kind === "settled"
+    ? row.id
+    : undefined;
 }

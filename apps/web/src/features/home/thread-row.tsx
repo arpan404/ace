@@ -3,9 +3,10 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { Icon } from "@/components/icon.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
-import { ThreadLine } from "./row-parts.tsx";
+import { ThreadLine, threadDetails } from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
 
@@ -45,18 +46,21 @@ export function ThreadRow(props: { threadId: string; pinned?: boolean }) {
         {renaming ? (
           <div className={cn(line, indent, "bg-sidebar-accent")}>{content}</div>
         ) : (
-          <Link
-            to="/t/$threadId"
-            params={{ threadId: entry.id }}
-            className={cn(
-              line,
-              indent,
-              "group/link group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
-              "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
-            )}
-          >
-            {content}
-          </Link>
+          // The marks give way to Settle and Snooze; the tooltip still says what they meant.
+          <Tip label={threadDetails(card).join(" · ")} side="right">
+            <Link
+              to="/t/$threadId"
+              params={{ threadId: entry.id }}
+              className={cn(
+                line,
+                indent,
+                "group/link group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
+                "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+              )}
+            >
+              {content}
+            </Link>
+          </Tip>
         )}
         {!renaming && (
           <RowActions

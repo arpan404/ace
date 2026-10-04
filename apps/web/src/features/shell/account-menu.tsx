@@ -23,6 +23,7 @@ export function AccountMenu() {
   const label = connectionLabels[state];
   return (
     <SidebarMenu
+      tip="Account and connection"
       trigger={
         <button
           type="button"

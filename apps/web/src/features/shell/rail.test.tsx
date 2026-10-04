@@ -1,4 +1,10 @@
-import { workbench, workbenchServices } from "@ace/fake-daemon";
+import {
+  facts,
+  flakyCheckout,
+  workbench,
+  workbenchServices,
+  type Scenario,
+} from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -70,6 +76,57 @@ test("the rail's Home carries a dot while a thread needs you, and Activity its c
   ).toBeTruthy();
   expect(within(rail()).getByRole("link", { name: "Activity, 6 need you" })).toBeTruthy();
   expect(within(rail()).getByLabelText("6 need you")).toBeTruthy();
+});
+
+/** A thread that works a turn and finishes, never opened on this device. */
+const finishes: Scenario = {
+  thread: {
+    id: "thread-report",
+    workspaceId: "relay",
+    title: "Write the weekly report",
+    provider: "claude",
+  },
+  steps: [
+    {
+      kind: "facts",
+      label: "done",
+      facts: [facts.rootAgent("claude"), facts.turn("root"), facts.endTurn("root")],
+    },
+  ],
+};
+
+test("a thread that finishes after launch, never opened, is news on the rail and in Home alike", async () => {
+  // The daemon's clock runs a minute ahead of this device's first launch.
+  const app = harness({ clock: () => Date.now() + 60_000 });
+  await app.open("/new");
+  await title("New thread");
+  expect(within(rail()).getByRole("link", { name: "Home" })).toBeTruthy();
+  app.play(finishes).runUntilBlocked();
+  expect(await within(rail()).findByRole("link", { name: "Home, new activity" })).toBeTruthy();
+  const threads = screen.getByRole("navigation", { name: "Threads" });
+  expect(
+    await within(threads).findByRole("link", { name: /^Write the weekly report, unread/ }),
+  ).toBeTruthy();
+});
+
+test("Home's dot follows a thread that comes to need you, through the client worker too", async () => {
+  const app = harness({ throughWorker: true });
+  const checkout = app.play(flakyCheckout());
+  checkout.runThrough("watcher-started");
+  await app.open("/new");
+  await title("New thread");
+  expect(await within(rail()).findByRole("link", { name: "Home" })).toBeTruthy();
+  checkout.runThrough("approval-requested");
+  expect(
+    await within(rail()).findByRole("link", { name: "Home, a thread needs you" }),
+  ).toBeTruthy();
+});
+
+test("the account on the rail is named by its tooltip too", async () => {
+  await harness().open("/new");
+  await title("New thread");
+  await userEvent.hover(screen.getByRole("button", { name: "Account and connection" }));
+  expect((await screen.findByRole("tooltip")).textContent).toBe("Account and connection");
 });
 
 test("More on the rail holds usage and accounts, files and search", async () => {

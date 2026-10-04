@@ -57,16 +57,27 @@ test("Home groups threads by project, the folder that owes most first, each in t
   expect(card(/Bump Codex app-server to 0.48/)).toBeTruthy();
 });
 
-test("a row says its status in words, its pull request and worktree, the provider and its subagents", async () => {
+test("a row's name says its status, provider and subagents, worktree, pull request and machine", async () => {
   await openHome(workbenchApp());
-  const refund = await within(threads()).findByRole("link", { name: /Partial refunds/ });
-  expect(within(refund).getByRole("img", { name: "Pull request #77" })).toBeTruthy();
-  expect(within(refund).getByText("Needs you")).toBeTruthy();
-  const dedupe = card(/Dedupe thread events/);
-  expect(within(dedupe).getByRole("img", { name: "Worktree fix/replay-dedupe" })).toBeTruthy();
-  expect(within(dedupe).getByText("Working")).toBeTruthy();
-  expect(within(dedupe).getByText("Claude Code · 2 subagents running")).toBeTruthy();
-  expect(card(/Backpressure/).textContent).toContain("running on build-box");
+  expect(
+    await within(threads()).findByRole("link", {
+      name: /^Partial refunds double-count tax\. Needs you, Claude Code, .*Pull request #77/,
+    }),
+  ).toBeTruthy();
+  expect(
+    card(
+      /^Dedupe thread events after reconnect\. Working, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
+    ),
+  ).toBeTruthy();
+  expect(card(/^Backpressure on broadcast fan-out\..*Running on build-box/)).toBeTruthy();
+});
+
+test("hovering a row's link shows what its marks mean in a tooltip", async () => {
+  await openHome(workbenchApp());
+  await userEvent.hover(await within(threads()).findByRole("link", { name: /^Partial refunds/ }));
+  const tip = await screen.findByRole("tooltip");
+  expect(tip.textContent).toContain("Needs you");
+  expect(tip.textContent).toContain("Pull request #77");
 });
 
 test("Settle drops a finished thread into Settled on the daemon and Undo puts it back", async () => {
@@ -126,7 +137,7 @@ test("a settled thread comes back to the list as soon as it moves again", async 
     { type: "turn.started", agent: "root", nativeTurnId: "follow-up", trigger: "user" },
   ]);
   await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
-  expect(within(card(/Bump Codex/)).getByText("Working")).toBeTruthy();
+  expect(card(/^Bump Codex app-server to 0\.48\. Working/)).toBeTruthy();
 });
 
 test("the auto-settle rule under Settled is the daemon's setting", async () => {
@@ -154,9 +165,7 @@ test("Snooze sinks a thread to the end of its folder with its wake time; Undo wa
       before("Backpressure on broadcast fan-out", "Retry budget for app-server restarts"),
     ).toBe(true),
   );
-  expect(
-    within(card(/Retry budget/)).getByRole("img", { name: /Snoozed until tomorrow/ }),
-  ).toBeTruthy();
+  expect(card(/^Retry budget.*Snoozed until tomorrow/)).toBeTruthy();
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
   await waitFor(() =>
     expect(

@@ -1,9 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { DotsThreeIcon, GearSixIcon } from "@phosphor-icons/react";
-import type { SidebarReader } from "@ace/client";
-import { useSidebarAll } from "@ace/client-react";
-import { homeAttention } from "@ace/ui-core";
-import type { ReactNode } from "react";
+import { useSidebarStore } from "@ace/client-react";
+import { AttentionTally, entryAttention, firstLaunch, type Attention } from "@ace/ui-core";
+import { useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useLayout } from "@/lib/layout.tsx";
 import { cn } from "@/lib/cn.ts";
 import { Icon } from "@/components/icon.tsx";
 import { CountBadge } from "@/components/ui/dot.tsx";
@@ -118,12 +118,39 @@ function RailLink(props: {
   );
 }
 
-/** Home's dot: one selection over the whole thread list. */
-const selectAttention = (reader: SidebarReader) =>
-  homeAttention(
-    reader.ids.flatMap((id) => {
-      const entry = reader.thread(id);
-      return entry ? [entry] : [];
-    }),
+/**
+ * Home's dot, kept as counts: each change re-reads only the threads it names (`thread:<id>`),
+ * and a fresh snapshot re-reads them all once. Unread is judged against this device's first
+ * launch, the same moment Home's list uses.
+ */
+function useHomeAttention(): Attention {
+  const store = useSidebarStore();
+  const { storage } = useLayout();
+  // The first launch, recorded now if nothing has asked yet.
+  const [baseline] = useState(() => firstLaunch(storage, Date.now()));
+  const [tally] = useState(() => new AttentionTally());
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      tally.clear();
+      if (!store) return () => {};
+      const readAll = () => {
+        tally.clear();
+        for (const id of store.ids) tally.set(id, entryAttention(store.thread(id), baseline));
+      };
+      readAll();
+      return store.observe((keys) => {
+        const before = tally.value;
+        if (keys === "all") readAll();
+        else
+          for (const key of keys)
+            if (key.startsWith("thread:")) {
+              const id = key.slice("thread:".length);
+              tally.set(id, entryAttention(store.thread(id), baseline));
+            }
+        if (tally.value !== before) notify();
+      });
+    },
+    [store, tally, baseline],
   );
-const useHomeAttention = () => useSidebarAll(selectAttention);
+  return useSyncExternalStore(subscribe, () => tally.value);
+}

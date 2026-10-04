@@ -71,7 +71,8 @@ own list (composed in `app/app-shell.tsx`).
 
 - **Rail** (`features/shell/rail.tsx`, 40px): icons only, each named by a tooltip with its
   shortcut on hover and keyboard focus. Home (`g h`; a dot while a thread needs you or has news,
-  `homeAttention` in `@ace/ui-core`), Activity (`g a`, the needs-you count), Deck (`g d`),
+  kept as counts by `AttentionTally` from the changed entries only, and judged against the same
+  first launch as Home's list, `firstLaunch` in `@ace/ui-core`), Activity (`g a`, the needs-you count), Deck (`g d`),
   Automations (`g u`), Skills (`g s`), More (a menu of usage and accounts, files and search);
   Settings (⌘,) and the account with the connection dot at the foot.
 - **Sidebar** (`features/shell/app-sidebar.tsx`): "ace ▾" (the account and connection menu), the
@@ -80,10 +81,13 @@ own list (composed in `app/app-shell.tsx`).
   sidebar's body through a portal, so it keeps the route's providers.
 - **Home's list** (`features/home`): Pinned, then a folder per project (named from the project
   cache) with its threads in Home order, the folder that owes most first; five threads, then
-  Show more; the open thread always shows. Closed folders persist on this device
-  (`ace.home.folders`); the grouping is `homeRows` in `@ace/ui-core`. Each row is one line: the
-  title, then a snooze, worktree, pull request and status mark. The Threads heading carries the
-  project filter and Add project (⇧⌘O) on hover.
+  Show more (for this visit of the list); the open thread always shows. Closed folders persist
+  on this device (`ace.home.folders`, the newest 200). The grouping and the row keys are
+  `homeRows` and `homeRowKey` in `@ace/ui-core`; each kind of row has its own key prefix, so no
+  thread id can take a folder's key. Each row is one line: the title, then marks for a snooze,
+  worktree, pull request and status that give way to Settle and Snooze on hover; what they mean
+  stays in the row's name and its tooltip. The Threads heading carries the project filter and
+  Add project (⇧⌘O) on hover.
 - `SidebarFrame` owns where they sit and stays mounted for the app's life. `⌘\` is bound there:
   it hides or shows the sidebar (the rail stays; persisted as `sidebarOpen` in `ace.layout`), and
   on a narrow window opens and closes the sheet without touching that choice.
