@@ -1,9 +1,10 @@
 /*
- * How wide each tab of a strip is drawn. The showing tab keeps its whole title (up to the cap);
- * the others share what is left, narrowing evenly, and the ones furthest from the showing tab
- * fold to their icon first. Only once every other tab is an icon does the strip scroll.
+ * How wide each tab of a strip is drawn. The showing tab keeps its whole title (up to the cap).
+ * Short of room, the others first narrow evenly down to a readable title; then the pinned tools
+ * (Changes, Agents) fold to their icons together, then the other tabs, furthest from the showing
+ * one first. Only once every other tab is an icon does the strip scroll. So a strip has at most
+ * two looks at once: titled tabs of one width, and icons.
  */
-
 export const tabSizes = {
   /** No tab grows past this, however long its title. */
   max: 220,
@@ -21,6 +22,8 @@ export interface TabMeasure {
   natural: number;
   /** Narrower than this the tab folds to its icon (a badge leaves less room for the title). */
   least?: number;
+  /** A pinned per-thread tool (Changes, Agents): these fold first, and together. */
+  tool?: boolean;
 }
 
 export interface TabFit {
@@ -57,29 +60,33 @@ export function fitTabs(
   const others = tabs.filter((tab) => tab !== shown);
   const budget = room - (shown ? want(shown) : 0);
   const at = shown ? tabs.indexOf(shown) : 0;
-  // Fold the furthest from the showing tab first, so its neighbours keep their titles longest.
-  const foldOrder = others.toSorted(
-    (a, b) => Math.abs(tabs.indexOf(b) - at) - Math.abs(tabs.indexOf(a) - at),
-  );
+  const distance = (tab: TabMeasure) => Math.abs(tabs.indexOf(tab) - at);
+  // Each step folds one group: the pinned tools together, then one tab at a time, the furthest
+  // from the showing tab first, so its neighbours keep their titles longest.
+  const tools = others.filter((tab) => tab.tool);
+  const rest = others.filter((tab) => !tab.tool).toSorted((a, b) => distance(b) - distance(a));
+  const steps: (readonly TabMeasure[])[] = [
+    ...(tools.length ? [tools] : []),
+    ...rest.map((tab) => [tab]),
+  ];
   const icons = new Set<string>();
-  let cap = waterLevel(
-    others.map((tab) => want(tab)),
-    budget,
-  );
+  const capFor = () =>
+    waterLevel(
+      others.filter((tab) => !icons.has(tab.key)).map((tab) => want(tab)),
+      budget - icons.size * tabSizes.icon,
+    );
+  let cap = capFor();
+  // A titled tab narrower than this shows too little of its title (or none, past its badge).
   const cramped = () =>
     others.some(
       (tab) =>
         !icons.has(tab.key) &&
         cap < Math.min(want(tab), Math.max(tab.least ?? 0, tabSizes.labelled)),
     );
-  for (const tab of foldOrder) {
+  for (const step of steps) {
     if (!cramped()) break;
-    icons.add(tab.key);
-    const labelled = others.filter((each) => !icons.has(each.key));
-    cap = waterLevel(
-      labelled.map((each) => want(each)),
-      budget - icons.size * tabSizes.icon,
-    );
+    for (const tab of step) icons.add(tab.key);
+    cap = capFor();
   }
   const widths = new Map<string, number>();
   for (const tab of tabs)

@@ -5,11 +5,12 @@ import { useLocal } from "../store.ts";
 import { loadingKey, loadingTabs } from "./loading.ts";
 
 /** A browser tab's strip mark while its page loads; the title and close button keep their place. */
-export function LoadingBadge(props: { scope: string; tab: WorkspaceTab }) {
+export function LoadingBadge(props: { scope: string; tab: WorkspaceTab; folded?: boolean }) {
   const key = loadingKey(props.scope, props.tab.key);
   const loading = useLocal(
     loadingTabs,
     useCallback((tabs: ReadonlySet<string>) => tabs.has(key), [key]),
   );
-  return loading ? <Spinner label="Loading" className="ml-0.5" /> : null;
+  // Folded to the tab's icon, a page load is too brief to mark.
+  return loading && !props.folded ? <Spinner label="Loading" className="ml-0.5" /> : null;
 }

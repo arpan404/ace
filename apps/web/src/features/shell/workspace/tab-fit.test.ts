@@ -43,6 +43,57 @@ test("a tab whose badge would leave its title no room folds to its icon instead"
   expect(fit.widths.get("t0")).toBe(90);
 });
 
+// The pinned tools as the strip measures them: Changes with a +21 −9 badge, and Agents.
+const changes = { key: "changes", natural: 150, least: 110, tool: true };
+const agents = { key: "agents", natural: 100, tool: true };
+
+test("in a 400px strip, three tabs first narrow evenly to readable titles", () => {
+  const fit = fitTabs(
+    [{ key: "changes", natural: 120, tool: true }, { ...agents, natural: 110 }, ...tabs(180)],
+    "t0",
+    400,
+  );
+  // 396px less the showing tab's 180: 108 each.
+  expect(widths(fit)).toEqual([108, 108, 180]);
+  expect(fit.icons.size).toBe(0);
+});
+
+test("in a 400px strip, the pinned tools fold to icons together, never one titled and one folded", () => {
+  const fit = fitTabs([changes, agents, ...tabs(260)], "t0", 400);
+  expect([...fit.icons].toSorted()).toEqual(["agents", "changes"]);
+  expect(widths(fit)).toEqual([36, 36, 220]);
+});
+
+test("in a 400px strip of four, the tools fold before another tab loses any of its title", () => {
+  // Sharing evenly would leave 71px each; folding Changes alone would leave Agents and Devices
+  // titled beside a bare Changes icon.
+  const fit = fitTabs(
+    [changes, agents, { key: "devices", natural: 110 }, { key: "browser", natural: 180 }],
+    "browser",
+    400,
+  );
+  expect([...fit.icons].toSorted()).toEqual(["agents", "changes"]);
+  expect(widths(fit)).toEqual([36, 36, 110, 180]);
+});
+
+test("in a 400px strip of four, a tab that still doesn't fit after the tools narrows, then folds", () => {
+  const fit = fitTabs(
+    [changes, agents, { key: "files", natural: 160 }, { key: "browser", natural: 300 }],
+    "browser",
+    400,
+  );
+  expect([...fit.icons].toSorted()).toEqual(["agents", "changes"]);
+  // 394px less 220 for the showing tab and two icons: 102 for Files, still a readable title.
+  expect(widths(fit)).toEqual([36, 36, 102, 220]);
+
+  const tighter = fitTabs(
+    [changes, agents, { key: "files", natural: 160 }, { key: "browser", natural: 300 }],
+    "browser",
+    320,
+  );
+  expect([...tighter.icons].toSorted()).toEqual(["agents", "changes", "files"]);
+});
+
 test("widths are whole pixels", () => {
   const fit = fitTabs(tabs(150.4, 160.2, 170.7), "t0", 333);
   for (const width of fit.widths.values()) expect(Number.isInteger(width)).toBe(true);

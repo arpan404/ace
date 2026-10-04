@@ -76,6 +76,8 @@ export function TabItem(props: {
   const Badge = kind?.Badge;
   const closable = !tab.pinned;
   const iconOnly = props.iconOnly && !props.active;
+  // Pinned per-thread tools (Changes, Agents) fold to icons first, and together (`fitTabs`).
+  const tool = !!kind?.singleton && !!kind.pinned && !!tab.pinned;
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -83,6 +85,7 @@ export function TabItem(props: {
           <div
             data-tab-key={tab.key}
             data-close-room={closable && props.active}
+            data-tab-tool={tool}
             draggable
             style={props.width === undefined ? undefined : { width: props.width }}
             onDragStart={(event) => {
@@ -163,6 +166,17 @@ export function TabItem(props: {
               )}
             >
               <Badge scope={props.scope} tab={tab} />
+            </span>
+          )}
+          {/* Folded, a badge keeps its signal as a dot at the icon's corner (Changes: "has
+              changes"); the badge above stays, out of sight, for the layout pass to measure. */}
+          {Badge && iconOnly && (
+            <span
+              aria-hidden
+              data-tab-dot
+              className="pointer-events-none absolute top-[3px] left-[calc(50%+5px)] flex empty:hidden"
+            >
+              <Badge scope={props.scope} tab={tab} folded />
             </span>
           )}
         </button>
