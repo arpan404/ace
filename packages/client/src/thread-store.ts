@@ -252,7 +252,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           keys.add("thread");
           break;
         case "agent.created":
-          if (!keys.has(`agent:${p.agent.id}`)) this.capacity("agents", !!this.agent(p.agent.id), keys);
+          if (!keys.has(`agent:${p.agent.id}`))
+            this.capacity("agents", !!this.agent(p.agent.id), keys);
           if (p.agent.origin === "root") {
             view.thread = { ...view.thread };
             keys.add("thread");

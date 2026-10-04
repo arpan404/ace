@@ -242,15 +242,15 @@ export class StatusStore {
         reparentAgent(view, id, previous?.parentId, agent.parentId);
         if (!previous) {
           for (const metadata of ["usage", "contextMeters"] as const) {
-            const row = this.statement(
+            const metadataRow = this.statement(
               "SELECT value FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
             ).get(view.thread.id, metadata, id);
-            if (!row) continue;
-            const values = ThreadView.shape[metadata].parse({
-              [id]: JSON.parse(String(row.value)),
+            if (!metadataRow) continue;
+            const metadataValues = ThreadView.shape[metadata].parse({
+              [id]: JSON.parse(String(metadataRow.value)),
             });
-            const value = values?.[id];
-            if (value !== undefined) setValue((view[metadata] ??= {}), id, value);
+            const metadataValue = metadataValues?.[id];
+            if (metadataValue !== undefined) setValue((view[metadata] ??= {}), id, metadataValue);
           }
         }
       }
