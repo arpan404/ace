@@ -1,4 +1,4 @@
-import type { CatalogModel, ProviderKind } from "@ace/protocol";
+import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
 import { blockingReset, tightestWindow, type AccountView } from "./accounts.ts";
 import { providerNames } from "./providers.ts";
 
@@ -22,6 +22,9 @@ export interface ModelChoice {
   exhausted: boolean;
   resetsAt: number | undefined;
   isDefault: boolean;
+  /** Reasoning efforts the model takes, in the catalog's order; empty when it has no choice. */
+  efforts: readonly string[];
+  defaultEffort: string | undefined;
 }
 
 /**
@@ -76,6 +79,8 @@ export function modelChoices(
             exhausted,
             resetsAt: exhausted && account ? blockingReset(account) : undefined,
             isDefault: model.isDefault,
+            efforts: model.reasoningEfforts,
+            defaultEffort: model.defaultEffort,
           },
         ];
       }),
@@ -218,4 +223,40 @@ export function newThreadOptions(
       };
     }),
   };
+}
+
+/** The effort an execution's options name, when they name one. */
+export function optionEffort(
+  options: Readonly<Record<string, unknown>> | null | undefined,
+): string | undefined {
+  const effort = options?.["effort"];
+  return typeof effort === "string" ? effort : undefined;
+}
+
+/** A thread's effort selector: the levels on offer and the current one, or why it can't change. */
+export interface EffortControl {
+  efforts: readonly string[];
+  current: string | undefined;
+  /** Set when effort can't be changed on this thread. */
+  reason: string | undefined;
+}
+
+/**
+ * Effort on a thread that already exists changes through a queued switch, which the provider
+ * must accept as a session option (`sessionOptions` with an `effort` launch option).
+ */
+export function threadEffortControl(input: {
+  choice: ModelChoice | undefined;
+  capabilities: Pick<Capabilities, "sessionOptions" | "launchOptions"> | undefined;
+  current: string | undefined;
+}): EffortControl {
+  const { choice, capabilities } = input;
+  const efforts = choice?.efforts ?? [];
+  const current = input.current ?? choice?.defaultEffort;
+  const blocked = (reason: string): EffortControl => ({ efforts, current, reason });
+  if (!choice) return blocked("Choose a model first");
+  if (!efforts.length) return blocked(`${choice.model} has no effort levels`);
+  if (!capabilities?.sessionOptions || !capabilities.launchOptions?.includes("effort"))
+    return blocked(`${providerNames[choice.provider]} sets effort only when a thread starts`);
+  return { efforts, current, reason: undefined };
 }

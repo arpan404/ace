@@ -38,6 +38,9 @@ export function switchEvents(host: ThreadHost, at: number): EventPayload[] {
           provider: selection.provider,
           ...(selection.model ? { model: selection.model } : {}),
           ...(selection.instanceId ? { account: selection.instanceId } : {}),
+          ...(Object.keys(selection.options).length
+            ? { options: { ...host.view.thread.live?.options, ...selection.options } }
+            : {}),
         },
       },
     },

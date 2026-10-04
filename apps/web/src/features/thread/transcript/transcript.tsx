@@ -14,6 +14,7 @@ import { LiveFooter, useRootWorking } from "./live-footer.tsx";
 import { useBlocks } from "./use-blocks.ts";
 import { useNewActivity } from "./use-new-activity.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
+import { readingColumn } from "../lib/column.ts";
 
 const none: readonly string[] = [];
 const blockKey = (block: Block) => block.key;
@@ -74,6 +75,7 @@ export function Transcript(props: { threadId: string }) {
   };
   useKeepPlace(blocks, virtualizer.scrollToIndex);
   useStayPinned(viewport, pinnedRef, glidingUntil);
+  useGutter(viewport);
   // Follow streaming output and new blocks while the reader is at the bottom.
   useLayoutEffect(() => {
     if (pinnedRef.current) scrollToEnd();
@@ -92,7 +94,9 @@ export function Transcript(props: { threadId: string }) {
       <div
         ref={viewport}
         data-virtual-viewport=""
-        className="scroll-fade-t min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-fade-t-6 [overflow-anchor:none]"
+        // A classic scrollbar reserves the same room on both edges, so the column stays centred
+        // on the composer's axis; `useGutter` gives the composer the same inset.
+        className="scroll-fade-t min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-fade-t-6 [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
         onScroll={(event) => {
           const el = event.currentTarget;
           const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
@@ -101,7 +105,7 @@ export function Transcript(props: { threadId: string }) {
           setPinned(atEnd);
         }}
       >
-        <div className="mx-auto w-full max-w-(--column) px-5 pt-6 pb-16 sm:px-8">
+        <div className={`${readingColumn} pt-6 pb-16`}>
           <div className="flex justify-center pb-4">
             {hasOlder ? (
               <Button variant="ghost" size="sm" disabled={loading} onClick={() => void loadOlder()}>
@@ -215,6 +219,31 @@ function useStayPinned(
     observer.observe(el);
     return () => observer.disconnect();
   }, [viewport, pinned, glidingUntil]);
+}
+
+/**
+ * Where scrollbars take room (not overlay ones), the transcript reserves it on both edges and
+ * publishes one edge's width as `--transcript-gutter`, which the composer adds to its own sides,
+ * so the composer's shell and the transcript's text share both edges at every width.
+ */
+function useGutter(viewport: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement;
+    const measure = () =>
+      root.style.setProperty(
+        "--transcript-gutter",
+        `${Math.max(0, Math.round((el.offsetWidth - el.clientWidth) / 2))}px`,
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--transcript-gutter");
+    };
+  }, [viewport]);
 }
 
 /** After older history is prepended, keep the block the reader was looking at in place. */

@@ -1,5 +1,6 @@
 import { threadWorkspace } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { preloadComposerParts } from "./composer/deferred-parts.tsx";
 
 /*
  * Parts of the thread screen that only appear on demand: a step's detail (output, diff,
@@ -31,5 +32,6 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredSummaryBody.preload(),
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.
     threadWorkspace.load(),
+    preloadComposerParts(),
   ]);
 }
