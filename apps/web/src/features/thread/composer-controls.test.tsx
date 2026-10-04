@@ -1,6 +1,6 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -33,6 +33,32 @@ test("+ offers files, images, a mention and a command instead of a bare file dia
   await userEvent.click(within(menu).getByRole("menuitem", { name: /^Mention a file/ }));
   expect(message.value).toBe("@");
   expect(await screen.findByRole("listbox", { name: "Files" })).toBeTruthy();
+});
+
+test("each + row says what it does, and a thread's rows say why they're off when they are", async () => {
+  await open("idle");
+  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
+  const menu = await screen.findByRole("menu");
+  expect(within(menu).getByRole("menuitem", { name: /^Files/ }).textContent).toContain(
+    "Attach from this computer",
+  );
+  expect(within(menu).getByRole("menuitem", { name: /^Images/ }).textContent).toContain(
+    "PNG, JPG, screenshots",
+  );
+  // Nothing is open in the thread's workspace yet: the page row says what it needs.
+  const page = within(menu).getByRole("menuitem", { name: /^An open page/ });
+  expect(page.getAttribute("aria-disabled")).toBe("true");
+  expect(page.textContent).toContain("Open a page in the Browser");
+  expect(within(menu).getByRole("menuitem", { name: /^Plan first/ })).toBeTruthy();
+});
+
+test("Plan first from + makes the thread read only until the plan is agreed", async () => {
+  const { app } = await open("idle");
+  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
+  const plan = await screen.findByRole("menuitem", { name: /^Plan first/ });
+  await waitFor(() => expect(plan.getAttribute("aria-disabled")).not.toBe("true"));
+  await userEvent.click(plan);
+  await waitFor(() => expect(thread(app, "thread-router")?.permission?.override).toBe("read-only"));
 });
 
 test("a file mentioned once is offered again under Recent files", async () => {
@@ -71,9 +97,13 @@ test("approvals show the thread's mode and what the provider gates, and change f
   await userEvent.click(chip);
   const auto = await screen.findByRole("menuitemradio", { name: "Auto-review" });
   expect(auto.getAttribute("aria-checked")).toBe("true");
-  expect(auto.textContent).toContain("Gates edits, shell commands, network and protected reads");
+  // Each mode in one line; what the provider gates, said once for the mode in effect.
+  expect(auto.textContent).toContain("Approves low-risk actions, asks the rest");
+  expect(
+    screen.getByText("Auto-review: Gates edits, shell commands, network and protected reads"),
+  ).toBeTruthy();
   const full = screen.getByRole("menuitemradio", { name: "Full access" });
-  expect(full.textContent).toContain("Nothing is gated");
+  expect(full.textContent).toContain("Edits, runs and fetches without asking");
 
   await userEvent.click(screen.getByRole("menuitemradio", { name: "Read only" }));
   // The agent is mid-turn: the new mode waits for the turn to end.
@@ -88,13 +118,22 @@ test("approvals show the thread's mode and what the provider gates, and change f
   await waitFor(() => expect(thread(app, "thread-replay-cursor")?.permission?.override).toBeNull());
 });
 
-test("effort changes on a running thread from the next turn", async () => {
+test("effort changes on a running thread from the next turn, from the provider's default", async () => {
   const { app } = await open("busy");
-  await userEvent.click(await screen.findByRole("button", { name: "Model: Opus 4.1, personal" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "high effort" }));
+  // The daemon hasn't reported this thread's effort: it runs at the provider's default.
+  await userEvent.click(
+    await screen.findByRole("button", {
+      name: "Model: Opus 4.1, personal, provider default effort",
+    }),
+  );
+  const fallback = await screen.findByRole("menuitemradio", {
+    name: "Default (Claude Code) effort",
+  });
+  expect(fallback.getAttribute("aria-checked")).toBe("true");
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "High effort" }));
 
   expect(
-    await screen.findByRole("button", { name: "Model: Opus 4.1, personal, high effort" }),
+    await screen.findByRole("button", { name: "Model: Opus 4.1, personal, High effort" }),
   ).toBeTruthy();
   const pending = thread(app, "thread-replay-cursor")?.switch;
   expect(pending).toMatchObject({ state: "queued", selection: { options: { effort: "high" } } });
@@ -116,4 +155,14 @@ test("while the agent works, a draft offers Queue and never turns into Stop", as
   await userEvent.type(message, "Also check cold start");
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
+});
+
+test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
+  const { app } = await open("busy");
+  await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ });
+  act(() => app.client.networkOnline(false));
+  await screen.findByText(/^Offline\./);
+  const chip = screen.getByRole("button", { name: /^Model: Opus 4\.1/ });
+  await userEvent.click(chip);
+  expect(await screen.findByText("Offline: changes apply when the daemon is back")).toBeTruthy();
 });

@@ -11,6 +11,25 @@ export interface ThreadParts {
   AgentTranscript?: ComponentType<{ threadId: string; agentId?: string | undefined }>;
   /** One deck lane: worker, reviewer, rounds and delegated agents. */
   DeckLane?: ComponentType<{ runId: string; cardId: string }>;
+  /** The thread composer's shape for a side chat, off with `reason` while it can't run. */
+  SideChatComposer?: ComponentType<{
+    threadId: string;
+    reason: string;
+    reasonId: string;
+    short?: string | undefined;
+  }>;
+  /**
+   * The thread composer's shape for a follow-up to one agent: Enter queues it on the agent's own
+   * thread (`target`); off with `unavailable` while there is none.
+   */
+  AgentComposer?: ComponentType<{
+    threadId: string;
+    agentId: string;
+    target: string | undefined;
+    label: string;
+    placeholder: string;
+    unavailable?: { reason: string; describedBy: string; short?: string | undefined } | undefined;
+  }>;
   /** The deck a thread works for, with its lanes. */
   DeckOfThread?: ComponentType<{
     runId: string;

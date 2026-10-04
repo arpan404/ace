@@ -5,11 +5,12 @@ import {
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
+import { useElementSize } from "@/lib/element-size.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { useViewFrame } from "./view-frame.tsx";
 
@@ -81,13 +82,20 @@ export function AppHeader(
     trailing?: ReactNode;
   },
 ) {
-  const wide = useSidebarInline();
-  // A phone keeps one ⋯ for the title menu and the actions.
+  const sidebarInline = useSidebarInline();
   const phone = usePhone();
+  // The title comes first. Beside an open side panel the header is a container: below 720px
+  // the actions drop their labels (they keep their accessible names and shortcut tooltips);
+  // only below 420px, or on a phone, do they fold, together with the title menu, into one ⋯.
+  const header = useRef<HTMLElement>(null);
+  const roomy = useElementSize(header).width >= foldBelow;
+  const wide = sidebarInline && roomy && !phone;
+  // Folded, the title menu joins the actions behind one ⋯: a header never shows two.
+  const folded = !wide && !!props.actions;
+  const titleMenu = props.menu && !phone && !folded;
   return (
-    // A container: beside an open side panel the column can be narrow, and below 720px the
-    // actions drop their labels (they stay their accessible names) so the title keeps its room.
     <header
+      ref={header}
       className={cn(
         // The hairline is drawn with box-shadow, not a border, so the 50px row keeps its exact centre.
         "@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 shadow-[inset_0_-1px_0_transparent] transition-shadow duration-(--dur-2) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
@@ -105,9 +113,9 @@ export function AppHeader(
             {props.subtitle}
           </span>
         )}
-        {(props.menu || props.summary) && (
+        {(titleMenu || props.summary) && (
           <span className="flex shrink-0 items-center gap-0.5">
-            {props.menu && !phone && (
+            {titleMenu && (
               <Menu>
                 <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
                 <MenuContent>{props.menu}</MenuContent>
@@ -119,9 +127,9 @@ export function AppHeader(
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {props.actions && wide && props.actions}
-        {/* Narrower, the actions (and on a phone the title menu) fold into one ⋯. */}
-        {(props.actions || props.menu) && !wide && (
-          <Overflow actions={props.actions} menu={phone ? props.menu : undefined} />
+        {/* Narrower, the actions and the title menu fold into one ⋯. */}
+        {(folded || (phone && props.menu)) && (
+          <Overflow actions={props.actions} menu={titleMenu ? undefined : props.menu} />
         )}
         {props.trailing && (
           <>
@@ -133,6 +141,12 @@ export function AppHeader(
     </header>
   );
 }
+
+/**
+ * A header narrower than this folds its actions and title menu into one ⋯. Between this and
+ * 720px the actions show as icons (`SplitButton`'s `@container/header` rule).
+ */
+const foldBelow = 420;
 
 /**
  * The folded header: the actions in a row, then the title menu behind one more tap. One ⋯ in
@@ -148,7 +162,9 @@ function Overflow(props: { actions: ReactNode; menu: ReactNode }) {
     );
   return (
     <Popover>
-      <PopoverTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
+      <PopoverTrigger
+        render={<IconButton icon={DotsThreeIcon} label={props.menu ? "More actions" : "Actions"} />}
+      />
       <PopoverContent
         align="end"
         className="flex max-w-[calc(100vw-1.5rem)] flex-col gap-1.5 p-1.5"

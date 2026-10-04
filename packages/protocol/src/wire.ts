@@ -1,4 +1,10 @@
 import {
+  ProjectsRequest,
+  ProjectsResult,
+  WorkspaceChanged,
+  WorkspaceCloneProgress,
+} from "./project-requests.ts";
+import {
   TurnsPageRequest,
   TurnsPageResponse,
   ItemsWindowRequest,
@@ -128,6 +134,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
 
   RegistryRequest,
   WorkspaceActionRequest,
+  ProjectsRequest,
   TerminalRequest,
   TerminalCredit,
   PluginClientMessage,
@@ -183,6 +190,9 @@ export const ServerMessage = z.discriminatedUnion("type", [
 
   RegistryResult,
   WorkspaceActionResult,
+  ProjectsResult,
+  WorkspaceChanged,
+  WorkspaceCloneProgress,
   TerminalResult,
   TerminalOutput,
   PluginServerMessage,

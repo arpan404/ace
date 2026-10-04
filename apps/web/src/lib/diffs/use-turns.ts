@@ -2,7 +2,7 @@ import type { ThreadKey } from "@ace/client";
 import { useItemOrder, useThread } from "@ace/client-react";
 import { useMemo } from "react";
 import { collectTurns, turnsEqual, type Turn } from "@ace/ui-core";
-import { useDiffStat } from "@/lib/diffs/use-file-diffs.ts";
+import { useDiffStat } from "./use-file-diffs.ts";
 
 const noTurns: readonly Turn[] = [];
 
@@ -19,7 +19,7 @@ export function useTurns(threadId: string): readonly Turn[] {
   return useThread(threadId, keys, collectTurns, turnsEqual) ?? noTurns;
 }
 
-/** Lines added and removed across the whole thread, for the Changes tab label. */
+/** Lines added and removed across the whole thread: the Changes tab and the summary card. */
 export function useThreadDiffStat(threadId: string): { additions: number; deletions: number } {
   const turns = useTurns(threadId);
   const edits = useMemo(() => turns.flatMap((turn) => turn.edits), [turns]);

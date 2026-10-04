@@ -48,7 +48,8 @@ function SplitButton(props: {
           className={cn(
             region,
             "gap-1.5 [&_svg]:text-muted-foreground",
-            props.label ? "pr-1.5 pl-[9px]" : "px-2",
+            // Icon-only in a narrow header: the same square box as an unlabelled action.
+            props.label ? "pr-1.5 pl-[9px] @max-[45rem]/header:px-2" : "px-2",
           )}
         >
           {props.icon}

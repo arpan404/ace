@@ -119,18 +119,20 @@ test("attached files upload before sending and can be removed", async () => {
 
 test("the model picker shows each account's usage and blocks an exhausted one", async () => {
   await open("busy");
-  await userEvent.click(await screen.findByRole("button", { name: "Model: Opus 4.1, personal" }));
-  const work = await screen.findByRole("menuitemradio", { name: "Opus 4.1 · work" });
-  expect(
-    within(work).getByRole("meter", { name: "work usage" }).getAttribute("aria-valuenow"),
-  ).toBe("57");
-  expect(work.textContent).toContain("57% of Weekly window used");
+  await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ }));
+  // The chosen account in full: its window and a meter.
+  const chosen = await screen.findByRole("menuitemradio", { name: "Opus 4.1 · personal" });
+  expect(chosen.textContent).toContain("of 5-hour window used");
+  expect(within(chosen).getByRole("meter", { name: "personal usage" })).toBeTruthy();
+  // Every other account on one line with how much it has used.
+  const work = screen.getByRole("menuitemradio", { name: "Opus 4.1 · work" });
+  expect(work.textContent).toContain("57%");
   const team = screen.getByRole("menuitemradio", { name: "GPT-5 Codex · team" });
   expect(team.getAttribute("aria-disabled")).toBe("true");
   expect(team.textContent).toMatch(/Limit reached · resets \d\d:\d\d/);
 
   await userEvent.click(screen.getByRole("menuitemradio", { name: "Sonnet 4.5 · personal" }));
-  expect(await screen.findByRole("button", { name: "Model: Sonnet 4.5, personal" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, personal/ })).toBeTruthy();
 });
 
 test("the context bar shows where the thread runs and follows its branch past a commit", async () => {

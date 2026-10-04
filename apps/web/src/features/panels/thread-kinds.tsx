@@ -14,7 +14,7 @@ import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { bindPage, nextBrowserId, pageOwners, setLoading } from "./browser/loading.ts";
-import { AgentBadge } from "./agents/agent-badge.tsx";
+import { AgentBadge, AgentTabIcon } from "./agents/agent-badge.tsx";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
@@ -48,7 +48,7 @@ export const changesKind = defineTabKind({
   singleton: true,
   pinned: true,
   launcher: 10,
-  Badge: (props) => <ThreadDiffStat threadId={props.scope} />,
+  Badge: (props) => <ThreadDiffStat threadId={props.scope} folded={props.folded} />,
   load: () => views().then((m) => ({ default: m.ChangesView })),
 });
 
@@ -110,6 +110,7 @@ export const previewKind = defineTabKind({
   icon: BrowserIcon,
   singleton: true,
   launcher: 50,
+  Badge: LoadingBadge,
   load: () => views().then((m) => ({ default: m.PreviewView })),
 });
 
@@ -128,6 +129,7 @@ export const portKind = defineTabKind({
   kind: "port",
   label: "Preview",
   icon: BrowserIcon,
+  Badge: LoadingBadge,
   load: () => import("./preview/port-tab.tsx").then((m) => ({ default: m.PortTab })),
 });
 
@@ -154,6 +156,7 @@ export const agentKind = defineTabKind({
   kind: "agent",
   label: "Agent",
   icon: RobotIcon,
+  TabIcon: AgentTabIcon,
   Badge: AgentBadge,
   load: () => import("./agents/agent-tab.tsx").then((m) => ({ default: m.AgentTab })),
 });

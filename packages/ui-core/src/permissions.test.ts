@@ -1,6 +1,11 @@
 import type { PermissionCapabilities } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { permissionChoices, permissionCoverage, threadPermissionSummary } from "./permissions.ts";
+import {
+  permissionChoices,
+  permissionCoverage,
+  permissionCoverageNote,
+  threadPermissionSummary,
+} from "./permissions.ts";
 
 const codexLike: PermissionCapabilities = {
   modes: ["full-access", "auto-review", "read-only"],
@@ -101,4 +106,13 @@ test("a thread without an override shows the inherited default", () => {
     ),
   ).toMatchObject({ mode: "auto-review", inherited: true, label: "Auto-review" });
   expect(threadPermissionSummary(undefined, codexLike)).toBeUndefined();
+});
+
+test("coverage is said once: what the mode in effect gates, or that the provider doesn't say", () => {
+  expect(permissionCoverageNote({ ...codexLike, guarantees: [] }, "Codex", "auto-review")).toBe(
+    "Codex doesn't report what each mode gates",
+  );
+  expect(permissionCoverageNote(codexLike, "Codex", "auto-review")).toBe(
+    "Auto-review: Protected reads not gated",
+  );
 });

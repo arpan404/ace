@@ -21,6 +21,13 @@ import { clampToBounds, type Bounds } from "./bounds.ts";
 import { TabContent } from "./tab-content.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 
+/** The floating dock's scrim and leading-edge shadow (inline: one-off values, ADR 0056 CSS budget). */
+const scrim = { background: "color-mix(in oklab, black 40%, transparent)" };
+const edgeShadow = {
+  right: { boxShadow: "-16px 0 40px -12px rgb(0 0 0 / 0.45)" },
+  bottom: { boxShadow: "0 -16px 40px -12px rgb(0 0 0 / 0.45)" },
+};
+
 export interface DockLayout {
   /** Narrow window: the dock floats over the content, which dims; Escape or a click outside hides it. */
   overlay: boolean;
@@ -66,7 +73,13 @@ export function WorkspaceDock(props: {
     setRightPanel(() => actions.setOpen("right", false));
     return () => setRightPanel(undefined);
   }, [right, state.open, setRightPanel, actions]);
-  useHotkey("escape", hide, { enabled: floating && state.open });
+  // Floating, it closes like any overlay: Escape or a click on the scrim, and focus goes back
+  // to the toggle that opened it rather than to the page.
+  const dismiss = () => {
+    hide();
+    toggleOutside(side)?.focus();
+  };
+  useHotkey("escape", dismiss, { enabled: floating && state.open });
   if (!presence.mounted) return null;
 
   const size = maximized ? layout.bounds.max : clampToBounds(layout.size, layout.bounds);
@@ -78,9 +91,11 @@ export function WorkspaceDock(props: {
       {floating && (
         <div
           aria-hidden
-          onClick={hide}
+          data-scrim
+          onClick={dismiss}
+          style={scrim}
           className={cn(
-            "absolute inset-0 z-20 bg-black/20",
+            "absolute inset-0 z-20",
             closing ? "fx-fade-out" : presence.toggled && "fx-fade-in",
           )}
         />
@@ -90,7 +105,10 @@ export function WorkspaceDock(props: {
         inert={closing}
         data-dock={side}
         data-edge={right && !layout.sheet ? "right" : "bottom"}
-        style={layout.sheet || expanded ? undefined : right ? { width: size } : { height: size }}
+        style={{
+          ...(layout.sheet || expanded ? undefined : right ? { width: size } : { height: size }),
+          ...(floating ? (right ? edgeShadow.right : edgeShadow.bottom) : undefined),
+        }}
         className={cn(
           "relative flex min-h-0 min-w-0 flex-col bg-panel",
           expanded ? "flex-1" : "shrink-0",
@@ -99,9 +117,10 @@ export function WorkspaceDock(props: {
             : [
                 right ? !expanded && "border-l" : "border-t",
                 layout.overlay &&
+                  // Over the scrim, with an elevation shadow on its leading edge (`edgeShadow`).
                   (right
-                    ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background shadow-[var(--glass-shadow)]"
-                    : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[var(--glass-shadow)]"),
+                    ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background"
+                    : "absolute inset-x-0 bottom-0 z-20 bg-background"),
               ],
           panelMotion(presence),
         )}
@@ -138,13 +157,17 @@ export function WorkspaceDock(props: {
             definition={definition}
             actions={actions}
           />
-          {shown && shownKind && (
-            <Suspense fallback={null}>
-              <div className="flex shrink-0 items-center gap-0.5">
+          {/* The showing tab's own actions, in a zone at least three buttons wide so the
+              dock's controls after it never move as tabs change. */}
+          <div
+            className={cn("flex shrink-0 items-center justify-end gap-0.5", !right && "min-w-22")}
+          >
+            {shown && shownKind && (
+              <Suspense fallback={null}>
                 {createElement(shownKind.actions(), { scope: props.scope, tab: shown, dock: side })}
-              </div>
-            </Suspense>
-          )}
+              </Suspense>
+            )}
+          </div>
           {right ? (
             props.controls && (
               <>
@@ -154,6 +177,7 @@ export function WorkspaceDock(props: {
             )
           ) : (
             <>
+              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
               <IconButton
                 icon={maximized ? ArrowsInLineVerticalIcon : ArrowsOutLineVerticalIcon}
                 label={maximized ? "Restore bottom panel" : "Maximize bottom panel"}
@@ -183,5 +207,12 @@ export function WorkspaceDock(props: {
         />
       </section>
     </>
+  );
+}
+
+/** The dock's toggle outside the dock itself (the header's), to return focus to. */
+function toggleOutside(side: Dock): HTMLElement | undefined {
+  return [...document.querySelectorAll<HTMLElement>(`[data-dock-toggle="${side}"]`)].find(
+    (toggle) => !toggle.closest("[data-dock]"),
   );
 }

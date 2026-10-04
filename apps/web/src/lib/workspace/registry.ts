@@ -33,6 +33,12 @@ export interface TabKindOptions {
   /** The tool's name: launcher card, default tab title, tooltips. */
   label: string;
   icon: IconGlyph;
+  /**
+   * The icon of one tab, where it differs by resource (an agent's provider mark). Drawn in the
+   * strip and the open-tabs list instead of `icon`, at 14px in the text colour; `icon` stays for
+   * the launcher and while this hasn't loaded.
+   */
+  TabIcon?: ComponentType<{ scope: string; tab: WorkspaceTab; className?: string }>;
   /** One tab per scope (Changes, Agents). Others open one tab per `id`. */
   singleton?: boolean;
   /** Docks it may sit in, preferred first. Default: right only. */
@@ -41,8 +47,12 @@ export interface TabKindOptions {
   pinned?: boolean;
   /** Position among the launcher's Tools; leave out to keep the kind off the launcher. */
   launcher?: number;
-  /** Small live text after the title (the diff stat on Changes). Loaded with the screen. */
-  Badge?: ComponentType<{ scope: string; tab: WorkspaceTab }>;
+  /**
+   * Small live text after the title (the diff stat on Changes). Loaded with the screen. With
+   * `folded` the tab shows only its icon: draw at most a 6px mark (a dot in the badge's colour),
+   * or nothing.
+   */
+  Badge?: ComponentType<{ scope: string; tab: WorkspaceTab; folded?: boolean }>;
   /** The tab title; default: the title the view last reported, else `label`. */
   title?(tab: WorkspaceTab): string;
   load(): Promise<TabModule>;

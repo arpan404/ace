@@ -2,7 +2,8 @@
 export { Composer, type Draft } from "./composer/composer.tsx";
 export { useDraftScope } from "./composer/draft-scope.ts";
 /** The composer's footer pieces New thread reuses: the approvals chip and the chip style. */
-export { PermissionPicker, usePermissionCapabilities } from "./composer/permission-picker.tsx";
+export { PermissionPicker } from "./composer/permission-picker.tsx";
+export { usePermissionCapabilities } from "./composer/permission-hooks.ts";
 export { chipControl as composerChip } from "./composer/composer-styles.ts";
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";

@@ -198,9 +198,9 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
   await beat(1000);
 
   // The pinned summary: changes, subagents and sources at a glance.
-  await page.getByRole("button", { name: "Show thread summary" }).click();
+  await page.getByRole("button", { name: "Pin thread summary" }).click();
   await beat(1200);
-  await page.getByRole("button", { name: "Hide thread summary" }).first().click();
+  await page.getByRole("button", { name: "Unpin thread summary" }).first().click();
   await beat(500);
 
   // The side panel and its launcher.
@@ -269,7 +269,7 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
   await bottom.getByRole("tab", { name: "zsh", selected: true }).waitFor();
   await beat(600);
   await bottom.getByRole("button", { name: "New terminal" }).click();
-  await bottom.getByRole("tab", { name: "Terminal", selected: true }).waitFor();
+  await bottom.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
   await page.keyboard.type("git status", { delay: 40 });
   await page.keyboard.press("Enter");
   await beat(1200);

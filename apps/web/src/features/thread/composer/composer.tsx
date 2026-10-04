@@ -2,11 +2,13 @@ import type { Mention } from "@ace/protocol";
 import {
   Suspense,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -21,6 +23,12 @@ import { DeferredSuggestionList } from "./deferred-parts.tsx";
 import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
 import { useDraftPersistence } from "./use-draft-persistence.ts";
+
+/** What other parts of the thread screen may ask of its composer. */
+export interface ComposerHandle {
+  /** Open the + menu (files, images, a mention, a page) over the composer. */
+  openAdd(): void;
+}
 
 export interface Draft {
   text: string;
@@ -41,7 +49,10 @@ const terseWidth = 640;
  * a leading `/` completes commands, and paste or drop attach files. The unsent draft is kept per
  * `draftKey` across navigation and reloads, and cleared once the daemon has the message.
  */
-export function Composer(props: {
+export function Composer({
+  ref,
+  ...props
+}: {
   thread: ThreadRef;
   /** Where this device keeps the unsent draft; without one it lives only while mounted. */
   draftKey?: string | undefined;
@@ -61,6 +72,21 @@ export function Composer(props: {
   imagesUnavailable?: string | undefined;
   placeholder?: string | undefined;
   autoFocus?: boolean | undefined;
+  /** The input's accessible name; "Message" by default. */
+  label?: string | undefined;
+  /**
+   * Why nothing can be sent here at all (a side chat the daemon can't run): the composer keeps
+   * its shape, but its input and actions are off and point at the reason.
+   */
+  unavailable?:
+    | {
+        reason: string;
+        describedBy: string;
+        /** The reason in a few words, shown as the placeholder ("Side chats need a newer daemon"). */
+        short?: string | undefined;
+      }
+    | undefined;
+  ref?: Ref<ComposerHandle> | undefined;
 }) {
   const { storage } = useLayout();
   const [restored] = useState(() =>
@@ -77,7 +103,10 @@ export function Composer(props: {
   const placeCaret = useRef<number | undefined>(undefined);
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  const shell = useRef<HTMLDivElement>(null);
   const listId = useId();
+  const addMenu = useRef<{ open(): void }>(null);
+  useImperativeHandle(ref, () => ({ openAdd: () => addMenu.current?.open() }));
   const attachments = useAttachments(
     props.thread,
     props.keepsAttachments ? restored?.attachments : undefined,
@@ -138,13 +167,16 @@ export function Composer(props: {
     if (item.path) mention(item.path);
     edit(accept(text, trigger, item.insert));
   };
-  const blocked = sending
-    ? "Sending…"
-    : attachments.uploading
-      ? "Waiting for the files to upload"
-      : empty
-        ? "Write a message first"
-        : undefined;
+  const off = props.unavailable?.reason;
+  const blocked = off
+    ? off
+    : sending
+      ? "Sending…"
+      : attachments.uploading
+        ? "Waiting for the files to upload"
+        : empty
+          ? "Write a message first"
+          : undefined;
   // The draft stays until the daemon has it, so a refusal never loses the text or files.
   const submit = async (opposite: boolean) => {
     if (blocked) return;
@@ -201,7 +233,9 @@ export function Composer(props: {
   const unscoped =
     props.thread.draft && !props.thread.id ? "Waiting for the daemon to open a draft" : undefined;
   const placeholder =
-    props.placeholder ?? (terse ? "Ask anything" : "Ask anything, @ to mention, / for commands");
+    props.unavailable?.short ??
+    props.placeholder ??
+    (terse ? "Ask anything" : "Ask anything, @ to mention, / for commands");
   const expanded = suggestions.state === "ready";
 
   return (
@@ -217,6 +251,7 @@ export function Composer(props: {
         </Suspense>
       )}
       <div
+        ref={shell}
         data-slot="composer"
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
@@ -226,7 +261,9 @@ export function Composer(props: {
         }}
         className={cn(
           "glass flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
-          "focus-within:border-[color-mix(in_oklab,var(--foreground)_22%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_6%,transparent)]",
+          // Typing keeps the shell calm: a slightly firmer edge and a faint halo, nothing louder;
+          // the footer's controls carry their own focus-visible rings.
+          "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
         )}
       >
         <AttachmentChips items={attachments.items} onRemove={attachments.remove} />
@@ -235,8 +272,10 @@ export function Composer(props: {
           rows={1}
           value={text}
           readOnly={sending}
+          disabled={!!off}
+          aria-describedby={props.unavailable?.describedBy}
           autoFocus={props.autoFocus}
-          aria-label="Message"
+          aria-label={props.label ?? "Message"}
           placeholder={placeholder}
           role="combobox"
           aria-autocomplete="list"
@@ -256,7 +295,7 @@ export function Composer(props: {
               attachments.add(files);
             }
           }}
-          className="block min-h-11 w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground"
+          className="block min-h-11 w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground disabled:cursor-not-allowed"
         />
         {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
         <div
@@ -269,11 +308,13 @@ export function Composer(props: {
           className="mb-1 flex h-10 items-center gap-2 px-2"
         >
           <AddButton
+            handle={addMenu}
             reasons={{
-              files: unscoped,
-              images: unscoped ?? props.imagesUnavailable,
-              mention: unscoped,
-              command: text.trim() ? "Commands go at the start of an empty message" : undefined,
+              files: off ?? unscoped,
+              images: off ?? unscoped ?? props.imagesUnavailable,
+              mention: off ?? unscoped,
+              command:
+                off ?? (text.trim() ? "Commands go at the start of an empty message" : undefined),
             }}
             recent={() => recentFiles(storage, props.thread.workspaceId)}
             focusTarget={input}
@@ -284,6 +325,11 @@ export function Composer(props: {
               mention(path);
               edit(insertAt(text, caret, `@${path} `));
             }}
+            onInsert={(inserted) => edit(insertAt(text, caret, inserted))}
+            thread={props.thread.draft ? undefined : props.thread}
+            anchor={shell}
+            width={width}
+            unavailable={props.unavailable}
           />
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <ComposerCompact value={compact}>{props.controls}</ComposerCompact>
@@ -292,6 +338,8 @@ export function Composer(props: {
           <PrimaryAction
             mode={mode}
             blocked={blocked}
+            off={!!off}
+            describedBy={props.unavailable?.describedBy}
             onSend={() => void submit(false)}
             onStop={() => props.onStop?.()}
           />

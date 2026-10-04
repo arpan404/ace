@@ -19,6 +19,8 @@ export const FileTabData = z.object({
   source: z.optional(z.boolean()),
   /** Scroll to this line once shown (from quick open's `path:line`). */
   line: z.optional(z.number()),
+  /** The tree shown or hidden by hand in this tab; unset, it follows the room there is. */
+  tree: z.optional(z.boolean()),
 });
 export type FileTabData = z.infer<typeof FileTabData>;
 
@@ -29,14 +31,33 @@ export function fileTabData(tab: WorkspaceTab): FileTabData {
 }
 
 const Prefs = z.object({
-  treeOpen: z.catch(z.boolean(), true),
   treeWidth: z.catch(z.number(), 240),
   wrap: z.catch(z.boolean(), false),
 });
 export type FilePrefs = z.infer<typeof Prefs>;
 
 const prefsKey = "ace.files.prefs";
-const defaultPrefs: FilePrefs = { treeOpen: true, treeWidth: 240, wrap: false };
+const defaultPrefs: FilePrefs = { treeWidth: 240, wrap: false };
+
+/** Narrower than this the source is too cramped beside the tree, which then steps aside. */
+export const leastViewer = 420;
+
+/**
+ * How the tree shows in a file tab `width` wide: beside the viewer, over it, or not at all.
+ * The person's own choice in this tab wins; unset, an empty tab shows the tree (it is how a file
+ * gets picked) and a file shows it only when the viewer keeps at least 420px. Without a
+ * measured width (before layout) the tree goes beside.
+ */
+export function treeLayout(
+  width: number,
+  treeWidth: number,
+  options: { file: boolean; chosen: boolean | undefined },
+): "beside" | "over" | "hidden" {
+  const room = width === 0 || width - treeWidth >= leastViewer;
+  const shown = options.chosen ?? (!options.file || room);
+  if (!shown) return "hidden";
+  return room || !options.file ? "beside" : "over";
+}
 
 export class FilesMemory {
   private storage: KeyValueStorage | undefined;

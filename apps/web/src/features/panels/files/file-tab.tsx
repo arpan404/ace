@@ -6,6 +6,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useScrollEdges } from "@/lib/edge-fade.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
 import {
@@ -18,6 +19,7 @@ import { FileTree } from "./file-tree.tsx";
 import { FileViewer, NoFile } from "./file-viewer.tsx";
 import {
   fileTabData,
+  treeLayout,
   useFilePrefs,
   useFilesMemory,
   useRecentFiles,
@@ -30,6 +32,7 @@ import { useEditedPaths, useFileContent } from "./use-checkout.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
 
 const findChord = parseChord("mod+f");
+const fadeRight = { background: "linear-gradient(to left, var(--background), transparent)" };
 
 /** Find in file: the text, how many places it occurs, and stepping between them. */
 function FindBar(props: {
@@ -150,23 +153,26 @@ export function FileTab(props: TabViewProps) {
   const [prefs] = useFilePrefs();
   const recent = useRecentFiles(threadId);
   const edited = useEditedPaths(threadId);
-  const known = useMemo(
-    () => [...new Set([...(path ? [path] : []), ...recent, ...edited])],
-    [path, recent, edited],
-  );
+  const known = [...new Set([...(path ? [path] : []), ...recent, ...edited])];
   const content = useFileContent(threadId, path);
   const [query, setQuery] = useState("");
   const [find, setFind] = useState<{ query: string; index: number } | undefined>();
-  // A narrow side panel can't hold the tree beside the file: there it opens over the file on
-  // request and closes once a file is picked.
+  // The tree goes beside the file while the source keeps 420px, else it steps aside (over the
+  // file when asked for, closing once a file is picked). An empty tab always shows it.
   const root = useRef<HTMLDivElement>(null);
-  const narrow = useElementSize(root).width < 600;
-  const [overlayTree, setOverlayTree] = useState(false);
-  const treeShown = narrow ? overlayTree : prefs.treeOpen;
-  const open = (target: string, keep: boolean) => {
-    setOverlayTree(false);
-    openFile(workspace, actions, target, { keep, from: props.tab.key });
-  };
+  const width = useElementSize(root).width;
+  const treeWidth = prefs.treeWidth;
+  const layout = treeLayout(width, treeWidth, { file: !!path, chosen: data.tree });
+  const treeShown = layout !== "hidden";
+  const over = layout === "over";
+  const viewer = useRef<HTMLDivElement>(null);
+  const edges = useScrollEdges(viewer);
+  const open = (target: string, keep: boolean) =>
+    openFile(workspace, actions, target, {
+      keep,
+      from: props.tab.key,
+      tree: over ? undefined : data.tree,
+    });
   const fileActions = useFileActions(threadId, (uploaded) => open(uploaded, true));
 
   const recentStore = useRecentFilesStore();
@@ -191,7 +197,6 @@ export function FileTab(props: TabViewProps) {
   };
   const update = (patch: Partial<typeof data>) =>
     actions.update(props.tab.key, { data: { ...data, ...patch } });
-  const treeWidth = prefs.treeWidth;
 
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDown={onKeyDown}>
@@ -209,16 +214,13 @@ export function FileTab(props: TabViewProps) {
         line={find?.query && hits[hitIndex] ? (hits[hitIndex]?.line ?? 0) + 1 : data.line}
         onFolder={(folder) => {
           setQuery(folder);
-          if (narrow) setOverlayTree(true);
-          else if (!prefs.treeOpen) memory.setPrefs({ treeOpen: true });
+          if (!treeShown) update({ tree: true });
         }}
         onKeep={() => update({ preview: false })}
         onSource={(source) => update({ source })}
         onWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
         onFind={toggleFind}
-        onTree={() =>
-          narrow ? setOverlayTree(!overlayTree) : memory.setPrefs({ treeOpen: !prefs.treeOpen })
-        }
+        onTree={() => update({ tree: !treeShown })}
       />
       <div className="relative flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
@@ -232,7 +234,7 @@ export function FileTab(props: TabViewProps) {
               onClose={() => setFind(undefined)}
             />
           )}
-          <div className="h-full overflow-auto" tabIndex={-1}>
+          <div ref={viewer} className="h-full overflow-auto" tabIndex={-1}>
             {path ? (
               <FileViewer
                 path={path}
@@ -250,31 +252,39 @@ export function FileTab(props: TabViewProps) {
               <NoFile onSearch={() => quickOpen.set(() => threadId)} />
             )}
           </div>
+          {/* Lines run on past the right edge: a fade says so (wrap lines to see them whole). */}
+          {edges.end && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 right-0 w-6"
+              style={fadeRight}
+            />
+          )}
         </div>
         {treeShown && (
           <aside
             role="complementary"
             data-edge="right"
             aria-label="Checkout files"
-            style={{ width: narrow ? Math.min(treeWidth, 320) : treeWidth }}
+            style={{ width: over ? Math.min(treeWidth, 320) : treeWidth }}
             className={cn(
               "relative flex min-h-0 shrink-0 flex-col border-l bg-background",
-              narrow &&
+              over &&
                 "fx-panel-in absolute inset-y-0 right-0 z-[3] max-w-[85%] shadow-[-12px_0_32px_rgb(0_0_0/0.22)]",
             )}
             onKeyDown={(event) => {
-              if (narrow && event.key === "Escape") setOverlayTree(false);
+              if (over && event.key === "Escape") update({ tree: false });
             }}
           >
-            {!narrow && (
+            {!over && (
               <ResizeHandle
                 label="Resize the file tree"
                 edge="left"
                 size={treeWidth}
                 min={200}
                 max={360}
-                onResize={(width) => memory.setPrefs({ treeWidth: width }, false)}
-                onResizeEnd={(width) => memory.setPrefs({ treeWidth: width })}
+                onResize={(next) => memory.setPrefs({ treeWidth: next }, false)}
+                onResizeEnd={(next) => memory.setPrefs({ treeWidth: next })}
               />
             )}
             <FileTree

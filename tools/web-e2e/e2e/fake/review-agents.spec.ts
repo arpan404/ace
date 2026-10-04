@@ -55,7 +55,7 @@ test("a subagent opens as its own tab and Back returns to the tree", async ({ pa
   await expect(panel.getByRole("region", { name: "Delegation" })).toContainText(
     "Sweep the web and mobile resume callers",
   );
-  await expect(panel.getByRole("textbox", { name: "Message resume-sweep" })).toBeDisabled();
+  await expect(panel.getByRole("combobox", { name: "Message resume-sweep" })).toBeDisabled();
 
   await panel.getByRole("button", { name: /Back to agents/ }).click();
   await expect(panel.getByRole("tab", { name: "Agents", selected: true })).toBeVisible();

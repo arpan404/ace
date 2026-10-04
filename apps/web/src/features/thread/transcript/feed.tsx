@@ -8,12 +8,14 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useTopFade } from "@/lib/edge-fade.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { scrollToEnd as glideToEnd, useListMotion } from "@/lib/motion.ts";
@@ -60,6 +62,7 @@ function settle(
   if (el) virtualizer.scrollOffset = el.scrollTop;
   placedUntil.current = performance.now() + 250;
 }
+const viewportStyle = { paddingRight: "var(--summary-inset, 0px)" } as CSSProperties;
 const rowGap = (row: Row) => (row.kind === "block" ? gap[row.block.kind] : "pb-1");
 const rowKey = (row: Row) => row.key;
 const highlight = {
@@ -304,6 +307,7 @@ export function Feed(props: FeedProps) {
   });
 
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
+  const fadeTop = useTopFade(viewport);
   const dividerRow = divider && rows.find((row) => row.key === divider)?.key;
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -312,7 +316,14 @@ export function Feed(props: FeedProps) {
         data-virtual-viewport=""
         // A classic scrollbar reserves the same room on both edges, so the column stays centred
         // on the composer's axis; `useGutter` gives the composer the same inset.
-        className="scroll-fade-t min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-fade-t-6 [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
+        // Once scrolled, the top 16px fade, so nothing reads as cut under the header; a pinned
+        // summary beside the text keeps it clear (`--summary-inset`).
+        style={
+          fadeTop
+            ? { ...viewportStyle, maskImage: fadeTop, WebkitMaskImage: fadeTop }
+            : viewportStyle
+        }
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
         onScroll={(event) => {
           const el = event.currentTarget;
           readTop();

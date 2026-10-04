@@ -1,9 +1,11 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import type { PermissionCapabilities, PermissionMode } from "@ace/protocol";
+import type { PermissionCapabilities, PermissionMode, ProviderKind } from "@ace/protocol";
 import {
   accountTag,
   permissionChoices,
+  permissionCoverageNote,
   permissionLabel,
+  providerNames,
   type EffortControl,
   type ModelChoice,
 } from "@ace/ui-core";
@@ -15,6 +17,7 @@ import {
   CommandIcon,
   FileTextIcon,
   ImageIcon,
+  InfoIcon,
   PaperclipIcon,
 } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
@@ -23,7 +26,10 @@ import { menuItem } from "@/components/ui/menu-styles.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { EffortSection, ProviderLabel } from "@/features/models/index.ts";
 import { cn } from "@/lib/cn.ts";
+import type { ThreadRef } from "../sources/index.ts";
+import { DescribedItem } from "./described-item.tsx";
 import { permissionIcons } from "./permission-icons.ts";
+import { ThreadContextRows } from "./thread-context-rows.tsx";
 
 function Note(props: { children: string; pending?: boolean }) {
   return (
@@ -38,12 +44,13 @@ function Note(props: { children: string; pending?: boolean }) {
 }
 
 /**
- * The approval modes the provider supports, each with what it means and what this provider can
- * actually gate in it. A thread with its own mode can go back to the default.
+ * The approval modes the provider supports, each with what it means in one line, then once
+ * what this provider actually gates. A thread with its own mode can go back to the default.
  */
 export function PermissionMenu(props: {
   mode: PermissionMode | undefined;
   capabilities: PermissionCapabilities | undefined;
+  provider?: ProviderKind | undefined;
   loading: boolean;
   unavailable?: string | undefined;
   inherited?: boolean | undefined;
@@ -82,10 +89,9 @@ export function PermissionMenu(props: {
                 <span className={cn(choice.attention && "text-status-needs-you")}>
                   {choice.label}
                 </span>
-                <span className="text-xs leading-4 text-muted-foreground">
+                <span className="truncate text-xs leading-4 text-muted-foreground">
                   {choice.description}
                 </span>
-                <span className="text-xs leading-4 text-subtle-foreground">{choice.coverage}</span>
               </span>
               <span className="grid size-4 shrink-0 place-items-center">
                 <MenuPrimitive.RadioItemIndicator>
@@ -96,6 +102,14 @@ export function PermissionMenu(props: {
           ))}
         </MenuPrimitive.RadioGroup>
       </MenuGroup>
+      <p className="flex items-start gap-2 px-2.5 pt-1.5 pb-1 text-xs leading-4 text-subtle-foreground">
+        <InfoIcon aria-hidden size={14} className="mt-px shrink-0" />
+        {permissionCoverageNote(
+          props.capabilities,
+          props.provider ? providerNames[props.provider] : "This provider",
+          props.mode,
+        )}
+      </p>
       {props.defaultMode && !props.inherited && (
         <>
           <MenuSeparator />
@@ -117,8 +131,9 @@ export interface AddAction {
 }
 
 /**
- * The + menu: upload files or images, mention a file, start a command, or mention a file used
- * lately in this project. Drop and paste still attach files directly.
+ * The + menu: upload files or images, mention a file, start a command, and (in a thread) plan
+ * first or point the agent at a page open in the workspace; then files mentioned lately in this
+ * project. Each row says what it does, or why it can't now. Drop and paste still attach files.
  */
 export function AddMenu(props: {
   files: AddAction;
@@ -126,73 +141,87 @@ export function AddMenu(props: {
   mention: AddAction;
   command: AddAction;
   recent: readonly string[];
+  /** The thread the composer writes in, for its own rows; none on New thread. */
+  thread?: ThreadRef | undefined;
   onFiles(): void;
   onImages(): void;
   onMention(): void;
   onCommand(): void;
   onRecent(path: string): void;
+  onInsert(text: string): void;
 }) {
   return (
     <>
       <MenuGroup>
         <MenuLabel>Add to the message</MenuLabel>
-        <MenuItem
+        <DescribedItem
           icon={<Icon icon={PaperclipIcon} />}
-          disabled={!!props.files.reason}
+          description="Attach from this computer"
           reason={props.files.reason}
           onClick={props.onFiles}
         >
           Files
-        </MenuItem>
-        <MenuItem
+        </DescribedItem>
+        <DescribedItem
           icon={<Icon icon={ImageIcon} />}
-          disabled={!!props.images.reason}
+          description="PNG, JPG, screenshots"
           reason={props.images.reason}
           onClick={props.onImages}
         >
           Images
-        </MenuItem>
-        <MenuItem
+        </DescribedItem>
+        <DescribedItem
           icon={<Icon icon={AtIcon} />}
           keys="@"
-          disabled={!!props.mention.reason}
+          description="Reference a checkout file"
           reason={props.mention.reason}
           onClick={props.onMention}
         >
           Mention a file
-        </MenuItem>
-        <MenuItem
+        </DescribedItem>
+        <DescribedItem
           icon={<Icon icon={CommandIcon} />}
           keys="/"
-          disabled={!!props.command.reason}
+          description="Run a slash command"
           reason={props.command.reason}
           onClick={props.onCommand}
         >
           Command
-        </MenuItem>
+        </DescribedItem>
       </MenuGroup>
-      {props.recent.length > 0 && (
+      {props.thread && (
         <>
           <MenuSeparator />
-          <MenuGroup>
-            <MenuLabel>Recent files</MenuLabel>
-            {props.recent.map((path) => (
-              <MenuItem
-                key={path}
-                icon={<Icon icon={FileTextIcon} />}
-                aria-label={`Mention ${path}`}
-                disabled={!!props.mention.reason}
-                onClick={() => props.onRecent(path)}
-              >
-                {path.slice(path.lastIndexOf("/") + 1)}
-                <span className="ml-2 font-mono text-xs text-subtle-foreground">
-                  {path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""}
-                </span>
-              </MenuItem>
-            ))}
-          </MenuGroup>
+          <ThreadContextRows thread={props.thread} onInsert={props.onInsert} />
         </>
       )}
+      <MenuSeparator />
+      <MenuGroup>
+        <MenuLabel>Recent files</MenuLabel>
+        {props.recent.length ? (
+          props.recent.map((path) => (
+            <DescribedItem
+              key={path}
+              icon={<Icon icon={FileTextIcon} />}
+              aria-label={`Mention ${path}`}
+              description={
+                path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "Project root"
+              }
+              reason={props.mention.reason}
+              onClick={() => props.onRecent(path)}
+            >
+              {path.slice(path.lastIndexOf("/") + 1)}
+            </DescribedItem>
+          ))
+        ) : (
+          <DescribedItem
+            icon={<Icon icon={FileTextIcon} />}
+            reason="Files you mention in this project show here"
+          >
+            No recent files
+          </DescribedItem>
+        )}
+      </MenuGroup>
     </>
   );
 }
@@ -222,6 +251,8 @@ export function ThreadModelMenu(props: {
       <EffortSection
         efforts={props.effort.efforts}
         value={props.effort.current}
+        reported={props.effort.reported}
+        provider={props.value?.provider}
         reason={props.effort.reason}
         place="first"
         onChange={props.onEffort}
@@ -241,7 +272,11 @@ export function ThreadModelMenu(props: {
               {props.choices
                 .filter((choice) => choice.provider === provider)
                 .map((choice) => (
-                  <ChoiceItem key={choice.id} choice={choice} />
+                  <ChoiceItem
+                    key={choice.id}
+                    choice={choice}
+                    selected={choice.id === props.value?.id}
+                  />
                 ))}
             </MenuPrimitive.Group>
           </Fragment>
@@ -251,32 +286,49 @@ export function ThreadModelMenu(props: {
   );
 }
 
-function ChoiceItem(props: { choice: ModelChoice }) {
+/**
+ * One model on one account. A single line (the model, its account and how much of the window
+ * it has used) keeps the list short; the chosen one adds its note and usage meter beneath, and
+ * one at its limit says when it resets.
+ */
+function ChoiceItem(props: { choice: ModelChoice; selected: boolean }) {
   const { choice } = props;
   const exhausted = choice.exhausted;
+  const account = accountTag(choice.account);
+  const detail = exhausted
+    ? limitReached(choice.resetsAt)
+    : props.selected
+      ? choice.note
+      : undefined;
   return (
     <MenuPrimitive.RadioItem
       value={choice.id}
       disabled={exhausted}
-      aria-label={`${choice.model} · ${accountTag(choice.account)}`}
-      className={cn(menuItem, "h-auto items-start py-[7px]")}
+      aria-label={`${choice.model} · ${account}`}
+      className={cn(menuItem, "h-auto min-h-[30px] items-start py-1.5")}
     >
       <span className="mt-px grid w-4 shrink-0 place-items-center">
         <MenuPrimitive.RadioItemIndicator>
           <CheckIcon aria-hidden size={14} />
         </MenuPrimitive.RadioItemIndicator>
       </span>
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate">
-          {choice.model} · {accountTag(choice.account)}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate">{choice.model}</span>
+          <span className="min-w-0 shrink-[2] truncate text-xs text-subtle-foreground">
+            {account}
+          </span>
+          {!props.selected && !exhausted && choice.used !== undefined && (
+            <span className="ml-auto shrink-0 text-xs text-subtle-foreground tabular-nums">
+              {Math.round(choice.used * 100)}%
+            </span>
+          )}
         </span>
-        <span className="mt-px text-xs text-subtle-foreground">
-          {exhausted ? limitReached(choice.resetsAt) : choice.note}
-        </span>
-        {choice.used !== undefined && (
+        {detail && <span className="mt-px text-xs text-subtle-foreground">{detail}</span>}
+        {props.selected && choice.used !== undefined && (
           <span
             role="meter"
-            aria-label={`${accountTag(choice.account)} usage`}
+            aria-label={`${account} usage`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(choice.used * 100)}

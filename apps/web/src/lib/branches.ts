@@ -12,14 +12,15 @@ export function defaultFirst(branches: readonly string[]): string[] {
 const none: readonly string[] = [];
 
 /**
- * Branches a worktree can start from, from the daemon's workspace service (`branches.list`),
- * default branch first; empty while loading or when the project's branches can't be read.
+ * A project's branches, from the daemon's workspace service (`branches.list`), default branch
+ * first; empty while loading or when the project's branches can't be read. New thread starts a
+ * worktree from one; a thread's summary switches its checkout to one.
  */
-export function useBranches(project: string | undefined): readonly string[] {
+export function useBranches(project: string | undefined, enabled = true): readonly string[] {
   return (
     useDaemonQuery({
-      queryKey: ["new-thread", "branches", project],
-      enabled: project !== undefined,
+      queryKey: ["project", "branches", project],
+      enabled: enabled && project !== undefined,
       staleTime: 30_000,
       read: async (client, signal) => {
         const reply = await client.request(

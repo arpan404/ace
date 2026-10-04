@@ -80,7 +80,7 @@ test("a worktree thread starts from the chosen branch, on the chosen account and
   await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4.1/ }));
   // Model, account and effort share one menu, which stays open while choosing.
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "GPT-5 Codex" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "high effort" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "High effort" }));
   await userEvent.keyboard("{Escape}");
   await menuClosed();
   await userEvent.click(await screen.findByRole("button", { name: /^Start from branch/ }));

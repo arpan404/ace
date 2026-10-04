@@ -33,7 +33,7 @@ import type { TerminalSurface } from "./surface.ts";
 import { shellLabel } from "./tabs.ts";
 import { setTabUi, useTabUi } from "./tab-ui.ts";
 import { ScreenRows, useScreenSurface, type ScreenMark } from "./terminal-view.tsx";
-import { NewTerminalButton } from "./new-terminal-button.tsx";
+import { useNewTerminalHotkey } from "./new-terminal-button.tsx";
 import { ToolbarButton } from "./toolbar.tsx";
 
 /*
@@ -251,7 +251,7 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
   );
 }
 
-/** The strip's buttons while an agent shell shows: New terminal, Find and sessions. */
+/** The strip's buttons while an agent shell shows: Find and sessions (+ is New terminal). */
 export function ShellActions(props: TabViewProps) {
   return (
     <WithServices quiet>
@@ -262,10 +262,10 @@ export function ShellActions(props: TabViewProps) {
 
 function ShellButtons(props: TabViewProps) {
   const { scope, tab, dock } = props;
+  useNewTerminalHotkey(scope, dock);
   const { terminalUi } = usePanelServices();
   return (
     <>
-      <NewTerminalButton scope={scope} dock={dock} />
       <ToolbarButton
         icon={MagnifyingGlassIcon}
         label="Find"

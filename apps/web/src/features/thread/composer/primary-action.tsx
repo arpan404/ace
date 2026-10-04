@@ -30,6 +30,10 @@ export function PrimaryAction(props: {
   mode: PrimaryMode;
   /** Why the draft can't go yet; undefined when it can. */
   blocked: string | undefined;
+  /** Nothing can be sent here at all (not just yet): drawn at the disabled controls' strength. */
+  off?: boolean | undefined;
+  /** The element that says why, while `off`. */
+  describedBy?: string | undefined;
   onSend(): void;
   onStop(): void;
 }) {
@@ -54,6 +58,7 @@ export function PrimaryAction(props: {
         type="button"
         aria-label={labels[mode]}
         aria-disabled={blocked ? true : undefined}
+        aria-describedby={props.off ? props.describedBy : undefined}
         onClick={() => {
           if (!blocked) props.onSend();
         }}
@@ -62,6 +67,7 @@ export function PrimaryAction(props: {
           blocked
             ? "cursor-default bg-secondary text-subtle-foreground hover:bg-secondary hover:text-subtle-foreground"
             : "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground active:scale-95",
+          props.off && "opacity-40",
         )}
       >
         {mode === "queue" ? (

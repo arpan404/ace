@@ -11,6 +11,8 @@ import {
   newThreadOptions,
   optionEffort,
   threadEffortControl,
+  effortLabel,
+  recordedChoice,
 } from "./models.ts";
 
 const account = (
@@ -191,11 +193,19 @@ test("a thread's effort can change only where the provider takes it as a session
 
   expect(
     threadEffortControl({ choice: opus, capabilities: sessionOptions, current: "high" }),
-  ).toEqual({ efforts: ["low", "medium", "high"], current: "high", reason: undefined });
-  // Nothing chosen yet reads as the model's default.
-  expect(
-    threadEffortControl({ choice: opus, capabilities: sessionOptions, current: undefined }).current,
-  ).toBe("medium");
+  ).toEqual({
+    efforts: ["low", "medium", "high"],
+    current: "high",
+    reported: true,
+    reason: undefined,
+  });
+  // Nothing reported reads as the model's default, and says it wasn't reported.
+  const inferred = threadEffortControl({
+    choice: opus,
+    capabilities: sessionOptions,
+    current: undefined,
+  });
+  expect([inferred.current, inferred.reported]).toEqual(["medium", false]);
   expect(
     threadEffortControl({
       choice: opus,
@@ -220,4 +230,26 @@ test("only a string effort in execution options counts", () => {
   expect(optionEffort({ effort: "high" })).toBe("high");
   expect(optionEffort({ effort: 3 })).toBeUndefined();
   expect(optionEffort(undefined)).toBeUndefined();
+});
+
+test("effort levels read as words people use, whatever the provider calls them", () => {
+  expect(["low", "medium", "high", "xhigh", "minimal"].map(effortLabel)).toEqual([
+    "Low",
+    "Medium",
+    "High",
+    "Extra high",
+    "Minimal",
+  ]);
+  expect(effortLabel("very_deep")).toBe("Very deep");
+});
+
+test("offline, a thread's model reads from its own record, claiming no account or usage", () => {
+  expect(recordedChoice({ provider: "claude", model: "claude-opus-4-1" })).toMatchObject({
+    provider: "claude",
+    model: "Opus 4.1",
+    account: "",
+    used: undefined,
+  });
+  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code default");
+  expect(recordedChoice(undefined)).toBeUndefined();
 });

@@ -1,12 +1,4 @@
-import {
-  ArrowClockwiseIcon,
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  ArrowSquareOutIcon,
-  DevicesIcon,
-  DotsThreeIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, DevicesIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { displayAddress } from "@ace/ui-core";
 import { useState, type KeyboardEvent } from "react";
 import { openExternal } from "@/boot/open-external.ts";
@@ -33,6 +25,7 @@ import { usePanelServices } from "../services.ts";
 import type { BrowserView, PreviewSource } from "../sources.ts";
 import { WithServices } from "../with-services.tsx";
 import { AddressBar } from "./address-bar.tsx";
+import { PageNav, PageToolbar } from "./page-toolbar.tsx";
 import { bindPage } from "./loading.ts";
 import { LoadFailed, Offline, Opening, Parked, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
@@ -213,153 +206,69 @@ function Browser(props: TabViewProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
-      <div className="relative flex h-10 shrink-0 items-center gap-1 border-b px-2">
-        <div className="flex shrink-0 items-center">
-          <IconButton
-            icon={ArrowLeftIcon}
-            label={page.canBack ? "Back" : "Back · no earlier page in this tab"}
-            keys="mod+["
-            disabled={!page.canBack || !page.online}
-            className={tool}
-            onClick={page.back}
+      <PageToolbar
+        nav={
+          <PageNav
+            back={{
+              onClick: page.back,
+              keys: "mod+[",
+              reason: !page.online
+                ? "the daemon is offline"
+                : page.canBack
+                  ? undefined
+                  : "no earlier page in this tab",
+            }}
+            forward={{
+              onClick: page.forward,
+              keys: "mod+]",
+              reason: !page.online
+                ? "the daemon is offline"
+                : page.canForward
+                  ? undefined
+                  : "no later page in this tab",
+            }}
+            reload={{
+              onClick: page.reload,
+              keys: "mod+r",
+              reason: !page.online
+                ? "the daemon is offline"
+                : shownUrl
+                  ? undefined
+                  : "open a page first",
+            }}
+            loading={loading}
           />
-          <IconButton
-            icon={ArrowRightIcon}
-            label={page.canForward ? "Forward" : "Forward · no later page in this tab"}
-            keys="mod+]"
-            disabled={!page.canForward || !page.online}
-            className={tool}
-            onClick={page.forward}
-          />
-          {loading ? (
-            <IconButton
-              icon={XIcon}
-              label="Stop · the browser relay can't cancel a load yet; it gives up after 30 seconds"
-              disabled
-              focusableWhenDisabled
-              className={tool}
-            />
-          ) : (
-            <IconButton
-              icon={ArrowClockwiseIcon}
-              label="Reload"
-              keys="mod+r"
-              disabled={!shownUrl || !page.online}
-              className={tool}
-              onClick={page.reload}
-            />
-          )}
-        </div>
-        <AddressBar
-          className="mx-auto w-full max-w-[768px] flex-1"
-          url={shownUrl}
-          known={page.suggestions}
-          loading={loading}
-          disabled={offline}
-          hint={
-            page.live?.controller === "agent"
-              ? "Going to an address takes control of the page from the agent"
-              : undefined
-          }
-          autoFocus={!props.tab.data}
-          onGo={page.go}
-        />
-        <div className="flex shrink-0 items-center gap-0.5">
-          <Menu>
-            <Tip label={`Page size · ${viewport.label}`}>
-              <MenuTrigger
-                aria-label="Page size"
-                className="grid size-7 place-items-center rounded-[7px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
-              >
-                <DevicesIcon
-                  aria-hidden
-                  size={16}
-                  weight={viewport.emulation ? "fill" : "regular"}
-                />
-              </MenuTrigger>
-            </Tip>
-            <MenuContent align="end">
-              <MenuRadioGroup
-                value={viewport.id}
-                onValueChange={(value) => setViewport(String(value))}
-              >
-                {viewports.map((each) => (
-                  <MenuRadioItem key={each.id} value={each.id}>
-                    {each.label}
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </MenuContent>
-          </Menu>
-          <IconButton
-            icon={ArrowSquareOutIcon}
-            label={
-              external ? "Open in your browser" : "Open in your browser · open a web page first"
+        }
+        address={
+          <AddressBar
+            url={shownUrl}
+            known={page.suggestions}
+            loading={loading}
+            disabled={offline}
+            hint={
+              page.live?.controller === "agent"
+                ? "Going to an address takes control of the page from the agent"
+                : undefined
             }
-            disabled={!external}
-            className={tool}
-            onClick={() =>
-              external &&
-              void openExternal(external).catch((error: unknown) =>
-                toast.add({
-                  title: "Couldn't open the page",
-                  description: error instanceof Error ? error.message : undefined,
-                }),
-              )
-            }
+            autoFocus={!props.tab.data}
+            onGo={page.go}
           />
-          <Menu>
-            <MenuTrigger
-              aria-label="Browser options"
-              className="grid size-7 place-items-center rounded-[7px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
-            >
-              <DotsThreeIcon aria-hidden size={16} weight="bold" />
-            </MenuTrigger>
-            <MenuContent align="end">
-              <MenuItem
-                disabled={!shownUrl}
-                onClick={() =>
-                  shownUrl &&
-                  void navigator.clipboard?.writeText(shownUrl).then(
-                    () => toast.add({ title: "Address copied" }),
-                    () => toast.add({ title: "Couldn't copy the address" }),
-                  )
-                }
-              >
-                Copy address
-              </MenuItem>
-              <MenuItem
-                danger
-                disabled={!page.live || !page.online}
-                reason={page.live ? undefined : "No page is open"}
-                onClick={() => {
-                  bindPage(threadId, undefined);
-                  void source.close(threadId).catch(() => undefined);
-                }}
-              >
-                Close the thread's page
-              </MenuItem>
-              <MenuSeparator />
-              <p className="px-2.5 py-1.5 text-xs leading-4 text-subtle-foreground">
-                {page.live?.backend === "embedded"
-                  ? "Runs in the ace desktop app's browser."
-                  : page.live?.backend === "headless"
-                    ? "Runs in ace's own Chromium on the daemon's machine."
-                    : "Pages open in ace's own browser, never your personal one."}
-              </p>
-            </MenuContent>
-          </Menu>
-        </div>
-        {loading && (
-          <span
-            role="progressbar"
-            aria-label={`Loading ${displayAddress(shownUrl ?? "")}`}
-            className="absolute inset-x-0 -bottom-px h-0.5 overflow-hidden"
-          >
-            <span className="fx-indeterminate absolute inset-y-0 w-1/3 rounded-full bg-[color-mix(in_oklab,var(--ring)_80%,transparent)]" />
-          </span>
-        )}
-      </div>
+        }
+        actions={
+          <BrowserActions
+            source={source}
+            threadId={threadId}
+            shownUrl={shownUrl}
+            external={external}
+            viewport={viewport}
+            onViewport={setViewport}
+            live={!!page.live}
+            online={page.online}
+            backend={page.live?.backend}
+          />
+        }
+        progress={loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
+      />
       {page.bound && page.live && (
         <ControlStrip view={page.live} busy={control.busy} onToggle={control.toggle} />
       )}
@@ -372,6 +281,104 @@ function Browser(props: TabViewProps) {
         {content}
       </div>
     </div>
+  );
+}
+
+/** Page size, Open in your browser and the options menu: the browser page's toolbar actions. */
+function BrowserActions(props: {
+  source: PreviewSource;
+  threadId: string;
+  shownUrl: string | undefined;
+  external: string | undefined;
+  viewport: ReturnType<typeof viewportById>;
+  onViewport(id: string): void;
+  live: boolean;
+  online: boolean;
+  backend: BrowserView["backend"] | undefined;
+}) {
+  const toast = useToast();
+  const { shownUrl, external, viewport } = props;
+  return (
+    <>
+      <Menu>
+        <Tip label={`Page size · ${viewport.label}`}>
+          <MenuTrigger
+            aria-label="Page size"
+            className="grid size-7 place-items-center rounded-[7px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
+          >
+            <DevicesIcon aria-hidden size={16} weight={viewport.emulation ? "fill" : "regular"} />
+          </MenuTrigger>
+        </Tip>
+        <MenuContent align="end">
+          <MenuRadioGroup
+            value={viewport.id}
+            onValueChange={(value) => props.onViewport(String(value))}
+          >
+            {viewports.map((each) => (
+              <MenuRadioItem key={each.id} value={each.id}>
+                {each.label}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuContent>
+      </Menu>
+      <IconButton
+        icon={ArrowSquareOutIcon}
+        label={external ? "Open in your browser" : "Open in your browser · open a web page first"}
+        disabled={!external}
+        className={tool}
+        onClick={() =>
+          external &&
+          void openExternal(external).catch((error: unknown) =>
+            toast.add({
+              title: "Couldn't open the page",
+              description: error instanceof Error ? error.message : undefined,
+            }),
+          )
+        }
+      />
+      <Menu>
+        <MenuTrigger
+          aria-label="Browser options"
+          className="grid size-7 place-items-center rounded-[7px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
+        >
+          <DotsThreeIcon aria-hidden size={16} weight="bold" />
+        </MenuTrigger>
+        <MenuContent align="end">
+          <MenuItem
+            disabled={!shownUrl}
+            onClick={() =>
+              shownUrl &&
+              void navigator.clipboard?.writeText(shownUrl).then(
+                () => toast.add({ title: "Address copied" }),
+                () => toast.add({ title: "Couldn't copy the address" }),
+              )
+            }
+          >
+            Copy address
+          </MenuItem>
+          <MenuItem
+            danger
+            disabled={!props.live || !props.online}
+            reason={props.live ? undefined : "No page is open"}
+            onClick={() => {
+              bindPage(props.threadId, undefined);
+              void props.source.close(props.threadId).catch(() => undefined);
+            }}
+          >
+            Close the thread's page
+          </MenuItem>
+          <MenuSeparator />
+          <p className="px-2.5 py-1.5 text-xs leading-4 text-subtle-foreground">
+            {props.backend === "embedded"
+              ? "Runs in the ace desktop app's browser."
+              : props.backend === "headless"
+                ? "Runs in ace's own Chromium on the daemon's machine."
+                : "Pages open in ace's own browser, never your personal one."}
+          </p>
+        </MenuContent>
+      </Menu>
+    </>
   );
 }
 

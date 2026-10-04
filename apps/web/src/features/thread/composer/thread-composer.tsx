@@ -2,13 +2,13 @@ import { useClient, useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
-import { Suspense, useRef } from "react";
+import { Suspense, useRef, type Ref } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useToastClearance } from "@/lib/toast-clearance.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { ThreadRef } from "../sources/index.ts";
-import { Composer, type Draft } from "./composer.tsx";
+import { Composer, type ComposerHandle, type Draft } from "./composer.tsx";
 import { ContextBar } from "./context-bar.tsx";
 import { ContextMeter } from "./context-meter.tsx";
 import {
@@ -18,6 +18,11 @@ import {
   DeferredThreadControls,
 } from "./deferred-parts.tsx";
 import { useQueue } from "./use-queue.ts";
+
+const composerInset = {
+  paddingLeft: "var(--transcript-gutter)",
+  paddingRight: "calc(var(--transcript-gutter) + var(--summary-inset, 0px))",
+};
 
 /** The agent is mid-turn or held up: a new message follows up rather than starting a turn. */
 export function isBusy(status: ThreadStatus | undefined): boolean {
@@ -34,7 +39,14 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * reason when the queue is held. Its footer shows how actions are approved and what the thread
  * runs on, both changeable from the next turn. The unsent draft is kept per thread.
  */
-export function ThreadComposer(props: { thread: ThreadRef; status: ThreadStatus | undefined }) {
+export function ThreadComposer({
+  composer,
+  ...props
+}: {
+  thread: ThreadRef;
+  status: ThreadStatus | undefined;
+  composer?: Ref<ComposerHandle> | undefined;
+}) {
   const client = useClient();
   const toast = useToast();
   const meta = useThreadMeta(props.thread.id);
@@ -74,11 +86,13 @@ export function ThreadComposer(props: { thread: ThreadRef; status: ThreadStatus 
   const readsImages = meta?.capabilities?.imageInput;
 
   return (
-    // The backdrop runs from 2.5rem above the composer to the bottom edge and fades in over
+    // A pinned summary beside the text insets the composer with it (`--summary-inset`), so their
+    // edges still agree. The backdrop runs from 2.5rem above the composer to the bottom edge and fades in over
     // its first 2.5rem, so transcript text dissolves under it with no band edge.
     <div
       ref={box}
-      className="relative flex-none px-(--transcript-gutter) pb-4 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:bottom-0 before:bg-reading before:[mask-image:linear-gradient(to_bottom,transparent,black_2.5rem)]"
+      style={composerInset}
+      className="relative flex-none pb-4 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:bottom-0 before:bg-reading before:[mask-image:linear-gradient(to_bottom,transparent,black_2.5rem)]"
     >
       <div className={`relative ${readingColumn}`}>
         <Suspense fallback={null}>
@@ -90,6 +104,7 @@ export function ThreadComposer(props: { thread: ThreadRef; status: ThreadStatus 
           {!!queue.page?.messages.length && <DeferredQueuedPills.Component queue={queue} />}
         </Suspense>
         <Composer
+          ref={composer}
           thread={props.thread}
           draftKey={`thread:${props.thread.id}`}
           keepsAttachments

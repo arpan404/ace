@@ -1,6 +1,6 @@
 import { ProviderKind } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { brandArt, providerIcon } from "./provider-icons.ts";
+import { brandArt, brandAtSize, providerIcon } from "./provider-icons.ts";
 
 test("each built-in provider shows its own mark, named as people know the product", async () => {
   for (const provider of ProviderKind.options.filter((kind) => kind !== "acp")) {
@@ -67,4 +67,11 @@ test("a model of an unknown family keeps the provider's mark", () => {
     label: "OpenCode",
   });
   expect(providerIcon({ provider: "codex", model: "photon" }).brand).toBe("codex");
+});
+
+test("a mark with a cutout gives way to its maker's simpler mark at row sizes", () => {
+  expect(brandAtSize("codex", 12)).toBe("openai");
+  expect(brandAtSize("codex", 14)).toBe("openai");
+  expect(brandAtSize("codex", 16)).toBe("codex");
+  expect(brandAtSize("claude", 12)).toBe("claude");
 });

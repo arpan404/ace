@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawnGitProcess as spawn } from "./index.ts";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitService } from "./index.ts";

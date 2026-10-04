@@ -13,6 +13,7 @@ export {
 } from "./model.ts";
 export {
   defineWorkspace,
+  type DockPlus,
   type WorkspaceDefinition,
   type WorkspaceDefinitionOptions,
 } from "./definition.ts";

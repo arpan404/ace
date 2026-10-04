@@ -1,5 +1,6 @@
 import {
   ClientError,
+  loadServiceWire,
   type Client,
   type Scheduler,
   type SidebarExport,
@@ -466,8 +467,8 @@ class Tab {
     });
   }
   private loadChannels(): Promise<TabChannels> {
-    this.loadingChannels ??= import("./tab-channels.ts").then(
-      ({ TabChannels }) => (this.channels = new TabChannels(this.subscriber)),
+    this.loadingChannels ??= Promise.all([import("./tab-channels.ts"), loadServiceWire()]).then(
+      ([{ TabChannels }, wire]) => (this.channels = new TabChannels(this.subscriber, wire)),
       (error: unknown) => {
         // A failed load is retried by the next request rather than remembered.
         this.loadingChannels = undefined;

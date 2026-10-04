@@ -107,8 +107,8 @@ test("a thread with work running can't be deleted, and says why", async () => {
 test("pinning from the ⋯ menu pins the thread on the daemon", async () => {
   const { app } = await openRouter();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Pin/ }));
   await waitFor(() => expect(thread(app, "thread-router")?.pinned).toBe(true));
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  expect(await screen.findByRole("menuitem", { name: "Unpin" })).toBeTruthy();
+  expect(await screen.findByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
 });

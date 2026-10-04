@@ -82,11 +82,12 @@ export function ProviderIcon(props: ProviderIconProps) {
   "use no memo";
   useSyncExternalStore(subscribe, () => version);
   const choice = catalog?.providerIcon(props);
-  const brand = choice?.brand;
+  const size = props.size ?? 12;
+  // At row sizes a detailed mark draws as its maker's simpler one (Codex → OpenAI).
+  const brand = choice?.brand && catalog ? catalog.brandAtSize(choice.brand, size) : choice?.brand;
   const art = brand && marks.get(brand);
   const label =
     props.label ?? choice?.label ?? providerDisplayName(props.provider, props.acpAgentId);
-  const size = props.size ?? 12;
   useEffect(() => load(brand), [brand]);
   return (
     <svg

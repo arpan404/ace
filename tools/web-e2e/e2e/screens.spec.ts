@@ -209,11 +209,17 @@ const screens: Record<string, Setup> = {
   },
   "thread-summary": async (page) => {
     await openThread("/t/thread-dedupe")(page);
-    await page.getByRole("button", { name: "Show thread summary" }).click();
+    await page.getByRole("button", { name: "Pin thread summary" }).click();
     await page
       .getByRole("complementary", { name: "Thread summary" })
-      .getByRole("button", { name: /^Agents/ })
+      .getByRole("button", { name: "Open reconnect-audit" })
       .waitFor();
+  },
+  // The summary's project and git menu.
+  "thread-summary-menu": async (page) => {
+    await screens["thread-summary"]?.(page);
+    await page.getByRole("button", { name: "Project and git actions" }).click();
+    await page.getByRole("menu").waitFor();
   },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   // Nothing to preview yet: open a browser, or preview a dev server by its port.
@@ -252,7 +258,7 @@ const screens: Record<string, Setup> = {
   "composer-add-menu": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
     await page.getByRole("button", { name: "Add files and context" }).click();
-    await page.getByRole("menuitem", { name: "Files" }).waitFor();
+    await page.getByRole("menuitem", { name: /^Files/ }).waitFor();
   },
   "composer-approvals": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
@@ -286,7 +292,7 @@ const screens: Record<string, Setup> = {
     await bottomTab("/t/thread-cold-start", "zsh")(page);
     const bottom = page.getByRole("region", { name: "Bottom panel" });
     await bottom.getByRole("button", { name: "New terminal" }).click();
-    await bottom.getByRole("tab", { name: "Terminal", selected: true }).waitFor();
+    await bottom.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
     await page.keyboard.type("git status");
     await page.keyboard.press("Enter");
   },

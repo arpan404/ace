@@ -4,7 +4,7 @@ import { fileChanges, type Turn } from "@ace/ui-core";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { useTurns } from "../changes/use-turns.ts";
+import { useTurns } from "@/lib/diffs/use-turns.ts";
 import { daemonCheckout, type CheckoutSource } from "./checkout-source.ts";
 
 const sources = new WeakMap<ClientApi, CheckoutSource>();

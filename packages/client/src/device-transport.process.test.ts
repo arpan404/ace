@@ -174,3 +174,62 @@ it("rejects commands until a validated welcome and closes on unauthenticated bin
   await closed.promise;
   expect(client.getSnapshot().connected).toBe(false);
 });
+
+it("a dedicated device channel reports capacity and retries slowly without replaying commands", async () => {
+  const server = new WebSocketServer({ port: 0 });
+  disposals.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing address");
+  let saturated = true;
+  server.on("connection", (socket) => {
+    socket.once("message", () => {
+      if (saturated) socket.close(4013, "connection_limit");
+      else
+        socket.send(
+          JSON.stringify({ type: "welcome", protocolVersion: 1, hostId: "host", headSeq: 0 }),
+        );
+    });
+  });
+  const timers = new Map<() => void, number>();
+  const clock = (callback: () => void, delay: number) => {
+    const run = () => {
+      timers.delete(run);
+      callback();
+    };
+    timers.set(run, delay);
+    return () => {
+      timers.delete(run);
+    };
+  };
+  let limited = deferred<void>();
+  const client = new DeviceClient({ id: () => "limited", schedule: clock });
+  disposals.push(() => client.disconnect());
+  const release = client.watch((state) => {
+    if (state.error) limited.resolve();
+  });
+  disposals.push(release);
+  client.connect(
+    deviceTransport({
+      target: { kind: "local", url: `ws://127.0.0.1:${address.port}` },
+      deviceId: "human",
+      credential: async () => "a".repeat(64),
+      socket: (url) => new WebSocket(url),
+      keys,
+      schedule: clock,
+    }),
+  );
+  await limited.promise;
+  expect(client.getSnapshot()).toMatchObject({ connected: false, error: { code: "limit" } });
+  expect([...timers.values()]).toEqual([5000]);
+  await expect(client.request({ op: "list" })).rejects.toMatchObject({ code: "disconnected" });
+  limited = deferred<void>();
+  for (const callback of Array.from(timers.keys())) callback();
+  await limited.promise;
+  expect([...timers.values()]).toEqual([10000]);
+  saturated = false;
+  const connected = ready(client);
+  for (const callback of Array.from(timers.keys())) callback();
+  await connected;
+  expect(client.getSnapshot().error).toBeUndefined();
+});

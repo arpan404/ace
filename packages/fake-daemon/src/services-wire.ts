@@ -30,6 +30,7 @@ export interface ServicesSeed extends PlanningSeed {
   settings?: Readonly<Record<string, unknown>>;
 }
 export interface FakeWireSession {
+  authenticated?(device: string): void;
   handle(message: ClientMessage, device: string): Promise<void>;
   close(): void;
 }
@@ -93,14 +94,29 @@ export class FakeServicesWire {
     const subscriptions = new Map<string, () => void>();
     const terminalStreams = new Map<string, FakeTerminalStream>();
     let closed = false;
+    let owner = "";
     const emit = (message: Message) => {
       if (!closed) send(ServerMessage.parse(message));
     };
+    const stopProjects = this.workspace.projects.subscribe((message) => {
+      if (
+        owner &&
+        (this.host.canManageProjects?.(owner) ?? true) &&
+        (message.type === "workspace.changed" ||
+          this.workspace.projects.cloneOwner(message.commandId) === owner)
+      )
+        emit(message);
+    });
     const files = this.files.session(emit);
     const browser = fakeBrowserSession(this.browser, this.host, emit);
     return {
+      authenticated: (device) => {
+        owner = device;
+      },
       close: () => {
         closed = true;
+        stopProjects();
+
         browser.close();
         files.close();
         for (const stop of subscriptions.values()) stop();
@@ -149,6 +165,18 @@ export class FakeServicesWire {
               status: "unsupported",
               reason: "No native history sessions in this fixture",
             });
+            return;
+          }
+          if (message.type === "projects.request") {
+            emit(
+              (this.host.canManageProjects?.(device) ?? true)
+                ? await this.workspace.projects.read(message, device)
+                : {
+                    type: "projects.result",
+                    requestId: message.requestId,
+                    result: { kind: "error", code: "forbidden" },
+                  },
+            );
             return;
           }
           if (message.type === "workspace.request") {

@@ -14,20 +14,12 @@ export const permissionModeOrder: readonly PermissionMode[] = [
   "full-access",
 ];
 
+/** Each mode in one short line, so a menu row never wraps. */
 const names: Record<PermissionMode, { label: string; description: string }> = {
-  "read-only": {
-    label: "Read only",
-    description: "Reads and answers. Never edits files or runs commands.",
-  },
-  ask: { label: "Ask first", description: "Asks you before each edit, command or network call." },
-  "auto-review": {
-    label: "Auto-review",
-    description: "ace approves low-risk actions and asks you about the rest.",
-  },
-  "full-access": {
-    label: "Full access",
-    description: "Edits, runs commands and uses the network without asking.",
-  },
+  "read-only": { label: "Read only", description: "Reads and answers, never edits or runs" },
+  ask: { label: "Ask first", description: "Asks before each edit, command or fetch" },
+  "auto-review": { label: "Auto-review", description: "Approves low-risk actions, asks the rest" },
+  "full-access": { label: "Full access", description: "Edits, runs and fetches without asking" },
 };
 
 export function permissionLabel(mode: PermissionMode): string {
@@ -66,6 +58,23 @@ export function permissionCoverage(
   if (!open.length) return `Gates ${listed(gateNames.map(([, name]) => name))}`;
   const line = `${listed(open)} not gated`;
   return line[0]?.toUpperCase() + line.slice(1);
+}
+
+/**
+ * What the provider gates, said once under the approval modes: that it doesn't report it, or
+ * what `mode` (the one in effect) holds back.
+ */
+export function permissionCoverageNote(
+  capabilities: PermissionCapabilities | undefined,
+  provider: string,
+  mode: PermissionMode | undefined,
+): string {
+  const reported = permissionModeOrder.some(
+    (each) => each !== "full-access" && permissionGuarantee(capabilities, each) !== undefined,
+  );
+  if (!reported) return `${provider} doesn't report what each mode gates`;
+  if (!mode) return `${provider} reports what each mode gates`;
+  return `${names[mode].label}: ${permissionCoverage(capabilities, mode)}`;
 }
 
 export interface PermissionChoice {

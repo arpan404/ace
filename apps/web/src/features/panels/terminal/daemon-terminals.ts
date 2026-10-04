@@ -26,9 +26,30 @@ const info = (descriptor: TerminalDescriptor): TerminalInfo => ({
   exited: descriptor.exited,
 });
 
-/** The next free name: "Terminal", then "Terminal 2", "Terminal 3", ... */
-export function terminalName(taken: readonly TerminalInfo[], base = "Terminal"): string {
+/** Interactive shells a daemon names its terminals after ("zsh", "zsh 2"). */
+const shells = new Set([
+  "zsh",
+  "bash",
+  "fish",
+  "sh",
+  "dash",
+  "ksh",
+  "tcsh",
+  "nu",
+  "pwsh",
+  "elvish",
+]);
+
+/**
+ * The next free name, after the shell the thread's terminals already run when one is named
+ * for it ("zsh" → "zsh 2", "zsh 3"), else "Terminal", "Terminal 2", ... Script runs ("dev:relay")
+ * keep their own names and don't count.
+ */
+export function terminalName(taken: readonly TerminalInfo[]): string {
   const names = new Set(taken.map((terminal) => terminal.name));
+  const base =
+    taken.map((terminal) => terminal.name.replace(/ \d+$/, "")).find((name) => shells.has(name)) ??
+    "Terminal";
   let name = base;
   for (let n = 2; names.has(name); n++) name = `${base} ${n}`;
   return name;

@@ -150,6 +150,15 @@
           },
           "type": "object"
         },
+        "projects.roots": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
         "providers.coder.model": {
           "maxLength": 256,
           "minLength": 1,

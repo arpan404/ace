@@ -1,6 +1,6 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
@@ -10,7 +10,14 @@ import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
-import { PinnedSummary, SummaryToggle } from "./header/summary.tsx";
+import {
+  PinnedSummary,
+  SummaryToggle,
+  summaryInset,
+  useSummaryPlacement,
+} from "./header/summary.tsx";
+import type { ComposerHandle } from "./composer/composer.tsx";
+import { useScopeWorkspace } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkOpener } from "./transitions/fork-opener.ts";
 
@@ -23,10 +30,13 @@ const ForkDialog = lazy(() =>
 );
 import { Transcript } from "./transcript/transcript.tsx";
 import { AgentTranscript } from "./transcript/agent-transcript.tsx";
+import { SideChatComposer } from "./composer/side-chat-composer.tsx";
+import { AgentComposer } from "./composer/agent-composer.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import {
   DeferredCatchUpCard,
+  DeferredThreadHotkeys,
   DeferredThreadMenu,
   DeferredTurnsPanel,
   preloadDeferred,
@@ -66,10 +76,22 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const projectName = useProjectName();
   // The workspace's agent tabs draw with the transcript's own blocks, beside the route's parts.
   const outer = useThreadParts();
-  const parts = useMemo(() => ({ ...outer, AgentTranscript }), [outer]);
+  const parts = useMemo(
+    () => ({ ...outer, AgentTranscript, SideChatComposer, AgentComposer }),
+    [outer],
+  );
   // Step details and interaction cards load once the transcript has painted.
   useEffect(() => whenIdle(() => void preloadDeferred()), []);
   const title = meta?.title;
+  const composer = useRef<ComposerHandle>(null);
+  const column = useRef<HTMLDivElement>(null);
+  const placement = useSummaryPlacement(column);
+  const pinned = useScopeWorkspace(id).summaryPinned;
+  // A pinned card floating beside narrower text keeps the transcript clear of it.
+  const inset: CSSProperties | undefined =
+    pinned && placement === "inset"
+      ? ({ "--summary-inset": `${summaryInset}px` } as CSSProperties)
+      : undefined;
   const thread = useMemo<ThreadRef | undefined>(
     () => (meta && title !== undefined ? { id, workspaceId: meta.workspaceId, title } : undefined),
     [id, meta, title],
@@ -126,8 +148,14 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           <TranscriptSkeleton />
         ) : (
           <ForkOpener value={setForking}>
-            <div className="relative flex h-full min-h-0 flex-col">
-              {thread && !nav.turnsOpen && <PinnedSummary thread={thread} />}
+            <div ref={column} style={inset} className="relative flex h-full min-h-0 flex-col">
+              {thread && !nav.turnsOpen && (
+                <PinnedSummary
+                  thread={thread}
+                  inline={placement === "inline"}
+                  onAddSource={() => composer.current?.openAdd()}
+                />
+              )}
               {nav.turnsOpen && (
                 <Suspense fallback={null}>
                   <DeferredTurnsPanel.Component nav={nav} />
@@ -137,9 +165,16 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 <Transcript threadId={id} overlay={<CatchUpSlot threadId={id} />} />
               </div>
               <TargetJump target={props.target} />
-              {thread && <ThreadComposer thread={thread} status={meta?.status} />}
+              {thread && (
+                <ThreadComposer thread={thread} status={meta?.status} composer={composer} />
+              )}
             </div>
           </ForkOpener>
+        )}
+        {thread && (
+          <Suspense fallback={null}>
+            <DeferredThreadHotkeys.Component thread={thread} onRename={() => setRenaming(true)} />
+          </Suspense>
         )}
         <Suspense fallback={null}>
           {renaming && thread && (

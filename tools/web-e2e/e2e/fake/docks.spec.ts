@@ -108,3 +108,64 @@ test("⌘J shows the bottom panel, and a terminal moves to the side panel withou
   );
   await expect(bottom.getByRole("tab", { name: "zsh" })).toHaveCount(0);
 });
+
+test("with five tabs in the side panel, the showing tab stays whole inside the strip", async ({
+  page,
+}) => {
+  await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await launch(page, "Preview");
+  await launch(page, "Devices");
+  await launch(page, "Files");
+  await expect(tabs(page)).toHaveCount(5);
+  const strip = sidePanel(page).getByRole("tablist", { name: "Thread panel tabs" });
+  const inside = async (name: string | RegExp) => {
+    const tab = strip.getByRole("tab", { name, selected: true });
+    await expect(tab).toBeVisible();
+    await expect
+      .poll(async () => {
+        const [box, list] = await Promise.all([tab.boundingBox(), strip.boundingBox()]);
+        if (!box || !list) return false;
+        return box.x >= list.x - 0.5 && box.x + box.width <= list.x + list.width + 0.5;
+      })
+      .toBe(true);
+    // Its whole title shows: nothing is cut off with an ellipsis.
+    expect(
+      await tab.evaluate((element) => {
+        const title = element.querySelector<HTMLElement>("[data-tab-title]");
+        return title ? title.scrollWidth <= title.clientWidth : false;
+      }),
+    ).toBe(true);
+  };
+  await inside("Open file");
+  // The first tab, folded or not, comes back whole when shown.
+  await strip.getByRole("tab").first().click();
+  await inside(/^Changes/);
+  await strip.getByRole("tab").last().click();
+  await inside("Open file");
+});
+
+test("with the side panel open at its default width, Run, Open and Commit stay as icons beside a readable title", async ({
+  page,
+}) => {
+  await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await expect(sidePanel(page)).toBeVisible();
+  const title = page.getByRole("heading", { level: 1 });
+  // Beside a narrow column Run, Open and Commit drop their labels but stay one click away, and
+  // the header keeps a single ⋯.
+  const header = page.getByRole("banner");
+  const commit = header.getByRole("button", { name: "Commit", exact: true });
+  await expect(commit).toBeVisible();
+  // Its icon alone: a square 32px box, no room for the word.
+  expect((await commit.boundingBox())?.width).toBeLessThanOrEqual(32);
+  await expect(header.getByRole("button", { name: "More actions" })).toHaveCount(1);
+  const room = await title.evaluate((element) => ({
+    shown: element.clientWidth,
+    whole: element.scrollWidth,
+  }));
+  // The actions now share the row, so the title keeps a readable 160px rather than 280.
+  expect(room.shown).toBeGreaterThanOrEqual(Math.min(160, room.whole));
+  const box = await title.boundingBox();
+  expect(box && Math.round(box.width)).toBeGreaterThanOrEqual(Math.min(160, room.whole));
+});
