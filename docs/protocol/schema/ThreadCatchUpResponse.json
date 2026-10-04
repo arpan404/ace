@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadCatchUpResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "digest": {
+      "$ref": "https://ace.local/protocol/v1/TurnDigest.json"
+    },
+    "indexedSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "latestAgentMessagePreview": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "ready": {
+      "type": "boolean"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "turnsCompleted": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "type": {
+      "const": "thread.catchUp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "seq",
+    "indexedSeq",
+    "ready",
+    "turnsCompleted",
+    "status",
+    "digest",
+    "latestAgentMessagePreview"
+  ],
+  "type": "object"
+}

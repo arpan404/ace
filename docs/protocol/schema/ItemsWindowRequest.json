@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/ItemsWindowRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "after": {
+      "default": 50,
+      "maximum": 199,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "aroundSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "before": {
+      "default": 50,
+      "maximum": 199,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "turnOrdinal": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "type": {
+      "const": "items.window",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Exactly one target; before + after + target is at most 200 items."
+}

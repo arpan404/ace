@@ -114,6 +114,8 @@ export const Interaction = z.object({
   resolution: InteractionResolution.optional(),
   /** Device that answered first. Later answers are rejected. */
   resolvedBy: DeviceId.optional(),
+  /** Explicit canonical automatic review fact; absence means unknown. */
+  autoReviewed: z.boolean().optional(),
   createdAt: Timestamp,
   closedAt: Timestamp.optional(),
   raw: z.array(RawPayload).default([]),
