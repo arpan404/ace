@@ -21,6 +21,7 @@ test("frames queued while history owns SQLite commit after publication without p
     ).then(() => {
       acknowledged = true;
     });
+    const flushed = h.engine.flush();
     const client = await h.connect("history-barrier");
     client.send({
       type: "items.page",
@@ -39,7 +40,7 @@ test("frames queued while history owns SQLite commit after publication without p
       ),
     ).toBe(false);
     h.store.setHistoryWriting(false);
-    await h.engine.flush();
+    await flushed;
     await committed;
     await blocked;
     expect(h.errors).toEqual([]);
@@ -179,47 +180,60 @@ test("a transport signal before each token keeps liveness while appends share du
   }
 });
 
-test("resolving one thread's approval does not decode unrelated thread snapshots", async () => {
-  const frames = scriptFrames();
-  const { question } = await import("./test-support.ts");
-  const h = await harness([{ on: "send", frames: [frames.frame(start, question)] }], frames);
-  let unrelated: Awaited<ReturnType<typeof h.create>> | undefined;
-  let saved: { state: string; seq: number } | undefined;
-  try {
-    const owner = await h.create();
-    const created = h.command({
-      type: "thread.create",
-      workspaceId: h.workspace,
-      provider: "codex",
-      input: [{ type: "text", text: "unrelated" }],
-    });
-    if (!created.threadId) throw new Error("Missing unrelated thread");
-    unrelated = created.threadId;
-    await h.engine.flush();
-    const row = h.store
-      .statement("SELECT state,seq FROM thread_state WHERE thread_id=?")
-      .get(unrelated);
-    if (!row) throw new Error("Missing snapshot");
-    saved = { state: String(row.state), seq: Number(row.seq) };
-    h.store
-      .statement("UPDATE thread_state SET state='unavailable',seq=seq+1 WHERE thread_id=?")
-      .run(unrelated);
-    const interaction = Object.values(h.store.snapshotThread(owner).interactions).find(
-      (candidate) => candidate.threadId === owner,
+test.each(["approval", "task"])(
+  "controlling one thread's %s does not decode unrelated thread snapshots",
+  async (kind) => {
+    const frames = scriptFrames();
+    const { question, task } = await import("./test-support.ts");
+    const h = await harness(
+      [{ on: "send", frames: [frames.frame(start, question, task)] }],
+      frames,
     );
-    if (!interaction) throw new Error("Missing approval");
-    expect(
-      h.command({
-        type: "interaction.resolve",
-        interactionId: interaction.id,
-        resolution: { kind: "approval", optionId: "yes" },
-      }).ok,
-    ).toBe(true);
-  } finally {
-    if (unrelated && saved)
+    let unrelated: Awaited<ReturnType<typeof h.create>> | undefined;
+    let saved: { state: string; seq: number } | undefined;
+    try {
+      const owner = await h.create();
+      const created = h.command({
+        type: "thread.create",
+        workspaceId: h.workspace,
+        provider: "codex",
+        input: [{ type: "text", text: "unrelated" }],
+      });
+      if (!created.threadId) throw new Error("Missing unrelated thread");
+      unrelated = created.threadId;
+      await h.engine.flush();
+      const row = h.store
+        .statement("SELECT state,seq FROM thread_state WHERE thread_id=?")
+        .get(unrelated);
+      if (!row) throw new Error("Missing snapshot");
+      saved = { state: String(row.state), seq: Number(row.seq) };
       h.store
-        .statement("UPDATE thread_state SET state=?,seq=? WHERE thread_id=?")
-        .run(saved.state, saved.seq, unrelated);
-    await h.close();
-  }
-});
+        .statement("UPDATE thread_state SET state='unavailable',seq=seq+1 WHERE thread_id=?")
+        .run(unrelated);
+      const view = h.store.snapshotThread(owner);
+      const interaction = Object.values(view.interactions).find(
+        (candidate) => candidate.threadId === owner,
+      );
+      if (!interaction) throw new Error("Missing approval");
+      const background = Object.values(view.backgroundTasks)[0];
+      if (!background) throw new Error("Missing task");
+      expect(
+        h.command(
+          kind === "task"
+            ? { type: "background_task.stop", taskId: background.id }
+            : {
+                type: "interaction.resolve",
+                interactionId: interaction.id,
+                resolution: { kind: "approval", optionId: "yes" },
+              },
+        ).ok,
+      ).toBe(true);
+    } finally {
+      if (unrelated && saved)
+        h.store
+          .statement("UPDATE thread_state SET state=?,seq=? WHERE thread_id=?")
+          .run(saved.state, saved.seq, unrelated);
+      await h.close();
+    }
+  },
+);
