@@ -100,6 +100,9 @@ export function itemText(item: Item, output?: string): { title: string; window: 
       add(item.path);
       add(item.mimeType);
       break;
+    case "delegation.settled":
+      for (const result of item.results) add(result.result);
+      break;
     case "compaction":
       break;
   }

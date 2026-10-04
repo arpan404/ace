@@ -25,8 +25,8 @@
       "sha256": "0ef38b782aef8423b7555a21a131e30e3087cbd0133e58a29df5d371891b4799"
     },
     "mcp.md": {
-      "bytes": 74706,
-      "sha256": "0deddcbd8a9036c099f8d69077ef444528f5dbb0167ff2039963eff5cfed6343"
+      "bytes": 77097,
+      "sha256": "aaac6171bca7c7366056c4de2d2d33cf1ed441da50ff039afc537a7c37c543a8"
     },
     "models.md": {
       "bytes": 10612,
@@ -121,8 +121,8 @@
       "sha256": "b614252adf65943d846846250cd5ec4c18e4b826af9ef1ab724f584fb2e7b96a"
     },
     "schema/AgentItem.json": {
-      "bytes": 6822,
-      "sha256": "609a423a74c3cf4abceb3289fa754b56c6e19468af398a6ce57b7361753b747b"
+      "bytes": 8414,
+      "sha256": "131720545d5122e046af4a8273380a0cb20bcf2fc2d0dcaf5a58c9354384e7c1"
     },
     "schema/AgentLaunchOptions.json": {
       "bytes": 538,
@@ -793,8 +793,8 @@
       "sha256": "1a291381c40ba56d606e173c70621821fa8de619c7953cab5f3d1c4ec18fc1a0"
     },
     "schema/Item.json": {
-      "bytes": 8099,
-      "sha256": "c78d70c413955725a853d4d5b8b75c543c6def07dc4575063f429f81cd7b36ca"
+      "bytes": 9691,
+      "sha256": "b732c13d609b4ada0a34eab7c15ab6c29b177b59113521311a437f0ca2c5e40c"
     },
     "schema/ItemId.json": {
       "bytes": 156,
@@ -1681,8 +1681,8 @@
       "sha256": "6689447ade9787ed6cfc792d1fc55f3e4e2e240cb8b2337a1ee48b5d568952c4"
     },
     "schema/SearchKind.json": {
-      "bytes": 269,
-      "sha256": "5ea2fb7d7ccfee6b9e9804d8fefeaee39c03a7f37b1f836dd107677f99ab1181"
+      "bytes": 295,
+      "sha256": "e8d3ca209cd87518e75d5fbebf569baa1d05056c40212bb66d773d1a70b5c4fb"
     },
     "schema/SearchQuery.json": {
       "bytes": 842,
@@ -2189,8 +2189,8 @@
       "sha256": "59f40bf437c0bfc8bc6b87a7746fa8632de1926e6e924b2cd3c643ddb47e4eec"
     },
     "schema/ace_read_handoff.output.json": {
-      "bytes": 56702,
-      "sha256": "89f7c2947739eec0cda6272c52287cf030b3fea7684f844b1774912d1e066d3c"
+      "bytes": 64211,
+      "sha256": "44aed599a310a1479b161566c029d5cbe7931c32f93ef519cda2fe6a19868ebc"
     },
     "schema/ace_read_handoff_chunk.input.json": {
       "bytes": 206,
@@ -2353,10 +2353,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 442217,
-      "sha256": "0fc446b7e4c5cd63da8f569ceb9dd4822cabbe5255fd472cbc10e04dd75f3082"
+      "bytes": 444844,
+      "sha256": "25cf1a584ce522e7f3ddc8690b0bb9ca8ec541a8b3f4862f159d0f25fa6d6f95"
     }
   },
-  "input": "7ec241ed2592535b4622b942373c7abcc666d62e7b21edb76fddefdc230f668d",
+  "input": "4d35f7bab0c2119192248109e930fcfd4839abef5dccb19f246dc79ba1e41822",
   "version": 1
 }

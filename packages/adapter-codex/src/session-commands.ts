@@ -66,6 +66,7 @@ export function createSessionCommands(
     threadId: string,
     parts: ContentPart[],
     delivery: "steer" | "queue",
+    origin?: "ace",
   ): Promise<void> {
     assertOpen();
     const turn = active.get(threadId);
@@ -87,7 +88,21 @@ export function createSessionCommands(
         "turn/start",
         {
           threadId,
-          input: input(parts),
+          input: origin === "ace" ? [] : input(parts),
+          ...(origin === "ace"
+            ? {
+                turnTrigger: "subagent_result",
+                additionalContext: {
+                  "ace.delegation": {
+                    kind: "untrusted" as const,
+                    value: parts
+                      .filter((part) => part.type === "text")
+                      .map((part) => part.text)
+                      .join("\n"),
+                  },
+                },
+              }
+            : {}),
           ...config.getLaunchOptions?.(),
         } satisfies TurnStartParams,
         true,
@@ -171,7 +186,7 @@ export function createSessionCommands(
       throw new AggregateError(failures, "Could not completely interrupt Codex agent tree");
   }
   return {
-    send: (parts, delivery) => sendTo(nativeSessionId, parts, delivery),
+    send: (parts, delivery, _commandId, origin) => sendTo(nativeSessionId, parts, delivery, origin),
     async interrupt(target) {
       assertOpen();
       const thread = !target.agent || target.agent === "root" ? nativeSessionId : target.agent;

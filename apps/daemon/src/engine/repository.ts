@@ -1,3 +1,4 @@
+import { AceInputs } from "./ace-inputs.ts";
 import { coalesceFacts } from "./delta-batch.ts";
 import { Permissions } from "./permissions.ts";
 import { ProviderRecovery } from "./provider-recovery.ts";
@@ -23,6 +24,7 @@ import { IntentStore, type IntentHeader } from "./intents.ts";
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
   readonly store: Store;
+  readonly aceInputs: AceInputs;
   readonly permissions: Permissions;
   readonly recovery: ProviderRecovery;
   private capture: StatementSync;
@@ -53,6 +55,7 @@ export class EngineRepository {
     this.commandId = commandId;
     this.ids = ids;
     this.store = store;
+    this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
     store.atomic((db) =>
       db.exec(
@@ -208,7 +211,10 @@ export class EngineRepository {
             this.recoveryAcknowledgement(id)
           )
             input = { ...input, trigger: queue.trigger };
-          let fact = capFact((raw) => this.store.capRaw(raw, id), input);
+          let fact = capFact(
+            (raw) => this.store.capRaw(raw, id),
+            this.aceInputs.attribute(id, input),
+          );
           if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
             const pending = this.pending.awaiting(id);
             if (

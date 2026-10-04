@@ -342,6 +342,240 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "delivery": {
+                "enum": [
+                  "tool",
+                  "ace-input"
+                ],
+                "type": "string"
+              },
+              "executionSource": {
+                "additionalProperties": false,
+                "properties": {
+                  "nativeSessionId": {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "selection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "instanceId": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "model": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "options": {
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "default": {},
+                        "propertyNames": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "type": "object",
+                        "x-ace-constraint": "At most 32 provider option entries."
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "opencode",
+                          "cursor",
+                          "antigravity",
+                          "acp",
+                          "pi"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "options"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "nativeSessionId",
+                  "selection"
+                ],
+                "type": "object"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "nativeId": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "origin": {
+                "const": "ace",
+                "type": "string"
+              },
+              "raw": {
+                "default": [],
+                "items": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "data": {},
+                        "name": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "data"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "blobRef": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "preview": {
+                          "type": "string",
+                          "x-ace-constraint": "UTF-8 encoding must be at most 2048 bytes."
+                        },
+                        "size": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "blobRef",
+                        "size",
+                        "preview"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "results": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "before": {
+                      "anyOf": [
+                        {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "outcome": {
+                      "enum": [
+                        "completed",
+                        "failed",
+                        "cancelled"
+                      ],
+                      "type": "string"
+                    },
+                    "result": {
+                      "maxLength": 4096,
+                      "type": "string"
+                    },
+                    "threadId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "threadId",
+                    "outcome",
+                    "result",
+                    "truncated",
+                    "before"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 64,
+                "minItems": 1,
+                "type": "array"
+              },
+              "runId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": {
+                "const": "delegation.settled",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "agentId",
+              "createdAt",
+              "complete",
+              "type",
+              "origin",
+              "results",
+              "delivery",
+              "raw"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "agentId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "complete": {
+                "type": "boolean"
+              },
+              "createdAt": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "executionSource": {
                 "additionalProperties": false,
                 "properties": {

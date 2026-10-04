@@ -172,6 +172,7 @@ export class ItemStore {
             "notice",
             "tool_call",
             "compaction",
+            "delegation.settled",
             "artifact",
           ]),
         }),

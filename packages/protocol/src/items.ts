@@ -1,3 +1,4 @@
+import { DelegationOutcome } from "./agent-control.ts";
 import { MergedForkContext, ExecutionSource } from "./thread-transitions.ts";
 import { z } from "zod";
 import { AgentId, ItemId, RunId, Timestamp } from "./ids.ts";
@@ -39,6 +40,13 @@ export const AgentItem = z.discriminatedUnion("type", [
     /** Message ace did not send itself: task notifications, injected results. */
     synthetic: z.boolean().default(false),
     mergedContext: MergedForkContext.optional(),
+    raw: z.array(RawPayload).default([]),
+  }),
+  ItemBase.extend({
+    type: z.literal("delegation.settled"),
+    origin: z.literal("ace"),
+    results: z.array(DelegationOutcome).min(1).max(64),
+    delivery: z.enum(["tool", "ace-input"]),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({

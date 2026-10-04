@@ -394,6 +394,47 @@ export class Engine {
     );
     this.wake(parentId);
   }
+  /** Host-only result attribution; ordinary wire sends cannot impersonate ace. */
+  delegationSettled(
+    parentId: ThreadId,
+    parentAgentId: AgentId,
+    commandId: string,
+    results: import("@ace/protocol").DelegationOutcome[],
+    delivery: "tool" | "ace-input",
+    text?: string,
+  ) {
+    const state = this.repo.requireState(parentId);
+    const agent = state.indexes.agentKeysById[parentAgentId];
+    if (!agent) throw new Error("Unknown delegation parent");
+    const item = `ace-results:${commandId}`;
+    const summaries = results.map((result) => ({
+      ...result,
+      result: result.result.slice(0, 128),
+      truncated: result.truncated || result.result.length > 128,
+    }));
+    this.repo.store.atomic(() => {
+      if (text)
+        this.repo.aceInputs.record(parentId, commandId, { agent, item, results: summaries, text });
+      this.repo.apply(
+        parentId,
+        [
+          {
+            type: "item.upsert",
+            agent,
+            item,
+            draft: {
+              type: "delegation.settled",
+              origin: "ace",
+              delivery,
+              results: summaries,
+              complete: true,
+            },
+          },
+        ],
+        this.clock.now(),
+      );
+    });
+  }
   /** On-demand metrics visit bounded live actors and indexed outstanding intents only. */
   workload(): { activeSessions: number; queues: Record<string, number> } {
     let activeSessions = 0;

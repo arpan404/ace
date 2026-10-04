@@ -345,9 +345,23 @@ export class DelegationService {
     if (!this.authorize(caller, threadId, false)) throw new Error("Forbidden thread");
     const thread = this.deps.store.getThread(threadId);
     if (!thread) throw new Error("Unknown thread");
-    if (["done", "failed"].includes(thread.status.state))
-      return this.journal.get(threadId)?.outcome ?? threadOutcome(this.deps.store, thread);
-    return this.waiters.wait(threadId, signal);
+    const outcome = ["done", "failed"].includes(thread.status.state)
+      ? (this.journal.get(threadId)?.outcome ?? threadOutcome(this.deps.store, thread))
+      : await this.waiters.wait(threadId, signal);
+    const edge = this.journal.get(threadId);
+    if (edge && edge.parentId === caller.threadId && edge.resultDelivery !== "owner") {
+      this.deps.store.atomic(() => {
+        this.deps.engine.delegationSettled(
+          edge.parentId,
+          edge.parentAgentId,
+          controlCommandId(edge.parentId, `${edge.childId}:${edge.generation}`, "tool-result"),
+          [outcome],
+          "tool",
+        );
+        this.journal.consumeChild(threadId);
+      });
+    }
+    return outcome;
   }
   private arm() {
     this.cancelTimer?.();
@@ -438,10 +452,14 @@ export class DelegationService {
             pending.map((edge) => `${edge.childId}:${edge.generation}`).join(","),
             "wake",
           );
+          const text = `[ace-origin:delegation.settled:${id}]\n${childResultPrompt(results)}`;
+          const agent = pending[0]?.parentAgentId;
+          if (!agent) throw new Error("Missing delegation owner");
+          this.deps.engine.delegationSettled(next.parent_id, agent, id, results, "ace-input", text);
           const result = this.command(id, {
             type: "thread.send",
             threadId: next.parent_id,
-            input: [{ type: "text", text: childResultPrompt(results) }],
+            input: [{ type: "text", text }],
             delivery: "queue",
             trigger: "subagent_result",
           });

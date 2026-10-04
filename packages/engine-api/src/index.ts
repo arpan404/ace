@@ -138,7 +138,12 @@ export interface ProviderSession {
   setModel?(model: string): Promise<void>;
   setMode?(mode: string): Promise<void>;
   /** Optional engine command correlation for providers with durable admission. */
-  send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void>;
+  send(
+    input: ContentPart[],
+    delivery: "steer" | "queue",
+    commandId?: string,
+    origin?: "ace",
+  ): Promise<void>;
   interrupt(target: { agent?: Key; cascade: boolean }): Promise<void>;
   resolve(interaction: Key, resolution: InteractionResolution): Promise<void>;
   stopTask(task: Key): Promise<void>;
