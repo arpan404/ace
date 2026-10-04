@@ -47,6 +47,20 @@ export function handleQueue(
     } else if (p.type === "queue.remove" && entry) {
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
+    } else if (p.type === "queue.resend" && entry) {
+      if (!entry.uncertain) return fail("message_not_uncertain");
+      const old = entry.command.payload;
+      if (old.type !== "thread.create" && old.type !== "thread.send") return fail("invalid_queue_entry");
+      const replacement = Command.parse({ ...command, payload: { type: "thread.send", threadId: p.threadId,
+        input: old.input, context: old.context, origin: old.origin, trigger: old.trigger,
+        delivery: old.type === "thread.send" ? old.delivery : "queue" } });
+      dependencies.repo.queue.remove(entry.id);
+      dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
+      dependencies.repo.add(replacement, p.threadId);
+      dependencies.repo.admitInput(replacement, p.threadId, dependencies.clock.now());
+      // Only the ambiguity hold may be released, never a later pause or recovery hold.
+      if (queue.reason === "uncertain" && !dependencies.repo.queue.hasUncertain(p.threadId) && !queue.limited && !queue.continuation)
+        dependencies.repo.queue.set(p.threadId, { paused: false, reason: null }, dependencies.clock.now());
     } else if (p.type === "queue.move" && entry) {
       if (dependencies.repo.queue.hasUncertain(p.threadId)) return fail("uncertain_delivery");
       const after =
@@ -131,7 +145,7 @@ export function handleQueue(
     } else return fail("invalid_queue_command");
     dependencies.repo.queue.reconcileUncertainty(p.threadId, dependencies.clock.now());
     dependencies.sync(p.threadId);
-    if (dependencies.repo.reservedSlot(p.threadId))
+    if (dependencies.repo.reservedSlot(p.threadId) || (!dependencies.repo.queue.get(p.threadId).paused && dependencies.repo.reserve(p.threadId)))
       queueMicrotask(() => dependencies.wake(p.threadId));
     return { commandId: command.id, ok: true };
   });

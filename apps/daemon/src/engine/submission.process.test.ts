@@ -62,3 +62,26 @@ test("removing the last uncertain copy clears its hold and identical resend owns
   expect(view.items["input:replacement"]).toMatchObject({ parts: [{ type: "text", text: "same input" }], nativeId: "replacement-native" });
   expect(Object.values(view.items).filter((item) => item.type === "message")).toHaveLength(1);
 });
+
+test("uncertain resend atomically retires its original while preserving other messages and rejecting stale revisions", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", exit: { deliberate: false } }], frames);
+  cleanups.push(h.close);
+  const receipt = h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex",
+    input: [{ type: "text", text: "ambiguous" }] }, "device", "original-ambiguous");
+  if (!receipt.threadId) throw new Error("No thread");
+  const id = receipt.threadId;
+  await h.engine.flush();
+  h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "other queued input" }] }, "device", "other-queued");
+  h.command({ type: "queue.pause", threadId: id, expectedRevision: h.engine.queue(id).revision });
+  const revision = h.engine.queue(id).revision;
+  expect(h.command({ type: "queue.resend", threadId: id, messageId: CommandId.parse("original-ambiguous"),
+    expectedRevision: revision }, "device", "resend-ambiguous").ok).toBe(true);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "manual", messages: [
+    { id: "other-queued", state: "queued" }, { id: "resend-ambiguous", state: "queued" },
+  ] });
+  expect(h.store.snapshotThread(id).items["input:original-ambiguous"]).toBeUndefined();
+  expect(h.store.snapshotThread(id).items["input:resend-ambiguous"]).toMatchObject({ parts: [{ type: "text", text: "ambiguous" }] });
+  expect(h.command({ type: "queue.resend", threadId: id, messageId: CommandId.parse("original-ambiguous"),
+    expectedRevision: revision })).toMatchObject({ ok: false, error: "queue_conflict" });
+});
