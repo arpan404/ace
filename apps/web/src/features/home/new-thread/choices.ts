@@ -19,6 +19,8 @@ export const Choices = z.object({
   account: z.string().min(1).optional().catch(undefined),
   mode: WorkMode.optional().catch(undefined),
   effort: z.string().min(1).optional().catch(undefined),
+  /** Run on the model's faster tier, where it has one. */
+  fast: z.boolean().optional().catch(undefined),
 });
 export type Choices = z.infer<typeof Choices>;
 
@@ -36,6 +38,8 @@ export interface Resolved {
   mode: WorkMode;
   /** One of the model's efforts: the chosen one, else the model's default. */
   effort: string | undefined;
+  /** On the model's faster tier: as chosen, else as the catalog runs it by default. */
+  fast: boolean;
 }
 
 /**
@@ -81,6 +85,7 @@ export function resolve(
     account,
     mode: choices.mode ?? "worktree",
     effort,
+    fast: model?.fastTier !== undefined && (choices.fast ?? model.fastDefault),
     ...(legacy ? { upgradedModel: legacy.key } : {}),
   };
 }

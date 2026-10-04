@@ -73,7 +73,7 @@ function ListSkeleton(props: {
               key={index}
               className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 px-[11px] py-[9px]"
             >
-              <Skeleton className="mt-px size-[26px] rounded-[7px]" style={style} />
+              <Skeleton className="mt-px size-[26px] rounded-sm" style={style} />
               <span className="flex flex-col gap-1.5 pt-0.5">
                 <Skeleton className="h-3" style={{ ...style, width }} />
                 <Skeleton className="h-2.5 w-4/5" style={style} />

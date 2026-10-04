@@ -11,16 +11,8 @@ export const DeferredPermissionMenu = deferredComponent(() =>
 );
 export const DeferredAddMenu = deferredComponent(() => menus().then((module) => module.AddMenu));
 
-export const DeferredModelMenu = deferredComponent(() =>
-  menus().then((module) => module.ThreadModelMenu),
-);
-
 export function preloadComposerMenus(): Promise<unknown> {
-  return Promise.all([
-    DeferredPermissionMenu.preload(),
-    DeferredAddMenu.preload(),
-    DeferredModelMenu.preload(),
-  ]);
+  return Promise.all([DeferredPermissionMenu.preload(), DeferredAddMenu.preload()]);
 }
 
 /** A menu whose code is still on its way: one quiet row, the menu's own size. */

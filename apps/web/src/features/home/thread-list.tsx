@@ -5,7 +5,6 @@ import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
 import { homeRowKey, homeRowThread, homeRows, type HomeRow } from "@ace/ui-core";
-import { AutoSettleNote } from "./auto-settle-note.tsx";
 import { FolderRow, PinnedLabel, ShowMore } from "./folder-rows.tsx";
 import { useFolders } from "./folders.ts";
 import { SettledRow } from "./settled-row.tsx";
@@ -23,12 +22,12 @@ const estimates: Record<HomeRow["kind"], number> = {
   more: 37,
   "settled-header": 40,
   settled: 31,
-  rule: 52,
 };
 
 /**
  * The Home list, virtualized: Pinned, then a folder per project (its first threads, then Show
- * more), then the collapsible Settled section and the auto-settle rule. Only visible rows mount.
+ * more), then the collapsible Settled section (when threads settle is a setting, in Settings ›
+ * General). Only visible rows mount.
  * Rows that arrive (a new thread, an unsnooze) rise in, rows that go (settle, snooze, archive)
  * fade where they were, and the rest slide to their new places.
  */
@@ -115,13 +114,12 @@ export function ThreadList(props: { list: HomeList }) {
                     />
                   )}
                   {row.kind === "settled" && <SettledRow threadId={row.id} />}
-                  {row.kind === "rule" && <AutoSettleNote />}
                   {row.kind === "settled-header" && (
                     <button
                       type="button"
                       aria-expanded={settledOpen}
                       onClick={() => organizer.setSettledOpen(!settledOpen)}
-                      className="mt-3 mb-0.5 flex w-full items-center gap-2 rounded-[7px] px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1) after:h-px after:flex-1 after:bg-sidebar-border hover:text-muted-foreground"
+                      className="mt-3 mb-0.5 flex w-full items-center gap-2 rounded-sm px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1) after:h-px after:flex-1 after:bg-sidebar-border hover:text-muted-foreground"
                     >
                       Settled ({row.count})
                       <CaretDownIcon

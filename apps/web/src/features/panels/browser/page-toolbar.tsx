@@ -2,7 +2,7 @@ import { ArrowClockwiseIcon, ArrowLeftIcon, ArrowRightIcon, XIcon } from "@phosp
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 
-const tool = "size-7 rounded-[7px]";
+const tool = "size-7 rounded-sm";
 /** Navigation, the address (at most 640px), actions: the address on the toolbar's centre. */
 const columns = { gridTemplateColumns: "1fr minmax(0, 640px) 1fr" };
 /** Three buttons wide at least, on both sides, so the address stays centred. */

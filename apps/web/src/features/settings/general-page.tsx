@@ -18,9 +18,9 @@ import { RecoverySettings } from "./recovery-settings.tsx";
 import { SettingSwitch } from "./setting-switch.tsx";
 
 const autoSettleOptions: { value: AutoSettle; label: string }[] = [
-  { value: "1d", label: "1 day" },
-  { value: "2d", label: "2 days" },
-  { value: "1w", label: "1 week" },
+  { value: "1d", label: "After a day" },
+  { value: "2d", label: "After 2 days" },
+  { value: "1w", label: "After a week" },
   { value: "never", label: "Never" },
 ];
 
@@ -44,11 +44,11 @@ export function GeneralSettings() {
           description="Keeps your checkout clean. Threads on main are one click away."
         />
         <SettingRow
-          title="Auto-settle after"
-          description="Threads with no activity move to Settled."
+          title="Settle done threads"
+          description="Done threads with no activity move to Settled. Threads that need you never settle."
         >
           <Select
-            label="Auto-settle after"
+            label="Settle done threads"
             value={autoSettle}
             options={autoSettleOptions}
             onValueChange={(value) => void setAutoSettle(value)}

@@ -71,8 +71,7 @@ export type HomeRow =
   | { kind: "thread"; id: string }
   | { kind: "more"; project: string; hidden: number; showingAll: boolean }
   | { kind: "settled-header"; count: number }
-  | { kind: "settled"; id: string }
-  | { kind: "rule" };
+  | { kind: "settled"; id: string };
 
 export interface HomeRowOptions {
   /** Projects whose folder is closed. */
@@ -124,10 +123,7 @@ export function homeRows(
       });
   }
   rows.push({ kind: "settled-header", count: settled.length });
-  if (options.settledOpen) {
-    for (const id of settled) rows.push({ kind: "settled", id });
-    rows.push({ kind: "rule" });
-  }
+  if (options.settledOpen) for (const id of settled) rows.push({ kind: "settled", id });
   return rows;
 }
 

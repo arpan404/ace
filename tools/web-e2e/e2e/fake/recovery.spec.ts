@@ -24,7 +24,7 @@ test("a limited thread moves to another account and carries on", async ({ page }
   await page.goto("/t/thread-limit-search");
   const limit = page.getByRole("region", { name: "Usage limit reached" });
   await expect(limit).toBeVisible();
-  await expect(page.getByRole("button", { name: "Model: GPT-5 Codex, team" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Model: GPT-5 Codex, team/ })).toBeVisible();
 
   await limit.getByRole("button", { name: "Move to another account" }).click();
 

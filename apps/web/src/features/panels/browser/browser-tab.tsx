@@ -33,7 +33,7 @@ import { PageView } from "./page-view.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { viewportById, viewports } from "./viewports.ts";
 
-const tool = "size-7 rounded-[7px]";
+const tool = "size-7 rounded-sm";
 
 /** Who has the page: the agent (named from the thread's tree), this device, or nobody yet. */
 function ControlStrip(props: { view: BrowserView; busy: boolean; onToggle(): void }) {
@@ -83,7 +83,7 @@ function ControlStrip(props: { view: BrowserView; busy: boolean; onToggle(): voi
             type="button"
             disabled={props.busy}
             onClick={props.onToggle}
-            className="h-6 shrink-0 rounded-[7px] px-2 font-medium text-foreground outline-none hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:opacity-50"
+            className="h-6 shrink-0 rounded-sm px-2 font-medium text-foreground outline-none hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:opacity-50"
           >
             {view.controller === "human" ? "Hand back" : "Take control"}
           </button>
@@ -338,7 +338,7 @@ function BrowserActions(props: {
         <Tip label={`Page size · ${viewport.label}`}>
           <MenuTrigger
             aria-label="Page size"
-            className="grid size-7 place-items-center rounded-[7px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
+            className="grid size-7 place-items-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
           >
             <DevicesIcon aria-hidden size={16} weight={viewport.emulation ? "fill" : "regular"} />
           </MenuTrigger>
@@ -374,7 +374,7 @@ function BrowserActions(props: {
       <Menu>
         <MenuTrigger
           aria-label="Browser options"
-          className="grid size-7 place-items-center rounded-[7px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
+          className="grid size-7 place-items-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
         >
           <DotsThreeIcon aria-hidden size={16} weight="bold" />
         </MenuTrigger>

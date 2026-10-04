@@ -20,7 +20,7 @@ import { cn } from "@/lib/cn.ts";
 import type { useFileActions } from "./use-file-actions.ts";
 import { formatBytes } from "./use-file-actions.ts";
 
-const tool = "size-7 rounded-[7px]";
+const tool = "size-7 rounded-sm";
 
 /**
  * The path as a breadcrumb in a quiet capsule: the project, each folder (which narrows the tree
@@ -43,7 +43,7 @@ function Breadcrumb(props: {
   );
   return (
     <nav aria-label="File path" className="min-w-0 flex-1">
-      <ol className="flex h-7 w-fit max-w-full min-w-0 items-center gap-0.5 rounded-[7px] bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] px-1.5 text-ui">
+      <ol className="flex h-7 w-fit max-w-full min-w-0 items-center gap-0.5 rounded-sm bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] px-1.5 text-ui">
         <li className="flex min-w-0 shrink-[3] items-center">
           <Tip label="Find files in the checkout">
             <button type="button" className={crumb} onClick={() => props.onFolder("")}>

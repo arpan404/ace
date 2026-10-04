@@ -32,8 +32,6 @@ const words = (rows: ReturnType<typeof homeRows>) =>
         return row.showingAll ? `less ${row.project}` : `more ${row.project} +${row.hidden}`;
       case "settled-header":
         return `settled ${row.count}`;
-      case "rule":
-        return "rule";
       default:
         return row.id;
     }
@@ -96,13 +94,12 @@ test("a closed folder hides its threads but says when one needs you", () => {
   expect(rows[0]).toMatchObject({ kind: "folder", needsYou: true, count: 1 });
 });
 
-test("Settled lists its threads and the auto-settle rule only when open", () => {
+test("Settled lists its threads only when open", () => {
   const groups = groupHome([]);
   expect(words(homeRows(groups, ["s1", "s2"], options({ settledOpen: true })))).toEqual([
     "settled 2",
     "s1",
     "s2",
-    "rule",
   ]);
 });
 
