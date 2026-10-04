@@ -1,6 +1,6 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -155,4 +155,14 @@ test("while the agent works, a draft offers Queue and never turns into Stop", as
   await userEvent.type(message, "Also check cold start");
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
+});
+
+test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
+  const { app } = await open("busy");
+  await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ });
+  act(() => app.client.networkOnline(false));
+  await screen.findByText(/^Offline\./);
+  const chip = screen.getByRole("button", { name: /^Model: Opus 4\.1/ });
+  await userEvent.click(chip);
+  expect(await screen.findByText("Offline: changes apply when the daemon is back")).toBeTruthy();
 });

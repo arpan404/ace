@@ -12,6 +12,7 @@ import {
   optionEffort,
   threadEffortControl,
   effortLabel,
+  recordedChoice,
 } from "./models.ts";
 
 const account = (
@@ -240,4 +241,14 @@ test("effort levels read as words people use, whatever the provider calls them",
     "Minimal",
   ]);
   expect(effortLabel("very_deep")).toBe("Very deep");
+});
+
+test("offline, a thread's model reads from its own record, claiming no account or usage", () => {
+  expect(recordedChoice({ provider: "claude", model: "claude-opus-4-1" })).toMatchObject({
+    provider: "claude",
+    model: "Opus 4.1",
+    account: "",
+    used: undefined,
+  });
+  expect(recordedChoice({ provider: "claude" })).toBeUndefined();
 });

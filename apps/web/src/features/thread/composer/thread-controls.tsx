@@ -1,10 +1,11 @@
-import { useThreadMeta } from "@ace/client-react";
+import { useConnectionState, useThreadMeta } from "@ace/client-react";
 import { WorkspaceId, type PermissionMode, type Thread } from "@ace/protocol";
 import {
   choiceSelection,
   currentModelChoice,
   optionEffort,
   permissionLabel,
+  recordedChoice,
   threadEffortControl,
   threadPermissionSummary,
   type ModelChoice,
@@ -90,10 +91,15 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean }) 
   const toast = useToast();
   const choices = useModelChoices();
   const [switching, setSwitching] = useState<ModelChoice>();
+  const online = useConnectionState() === "ready";
   const selection = runsOn(meta);
   const current = currentModelChoice(choices, selection);
+  // Offline the catalog can't be read: keep what this view last knew, else the thread's record.
+  const [known, setKnown] = useState<ModelChoice>();
+  if (current && current.id !== known?.id) setKnown(current);
+  const shown = current ?? (online ? undefined : (known ?? recordedChoice(selection)));
   const effort = threadEffortControl({
-    choice: current,
+    choice: shown,
     capabilities: meta?.capabilities,
     current: optionEffort(selection?.options),
   });
@@ -130,7 +136,8 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean }) 
     <>
       <ModelPicker
         choices={choices}
-        value={current}
+        value={shown}
+        offline={!online}
         effort={effort}
         onChange={(choice) => {
           if (choice.id === current?.id) return;

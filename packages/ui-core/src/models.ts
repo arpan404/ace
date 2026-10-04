@@ -1,6 +1,6 @@
 import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
 import { blockingReset, tightestWindow, type AccountView } from "./accounts.ts";
-import { providerNames } from "./providers.ts";
+import { modelLabel, providerNames } from "./providers.ts";
 
 /** One model on one of the person's signed-in accounts, as the composer's picker lists it. */
 export interface ModelChoice {
@@ -25,6 +25,31 @@ export interface ModelChoice {
   /** Reasoning efforts the model takes, in the catalog's order; empty when it has no choice. */
   efforts: readonly string[];
   defaultEffort: string | undefined;
+}
+
+/**
+ * The model a thread runs on, read from the thread's own record when the catalog can't be read
+ * (offline, before it loads): its name, with no account or usage claimed.
+ */
+export function recordedChoice(
+  selection: { provider: ProviderKind; model?: string | undefined } | undefined,
+): ModelChoice | undefined {
+  if (!selection?.model) return undefined;
+  return {
+    id: `recorded:${selection.provider}:${selection.model}`,
+    provider: selection.provider,
+    model: modelLabel(selection.model),
+    modelId: selection.model,
+    account: "",
+    accountId: "",
+    note: "",
+    used: undefined,
+    exhausted: false,
+    resetsAt: undefined,
+    isDefault: false,
+    efforts: [],
+    defaultEffort: undefined,
+  };
 }
 
 /**

@@ -14,6 +14,8 @@ import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
 import { DeferredModelMenu, MenuPending } from "./deferred-menus.tsx";
 
+const offlineNote = "Offline: changes apply when the daemon is back";
+
 /**
  * The thread's model, account and effort in one footer chip ("◆ Opus 4.1 personal high ▾"),
  * capped so a long name truncates instead of crowding the other controls. The menu lists models
@@ -23,6 +25,8 @@ import { DeferredModelMenu, MenuPending } from "./deferred-menus.tsx";
 export function ModelPicker(props: {
   choices: readonly ModelChoice[];
   value: ModelChoice | undefined;
+  /** Offline: the last-known model stays, dimmed, and can't change until the daemon is back. */
+  offline?: boolean | undefined;
   effort: EffortControl;
   onChange(choice: ModelChoice): void;
   onEffort(effort: string): void;
@@ -40,25 +44,27 @@ export function ModelPicker(props: {
     <Menu>
       <Tip
         label={
-          value
-            ? [
-                providerNames[value.provider],
-                value.model,
-                account,
-                effortText &&
-                  (effort.reported
-                    ? effortText
-                    : `${effortText}: the daemon doesn't report this thread's effort`),
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            : "Choose a model"
+          props.offline
+            ? offlineNote
+            : value
+              ? [
+                  providerNames[value.provider],
+                  value.model,
+                  account,
+                  effortText &&
+                    (effort.reported
+                      ? effortText
+                      : `${effortText}: the daemon doesn't report this thread's effort`),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : "Choose a model"
         }
         side="top"
       >
         <MenuTrigger
           aria-label={name ? `Model: ${name}` : "Choose a model"}
-          className={cn(chipControl, "max-w-64")}
+          className={cn(chipControl, "max-w-64", props.offline && "opacity-60")}
         >
           {value ? (
             <ModelChipLabel
@@ -74,15 +80,21 @@ export function ModelPicker(props: {
         </MenuTrigger>
       </Tip>
       <MenuContent side="top" align="start" className="max-h-[60vh] w-[320px] overflow-y-auto">
-        <Suspense fallback={<MenuPending />}>
-          <DeferredModelMenu.Component
-            choices={props.choices}
-            value={value}
-            effort={effort}
-            onChange={props.onChange}
-            onEffort={props.onEffort}
-          />
-        </Suspense>
+        {props.offline ? (
+          <p role="status" className="px-2.5 py-2 text-xs leading-4 text-muted-foreground">
+            {offlineNote}
+          </p>
+        ) : (
+          <Suspense fallback={<MenuPending />}>
+            <DeferredModelMenu.Component
+              choices={props.choices}
+              value={value}
+              effort={effort}
+              onChange={props.onChange}
+              onEffort={props.onEffort}
+            />
+          </Suspense>
+        )}
       </MenuContent>
     </Menu>
   );

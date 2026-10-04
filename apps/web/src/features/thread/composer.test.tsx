@@ -132,9 +132,7 @@ test("the model picker shows each account's usage and blocks an exhausted one", 
   expect(team.textContent).toMatch(/Limit reached · resets \d\d:\d\d/);
 
   await userEvent.click(screen.getByRole("menuitemradio", { name: "Sonnet 4.5 · personal" }));
-  expect(
-    await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, personal/ }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, personal/ })).toBeTruthy();
 });
 
 test("the context bar shows where the thread runs and follows its branch past a commit", async () => {
