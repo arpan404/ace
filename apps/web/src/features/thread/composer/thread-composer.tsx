@@ -2,7 +2,7 @@ import { useClient, useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
-import { useRef } from "react";
+import { Suspense, useRef } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useToastClearance } from "@/lib/toast-clearance.ts";
@@ -11,9 +11,12 @@ import type { ThreadRef } from "../sources/index.ts";
 import { Composer, type Draft } from "./composer.tsx";
 import { ContextBar } from "./context-bar.tsx";
 import { ContextMeter } from "./context-meter.tsx";
-import { QueueNotice } from "./queue-notice.tsx";
-import { QueuedPills } from "./queued.tsx";
-import { ThreadModelControl, ThreadPermissionControl } from "./thread-controls.tsx";
+import {
+  ControlsPending,
+  DeferredQueueNotice,
+  DeferredQueuedPills,
+  DeferredThreadControls,
+} from "./deferred-parts.tsx";
 import { useQueue } from "./use-queue.ts";
 
 /** The agent is mid-turn or held up: a new message follows up rather than starting a turn. */
@@ -78,8 +81,14 @@ export function ThreadComposer(props: { thread: ThreadRef; status: ThreadStatus 
       className="relative flex-none px-(--transcript-gutter) pb-4 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:bottom-0 before:bg-reading before:[mask-image:linear-gradient(to_bottom,transparent,black_2.5rem)]"
     >
       <div className={`relative ${readingColumn}`}>
-        <QueueNotice threadId={props.thread.id} status={props.status} queue={queue} />
-        <QueuedPills queue={queue} />
+        <Suspense fallback={null}>
+          <DeferredQueueNotice.Component
+            threadId={props.thread.id}
+            status={props.status}
+            queue={queue}
+          />
+          {!!queue.page?.messages.length && <DeferredQueuedPills.Component queue={queue} />}
+        </Suspense>
         <Composer
           thread={props.thread}
           draftKey={`thread:${props.thread.id}`}
@@ -94,10 +103,9 @@ export function ThreadComposer(props: { thread: ThreadRef; status: ThreadStatus 
               : undefined
           }
           controls={
-            <>
-              <ThreadPermissionControl thread={props.thread} />
-              <ThreadModelControl thread={props.thread} busy={busy} />
-            </>
+            <Suspense fallback={<ControlsPending />}>
+              <DeferredThreadControls.Component thread={props.thread} busy={busy} />
+            </Suspense>
           }
           status={<ContextMeter threadId={props.thread.id} />}
         />

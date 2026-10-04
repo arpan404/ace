@@ -4,7 +4,7 @@ export { useDraftScope } from "./composer/draft-scope.ts";
 /** The composer's footer pieces New thread reuses: the approvals chip and the chip style. */
 export { PermissionPicker, usePermissionCapabilities } from "./composer/permission-picker.tsx";
 export { chipControl as composerChip } from "./composer/composer-styles.ts";
-export { preloadComposerMenus } from "./composer/deferred-menus.tsx";
+export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";
 export { ThreadView } from "./thread-view.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */

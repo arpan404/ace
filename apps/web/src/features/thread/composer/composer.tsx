@@ -1,5 +1,6 @@
 import type { Mention } from "@ace/protocol";
 import {
+  Suspense,
   useId,
   useLayoutEffect,
   useRef,
@@ -16,7 +17,8 @@ import { ComposerCompact } from "./composer-compact.ts";
 import { accept, insertAt, mentionsIn, triggerAt, type Trigger } from "./draft.ts";
 import { readDraft, recentFiles, rememberFile } from "./draft-store.ts";
 import { PrimaryAction } from "./primary-action.tsx";
-import { SuggestionList, useSuggestions, type Suggestion } from "./suggestions.tsx";
+import { DeferredSuggestionList } from "./deferred-parts.tsx";
+import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
 import { useDraftPersistence } from "./use-draft-persistence.ts";
 
@@ -204,7 +206,16 @@ export function Composer(props: {
 
   return (
     <div ref={box} className="relative">
-      <SuggestionList id={listId} suggestions={suggestions} active={active} onPick={pick} />
+      {suggestions.state !== "closed" && (
+        <Suspense fallback={null}>
+          <DeferredSuggestionList.Component
+            id={listId}
+            suggestions={suggestions}
+            active={active}
+            onPick={pick}
+          />
+        </Suspense>
+      )}
       <div
         data-slot="composer"
         onDragOver={(event) => event.preventDefault()}

@@ -2,7 +2,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 /*
  * The composer's menus only render once opened. Their code shares one chunk that loads after the
- * thread has painted, warmed while idle with the rest of `preloadDeferred` (ADR 0056 budgets).
+ * thread has painted, warmed while idle (`preloadComposerParts`), inside the ADR 0056 budgets.
  */
 const menus = () => import("./composer-menus.tsx");
 

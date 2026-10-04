@@ -24,6 +24,8 @@ interface Geometry {
 
 async function geometry(page: Page): Promise<Geometry> {
   return page.evaluate(() => {
+    // Runs in the page, so it can't share a helper from this file's scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const box = (el: Element | null): Box => {
       if (!el) throw new Error("missing element");
       const rect = el.getBoundingClientRect();
@@ -75,6 +77,9 @@ async function openThread(page: Page) {
   const message = page.getByRole("combobox", { name: "Message" });
   await message.waitFor();
   await page.getByRole("feed", { name: "Transcript" }).waitFor();
+  // The footer's pickers load just after first paint; measure once they are in.
+  await page.getByRole("button", { name: /^Approvals:/ }).waitFor();
+  await page.getByRole("button", { name: /^Model:/ }).waitFor();
   return message;
 }
 

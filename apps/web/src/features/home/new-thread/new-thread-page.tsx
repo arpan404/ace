@@ -5,7 +5,7 @@ import { Screen } from "@/features/shell/index.ts";
 import {
   Composer,
   PermissionPicker,
-  preloadComposerMenus,
+  preloadComposerParts,
   useDraftScope,
   usePermissionCapabilities,
   type Draft,
@@ -38,7 +38,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   const projectName = project === undefined ? undefined : name(project);
   const [baseChoice, setBase] = useState(props.base);
   const { create, sending, error } = useCreateThread();
-  useEffect(() => whenIdle(() => void preloadComposerMenus()), []);
+  useEffect(() => whenIdle(() => void preloadComposerParts()), []);
 
   const options = useNewThreadOptions();
   const resolved = resolve(options, choices);
