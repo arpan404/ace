@@ -145,7 +145,7 @@ test("with five tabs in the side panel, the showing tab stays whole inside the s
   await inside("Open file");
 });
 
-test("with the side panel open at its default width, the thread title keeps at least 280px", async ({
+test("with the side panel open at its default width, Run, Open and Commit stay as icons beside a readable title", async ({
   page,
 }) => {
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
@@ -155,14 +155,17 @@ test("with the side panel open at its default width, the thread title keeps at l
   // Beside a narrow column Run, Open and Commit drop their labels but stay one click away, and
   // the header keeps a single ⋯.
   const header = page.getByRole("banner");
-  await expect(header.getByRole("button", { name: "Commit", exact: true })).toBeVisible();
-  await expect(header.getByText("Commit", { exact: true })).not.toBeVisible();
+  const commit = header.getByRole("button", { name: "Commit", exact: true });
+  await expect(commit).toBeVisible();
+  // Its icon alone: a square 32px box, no room for the word.
+  expect((await commit.boundingBox())?.width).toBeLessThanOrEqual(32);
   await expect(header.getByRole("button", { name: "More actions" })).toHaveCount(1);
   const room = await title.evaluate((element) => ({
     shown: element.clientWidth,
     whole: element.scrollWidth,
   }));
-  expect(room.shown).toBeGreaterThanOrEqual(Math.min(280, room.whole));
+  // The actions now share the row, so the title keeps a readable 160px rather than 280.
+  expect(room.shown).toBeGreaterThanOrEqual(Math.min(160, room.whole));
   const box = await title.boundingBox();
-  expect(box && Math.round(box.width)).toBeGreaterThanOrEqual(Math.min(280, room.whole));
+  expect(box && Math.round(box.width)).toBeGreaterThanOrEqual(Math.min(160, room.whole));
 });
