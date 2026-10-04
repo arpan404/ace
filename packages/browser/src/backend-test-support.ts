@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { afterEach } from "vitest";
+import { installOriginGuard } from "./origin-guard.ts";
 import { BrowserBackendServerMessage, type BrowserControllerLease } from "@ace/protocol";
 import {
   BrowserService,
   type BrowserServiceOptions,
   type BrowserBackend,
   type BackendOpen,
+  type BrowserBackendSession,
 } from "./index.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -55,7 +57,7 @@ export class FakeHeadless implements BrowserBackend {
   readonly kind = "headless";
   readonly pages: FakePage[] = [];
   readonly opens: BackendOpen[] = [];
-  async open(request: BackendOpen) {
+  async open(request: BackendOpen): Promise<BrowserBackendSession> {
     const page = new FakePage();
     this.pages.push(page);
     this.opens.push(request);
@@ -83,6 +85,69 @@ export class FakeHeadless implements BrowserBackend {
         page.lease = lease;
       },
       close: async () => {},
+    };
+  }
+}
+/** Runs the real Fetch guard around a controlled document loader. */
+export class GuardedHeadless extends FakeHeadless {
+  private load: (url: string) => Promise<string | undefined>;
+  constructor(load: (url: string) => Promise<string | undefined>) {
+    super();
+    this.load = load;
+  }
+  override async open(request: BackendOpen) {
+    const session = await super.open(request);
+    const page = this.pages.at(-1);
+    if (!page) throw new Error("Missing page");
+    const waits = new Map<string, (allowed: boolean) => void>();
+    const cdp = {
+      ...session.cdp,
+      send: async (method: string, params?: Record<string, unknown>) => {
+        if (method === "Fetch.continueRequest" || method === "Fetch.failRequest")
+          waits.get(String(params?.["requestId"]))?.(method === "Fetch.continueRequest");
+        return session.cdp.send(method, params);
+      },
+    };
+    const guard = await installOriginGuard(cdp, request.allowed, request.initiator);
+    let sequence = 0;
+    return {
+      ...session,
+      cdp,
+      navigate: async (initial: string, _timeout: number, signal?: AbortSignal) => {
+        let url = initial;
+        let previous: string | undefined;
+        for (let count = 0; count < 16; count++) {
+          signal?.throwIfAborted();
+          const id = String(++sequence);
+          const approved = new Promise<boolean>((resolve) => {
+            waits.set(id, resolve);
+            page.events.emit("Fetch.requestPaused", {
+              requestId: id,
+              redirectedRequestId: previous,
+              resourceType: "Document",
+              frameId: "main",
+              request: { url },
+            });
+          });
+          const allowed = await approved;
+          waits.delete(id);
+          if (!allowed) throw new Error("net::ERR_BLOCKED_BY_CLIENT");
+          const redirect = await this.load(url);
+          if (!redirect) {
+            page.url = url;
+            request.navigation();
+            return;
+          }
+          previous = id;
+          url = redirect;
+        }
+        throw new Error("Too many redirects");
+      },
+      close: async () => {
+        guard.close();
+        for (const resolve of waits.values()) resolve(false);
+        await session.close();
+      },
     };
   }
 }
@@ -141,7 +206,16 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
     }
     const page = pages.get(message.sessionId);
     if (!page) throw new Error("Unknown desktop session");
-    if (op.kind === "cdp") result = page.command(op.method, op.params);
+    if (op.kind === "cdp") {
+      result = page.command(op.method, op.params);
+      if (op.method === "Page.navigate") {
+        page.url = redirectUrl ?? String(op.params?.["url"]);
+        result = { frameId: "main" };
+        sendEvent(message.sessionId, "Page.frameNavigated", {
+          frame: { id: "main", url: page.url },
+        });
+      }
+    }
     if (op.kind === "controller" && !controllerError) page.lease = op.lease;
     if (op.kind === "navigate") {
       page.url = redirectUrl ?? op.url;
@@ -186,6 +260,20 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
     },
     hold(method: string) {
       hold = method;
+    },
+    releaseHold() {
+      hold = undefined;
+    },
+    reply(request: import("@ace/protocol").BrowserBackendRequest, result: unknown) {
+      desktop.send(
+        JSON.stringify({
+          type: "browser.backend.response",
+          backendId: backend.id,
+          sessionId: request.sessionId,
+          id: request.id,
+          result,
+        }),
+      );
     },
     async disconnect() {
       const closed = once(connection, "close");

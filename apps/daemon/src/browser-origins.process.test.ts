@@ -31,7 +31,7 @@ it("a human lease owner opens an external site, records consent, and the grant s
   expect(restarted.store.acquireThread(threadId).interactions).toEqual({});
   restarted.store.releaseThread(threadId);
 });
-it("human link clicks and redirects grant only main documents; cross-origin resources work while the human drives", async () => {
+it("the backend policy grants human main documents and allows temporary cross-origin resources", async () => {
   const f = await originFixture();
   f.browser.takeover(f.thread.id, "owner");
   const backend = f.headless.opens[0];

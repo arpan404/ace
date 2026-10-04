@@ -19,7 +19,7 @@ export function browserToolkit(
             Object.fromEntries(Object.entries(command.shape).filter(([key]) => key !== "action")),
           ),
           capability: "browser",
-          timeoutMs: 35_000,
+          timeoutMs: action === "navigate" ? 100_000 : 35_000,
           async run(args, { caller, signal }) {
             signal.throwIfAborted();
             if (action === "screenshot") {

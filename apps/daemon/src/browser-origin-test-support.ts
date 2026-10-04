@@ -20,7 +20,12 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
-export async function originFixture(mode: PermissionMode = "ask", existingHome?: string) {
+export async function originFixture(
+  mode: PermissionMode = "ask",
+  existingHome?: string,
+  headless = new FakeHeadless(),
+  navigationClock?: import("@ace/browser").NavigationClock,
+) {
   const home = existingHome ?? (await mkdtemp(join(tmpdir(), "ace-origins-")));
   if (!existingHome) cleanup.push(() => rm(home, { recursive: true, force: true }));
   const store = new Store(join(home, "events.sqlite"));
@@ -35,7 +40,6 @@ export async function originFixture(mode: PermissionMode = "ask", existingHome?:
     sink: { async write() {}, async close() {} },
   });
   resources.own(() => log.close());
-  const headless = new FakeHeadless();
   let id = 0;
   const context: ServiceContext = {
     config: {
@@ -46,7 +50,13 @@ export async function originFixture(mode: PermissionMode = "ask", existingHome?:
       listen: "local",
       logLevel: "silent",
     },
-    options: { browser: { headlessBackend: headless, ffmpeg: "/nonexistent/ffmpeg" } },
+    options: {
+      browser: {
+        headlessBackend: headless,
+        ...(navigationClock ? { navigationClock } : {}),
+        ffmpeg: "/nonexistent/ffmpeg",
+      },
+    },
     store,
     now: () => 1000,
     id: () => `origin-${++id}`,

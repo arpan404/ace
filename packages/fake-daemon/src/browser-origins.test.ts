@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { Client } from "@ace/client";
+import { Client, BrowserOriginsClient } from "@ace/client";
 import { DeviceId, ThreadId, ThreadView } from "@ace/protocol";
 import { FakeDaemon, fakeTransport } from "./index.ts";
 
@@ -78,6 +78,24 @@ it("fake clients can open an external site with human consent, list and revoke i
         command: { action: "navigate", url: "file:///etc/passwd", timeout: 1000 },
       }),
     ).toMatchObject({ ok: false, blocked: { reason: "invalid_origin" } });
+  } finally {
+    await f.client.close();
+  }
+});
+it("the typed client grant API lists consent, grants exact origins, revokes and rejects invalid input", async () => {
+  const f = await fixture();
+  const origins = new BrowserOriginsClient(f.client);
+  try {
+    expect(await origins.list(f.threadId)).toEqual([]);
+    expect(await origins.grant(f.threadId, "https://youtube.com")).toEqual([
+      { origin: "https://youtube.com", grantedAt: 1000 },
+    ]);
+    expect(await origins.list(f.threadId)).toEqual([
+      { origin: "https://youtube.com", grantedAt: 1000 },
+    ]);
+    expect(await origins.revoke(f.threadId, "https://youtube.com")).toEqual([]);
+    expect(() => origins.grant(f.threadId, "https://user:password@youtube.com")).toThrow();
+    expect(await origins.list(f.threadId)).toEqual([]);
   } finally {
     await f.client.close();
   }

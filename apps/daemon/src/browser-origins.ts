@@ -3,7 +3,6 @@ import { reviewPermission } from "@ace/core";
 import {
   AgentId,
   BrowserOrigin,
-  BrowserOriginGrant,
   Interaction,
   InteractionId,
   ThreadId,
@@ -13,11 +12,13 @@ import {
 } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "./store.ts";
+import { BrowserOriginGrants } from "./browser-origin-grants.ts";
 
 const Pending = z.object({ thread_id: ThreadId, interaction_id: InteractionId });
 /** SQLite owns grants; page-only grants and approval waiters never survive a restart. */
 export class BrowserOrigins {
   private store: Store;
+  private grants: BrowserOriginGrants;
   private now: () => number;
   private id: () => string;
   private mode: (threadId: ThreadId) => Promise<PermissionMode>;
@@ -54,6 +55,7 @@ export class BrowserOrigins {
   }) {
     this.store = options.store;
     this.now = options.now;
+    this.grants = new BrowserOriginGrants(this.store, this.now);
     this.id = options.id;
     this.mode = options.mode;
     this.allowlist = options.allowlist;
@@ -68,10 +70,6 @@ export class BrowserOrigins {
     this.closeInteraction = options.closeInteraction;
     this.store.atomic((db) =>
       db.exec(`
-      CREATE TABLE IF NOT EXISTS browser_origin_grants (
-        thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE, origin TEXT NOT NULL, granted_at REAL NOT NULL,
-        PRIMARY KEY(thread_id,origin)
-      );
       CREATE TABLE IF NOT EXISTS browser_origin_pending (
         interaction_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE
       );
@@ -93,58 +91,14 @@ export class BrowserOrigins {
       this.expire(row.thread_id, row.interaction_id);
     }
   }
-  list(threadId: string): BrowserOriginGrant[] {
-    return this.store
-      .atomic((db) =>
-        db
-          .prepare(
-            "SELECT origin,granted_at AS grantedAt FROM browser_origin_grants WHERE thread_id=? ORDER BY origin",
-          )
-          .all(ThreadId.parse(threadId)),
-      )
-      .map((row) => BrowserOriginGrant.parse(row));
+  list(threadId: string) {
+    return this.grants.list(threadId);
   }
-  grant(threadId: string, raw: string): void {
-    const id = ThreadId.parse(threadId),
-      origin = BrowserOrigin.parse(raw);
-    const thread = this.store.getThread(id);
-    if (!thread || thread.deletedAt !== undefined) throw new Error("Browser thread unavailable");
-    this.store.atomic((db) => {
-      if (
-        db
-          .prepare("SELECT 1 FROM browser_origin_grants WHERE thread_id=? AND origin=?")
-          .get(id, origin)
-      )
-        return;
-      const count = z.object({ count: z.number() });
-      if (
-        count.parse(
-          db
-            .prepare("SELECT count(*) AS count FROM browser_origin_grants WHERE thread_id=?")
-            .get(id),
-        ).count >= 256 ||
-        count.parse(db.prepare("SELECT count(*) AS count FROM browser_origin_grants").get())
-          .count >= 16_384
-      )
-        throw new Error("Browser origin grant limit; revoke an origin first");
-      db.prepare("INSERT INTO browser_origin_grants VALUES (?,?,?)").run(id, origin, this.now());
-    });
-  }
-  private has(threadId: ThreadId, origin: string): boolean {
-    return (
-      this.store.atomic((db) =>
-        db
-          .prepare("SELECT 1 FROM browser_origin_grants WHERE thread_id=? AND origin=?")
-          .get(threadId, origin),
-      ) !== undefined
-    );
+  grant(threadId: string, origin: string): void {
+    this.grants.grant(threadId, origin);
   }
   revoke(threadId: string, origin: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare("DELETE FROM browser_origin_grants WHERE thread_id=? AND origin=?")
-        .run(ThreadId.parse(threadId), BrowserOrigin.parse(origin)),
-    );
+    this.grants.revoke(threadId, origin);
     this.once.get(threadId)?.delete(origin);
   }
   clearPage(threadId: string): void {
@@ -174,7 +128,7 @@ export class BrowserOrigins {
       );
     const granted =
       this.once.get(threadId)?.has(origin) === true ||
-      this.has(threadId, origin) ||
+      this.grants.has(threadId, origin) ||
       (await this.allowlist()).includes(origin);
     request.signal?.throwIfAborted();
     if (this.closing) throw new Error("Browser origin policy is shutting down");

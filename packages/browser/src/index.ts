@@ -12,6 +12,7 @@ export {
   type OriginRequest,
 } from "./policy.ts";
 export type { Actor } from "./session.ts";
+export type { NavigationClock } from "./navigation.ts";
 
 export type { ContextLauncher, ProcessSpawner } from "./io.ts";
 

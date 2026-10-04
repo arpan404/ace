@@ -93,7 +93,11 @@ export class HeadlessBackend implements BrowserBackend {
         void download.cancel().catch(() => {});
       });
       const cdp = await context.newCDPSession(page);
-      guard = await installOriginGuard(cdp, request.allowed);
+      const stopLoading = () => {
+        void cdp.send("Page.stopLoading").catch(() => {});
+      };
+      await cdp.send("Page.enable");
+      guard = await installOriginGuard(cdp, request.allowed, request.initiator);
       context.once("close", () => {
         guard?.close();
         if (!closed) request.lost("Headless browser closed");
@@ -101,23 +105,8 @@ export class HeadlessBackend implements BrowserBackend {
       page.once("close", () => {
         if (!closed) request.lost("Browser page closed");
       });
-      await context.route("**/*", async (route) => {
-        try {
-          await guard?.ready();
-          if (
-            route.request().frame().page() === page &&
-            (await request.allowed(route.request().url(), {
-              navigation:
-                route.request().isNavigationRequest() &&
-                route.request().frame() === page.mainFrame(),
-            }))
-          )
-            await route.continue();
-          else await route.abort("blockedbyclient");
-        } catch {
-          await route.abort("blockedbyclient").catch(() => {});
-        }
-      });
+      // Fetch is the single HTTP policy owner for the page and attached targets.
+      // A second Playwright route would independently intercept the same request.
       page.on("framenavigated", (frame) => {
         if (frame === page.mainFrame()) request.navigation();
       });
@@ -144,8 +133,15 @@ export class HeadlessBackend implements BrowserBackend {
       return {
         cdp: cancellableCdp(cdp, sessionSignal),
         url: () => page.url(),
-        navigate: async (url, timeout) => {
-          await page.goto(url, { waitUntil: "domcontentloaded", timeout });
+        navigate: async (url, _timeout, signal) => {
+          signal?.addEventListener("abort", stopLoading, { once: true });
+          try {
+            signal?.throwIfAborted();
+            // The session's load budget pauses during policy waits.
+            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 0 });
+          } finally {
+            signal?.removeEventListener("abort", stopLoading);
+          }
         },
         click: (x, y) => page.mouse.click(x, y),
         insertText: (text) => page.keyboard.insertText(text),

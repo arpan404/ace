@@ -52,6 +52,7 @@ export class BrowserService {
     };
   }
   private policyScopes = new Map<string, AbortController>();
+  private navigationClock: import("./navigation.ts").NavigationClock;
   constructor(options: BrowserServiceOptions) {
     this.options = options;
     this.subscriptions = new BrowserSubscriptions(64 * (options.maxSessions ?? 8), (error) =>
@@ -59,6 +60,13 @@ export class BrowserService {
     );
     this.now = options.now ?? Date.now;
     this.id = options.id ?? randomUUID;
+    this.navigationClock = options.navigationClock ?? {
+      now: () => performance.now(),
+      set: (delay, work) => {
+        const timer = setTimeout(work, delay);
+        return () => clearTimeout(timer);
+      },
+    };
     this.headless =
       options.headlessBackend ??
       new HeadlessBackend(
@@ -147,7 +155,14 @@ export class BrowserService {
     };
     try {
       await mkdir(profile, { recursive: true, mode: 0o700 });
-      const allowed = async (url: string, originContext: { navigation?: boolean } = {}) => {
+      const allowed = async (
+        url: string,
+        originContext: { navigation?: boolean; human?: boolean } = {},
+      ) => {
+        const task = session?.navigationTask;
+        const policySignal = task ? AbortSignal.any([signal, task.signal]) : signal;
+        const resume = originContext.navigation ? task?.pause() : undefined;
+        if (task && originContext.navigation) task.policyOrigin = browserOrigin(url);
         try {
           const result = await allowedOrigin(
             options.threadId,
@@ -155,27 +170,35 @@ export class BrowserService {
             this.options.originPolicy
               ? (originRequest) =>
                   this.policyGate.run(
-                    signal,
-                    () => this.options.originPolicy?.({ ...originRequest, signal }) ?? false,
+                    policySignal,
+                    () =>
+                      this.options.originPolicy?.({ ...originRequest, signal: policySignal }) ??
+                      false,
                     this.options.origins ? 65_000 : 10_000,
                   )
               : undefined,
             {
               ...originContext,
               manageLoopback: this.options.origins !== undefined,
-              human: session?.state.controller === "human",
+              human: originContext.human ?? session?.initiatingHuman() ?? false,
             },
           );
           if (!result && originContext.navigation)
-            session?.blockedNavigation({
-              origin: browserOrigin(url) ?? url.slice(0, 8192),
-              reason: "approval_required",
-            });
+            session?.blockedNavigation(
+              {
+                origin: browserOrigin(url) ?? url.slice(0, 8192),
+                reason: browserOrigin(url) ? "approval_required" : "invalid_origin",
+              },
+              task,
+            );
           return result;
         } catch (error) {
           if (originContext.navigation && error instanceof BrowserOriginError)
-            session?.blockedNavigation(error.blocked);
+            session?.blockedNavigation(error.blocked, task);
           throw error;
+        } finally {
+          if (task && originContext.navigation) task.policyOrigin = undefined;
+          resume?.();
         }
       };
       const request: BackendOpen = {
@@ -183,6 +206,7 @@ export class BrowserService {
         profileDir: profile,
         signal,
         allowed,
+        initiator: () => session?.initiatingHuman() ?? false,
         navigation: () => session?.navigation(),
         log: (entry) => session?.log(entry),
         permissionDenied: (denial) =>
@@ -256,6 +280,7 @@ export class BrowserService {
         dir,
         now: this.now,
         id: this.id,
+        navigationClock: this.navigationClock,
         navigatePolicy: (url, actor, commandSignal) => {
           this.options.onNavigation?.(options.threadId);
           const navigationSignal = commandSignal
@@ -314,9 +339,14 @@ export class BrowserService {
   registerEmbedded(transport: EmbeddedTransport): EmbeddedBackend {
     if (this.closing) throw new Error("Browser service shutting down");
     if (this.embedded) throw new Error("Desktop browser backend already registered");
-    const backend = new EmbeddedBackend(this.id(), transport, () => {
-      if (this.embedded === backend) this.embedded = undefined;
-    });
+    const backend = new EmbeddedBackend(
+      this.id(),
+      transport,
+      () => {
+        if (this.embedded === backend) this.embedded = undefined;
+      },
+      this.navigationClock,
+    );
     this.embedded = backend;
     return backend;
   }

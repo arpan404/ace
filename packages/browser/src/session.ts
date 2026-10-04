@@ -18,6 +18,7 @@ import { Recording } from "./recording.ts";
 import { evaluatePage } from "./evaluation.ts";
 import { keyEvent } from "./keyboard.ts";
 import type { ProcessSpawner } from "./io.ts";
+import { NavigationTask, type NavigationClock } from "./navigation.ts";
 
 export type Actor = { kind: "agent" } | { kind: "human"; connectionId: string };
 export interface SessionOptions {
@@ -27,6 +28,7 @@ export interface SessionOptions {
   dir: string;
   now: () => number;
   id: () => string;
+  navigationClock: NavigationClock;
   ffmpeg?: string;
   spawn?: ProcessSpawner;
   cancelPolicy: () => void;
@@ -65,7 +67,17 @@ export class BrowserSession {
   private recording: Recording | undefined;
   private paused = false;
   private blocked: BrowserOriginBlock | undefined;
-  blockedNavigation(blocked: BrowserOriginBlock): void {
+  private activeNavigation: NavigationTask | undefined;
+  get navigationTask(): NavigationTask | undefined {
+    return this.activeNavigation;
+  }
+  initiatingHuman(): boolean {
+    return this.activeNavigation?.human ?? this.controller === "human";
+  }
+  blockedNavigation(blocked: BrowserOriginBlock, navigation?: NavigationTask): void {
+    // A cancelled policy may settle after the next queued navigation starts.
+    if (navigation && navigation !== this.activeNavigation) return;
+    if (navigation) navigation.blocked = blocked;
     this.blocked = blocked;
     this.emit();
   }
@@ -247,22 +259,61 @@ export class BrowserSession {
     const { backend: page, dir, id, evaluatePolicy, threadId } = this.options;
     const cdp = page.cdp;
     switch (command.action) {
-      case "navigate":
+      case "navigate": {
         if (!/^https?:\/\//i.test(command.url) || !browserOrigin(command.url))
           throw new BrowserOriginError(
             command.url,
             "invalid_origin",
             "Browser navigation requires an HTTP(S) URL without credentials",
           );
-        if (!(await this.options.navigatePolicy(command.url, actor, signal)))
-          throw new BrowserOriginError(
-            browserOrigin(command.url) ?? command.url,
-            browserOrigin(command.url) ? "approval_required" : "invalid_origin",
-            "Browser origin requires approval",
-          );
-        this.check(actor, signal);
-        await page.navigate(command.url, command.timeout);
-        return this.state;
+        const task = new NavigationTask(
+          actor.kind === "human",
+          command.timeout,
+          this.options.navigationClock,
+          signal,
+        );
+        this.activeNavigation = task;
+        this.blocked = undefined;
+        try {
+          const resume = task.pause();
+          let allowed: boolean;
+          try {
+            allowed = await task.run(() =>
+              this.options.navigatePolicy(command.url, actor, task.signal),
+            );
+          } finally {
+            resume();
+          }
+          if (!allowed)
+            throw new BrowserOriginError(
+              browserOrigin(command.url) ?? command.url,
+              browserOrigin(command.url) ? "approval_required" : "invalid_origin",
+              "Browser origin requires approval",
+            );
+          this.check(actor, task.signal);
+          await task.run(() => page.navigate(command.url, command.timeout + 65_000, task.signal));
+          return this.state;
+        } catch (error) {
+          if (task.blocked)
+            throw new BrowserOriginError(
+              task.blocked.origin,
+              task.blocked.reason,
+              error instanceof Error ? error.message : "Browser navigation blocked",
+            );
+          if (task.deadlineExpired)
+            throw new BrowserOriginError(
+              task.expiredOrigin ?? browserOrigin(command.url) ?? command.url,
+              "timeout",
+              error instanceof Error ? error.message : "Browser navigation timed out",
+            );
+          throw error;
+        } finally {
+          // Only this page is stopped; sibling sessions share no cancellation.
+          if (task.signal.aborted) void page.cdp.send("Page.stopLoading").catch(() => {});
+          task.close();
+          if (this.activeNavigation === task) this.activeNavigation = undefined;
+        }
+      }
       case "snapshot":
         return this.refs.snapshot();
       case "click": {

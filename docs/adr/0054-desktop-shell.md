@@ -94,7 +94,12 @@ schemes are refused. Origins include scheme and port. A WebSocket origin maps
 Human navigation is consent. An authorized connection must first own the human
 controller lease. Address-bar navigation, main-frame link navigation and
 main-frame redirects grant each destination origin for that thread without a
-prompt. Taking control alone does not grant the current URL. While the human
+prompt. Each main-document request chain retains its initiating actor across
+redirects. An explicit agent navigation keeps that actor until it settles; taking
+control while its response is pending does not turn its redirect into human
+consent. The Fetch guard bounds remembered request identities to 256 and treats
+an unknown redirect predecessor as agent work. Taking control alone does not grant
+the current URL. While the human
 lease is active, cross-origin subresources, frames, workers and WebSockets may
 load, but they do not create persistent grants. After handback, future requests
 use the agent policy. No iframe or worker can grant its origin merely by loading
@@ -118,13 +123,25 @@ navigation or closing the page discards it. Allow for this thread stores an exac
 origin grant in daemon SQLite. These are browser grants, not native provider
 session permissions. The engine's host interactions keep the agent tree waiting
 on a human and store the review audit. Approvals expire after 60 seconds. Explicit navigation approvals cancel
-with the command abort signal; intercepted navigation approvals cancel when
-the browser closes. Pending approvals expire after daemon restart;
+with the command abort signal, navigation timeout or browser closure. The
+navigation's ordinary load budget pauses during main-document policy waits.
+An additional 65-second total reserve bounds approval time across a redirect
+chain; the full command deadline is the requested load timeout plus that reserve.
+Headless loading has no competing Playwright timer. Embedded loading uses CDP
+Page.navigate and lifecycle events under the daemon deadline, bypassing the native
+view's separate navigation timer. The relay allows 95 seconds for Page.navigate;
+MCP allows 100 seconds for navigation, enclosing the maximum 30-second load budget
+and 65-second reserve. Cancellation stops only that page, removes its navigation
+relay waiter and expires its approval. A timed-out relay command loses only the
+owning session, with no replay or sibling transport disconnect. Intercepted
+navigation without an explicit command cancels when the browser closes. Pending approvals expire after daemon restart;
 no navigation replays on restart. Late answers are rejected.
 
 SQLite holds at most 256 grants per thread and 16,384 in total. Reaching a limit
 refuses another grant until one is revoked. Thread deletion cascades to its
-grants. `browser.allowedOrigins` is a global-only user setting with at most 256
+grants. Transactional insert/delete triggers maintain a global and per-thread
+counter, including cascading deletes. Grant admission uses indexed point lookups;
+only the initial counter migration scans existing grants. `browser.allowedOrigins` is a global-only user setting with at most 256
 exact HTTP(S) origins and an empty default. A workspace file cannot opt its sites
 into the user's global allowlist. Thread grants survive daemon restart; page-only
 allowances do not.
@@ -132,7 +149,9 @@ allowances do not.
 `browser.origins.list`, `.grant` and `.revoke` require browser operate scope and
 access to the requested thread, even when its browser is closed. Responses use
 `browser.result`; list and mutations return the resulting grant list. A failed
-navigation includes `blocked: {origin, reason}` alongside the error string. A
+navigation includes `blocked: {origin, reason}` alongside the error string.
+An intercepted block belongs to the active navigation task, so backend load
+errors caused by a redirect refusal retain the same typed reason in the result. A
 native intercepted navigation publishes the same block in `browser.state`.
 Reasons distinguish approval-required, denial, read-only, timeout and invalid
 origin. An authorized grant action works without taking the controller lease.
@@ -149,7 +168,8 @@ downloads remain denied as before.
 
 The UI follow-up needs an Allow button on a blocked page, the three browser
 approval choices on the interaction card, and a grant list with revoke actions
-in the Browser tab menu. The fake daemon implements the grant wire messages,
+in the Browser tab menu. `@ace/client` exposes BrowserOriginsClient.list/grant/revoke,
+which validate inputs and returned grant lists. The fake daemon implements the grant wire messages,
 human lease checks and scripted agent approval flow for that work.
 
 ## Consequences

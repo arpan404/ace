@@ -28,6 +28,7 @@ export interface BrowserServiceOptions {
   onArtifact?: (threadId: string, artifact: BrowserArtifact) => void | Promise<void>;
   onError?: (error: unknown) => void;
   now?: () => number;
+  navigationClock?: import("./navigation.ts").NavigationClock;
   id?: () => string;
   maxSessions?: number;
   launchContext?: ContextLauncher;
