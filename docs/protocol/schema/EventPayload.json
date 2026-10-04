@@ -359,6 +359,9 @@
     },
     {
       "properties": {
+        "autoReviewed": {
+          "type": "boolean"
+        },
         "closedAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
