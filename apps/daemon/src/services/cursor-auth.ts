@@ -1,6 +1,5 @@
 import { CursorAuthService, cursorSdkLoginDriver, createInstance } from "@ace/accounts";
-import { defaultCursorInstance } from "@ace/adapter-cursor";
-import { homedir } from "node:os";
+import { daemonCursorInstance } from "./cursor-instance.ts";
 import { CursorAuthRequest } from "@ace/protocol";
 import { join } from "node:path";
 import { cursorHosts } from "./cursor-hosts.ts";
@@ -12,7 +11,7 @@ export function startCursorAuth(context: ServiceContext): void {
   const registry = services.accountRegistry;
   const binding = services.cursorAccounts;
   if (!registry || !binding) return;
-  const defaultInstance = options.engine?.cursor?.instance ?? defaultCursorInstance(homedir());
+  const defaultInstance = daemonCursorInstance(context);
   const auth = new CursorAuthService({
     registry,
     now,

@@ -21,6 +21,13 @@ absence permits ACP fallback. The host requires Node 24+, macOS/Linux arm64/x64;
 Windows is explicitly unsupported pending verified home resolution and process
 ownership.
 
+The daemon's default instance is `<ACE_HOME>/instances/cursor-sdk-default`.
+Set `ACE_CURSOR_SDK_HOME` to an absolute isolated instance root, or pass
+`DaemonOptions.engine.cursor.instance` for an explicit host binding. The environment
+override changes the default only; registered accounts keep their selected homes.
+It does not copy or read credentials. The SDK uses the root's `user` subdirectory,
+so a fixture account can use its own `<root>/user/.cursor/sdk` store.
+
 Bind an adapter to `{ id, homeDir }`. Hosts receive HOME/USERPROFILE
 `<homeDir>/user` before SDK import. The SDK default auth store is therefore
 `<homeDir>/user/.cursor/sdk/auth.json`. SDK imports and their five-second credential
