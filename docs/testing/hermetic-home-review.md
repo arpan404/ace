@@ -1,6 +1,7 @@
 # Hermetic home review follow-up
 
-PR #103 merges `origin/main` with merge commit `9e8fb08f`. This follow-up uses static
+PR #103 merges `origin/main` with commits `9e8fb08f` and `830b8b96`, including PR #102's
+desktop integration without edits to its files. This follow-up uses static
 review only. The owner's newest rule prohibits tests, probes, mutation runs,
 benchmarks, `bun run check` and CI execution or waiting. Behaviour tests were
 written before the blocking fixes, but their red/green results **need run at merge**.
@@ -100,7 +101,7 @@ at merge**. No performance measurements or mutation kill rates are claimed here.
 ## Validation
 
 `bun run fmt`, `bun run lint`, `bun run typecheck`, `bun run check:size`,
-`bun run check:deps` and `bun run docs:protocol --check` passed. All 3,456 tracked
+`bun run check:deps` and `bun run docs:protocol --check` passed. All 3,459 tracked
 source files satisfy the 1,500-line limit. Root typecheck includes the new
 setup/config and rehearsal sources. Dependency-cruiser reports its existing
 TypeScript 7 support warning; its dependency check exits successfully.
