@@ -1,5 +1,7 @@
 import {
+  ArrowSquareOutIcon,
   ArrowUpRightIcon,
+  DevicesIcon,
   DotsThreeIcon,
   FileTextIcon,
   GlobeIcon,
@@ -8,6 +10,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -21,6 +24,7 @@ import {
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { AddressBar } from "../browser/address-bar.tsx";
+import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
 import { useTurns } from "@/lib/diffs/use-turns.ts";
 import type { PreviewSource } from "../sources.ts";
 import { useLoadedServices, usePanelServices } from "../services.ts";
@@ -70,11 +74,7 @@ export function LauncherTab(props: TabViewProps) {
   };
   return (
     <div className="@container flex h-full flex-col">
-      {kindFor("fromUrl") && (
-        <div className="flex h-10 shrink-0 items-center border-b px-2">
-          <LauncherAddress threadId={props.scope} onGo={openUrl} />
-        </div>
-      )}
+      {kindFor("fromUrl") && <LauncherAddress threadId={props.scope} onGo={openUrl} />}
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex w-full max-w-[640px] flex-col px-6 pt-10 pb-12">
           <h2 className={heading}>Tools</h2>
@@ -139,20 +139,59 @@ export function LauncherTab(props: TabViewProps) {
   );
 }
 
+/** Why a new tab's page controls are off: there is no page yet. */
+const noPage = "open a page first";
+
 /**
- * The new tab's address bar: an address opens the Browser in this tab's place. It suggests the
+ * The new tab's toolbar: the browser page's own, shape for shape, so it doesn't move when the
+ * tab becomes a page. An address opens the Browser in this tab's place; it suggests the
  * thread's dev servers once the panel services have loaded.
  */
 function LauncherAddress(props: { threadId: string; onGo(url: string): void }) {
   const services = useLoadedServices();
   const bar = (known: readonly UrlSuggestion[]) => (
-    <AddressBar
-      className="mx-auto w-full max-w-[768px] flex-1"
-      url={undefined}
-      known={known.map((each) => ({ url: each.url, label: each.label, detail: each.detail }))}
-      loading={false}
-      autoFocus
-      onGo={props.onGo}
+    <PageToolbar
+      nav={
+        <PageNav
+          back={{ reason: noPage }}
+          forward={{ reason: noPage }}
+          reload={{ reason: noPage }}
+        />
+      }
+      address={
+        <AddressBar
+          url={undefined}
+          known={known.map((each) => ({ url: each.url, label: each.label, detail: each.detail }))}
+          loading={false}
+          autoFocus
+          onGo={props.onGo}
+        />
+      }
+      actions={
+        <>
+          <IconButton
+            icon={DevicesIcon}
+            label={`Page size · ${noPage}`}
+            disabled
+            focusableWhenDisabled
+            className={toolbarButton}
+          />
+          <IconButton
+            icon={ArrowSquareOutIcon}
+            label={`Open in your browser · ${noPage}`}
+            disabled
+            focusableWhenDisabled
+            className={toolbarButton}
+          />
+          <IconButton
+            icon={DotsThreeIcon}
+            label={`Browser options · ${noPage}`}
+            disabled
+            focusableWhenDisabled
+            className={toolbarButton}
+          />
+        </>
+      }
     />
   );
   if (!services) return bar([]);

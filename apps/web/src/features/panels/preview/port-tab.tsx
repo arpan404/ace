@@ -1,15 +1,13 @@
-import {
-  ArrowClockwiseIcon,
-  ArrowUpRightIcon,
-  BrowserIcon,
-  StopCircleIcon,
-} from "@phosphor-icons/react";
+import { BrowserIcon, StopIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
-import { cn } from "@/lib/cn.ts";
+import { AddressBar } from "../browser/address-bar.tsx";
+import { setLoading } from "../browser/loading.ts";
+import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
+import { DevServerFrame, noHistory, OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
 import { usePanelServices } from "../services.ts";
 import type { PreviewSource } from "../sources.ts";
 import { portLabel } from "./port.ts";
@@ -44,15 +42,20 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
   const { preview } = usePanelServices();
   const { server, canForward } = usePortServer(preview, props.threadId, props.port);
   const actions = useWorkspaceActions(props.threadId);
-  const [reloads, setReloads] = useState(0);
-  const [loaded, setLoaded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<"forward" | "stop">();
   const [error, setError] = useState<string>();
   const url = server?.origin ?? `http://localhost:${props.port}`;
   const title = server ? portLabel(server) : undefined;
+  const [phase, setPhase] = useState<FramePhase>("loading");
+  const loading = !!server && phase === "loading";
   useEffect(() => {
     if (title) actions.update(props.tabKey, { title });
   }, [title, props.tabKey, actions]);
+  useEffect(() => {
+    setLoading(props.threadId, props.tabKey, loading);
+    return () => setLoading(props.threadId, props.tabKey, false);
+  }, [props.threadId, props.tabKey, loading]);
   const run = (kind: "forward" | "stop", work: () => Promise<void>, failure: string) => {
     setBusy(kind);
     setError(undefined);
@@ -66,75 +69,52 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
   };
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="relative flex h-10 shrink-0 items-center gap-1 border-b px-1.5">
-        <IconButton
-          icon={ArrowClockwiseIcon}
-          label="Reload"
-          className="size-7"
-          disabled={!server}
-          onClick={() => {
-            setLoaded(false);
-            setReloads((count) => count + 1);
-          }}
-        />
-        <input
-          aria-label="Address"
-          readOnly
-          value={url}
-          onFocus={(event) => event.currentTarget.select()}
-          className="mx-1 h-7 min-w-0 flex-1 rounded-full bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] px-3 font-mono text-[12px] text-muted-foreground outline-none focus-visible:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
-        />
-        <IconButton
-          icon={ArrowUpRightIcon}
-          label="Open in browser"
-          className="size-7"
-          nativeButton={false}
-          render={<a href={url} target="_blank" rel="noreferrer" />}
-        />
-        {server?.source === "listener" && (
-          <IconButton
-            icon={StopCircleIcon}
-            label="Stop previewing this port"
-            className="size-7"
-            disabled={busy === "stop"}
-            onClick={() =>
-              run(
-                "stop",
-                () => preview.unforward(props.threadId, props.port),
-                `Couldn't stop previewing port ${props.port}.`,
-              )
-            }
+      <PageToolbar
+        nav={
+          <PageNav
+            back={{ reason: noHistory }}
+            forward={{ reason: noHistory }}
+            reload={{
+              onClick: server ? () => setAttempt((count) => count + 1) : undefined,
+              reason: server ? undefined : "the dev server isn't previewed",
+            }}
           />
-        )}
-        {server && !loaded && (
-          <span
-            role="progressbar"
-            aria-label={`Loading ${url}`}
-            className="absolute inset-x-0 -bottom-px h-0.5 overflow-hidden"
-          >
-            <span className="fx-indeterminate absolute inset-y-0 w-1/3 bg-foreground/50" />
-          </span>
-        )}
-      </div>
+        }
+        address={<AddressBar url={url} loading={loading} readOnly />}
+        actions={
+          <>
+            {server?.source === "listener" && (
+              <IconButton
+                icon={StopIcon}
+                label="Stop previewing this port"
+                className={toolbarButton}
+                disabled={busy === "stop"}
+                onClick={() =>
+                  run(
+                    "stop",
+                    () => preview.unforward(props.threadId, props.port),
+                    `Couldn't stop previewing port ${props.port}.`,
+                  )
+                }
+              />
+            )}
+            <OpenOutside url={url} />
+          </>
+        }
+        progress={loading ? `Loading ${url}` : undefined}
+      />
       {error && (
         <p role="alert" className="border-b px-3 py-1.5 text-xs text-status-failed">
           {error}
         </p>
       )}
       {server ? (
-        <div className="relative min-h-0 flex-1 bg-background">
-          <iframe
-            key={reloads}
-            title={`Preview of ${url}`}
-            src={url}
-            onLoad={() => setLoaded(true)}
-            // The page is the user's own dev server on another origin, so the browser already
-            // isolates it; it needs scripts and its own storage to work.
-            // oxlint-disable-next-line react/iframe-missing-sandbox
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-            className={cn("absolute inset-0 size-full border-0", !loaded && "opacity-60")}
-          />
-        </div>
+        <DevServerFrame
+          url={url}
+          attempt={attempt}
+          onPhase={setPhase}
+          onRetry={() => setAttempt((count) => count + 1)}
+        />
       ) : (
         <EmptyState
           icon={BrowserIcon}

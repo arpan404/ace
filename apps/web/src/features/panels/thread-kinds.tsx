@@ -110,6 +110,7 @@ export const previewKind = defineTabKind({
   icon: BrowserIcon,
   singleton: true,
   launcher: 50,
+  Badge: LoadingBadge,
   load: () => views().then((m) => ({ default: m.PreviewView })),
 });
 
@@ -128,6 +129,7 @@ export const portKind = defineTabKind({
   kind: "port",
   label: "Preview",
   icon: BrowserIcon,
+  Badge: LoadingBadge,
   load: () => import("./preview/port-tab.tsx").then((m) => ({ default: m.PortTab })),
 });
 

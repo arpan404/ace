@@ -19,18 +19,21 @@ const reasons = {
 /**
  * The browser's address: shows the page at rest, edits in place, suggests addresses this thread
  * runs or visited as you type, and opens what you enter. Never searches the web for text that
- * isn't an address; it says so instead. Escape puts the page's address back.
+ * isn't an address; it says so instead. Escape puts the page's address back. `readOnly` is a
+ * preview's: the dev server's address, selectable to copy, in the same capsule.
  */
 export function AddressBar(props: {
   url: string | undefined;
-  known: readonly AddressSuggestion[];
+  known?: readonly AddressSuggestion[];
   loading: boolean;
+  readOnly?: boolean;
   /** Why the address can't be changed right now, if it can't. */
   disabled?: string | undefined;
   /** Shown as the field's description (typing an address takes control from an agent). */
   hint?: string | undefined;
   autoFocus?: boolean;
-  onGo(url: string): void;
+  /** Opens what was entered; a read-only address has none. */
+  onGo?: (url: string) => void;
   className?: string;
 }) {
   const shown = displayAddress(props.url ?? "");
@@ -42,7 +45,7 @@ export function AddressBar(props: {
   const errorId = useId();
   const editing = draft !== undefined;
   const text = draft ?? shown;
-  const suggestions = editing ? suggestAddresses(draft, props.known) : [];
+  const suggestions = editing ? suggestAddresses(draft, props.known ?? []) : [];
   const open = editing && suggestions.length > 0;
   const field = useRef<HTMLInputElement>(null);
   const go = (url: string) => {
@@ -50,7 +53,7 @@ export function AddressBar(props: {
     setActive(-1);
     setError(undefined);
     field.current?.blur();
-    props.onGo(url);
+    props.onGo?.(url);
   };
   const submit = () => {
     const picked = suggestions[active];
@@ -65,7 +68,8 @@ export function AddressBar(props: {
         className={cn(
           "flex h-8 min-w-0 items-center gap-2 rounded-full px-3 transition-[background-color,box-shadow] duration-(--dur-1)",
           "bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] hover:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
-          "focus-within:bg-[color-mix(in_oklab,var(--foreground)_9%,transparent)] focus-within:shadow-[0_0_0_1.5px_color-mix(in_oklab,var(--ring)_60%,transparent)]",
+          // Focus lightens the capsule; a keyboard focus adds a neutral edge, never the accent.
+          "focus-within:bg-[color-mix(in_oklab,var(--foreground)_9%,transparent)] has-[:focus-visible]:shadow-[0_0_0_1px_color-mix(in_oklab,var(--foreground)_22%,transparent)]",
           error && "shadow-[0_0_0_1px_var(--destructive)]",
         )}
       >
@@ -76,17 +80,21 @@ export function AddressBar(props: {
         )}
         <input
           ref={field}
-          role="combobox"
+          {...(props.readOnly
+            ? {}
+            : {
+                role: "combobox",
+                "aria-expanded": open,
+                "aria-controls": listId,
+                "aria-autocomplete": "list" as const,
+                "aria-activedescendant": active >= 0 ? `${listId}-${active}` : undefined,
+              })}
           aria-label="Address"
-          aria-expanded={open}
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : props.hint || props.disabled ? hintId : undefined}
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- a new browser tab starts at its address.
           autoFocus={props.autoFocus}
-          readOnly={props.disabled !== undefined}
+          readOnly={props.readOnly || props.disabled !== undefined}
           placeholder="Enter an address"
           value={text}
           spellCheck={false}
@@ -99,11 +107,13 @@ export function AddressBar(props: {
             setError(undefined);
           }}
           onChange={(event) => {
+            if (props.readOnly) return;
             setDraft(event.target.value);
             setActive(-1);
             setError(undefined);
           }}
           onKeyDown={(event) => {
+            if (props.readOnly) return;
             if (event.key === "Enter") submit();
             else if (event.key === "Escape" && (editing || error)) {
               setDraft(undefined);

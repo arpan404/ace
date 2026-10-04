@@ -39,5 +39,12 @@ export function ChangesView(props: TabViewProps) {
     </WithServices>
   );
 }
-export const PreviewView = adapt(PreviewTab);
+/** Preview, reporting its loading to its own tab's strip spinner. */
+export function PreviewView(props: TabViewProps) {
+  return (
+    <WithServices>
+      <PreviewTab threadId={props.scope} tabKey={props.tab.key} />
+    </WithServices>
+  );
+}
 export const AgentsView = adapt(AgentsTab, false);

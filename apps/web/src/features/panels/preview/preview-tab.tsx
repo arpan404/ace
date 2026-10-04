@@ -1,12 +1,5 @@
-import {
-  ArrowClockwiseIcon,
-  ArrowSquareOutIcon,
-  BrowserIcon,
-  BrowsersIcon,
-  StopIcon,
-} from "@phosphor-icons/react";
+import { BrowserIcon, BrowsersIcon, StopIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { openExternal } from "@/boot/open-external.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -15,6 +8,10 @@ import { Select } from "@/components/ui/select.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import type { PreviewServer, PreviewSource } from "../sources.ts";
+import { AddressBar } from "../browser/address-bar.tsx";
+import { setLoading } from "../browser/loading.ts";
+import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
+import { DevServerFrame, noHistory, OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
 import { portTab } from "./port.ts";
 
 function useServers(source: PreviewSource, threadId: string) {
@@ -36,11 +33,18 @@ function useServers(source: PreviewSource, threadId: string) {
  * on the panel. The browser an agent drives (with its address bar and control lease) is the
  * Browser tool; Preview binds to a port.
  */
-export function PreviewTab(props: { threadId: string }) {
+export function PreviewTab(props: { threadId: string; tabKey: string }) {
   const { preview } = usePanelServices();
   const { servers, canForward } = useServers(preview, props.threadId);
   if (servers.length)
-    return <DevServer source={preview} threadId={props.threadId} servers={servers} />;
+    return (
+      <DevServer
+        source={preview}
+        threadId={props.threadId}
+        tabKey={props.tabKey}
+        servers={servers}
+      />
+    );
   return <NoPreview source={preview} threadId={props.threadId} canForward={canForward} />;
 }
 
@@ -119,79 +123,80 @@ function PortForm(props: { source: PreviewSource; threadId: string }) {
 const label = (server: PreviewServer) =>
   server.name ? `${server.name} · :${server.port}` : `:${server.port}`;
 
-/** One dev server, with its address, Reload, Stop preview and Open in your browser above it. */
+/**
+ * One dev server under the same toolbar as a browser page: its address (read-only), Reload,
+ * and its actions (another server, its own tab, Stop preview, Open in your browser).
+ */
 function DevServer(props: {
   source: PreviewSource;
   threadId: string;
+  tabKey: string;
   servers: readonly PreviewServer[];
 }) {
   const [port, setPort] = useState(props.servers[0]?.port);
-  const [reloads, setReloads] = useState(0);
+  const [attempt, setAttempt] = useState(0);
   const workspace = useWorkspaceActions(props.threadId);
   const server = props.servers.find((candidate) => candidate.port === port) ?? props.servers[0];
+  const url = server ? (server.origin ?? `http://localhost:${server.port}`) : "";
+  const [phase, setPhase] = useState<FramePhase>("loading");
+  const loading = !!server && phase === "loading";
+  useEffect(() => {
+    setLoading(props.threadId, props.tabKey, loading);
+    return () => setLoading(props.threadId, props.tabKey, false);
+  }, [props.threadId, props.tabKey, loading]);
   if (!server) return null;
-  const url = server.origin ?? `http://localhost:${server.port}`;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
-        <IconButton
-          icon={ArrowClockwiseIcon}
-          label="Reload"
-          className="size-7 rounded-[7px]"
-          onClick={() => setReloads((count) => count + 1)}
-        />
-        {props.servers.length > 1 ? (
-          <Select
-            label="Dev server"
-            value={String(server.port)}
-            options={props.servers.map((each) => ({
-              value: String(each.port),
-              label: label(each),
-            }))}
-            onValueChange={(value) => setPort(Number(value))}
-            className="h-7 min-w-0 flex-1"
+      <PageToolbar
+        nav={
+          <PageNav
+            back={{ reason: noHistory }}
+            forward={{ reason: noHistory }}
+            reload={{ onClick: () => setAttempt((count) => count + 1) }}
           />
-        ) : (
-          <span className="flex h-8 min-w-0 flex-1 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] px-3 text-ui text-foreground">
-            <span className="truncate">
-              {url.replace(/^https?:\/\//, "")}
-              {server.name && <span className="text-subtle-foreground"> · {server.name}</span>}
-            </span>
-          </span>
-        )}
-        {server.source === "listener" && (
-          <IconButton
-            icon={StopIcon}
-            label="Stop previewing · the server keeps running"
-            className="size-7 rounded-[7px]"
-            onClick={() => void props.source.unforward(props.threadId, server.port).catch(() => {})}
-          />
-        )}
-        <IconButton
-          icon={BrowsersIcon}
-          label="Open in its own tab"
-          className="size-7 rounded-[7px]"
-          onClick={() => workspace.open(portTab(server))}
-        />
-        <IconButton
-          icon={ArrowSquareOutIcon}
-          label="Open in your browser"
-          className="size-7 rounded-[7px]"
-          onClick={() => void openExternal(url).catch(() => undefined)}
-        />
-      </div>
-      <div className="relative min-h-0 flex-1">
-        <iframe
-          key={reloads}
-          title={`Preview of ${url}`}
-          src={url}
-          // The page is the user's own dev server on another origin, so the browser already
-          // isolates it; it needs scripts and its own storage to work.
-          // oxlint-disable-next-line react/iframe-missing-sandbox
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-          className="absolute inset-0 size-full border-0 bg-background"
-        />
-      </div>
+        }
+        address={<AddressBar url={url} loading={loading} readOnly />}
+        actions={
+          <>
+            {props.servers.length > 1 && (
+              <Select
+                label="Dev server"
+                value={String(server.port)}
+                options={props.servers.map((each) => ({
+                  value: String(each.port),
+                  label: label(each),
+                }))}
+                onValueChange={(value) => setPort(Number(value))}
+                className="h-7 w-[120px]"
+              />
+            )}
+            {server.source === "listener" && (
+              <IconButton
+                icon={StopIcon}
+                label="Stop previewing · the server keeps running"
+                className={toolbarButton}
+                onClick={() =>
+                  void props.source.unforward(props.threadId, server.port).catch(() => {})
+                }
+              />
+            )}
+            <IconButton
+              icon={BrowsersIcon}
+              label="Open in its own tab"
+              className={toolbarButton}
+              onClick={() => workspace.open(portTab(server))}
+            />
+            <OpenOutside url={url} />
+          </>
+        }
+        progress={loading ? `Loading ${url}` : undefined}
+      />
+      <DevServerFrame
+        url={url}
+        attempt={attempt}
+        onPhase={setPhase}
+        onRetry={() => setAttempt((count) => count + 1)}
+      />
     </div>
   );
 }
