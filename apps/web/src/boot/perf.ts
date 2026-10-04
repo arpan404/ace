@@ -3,13 +3,15 @@ import { RemoteClient } from "@ace/client-worker";
 
 /**
  * `vite --mode perf`: the app against the perf worker's endless agent (`?rate=` events/s,
- * `?history=` items of older history to page back through).
+ * `?history=` items of older history to page back through), or with `?long=1` the synthetic
+ * five-day thread of a million items with its turn index (`?rate=` live items/s).
  */
 export function bootPerf(): { client: ClientApi; threadId: string } {
   const search = new URLSearchParams(location.search);
   const rate = Number(search.get("rate") ?? 5_000);
   // Items of made-up history below the live stream (`?history=1000000` for a 1M-item thread).
   const history = Number(search.get("history") ?? 0);
+  const long = search.get("long") === "1";
   const worker = new Worker(new URL("./perf-worker.ts", import.meta.url), {
     type: "module",
     name: "ace-perf-client",
@@ -24,7 +26,7 @@ export function bootPerf(): { client: ClientApi; threadId: string } {
   Object.assign(globalThis, { acePerf: stats });
   const client = new RemoteClient(
     worker,
-    { rate, history },
+    { rate, history, long },
     {
       scheduler: {
         set(delayMs, callback) {
@@ -41,5 +43,5 @@ export function bootPerf(): { client: ClientApi; threadId: string } {
       },
     },
   );
-  return { client, threadId: "thread-soak" };
+  return { client, threadId: long ? "thread-multi-day" : "thread-soak" };
 }
