@@ -184,7 +184,7 @@ export function engineHandler(
               },
             },
           });
-          if (handoff && p.handoffFrom && p.type === "thread.create") {
+          if (handoff && p.handoffFrom) {
             const source = repo.store.getThread(p.handoffFrom);
             const previous = repo.transitions.get(threadId);
             repo.transitions.set(threadId, {
@@ -211,13 +211,6 @@ export function engineHandler(
           if (handoff && p.handoffFrom)
             repo.transitions.history.grant(threadId, p.handoffFrom, handoff.source.throughSeq);
           if (p.type === "thread.prepare") {
-            if (handoff) {
-              const previous = repo.transitions.get(threadId);
-              repo.transitions.set(threadId, {
-                ...previous,
-                context: [...previous.context, handoff.text],
-              });
-            }
             repo.release(threadId);
             return { commandId: command.id, ok: true, threadId };
           }

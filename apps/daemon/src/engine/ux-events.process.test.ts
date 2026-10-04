@@ -76,3 +76,26 @@ test("structured terminal errors survive event replay and snapshots", async () =
     ]),
   );
 });
+
+test("prepared handoffs publish their summary before the spawn input", async () => {
+  const frames = scriptFrames();
+  const h = await harness([], frames);
+  closes.push(h.close);
+  const source = h.command({ type: "thread.prepare", threadId: "source-thread", workspaceId: h.workspace,
+    provider: "codex", title: "Source" });
+  expect(source.ok).toBe(true);
+  const prepared = h.internalCommand({ type: "thread.prepare", threadId: "handoff-thread",
+    workspaceId: h.workspace, provider: "codex", title: "Delegate", titleSource: "agent",
+    handoffFrom: "source-thread" }, "prepared-handoff");
+  if (!prepared.threadId) throw new Error("No thread");
+  h.internalCommand({ type: "thread.send", threadId: prepared.threadId,
+    input: [{ type: "text", text: "spawn task" }], origin: { kind: "spawn", parentThreadId: "source-thread" } }, "spawn-handoff");
+  const view = h.store.snapshotThread(prepared.threadId);
+  const ordered = view.itemOrder.map((id) => view.items[id]);
+  const summary = ordered.find((item) => item?.type === "message" && item.origin?.kind === "handoff");
+  const spawn = view.items["input:spawn-handoff"];
+  expect(summary).toMatchObject({ synthetic: true, origin: { kind: "handoff", threadIds: ["source-thread"],
+    from: { provider: "codex" }, to: { provider: "codex" }, lossy: true } });
+  expect(spawn).toMatchObject({ parts: [{ type: "text", text: "spawn task" }], origin: { kind: "spawn" } });
+  expect(ordered.indexOf(summary)).toBeLessThan(ordered.indexOf(spawn));
+});
