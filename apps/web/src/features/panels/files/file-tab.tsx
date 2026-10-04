@@ -45,7 +45,7 @@ function FindBar(props: {
   return (
     <div
       role="search"
-      className="absolute top-2 right-3 z-[2] flex h-9 items-center gap-1 rounded-lg bg-popover pr-1 pl-2.5 shadow-[0_0_0_1px_var(--border),0_8px_24px_rgb(0_0_0/0.18)]"
+      className="absolute top-2 right-3 z-10 flex h-9 items-center gap-1 rounded-lg border bg-popover pr-1 pl-2.5 shadow-[var(--glass-shadow)]"
     >
       <input
         ref={input}
@@ -68,7 +68,7 @@ function FindBar(props: {
       />
       <span
         aria-live="polite"
-        className="min-w-[52px] text-right text-xs text-subtle-foreground tabular-nums"
+        className="min-w-[64px] text-right text-xs text-subtle-foreground tabular-nums"
       >
         {props.query ? (props.count ? `${props.index + 1} of ${props.count}` : "No results") : ""}
       </span>

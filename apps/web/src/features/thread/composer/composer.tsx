@@ -256,7 +256,7 @@ export function Composer(props: {
               attachments.add(files);
             }
           }}
-          className="block min-h-11 w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-[14px] leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground"
+          className="block min-h-11 w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground"
         />
         {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
         <div

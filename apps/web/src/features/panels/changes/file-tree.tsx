@@ -84,7 +84,7 @@ export function FileTree(props: {
   return (
     <nav aria-label="Changed files" className={cn("flex min-h-0 flex-col", props.className)}>
       <div className="shrink-0 p-2">
-        <label className="flex h-8 items-center gap-2 rounded-md bg-[color-mix(in_oklab,var(--foreground)_4%,transparent)] px-2.5 shadow-[inset_0_0_0_1px_var(--border)] focus-within:shadow-[0_0_0_2px_var(--ring)]">
+        <label className="flex h-8 items-center gap-2 rounded-md bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] px-2.5 shadow-[inset_0_0_0_1px_var(--border)] focus-within:shadow-[0_0_0_2px_var(--ring)]">
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
           <input
             type="search"

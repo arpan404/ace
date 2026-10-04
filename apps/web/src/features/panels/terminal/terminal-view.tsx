@@ -147,7 +147,7 @@ export function ScreenRows(props: {
         stick.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
       }}
       className={cn(
-        "min-h-0 flex-1 overflow-auto px-3 pt-2 pb-3 font-mono text-[13px] leading-5 whitespace-pre-wrap text-muted-foreground",
+        "min-h-0 flex-1 overflow-auto px-3 pt-2 pb-3 font-mono text-ui leading-5 whitespace-pre-wrap text-muted-foreground",
         props.className,
       )}
     >

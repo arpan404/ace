@@ -26,14 +26,14 @@ export function SideChatPlaceholder() {
           A side chat asks about this thread without changing its work, and disappears when you
           close it.
         </p>
-        <p id={reason} className="mt-2 max-w-[48ch] text-xs leading-normal text-subtle-foreground">
+        <p id={reason} className="mt-2 max-w-[44ch] text-xs leading-normal text-subtle-foreground">
           This daemon can't run one yet: it has no way to start a temporary conversation beside a
           thread, only lasting threads and forks. Ask in the thread's composer, or fork the thread
           to explore without touching it.
         </p>
       </div>
       <div className="shrink-0 px-3 pb-3">
-        <div className="mx-auto flex w-full max-w-[736px] flex-col gap-2 rounded-[14px] bg-secondary px-3.5 pt-3 pb-2.5 opacity-70">
+        <div className="mx-auto flex w-full max-w-[736px] flex-col gap-2 rounded-xl bg-secondary px-3.5 pt-3 pb-2.5 opacity-70">
           <textarea
             aria-label="Side chat message"
             aria-describedby={reason}

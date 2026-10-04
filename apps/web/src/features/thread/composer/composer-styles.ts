@@ -14,7 +14,7 @@ export const inputPadding = 12;
 
 /** One size for every footer control; labels are 13/16 so nothing lands on a half pixel. */
 export const control =
-  "inline-flex h-(--composer-control) min-w-(--composer-control) shrink-0 items-center justify-center gap-1.5 rounded-full text-[13px] leading-4 font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40";
+  "inline-flex h-(--composer-control) min-w-(--composer-control) shrink-0 items-center justify-center gap-1.5 rounded-full text-ui leading-4 font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40";
 
 /** A square icon control: plus, the meter, send and stop. */
 export const iconControl = `${control} w-(--composer-control) px-0`;

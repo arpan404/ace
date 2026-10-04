@@ -48,7 +48,7 @@ export function SuggestionList(props: {
                 props.onPick(item);
               }}
               className={cn(
-                "flex h-8 cursor-default items-center gap-2 rounded-lg px-2.5 text-[13px] leading-4",
+                "flex h-8 cursor-default items-center gap-2 rounded-lg px-2.5 text-ui leading-4",
                 index === props.active && "bg-accent",
               )}
             >
@@ -76,7 +76,7 @@ export function SuggestionList(props: {
       ) : (
         <p
           role="status"
-          className="flex h-8 items-center gap-2 px-2.5 text-[13px] leading-4 text-muted-foreground"
+          className="flex h-8 items-center gap-2 px-2.5 text-ui leading-4 text-muted-foreground"
         >
           {suggestions.state === "loading" && <Spinner />}
           {statusLine(suggestions)}

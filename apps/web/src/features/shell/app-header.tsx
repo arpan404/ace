@@ -89,7 +89,7 @@ export function AppHeader(
     // actions drop their labels (they stay their accessible names) so the title keeps its room.
     <header
       className={cn(
-        // The hairline is an inset shadow, not a border, so the 50px row keeps its exact centre.
+        // The hairline is drawn with box-shadow, not a border, so the 50px row keeps its exact centre.
         "@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 shadow-[inset_0_-1px_0_transparent] transition-shadow duration-(--dur-2) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
         props.scrolled && "shadow-[inset_0_-1px_0_var(--border)]",
       )}

@@ -40,7 +40,7 @@ function Marked(props: { text: string; query: string; current: number | undefine
       <mark
         key={at}
         className={cn(
-          "rounded-[3px] bg-[color-mix(in_oklab,var(--foreground)_18%,transparent)] text-foreground",
+          "rounded-xs bg-[color-mix(in_oklab,var(--foreground)_18%,transparent)] text-foreground",
           at === props.current && "bg-[color-mix(in_oklab,var(--ring)_55%,transparent)]",
         )}
       >
@@ -104,7 +104,7 @@ export function SourceView(props: {
       ref={box}
       role="region"
       aria-label={props.label}
-      className={cn("min-w-full py-2 font-mono text-[13px] leading-[22px]", !props.wrap && "w-max")}
+      className={cn("min-w-full py-2 font-mono text-ui leading-[22px]", !props.wrap && "w-max")}
     >
       <LongRows
         virtualAbove={400}

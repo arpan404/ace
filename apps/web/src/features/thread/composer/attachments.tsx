@@ -128,7 +128,7 @@ export function AttachmentChips(props: {
       {props.items.map((item) => (
         <li
           key={item.key}
-          className="inline-flex h-8 max-w-60 shrink-0 items-center gap-1.5 rounded-lg bg-secondary pr-1 pl-1 text-[13px] leading-4"
+          className="inline-flex h-8 max-w-60 shrink-0 items-center gap-1.5 rounded-lg bg-secondary pr-1 pl-1 text-ui leading-4"
         >
           {item.preview ? (
             <img src={item.preview} alt="" className="size-6 rounded-sm object-cover" />

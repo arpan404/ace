@@ -29,7 +29,7 @@ function SourceSkeleton() {
     <div
       role="status"
       aria-label="Loading the file"
-      className="flex flex-col gap-[10px] py-3 pr-6 pl-[64px]"
+      className="flex flex-col gap-2.5 py-3 pr-6 pl-16"
     >
       {widths.map((width, index) =>
         width ? (
@@ -171,7 +171,7 @@ export function FileViewer(props: {
     case "text":
       if (isMarkdownPath(props.path) && !props.source)
         return (
-          <article className="mx-auto w-full max-w-[760px] px-8 py-6 text-[14px] leading-[1.6]">
+          <article className="mx-auto w-full max-w-[760px] px-8 py-6 text-base leading-[1.6]">
             <Prose text={content.text} />
           </article>
         );

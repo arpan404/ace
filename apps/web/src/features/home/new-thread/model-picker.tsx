@@ -62,7 +62,7 @@ export function ModelPicker(props: {
           )}
         </MenuTrigger>
       </Tip>
-      <MenuContent align="start" side="top" className="max-h-[60vh] w-[280px] overflow-y-auto">
+      <MenuContent align="start" side="top" className="max-h-[60vh] w-[320px] overflow-y-auto">
         <MenuRadioGroup value={model?.id ?? ""} onValueChange={(id) => props.onModel(String(id))}>
           {providers.map((provider, index) => (
             <MenuGroup key={provider}>

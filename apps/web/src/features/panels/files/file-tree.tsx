@@ -217,7 +217,7 @@ export function FileTree(props: {
       onDrop={(event) => drop(event, currentFolder ? `${currentFolder}/` : "")}
     >
       <div className="flex h-10 shrink-0 items-center gap-1 px-2">
-        <label className="relative flex h-8 min-w-0 flex-1 items-center rounded-md bg-[color-mix(in_oklab,var(--foreground)_4%,transparent)] shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--dur-1) focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
+        <label className="relative flex h-8 min-w-0 flex-1 items-center rounded-md bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--dur-1) focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
           <MagnifyingGlassIcon
             aria-hidden
             size={14}

@@ -246,8 +246,8 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         shown={mode}
         onPrefs={(change) => services.diffPrefs.set(change)}
         allCollapsed={allCollapsed}
-        onCollapseAll={(collapse) =>
-          setViews(new Map(files.map((file) => [file.path, { ...viewOf(file), open: !collapse }])))
+        onCollapseAll={(folded) =>
+          setViews(new Map(files.map((file) => [file.path, { ...viewOf(file), open: !folded }])))
         }
         canShowTree={files.length > 1}
       />

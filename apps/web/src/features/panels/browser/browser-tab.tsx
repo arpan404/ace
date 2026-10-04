@@ -89,7 +89,7 @@ function ControlStrip(props: { view: BrowserView; busy: boolean; onToggle(): voi
             type="button"
             disabled={props.busy}
             onClick={props.onToggle}
-            className="h-6 shrink-0 rounded-[6px] px-2 font-medium text-foreground outline-none hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:opacity-50"
+            className="h-6 shrink-0 rounded-[7px] px-2 font-medium text-foreground outline-none hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:opacity-50"
           >
             {view.controller === "human" ? "Hand back" : "Take control"}
           </button>

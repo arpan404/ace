@@ -180,7 +180,10 @@ export function TabStrip(props: {
               />
             }
           />
-          <MenuContent align="end" className="max-h-[min(420px,70vh)] overflow-y-auto">
+          <MenuContent
+            align="end"
+            className="max-h-[min(420px,var(--available-height))] overflow-y-auto"
+          >
             <MenuLabel>Open tabs</MenuLabel>
             {state.tabs.map((tab) => (
               <MenuItem

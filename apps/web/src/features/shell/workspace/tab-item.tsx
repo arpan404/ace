@@ -103,7 +103,7 @@ export function TabItem(props: {
           className={cn(
             "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-[7px] pl-2 text-sm font-medium whitespace-nowrap text-muted-foreground outline-none",
             "transition-[color,background-color,box-shadow] duration-(--dur-1)",
-            "hover:text-foreground hover:not-aria-selected:bg-[color-mix(in_oklab,var(--foreground)_4%,transparent)]",
+            "hover:text-foreground hover:not-aria-selected:bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)]",
             "focus-visible:text-foreground focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_70%,transparent)]",
             "aria-selected:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] aria-selected:text-foreground",
             closable ? "pr-7" : "pr-2.5",

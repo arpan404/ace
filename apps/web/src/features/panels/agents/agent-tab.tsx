@@ -287,7 +287,7 @@ function FollowUp(props: { threadId: string; agent: Agent }) {
   };
   return (
     <div className="shrink-0 border-t px-3 py-3">
-      <div className="mx-auto flex w-full max-w-[736px] flex-col gap-2 rounded-[14px] bg-secondary px-3.5 pt-3 pb-2.5">
+      <div className="mx-auto flex w-full max-w-[736px] flex-col gap-2 rounded-xl bg-secondary px-3.5 pt-3 pb-2.5">
         <textarea
           aria-label={`Message ${name}`}
           rows={2}

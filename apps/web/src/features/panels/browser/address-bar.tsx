@@ -127,7 +127,7 @@ export function AddressBar(props: {
         <p
           id={errorId}
           role="alert"
-          className="absolute top-full right-0 left-0 z-[5] mt-1.5 rounded-lg bg-popover px-3 py-2 text-xs text-muted-foreground shadow-[0_0_0_1px_var(--border),0_8px_24px_rgb(0_0_0/0.18)]"
+          className="absolute top-full right-0 left-0 z-10 mt-1.5 rounded-lg border bg-popover px-3 py-2 text-xs text-muted-foreground shadow-[var(--glass-shadow)]"
         >
           {error}
         </p>
@@ -137,7 +137,7 @@ export function AddressBar(props: {
           id={listId}
           role="listbox"
           aria-label="Suggested addresses"
-          className="absolute top-full right-0 left-0 z-[5] mt-1.5 flex flex-col overflow-hidden rounded-xl bg-popover p-1 shadow-[0_0_0_1px_var(--border),0_12px_32px_rgb(0_0_0/0.22)]"
+          className="absolute top-full right-0 left-0 z-10 mt-1.5 flex flex-col overflow-hidden rounded-lg border bg-popover p-1 shadow-[var(--glass-shadow)]"
         >
           {suggestions.map((suggestion, index) => (
             <li

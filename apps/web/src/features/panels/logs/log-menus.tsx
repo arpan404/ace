@@ -149,7 +149,7 @@ export function FilterMenus(props: { filter: LogFilter; onChange(next: LogFilter
           />
         }
       />
-      <MenuContent align="start" className="min-w-[240px]">
+      <MenuContent align="start" className="min-w-[260px]">
         <MenuGroup>
           <MenuLabel>Level</MenuLabel>
           <MenuRadioGroup

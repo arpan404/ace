@@ -159,7 +159,7 @@ export function ChangesToolbar(props: {
   shown: "unified" | "split";
   onPrefs(change: (prefs: DiffPrefs) => DiffPrefs): void;
   allCollapsed: boolean;
-  onCollapseAll(collapse: boolean): void;
+  onCollapseAll(folded: boolean): void;
   /** The tree only helps with more than one file. */
   canShowTree: boolean;
 }) {
