@@ -40,6 +40,13 @@ test("a CLI discovery found counts as ready with no ace account, on the person's
   expect(codex && providerChoiceLabel(codex)).toBe("Codex");
 });
 
+test("an installed Pi is offered like the other native CLIs", () => {
+  const pi = providerStatuses(new Set(["pi"]), []).find((status) => status.provider === "pi");
+
+  expect(pi && providerChoiceLabel(pi)).toBe("Pi");
+  expect(pi?.state).toBe("ready");
+});
+
 test("a CLI whose ace accounts are all signed out reads not signed in", () => {
   const listed = providerStatuses(new Set(["claude", "codex"]), [
     account("claude-work", "claude", false),

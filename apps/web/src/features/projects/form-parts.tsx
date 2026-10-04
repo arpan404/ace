@@ -102,6 +102,7 @@ export function LocationField(props: {
   onSelect(path: string | undefined): void;
   home: string | undefined;
   roots: readonly string[];
+  start: string | undefined;
   disabled?: boolean;
 }) {
   const [browsing, setBrowsing] = useState(false);
@@ -133,6 +134,7 @@ export function LocationField(props: {
           onSelect={props.onSelect}
           home={props.home}
           roots={props.roots}
+          start={props.start}
         />
       )}
     </div>

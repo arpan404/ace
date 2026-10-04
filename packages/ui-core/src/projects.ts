@@ -82,6 +82,23 @@ export function parentFolder(path: string): string | undefined {
   return index === 0 ? "/" : trimmed.slice(0, index);
 }
 
+/**
+ * Where folder browsing starts: the home folder when an allowed root holds it, else the first
+ * allowed root (`projects.roots` naming folders outside home, where home itself is refused).
+ */
+export function startFolder(
+  home: string | undefined,
+  roots: readonly string[],
+): string | undefined {
+  if (home === undefined) return roots[0];
+  const base = home.replace(/\/+$/, "") || "/";
+  const holdsHome = (root: string) => {
+    const top = root.replace(/\/+$/, "") || "/";
+    return top === "/" || base === top || base.startsWith(`${top}/`);
+  };
+  return roots.length === 0 || roots.some(holdsHome) ? home : roots[0];
+}
+
 /** A child folder's path. */
 export function childFolder(parent: string, name: string): string {
   return `${parent.replace(/\/+$/, "")}/${name}`;

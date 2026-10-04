@@ -80,6 +80,12 @@ function runsOn(meta: Thread | undefined) {
   );
 }
 
+/** Which provider, model and account a selection names; a cached choice belongs to one. */
+function selectionIdentity(selection: ReturnType<typeof runsOn>): string {
+  if (!selection) return "";
+  return JSON.stringify([selection.provider, selection.model ?? "", selection.instanceId ?? ""]);
+}
+
 /**
  * The thread's model, account and effort. Another model or account continues the thread from
  * its next turn (another provider asks first, since the agent's private state stays behind);
@@ -94,10 +100,15 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean }) 
   const online = useConnectionState() === "ready";
   const selection = runsOn(meta);
   const current = currentModelChoice(choices, selection);
-  // Offline the catalog can't be read: keep what this view last knew, else the thread's record.
-  const [known, setKnown] = useState<ModelChoice>();
-  if (current && current.id !== known?.id) setKnown(current);
-  const shown = current ?? (online ? undefined : (known ?? recordedChoice(selection)));
+  // Offline the catalog can't be read: keep what this view last knew, but only for the selection
+  // it was known for (a queued switch moves to another). Anything else, including a provider the
+  // catalog doesn't list, shows the thread's record.
+  const selectionKey = selectionIdentity(selection);
+  const [known, setKnown] = useState<{ key: string; choice: ModelChoice }>();
+  if (current && (current.id !== known?.choice.id || selectionKey !== known.key))
+    setKnown({ key: selectionKey, choice: current });
+  const remembered = known?.key === selectionKey ? known.choice : undefined;
+  const shown = current ?? (online ? undefined : remembered) ?? recordedChoice(selection);
   const effort = threadEffortControl({
     choice: shown,
     capabilities: meta?.capabilities,

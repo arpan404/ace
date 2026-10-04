@@ -1,5 +1,5 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
+import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -165,4 +165,29 @@ test("offline, the model chip keeps the thread's last-known model and says chang
   const chip = screen.getByRole("button", { name: /^Model: Opus 4\.1/ });
   await userEvent.click(chip);
   expect(await screen.findByText("Offline: changes apply when the daemon is back")).toBeTruthy();
+});
+
+test("a switch queued to a provider with no catalog models keeps showing it across a reconnect", async () => {
+  const { app } = await open("busy");
+  await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ });
+  // Another device moves the thread to Pi, which lists no models in the catalog.
+  app.daemon.command({
+    id: CommandId.parse("switch-to-pi"),
+    deviceId: DeviceId.parse("phone"),
+    payload: {
+      type: "thread.switch",
+      threadId: ThreadId.parse("thread-replay-cursor"),
+      selection: { provider: "pi", options: {} },
+    },
+  });
+  expect(await screen.findByRole("button", { name: /^Model: Pi default/ })).toBeTruthy();
+
+  act(() => app.client.networkOnline(false));
+  await screen.findByText(/^Offline\./);
+  expect(screen.getByRole("button", { name: /^Model: Pi default/ })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Model: Opus/ })).toBeNull();
+
+  act(() => app.client.networkOnline(true));
+  await waitFor(() => expect(screen.queryByText(/^Offline\./)).toBeNull());
+  expect(screen.getByRole("button", { name: /^Model: Pi default/ })).toBeTruthy();
 });
