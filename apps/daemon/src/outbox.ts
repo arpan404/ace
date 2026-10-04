@@ -5,6 +5,8 @@ import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
 import { WireEncoder, eventFrameBytes } from "./wire-encoder.ts";
 
 export const RESYNC_CLOSE_CODE = 4009;
+// Service envelopes can contain a 1 MiB artifact plus metadata. Events have a smaller budget.
+const replyFrameBytes = eventFrameBytes * 2;
 export interface PressureOptions {
   softLimit: number;
   /** Sustained transport pressure threshold; not the absolute memory admission cap. */
@@ -176,7 +178,7 @@ export class Outbox {
     }
     const encoded = this.encoder.encode(message);
     const charge = Buffer.byteLength(encoded);
-    if (charge > eventFrameBytes) {
+    if (charge > (message.type === "events" ? eventFrameBytes : replyFrameBytes)) {
       this.resync();
       return;
     }
@@ -250,7 +252,7 @@ export class Outbox {
                 throughSeq: frame.throughSeq,
                 events: frame.events,
               });
-      if (Buffer.byteLength(encoded) > eventFrameBytes) {
+      if (Buffer.byteLength(encoded) > replyFrameBytes) {
         this.resync();
         return;
       }

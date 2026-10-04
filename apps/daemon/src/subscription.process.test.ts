@@ -389,10 +389,29 @@ it.each([2, 4])(
       expect(
         Array.from(recovered.values()).filter((item) => item.id.startsWith("big-")).length,
       ).toBe(count);
-      for (const [i, text] of texts.entries())
-        expect(recovered.get(ItemId.parse(`big-${i}`))).toMatchObject({
-          parts: [{ type: "text", text }],
-        });
+      for (const [i, text] of texts.entries()) {
+        const item = recovered.get(ItemId.parse(`big-${i}`));
+        if (item?.type !== "message") throw new Error("Missing recovered message");
+        const actual = item.parts
+          .map((part) => {
+            if (part.type !== "text") return "";
+            if (!part.source) return part.text;
+            const bytes: Buffer[] = [];
+            for (let offset = 0; offset < part.source.bytes;) {
+              const chunk = f.store.readOutputBytes(
+                part.source.streamId,
+                offset,
+                Math.min(256 * 1024, part.source.bytes - offset),
+              );
+              expect(chunk.nextOffset).toBeGreaterThan(offset);
+              bytes.push(chunk.bytes);
+              offset = chunk.nextOffset;
+            }
+            return Buffer.concat(bytes).toString("utf16le");
+          })
+          .join("");
+        expect(actual === text).toBe(true);
+      }
       return;
     }
     expect(messages.length).toBeGreaterThan(1);
