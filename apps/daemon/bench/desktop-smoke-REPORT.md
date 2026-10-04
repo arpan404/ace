@@ -1,5 +1,10 @@
 # Packaged desktop daemon investigation
 
+These are historical measurements from PR head `6f5b7c61`, before the review
+fixes. The owner now prohibits benchmarks and probes during implementation.
+RSS, startup and shutdown measurements for the revised head **need run at merge**.
+No new performance improvement is claimed.
+
 Measured on darwin-arm64 using the production esbuild bundler and its independently
 bundled helpers from `tools/release`, with the shipped Node 24.13.0. No desktop or
 release source was changed. Each run used a new temporary home, no model/history
