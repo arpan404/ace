@@ -3,6 +3,7 @@ import { reviewPermission } from "@ace/core";
 import { setup } from "./translator.test-helper.ts";
 
 test.each([
+  { command: "pwd", actions: [{ type: "unknown", command: "rm -rf build" }] },
   { command: "/bin/sh -c 'pwd > owned'", actions: [{ type: "unknown", command: "pwd" }] },
   { command: "/bin/sh -c 'pwd && rm -rf build'", actions: [{ type: "unknown", command: "pwd" }] },
   { command: "/bin/sh -c 'provider wrapper'", actions: [{ type: "unknown", command: "pwd" }] },

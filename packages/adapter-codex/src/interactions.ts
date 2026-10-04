@@ -1,3 +1,4 @@
+import { commandActionsMatch } from "@ace/provider-kit/shell-command";
 import { ApprovalTarget } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import { decisions, obj, questions, raw, str, type Obj } from "./native.ts";
@@ -47,7 +48,11 @@ export function openRequest(
               // Actions are best-effort descriptions, never executable authority.
               command: p["command"],
               cwd: p["cwd"],
-              access: typeof p["command"] === "string" ? "execute" : "unknown",
+              access:
+                typeof p["command"] === "string" &&
+                commandActionsMatch(p["command"], p["commandActions"])
+                  ? "execute"
+                  : "unknown",
               input: p,
             });
             return parsed.success ? parsed.data : undefined;
