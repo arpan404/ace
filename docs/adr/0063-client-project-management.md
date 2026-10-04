@@ -32,6 +32,15 @@ Git stderr. Tests alone can inject a file URL validator and file transport fixtu
 waits for process cleanup before its final receipt. Failed or cancelled clones never register;
 partial directories remain available for host inspection and are not recursively deleted.
 
+Pin project and parent directory identities through `@ace/workspace`'s descriptor boundary.
+Create folders with `mkdirat`, write templates with exclusive `openat`, and enter Git's cwd
+through an inherited directory descriptor in a supervised helper. Path checks alone cannot
+protect writes when another local process replaces a directory. Reject changed identities
+immediately before registration. Read branch/remotes without status or untracked enumeration.
+Recheck clone cancellation at that commit boundary; cancellation after commit returns
+`clone_not_running`. Start Git closure before draining commands so stalled metadata cannot
+delay shutdown until the operation timeout.
+
 Removal persists an unregistered marker rather than deleting workspace rows referenced by
 thread history. It never deletes files. Live whole-tree statuses refuse removal unless
 `archiveThreads` is supplied. Explicit archive preserves execution status and ongoing work.

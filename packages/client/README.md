@@ -105,8 +105,9 @@ more than 10,000 directory entries. Re-fetch lists on reconnect, tab resume and 
 `gitignore` is literal template text, capped at 64 KiB. Git is optional for create; `{ git: {} }`
 uses the host's `init.defaultBranch`, falling back to `main`. Clone uses the user's Git credentials
 helpers and has a default ten-minute client deadline. Aborting the local waiter does not cancel
-the durable clone; call `projects.cancelClone` to cancel the host process. Failed or cancelled
-clones keep partial folders without registering them. A daemon restart returns
+the durable clone; call `projects.cancelClone` to cancel the host process. Once a clone has
+committed, cancellation returns `clone_not_running`, including while its final receipt is being
+delivered. Failed or cancelled clones keep partial folders without registering them. A daemon restart returns
 `action_outcome_uncertain` for an unfinished admission instead of repeating external effects.
 
 Deep links `ace://open?folder=...` and `/new?folder=...` use `projects.add({ path: decodedFolder })`

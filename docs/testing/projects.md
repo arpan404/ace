@@ -26,6 +26,32 @@ Static verification does not establish those outcomes.
 | In-process client project APIs       | Lose receipt selection ids; miss cross-client pushes; fail to correlate folder-picker reads; lose idempotency or rename/remove behavior.                         |
 | Worker APIs and fake catalog         | Fail to forward projects through the worker; derive the catalog only from threads; omit pushes; lose empty projects.                                             |
 | Worker clone cancellation            | Complete a clone before delivering progress; fail to forward cancellation; register a cancelled fake clone.                                                      |
+| Cancellation during metadata         | Drop the abort check immediately before registration; emit completed after cancellation during post-transfer inspection.                                         |
+| Cancellation during final roots      | Drop the final abort check after asynchronous roots validation when no Git children remain to receive cancellation.                                              |
+| Cancellation after completion        | Allow cancellation after registration/completed progress but before cleanup and receipt delivery; report cancelled alongside success.                            |
+| Shutdown during metadata             | Drain commands before starting Git closure; return before the metadata child exits.                                                                              |
+| Creation directory replacement       | Use pathname cwd for Git init; write gitignore through a replaced pathname; register a replaced directory.                                                       |
+| Inspection directory replacement     | Register the old inspection path without verifying its pinned identity.                                                                                          |
+| Browse directory replacement         | Enumerate through a replaced pathname and expose outside-root folder names.                                                                                      |
+| Lightweight inspection               | Reintroduce status/untracked enumeration as a prerequisite for project metadata.                                                                                 |
+| Fake destination emptiness           | Reject an existing empty directory; overwrite a Git/template/child-containing directory.                                                                         |
+
+The new process-gated regressions are in `apps/daemon/src/projects-races.process.test.ts`.
+The cancellation, shutdown, creation and stale-registration regressions were written before
+their corresponding fixes. Red/green reproduction and confirmation **need run at merge**.
+The native workspace descriptor bridge now supports `mkdirat` and exclusive `openat` writes.
+It must be rebuilt by the normal dependency-install step before merge-time execution.
+
+## Performance measurement
+
+`apps/daemon/bench/projects.ts` is a merge-time harness for inspection with 0/1,000/10,000 untracked
+files and browsing with 0/100/10,000 folders. It records six warmed samples, median and maximum
+latency and peak RSS. **Not executed; needs run at merge.** No benchmark numbers are claimed.
+Inspection no longer enumerates status or untracked files. Browse buffers at most 10,000 names
+from the pinned descriptor and retains only page+1 metadata results (maximum 101). Each Git
+metadata invocation uses a supervised pinned-cwd helper; its process overhead needs measurement.
+Rename/archive visit affected threads in pages of 64, with transaction events proportional to
+the threads changed. Their workspace-wide atomic transaction remains intentional.
 
 The file-protocol fixture is host-injected at `@ace/git`'s transport boundary. There is no wire input
 for a validator or transport allowlist. The cancellation fixture substitutes only the Git process
