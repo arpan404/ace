@@ -119,6 +119,7 @@ test("an earlier turn's pending human approval takes priority over a linked work
           createdAt: 25,
         }),
       },
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
     ],
     25,
   );

@@ -230,6 +230,8 @@ test("turn pages and deterministic catch-up retain a root outcome while its chil
         startedAt: 3,
       },
     },
+    // Raw Store fixtures include the canonical status that Core emits separately.
+    { type: "thread.updated", status: { state: "working", agents: 1 } },
   ]);
   const { client } = h.make();
   await ready(client);
@@ -268,12 +270,20 @@ test("turn pages and deterministic catch-up retain a root outcome while its chil
     },
     { type: "run.ended", runId, state: "completed", endedAt: 5 },
     { type: "agent.status", agentId: rootId, status: { state: "idle" } },
+    { type: "thread.updated", status: { state: "working", agents: 1 } },
   ]);
   const ended = await client.turnsPage({ threadId: h.thread.id });
   expect(ended.turns[0]).toMatchObject({ outcome: "completed", status: { state: "working" } });
   const stillWorking = await client.threadCatchUp({ threadId: h.thread.id, sinceSeq: 0 });
   expect(stillWorking.status.state).toBe("working");
   expect(stillWorking.turnsCompleted).toBe(0);
+  h.daemon.store.appendEvents(h.thread.id, [
+    { type: "agent.status", agentId: childId, status: { state: "idle" } },
+    { type: "thread.updated", status: { state: "done" } },
+  ]);
+  const completed = await client.threadCatchUp({ threadId: h.thread.id, sinceSeq: 0 });
+  expect(completed.status).toEqual({ state: "done" });
+  expect(completed.turnsCompleted).toBe(1);
 });
 
 // Mutation cases: retaining an unsent mark after disconnect, losing an accepted mark from the

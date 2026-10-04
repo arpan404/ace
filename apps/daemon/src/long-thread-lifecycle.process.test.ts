@@ -62,6 +62,8 @@ function linkedChild(store: Store, parent: Thread, at: number, id = "linked-chil
           startedAt: at,
         },
       },
+      // Core publishes whole-tree status separately from agent/run facts.
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
     ],
     at,
   );
@@ -165,6 +167,7 @@ test("linked child status keeps its spawning turn unfinished and settles it duri
         endedAt: 50,
       },
       { type: "agent.status", agentId: childRoot, status: { state: "idle" } },
+      { type: "thread.updated", status: { state: "done" } },
     ],
     50,
   );

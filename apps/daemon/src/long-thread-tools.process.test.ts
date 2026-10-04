@@ -34,12 +34,16 @@ test("a running tool keeps its completed root turn unfinished and settles it dur
   const waiting = turns(f.store, f.thread).turns[0];
   expect(waiting).toMatchObject({
     outcome: "completed",
-    status: { state: "working" },
+    status: { state: "waiting", on: "background_task" },
     digest: { commandsRun: 1 },
   });
   expect(waiting?.endedAt).toBeUndefined();
   expect(catchUp(f.store, f.thread, { sinceSeq: 0 }).turnsCompleted).toBe(0);
   start(f.store, f.thread, "second", 40);
+  expect(turns(f.store, f.thread).turns[0]?.status).toEqual({
+    state: "waiting",
+    on: "background_task",
+  });
   f.store.appendEvents(
     f.thread.id,
     [
