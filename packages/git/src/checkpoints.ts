@@ -104,6 +104,7 @@ export async function createCheckpoint(
   const prefix = checkpointPrefix(threadId);
   const tree = await snapshot(repository, root, ownership);
   const createdAt = (await repository.now()).toISOString();
+  let lastFailure = "Checkpoint refs changed repeatedly; retry the operation";
   for (let attempt = 0; attempt < 20; attempt++) {
     const previous = await repository.numbers.get(root, threadId);
     const sequence = previous.sequence + 1;
@@ -143,13 +144,15 @@ export async function createCheckpoint(
       repository.numbers.remember(root, threadId, { sha, sequence });
       return { id, sha, tree, threadId, sequence, label, createdAt };
     }
+    lastFailure = result.stderr;
     const current = await repository.numbers.refresh(root, threadId);
     // A competing transaction can still hold the ref lock before publishing
     // its new counter. An unchanged counter does not make that lock fatal.
     const locked = /cannot lock ref[\s\S]*\.lock'[\s\S]*File exists/.test(result.stderr);
     if (current.sha === previous.sha && !locked) throw new GitError("git_failed", result.stderr);
+    if (attempt < 19) await repository.cli.pause(Math.min(250, 25 * (attempt + 1)));
   }
-  throw new GitError("git_failed", "Checkpoint refs changed repeatedly; retry the operation");
+  throw new GitError("git_failed", lastFailure);
 }
 const format = "--format=%H%x00%T%x00%B";
 export async function readCheckpoint(

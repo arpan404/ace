@@ -158,3 +158,48 @@ test("checkpoint allocation retries a transient ref lock before its competing wr
     (await service.listCheckpoints({ repo, threadId: "retry" })).map((entry) => entry.label),
   ).toEqual(["seed", "after lock"]);
 });
+
+test("a stale checkpoint lock backs off and reports Git's lock diagnostic when its budget expires", async () => {
+  const repo = await repository();
+  await new GitService().createCheckpoint({ worktree: repo, threadId: "stale", label: "seed" });
+  const lock = join(repo, ".git/refs/ace/checkpoint-sequences/stale.lock");
+  writeFileSync(lock, "stale transaction");
+  type Timer = { delay: number; run(): void };
+  let timer = Promise.withResolvers<Timer>();
+  const service = new GitService({
+    processRuntime: {
+      scheduleTimeout(callback, delay) {
+        if (delay <= 250) {
+          timer.resolve({ delay, run: callback });
+          return () => {};
+        }
+        const deadline = setTimeout(callback, delay);
+        return () => clearTimeout(deadline);
+      },
+    },
+  });
+  try {
+    const creating = service.createCheckpoint({
+      worktree: repo,
+      threadId: "stale",
+      label: "blocked",
+    });
+    const failed = expect(creating).rejects.toMatchObject({
+      code: "git_failed",
+      message: expect.stringContaining("stale.lock"),
+    });
+    for (let attempt = 0; attempt < 19; attempt++) {
+      const next = await timer.promise;
+      expect(next.delay).toBe(Math.min(250, 25 * (attempt + 1)));
+      timer = Promise.withResolvers<Timer>();
+      next.run();
+    }
+    await failed;
+    expect(
+      (await service.listCheckpoints({ repo, threadId: "stale" })).map((entry) => entry.label),
+    ).toEqual(["seed"]);
+  } finally {
+    unlinkSync(lock);
+    await service.close();
+  }
+});
