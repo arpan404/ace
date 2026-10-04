@@ -11,6 +11,11 @@ import { Store } from "./store.ts";
 import type { ServiceContext } from "./services/types.ts";
 
 afterEach(() => vi.unstubAllEnvs());
+const noSdk = {
+  resolve(): string {
+    throw Object.assign(new Error("absent SDK"), { code: "MODULE_NOT_FOUND" });
+  },
+};
 const payload = (model: string) => ({
   data: [
     {
@@ -56,7 +61,7 @@ createInterface({input:process.stdin}).on('line', line => {
     const resources = new Resources();
     const context: ServiceContext = {
       config: readConfig({ ACE_HOME: home }),
-      options: {},
+      options: { engine: { cursor: { discovery: noSdk } } },
       resources,
       store,
       log,
@@ -123,6 +128,7 @@ createInterface({input:process.stdin}).on('line', () => {});`,
   const context: ServiceContext = {
     config: readConfig({ ACE_HOME: home }),
     options: {
+      engine: { cursor: { discovery: noSdk } },
       modelDiscovery: {
         spawn(options) {
           const proc = spawnSupervised(options);
