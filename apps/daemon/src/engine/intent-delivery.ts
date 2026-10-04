@@ -95,13 +95,14 @@ export class IntentDelivery {
         this.dependencies.recovery.release(actor.id, holdToken);
       } else if (send && error instanceof DeliveryDeferred && !acknowledged) {
         this.dependencies.repo.queue.clearUncertain(intent.id);
-        this.dependencies.repo.mark(intent, "queued");
+        this.dependencies.repo.pending.defer(intent);
         this.dependencies.repo.beginSend(intent, undefined);
         this.dependencies.repo.queue.set(actor.id, {}, this.dependencies.clock.now());
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
         if (send && acknowledged) this.dependencies.transitions.delivered(actor.id);
-        const undelivered = editableSend && !acknowledged && error instanceof DeliveryNotStarted;
+        const undelivered = editableSend && !acknowledged &&
+          (error instanceof DeliveryNotStarted || this.dependencies.repo.pending.submitted(intent.id) === undefined);
         const uncertain = editableSend && !acknowledged && !undelivered;
         if (uncertain) this.dependencies.repo.queue.uncertain(intent.id);
         const message = error instanceof Error ? error.message : String(error);
@@ -157,6 +158,7 @@ export class IntentDelivery {
         { type: "text" as const, text: queue.continuation },
       ];
       this.dependencies.repo.inputs.sending(actor.id, key, input);
+      this.dependencies.repo.pending.submit(intent, actor.generation);
       await session.send(input, "queue", intent.command.id);
       this.dependencies.transitions.delivered(actor.id);
     } else {
@@ -232,7 +234,7 @@ export class IntentDelivery {
     };
     this.dependencies.repo.apply(intent.threadId, [fact], this.dependencies.clock.now());
   }
-  expire(actor: ThreadActor): void {
+  expire(actor: ThreadActor, generation: number): void {
     if (this.dependencies.repo.pending.recoveryAcknowledgement(actor.id)) {
       this.dependencies.recovery.capture(actor.id);
       this.dependencies.repo.pending.finishContinuation(actor.id);
@@ -248,7 +250,7 @@ export class IntentDelivery {
       );
     }
     for (const intent of this.dependencies.repo.pending.headers(actor.id))
-      if (intent.awaiting) {
+      if (intent.awaiting && intent.submittedGeneration === generation && !intent.acknowledged) {
         if (intent.kind === "thread.send" || intent.kind === "thread.create")
           this.dependencies.repo.queue.uncertain(intent.id);
         this.fail(intent, "Provider exited before turn acknowledgement; execution is uncertain");

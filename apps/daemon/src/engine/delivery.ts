@@ -35,7 +35,7 @@ export async function executeIntent(
       throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error));
     }
     await repo.store.writable();
-    if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
+    if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
     const capabilities =
       actor.effectiveCapabilities ??
       registry.get(repo.requireState(actor.id).config.provider, repo.backend(actor.id))
@@ -115,13 +115,14 @@ export async function executeIntent(
           },
         ]);
       }
-      if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
+      if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
       actor.lifetime?.signal.throwIfAborted();
       const input = [
         ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
         ...(prepared?.input ??
           (p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input)),
       ];
+      repo.pending.submit(intent, generation);
       repo.inputs.sending(actor.id, `input:${intent.command.id}`, input, state.config.provider);
       await session.send(
         input,

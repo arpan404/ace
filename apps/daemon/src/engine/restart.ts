@@ -62,6 +62,10 @@ export function recoverEngine(
     }
     for (const intent of repo.pending.headers()) {
       if (intent.status === "running" || intent.awaiting) {
+        if (["thread.send", "thread.create", "thread.fork"].includes(intent.kind) && intent.submittedGeneration === undefined && !intent.acknowledged) {
+          repo.pending.defer(intent);
+          continue;
+        }
         if (
           !intent.acknowledged &&
           (intent.kind === "thread.send" || intent.kind === "thread.create")

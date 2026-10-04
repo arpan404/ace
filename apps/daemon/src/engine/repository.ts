@@ -535,24 +535,31 @@ export class EngineRepository {
       }
       const stoppedInputs: EventPayload[] = [];
       const state = this.requireState(id);
+      const activeRuns = new Set(Object.values(state.agents).flatMap((record) => record.activeRun ? [record.activeRun] : []));
+      for (const item of Object.values(state.items)) {
+        if (item.type === "message" && item.role === "user" && item.runId && activeRuns.has(item.runId)) {
+          const updated = { ...item, notAnswered: "stopped" as const };
+          state.items[item.id] = updated;
+          stoppedInputs.push({ type: "item.updated", item: updated });
+        }
+      }
       for (const intent of this.pending.headers(id)) {
         if (intent.status !== "running" && !intent.awaiting) continue;
+        if (!["thread.send", "thread.create", "thread.fork"].includes(intent.kind)) continue;
+        if (intent.submittedGeneration === undefined && !intent.acknowledged) {
+          this.pending.defer(intent);
+          continue;
+        }
         const key = `input:${intent.commandId}`;
         const item = state.items[key];
-        if (item?.type === "message") {
+        if (item?.type === "message" && !item.notAnswered) {
           const updated = { ...item, notAnswered: "stopped" as const };
           state.items[key] = updated;
           stoppedInputs.push({ type: "item.updated", item: updated });
         }
+        this.mark(intent, "failed", "Cancelled before delivery");
       }
       if (stoppedInputs.length) this.save(state, stoppedInputs, now);
-      this.store
-        .statement(
-          "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create','thread.fork') AND (status='running' OR awaiting=1)",
-        )
-        .run(id);
-      for (const intent of this.pending.headers(id))
-        if (this.cancelled(intent.id)) this.queue.prune(intent.id);
       this.queue.set(id, {}, now);
       return [...released];
     });

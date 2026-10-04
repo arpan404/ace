@@ -135,7 +135,7 @@ export class Engine {
       clock: this.clock,
       closing: () => this.closing,
       wake: (id) => this.wake(id),
-      expireDelivery: (actor) => this.delivery.expire(actor),
+      expireDelivery: (actor) => this.delivery.expire(actor, actor.generation - 1),
       released: (id) => {
         this.releaseDormant(id);
         this.wakeQueued();

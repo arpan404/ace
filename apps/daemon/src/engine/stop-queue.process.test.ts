@@ -105,3 +105,40 @@ test("Stop before provider startup pauses the admitted input without opening a p
     parts: [{ type: "text", text: "first request" }],
   });
 });
+
+test("Stop during checkpoint preparation returns claimed but unsent input to the stopped queue", async () => {
+  const frames = scriptFrames();
+  const entered = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  const h = await harness([], frames, { beforeSend: async () => {
+    entered.resolve(); await released.promise;
+  } });
+  cleanups.push(h.close);
+  const result = h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex",
+    input: [{ type: "text", text: "preserve me" }] }, "device", "claimed-unsent");
+  if (!result.threadId) throw new Error("No thread");
+  const flushing = h.engine.flush();
+  try {
+    await entered.promise;
+    h.command({ type: "thread.interrupt", threadId: result.threadId, cascade: true });
+  } finally { released.resolve(); }
+  await flushing;
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toEqual([]);
+  expect(h.engine.queue(result.threadId)).toMatchObject({ paused: true, reason: "stopped",
+    messages: [{ id: "claimed-unsent", state: "queued" }] });
+  expect(h.store.snapshotThread(result.threadId).items["input:claimed-unsent"]).not.toHaveProperty("notAnswered");
+});
+
+test("Stop annotates the acknowledged input owned by the interrupted run", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start)] },
+    { on: "interrupt", frames: [frames.frame({ ...end, outcome: "interrupted" })] }], frames);
+  cleanups.push(h.close);
+  const result = h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex",
+    input: [{ type: "text", text: "active request" }] }, "device", "active-input");
+  if (!result.threadId) throw new Error("No thread");
+  await h.engine.flush();
+  h.command({ type: "thread.interrupt", threadId: result.threadId, cascade: true });
+  await h.engine.flush();
+  expect(h.store.snapshotThread(result.threadId).items["input:active-input"]).toMatchObject({ notAnswered: "stopped" });
+});
