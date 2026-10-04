@@ -287,7 +287,8 @@ test("late paragraph metadata preserves the original payload and the replay payl
         : item.type === "compaction"
           ? []
           : (item.raw ?? []),
-    );
+    )
+    .concat(h.diagnostics);
   for (const marker of ["original-metadata", "replay-metadata"])
     expect(
       payloads.filter(

@@ -222,25 +222,22 @@ test("late tool history enriches a terminal child without making it live", () =>
   ).toMatchObject({ complete: true, call: { detail: { kind: "file.read", path: "old" } } });
 });
 
-test("deferred child raw payload survives once before and after identity binding", () => {
+test.each([
+  { type: "text", text: "child text" },
+  { type: "thinking", thinking: "child reasoning" },
+  { type: "future_block", payload: "child metadata" },
+])("deferred child $type raw payload survives once before and after identity binding", (block) => {
   const h = harness();
   h.init();
   h.send({
     type: "assistant",
     parent_tool_use_id: "launch",
     marker: "deferred",
-    message: { id: "raw-child", content: [{ type: "text", text: "child text" }] },
+    message: { id: "raw-child", content: [block] },
   });
   const payloads = () =>
     h
-      .items()
-      .flatMap((item) =>
-        item.type === "tool_call"
-          ? (item.call.raw ?? [])
-          : item.type === "compaction"
-            ? []
-            : (item.raw ?? []),
-      )
+      .rawPayloads()
       .filter(
         (payload) =>
           "data" in payload && JSON.stringify(payload.data)?.includes('"marker":"deferred"'),
@@ -248,13 +245,25 @@ test("deferred child raw payload survives once before and after identity binding
   expect(payloads()).toHaveLength(1);
   register(h);
   expect(payloads()).toHaveLength(1);
-  expect(
-    h
-      .items()
-      .some(
-        (item) =>
-          item.type === "message" &&
-          item.parts.some((part) => part.type === "text" && part.text === "child text"),
-      ),
-  ).toBe(true);
+  expect(h.rawPayloads()).toContainEqual(
+    expect.objectContaining({
+      data: {
+        type: "system",
+        subtype: "task_started",
+        task_id: "C",
+        tool_use_id: "launch",
+        task_type: "local_agent",
+      },
+    }),
+  );
+  if (block.type === "text") {
+    expect(h.items().find((item) => item.type === "message")).toMatchObject({
+      parts: [{ type: "text", text: "child text" }],
+    });
+  } else if (block.type === "thinking") {
+    expect(h.items().find((item) => item.type === "reasoning")).toMatchObject({
+      text: "child reasoning",
+    });
+  }
+  expect(h.items().filter((item) => item.type === "notice")).toEqual([]);
 });

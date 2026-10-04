@@ -66,6 +66,8 @@ export interface Services {
   context: ContextService;
   settings: SettingsService;
   models: ModelCatalog;
+  /** Filesystem admission completes separately from lazy metadata discovery. */
+  modelsReady?: Promise<void>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   notifications: NotificationWorker;
   review: ReturnType<typeof createDaemonReview>;

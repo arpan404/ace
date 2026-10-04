@@ -11,6 +11,65 @@ import type { Fact } from "@ace/core";
 
 afterEach(cleanupRecovery);
 
+test("inclusive Claude totals for auxiliary models cannot clear the last context sample", async () => {
+  const frames = scriptFrames();
+  const h = await fixture(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            start,
+            {
+              type: "context.sample",
+              agent: "root",
+              model: "main-model",
+              usedTokens: 12000,
+              windowTokens: 200000,
+              sessionId: "session",
+            },
+            end,
+          ),
+        ],
+      },
+    ],
+    frames,
+  );
+  const id = await h.create();
+  const root = h.store.getThread(id)?.rootAgentId;
+  if (!root) throw new Error("Missing root");
+  h.contexts[0]?.onFrame(
+    frames.frame(
+      {
+        type: "usage",
+        agent: "root",
+        usageScope: "model_session",
+        model: "auxiliary-model",
+        counterKey: "claude:session",
+        inputTokens: 100,
+        outputTokens: 10,
+        costUsd: 0.001,
+      },
+      {
+        type: "usage",
+        agent: "root",
+        usageScope: "provider_session",
+        counterKey: "claude:session",
+        inputTokens: 30000,
+        outputTokens: 1000,
+        costUsd: 0.081,
+      },
+    ),
+  );
+  await h.engine.flush();
+  expect(h.store.snapshotThread(id).contextMeters?.[root]).toMatchObject({
+    model: "main-model",
+    usedTokens: 12000,
+    windowTokens: 200000,
+    source: "provider",
+  });
+});
+
 test("context occupancy replaces samples, survives billing updates, and becomes unknown through compaction", async () => {
   const frames = scriptFrames();
   const h = await fixture(

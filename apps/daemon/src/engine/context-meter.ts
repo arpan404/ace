@@ -51,6 +51,13 @@ export class ContextMeters {
   }
   observe(state: ThreadState, events: EventPayload[], at: number, instance?: string): void {
     for (const event of events) {
+      // Inclusive model/session billing snapshots describe many samplings and models,
+      // never the current occupied context.
+      if (
+        event.type === "usage.updated" &&
+        (event.usageScope === "model_session" || event.usageScope === "provider_session")
+      )
+        continue;
       const compaction =
         (event.type === "item.created" || event.type === "item.updated") &&
         event.item.type === "compaction"

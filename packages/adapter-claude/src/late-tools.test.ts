@@ -40,14 +40,7 @@ function toolResult(h: Harness, status: string, marker: string) {
 }
 function rawCount(h: Harness, marker: string) {
   return h
-    .items()
-    .flatMap((item) =>
-      item.type === "tool_call"
-        ? (item.call.raw ?? [])
-        : item.type === "compaction"
-          ? []
-          : (item.raw ?? []),
-    )
+    .rawPayloads()
     .filter((payload) => "data" in payload && JSON.stringify(payload.data)?.includes(marker))
     .length;
 }

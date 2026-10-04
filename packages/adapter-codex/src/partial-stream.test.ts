@@ -20,11 +20,7 @@ test("unknown delta methods remain raw instead of corrupting an existing tool", 
   h.start();
   h.item({ id: "future", type: "futureTool", extra: 1 });
   h.recv("item/futureTool/delta", { threadId: "native", itemId: "future", delta: "untyped" });
-  expect(
-    Object.values(h.state.items).some(
-      (i) => i.type === "notice" && i.raw.some((r) => r.type === "item/futureTool/delta"),
-    ),
-  ).toBe(true);
+  expect(h.diagnostics.some((r) => r.type === "item/futureTool/delta")).toBe(true);
 });
 test("completion preserves the original tool name and input alongside changed result fields", () => {
   const h = setup();

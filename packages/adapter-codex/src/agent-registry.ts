@@ -1,3 +1,4 @@
+import { confirmModel } from "./model.ts";
 import { RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { Frame } from "@ace/engine-api";
@@ -71,6 +72,7 @@ export function createAgentRegistry(config: {
     const wasKnown = agents.get(id)?.known === true;
     const agent = ensure(id, true, facts, p, parent);
     agent.known = true;
+    confirmModel(agent, p["model"], facts);
     // Known threads receive frames directly; repeated metadata cannot imply newly lost history.
     const retained = wasKnown ? { frames: [], lost: false } : config.takeBuffer(id);
     const buffered = retained.frames;

@@ -8,6 +8,7 @@ export function harness() {
     config: { provider: "claude", silenceMs: 60_000 },
   });
   const events: EventPayload[] = [];
+  const diagnostics: import("@ace/protocol").RawPayload[] = [];
   const translator = createTranslator({ rootKey: "root" });
   let sequence = 0;
   let time = 0;
@@ -19,6 +20,7 @@ export function harness() {
   function send(data: unknown, channel = "sdk", dir: Frame["dir"] = "recv", now = ++time) {
     time = now;
     fold(translator.translate({ seq: sequence++, t: now, dir, channel, data }, now), now);
+    diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
   }
   function tick(now: number) {
     time = now;
@@ -28,10 +30,21 @@ export function harness() {
   return {
     state,
     events,
+    diagnostics,
     deadline: () => nextDeadline(state, translator.nextDeadline?.()),
     send,
     tick,
     items,
+    rawPayloads: () => [
+      ...diagnostics,
+      ...items().flatMap((item) =>
+        item.type === "tool_call"
+          ? (item.call.raw ?? [])
+          : item.type === "compaction"
+            ? []
+            : (item.raw ?? []),
+      ),
+    ],
     init: () => send({ type: "system", subtype: "init", session_id: "s", cwd: "/repo" }),
     result: (extra = {}) =>
       send({ type: "result", is_error: false, terminal_reason: "completed", ...extra }),

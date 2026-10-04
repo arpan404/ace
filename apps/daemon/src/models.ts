@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import {
   ModelCatalog,
   ModelInstance,
@@ -9,11 +10,12 @@ import {
   type DiscoveryOptions,
 } from "@ace/models";
 import { z } from "zod";
+import type { ClientMessage, ServerMessage, ProviderKind } from "@ace/protocol";
+import { findExecutable } from "@ace/provider-kit/discovery";
 import {
   assertTestHomeIsolation,
   assertTestEnvironmentIsolation,
 } from "@ace/provider-kit/test-isolation";
-import type { ClientMessage, ServerMessage } from "@ace/protocol";
 
 /** Shared test-only preflight for CLI, daemon startup and direct model-service callers. */
 export function assertModelTestIsolation(instances: readonly InstanceInput[]): void {
@@ -26,13 +28,53 @@ export function assertModelTestIsolation(instances: readonly InstanceInput[]): v
 }
 
 /** Local launch configuration only. Never accepted from remote socket clients. */
-export function readModelInstances(env: NodeJS.ProcessEnv = process.env): InstanceInput[] {
+export function readModelInstances(
+  env: NodeJS.ProcessEnv = process.env,
+): InstanceInput[] | undefined {
+  if (env.ACE_MODEL_INSTANCES === undefined) return undefined;
   const instances = z
     .array(ModelInstance)
     .max(64)
     .parse(JSON.parse(env.ACE_MODEL_INSTANCES ?? "[]"));
   assertModelTestIsolation(instances);
   return instances;
+}
+/** Filesystem-only admission. Actual metadata probes remain lazy, cached catalog work. */
+export async function registerDefaultModelInstances(
+  catalog: ModelCatalog,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  signal: AbortSignal,
+  registeredProviders: ReadonlySet<ProviderKind>,
+): Promise<void> {
+  if (process.env.ACE_TEST_REAL_HOME) assertTestHomeIsolation(cwd);
+  const candidates = [
+    { provider: "codex", executable: "codex" },
+    { provider: "claude", executable: "claude" },
+    { provider: "opencode", executable: "opencode" },
+    { provider: "pi", executable: "pi" },
+    { provider: "cursor", executable: "agent" },
+  ] as const;
+  const installed = await Promise.all(
+    candidates
+      .filter((candidate) => !registeredProviders.has(candidate.provider))
+      .map(async (candidate) => ({
+        provider: candidate.provider,
+        path: await findExecutable(candidate.executable, env),
+      })),
+  );
+  if (signal.aborted) return;
+  for (const candidate of installed) {
+    if (!candidate.path) continue;
+    catalog.registerInstance({
+      id: `${candidate.provider}-cli-default`,
+      provider: candidate.provider,
+      executable: candidate.path,
+      cwd,
+      // Installation identity is stable; account owners invalidate when login identity changes.
+      loginRevision: createHash("sha256").update(candidate.path).digest("hex"),
+    });
+  }
 }
 export function openDaemonModels(
   dataDir: string,
