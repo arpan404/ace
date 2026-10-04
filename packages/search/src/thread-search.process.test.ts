@@ -69,7 +69,7 @@ test("all query terms can occur in separate chunks of the same item", () => {
 // Mutations: applying the posting limit after term intersection, dropping an empty
 // page's cursor, skipping unreturned matching candidates, or repeating an item's
 // other matching chunks. Not executed (tests run at merge).
-test("bounded empty search pages continue to later matches without skipping or duplicating items", () => {
+test("bounded empty search pages continue to later matches without skipping or duplicating items", async () => {
   log.append([
     ...Array.from({ length: 150 }, () => ({
       type: "item.created" as const,
@@ -80,6 +80,10 @@ test("bounded empty search pages continue to later matches without skipping or d
       item: message("beta"),
     })),
   ]);
+  // Append bounds tail publication. Drain the prelude before larger matching
+  // items publish sealed chunks, so their postings follow the disjoint items.
+  await log.index.backfill(log, { signal: new AbortController().signal });
+  expect(query("alpha beta").ready).toBe(true);
   const matches = Array.from({ length: 4 }, () =>
     message("alpha beta " + "padding ".repeat(2500) + "alpha beta"),
   );
