@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/cn.ts";
 import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
+import { ProjectsHost } from "@/features/projects/index.ts";
 import { GlobalHotkeys, Rail, TabBar } from "@/features/shell/index.ts";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
@@ -16,26 +17,28 @@ export function AppShell() {
   // Activity's count on the rail (or the phone's tab bar): the same number its header shows.
   const badges = { activity: useNeedsYouCount() };
   return (
-    <div
-      ref={shell}
-      className={cn("relative flex h-dvh min-h-0 overflow-hidden", phone && "flex-col")}
-    >
-      <div className="wallpaper" />
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2"
+    <ProjectsHost>
+      <div
+        ref={shell}
+        className={cn("relative flex h-dvh min-h-0 overflow-hidden", phone && "flex-col")}
       >
-        Skip to content
-      </a>
-      {!phone && <Rail badges={badges} />}
-      <div className="relative z-[1] flex min-h-0 min-w-0 flex-1">
-        <Outlet />
+        <div className="wallpaper" />
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2"
+        >
+          Skip to content
+        </a>
+        {!phone && <Rail badges={badges} />}
+        <div className="relative z-[1] flex min-h-0 min-w-0 flex-1">
+          <Outlet />
+        </div>
+        {phone && <TabBar badges={badges} />}
+        <CommandPalette />
+        <GlobalHotkeys />
+        <ActivityNotifier />
       </div>
-      {phone && <TabBar badges={badges} />}
-      <CommandPalette />
-      <GlobalHotkeys />
-      <ActivityNotifier />
-    </div>
+    </ProjectsHost>
   );
 }
 

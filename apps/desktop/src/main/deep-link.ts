@@ -5,7 +5,8 @@ export const protocolScheme = "ace";
 /**
  * Parses `ace://` links:
  * `ace://thread/<id>[/item/<itemId>]`, `ace://deck[/<runId>]`, `ace://settings[/<page>]`,
- * `ace://new` and `ace://open?path=<absolute folder>`. Anything else is ignored.
+ * `ace://new` and `ace://open?folder=<absolute folder>` (`path=` is the older spelling).
+ * Anything else is ignored.
  */
 export function parseDeepLink(input: string): DeepLink | undefined {
   let url: URL;
@@ -33,7 +34,10 @@ export function parseDeepLink(input: string): DeepLink | undefined {
       case "new":
         return { kind: "new-thread" };
       case "open":
-        return { kind: "open-folder", path: url.searchParams.get("path") };
+        return {
+          kind: "open-folder",
+          path: url.searchParams.get("folder") ?? url.searchParams.get("path"),
+        };
       default:
         return undefined;
     }

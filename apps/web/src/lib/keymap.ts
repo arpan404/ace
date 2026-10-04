@@ -7,6 +7,7 @@ export const keymap = {
   palette: { keys: "mod+k", label: "Command palette" },
   newThread: { keys: "mod+n", label: "New thread" },
   newDeck: { keys: "shift+mod+n", label: "New deck" },
+  addProject: { keys: "shift+mod+o", label: "Add project" },
   back: { keys: "mod+[", label: "Back" },
   forward: { keys: "mod+]", label: "Forward" },
   toggleSidebar: { keys: "mod+\\", label: "Hide or show the sidebar" },
