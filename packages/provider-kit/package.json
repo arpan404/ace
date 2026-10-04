@@ -13,6 +13,7 @@
     "./discovery": "./src/discovery/index.ts",
     "./process-bytes": "./src/process-bytes.ts",
     "./testing": "./src/testing/cli.ts",
+    "./test-isolation": "./src/test-isolation.ts",
     "./jsonl": "./src/jsonl.ts",
     "./streams": "./src/streams.ts",
     "./idle-worker": "./src/idle-worker.ts",

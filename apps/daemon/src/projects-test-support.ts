@@ -2,7 +2,7 @@ import { once } from "node:events";
 import { execFile } from "node:child_process";
 import { spawnGitProcess as spawn } from "@ace/git";
 import { promisify } from "node:util";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -24,7 +24,7 @@ import type { GitProcessRuntime } from "@ace/git";
 
 const execute = promisify(execFile);
 export async function projectFixture(options: ProjectsOptions = {}) {
-  const root = await realpath(await mkdtemp(join(homedir(), ".ace-projects-test-")));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-projects-test-")));
   const config = join(root, "gitconfig");
   await writeFile(config, "[init]\n\tdefaultBranch = trunk\n");
   const gitOptions = {

@@ -248,7 +248,9 @@ describe("remote access", () => {
     await expect(
       accessRequest(f.server.httpUrl, "/v1/pairings", { method: "POST", token, body: {} }),
     ).rejects.toThrow("Remote access is off");
-    expect(readConfig({}).listen).toBe("local");
+    const home = mkdtempSync(join(tmpdir(), "ace-remote-default-config-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    expect(readConfig({ ACE_HOME: home }).listen).toBe("local");
   });
   it("persists device credentials and the private TLS identity across daemon restarts in LAN mode", async () => {
     const home = mkdtempSync(join(tmpdir(), "ace-remote-restart-"));

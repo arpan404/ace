@@ -1,12 +1,12 @@
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Project, type WorkspaceChanged } from "@ace/protocol";
 import { setup, ready } from "./test-support.ts";
 
 test("client projects and long-thread requests coexist while updating another client live", async () => {
-  const root = await mkdtemp(join(homedir(), ".ace-client-projects-"));
+  const root = await mkdtemp(join(tmpdir(), "ace-client-projects-"));
   const f = await setup(undefined, undefined, undefined, undefined, {
     home: root,
     roots: async () => [root],
