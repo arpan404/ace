@@ -233,3 +233,5 @@ lock and releases it on child close, reproducing the failure before the competin
 writer publishes a new SHA. The settings regression drives the missing-directory
 poll and debounce scheduler explicitly. Reconciliation no longer relies on
 `watchFile` observing its first missing-file sample before directory creation.
+
+The PR #91 review follow-up follows the owner’s newer merge-only execution rule. No tests, probes, mutation runs or benchmarks were executed for those follow-up changes. See [the static review and merge-time mutation plan](hardening-review.md).
