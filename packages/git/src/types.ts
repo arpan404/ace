@@ -29,6 +29,7 @@ export type GitErrorCode =
   | "hook_failed"
   | "auth_failed"
   | "git_timeout"
+  | "git_cancelled"
   | "git_closed"
   | "git_busy"
   | "malformed_output"

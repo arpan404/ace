@@ -460,6 +460,7 @@
     "packages/git": {
       "name": "@ace/git",
       "dependencies": {
+        "@ace/protocol": "workspace:*",
         "zod": "^4.6.5",
       },
       "devDependencies": {

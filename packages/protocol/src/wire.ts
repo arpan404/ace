@@ -1,3 +1,9 @@
+import {
+  ProjectsRequest,
+  ProjectsResult,
+  WorkspaceChanged,
+  WorkspaceCloneProgress,
+} from "./projects.ts";
 import { MachinesRequest, MachinesResult } from "./machines.ts";
 import { PreviewRequest, PreviewResult } from "./preview-client.ts";
 import { ConductorRequest, ConductorResult, ConductorChanged } from "./conductor-client.ts";
@@ -111,6 +117,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
 
   RegistryRequest,
   WorkspaceActionRequest,
+  ProjectsRequest,
   TerminalRequest,
   TerminalCredit,
   PluginClientMessage,
@@ -161,6 +168,9 @@ export const ServerMessage = z.discriminatedUnion("type", [
 
   RegistryResult,
   WorkspaceActionResult,
+  ProjectsResult,
+  WorkspaceChanged,
+  WorkspaceCloneProgress,
   TerminalResult,
   TerminalOutput,
   PluginServerMessage,

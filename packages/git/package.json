@@ -13,6 +13,7 @@
     "benchmark:diff": "node benchmark-diff.ts"
   },
   "dependencies": {
+    "@ace/protocol": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {

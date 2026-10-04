@@ -8,6 +8,8 @@ import { count, decode } from "./decode.ts";
 import { GitError, toGitError, type GitOptions, type GitProcessRuntime } from "./types.ts";
 
 interface CallOptions {
+  signal?: AbortSignal;
+  stderr?: (chunk: Buffer) => void;
   write?: boolean;
   env?: Record<string, string>;
   input?: Buffer | string | Readable;
@@ -84,6 +86,7 @@ export class GitCli {
       throw error;
     });
     await this.ready;
+    options.signal?.throwIfAborted();
     return this.execute(cwd, args, options);
   }
 
@@ -147,6 +150,12 @@ export class GitCli {
         kill();
       };
       this.cancellations.add(cancel);
+      const abort = () => {
+        failure ??= new GitError("git_cancelled", "Git operation cancelled");
+        kill();
+      };
+      options.signal?.addEventListener("abort", abort, { once: true });
+      if (options.signal?.aborted) abort();
       const fail = (error: unknown) => {
         if (failure) return;
         failure = toGitError(error);
@@ -183,6 +192,11 @@ export class GitCli {
         }
       };
       const stderrData = (chunk: Buffer) => {
+        try {
+          options.stderr?.(chunk);
+        } catch (error) {
+          fail(error);
+        }
         diagnostics.accept(chunk);
         const keep = Math.min(chunk.length, Math.max(0, 65_536 - errorBytes));
         if (keep) errors.push(Buffer.from(chunk.subarray(0, keep)));
@@ -197,6 +211,7 @@ export class GitCli {
       child.once("close", async (code) => {
         cancelDeadline();
         this.cancellations.delete(cancel);
+        options.signal?.removeEventListener("abort", abort);
         if (stopping) await stopping;
         if (options.input instanceof Readable) {
           options.input.unpipe(child.stdin);
