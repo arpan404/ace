@@ -25,7 +25,7 @@ export interface StartupRuntime {
 }
 export const systemStartup: StartupRuntime = {
   timeoutMs: 15_000,
-  cleanupTimeoutMs: 30_000,
+  cleanupTimeoutMs: 8_000,
   schedule(_name, expire, milliseconds) {
     const timer = setTimeout(expire, milliseconds);
     return () => clearTimeout(timer);
@@ -77,7 +77,7 @@ function boundedCleanup(
   return bounded(
     name,
     () => resources.close(),
-    { ...runtime, timeoutMs: runtime.cleanupTimeoutMs ?? 30_000 },
+    { ...runtime, timeoutMs: runtime.cleanupTimeoutMs ?? 8_000 },
     undefined,
     "cleanup",
   );

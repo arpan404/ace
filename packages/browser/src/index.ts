@@ -18,3 +18,5 @@ export { acquireChromium, type ChromiumAcquisitionOptions } from "./acquisition.
 export { chromiumArtifact, ChromiumArtifact } from "./chromium-manifest.ts";
 
 export type { ChromiumCleanupRuntime } from "./chromium-close.ts";
+
+export { chromiumProcessKiller, type KillCommand } from "./chromium-process.ts";

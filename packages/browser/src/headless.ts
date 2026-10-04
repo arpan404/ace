@@ -44,7 +44,7 @@ export class HeadlessBackend implements BrowserBackend {
       handleSIGTERM: false,
       handleSIGHUP: false,
     });
-    const closeContext = await chromiumCloser(context, this.cleanup);
+    const closer = chromiumCloser(context, this.cleanup);
     const sessionLifetime = new AbortController();
     const sessionSignal = AbortSignal.any([request.signal, sessionLifetime.signal]);
     let closed = false;
@@ -58,7 +58,7 @@ export class HeadlessBackend implements BrowserBackend {
       guard?.close();
       // Cancellation and explicit teardown share the original process-close promise.
       // Repeated Playwright closes can otherwise finish before that shutdown completes.
-      closing = closeContext();
+      closing = closer.close();
       return closing;
     };
     const abort = () => {
@@ -66,6 +66,8 @@ export class HeadlessBackend implements BrowserBackend {
     };
     request.signal.addEventListener("abort", abort, { once: true });
     try {
+      request.signal.throwIfAborted();
+      await closer.ready(sessionSignal);
       request.signal.throwIfAborted();
       await context.clearPermissions();
       await context.routeWebSocket("**/*", async (route) => {

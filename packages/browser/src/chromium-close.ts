@@ -1,80 +1,63 @@
-import { execFileSync } from "node:child_process";
+import { chromiumProcessKiller } from "./chromium-process.ts";
 import type { BrowserContext } from "playwright-core";
 import { z } from "zod";
 
 export interface ChromiumCleanupRuntime {
   timeoutMs: number;
+  probeTimeoutMs: number;
   schedule(expire: () => void, milliseconds: number): () => void;
-  kill(pid: number): void;
+  kill(pid: number): void | Promise<void>;
   onTimeout?(message: string): void;
 }
 const systemCleanup: ChromiumCleanupRuntime = {
   timeoutMs: 5_000,
+  probeTimeoutMs: 2_000,
   schedule(expire, milliseconds) {
     const timer = setTimeout(expire, milliseconds);
     return () => clearTimeout(timer);
   },
-  kill(pid) {
-    if (process.platform === "win32") {
-      execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
-        timeout: 1000,
-        windowsHide: true,
-        stdio: "ignore",
-      });
-    } else {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
-      }
-    }
-  },
+  kill: chromiumProcessKiller(process.platform),
 };
 const ProcessInfo = z.object({
   processInfo: z.array(z.object({ type: z.string(), id: z.number().int().positive() })).max(4096),
 });
 
-/** Capture the owned process identity while CDP is live, before a stalled close. */
-export async function chromiumCloser(
+/** Own teardown immediately, before any asynchronous identity discovery. */
+export function chromiumCloser(
   context: BrowserContext,
   overrides: Partial<ChromiumCleanupRuntime> = {},
 ) {
   const runtime = { ...systemCleanup, ...overrides };
-  if (!Number.isSafeInteger(runtime.timeoutMs) || runtime.timeoutMs < 1)
-    throw new Error("Invalid Chromium cleanup deadline");
   const browser = context.browser();
-  if (!browser) throw new Error("Chromium process unavailable");
-  const cdp = await browser.newBrowserCDPSession();
   let pid: number | undefined;
-  try {
-    const data: unknown = await cdp.send("SystemInfo.getProcessInfo");
-    pid = ProcessInfo.parse(data).processInfo.find((info) => info.type === "browser")?.id;
-  } finally {
-    await cdp.detach();
-  }
-  if (pid === undefined) throw new Error("Chromium process identity unavailable");
-  const ownedPid = pid;
   let closing: Promise<void> | undefined;
-  return () => {
+  const report = (message: string) => {
+    try {
+      runtime.onTimeout?.(message);
+    } catch {
+      /* Observers cannot fail teardown. */
+    }
+  };
+  const close = (): Promise<void> => {
     closing ??= (async () => {
       let cancel: (() => void) | undefined;
-      const forced = new Promise<void>((resolve, reject) => {
+      const forced = new Promise<void>((resolve) => {
         cancel = runtime.schedule(() => {
-          try {
-            if (browser.isConnected()) runtime.kill(ownedPid);
-            // Dispose the Playwright connection too, so pending CDP calls settle.
-            void browser.close({ reason: "Chromium cleanup deadline" }).catch(() => {});
+          void (async () => {
             try {
-              runtime.onTimeout?.(
-                `Chromium cleanup exceeded ${runtime.timeoutMs}ms; force-killed browser`,
+              if (pid !== undefined && browser?.isConnected()) await runtime.kill(pid);
+              report(
+                `Chromium cleanup exceeded ${runtime.timeoutMs}ms; ${pid === undefined ? "process identity unavailable" : "force-killed browser"}`,
               );
-            } catch {
-              /* Observers cannot turn a forced cleanup into a failure. */
+            } catch (error) {
+              report(
+                `Chromium cleanup exceeded ${runtime.timeoutMs}ms; termination failed: ${String(error)}`,
+              );
+            } finally {
+              void browser?.close({ reason: "Chromium cleanup deadline" }).catch(() => {});
+              resolve();
             }
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
+          })();
         }, runtime.timeoutMs);
       });
       try {
@@ -85,4 +68,37 @@ export async function chromiumCloser(
     })();
     return closing;
   };
+  const ready = async (signal: AbortSignal): Promise<void> => {
+    for (const milliseconds of [runtime.timeoutMs, runtime.probeTimeoutMs])
+      if (!Number.isSafeInteger(milliseconds) || milliseconds < 1)
+        throw new Error("Invalid Chromium cleanup deadline");
+    signal.throwIfAborted();
+    let cancel: (() => void) | undefined;
+    const aborted = Promise.withResolvers<never>();
+    const abort = () => aborted.reject(new Error("Chromium process identity cancelled"));
+    signal.addEventListener("abort", abort, { once: true });
+    cancel = runtime.schedule(
+      () => aborted.reject(new Error("Chromium process identity deadline exceeded")),
+      runtime.probeTimeoutMs,
+    );
+    const probe = async () => {
+      if (!browser) throw new Error("Chromium process unavailable");
+      const cdp = await browser.newBrowserCDPSession();
+      try {
+        signal.throwIfAborted();
+        const data: unknown = await cdp.send("SystemInfo.getProcessInfo");
+        pid = ProcessInfo.parse(data).processInfo.find((info) => info.type === "browser")?.id;
+        if (pid === undefined) throw new Error("Chromium process identity unavailable");
+      } finally {
+        void cdp.detach().catch(() => {});
+      }
+    };
+    try {
+      await Promise.race([probe(), aborted.promise]);
+    } finally {
+      cancel?.();
+      signal.removeEventListener("abort", abort);
+    }
+  };
+  return { ready, close };
 }

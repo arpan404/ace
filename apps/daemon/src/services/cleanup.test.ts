@@ -33,7 +33,7 @@ test("service cleanup uses its own deadline and names cleanup in its failure", a
     },
     {
       timeoutMs: 15_000,
-      cleanupTimeoutMs: 30_000,
+      cleanupTimeoutMs: 8_000,
       schedule(_name, callback, delay) {
         expire = callback;
         milliseconds = delay;
@@ -67,9 +67,9 @@ test("service cleanup uses its own deadline and names cleanup in its failure", a
     const delay = milliseconds;
     expire?.();
     expect(await failure).toMatchObject({
-      errors: [expect.objectContaining({ message: "Service browser cleanup exceeded 30000ms" })],
+      errors: [expect.objectContaining({ message: "Service browser cleanup exceeded 8000ms" })],
     });
-    expect(delay).toBe(30_000);
+    expect(delay).toBe(8_000);
   } finally {
     release.resolve();
     await store.close();
