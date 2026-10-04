@@ -73,7 +73,8 @@ test("on a phone a panel covers the thread as a sheet with its own close", async
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).queryByRole("separator", { name: /Resize/ })).toBeNull();
-  await userEvent.click(within(panel).getByRole("button", { name: "Close thread panel" }));
+  // The sheet covers the header, so it carries the panel toggle itself.
+  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
@@ -83,10 +84,10 @@ test("below 1100px the sidebar steps aside for the right panel and comes back wh
   expect(sidebar()).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
-  await screen.findByRole("region", { name: "Thread panel" });
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
   await waitFor(() => expect(sidebar()).toBeNull());
 
-  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
   await waitFor(() => expect(sidebar()).toBeTruthy());
 });
 

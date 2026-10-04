@@ -375,3 +375,18 @@ test("snoozing from the ⋯ menu snoozes it on the daemon and confirms until whe
     view?.kind === "threads" && view.threads["thread-replay-cursor"]?.snoozedUntil,
   ).toBeGreaterThan(Date.now());
 });
+
+test("the summary shows the thread at a glance and opens the tool for each part", async () => {
+  await openThread("checkout");
+  await userEvent.click(screen.getByRole("button", { name: "Thread summary" }));
+  const agents = await screen.findByRole("button", { name: /^Agents/ });
+  await waitFor(() => expect(agents.textContent).toMatch(/\d+ (working|done|waiting)/));
+  expect(screen.getByRole("button", { name: /^Background/ }).textContent).toMatch(
+    /running|Nothing running/,
+  );
+
+  await userEvent.click(agents);
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Background/ })).toBeNull());
+});

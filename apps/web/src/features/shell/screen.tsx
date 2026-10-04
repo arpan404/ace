@@ -1,64 +1,77 @@
 import { useRef, useState } from "react";
 import type { ReactNode, UIEvent } from "react";
-import { useHotkey } from "@/lib/hotkeys.ts";
-import { keymap } from "@/lib/keymap.ts";
-import { useLayout } from "@/lib/layout.tsx";
 import { useToastAnchor } from "@/lib/toast-clearance.ts";
+import type { WorkspaceDefinition } from "@/lib/workspace/index.ts";
 import { AppHeader, type HeaderProps } from "./app-header.tsx";
 import { ConnectionNotice } from "./connection-notice.tsx";
-import { ShellPanel, type PanelDefinition } from "./panels.tsx";
+import { Workspace } from "./workspace/workspace.tsx";
+
+/** A screen's docks: the resources opened beside it, kept per `scope` (a thread's id). */
+export interface ScreenWorkspace {
+  scope: string;
+  definition: WorkspaceDefinition;
+}
 
 /**
- * The main column of every route: the shared header, the content and, where a screen has
- * them, the right and bottom panels. Slices fill `children` and the panel tabs; the frame,
- * keyboard map and persistence are the shell's.
+ * The main column of every route: the shared header, the content and, where a screen has a
+ * workspace, the side and bottom docks. Slices fill `children` and register tab kinds; the
+ * frame, keyboard map, persistence and motion are the shell's.
  */
 export function Screen(
   props: HeaderProps & {
-    right?: PanelDefinition;
-    bottom?: PanelDefinition;
+    workspace?: ScreenWorkspace | undefined;
     children: ReactNode;
   },
 ) {
   const [scrolled, setScrolled] = useState(false);
-  const { togglePanel } = useLayout();
   const pane = useRef<HTMLElement>(null);
-  // Toasts stand in this pane's bottom-right corner, clear of the panels beside and below it.
+  // Toasts stand in this pane's bottom-right corner, clear of the docks beside and below it.
   useToastAnchor(pane);
-  useHotkey(keymap.bottomPanel.keys, () => togglePanel("bottom"), { enabled: !!props.bottom });
   // Any scroller inside the content draws the header hairline once it leaves the top.
   const onScroll = (event: UIEvent) => {
     const target = event.target;
     if (target instanceof HTMLElement) setScrolled(target.scrollTop > 0);
   };
+  const main = (
+    <main
+      ref={pane}
+      id="main"
+      tabIndex={-1}
+      onScrollCapture={onScroll}
+      className="relative min-h-0 flex-1 outline-none"
+    >
+      {props.children}
+    </main>
+  );
+  const header = (trailing?: ReactNode) => (
+    <AppHeader
+      title={props.title}
+      subtitle={props.subtitle}
+      menu={props.menu}
+      summary={props.summary}
+      actions={props.actions}
+      scrolled={scrolled}
+      trailing={trailing}
+    />
+  );
+  if (!props.workspace)
+    return (
+      <>
+        {header()}
+        <ConnectionNotice />
+        <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
+      </>
+    );
   return (
-    <>
-      <AppHeader
-        title={props.title}
-        subtitle={props.subtitle}
-        menu={props.menu}
-        actions={props.actions}
-        scrolled={scrolled}
-        panels={{ right: !!props.right, bottom: !!props.bottom }}
-      />
-      <ConnectionNotice />
-      {/* Relative: on narrow windows the panels float over this area. */}
-      <div className="relative flex min-h-0 flex-1">
-        <div className="relative flex min-w-0 flex-1 flex-col">
-          <main
-            ref={pane}
-            id="main"
-            tabIndex={-1}
-            onScrollCapture={onScroll}
-            className="relative min-h-0 flex-1 outline-none"
-          >
-            {props.children}
-          </main>
-          {props.bottom && <ShellPanel side="bottom" panel={props.bottom} />}
-        </div>
-        {props.right && <ShellPanel side="right" panel={props.right} />}
-      </div>
-    </>
+    <Workspace
+      scope={props.workspace.scope}
+      definition={props.workspace.definition}
+      title={props.title}
+      header={header}
+      notice={<ConnectionNotice />}
+    >
+      {main}
+    </Workspace>
   );
 }
 
