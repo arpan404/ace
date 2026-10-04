@@ -107,6 +107,20 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
                   run: run(() => docks.toggleKind("terminal")),
                 } satisfies PaletteCommand,
                 {
+                  id: "open-file",
+                  label: "Open a file from the checkout",
+                  keys: keymap.files.keys,
+                  icon: "action",
+                  run: run(() => docks.shortcut("files")),
+                } satisfies PaletteCommand,
+                {
+                  id: "open-browser",
+                  label: "Open the browser",
+                  keys: keymap.browser.keys,
+                  icon: "action",
+                  run: run(() => docks.shortcut("browser")),
+                } satisfies PaletteCommand,
+                {
                   id: "toggle-right",
                   label: `${workspace.right.open ? "Hide" : "Show"} side panel`,
                   keys: keymap.rightPanel.keys,

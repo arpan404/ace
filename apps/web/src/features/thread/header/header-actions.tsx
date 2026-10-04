@@ -1,22 +1,18 @@
 import {
   ArrowSquareOutIcon,
-  CodeIcon,
-  CursorIcon,
-  FileCodeIcon,
   GitCommitIcon,
   GitDiffIcon,
   GitPullRequestIcon,
-  LightningIcon,
   PaperPlaneTiltIcon,
   PlayIcon,
   UploadSimpleIcon,
-  type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { useClient } from "@ace/client-react";
 import { nextGitStep, prBlocker, type GitStep } from "@ace/ui-core";
 import { useMutation } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import { launchEditor } from "@/boot/editor-launch.ts";
+import { EditorIcon } from "@/components/editor-icon.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -108,12 +104,6 @@ export function RunButton(props: { thread: ThreadRef }) {
   );
 }
 
-const editorIcons: Record<string, PhosphorIcon> = {
-  code: CodeIcon,
-  cursor: CursorIcon,
-  zed: LightningIcon,
-};
-
 /** Open: the checkout in this device's default editor; the picker changes the default. */
 export function OpenButton(props: { thread: ThreadRef }) {
   const sources = useThreadSources();
@@ -136,10 +126,9 @@ export function OpenButton(props: { thread: ThreadRef }) {
     onError: (error) =>
       toast.add({ title: "Couldn't open the editor", description: error.message }),
   });
-  const Glyph = editorIcons[current?.id ?? ""] ?? FileCodeIcon;
   return (
     <SplitButton
-      icon={<Glyph aria-hidden size={16} className="text-foreground" />}
+      icon={<EditorIcon id={current?.id} className="text-foreground" />}
       label="Open"
       actionLabel={
         current
@@ -150,11 +139,10 @@ export function OpenButton(props: { thread: ThreadRef }) {
       disabled={!current || open.isPending}
       onAction={() => current && open.mutate(current.id)}
       menu={editors?.map((editor) => {
-        const Icon = editorIcons[editor.id] ?? FileCodeIcon;
         return (
           <MenuItem
             key={editor.id}
-            icon={<Icon aria-hidden size={16} />}
+            icon={<EditorIcon id={editor.id} />}
             onClick={() => open.mutate(editor.id)}
           >
             {editor.name}

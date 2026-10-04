@@ -15,7 +15,7 @@ import {
 import { HeaderNav } from "../app-header.tsx";
 import { bottomBounds, rightBounds } from "./bounds.ts";
 import { DockControls, loadOpenTabs } from "./dock-controls.tsx";
-import { useElementSize } from "./use-size.ts";
+import { useElementSize } from "@/lib/element-size.ts";
 import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
 
 // The docks (strip, tabs, menus, views) load the first time one shows, warmed while idle after
@@ -38,6 +38,21 @@ function DockWhenReady(props: { definition: WorkspaceDefinition; children: React
     };
   }, [ready, props.definition]);
   return ready ? props.children : null;
+}
+
+/** Each kind's overlay (a palette its shortcut opens), once the kinds have loaded. */
+function KindOverlays(props: { scope: string; definition: WorkspaceDefinition }) {
+  return (
+    <DockWhenReady definition={props.definition}>
+      <Overlays {...props} />
+    </DockWhenReady>
+  );
+}
+
+function Overlays(props: { scope: string; definition: WorkspaceDefinition }) {
+  return props.definition
+    .kinds()
+    .map((kind) => (kind.Overlay ? <kind.Overlay key={kind.kind} scope={props.scope} /> : null));
 }
 
 /** The header row's height (`--header-h`), which the bottom dock's limit leaves room for. */
@@ -131,6 +146,7 @@ export function Workspace(props: {
   return (
     <div ref={outer} className="relative flex min-h-0 flex-1 flex-col">
       <WorkspaceHotkeys workspace={workspace} definition={definition} actions={actions} />
+      <KindOverlays scope={scope} definition={definition} />
       <div className="relative flex min-h-0 flex-1">
         {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
         <div hidden={expanded} className="relative flex min-w-0 flex-1 flex-col">

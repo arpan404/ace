@@ -1,5 +1,6 @@
 import {
   BrowserIcon,
+  GlobeSimpleIcon,
   ChatsCircleIcon,
   DeviceMobileIcon,
   FilesIcon,
@@ -10,7 +11,20 @@ import {
   TreeStructureIcon,
 } from "@phosphor-icons/react";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
+import { addressHost } from "@ace/ui-core";
+import { LoadingBadge } from "./browser/loading-badge.tsx";
+import { bindPage, nextBrowserId, pageOwners, setLoading } from "./browser/loading.ts";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
+import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
+import { quickOpen } from "./files/quick-open-store.ts";
+import { fileTabId } from "./files/tab-id.ts";
+
+/** A string field of a tab's data, read defensively: tab data comes from storage. */
+function field(data: unknown, name: "path" | "url"): string | undefined {
+  if (typeof data !== "object" || data === null || !(name in data)) return undefined;
+  const value: unknown = Reflect.get(data, name);
+  return typeof value === "string" ? value : undefined;
+}
 
 /*
  * The thread workspace's tab kinds: the tools and resources that open beside a conversation.
@@ -31,8 +45,6 @@ export const changesKind = defineTabKind({
   launcher: 10,
   Badge: (props) => <ThreadDiffStat threadId={props.scope} />,
   load: () => views().then((m) => ({ default: m.ChangesView })),
-  // A file the agents edited opens where its diff is (a Files tool can claim this later).
-  fromFile: (path) => ({ kind: "changes", data: { path } }),
 });
 
 export const terminalKind = defineTabKind({
@@ -46,13 +58,23 @@ export const terminalKind = defineTabKind({
   load: () => views().then((m) => ({ default: m.TerminalView, Actions: m.TerminalActions })),
 });
 
+/**
+ * Files of the thread's checkout: one tab per file (the empty one is "Open file"), each with the
+ * tree beside it. ⌘P opens the quick-open palette rather than toggling a tab.
+ */
 export const filesKind = defineTabKind({
   kind: "files",
   label: "Files",
   icon: FilesIcon,
-  singleton: true,
   launcher: 30,
-  load: () => import("./placeholders.tsx").then((m) => ({ default: m.FilesPlaceholder })),
+  title: (tab) => {
+    const path = field(tab.data, "path");
+    return path ? (path.split("/").at(-1) ?? path) : "Open file";
+  },
+  load: () => import("./files/file-tab.tsx"),
+  fromFile: (path) => ({ kind: "files", id: fileTabId(path), data: { path } }),
+  onShortcut: (scope) => quickOpen.set(() => scope),
+  Overlay: QuickOpenOverlay,
 });
 
 export const sideChatKind = defineTabKind({
@@ -64,6 +86,30 @@ export const sideChatKind = defineTabKind({
   load: () => import("./placeholders.tsx").then((m) => ({ default: m.SideChatPlaceholder })),
 });
 
+/**
+ * A page in the thread's browser: one tab per page, each with its own address and history over
+ * the thread's single live page. Addresses from the launcher open here.
+ */
+export const browserKind = defineTabKind({
+  kind: "browser",
+  label: "Browser",
+  icon: GlobeSimpleIcon,
+  launcher: 45,
+  title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "New page",
+  Badge: LoadingBadge,
+  load: () => import("./browser/browser-tab.tsx"),
+  fromUrl: (url, workspace) => ({
+    kind: "browser",
+    id: nextBrowserId([...workspace.right.tabs, ...workspace.bottom.tabs].map((tab) => tab.key)),
+    data: { url, go: true },
+  }),
+  onClose: (scope, tab) => {
+    setLoading(scope, tab.key, false);
+    // The page stays open for the thread's agents; it just has no tab driving it now.
+    if (pageOwners.get().get(scope) === tab.key) bindPage(scope, undefined);
+  },
+});
+
 export const previewKind = defineTabKind({
   kind: "preview",
   label: "Preview",
@@ -71,7 +117,6 @@ export const previewKind = defineTabKind({
   singleton: true,
   launcher: 50,
   load: () => views().then((m) => ({ default: m.PreviewView })),
-  fromUrl: (url) => ({ kind: "preview", data: { url } }),
 });
 
 export const devicesKind = defineTabKind({
@@ -119,6 +164,7 @@ export const threadKinds: readonly TabKind[] = [
   terminalKind,
   filesKind,
   sideChatKind,
+  browserKind,
   previewKind,
   devicesKind,
   agentsKind,

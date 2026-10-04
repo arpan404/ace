@@ -74,7 +74,7 @@ test("Open hands the daemon's validated editor launch to this machine", async ({
   expect(opened.at(-1)).toMatch(new RegExp(`^zed://file/.*/${workspaceName}$`));
 });
 
-test("Preview offers a browser, and no port preview when the daemon runs no gateway", async ({
+test("Preview points at the Browser, and offers no port preview when the daemon runs no gateway", async ({
   page,
 }) => {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
@@ -92,7 +92,30 @@ test("Preview offers a browser, and no port preview when the daemon runs no gate
     .getByRole("list", { name: "Tools" })
     .getByRole("button", { name: /^Preview/ })
     .click();
-  await expect(panel.getByRole("button", { name: "Open a browser" })).toBeEnabled();
   // The e2e daemon, like `ace` itself, starts without a preview gateway (ADR 0008).
+  await expect(
+    panel.getByText("This daemon runs no preview gateway", { exact: false }),
+  ).toBeVisible();
   await expect(panel.getByRole("form", { name: "Preview a dev server" })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Open the Browser" })).toBeEnabled();
+});
+
+test("⌘P finds a file in a real checkout and opens its source", async ({ page }) => {
+  const token = readFileSync(daemonTokenPath, "utf8").trim();
+  await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
+  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  const threads = page.getByRole("navigation", { name: "Threads" });
+  await threads.getByRole("link", { name: new RegExp(previewTitle) }).click();
+  await expect(page.getByRole("heading", { level: 1, name: previewTitle })).toBeVisible();
+
+  // The daemon's path index finds it; the files channel reads it from the thread's checkout.
+  await page.keyboard.press("ControlOrMeta+p");
+  await page.getByRole("combobox", { name: "Search files" }).fill("package");
+  await expect(page.getByRole("option", { name: /package\.json/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  const panel = page.getByRole("region", { name: "Thread panel" });
+  await expect(panel.getByRole("tab", { name: "package.json", selected: true })).toBeVisible();
+  await expect(panel.getByRole("region", { name: "Source of package.json" })).toContainText(
+    '"name": "e2e-project"',
+  );
 });

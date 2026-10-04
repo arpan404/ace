@@ -20,9 +20,10 @@ import {
   type TabKind,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
+import { AddressBar } from "../browser/address-bar.tsx";
 import { useTurns } from "../changes/use-turns.ts";
 import type { PreviewSource } from "../sources.ts";
-import { usePanelServices } from "../services.ts";
+import { useLoadedServices, usePanelServices } from "../services.ts";
 import { WithServices } from "../with-services.tsx";
 import {
   fileSuggestions,
@@ -63,71 +64,107 @@ export function LauncherTab(props: TabViewProps) {
   };
   const other = props.dock === "right" ? "bottom" : "right";
   const kindFor = (claim: "fromFile" | "fromUrl") => tools.find((kind) => kind[claim]);
+  const openUrl = (url: string) => {
+    const kind = kindFor("fromUrl");
+    if (kind?.fromUrl) openHere(kind.fromUrl(url, store.get(props.scope)));
+  };
   return (
-    <div className="@container h-full overflow-auto">
-      <div className="mx-auto flex w-full max-w-[640px] flex-col px-6 pt-10 pb-12">
-        <h2 className={heading}>Tools</h2>
-        <ul
-          aria-label="Tools"
-          className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 @min-[30rem]:grid-cols-2"
-        >
-          {tools.map((kind) => {
-            const keys = definition?.shortcut(kind.kind);
-            return (
-              <li key={kind.kind} className="relative min-w-0">
-                <button
-                  type="button"
-                  className={cn(card, kind.docks.includes(other) && "pr-11")}
-                  onPointerEnter={kind.preload}
-                  onFocus={kind.preload}
-                  onClick={() => openHere({ kind: kind.kind })}
-                >
-                  <Icon icon={kind.icon} size={16} className="text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">{kind.label}</span>
-                  {keys && <Kbd keys={keymap[keys].keys} />}
-                </button>
-                {kind.docks.includes(other) && (
-                  <DockMenu
-                    kind={kind}
-                    dock={other}
-                    onOpen={() => {
-                      const existing = findTab(store.get(props.scope), kind.kind);
-                      if (existing) actions.moveToDock(existing.tab.key, other);
-                      else actions.open({ kind: kind.kind, dock: other });
-                    }}
-                  />
-                )}
-              </li>
-            );
-          })}
-          <li className="min-w-0">
-            <button type="button" className={card} onClick={() => void navigate({ to: "/deck" })}>
-              <Icon icon={KanbanIcon} size={16} className="text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">Deck</span>
-              <ArrowUpRightIcon
-                aria-label="Opens the Deck view"
-                size={14}
-                className="text-subtle-foreground"
-              />
-            </button>
-          </li>
-        </ul>
-        <WithServices quiet>
-          <Suggested
-            threadId={props.scope}
-            onFile={(file) => {
-              const kind = kindFor("fromFile");
-              if (kind?.fromFile) openHere(kind.fromFile(file.path));
-            }}
-            onUrl={(url) => {
-              const kind = kindFor("fromUrl");
-              if (kind?.fromUrl) openHere(kind.fromUrl(url.url));
-            }}
-          />
-        </WithServices>
+    <div className="@container flex h-full flex-col">
+      {kindFor("fromUrl") && (
+        <div className="flex h-10 shrink-0 items-center border-b px-2">
+          <LauncherAddress threadId={props.scope} onGo={openUrl} />
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="mx-auto flex w-full max-w-[640px] flex-col px-6 pt-10 pb-12">
+          <h2 className={heading}>Tools</h2>
+          <ul
+            aria-label="Tools"
+            className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 @min-[30rem]:grid-cols-2"
+          >
+            {tools.map((kind) => {
+              const keys = definition?.shortcut(kind.kind);
+              return (
+                <li key={kind.kind} className="relative min-w-0">
+                  <button
+                    type="button"
+                    className={cn(card, kind.docks.includes(other) && "pr-11")}
+                    onPointerEnter={kind.preload}
+                    onFocus={kind.preload}
+                    onClick={() => openHere({ kind: kind.kind })}
+                  >
+                    <Icon icon={kind.icon} size={16} className="text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{kind.label}</span>
+                    {keys && <Kbd keys={keymap[keys].keys} />}
+                  </button>
+                  {kind.docks.includes(other) && (
+                    <DockMenu
+                      kind={kind}
+                      dock={other}
+                      onOpen={() => {
+                        const existing = findTab(store.get(props.scope), kind.kind);
+                        if (existing) actions.moveToDock(existing.tab.key, other);
+                        else actions.open({ kind: kind.kind, dock: other });
+                      }}
+                    />
+                  )}
+                </li>
+              );
+            })}
+            <li className="min-w-0">
+              <button type="button" className={card} onClick={() => void navigate({ to: "/deck" })}>
+                <Icon icon={KanbanIcon} size={16} className="text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">Deck</span>
+                <ArrowUpRightIcon
+                  aria-label="Opens the Deck view"
+                  size={14}
+                  className="text-subtle-foreground"
+                />
+              </button>
+            </li>
+          </ul>
+          <WithServices quiet>
+            <Suggested
+              threadId={props.scope}
+              onFile={(file) => {
+                const kind = kindFor("fromFile");
+                if (kind?.fromFile) openHere(kind.fromFile(file.path));
+              }}
+              onUrl={(url) => openUrl(url.url)}
+            />
+          </WithServices>
+        </div>
       </div>
     </div>
   );
+}
+
+/**
+ * The new tab's address bar: an address opens the Browser in this tab's place. It suggests the
+ * thread's dev servers once the panel services have loaded.
+ */
+function LauncherAddress(props: { threadId: string; onGo(url: string): void }) {
+  const services = useLoadedServices();
+  const bar = (known: readonly UrlSuggestion[]) => (
+    <AddressBar
+      className="mx-auto w-full max-w-[768px] flex-1"
+      url={undefined}
+      known={known.map((each) => ({ url: each.url, label: each.label, detail: each.detail }))}
+      loading={false}
+      autoFocus
+      onGo={props.onGo}
+    />
+  );
+  if (!services) return bar([]);
+  return <KnownAddresses source={services.preview} threadId={props.threadId} render={bar} />;
+}
+
+function KnownAddresses(props: {
+  source: PreviewSource;
+  threadId: string;
+  render(known: readonly UrlSuggestion[]): React.ReactNode;
+}) {
+  return props.render(usePreviewSuggestions(props.source, props.threadId));
 }
 
 /** A tool that can also sit in the other dock offers to open there ("Open in bottom panel"). */

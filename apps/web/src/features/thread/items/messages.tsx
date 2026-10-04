@@ -4,7 +4,7 @@ import { FileIcon, GitForkIcon } from "@phosphor-icons/react";
 import { useCallback } from "react";
 import { formatClock } from "@ace/ui-core";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Prose } from "../markdown/prose.tsx";
+import { Prose } from "@/components/markdown/prose.tsx";
 import { forkPointOf } from "../transitions/fork-point.ts";
 import { useForkOpener } from "../transitions/fork-opener.ts";
 
