@@ -110,7 +110,7 @@ function Picker(props: {
     <Menu>
       <MenuTrigger
         aria-label={`${props.name}: ${props.value}`}
-        className="inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-2 outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+        className="inline-flex h-[26px] items-center gap-1.5 rounded-sm px-2 outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
       >
         <Icon icon={props.icon} size={14} />
         <span className={props.mono ? "font-mono text-[12px]" : undefined}>{props.value}</span>

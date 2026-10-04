@@ -50,7 +50,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
         aria-expanded={open}
         aria-controls={tree}
         onClick={() => setOpen(!open)}
-        className="-mx-1.5 inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
+        className="-mx-1.5 inline-flex h-[26px] items-center gap-1.5 rounded-sm px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
       >
         Started {count} {count === 1 ? "subagent" : "subagents"}
         <CaretRightIcon

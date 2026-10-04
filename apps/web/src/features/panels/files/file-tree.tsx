@@ -32,7 +32,7 @@ import { fileIcon } from "./file-icon.ts";
 import { useCheckoutSearch } from "./use-checkout.ts";
 
 const rowClass =
-  "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md pr-2 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] aria-selected:text-foreground";
+  "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] aria-selected:text-foreground";
 
 /** "config.ts" with the characters a fuzzy query matched in full ink. */
 function Highlighted(props: { text: string; offset: number; positions: readonly number[] }) {

@@ -156,7 +156,7 @@ function Row(props: {
           props.selected && "bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
         )}
       >
-        <span className="mt-px grid size-[26px] place-items-center rounded-[7px] bg-secondary text-muted-foreground">
+        <span className="mt-px grid size-[26px] place-items-center rounded-sm bg-secondary text-muted-foreground">
           {props.icon}
         </span>
         <span className="min-w-0">

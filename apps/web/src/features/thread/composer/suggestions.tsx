@@ -20,8 +20,15 @@ export type Suggestions =
 
 const closed: Suggestions = { state: "closed" };
 
-/** File paths for `@`, slash commands for a leading `/`. One-off reads, cached briefly. */
-export function useSuggestions(thread: ThreadRef, trigger: Trigger | undefined): Suggestions {
+/**
+ * File paths for `@`, slash commands for a leading `/`. One-off reads, cached briefly. A bare `@`
+ * lists the files mentioned lately in this project first.
+ */
+export function useSuggestions(
+  thread: ThreadRef,
+  trigger: Trigger | undefined,
+  recent: () => readonly string[],
+): Suggestions {
   const sources = useThreadSources();
   // A draft the daemon hasn't granted a scope yet has nothing to search.
   const scoped = !thread.draft || !!thread.id;
@@ -42,13 +49,14 @@ export function useSuggestions(thread: ThreadRef, trigger: Trigger | undefined):
   const read = kind === "mention" ? mentions : commands;
   if (!scoped || read.isPending) return { state: "loading", kind, query };
   if (read.isError) return { state: "failed", kind, query };
+  const lately = kind === "mention" && !query ? recent() : [];
   const items: Suggestion[] =
     kind === "mention"
-      ? (mentions.data ?? []).map((path) => ({
+      ? [...new Set([...lately, ...(mentions.data ?? [])])].map((path) => ({
           kind,
           insert: `@${path}`,
           label: path.slice(path.lastIndexOf("/") + 1),
-          detail: path,
+          detail: lately.includes(path) ? `${path} · recent` : path,
           path,
         }))
       : matchCommands(commands.data ?? [], query).map((command) => ({

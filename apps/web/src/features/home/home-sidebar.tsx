@@ -44,7 +44,7 @@ export function HomeSidebar() {
               shortcut="addProject"
               onClick={() => dialogs.open({ kind: "add", tab: "open" })}
               onPointerEnter={dialogs.preload}
-              className="size-[26px] rounded-[7px] hover:bg-sidebar-accent"
+              className="size-[26px] rounded-sm hover:bg-sidebar-accent"
             />
           </>
         }

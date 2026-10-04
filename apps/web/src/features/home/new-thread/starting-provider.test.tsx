@@ -1,9 +1,15 @@
 import { workbench } from "@ace/fake-daemon";
 import type { KeyValueStorage } from "@ace/ui-core";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import {
+  chooseModel,
+  closeModelControl,
+  openModelControl,
+  openModelPicker,
+} from "@/test/model-control.ts";
 
 /** A daemon where the person never picked a default provider in Settings. */
 function app(storage: KeyValueStorage = memoryKeyValue()) {
@@ -27,8 +33,8 @@ test("New thread starts on the last-used provider", async () => {
   const storage = memoryKeyValue();
   await app(storage).open("/new?project=relay");
   expect((await model()).getAttribute("aria-label")).toMatch(/^Model: Opus 4\.1/);
-  await userEvent.click(await model());
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "GPT-5 Codex" }));
+  await chooseModel("GPT-5 Codex", "Codex");
+  await closeModelControl();
   await send("Log every restart with its backoff delay");
   cleanup();
 
@@ -60,9 +66,9 @@ test("on a daemon without a model catalog, New thread starts on the installed CL
   await made.open("/new?project=relay");
 
   expect((await model()).getAttribute("aria-label")).toBe("Model: Codex default");
-  await userEvent.click(await model());
-  expect(screen.queryByRole("menuitemradio", { name: "Claude Code default" })).toBeNull();
-  await userEvent.keyboard("{Escape}");
+  const picker = await openModelPicker(await openModelControl());
+  expect(within(picker).queryByRole("option", { name: /^Claude Code default/ })).toBeNull();
+  await closeModelControl();
 
   await send("Explain the restart backoff");
   const created = listed(made).find((thread) => thread.title === "Explain the restart backoff");

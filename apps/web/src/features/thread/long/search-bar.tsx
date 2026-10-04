@@ -157,7 +157,7 @@ export function SearchBar(props: { nav: ThreadNav }) {
         <div
           role="group"
           aria-label="Search in"
-          className="inline-flex gap-0.5 rounded-[9px] bg-secondary p-[3px]"
+          className="inline-flex gap-0.5 rounded-md bg-secondary p-[3px]"
         >
           {filters.map((option) => (
             <button
@@ -170,7 +170,7 @@ export function SearchBar(props: { nav: ThreadNav }) {
                 setFilter(option.value);
                 setListOpen(true);
               }}
-              className="h-[22px] rounded-[7px] px-[11px] text-[12px] font-medium whitespace-nowrap text-muted-foreground outline-none transition-[background-color,color] duration-(--dur-1) hover:text-foreground data-pressed:bg-popover data-pressed:text-foreground data-pressed:shadow-raised"
+              className="h-[22px] rounded-sm px-[11px] text-[12px] font-medium whitespace-nowrap text-muted-foreground outline-none transition-[background-color,color] duration-(--dur-1) hover:text-foreground data-pressed:bg-popover data-pressed:text-foreground data-pressed:shadow-raised"
             >
               {option.label}
             </button>

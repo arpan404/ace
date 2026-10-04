@@ -122,16 +122,13 @@ test("a settled thread comes back to the list as soon as it moves again", async 
   expect(within(card(/Bump Codex/)).getByText("Working")).toBeTruthy();
 });
 
-test("the auto-settle rule under Settled is the daemon's setting", async () => {
+test("Settled lists settled threads without the settle rule, which lives in Settings", async () => {
   const app = workbenchApp();
   await openHome(app);
   await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
-  expect(screen.getByText(/Threads that need you never settle/)).toBeTruthy();
-
-  await userEvent.click(await screen.findByRole("button", { name: "When done threads settle" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Never" }));
-  expect(await screen.findByText(/Done threads stay until you settle them/)).toBeTruthy();
-  expect(app.daemon.services.settings.get("threads.autoSettleAfter")).toBe("never");
+  expect(await screen.findByRole("button", { name: /^Unsettle / })).toBeTruthy();
+  expect(screen.queryByText(/Threads that need you never settle/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "When done threads settle" })).toBeNull();
 });
 
 test("Snooze sinks a thread to the end with its wake time; Undo wakes it", async () => {

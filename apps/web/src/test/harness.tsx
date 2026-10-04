@@ -7,6 +7,8 @@ import { render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
+
+type ClientStorage = ReturnType<typeof memoryStorage>;
 import { DaemonConnectionContext } from "@/boot/connection.tsx";
 import { fakeConnection } from "@/boot/fake.ts";
 import { preloadDeferred } from "@/features/thread/index.ts";
@@ -29,13 +31,17 @@ export function memoryKeyValue(): KeyValueStorage & { data: Map<string, string> 
 }
 
 /** A @ace/client wired to a FakeDaemon speaking the wire protocol in memory. */
-export function fakeClient(daemon: FakeDaemon, token = daemon.token): Client {
+export function fakeClient(
+  daemon: FakeDaemon,
+  token = daemon.token,
+  outbox: ClientStorage = memoryStorage(),
+): Client {
   let ids = 0;
   const client = new Client({
     deviceId: DeviceId.parse("test-device"),
     transport: () => fakeTransport(daemon),
     credential: async () => token,
-    storage: memoryStorage(),
+    storage: outbox,
     scheduler: {
       set(delayMs, callback) {
         const timer = setTimeout(callback, delayMs);
@@ -62,6 +68,8 @@ export function harness(
     clock?: () => number;
     /** When each stage of a project clone runs (tests step clones by hand). */
     projectScheduler?: (callback: () => void) => void;
+    /** Where the client keeps its outbox (tests hold a save to catch work done meanwhile). */
+    outbox?: ClientStorage;
   } = {},
 ) {
   let now = 1_000;
@@ -70,7 +78,9 @@ export function harness(
     ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
     ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
   });
-  const client = options.throughWorker ? workerClient(daemon) : fakeClient(daemon);
+  const client = options.throughWorker
+    ? workerClient(daemon)
+    : fakeClient(daemon, daemon.token, options.outbox);
   const storage = options.storage ?? memoryKeyValue();
   return {
     daemon,

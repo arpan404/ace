@@ -22,6 +22,8 @@ export interface CreateRequest {
   /** Where a worktree starts; ignored for the local checkout. */
   baseBranch: string | undefined;
   effort: string | undefined;
+  /** The faster tier to run on (`serviceTier`), when the person turned speed on. */
+  serviceTier?: string | undefined;
   /** An explicit approval mode for this thread; the daemon's default when omitted. */
   permission?: PermissionMode | undefined;
   text: string;
@@ -33,6 +35,11 @@ type CreatePayload = Extract<CommandPayload, { type: "thread.create" }>;
 /** The `thread.create` command for a request. Pure. */
 export function createPayload(request: CreateRequest): CreatePayload {
   const effort = AgentLaunchOptions.shape.effort.safeParse(request.effort);
+  const tier = AgentLaunchOptions.shape.serviceTier.safeParse(request.serviceTier);
+  const options = {
+    ...(effort.success && effort.data ? { effort: effort.data } : {}),
+    ...(tier.success && tier.data ? { serviceTier: tier.data } : {}),
+  };
   return {
     type: "thread.create",
     workspaceId: WorkspaceId.parse(request.project),
@@ -43,7 +50,7 @@ export function createPayload(request: CreateRequest): CreatePayload {
     ...(request.mode === "worktree" && request.baseBranch
       ? { baseBranch: request.baseBranch }
       : {}),
-    ...(effort.success && effort.data ? { options: { effort: effort.data } } : {}),
+    ...(Object.keys(options).length ? { options } : {}),
     ...(request.permission ? { permissionMode: request.permission } : {}),
     input: [{ type: "text", text: request.text }],
     ...(request.context ? { context: request.context } : {}),

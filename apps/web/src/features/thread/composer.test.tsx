@@ -3,6 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { chooseModel, closeModelControl, openModelControl } from "@/test/model-control.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -117,22 +118,26 @@ test("attached files upload before sending and can be removed", async () => {
   expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
 });
 
-test("the model picker shows each account's usage and blocks an exhausted one", async () => {
+test("the account row moves the thread to another account and blocks one at its limit", async () => {
   await open("busy");
-  await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ }));
-  // The chosen account in full: its window and a meter.
-  const chosen = await screen.findByRole("menuitemradio", { name: "Opus 4.1 · personal" });
-  expect(chosen.textContent).toContain("of 5-hour window used");
-  expect(within(chosen).getByRole("meter", { name: "personal usage" })).toBeTruthy();
-  // Every other account on one line with how much it has used.
-  const work = screen.getByRole("menuitemradio", { name: "Opus 4.1 · work" });
-  expect(work.textContent).toContain("57%");
-  const team = screen.getByRole("menuitemradio", { name: "GPT-5 Codex · team" });
-  expect(team.getAttribute("aria-disabled")).toBe("true");
-  expect(team.textContent).toMatch(/Limit reached · resets \d\d:\d\d/);
+  const popover = await openModelControl(/^Model: Opus 4\.1, personal/);
+  const accounts = within(popover).getByRole("group", { name: "Account" });
+  expect(within(accounts).getByRole("button", { name: "Account personal" }).ariaPressed).toBe(
+    "true",
+  );
+  await userEvent.click(within(accounts).getByRole("button", { name: "Account work" }));
+  expect(await screen.findByRole("button", { name: /^Model: Opus 4\.1, work/ })).toBeTruthy();
+  await closeModelControl();
 
-  await userEvent.click(screen.getByRole("menuitemradio", { name: "Sonnet 4.5 · personal" }));
-  expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, personal/ })).toBeTruthy();
+  // GPT-5 Codex on the team account is at its limit: only personal can take it.
+  await chooseModel("GPT-5 Codex", "Codex");
+  const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
+  const codex = await openModelControl(/^Model: GPT-5 Codex, personal/);
+  const team = within(codex).getByRole("button", { name: "Account team" });
+  expect(team.getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(team);
+  expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, personal/ })).toBeTruthy();
 });
 
 test("the context bar shows where the thread runs and follows its branch past a commit", async () => {

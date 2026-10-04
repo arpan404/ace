@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { chooseModel } from "@/test/model-control.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -63,10 +64,7 @@ test("picking another provider's model asks first, then switches after the runni
   app.play(replayCursor()).runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4.1/ }));
-  await userEvent.click(
-    await screen.findByRole("menuitemradio", { name: /^GPT-5 Codex · personal/ }),
-  );
+  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 4.1/);
 
   const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
   expect(within(dialog).getByText(/doesn't carry over/)).toBeTruthy();

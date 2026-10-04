@@ -35,6 +35,7 @@ Semantic rule: The parsed model with defaults filled and unknown fields stripped
 | isDefault | yes | boolean |  |
 | hidden | yes | boolean |  |
 | deprecated | yes | boolean |  |
+| isNew | no | boolean |  |
 | raw | yes | object | {"properties":{"json":{"type":"string","maxLength":2048,"x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."},"truncated":{"type":"boolean"}},"required":["json","truncated"]} |
 
 Example:
@@ -56,7 +57,7 @@ Example:
   "provider": "opencode",
   "raw": {
     "json": "example",
-    "truncated": false
+    "truncated": true
   },
   "reasoningEfforts": [],
   "serviceTiers": []
@@ -79,8 +80,8 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "instanceId": "example"
+  "acpAgentId": "example",
+  "installationId": "example"
 }
 ```
 
@@ -104,9 +105,10 @@ Example:
 
 ```json
 {
-  "error": "discovery_failed",
+  "error": "timeout",
   "instance": "example",
-  "provider": "pi",
+  "provider": "opencode",
+  "refreshedAt": 4,
   "refreshing": true,
   "stale": true
 }
@@ -130,9 +132,10 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "limit": 2,
-  "provider": "codex"
+  "installationId": "example",
+  "instanceId": "example",
+  "limit": 1,
+  "offset": 1
 }
 ```
 
@@ -151,8 +154,7 @@ Example:
 ```json
 {
   "instances": [],
-  "models": [],
-  "nextOffset": 0
+  "models": []
 }
 ```
 
@@ -176,32 +178,28 @@ Example:
 ```json
 {
   "model": {
-    "defaultEffort": "example",
-    "deprecated": false,
+    "contextWindow": 9,
+    "deprecated": true,
     "displayName": "example",
-    "hidden": false,
+    "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
     "isDefault": false,
-    "modelConfigId": "example",
+    "isNew": true,
     "nativeModelId": "example",
-    "provider": "cursor",
+    "provider": "acp",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "reasoningEfforts": [],
+    "resolvedModelId": "example",
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": false,
-  "tier": {
-    "id": "example",
-    "name": "example",
-    "speed": "standard"
-  }
+  "stale": true
 }
 ```
 
@@ -244,8 +242,7 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "provider": "antigravity",
+  "instanceId": "example",
   "role": "example",
   "selection": "strongest"
 }

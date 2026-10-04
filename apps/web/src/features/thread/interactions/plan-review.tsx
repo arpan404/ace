@@ -8,7 +8,7 @@ export function PlanReview(props: { disabled: boolean; onAnswer: Answer; childre
   const [revising, setRevising] = useState(false);
   return (
     <div className="flex flex-col gap-3">
-      <div className="max-h-80 overflow-auto rounded-[9px] bg-code px-3.5 py-2.5">
+      <div className="max-h-80 overflow-auto rounded-md bg-code px-3.5 py-2.5">
         {props.children}
       </div>
       {revising && (
