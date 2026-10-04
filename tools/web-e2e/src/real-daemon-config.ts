@@ -53,6 +53,13 @@ export const deckQuestion = "Should the health note live at the project root?";
  */
 export const deckStepMs = Number(process.env.ACE_E2E_DECK_STEP_MS ?? 700);
 /**
+ * The long-thread journey's thread: this many turns, each "Checkpoint N" with a word only that
+ * turn has (search finds exactly one), well past the daemon's 200-item snapshot.
+ */
+export const longTitle = "Long thread on a real daemon";
+export const longTurns = Number(process.env.ACE_E2E_LONG_TURNS ?? 110);
+export const longAsk = (n: number) => `Checkpoint ${n}: audit migration shard alpha${n}x.`;
+/**
  * Where the project journeys add, create and clone projects: the daemon's only allowed root.
  * Outside the system temp directory on macOS, whose real path sits under /private/var, a
  * folder the daemon never opens.

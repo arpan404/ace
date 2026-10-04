@@ -33,6 +33,7 @@ export class FakeLongThreadWire {
     commandId: CommandId,
     payload: ThreadMarkReadCommand,
     deviceId: DeviceId,
+    at = this.host.now(),
   ): CommandResult {
     const host = this.visible(payload.threadId);
     if (!host) return { commandId, ok: false, error: "thread_not_found" };
@@ -40,7 +41,7 @@ export class FakeLongThreadWire {
     const previous = this.reads.get(key);
     const lastSeenSeq = Math.min(payload.lastSeenSeq, this.host.head());
     if (lastSeenSeq > (previous?.lastSeenSeq ?? 0))
-      this.reads.set(key, { lastSeenSeq, updatedAt: this.host.now() });
+      this.reads.set(key, { lastSeenSeq, updatedAt: at });
     return { commandId, ok: true };
   }
 

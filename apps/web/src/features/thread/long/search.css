@@ -1,0 +1,6 @@
+/* Words of a thread search, marked in the transcript's hit (search-highlight.ts). Loaded with
+   the search bar only, so it never weighs on the first paint. */
+::highlight(ace-find) {
+  background-color: color-mix(in oklab, var(--ring) 40%, transparent);
+  color: inherit;
+}

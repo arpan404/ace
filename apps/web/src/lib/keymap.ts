@@ -35,6 +35,11 @@ export const keymap = {
   devices: { keys: "ctrl+shift+m", label: "Devices" },
   logs: { keys: "ctrl+shift+l", label: "Logs" },
   takeControl: { keys: "ctrl+shift+c", label: "Take or hand back control of a browser or device" },
+  // A long thread (features/thread/long): its turns, moving between them, searching it.
+  turns: { keys: "alt+mod+g", label: "Turns of this thread" },
+  previousTurn: { keys: "alt+mod+arrowup", label: "Previous turn" },
+  nextTurn: { keys: "alt+mod+arrowdown", label: "Next turn" },
+  findInThread: { keys: "mod+f", label: "Search this thread" },
   settings: { keys: "mod+,", label: "Settings" },
   send: { keys: "mod+enter", label: "Send" },
   goHome: { keys: "g h", label: "Go to Home" },
