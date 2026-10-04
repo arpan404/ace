@@ -165,8 +165,11 @@ if (mode === "opencode") {
   });
 } else if (mode === "pi") {
   const tools = new Map<string, Parameters<PiExtensionApi["registerTool"]>[0]>();
+  const commands = new Set<string>();
   await registerAcePiExtension({
-    registerCommand() {},
+    registerCommand(name) {
+      commands.add(name);
+    },
     appendEntry() {},
     on() {},
     registerTool(tool) {
@@ -190,13 +193,11 @@ if (mode === "opencode") {
     const data =
       command.type === "get_commands"
         ? {
-            commands: [
-              {
-                name: "ace-rollback",
-                source: "extension",
-                sourceInfo: { path: extension },
-              },
-            ],
+            commands: [...commands].map((name) => ({
+              name,
+              source: "extension",
+              sourceInfo: { path: extension },
+            })),
           }
         : {
             sessionId: "native",

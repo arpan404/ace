@@ -1,10 +1,10 @@
 import type { Capabilities } from "@ace/protocol";
 import type { LocalAgentOptions } from "@cursor/sdk";
 
-export const cursorCapabilities: Capabilities = {
+const baseCapabilities: Capabilities = {
   approvals: "sandbox-only",
   permissions: {
-    modes: ["auto-review", "full-access"],
+    modes: ["read-only", "auto-review", "full-access"],
     nativeAutoReview: true,
     toolGate: false,
     guarantees: [
@@ -38,14 +38,14 @@ export const cursorCapabilities: Capabilities = {
 };
 export function localPolicy(
   policy: "restricted" | "full-access",
-  _autoReviewAvailable: boolean,
+  sandboxSupported: boolean,
 ): Pick<
   LocalAgentOptions,
   "sandboxOptions" | "autoReview" | "enableAgentRetries" | "settingSources" | "subagentInherit"
 > {
   return {
-    sandboxOptions: { enabled: policy === "restricted" },
-    autoReview: policy === "restricted",
+    sandboxOptions: { enabled: policy === "restricted" && sandboxSupported },
+    autoReview: policy === "restricted" && sandboxSupported,
     // Forward parent tool-selection headers to Task children and grandchildren.
     ...(policy === "restricted" ? { subagentInherit: {} } : {}),
     // Hidden native retries lack authoritative attempt facts on this surface.
@@ -53,4 +53,38 @@ export function localPolicy(
     // Prevent ambient custom MCP/plugin tools from changing the selected lease policy.
     settingSources: [],
   };
+}
+
+/** Unknown support must never advertise a sandbox that has not passed SDK admission. */
+export function cursorCapabilitiesForSandbox(supported: boolean): Capabilities {
+  if (supported) return baseCapabilities;
+  return {
+    ...baseCapabilities,
+    approvals: "none",
+    permissions: {
+      modes: ["read-only", "full-access"],
+      nativeAutoReview: false,
+      toolGate: false,
+      guarantees: [
+        {
+          mode: "auto-review",
+          level: "tool-selection",
+          gates: { writes: true, network: true, protectedReads: false, shell: true },
+          limitations: [
+            "Limited: SDK sandbox support is unavailable or unverified. Auto-review and Ask use read-only tools; no writes, shell, network, MCP or child tools are enabled.",
+            "Read tools can access files outside the workspace. SDK 1.0.35 has no public approval decision callback.",
+          ],
+        },
+      ],
+    },
+  };
+}
+export const cursorCapabilities = cursorCapabilitiesForSandbox(false);
+export function cursorRestrictedTools(
+  policy: "restricted" | "full-access",
+  sandboxSupported: boolean,
+) {
+  return policy === "restricted" && !sandboxSupported
+    ? { tools: ["read", "grep", "glob", "ls"] }
+    : {};
 }
