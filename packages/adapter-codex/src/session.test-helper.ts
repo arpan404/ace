@@ -46,6 +46,7 @@ export async function sessionHarness(
   const session = await adapter.openSession({
     threadId: ThreadId.parse("fixture"),
     cwd: directory,
+    ...{ interactionId: (key: string) => replay.state.interactions[key]?.id },
     ...(permissionMode ? { permissionMode } : {}),
     ...(fork ? { fork } : {}),
     ...(options ? { options } : {}),

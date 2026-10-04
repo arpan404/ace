@@ -1,3 +1,4 @@
+import { answerEchoes } from "./answer-echo.ts";
 import { confirmModel } from "./model.ts";
 import { unknownBuffers, RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
@@ -43,6 +44,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     discovered: finishUnknown,
   });
   const translation: TranslationContext = {
+    answerEchoes: answerEchoes(),
     agents,
     tasks: new Set(),
     asyncOwners,
@@ -72,6 +74,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       method = str(message["method"]);
     const id = message["id"];
     if (frame.dir === "note") {
+      translation.answerEchoes.note(message);
       if (message["event"] === "thread-discovered") {
         const thread = obj(message["thread"]);
         const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);

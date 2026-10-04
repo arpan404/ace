@@ -5,7 +5,8 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { isInteractiveRequest } from "./interactions.ts";
 import { runtime, type CodexRuntime } from "./runtime.ts";
 import { hydrateControls, parentOf } from "./session-state.ts";
-import type { ProviderSession, SessionContext } from "@ace/engine-api";
+import type { ProviderSession } from "@ace/engine-api";
+import type { CodexSessionContext } from "./session-context.ts";
 import { type DiscoveryOptions, type DiscoveryResult } from "@ace/provider-kit/discovery";
 import { JsonRpcPeer, MethodNotFound } from "@ace/provider-kit/jsonrpc";
 import type { InitializeParams } from "./generated/InitializeParams.ts";
@@ -13,7 +14,7 @@ import type { ThreadStartParams } from "./generated/v2/ThreadStartParams.ts";
 import type { ThreadResumeParams } from "./generated/v2/ThreadResumeParams.ts";
 import { createSessionCommands, type Pending } from "./session-commands.ts";
 import { codexCapabilities } from "./capabilities.ts";
-import { asyncKey, list, obj, planKey, requestKey, str } from "./native.ts";
+import { asyncKey, list, obj, planKey, questions, requestKey, str } from "./native.ts";
 
 export type CodexOptions = {
   discovery?: DiscoveryOptions;
@@ -21,7 +22,7 @@ export type CodexOptions = {
   runtime?: Partial<CodexRuntime>;
 };
 export async function openCodexSession(
-  ctx: SessionContext,
+  ctx: CodexSessionContext,
   options: CodexOptions = {},
 ): Promise<ProviderSession> {
   const permissionMode = ctx.permissionMode ?? "auto-review";
@@ -68,7 +69,8 @@ export async function openCodexSession(
   const shells = new Map<string, string>();
   const completedShells = new Set<string>();
   const pending = new Map<string, Pending>();
-  const asyncQuestions = new Map<string, string>();
+  const asyncQuestions: import("./session-commands.ts").SessionCommandsContext["asyncQuestions"] =
+    new Map();
   const plans = new Map<string, { thread: string; markdown: string }>();
   const queueCounts = new Map<string, number>();
   const timers = new Map<string, () => void>();
@@ -191,7 +193,10 @@ export async function openCodexSession(
           }
         }
         if (item["delivery"] === "async" && list(item["questions"]).length)
-          asyncQuestions.set(asyncKey(id), thread);
+          asyncQuestions.set(asyncKey(id), {
+            thread,
+            questions: questions(item["questions"], true),
+          });
         if (item["type"] === "plan" && method === "item/completed")
           plans.set(planKey(str(p["turnId"])), { thread, markdown: str(item["text"]) });
       }
@@ -414,6 +419,7 @@ export async function openCodexSession(
       shells,
       pending,
       asyncQuestions,
+      interactionId: ctx.interactionId,
       plans,
       assertOpen,
       request,

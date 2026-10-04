@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ProviderSession } from "@ace/engine-api";
-import type { ContentPart } from "@ace/protocol";
+import type { ContentPart, InteractionId, Question } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
 import type { TurnStartParams } from "./generated/v2/TurnStartParams.ts";
 import type { TurnSteerParams } from "./generated/v2/TurnSteerParams.ts";
@@ -38,7 +38,8 @@ export type SessionCommandsContext = {
   parents: Map<string, string>;
   shells: Map<string, string>;
   pending: Map<string, Pending>;
-  asyncQuestions: Map<string, string>;
+  asyncQuestions: Map<string, { thread: string; questions: Question[] }>;
+  interactionId?: ((key: string) => InteractionId | undefined) | undefined;
   plans: Map<string, { thread: string; markdown: string }>;
   assertOpen(): void;
   request(method: string, params: unknown, interactive?: boolean): Promise<unknown>;
@@ -170,6 +171,27 @@ export function createSessionCommands(
     if (failures.length)
       throw new AggregateError(failures, "Could not completely interrupt Codex agent tree");
   }
+  async function sendAnswer(
+    thread: string,
+    key: string,
+    text: string,
+    send: () => Promise<unknown>,
+  ): Promise<void> {
+    const interactionId = config.interactionId?.(key);
+    emit("note", {
+      event: "interaction-answer",
+      threadId: thread,
+      interaction: key,
+      text,
+      ...(interactionId ? { interactionId } : {}),
+    });
+    try {
+      await send();
+    } catch (error) {
+      emit("note", { event: "interaction-answer-failed", threadId: thread, interaction: key });
+      throw error;
+    }
+  }
   return {
     send: (parts, delivery) => sendTo(nativeSessionId, parts, delivery),
     async interrupt(target) {
@@ -197,14 +219,25 @@ export function createSessionCommands(
         entry.answer(result);
         return;
       }
-      const thread = asyncQuestions.get(key);
-      if (thread && resolution.kind === "question") {
+      const question = asyncQuestions.get(key);
+      if (question && resolution.kind === "question") {
         const text = resolution.dismissed
           ? "Continue without answers."
-          : Object.values(resolution.answers)
-              .map((answers) => answers.join(", "))
+          : Object.entries(resolution.answers)
+              .map(([id, answers]) =>
+                answers
+                  .map(
+                    (answer) =>
+                      question.questions
+                        .find((q) => q.id === id)
+                        ?.options.find((option) => option.id === answer)?.label ?? answer,
+                  )
+                  .join(", "),
+              )
               .join("; ");
-        await sendTo(thread, [{ type: "text", text }], "steer");
+        await sendAnswer(question.thread, key, text, () =>
+          sendTo(question.thread, [{ type: "text", text }], "steer"),
+        );
         asyncQuestions.delete(key);
         emit("note", { event: "interaction-resolved", interaction: key });
         return;
@@ -215,29 +248,35 @@ export function createSessionCommands(
           resolution.decision !== "cancel" &&
           (resolution.decision === "approve" || resolution.feedback)
         )
-          await request(
-            "turn/start",
-            {
-              threadId: plan.thread,
-              input: input([
+          await sendAnswer(
+            plan.thread,
+            key,
+            resolution.decision === "approve" ? "Implement the plan." : (resolution.feedback ?? ""),
+            () =>
+              request(
+                "turn/start",
                 {
-                  type: "text",
-                  text:
-                    resolution.decision === "approve"
-                      ? "Implement the plan."
-                      : (resolution.feedback ?? ""),
-                },
-              ]),
-              collaborationMode: {
-                mode: resolution.decision === "approve" ? "default" : "plan",
-                settings: {
-                  model: config.getModel(),
-                  reasoning_effort: null,
-                  developer_instructions: null,
-                },
-              },
-            } satisfies TurnStartParams,
-            true,
+                  threadId: plan.thread,
+                  input: input([
+                    {
+                      type: "text",
+                      text:
+                        resolution.decision === "approve"
+                          ? "Implement the plan."
+                          : (resolution.feedback ?? ""),
+                    },
+                  ]),
+                  collaborationMode: {
+                    mode: resolution.decision === "approve" ? "default" : "plan",
+                    settings: {
+                      model: config.getModel(),
+                      reasoning_effort: null,
+                      developer_instructions: null,
+                    },
+                  },
+                } satisfies TurnStartParams,
+                true,
+              ),
           );
         plans.delete(key);
         emit("note", { event: "interaction-resolved", interaction: key });

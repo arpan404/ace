@@ -112,6 +112,18 @@ export function translateItem(
       agent.completed.add(itemId);
     }
     const draft = itemDraft(item, complete);
+    if (draft.type === "message" && draft.role === "user") {
+      const text =
+        draft.parts
+          ?.filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n") ?? "";
+      const origin = ctx.answerEchoes.match(native, itemId, text);
+      if (origin) {
+        draft.origin = origin;
+        draft.synthetic = true;
+      }
+    }
     if (type === "plan" && previous?.streamStarted && complete)
       facts.push({
         type: "item.upsert",

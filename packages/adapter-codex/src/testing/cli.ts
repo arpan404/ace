@@ -158,6 +158,12 @@ for await (const line of createInterface({ input: process.stdin })) {
       write({ id, error: { message: "active turn must be steered" } });
       continue;
     }
+    if (text === "Implement the plan.")
+      item(str(p["threadId"]), "turn", {
+        type: "userMessage",
+        id: "plan-answer-echo",
+        content: p["input"],
+      });
     pendingKind = text;
     if (text === "same-chunk") {
       process.stdout.write(
@@ -182,7 +188,15 @@ for await (const line of createInterface({ input: process.stdin })) {
         id: "q",
         type: "agentMessage",
         delivery: "async",
-        questions: [{ title: "Tabs?", options: ["Tabs", "Spaces"] }],
+        questions: [
+          {
+            title: "Tabs?",
+            options: [
+              { id: "tabs", label: "Tabs" },
+              { id: "spaces", label: "Spaces" },
+            ],
+          },
+        ],
         text: "",
       });
     else if (text === "plan") {
@@ -314,6 +328,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       write({ id, error: { message: "stale turn" } });
     else {
       respond({ turnId: p["expectedTurnId"] });
+      item(str(p["threadId"]), str(p["expectedTurnId"]), {
+        type: "userMessage",
+        id: "answer-echo",
+        content: p["input"],
+      });
       message(`steered: ${str(obj(list(p["input"])[0])["text"])}`);
       if (pendingKind === "question") end();
     }

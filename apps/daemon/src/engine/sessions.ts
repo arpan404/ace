@@ -121,6 +121,10 @@ export class Sessions {
         ...context,
         outputFlow: actor.outputFlow,
         permissionMode: mode,
+        ...{
+          interactionId: (key: string) =>
+            this.dependencies.repo.requireState(actor.id).interactions[key]?.id,
+        },
         ...(aceMcp ? { aceMcp } : {}),
         options: transition.selection?.options ?? metadata.options ?? {},
         ...(identity ? { acpIdentity: identity } : {}),

@@ -45,8 +45,8 @@ test.each([
         detail: { kind: "shell", command: readable, rawCommand: command, exitCode: 0 },
       },
     });
-    expect(item?.type === "tool_call" && item.call.raw[0]?.data).toMatchObject({
-      commandActions: actions,
+    expect(item?.type === "tool_call" ? item.call.raw[0] : undefined).toMatchObject({
+      data: { commandActions: actions },
     });
   },
 );

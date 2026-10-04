@@ -23,7 +23,7 @@ export const childKey = (thread: string): string => `subagent:${thread}`;
 function option(value: unknown): Question["options"][number] {
   const native = obj(value);
   const label = str(value, str(native["label"]));
-  const result: Question["options"][number] = { id: label, label };
+  const result: Question["options"][number] = { id: str(native["id"], label), label };
   if (typeof native["description"] === "string") result.description = native["description"];
   return result;
 }

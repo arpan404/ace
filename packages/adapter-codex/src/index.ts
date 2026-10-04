@@ -4,6 +4,7 @@ import { createCodexTranslator } from "./translator.ts";
 import { openCodexSession, type CodexOptions } from "./session.ts";
 export { createCodexTranslator } from "./translator.ts";
 export { codexCapabilities } from "./capabilities.ts";
+export type { CodexSessionContext } from "./session-context.ts";
 export type { CodexOptions } from "./session.ts";
 export function createCodexAdapter(options: CodexOptions = {}): ProviderAdapter {
   return {
