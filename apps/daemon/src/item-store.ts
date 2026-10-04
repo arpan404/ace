@@ -208,6 +208,91 @@ export class ItemStore {
       itemsBefore: rows.length > items.length ? (cursors.at(-1)?.[1] ?? before) : null,
     };
   }
+  window(threadId: ThreadId, aroundSeq: number, before: number, after: number, byteLimit: number) {
+    const target =
+      this.statement(
+        "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq>=? ORDER BY created_seq LIMIT 1",
+      ).get(threadId, aroundSeq) ??
+      this.statement(
+        "SELECT created_seq FROM item_heads WHERE thread_id=? ORDER BY created_seq DESC LIMIT 1",
+      ).get(threadId);
+    if (!target)
+      return {
+        threadId,
+        targetSeq: null,
+        items: [],
+        itemSeqs: {},
+        itemsBefore: null,
+        itemsAfter: null,
+      };
+    const targetSeq = Number(target.created_seq);
+    const older = this.statement(
+      "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq<? ORDER BY created_seq DESC LIMIT ?",
+    ).all(threadId, targetSeq, before);
+    const newer = this.statement(
+      "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq>? ORDER BY created_seq LIMIT ?",
+    ).all(threadId, targetSeq, after);
+    const selected = new Map<number, Item>();
+    let bytes = 512;
+    // Read the target first so a byte-limited window always includes the jump point.
+    const add = (seq: number): boolean => {
+      let page: Omit<ItemsPage, "seq">;
+      try {
+        page = this.wirePage(threadId, seq + 1, 1, byteLimit);
+      } catch (error) {
+        if (
+          seq !== targetSeq &&
+          error instanceof Error &&
+          error.message === "Item detail exceeds page capacity"
+        )
+          return false;
+        throw error;
+      }
+      const item = page.items[0];
+      if (!item) return false;
+      const size =
+        Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(item.id)) + 64;
+      if (bytes + size > byteLimit) return false;
+      bytes += size;
+      selected.set(seq, item);
+      return true;
+    };
+    if (!add(targetSeq)) throw new Error("Item detail exceeds window capacity");
+    // Alternate sides until the budget is reached, preserving one contiguous interval.
+    let left = 0,
+      right = 0;
+    while (left < older.length || right < newer.length) {
+      const old = older[left];
+      if (old) {
+        if (!add(Number(old.created_seq))) break;
+        left++;
+      }
+      const next = newer[right];
+      if (next) {
+        if (!add(Number(next.created_seq))) break;
+        right++;
+      }
+    }
+    const entries = [...selected].toSorted((a, b) => a[0] - b[0]);
+    const first = entries[0]?.[0] ?? targetSeq,
+      last = entries.at(-1)?.[0] ?? targetSeq;
+    return {
+      threadId,
+      targetSeq,
+      items: entries.map(([, item]) => item),
+      itemSeqs: Object.fromEntries(entries.map(([seq, item]) => [item.id, seq])),
+      itemsBefore: this.statement(
+        "SELECT 1 FROM item_heads WHERE thread_id=? AND created_seq<? LIMIT 1",
+      ).get(threadId, first)
+        ? first
+        : null,
+      itemsAfter: this.statement(
+        "SELECT 1 FROM item_heads WHERE thread_id=? AND created_seq>? LIMIT 1",
+      ).get(threadId, last)
+        ? last
+        : null,
+    };
+  }
   page(
     threadId: ThreadId,
     before: number,
