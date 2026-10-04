@@ -1,3 +1,4 @@
+import { confirmModel } from "./model.ts";
 import { unknownBuffers, RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { ThreadId, RunTrigger } from "@ace/protocol";
@@ -156,7 +157,8 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         if (str(thread["id"])) {
           root = str(thread["id"]);
           cwd = str(thread["cwd"], str(pending.params["cwd"], cwd));
-          discover(root, thread, facts, now);
+          const agent = discover(root, thread, facts, now);
+          confirmModel(agent, result["model"], facts);
         }
       } else if (
         pending?.method === "thread/read" &&
@@ -350,9 +352,10 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           outcome: "failed",
           error: { kind: "provider", message: "Codex thread reported systemError" },
         });
-    } else if (method === "thread/settings/updated")
+    } else if (method === "thread/settings/updated") {
       agent.mode = str(obj(p["collaborationMode"])["mode"], agent.mode);
-    else if (method.startsWith("thread/goal/")) agent.pendingTrigger = "goal";
+      confirmModel(agent, p["model"], facts);
+    } else if (method.startsWith("thread/goal/")) agent.pendingTrigger = "goal";
     else if (method === "thread/queue/changed") agent.pendingTrigger = "queue";
     else if (method === "thread/tokenUsage/updated") {
       const tokenUsage = obj(p["tokenUsage"]);
@@ -372,11 +375,13 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
             ? { windowTokens: tokenUsage["modelContextWindow"] }
             : {}),
           sessionId: native,
+          ...(agent.model ? { model: agent.model } : {}),
         });
       if (typeof usage["inputTokens"] === "number" && typeof usage["outputTokens"] === "number")
         facts.push({
           type: "usage",
           agent: agent.key,
+          ...(agent.model ? { model: agent.model } : {}),
           inputTokens: usage["inputTokens"],
           outputTokens: usage["outputTokens"],
           ...(typeof usage["cachedInputTokens"] === "number"

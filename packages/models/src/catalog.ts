@@ -27,6 +27,7 @@ type State = {
   entry?: CacheEntry;
   error?: ModelInstanceStatus["error"];
   retryAt: number;
+  invalidating?: Promise<void>;
   flight?: Promise<ModelInstanceStatus>;
   abort?: AbortController;
 };
@@ -67,6 +68,7 @@ export class ModelCatalog implements ModelCatalogApi {
   readonly #queue: (() => void)[] = [];
   readonly #deletions: PendingDeletions;
   readonly #discoveries = new Set<Promise<void>>();
+  readonly #invalidations = new Set<Promise<void>>();
   readonly #flights = new Set<Promise<ModelInstanceStatus>>();
   readonly #sessionWrites = new Set<Promise<void>>();
   readonly #sessionTails = new Map<string, Promise<void>>();
@@ -257,6 +259,32 @@ export class ModelCatalog implements ModelCatalogApi {
       return !state || this.#stale(state);
     });
   }
+  /** Account-change boundary: revoke cached choices and obsolete discoveries immediately. */
+  async invalidate(input: ModelFilter = {}): Promise<void> {
+    if (this.#closed) throw new Error("Catalog closed");
+    const selected = this.#select(ModelFilter.parse(input));
+    if (this.#invalidations.size + selected.length > 128)
+      throw new Error("Invalidation capacity reached");
+    const pending: Promise<void>[] = [];
+    for (const state of selected) {
+      // Generic ACP has no metadata-only probe; its account owner supplies session metadata.
+      if (state.config.provider === "acp") continue;
+      delete state.entry;
+      this.registerInstance(state.config);
+      const next = this.#states.get(state.config.id);
+      if (!next) continue;
+      // A storage write already in flight must settle before revoking its persisted rows.
+      const removal = Promise.allSettled([state.flight, state.invalidating]).then(() =>
+        this.#deletions.remove(state.config.id),
+      );
+      next.invalidating = removal;
+      this.#invalidations.add(removal);
+      const done = () => this.#invalidations.delete(removal);
+      void removal.then(done, done);
+      pending.push(removal);
+    }
+    await Promise.all(pending);
+  }
   async refresh(input: ModelFilter = {}): Promise<ModelInstanceStatus[]> {
     if (this.#closed) throw new Error("Catalog closed");
     return Promise.all(this.#select(ModelFilter.parse(input)).map((state) => this.#refresh(state)));
@@ -278,6 +306,7 @@ export class ModelCatalog implements ModelCatalogApi {
         let cancel: (() => void) | undefined;
         let timedOut = false;
         try {
+          await state.invalidating;
           if (abort.signal.aborted || this.#closed) return;
           if (this.#discoveries.size >= 64) throw new Error("Discovery cleanup limit reached");
           const failure = new Promise<never>((_, reject) => {
@@ -362,6 +391,7 @@ export class ModelCatalog implements ModelCatalogApi {
       this.#closed = true;
       for (const state of this.#states.values()) state.abort?.abort();
       await Promise.all(this.#flights);
+      await Promise.all(this.#invalidations);
       const writes = await Promise.allSettled(this.#sessionWrites);
       const failures = writes.flatMap((result) =>
         result.status === "rejected" ? [result.reason] : [],

@@ -1,3 +1,4 @@
+import { systemNotice } from "./system-notices.ts";
 import { factRaw, canonicalOnly } from "./raw-facts.ts";
 import { interactionFrame } from "./translate-interactions.ts";
 import type { Key } from "@ace/core";
@@ -86,6 +87,11 @@ export function createTranslator(init: { rootKey: Key }): Translator {
             on: "upstream",
             message: "Claude session has not settled",
           });
+        return true;
+      }
+      const notice = systemNotice(data);
+      if (notice) {
+        state.notice(data, String(frame.seq), state.agentFor(data), notice.level, notice.text);
         return true;
       }
       return false;

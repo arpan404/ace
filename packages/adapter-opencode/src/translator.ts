@@ -7,7 +7,7 @@ import { object, array, string, number, retryReason } from "./data.ts";
 import { NativeState } from "./native-state.ts";
 import { tool, text, projected } from "./native-content.ts";
 import { interaction } from "./interactions.ts";
-import { sessionUsage, stepContext } from "./usage.ts";
+import { sessionUsage, stepContext, selectModel } from "./usage.ts";
 export class OpenCodeTranslator implements Translator {
   private state: NativeState;
   constructor(init: { threadId: ThreadId; rootKey: Key }) {
@@ -344,6 +344,7 @@ export class OpenCodeTranslator implements Translator {
           message: string(object(p.error).message),
         },
       ];
+    if (type === "session.model.selected") return selectModel(state, id, p.model);
     if (type === "session.usage.updated") return sessionUsage(state, id, p);
     if (type === "session.step.ended") return stepContext(state, id, p);
     if (type.startsWith("session.step.")) return [];

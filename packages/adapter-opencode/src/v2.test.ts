@@ -46,11 +46,15 @@ it("OpenCode step usage replaces occupied context while session billing stays cu
     assistantMessageID: "m2",
     tokens: { input: 20, output: 5, cache: { read: 10, write: 0 } },
   });
+  h.event("session.usage.updated", {
+    tokens: { input: 120, output: 15, reasoning: 5, cache: { read: 60, write: 20 } },
+    cost: 0.0027,
+  });
   h.event("session.execution.succeeded");
   expect(
     h.events.filter((event) => event.type === "context.sampled").map((sample) => sample.usedTokens),
   ).toEqual([185, 35]);
-  expect(Object.values(h.view.usage)).toMatchObject([{ model: "local/model", costUsd: 0.0017 }]);
+  expect(Object.values(h.view.usage)).toMatchObject([{ model: "local/model", costUsd: 0.0027 }]);
   expect(
     Object.values(h.view.agents).find((agent) => agent.native.nativeId === "s-root")?.model,
   ).toBe("local/model");

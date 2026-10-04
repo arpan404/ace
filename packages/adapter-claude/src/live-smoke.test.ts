@@ -55,3 +55,35 @@ test("Claude publishes the concrete root model for its transcript and usage", ()
     ),
   ).toMatchObject([{ costUsd: 0.081 }]);
 });
+
+// Mutation 3: suppress meaningful system information. Not executed (tests run at merge).
+test("Claude hook blocks, warnings, local command output and mirror failures remain durable notices", () => {
+  const h = harness();
+  h.init();
+  for (const data of [
+    {
+      type: "system",
+      subtype: "informational",
+      content: "Hook denied continuation",
+      level: "notice",
+      prevent_continuation: true,
+    },
+    { type: "system", subtype: "informational", content: "Provider warning", level: "warning" },
+    {
+      type: "system",
+      subtype: "informational",
+      content: "Provider suggestion",
+      level: "suggestion",
+    },
+    { type: "system", subtype: "local_command_output", content: "Usage command output" },
+    { type: "system", subtype: "mirror_error", error: "Transcript mirror failed" },
+  ])
+    h.send(data);
+  expect(h.items().filter((item) => item.type === "notice")).toMatchObject([
+    { text: "Hook denied continuation", level: "warning" },
+    { text: "Provider warning", level: "warning" },
+    { text: "Provider suggestion", level: "info" },
+    { text: "Usage command output", level: "info" },
+    { text: "Transcript mirror failed", level: "error" },
+  ]);
+});

@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSupervised } from "@ace/provider-kit/process";
 import { createLogger } from "@ace/diagnostics";
 import { startModels } from "./services/models.ts";
 import { Resources } from "./services/resources.ts";
@@ -68,6 +69,7 @@ createInterface({input:process.stdin}).on('line', line => {
     await startModels(context);
     const models = context.services.models;
     if (!models) throw new Error("No model service");
+    await context.services.modelsReady;
     return { models, resources };
   };
   let resources: Resources | undefined;
@@ -75,10 +77,7 @@ createInterface({input:process.stdin}).on('line', line => {
     const first = await start();
     resources = first.resources;
     // Admission is background filesystem work; startup does not await a metadata command.
-    expect(first.models.list().models).toEqual([]);
-    await vi.waitFor(() =>
-      expect(first.models.list().instances.map((entry) => entry.provider)).toEqual(["codex"]),
-    );
+    expect(first.models.list().instances.map((entry) => entry.provider)).toEqual(["codex"]);
     await first.models.refresh();
     expect(first.models.list().models.map((row) => row.id)).toEqual(["first"]);
     await first.resources.close();
@@ -86,13 +85,81 @@ createInterface({input:process.stdin}).on('line', line => {
     await writeFile(listing, JSON.stringify(payload("second")));
     const second = await start();
     resources = second.resources;
-    await vi.waitFor(() =>
-      expect(second.models.list().models.map((row) => row.id)).toEqual(["first"]),
-    );
+    expect(second.models.list().models.map((row) => row.id)).toEqual(["first"]);
     await second.models.refresh();
     expect(second.models.list().models.map((row) => row.id)).toEqual(["second"]);
   } finally {
     await resources?.close();
+    await log.close();
+    store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// Mutation 15 and startup/shutdown responsiveness. Not executed (tests run at merge).
+test("a hung installed model probe leaves startup and listing responsive and shutdown reaps it", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-hung-models-"));
+  await writeFile(
+    join(home, "codex"),
+    `#!${process.execPath}
+import {createInterface} from 'node:readline';
+console.log('metadata-ready');
+createInterface({input:process.stdin}).on('line', () => {});`,
+    { mode: 0o700 },
+  );
+  vi.stubEnv("PATH", home);
+  vi.stubEnv("HOME", home);
+  const ready = Promise.withResolvers<void>();
+  let exited: Promise<unknown> | undefined;
+  const store = new Store(join(home, "store.sqlite"));
+  const resources = new Resources();
+  const controller = new AbortController();
+  const log = createLogger({
+    now: () => 1,
+    redact: (line) => line,
+    level: "silent",
+    sink: { async write() {}, async close() {} },
+  });
+  const context: ServiceContext = {
+    config: readConfig({ ACE_HOME: home }),
+    options: {
+      modelDiscovery: {
+        spawn(options) {
+          const proc = spawnSupervised(options);
+          exited = proc.exited;
+          proc.stdout.on("line", (line) => {
+            if (line === "metadata-ready") ready.resolve();
+          });
+          return proc;
+        },
+      },
+    },
+    resources,
+    store,
+    log,
+    now: () => 1,
+    id: () => "id",
+    signal: controller.signal,
+    services: {},
+    onListen: [],
+  };
+  try {
+    await startModels(context);
+    await context.services.modelsReady;
+    const models = context.services.models;
+    if (!models) throw new Error("Missing model service");
+    expect(models.list().instances.map((i) => i.provider)).toEqual(["codex"]);
+    const refresh = models.refresh();
+    await ready.promise;
+    expect(models.list().instances).toMatchObject([{ provider: "codex", refreshing: true }]);
+    expect(models.resolve({ role: "coding" })).toMatchObject({ ok: false });
+    controller.abort();
+    await resources.close();
+    await refresh;
+    expect(await exited).toBeDefined();
+  } finally {
+    controller.abort();
+    await resources.close();
     await log.close();
     store.close();
     await rm(home, { recursive: true, force: true });

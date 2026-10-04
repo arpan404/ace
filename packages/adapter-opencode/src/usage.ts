@@ -1,13 +1,24 @@
 import { z } from "zod";
 import type { Fact } from "@ace/core";
-import { object, string, type Data } from "./data.ts";
+import { type Data } from "./data.ts";
 import type { NativeState } from "./native-state.ts";
 
+const ModelRef = z.object({
+  providerID: z.string().min(1).max(256),
+  id: z.string().min(1).max(256),
+});
 export function qualifiedModel(value: unknown): string | undefined {
-  const native = object(value),
-    provider = string(native.providerID),
-    id = string(native.id);
-  return provider && id ? `${provider}/${id}` : undefined;
+  const parsed = ModelRef.safeParse(value);
+  if (!parsed.success) return undefined;
+  const qualified = `${parsed.data.providerID}/${parsed.data.id}`;
+  return qualified.length <= 256 ? qualified : undefined;
+}
+export function selectModel(state: NativeState, session: string, value: unknown): Fact[] {
+  const model = qualifiedModel(value),
+    metadata = state.agents.get(session);
+  if (!model || !metadata) return [];
+  metadata.model = model;
+  return [{ type: "agent.linked", agent: state.key(session), model }];
 }
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const Tokens = z

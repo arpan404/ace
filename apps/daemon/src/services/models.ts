@@ -6,6 +6,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
   const { config, options, resources, services } = context;
 
   const models = openDaemonModels(config.dataDir, options.modelInstances ?? [], {
+    ...options.modelDiscovery,
     cursorSlots: cursorHosts(context),
     cursorEnv: options.engine?.cursor?.env ?? process.env,
     cursorEnvironment(instance) {
@@ -50,6 +51,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
       context.signal,
       new Set(account ? ["cursor"] : []),
     );
+    services.modelsReady = admission;
     resources.own(() => admission);
     void admission.catch((error: unknown) =>
       context.log.log("warn", "Default model admission failed", error),

@@ -53,11 +53,18 @@ catalog. Setting `ACE_MODEL_INSTANCES` explicitly overrides CLI defaults;
 
 Catalog reads return cached data immediately. Missing or expired data starts one
 bounded metadata refresh per instance, with a 15-minute TTL, concurrency limits
-and failure cooldown. `models.refresh` requests a refresh explicitly. No metadata
-probe is awaited during daemon startup, and none sends a provider prompt.
+and failure cooldown. `models.refresh` discards the selected instances' cached
+choices before refreshing. After signing into a different account in an external
+CLI, issue `models.refresh` for that provider or instance; this revokes old choices
+in memory and on disk, including when the new account's discovery fails. In-daemon
+Cursor authentication already advances its account generation automatically. Generic
+ACP catalogs remain session-owned and are not cleared by this metadata refresh.
+No metadata probe is awaited during daemon startup, and none sends a provider prompt.
 Codex uses app-server `model/list`, Claude uses SDK control initialization,
-OpenCode uses `models --verbose`, and Pi uses `get_available_models` with
-extensions and session persistence disabled. Cursor retains its existing SDK or
+OpenCode v2 uses an owned, authenticated loopback server and location-scoped
+`client.model.list`. If that catalog is empty, `opencode models` supplies qualified
+IDs without fabricated capabilities or context windows. Pi uses
+`get_available_models` with extensions and session persistence disabled. Cursor retains its existing SDK or
 ACP metadata path. OpenCode and Pi model IDs retain their native provider prefix.
 
 Raw Claude and Codex protocol traffic goes to provider diagnostics at debug log

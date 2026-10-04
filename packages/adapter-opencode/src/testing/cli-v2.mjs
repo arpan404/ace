@@ -10,6 +10,11 @@ if (args[0] === "auth") {
   console.log("[]");
   process.exit(0);
 }
+if (args[0] === "models") {
+  if (args.length !== 1) process.exit(7);
+  console.log("opencode-go/muse-spark-1.3-contributor");
+  process.exit(0);
+}
 if (args[0] !== "serve") process.exit(1);
 if (!args.includes("--stdio") || !process.env.OPENCODE_PASSWORD) process.exit(2);
 const streams = new Set(),
@@ -199,6 +204,10 @@ const server = createServer(async (req, res) => {
     json(true);
     return;
   }
+  if (process.env.ACE_TEST_METADATA_ONLY === "1" && ["/api/session", "/api/auth"].includes(path)) {
+    res.writeHead(500).end();
+    return;
+  }
   if (path === "/api/session" && req.method === "POST") {
     const id = `session-${++serial}`,
       info = {
@@ -247,7 +256,12 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (path === "/api/model") {
-    const directory = url.searchParams.get("location[directory]");
+    const directory =
+      process.env.ACE_TEST_MODEL_LOCATION ?? url.searchParams.get("location[directory]");
+    if (process.env.ACE_TEST_EMPTY_MODELS === "true") {
+      json({ location: { directory }, data: [] });
+      return;
+    }
     json({
       location: { directory },
       data: [

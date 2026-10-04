@@ -11,6 +11,7 @@ export type Agent = {
   turn?: string;
   hadTurn: boolean;
   mode: string;
+  model?: string;
   open: Map<string, OpenItem>;
   items: Set<string>;
   completed: Set<string>;
