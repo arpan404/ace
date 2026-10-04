@@ -50,7 +50,10 @@ export const testHomePathVariables: readonly string[] = [
 const homeSchema = z.string().min(1);
 const environmentSchema = z.record(z.string(), z.string().optional());
 export function parseTestEnvironment(input: unknown): NodeJS.ProcessEnv {
-  return environmentSchema.parse(input);
+  // Node's native process.env has an exotic prototype that Zod's record check rejects.
+  // Normalize it here so every boundary can accept the native environment while
+  // arbitrary external inputs still receive the record schema's normal validation.
+  return environmentSchema.parse(input === process.env ? { ...process.env } : input);
 }
 
 /** Test-only I/O boundary. Unset means no parsing, path operations or filesystem access. */

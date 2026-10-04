@@ -9,6 +9,37 @@ import { localService, resolveDaemonHome } from "@ace/service";
 import { readConfig } from "./config.ts";
 import { ownedDaemonAttempt } from "./testing/test-home-fixture.ts";
 
+test("native Node environments remain usable while restored protected selectors are refused", async ({
+  onTestFinished,
+}) => {
+  const protectedHome = await mkdtemp(join(tmpdir(), "ace-native-env-guard-"));
+  onTestFinished(() => rm(protectedHome, { recursive: true, force: true }));
+  const { stdout } = await promisify(execFile)(process.execPath, [
+    "--input-type=module",
+    "-e",
+    `
+      import { parseTestEnvironment, assertTestEnvironmentIsolation } from '@ace/provider-kit/test-isolation';
+      import { readConfig } from ${JSON.stringify(new URL("./config.ts", import.meta.url).href)};
+      const parsed = parseTestEnvironment(process.env);
+      assertTestEnvironmentIsolation(process.env);
+      const data = readConfig().dataDir;
+      process.env.ACE_TEST_REAL_HOME = ${JSON.stringify(protectedHome)};
+      process.env.ACE_ACCOUNTS_DB = ${JSON.stringify(join(protectedHome, "accounts.sqlite"))};
+      let refusal;
+      try { assertTestEnvironmentIsolation(process.env); }
+      catch (error) { refusal = error.message; }
+      console.log(JSON.stringify({home:parsed.HOME, data, refusal}));
+    `,
+  ]);
+  const observed = z
+    .object({ home: z.string(), data: z.string(), refusal: z.string() })
+    .parse(JSON.parse(stdout));
+  expect(observed.home).toBe(homedir());
+  expect(observed.data).toBe(process.env.ACE_HOME);
+  expect(observed.refusal).toContain("ACE_TEST_REAL_HOME guard refused");
+  expect(await readdir(protectedHome)).toEqual([]);
+});
+
 test("default config and child processes inherit an isolated user home and data directory", async () => {
   const realHome = process.env.ACE_TEST_REAL_HOME;
   if (!realHome || !process.env.ACE_HOME) throw new Error("Missing test home isolation");
