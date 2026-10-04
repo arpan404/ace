@@ -64,6 +64,31 @@ function writeBatch(target: Store, records: SyntheticThreadEvent[]): void {
   });
 }
 
+/** Public coverage includes the persisted digest migration as well as event replay. */
+async function waitForTurnIndex(target: Store): Promise<void> {
+  const start = performance.now();
+  let coverage = target.turnsPage({ threadId, limit: 1 });
+  report({
+    phase: "turn-index-wait",
+    indexedSeq: coverage.indexedSeq,
+    headSeq: coverage.seq,
+    ready: coverage.ready,
+  });
+  while (!coverage.ready) {
+    // Startup replay and range migration own bounded transactions scheduled on
+    // this event loop. Yield rather than timing partially reconstructed data.
+    await setImmediate();
+    coverage = target.turnsPage({ threadId, limit: 1 });
+  }
+  report({
+    phase: "turn-index-ready",
+    indexedSeq: coverage.indexedSeq,
+    headSeq: coverage.seq,
+    elapsedMs: performance.now() - start,
+    ...memory(),
+  });
+}
+
 function measurement(name: string, action: () => unknown, samples = options.samples): void {
   report({ phase: "query", metric: name, samples });
   const elapsed: number[] = [];
@@ -80,6 +105,7 @@ function measurement(name: string, action: () => unknown, samples = options.samp
     p50Ms: sorted[Math.floor(samples * 0.5)],
     p95Ms: sorted[Math.floor(samples * 0.95)],
     maxMs: sorted.at(-1),
+    ...memory(),
   });
 }
 
@@ -131,6 +157,7 @@ try {
     batch = [];
     // Both FTS owners drain their bounded durable queues before cold reopen.
     await store.search.backfill(store, { signal: new AbortController().signal });
+    await waitForTurnIndex(store);
     report({
       phase: "seeded",
       items,
@@ -151,6 +178,7 @@ try {
       { searchScheduler: () => () => {} },
     );
     await store.search.backfill(store, { signal: new AbortController().signal });
+    await waitForTurnIndex(store);
     globalThis.gc?.();
     report({
       phase: "reopened",
@@ -163,6 +191,11 @@ try {
     const reader = store;
     const lastTurns = reader.turnsPage({ threadId, limit: 50 });
     const sinceSeq = lastTurns.turns.at(-26)?.endSeq ?? 0;
+    const recentTurn = lastTurns.turns.at(-26);
+    const sinceTime = recentTurn?.startedAt ?? 0;
+    const midTurnTime = recentTurn
+      ? Math.floor((recentTurn.startedAt + (recentTurn.endedAt ?? recentTurn.startedAt)) / 2)
+      : 0;
     const blobTurn = Math.min(options.turns, 173);
     const blobText = `blob-needle-${blobTurn}`;
     const outputText = `tool-output-needle-${blobTurn}`;
@@ -197,8 +230,49 @@ try {
     measurement("thread.search.tree", () =>
       reader.threadSearch({ threadId, text: "subagent-needle", scope: "tree", limit: 30 }),
     );
+    // Both terms occur thousands of times but never in the same fixture item.
+    // This exercises rejected candidate postings rather than a convenient rare hit.
+    const disjointQueries = ["dependency retryable", "permissions reasoning"];
+    for (const text of disjointQueries) {
+      let disjointCursor: string | undefined;
+      measurement(`thread.search.disjoint.${text.replaceAll(" ", "-")}`, () => {
+        const page = reader.threadSearch({
+          threadId,
+          text,
+          scope: "thread",
+          limit: 30,
+          ...(disjointCursor ? { cursor: disjointCursor } : {}),
+        });
+        disjointCursor = page.cursor ?? undefined;
+      });
+    }
+    measurement("thread.search.commonAndRare", () =>
+      reader.threadSearch({ threadId, text: `checkpoint ${blobText}`, scope: "thread", limit: 30 }),
+    );
+    measurement("thread.search.treeDisjoint", () =>
+      reader.threadSearch({
+        threadId,
+        text: "dependency retryable",
+        scope: "tree",
+        limit: 30,
+      }),
+    );
+    measurement("thread.search.filteredDisjoint", () =>
+      reader.threadSearch({
+        threadId,
+        text: "checkpoint reasoning",
+        scope: "thread",
+        filter: "messages",
+        limit: 30,
+      }),
+    );
     measurement("thread.catchUp.recent", () => reader.threadCatchUp({ threadId, sinceSeq }));
     measurement("thread.catchUp.all", () => reader.threadCatchUp({ threadId, sinceSeq: 0 }));
+    measurement("thread.catchUp.timeRecent", () => reader.threadCatchUp({ threadId, sinceTime }));
+    measurement("thread.catchUp.timeAll", () => reader.threadCatchUp({ threadId, sinceTime: 0 }));
+    measurement("thread.catchUp.midTurn", () =>
+      reader.threadCatchUp({ threadId, sinceTime: midTurnTime }),
+    );
     measurement("items.window", () =>
       reader.itemsWindow({
         threadId,
@@ -236,6 +310,12 @@ try {
         scope: "tree",
         limit: 100,
       }).hits.length,
+      disjointPages: Object.fromEntries(
+        disjointQueries.map((text) => {
+          const page = reader.threadSearch({ threadId, text, scope: "thread", limit: 30 });
+          return [text, { hits: page.hits.length, continues: page.cursor !== null }];
+        }),
+      ),
       catchUpDigest: catchUp.digest,
       initiatingMessagePreview: lastTurns.turns[0]?.initiatingMessagePreview,
       latestAgentMessagePreview: lastTurns.turns.at(-1)?.latestAgentMessagePreview,

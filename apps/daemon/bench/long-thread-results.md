@@ -1,6 +1,6 @@
-# Long-thread benchmark results
+# Long-thread benchmark results before review fixes
 
-Measured on 2026-10-03 with Node v26.8.1, macOS arm64. These are local SQLite `Store` API measurements after closing and reopening the database. No provider CLI or repository test suite ran.
+Measured on 2026-10-03 at revision `34c75d40` with Node v26.8.1, macOS arm64. These historical local SQLite `Store` API measurements precede the current review fixes. No provider CLI or repository test suite ran. They do not validate the new timestamp aggregates, migration, bounded posting traversal or allocation preflight.
 
 The final fixture contains 1,000,000 main-thread items and 48 child-thread messages, 2,000 root turns, 2,000 approvals and 48 linked child threads over five simulated days. It was streamed through the canonical `Store.appendEvents` API with the final writer schema, producing 1,020,531 canonical events. Seed time was 643.39 seconds; database size was 6,556,184,576 bytes.
 
@@ -30,6 +30,8 @@ Seed memory stayed near 193 to 200 MiB RSS from 100,000 through 1,000,000 items,
 
 The query process reopened at 128.48 MiB RSS and 25.31 MiB heap. After all 800 query samples and coverage reads, forced GC left 29.48 MiB heap. RSS was 324.41 MiB, including native SQLite and runtime allocations; query peak RSS was 324.86 MiB. This measurement documents retained memory at one million items rather than inferring an unlimited-history bound from latency alone.
 
-Search results follow chronological chunk-indexing order. Late appends may update an item's existing tail below the cursor ceiling. Disjoint common multi-term queries can scan many postings even though response and candidate buffers remain bounded. The measured fixture meets the targets; these measurements do not establish a latency guarantee for arbitrary queries or thread families.
+At the measured revision, disjoint common multi-term queries could scan many postings. Current pages cap raw scoped anchor candidates at 128 before term filtering and deduplication. Empty pages may carry a continuation cursor. Per-item term checks still depend on that item's chunks. These historical measurements do not establish post-fix latency or memory bounds.
+
+The revised script waits for public turn-index readiness before measurement. It adds disjoint common-term, common-plus-rare, filtered-disjoint and tree-disjoint search workloads, sequence/time catch-up and a midturn time cutoff, with per-workload memory samples. Keep the targets below 50 ms for turns and catch-up and below 150 ms for search. Every updated timing, peak-memory figure and target verdict is **needs run at merge**. No benchmark was rerun during this review round because the owner's latest rule prohibits it.
 
 Behavior tests and their listed mutation cases were written but not executed. They need run at merge.
