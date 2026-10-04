@@ -44,7 +44,13 @@ secret store. `MachineDirectory.pair` and `MachinePool.pair` inject this redeeme
 so transport pinning and platform access adapters keep their current owner. A
 manual URL uses the same authenticated identity read with an existing device
 token. Replacing authorization requires removing the old entry and pairing
-again. Removing a directory entry deletes its local token and closes its worker;
+again. Removing a directory entry disables local access and closes its worker
+before attempting secret or metadata storage. Delayed credential reads and
+identity replies cannot reopen it. If deletion or metadata saving fails, the
+pool retains an offline entry with a storage error, and retained client handles
+remain closed. The user can retry removal; a reconnect must obtain authorization
+again from the secret store. A removal in progress rejects reconnect.
+Successful removal deletes its local token and drops its cached rows;
 it does not revoke other devices or delete daemon data. Host-side revocation
 remains the existing paired-device operation.
 
@@ -92,11 +98,16 @@ comes from another daemon's opinion, a relay's availability, or an elapsed stale
 observation. Pool startup waits only for directory metadata, never for all hosts
 to become reachable. Credential reads and worker startup run independently.
 Disconnected hosts retain their last thread facts; disconnection cannot mark
-agents done. Removing a host drops only its own rows.
+agents done. A replacement worker's unloaded or failed sidebar cannot erase
+cached rows or attention counts. Only a loaded authoritative snapshot can
+replace those facts, including a loaded empty snapshot. `threads.loaded(hostId)`
+describes the current source, separately from retained cached rows. Removing a
+host drops only its own rows.
 
 Merged row keys encode `[hostId, threadId]`, so equal local IDs remain distinct.
 Each row carries its machine entry and original daemon thread summary. Ordering
-is stable by directory order, then daemon insertion order. The store consumes
+is stable by directory order, then the current daemon snapshot order. Loaded
+snapshots rebuild that host's order; deltas retain it. The store consumes
 sidebar change keys; row updates touch only changed rows. Membership updates
 invalidate a lazily materialized ID list. Snapshots and host removal touch only
 that host's rows. `observeChanges` supplies previous/current entries so rail and
@@ -105,6 +116,9 @@ returns an observable count, initializing once and adjusting only changed rows.
 The predicate comes from the existing client attention rule. The store does not
 invent a second attention/status rule. UI consumers apply their existing rules
 and initialize counts once from current rows before following changes.
+Consumer exceptions are isolated per observer and cannot interrupt committed
+row delivery, other counts or keyed selections. Change observers, count
+subscribers and keyed selectors share a 4,096-listener-slot admission bound.
 
 Thread subscriptions and commands take a host/thread reference. Requests,
 service subscriptions, controls and durable enqueue route through that
@@ -140,6 +154,11 @@ Public behaviour tests use three real worker threads with separate fake hosts,
 colliding thread IDs and distinct account catalogs. They cover merge ordering,
 create/send/read/subscribe routing, rename/removal, a blocked worker, offline
 isolation, reconnect, auth rejection, metadata/secret round trips and the
-unchanged direct single-client API. A real local daemon test covers authenticated
+unchanged direct single-client API. Review regressions cover delayed/failed
+replacement snapshots, removal storage failure, mismatched one-way controls,
+throwing consumers, snapshot reordering and listener bounds. These regressions
+and pool-specific performance measurements need run at merge under the owner's
+test policy; see [review verification](../testing/multi-daemon-review.md).
+A real local daemon test covers authenticated
 identity, hostname fallback and the global display-name setting. All test homes
 are temporary. No provider sessions or recording tools are used.
