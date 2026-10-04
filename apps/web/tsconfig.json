@@ -14,6 +14,7 @@
     "vitest.config.ts",
     "react-plugins.ts",
     "icon-weights.ts",
+    "initial-preloads.ts",
     "scripts"
   ]
 }
