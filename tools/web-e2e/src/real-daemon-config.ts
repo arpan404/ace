@@ -4,8 +4,11 @@ import { join } from "node:path";
 /** Shared by the launcher (src/real-daemon.ts) and the smoke test. */
 /** `ACE_E2E_DAEMON_PORT` and `ACE_E2E_DAEMON_HOME` let two checkouts run their e2e side by side. */
 export const daemonPort = Number(process.env.ACE_E2E_DAEMON_PORT ?? 4391);
-/** The real-daemon project's Vite server; the daemon allows its origin on the access routes. */
-export const webPort = 5191;
+/**
+ * The real-daemon project's Vite server; the daemon allows its origin on the access routes.
+ * `ACE_E2E_WEB_PORT` (and `ACE_E2E_FAKE_PORT` for the fake one) let checkouts run side by side.
+ */
+export const webPort = Number(process.env.ACE_E2E_WEB_PORT ?? 5191);
 export const webOrigin = `http://127.0.0.1:${webPort}`;
 /** A phone paired before the run, so the remote settings journey can list and revoke it. */
 export const pairedDeviceName = "E2E phone";
@@ -56,3 +59,24 @@ export const deckStepMs = Number(process.env.ACE_E2E_DECK_STEP_MS ?? 700);
 export const longTitle = "Long thread on a real daemon";
 export const longTurns = Number(process.env.ACE_E2E_LONG_TURNS ?? 110);
 export const longAsk = (n: number) => `Checkpoint ${n}: audit migration shard alpha${n}x.`;
+/**
+ * Where the project journeys add, create and clone projects: the daemon's only allowed root.
+ * Outside the system temp directory on macOS, whose real path sits under /private/var, a
+ * folder the daemon never opens.
+ */
+export const projectsRoot = join(
+  process.platform === "win32" ? tmpdir() : "/tmp",
+  `${process.env.ACE_E2E_DAEMON_HOME ?? "ace-web-e2e-daemon"}-projects`,
+);
+/** A folder already in the root, for Open folder. */
+export const existingFolder = "proj-existing";
+/** A folder for the deep link journey. */
+export const linkedFolder = "proj-linked";
+/**
+ * The address the clone journey clones. Git rewrites it to a local bare repository (the
+ * daemon home's global Git config), so no network is used; ace's client checks see a normal
+ * HTTPS address.
+ */
+export const cloneUrl = "https://git.e2e.invalid/sample.git";
+/** A file the cloned repository holds. */
+export const clonedFile = "SAMPLE.md";

@@ -5,7 +5,7 @@ import { keymap } from "@/lib/keymap.ts";
 import { useThreadNav } from "./nav.tsx";
 
 /**
- * The header's ways into a long thread: search it (⌘F) and its turns (⇧⌘O). Their shortcuts
+ * The header's ways into a long thread: search it (⌘F) and its turns (⌥⌘G). Their shortcuts
  * are bound here, with the thread screen, so they work before the tools' code has loaded.
  */
 export function LongThreadButtons() {

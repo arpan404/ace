@@ -7,6 +7,7 @@ export const keymap = {
   palette: { keys: "mod+k", label: "Command palette" },
   newThread: { keys: "mod+n", label: "New thread" },
   newDeck: { keys: "shift+mod+n", label: "New deck" },
+  addProject: { keys: "shift+mod+o", label: "Add project" },
   back: { keys: "mod+[", label: "Back" },
   forward: { keys: "mod+]", label: "Forward" },
   toggleSidebar: { keys: "mod+\\", label: "Hide or show the sidebar" },
@@ -35,7 +36,7 @@ export const keymap = {
   logs: { keys: "ctrl+shift+l", label: "Logs" },
   takeControl: { keys: "ctrl+shift+c", label: "Take or hand back control of a browser or device" },
   // A long thread (features/thread/long): its turns, moving between them, searching it.
-  turns: { keys: "shift+mod+o", label: "Turns of this thread" },
+  turns: { keys: "alt+mod+g", label: "Turns of this thread" },
   previousTurn: { keys: "alt+mod+arrowup", label: "Previous turn" },
   nextTurn: { keys: "alt+mod+arrowdown", label: "Next turn" },
   findInThread: { keys: "mod+f", label: "Search this thread" },

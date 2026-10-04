@@ -20,12 +20,21 @@ type Directory = {
   initialBranch: string;
   remote?: string;
 };
+/** A folder on the fake host, for `seedFolders`. */
+export interface FolderSeed {
+  path: string;
+  /** A repository root (a `.git` inside). */
+  git?: boolean;
+  modifiedAt?: number;
+}
 /** Host filesystem fixture and registered catalog, including projects without threads. */
 export class FakeProjects {
   private context: FakeServiceContext;
   private hasOwnedWork: (id: string) => boolean;
   private projects = new Map<string, Project>();
   private nextProject = 0;
+  /** The host user's home and the only allowed root. */
+  private home = "/fake";
   private removed = new Set<string>();
   private retained = new Map<string, Project>();
   private directories = new Map<string, Directory>([
@@ -72,6 +81,40 @@ export class FakeProjects {
       });
     }
   }
+  /**
+   * A host filesystem for the folder browser: `home` becomes the home and only allowed root,
+   * and each folder is created with its parents. Seeded projects outside it stay listed but
+   * can't be browsed, like a project outside a real daemon's roots.
+   */
+  seedFolders(home: string, folders: readonly FolderSeed[]): void {
+    const root = home.replace(/\/+$/, "") || "/";
+    this.home = root;
+    const ensure = (path: string, value?: Partial<Directory>) => {
+      const existing = this.directories.get(path);
+      this.directories.set(path, {
+        empty: false,
+        git: false,
+        modifiedAt: this.context.now(),
+        initialBranch: "main",
+        ...existing,
+        ...value,
+      });
+    };
+    ensure(root);
+    for (const folder of folders) {
+      const relative = folder.path
+        .slice(root.length + 1)
+        .split("/")
+        .filter(Boolean);
+      if (!folder.path.startsWith(`${root}/`) || relative.includes("..")) continue;
+      for (let depth = 1; depth < relative.length; depth++)
+        ensure(`${root}/${relative.slice(0, depth).join("/")}`);
+      ensure(folder.path, {
+        git: folder.git ?? false,
+        ...(folder.modifiedAt === undefined ? {} : { modifiedAt: folder.modifiedAt }),
+      });
+    }
+  }
   isRemoved(id: string): boolean {
     return this.removed.has(id);
   }
@@ -92,7 +135,8 @@ export class FakeProjects {
   private checked(path: string): string {
     if (!path.startsWith("/") || path.split("/").includes("..") || path.includes("\0"))
       throw new Error("invalid_path");
-    if (path !== "/fake" && !path.startsWith("/fake/")) throw new Error("outside_project_roots");
+    if (path !== this.home && !path.startsWith(`${this.home}/`))
+      throw new Error("outside_project_roots");
     return path.replace(/\/+$/, "") || "/";
   }
   private inspection(path: string) {
@@ -262,7 +306,15 @@ export class FakeProjects {
       });
       progress("starting");
       // Yield each stage to the transport so clients can send cancel before the receipt.
-      for (const phase of ["receiving", "resolving", "checkout"] as const) {
+      // Receiving moves in steps, as Git reports it, so a progress bar has somewhere to go.
+      const stages = [
+        ["receiving", 30],
+        ["receiving", 65],
+        ["receiving", 100],
+        ["resolving", 100],
+        ["checkout", 100],
+      ] as const;
+      for (const [phase, percent] of stages) {
         await new Promise<void>((resolve) => {
           flight.wake = resolve;
           if (this.context.scheduleProject) this.context.scheduleProject(resolve);
@@ -273,7 +325,7 @@ export class FakeProjects {
           progress("cancelled");
           return { ok: false, error: "clone_cancelled" };
         }
-        progress(phase, 100);
+        progress(phase, percent);
       }
       this.directories.set(path, {
         empty: false,
@@ -314,7 +366,7 @@ export class FakeProjects {
       if (op.op === "workspace.inspect")
         return wrap({ kind: "inspection", ...this.inspection(op.path) });
       if (op.op === "fs.home")
-        return wrap({ kind: "home", path: "/fake", roots: ["/fake"], initialBranch: "main" });
+        return wrap({ kind: "home", path: this.home, roots: [this.home], initialBranch: "main" });
       if (op.op === "fs.recentFolders")
         return wrap({
           kind: "recentFolders",

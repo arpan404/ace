@@ -40,11 +40,27 @@ export function createProjectsSession(context: SocketContext): SocketService {
     command: {
       types: ProjectCommands.map((schema) => schema.shape.type.value),
       scope: () => "projects",
-      async accept(command) {
-        const result = options.projects
-          ? await options.projects.execute(command, context.authorityLease?.("projects") ?? allowed)
-          : { commandId: command.id, ok: false, error: "projects_unavailable" };
-        if (connected()) send({ type: "commandResult", ...result });
+      // Not awaited: a clone runs for minutes, and the socket's next messages (its cancel, the
+      // client's reads) must not queue behind it. The receipt goes out when it ends.
+      accept(command) {
+        const projects = options.projects;
+        if (!projects) {
+          send({
+            type: "commandResult",
+            commandId: command.id,
+            ok: false,
+            error: "projects_unavailable",
+          });
+          return;
+        }
+        const task = projects
+          .execute(command, context.authorityLease?.("projects") ?? allowed)
+          .catch(() => ({ commandId: command.id, ok: false, error: "project_failed" }))
+          .then((result) => {
+            if (connected()) send({ type: "commandResult", ...result });
+          });
+        tasks.add(task);
+        void task.finally(() => tasks.delete(task));
       },
     },
     handle(message) {

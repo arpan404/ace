@@ -2,13 +2,9 @@ import type { ClientApi, SidebarReader } from "@ace/client";
 import { useSidebarAll } from "@ace/client-react";
 import { useCallback, useEffect, useMemo } from "react";
 import { useDaemonQuery } from "./daemon-query.ts";
+import { projectsKey, type Project } from "./project-cache.ts";
 
-/** A project (daemon workspace): its id on the wire, the name people know it by, its path. */
-export interface Project {
-  id: string;
-  name: string;
-  path: string;
-}
+export type { Project } from "./project-cache.ts";
 
 /** The daemon pages `workspaces.list` at 100; a person with more projects sees the first 1,000. */
 const pageSize = 100;
@@ -45,7 +41,7 @@ export function useThreadProjects(): readonly string[] {
   return useSidebarAll(readThreadProjects, sameList) ?? none;
 }
 
-const projectsQuery = { queryKey: ["projects"], staleTime: 60_000, read: readProjects };
+const projectsQuery = { queryKey: projectsKey, staleTime: 60_000, read: readProjects };
 
 function useProjectList(): Project[] | undefined {
   return useDaemonQuery(projectsQuery).data;
@@ -68,6 +64,8 @@ export function useProjectName(): (id: string) => string {
 export interface ProjectDirectory {
   /** Every project the daemon knows, by name. Empty until read. */
   projects: readonly Project[];
+  /** False until the daemon's list has been read, so no screen claims there are none. */
+  loaded: boolean;
   name(id: string): string;
 }
 
@@ -95,7 +93,8 @@ export function useProjectDirectory(): ProjectDirectory {
     () => (data ?? []).toSorted((a, b) => a.name.localeCompare(b.name)),
     [data],
   );
-  return useMemo(() => ({ projects, name }), [projects, name]);
+  const loaded = data !== undefined;
+  return useMemo(() => ({ projects, name, loaded }), [projects, name, loaded]);
 }
 
 /**
@@ -117,4 +116,18 @@ export function useProjectChoices(extra: readonly string[] = none): {
     [projects, fromThreads, extra, name],
   );
   return { ids, name };
+}
+
+/**
+ * Projects a new thread can start in: the ones the daemon lists, by name. Unlike
+ * `useProjectChoices`, a removed project that still has threads is not offered.
+ */
+export function useRegisteredProjects(): {
+  ids: readonly string[];
+  name(id: string): string;
+  loaded: boolean;
+} {
+  const { projects, name, loaded } = useProjectDirectory();
+  const ids = useMemo(() => projects.map((p) => p.id), [projects]);
+  return { ids, name, loaded };
 }
