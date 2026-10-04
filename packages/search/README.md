@@ -60,3 +60,40 @@ The non-gating `bench/search.ts` benchmark defaults to one million items across 
 `SEARCH_BENCH_ITEMS` can reduce the corpus for local iteration. `SEARCH_BENCH_MODE=prose` or `dual` selects one configuration. Benchmarks have no gating latency threshold. Historical results from before the runtime-verification restriction and final query changes, and the tokenizer trade-off, are in [ADR 0035](../../docs/adr/0035-search.md). Updated measurements need run at merge. `bench/outputs.ts` additionally measures bounded output-summary completion reads and document writes.
 
 `bench/deletions.ts` adds a mixed pending/indexed deletion and retention workload with 100,000 items by default. `SEARCH_DELETE_BENCH_ITEMS` accepts 1,000 through 1,000,000 items. It records 100 pending and 100 indexed deletion samples, ops/s, p50/p99, retention time and peak RSS; measurements need run at merge. See [review verification](VERIFICATION.md) for the regression scenarios and static-review record.
+
+### Long-thread reads
+
+`SearchIndex.threadQuery(request, { headSeq, threadIds, turnOrdinalForItem })`
+serves `ThreadSearchRequest`/`ThreadSearchResponse`. The daemon supplies authorized
+linked descendants and resolves turn ordinals with indexed item point reads.
+The search package never discovers or authorizes a thread family on its own.
+
+The additive full-text index preserves typed message, notice, reasoning, file,
+command and error text in 8,192 UTF-16-unit chunks with 512 units of overlap. Shell
+output and canonical `TextSource` streams drain through the existing injected
+`OutputReader`, at most 128 reads of 32 KiB in an append/backfill batch. Persisted
+byte offsets and a separate event cursor make upgrades and restarts resumable.
+Round-robin source reads keep newer small streams visible while older sources
+remain queued. Missing bytes stay pending; periodic flushes retry them.
+Raw provider blobs are excluded; canonical text backed by daemon stream chunks
+is indexed in full. Source coverage is reported in every result.
+
+Search pages follow first matching chunk order and emit each item once. Cursors
+bind text, filter and the authorized family, pin an upper chunk-id ceiling, and
+use keyset continuation. Each request examines at most 128 scoped anchor
+postings before checking other query terms and deduplicating items. A page can
+contain fewer than the requested results, including zero, while still carrying
+a continuation cursor. Continue until `cursor` is null. New indexed rows appear
+when the client starts a fresh search. Bounded plain snippets reuse the global
+search highlight decoder.
+Multi-term queries intersect terms across all matching chunks of an item. A
+single token exceeding the 512-unit overlap can cross a storage boundary without
+a match. This bound keeps delta work independent of history.
+
+Order follows chunk indexing, so delayed output can appear after newer items.
+Append-only tail chunks can gain matches within an existing cursor's ceiling;
+restart the search to refresh its results. Rare-term anchoring caps frequency
+sampling, and the posting budget prevents a disjoint query from scanning all
+candidate history in one page. Per-item checks still depend on that item's
+matching chunks. Updated adversarial latency measurements need run at merge;
+the earlier fixture measurements do not establish a worst-case guarantee.

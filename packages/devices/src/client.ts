@@ -16,6 +16,8 @@ export interface DeviceTransportEvents {
   ready(): void;
   message(data: unknown): void;
   close(): void;
+  /** Admission is retryable; the transport owns the delayed retry. */
+  limited?(error: DeviceClientError): void;
 }
 export interface DeviceTransport {
   open(events: DeviceTransportEvents): void;
@@ -128,6 +130,13 @@ export class DeviceClient {
         },
         close: () => {
           if (current()) this.disconnect();
+        },
+        limited: (error) => {
+          if (current()) {
+            this.connected = false;
+            this.error = error;
+            this.notify();
+          }
         },
       });
     } catch (error) {

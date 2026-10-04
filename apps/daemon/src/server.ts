@@ -23,6 +23,7 @@ import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
 import { subscribe } from "./subscription.ts";
+import { WireEncoder } from "./wire-encoder.ts";
 const bind = (listener: Server, host: string, port: number) =>
   new Promise<number>((resolve, reject) => {
     listener.once("error", reject);
@@ -137,8 +138,8 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.destroy();
         return;
       }
-      // Browsers always send Origin, so a page the user merely visits cannot reach the
-      // loopback socket. Native clients send none.
+      // Loopback shares the HTTP access allowlist. Remote clients authenticate
+      // with paired-device tickets, including native clients with URL-derived Origin.
       const origin = request.headers.origin;
       if (isLocal && origin !== undefined && !access.allowedOrigins.has(origin)) {
         refuseUpgrade(socket, "403 Forbidden");
@@ -178,6 +179,7 @@ export async function startServer(options: ServerOptions): Promise<{
   let disconnects = Promise.resolve();
   let disconnectError: Error | undefined;
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
+  const encoder = new WireEncoder();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
     socket.on("error", (error) => {
@@ -194,7 +196,12 @@ export async function startServer(options: ServerOptions): Promise<{
     let cleaned = false;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
-    const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure }, runtime.now);
+    const outbox = new Outbox(
+      socket,
+      { ...defaultPressure, ...options.pressure },
+      runtime.now,
+      encoder,
+    );
     const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
     const fail = (
       code: string,
@@ -222,6 +229,13 @@ export async function startServer(options: ServerOptions): Promise<{
       maintenance,
       device: () => device,
       authorize,
+      authorityLease: (scope) => {
+        const actor = authenticated.get(socket);
+        return () => {
+          const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
+          return current?.revokedAt === null && allows(current, scope);
+        };
+      },
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       connected: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
@@ -297,6 +311,11 @@ export async function startServer(options: ServerOptions): Promise<{
           fail("unauthorized", "Valid hello required", true);
           return;
         }
+        const bearer =
+          message.token !== undefined && isLocal && !auth.local(message.token)
+            ? auth.deviceBearer(message.token)
+            : undefined;
+        const desktop = bearer?.scopes.includes("desktop") ? bearer : undefined;
         const actor =
           message.ticket !== undefined
             ? auth.consume(message.ticket)
@@ -304,13 +323,16 @@ export async function startServer(options: ServerOptions): Promise<{
               ? {
                   id: message.deviceId,
                   name: "Host",
-                  scopes: ["admin"] as const,
+                  scopes: ["admin", "projects"] as const,
                   createdAt: 0,
                   lastSeenAt: auth.now(),
                   revokedAt: null,
                 }
-              : undefined;
-        if (!actor || (message.ticket !== undefined && actor.id !== message.deviceId)) {
+              : desktop;
+        if (
+          !actor ||
+          ((message.ticket !== undefined || desktop !== undefined) && actor.id !== message.deviceId)
+        ) {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
@@ -319,7 +341,7 @@ export async function startServer(options: ServerOptions): Promise<{
         authenticated.set(socket, {
           ...actor,
           scopes: [...actor.scopes],
-          revocable: message.ticket !== undefined,
+          revocable: message.ticket !== undefined || desktop !== undefined,
         });
         try {
           // HTTP discovery is available while listener features initialize. A
@@ -342,7 +364,14 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           connections.set(socket, send);
         }
-        for (const service of sessions) service.authenticated?.();
+        try {
+          for (const service of sessions) service.authenticated?.(message.channel);
+        } catch (error) {
+          const limit = error instanceof Error && "code" in error && error.code === "limit";
+          const code = limit ? "connection_limit" : "service_unavailable";
+          socket.close(limit ? 4013 : 1011, code);
+          return;
+        }
         send({
           type: "welcome",
           hostId,

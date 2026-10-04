@@ -16,6 +16,8 @@ import { summary, sourceId } from "./metadata.ts";
 import { dbSessions, openProviderDb } from "./provider-db.ts";
 import type { ProviderHome } from "./contracts.ts";
 import type { Catalog } from "./catalog.ts";
+import type { InventoryChanges } from "./inventory-watch.ts";
+import { inventoryRoots, changedRoots, changedFiles, isRootDatabase } from "./scan-paths.ts";
 
 export async function scan(
   catalog: Catalog,
@@ -31,6 +33,7 @@ export async function scan(
       unsupported: { instanceId: string; reason: string }[];
     },
   ) => void | Promise<void> = () => undefined,
+  changes?: InventoryChanges,
 ) {
   const result = {
     files: 0,
@@ -40,6 +43,7 @@ export async function scan(
     unsupported: [] as { instanceId: string; reason: string }[],
   };
   await catalog.cleanup(signal);
+  catalog.updates.begin();
   for (const instance of instances) {
     signal.throwIfAborted();
     if (instance.provider === "cursor") {
@@ -50,14 +54,19 @@ export async function scan(
         });
       continue;
     }
+    const changed =
+      changes === undefined
+        ? undefined
+        : changedRoots(
+            instance,
+            changes.find((entry) => entry.instanceId === instance.id)?.paths ?? [],
+          );
+    if (changed?.length === 0) continue;
     const epoch = catalog.start(instance.id);
     {
       const roots =
-        instance.provider === "claude"
-          ? [join(instance.homeDir, "projects")]
-          : instance.provider === "codex"
-            ? [join(instance.homeDir, "sessions"), join(instance.homeDir, "archived_sessions")]
-            : [join(instance.homeDir, "storage/session")];
+        changed?.filter((path) => !isRootDatabase(instance, path)) ?? inventoryRoots(instance);
+      if (changed) for (const path of changed) catalog.updates.path(instance.id, path);
       const budget = { entries: 0 };
       let batch: string[] = [];
       const processFile = async (path: string) => {
@@ -141,15 +150,28 @@ export async function scan(
         for (const outcome of results) if (outcome.status === "rejected") throw outcome.reason;
       };
       for (const root of roots)
-        for await (const path of walkFiles(root, signal, budget)) {
+        for await (const path of changed === undefined
+          ? walkFiles(root, signal, budget)
+          : changedFiles(root, signal, budget)) {
           batch.push(path);
           if (batch.length === 4) await flush();
         }
       if (batch.length) await flush();
       // Only recognized database names in the home root are opened. No auth/config files.
-      for await (const path of rootDatabases(instance, signal)) {
+      const databases =
+        changed === undefined
+          ? rootDatabases(instance, signal)
+          : changed.filter((path) => isRootDatabase(instance, path));
+      for await (const path of databases) {
         result.files++;
-        const fp = await databaseFingerprint(path);
+        let fp;
+        try {
+          fp = await databaseFingerprint(path);
+        } catch (error) {
+          if (changed && error instanceof Error && "code" in error && error.code === "ENOENT")
+            continue;
+          throw error;
+        }
         if (catalog.touch(instance.id, path, fp, epoch)) {
           result.skipped++;
           continue;
@@ -192,10 +214,18 @@ export async function scan(
         }
       }
       signal.throwIfAborted();
-      await catalog.prune(instance.id, epoch, signal);
-      await catalog.summarizeTree(instance.id, signal, () => progress(result.files, { ...result }));
+      if (changed) {
+        for (const path of changed) await catalog.updates.prune(instance.id, path, epoch, signal);
+        await catalog.updates.summarize(instance.id, signal);
+      } else {
+        await catalog.prune(instance.id, epoch, signal);
+        await catalog.summarizeTree(instance.id, signal, () =>
+          progress(result.files, { ...result }),
+        );
+      }
     }
   }
+  await progress(result.files, { ...result });
   return result;
 }
 async function* rootDatabases(instance: ProviderHome, signal: AbortSignal) {

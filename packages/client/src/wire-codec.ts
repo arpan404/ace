@@ -16,6 +16,12 @@ import {
 
 export type ServiceWire = typeof import("./service-wire.ts");
 
+/**
+ * The service schemas, loading them the first time. The one place they are imported, so every
+ * caller (a client's codec, the worker decoding a tab's service reads) shares one chunk.
+ */
+export const loadServiceWire = (): Promise<ServiceWire> => import("./service-wire.ts");
+
 const typeOf = (value: unknown): string | undefined =>
   typeof value === "object" && value !== null && "type" in value && typeof value.type === "string"
     ? value.type
@@ -26,7 +32,7 @@ export class WireCodec {
   private loading: Promise<ServiceWire> | undefined;
   /** The service schemas, loading them the first time. */
   load(): Promise<ServiceWire> {
-    this.loading ??= import("./service-wire.ts").then((module) => (this.service = module));
+    this.loading ??= loadServiceWire().then((module) => (this.service = module));
     return this.loading;
   }
   /** The service schemas if they have loaded. */

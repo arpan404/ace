@@ -16,3 +16,7 @@ export { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
 export type { BrowserBackend, BrowserBackendSession, BrowserCdp, BackendOpen } from "./backend.ts";
 export { acquireChromium, type ChromiumAcquisitionOptions } from "./acquisition.ts";
 export { chromiumArtifact, ChromiumArtifact } from "./chromium-manifest.ts";
+
+export type { ChromiumCleanupRuntime } from "./chromium-close.ts";
+
+export { chromiumProcessKiller, type KillCommand } from "./chromium-process.ts";

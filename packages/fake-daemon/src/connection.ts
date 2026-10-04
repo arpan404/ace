@@ -29,6 +29,7 @@ export interface Host {
     limit: number,
   ): { bytes: Uint8Array; nextOffset: number; eof: boolean } | undefined;
   command(command: Command): CommandResult;
+  commandAsync?(command: Command): Promise<CommandResult>;
   /**
    * Fault injection: "fail" answers a correlated request with the daemon's `unavailable` error,
    * "hold" never answers it (a read that hangs), undefined serves it normally.
@@ -93,6 +94,7 @@ export class Connection {
       }
       this.ready = true;
       this.device = message.deviceId;
+      this.session.authenticated?.(this.device);
       this.send({
         type: "welcome",
         hostId: this.host.hostId,
@@ -119,6 +121,9 @@ export class Connection {
     }
     this.handle(message);
   }
+  get deviceId(): string {
+    return this.device;
+  }
   private handle(message: ClientMessage): void {
     switch (message.type) {
       case "ping":
@@ -137,8 +142,26 @@ export class Connection {
         return;
       }
       case "command": {
-        const result = this.host.command(message.command);
-        this.send({ type: "commandResult", ...result });
+        if (
+          message.command.payload.type === "thread.markRead" &&
+          message.command.deviceId !== this.device
+        ) {
+          this.send({
+            type: "commandResult",
+            commandId: message.command.id,
+            ok: false,
+            error: "forbidden",
+          });
+          return;
+        }
+        if (message.command.payload.type === "workspace.clone" && this.host.commandAsync) {
+          void this.host
+            .commandAsync(message.command)
+            .then((result) => this.send({ type: "commandResult", ...result }));
+        } else {
+          const result = this.host.command(message.command);
+          this.send({ type: "commandResult", ...result });
+        }
         return;
       }
       case "output.read": {

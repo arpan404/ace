@@ -13,8 +13,18 @@ test.each(["0.85.1", "1.0.0"])(
     const home = await mkdtemp(join(tmpdir(), "ace-pi-discovery-"));
     const absent = { installed: false, auth: "unknown" as const, loginHint: "unused" };
     const daemon = await startDaemon({
+      startup: { schedule: () => () => {} },
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       engine: {
+        cursor: {
+          discovery: {
+            resolve() {
+              throw Object.assign(new Error("SDK absent in Pi fixture"), {
+                code: "MODULE_NOT_FOUND",
+              });
+            },
+          },
+        },
         adapterDiscovery: async () => ({
           claude: absent,
           codex: absent,
@@ -37,6 +47,7 @@ test.each(["0.85.1", "1.0.0"])(
         },
       },
     });
+    expect(daemon.serviceStatus()).toContainEqual({ name: "engine", state: "ready" });
     const client = new Client(daemon.url);
     const opened = once(client.socket, "open");
     try {

@@ -15,7 +15,7 @@ export function migrate(db: DatabaseSync, timezone: string): void {
       UPDATE usage_meta SET version=2, cursor=0; COMMIT;`);
   }
   db.exec(`
-    PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
+    PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256;
     CREATE TABLE IF NOT EXISTS usage_meta (id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, cursor INTEGER NOT NULL, timezone TEXT NOT NULL, omitted INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS usage_threads (thread TEXT PRIMARY KEY, workspace TEXT NOT NULL, provider TEXT NOT NULL) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS usage_agents (agent TEXT PRIMARY KEY, thread TEXT NOT NULL, parent TEXT, model TEXT, provider TEXT, run TEXT NOT NULL DEFAULT 'legacy');

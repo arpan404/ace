@@ -1,0 +1,9 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectName.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 256,
+  "minLength": 1,
+  "pattern": "^[^/\\\\\\x00-\\x1f]+$",
+  "type": "string",
+  "x-ace-constraint": "One folder name, without separators, traversal or control characters."
+}

@@ -1,0 +1,101 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadSearchResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "headSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hits": {
+      "items": {
+        "properties": {
+          "itemId": {
+            "$ref": "https://ace.local/protocol/v1/ItemId.json"
+          },
+          "seq": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "snippet": {
+            "$ref": "https://ace.local/protocol/v1/SearchSnippet.json"
+          },
+          "threadId": {
+            "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+          },
+          "turnOrdinal": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "threadId",
+          "itemId",
+          "seq",
+          "turnOrdinal",
+          "snippet"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "indexedSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "pending": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "ready": {
+      "type": "boolean"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "thread.search",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "hits",
+    "cursor",
+    "indexedSeq",
+    "headSeq",
+    "pending",
+    "ready"
+  ],
+  "type": "object"
+}

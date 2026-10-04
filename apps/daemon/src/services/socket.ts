@@ -23,7 +23,7 @@ export interface CommandRegistration {
 }
 export interface SocketService {
   binary?(frame: Buffer): boolean;
-  authenticated?(): void;
+  authenticated?(channel: Extract<ClientMessage, { type: "hello" }>["channel"]): void;
   handle?(message: SocketMessage, device: DeviceId): boolean | Promise<boolean>;
   command?: CommandRegistration;
   close?(): void;
@@ -39,6 +39,8 @@ export interface SocketContext {
   maintenance: MaintenanceGate;
   device(): DeviceId | undefined;
   authorize(scope: DeviceScope): boolean;
+  /** Capture authenticated authority for admitted durable effects across reconnects. */
+  authorityLease?(scope: DeviceScope): () => boolean;
   canReadThread(thread: import("@ace/protocol").ThreadId): boolean;
   connected(): boolean;
   send(message: ServerMessage | PluginServerMessage): void;

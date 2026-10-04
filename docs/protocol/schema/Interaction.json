@@ -5,6 +5,9 @@
     "agentId": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },
+    "autoReviewed": {
+      "type": "boolean"
+    },
     "blocking": {
       "type": "boolean"
     },

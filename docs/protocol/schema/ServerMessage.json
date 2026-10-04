@@ -3,6 +3,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/TurnsPageResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ItemsWindowResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ThreadSearchResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ThreadCatchUpResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ThreadReadStateResponse.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MachinesResult.json"
     },
     {
@@ -28,6 +43,15 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/WorkspaceActionResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ProjectsResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceCloneProgress.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/TerminalResult.json"
@@ -894,6 +918,9 @@
         "health": {
           "$ref": "https://ace.local/protocol/v1/DiagnosticsHealth.json"
         },
+        "inspection": {
+          "$ref": "https://ace.local/protocol/v1/ProjectInspection.json"
+        },
         "ok": {
           "type": "boolean"
         },
@@ -917,6 +944,9 @@
         "type": {
           "const": "commandResult",
           "type": "string"
+        },
+        "workspace": {
+          "$ref": "https://ace.local/protocol/v1/Project.json"
         }
       },
       "required": [

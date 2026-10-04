@@ -27,8 +27,8 @@ export class TransitionState {
   constructor(store: Store) {
     this.store = store;
     this.history = new HandoffAccess(store);
-    store.atomic((db) =>
-      db.exec(`
+    store.atomic((_db) =>
+      _db.exec(`
       CREATE TABLE IF NOT EXISTS engine_transitions (
         thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE, value JSON NOT NULL
       );
@@ -43,9 +43,9 @@ export class TransitionState {
     );
   }
   pruneGuards(): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(
+    this.store.atomic((_db) =>
+      this.store
+        .statement(
           "DELETE FROM engine_transition_guards WHERE command_id NOT IN (SELECT command_id FROM intents WHERE status IN ('pending','queued','running'))",
         )
         .run(),
@@ -55,39 +55,43 @@ export class TransitionState {
     return this.guardOwner(id) !== undefined;
   }
   guardOwner(id: ThreadId): string | undefined {
-    return this.store.atomic((db) => {
-      const row = db
-        .prepare("SELECT command_id FROM engine_transition_guards WHERE thread_id=?")
+    return this.store.atomic((_db) => {
+      const row = this.store
+        .statement("SELECT command_id FROM engine_transition_guards WHERE thread_id=?")
         .get(id);
       return row ? z.string().parse(row.command_id) : undefined;
     });
   }
   guard(id: ThreadId, commandId: string): void {
-    this.store.atomic((db) =>
-      db.prepare("INSERT INTO engine_transition_guards VALUES (?, ?)").run(id, commandId),
+    this.store.atomic((_db) =>
+      this.store.statement("INSERT INTO engine_transition_guards VALUES (?, ?)").run(id, commandId),
     );
   }
   releaseGuards(commandId: string): ThreadId[] {
-    return this.store.atomic((db) => {
-      const ids = db
-        .prepare("SELECT thread_id FROM engine_transition_guards WHERE command_id=?")
+    return this.store.atomic((_db) => {
+      const ids = this.store
+        .statement("SELECT thread_id FROM engine_transition_guards WHERE command_id=?")
         .all(commandId)
         .map((row) => ThreadId.parse(row.thread_id));
-      db.prepare("DELETE FROM engine_transition_guards WHERE command_id=?").run(commandId);
+      this.store
+        .statement("DELETE FROM engine_transition_guards WHERE command_id=?")
+        .run(commandId);
       return ids;
     });
   }
   get(id: ThreadId): TransitionMetadata {
-    return this.store.atomic((db) => {
-      const row = db.prepare("SELECT value FROM engine_transitions WHERE thread_id=?").get(id);
+    return this.store.atomic((_db) => {
+      const row = this.store
+        .statement("SELECT value FROM engine_transitions WHERE thread_id=?")
+        .get(id);
       return Metadata.parse(row ? JSON.parse(String(row.value)) : {});
     });
   }
   set(id: ThreadId, input: TransitionMetadata): void {
     const value = JSON.stringify(admitTransitionMetadata(input));
-    this.store.atomic((db) =>
-      db
-        .prepare(`INSERT INTO engine_transitions VALUES (?, ?)
+    this.store.atomic((_db) =>
+      this.store
+        .statement(`INSERT INTO engine_transitions VALUES (?, ?)
       ON CONFLICT(thread_id) DO UPDATE SET value=excluded.value`)
         .run(id, value),
     );
@@ -122,37 +126,38 @@ export class TransitionState {
     });
   }
   admitModel(id: ThreadId, selection: ExecutionSelection): void {
-    this.store.atomic((db) => {
+    this.store.atomic((_db) => {
       const count = Number(
-        db.prepare("SELECT COUNT(*) AS n FROM engine_model_options WHERE thread_id=?").get(id)?.n,
+        this.store
+          .statement("SELECT COUNT(*) AS n FROM engine_model_options WHERE thread_id=?")
+          .get(id)?.n,
       );
       if (count >= 32 && !this.options(id, selection.provider, selection.model ?? ""))
         throw new Error("Remembered model capacity exceeded");
     });
   }
   remember(id: ThreadId, selection: ExecutionSelection): void {
-    this.store.atomic((db) => {
+    this.store.atomic((_db) => {
       const count = Number(
-        db.prepare("SELECT COUNT(*) AS n FROM engine_model_options WHERE thread_id=?").get(id)?.n,
+        this.store
+          .statement("SELECT COUNT(*) AS n FROM engine_model_options WHERE thread_id=?")
+          .get(id)?.n,
       );
       if (count >= 32 && !this.options(id, selection.provider, selection.model ?? ""))
         throw new Error("Remembered model capacity exceeded");
       // rowid tracks last selection without time/randomness dependencies.
-      db.prepare(
-        "DELETE FROM engine_model_options WHERE thread_id=? AND provider=? AND model=?",
-      ).run(id, selection.provider, selection.model ?? "");
-      db.prepare("INSERT INTO engine_model_options VALUES (?, ?, ?, ?)").run(
-        id,
-        selection.provider,
-        selection.model ?? "",
-        JSON.stringify(selection),
-      );
+      this.store
+        .statement("DELETE FROM engine_model_options WHERE thread_id=? AND provider=? AND model=?")
+        .run(id, selection.provider, selection.model ?? "");
+      this.store
+        .statement("INSERT INTO engine_model_options VALUES (?, ?, ?, ?)")
+        .run(id, selection.provider, selection.model ?? "", JSON.stringify(selection));
     });
   }
   private latest(id: ThreadId, provider: string): ExecutionSelection | undefined {
-    return this.store.atomic((db) => {
-      const row = db
-        .prepare(
+    return this.store.atomic((_db) => {
+      const row = this.store
+        .statement(
           "SELECT value FROM engine_model_options WHERE thread_id=? AND provider=? ORDER BY rowid DESC LIMIT 1",
         )
         .get(id, provider);
@@ -160,9 +165,9 @@ export class TransitionState {
     });
   }
   private options(id: ThreadId, provider: string, model: string): ExecutionOptions | undefined {
-    return this.store.atomic((db) => {
-      const row = db
-        .prepare(
+    return this.store.atomic((_db) => {
+      const row = this.store
+        .statement(
           "SELECT value FROM engine_model_options WHERE thread_id=? AND provider=? AND model=?",
         )
         .get(id, provider, model);

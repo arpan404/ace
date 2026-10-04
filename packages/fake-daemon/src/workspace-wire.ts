@@ -1,3 +1,4 @@
+import { FakeProjects } from "./projects.ts";
 import {
   ServerMessage,
   type WorkspaceActionRequest,
@@ -10,11 +11,13 @@ import { FakeForgeWire } from "./forge-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 export class FakeWorkspaceWire {
+  readonly projects: FakeProjects;
   readonly terminals = new FakeTerminals();
   private context: FakeServiceContext;
   readonly forge: FakeForgeWire;
   constructor(context: FakeServiceContext) {
     this.context = context;
+    this.projects = new FakeProjects(context, (id) => this.terminals.hasOwnedWork(id));
     this.forge = new FakeForgeWire(context);
   }
   readonly editors = [
@@ -41,6 +44,12 @@ export class FakeWorkspaceWire {
   }
   read(request: WorkspaceActionRequest) {
     const op = request.operation;
+    if (op.op === "workspaces.list")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: this.projects.list(op.after, op.limit),
+      });
     if (op.op === "runs.list") {
       const all = Object.values(this.context.thread(op.threadId)?.runs ?? {}).filter(
         (run) => run.ordinal !== undefined,
@@ -76,29 +85,15 @@ export class FakeWorkspaceWire {
                     kind: "details",
                     details: this.context.thread(op.threadId)?.thread.details ?? {},
                   }
-                : {
-                    kind: "workspaces",
-                    workspaces: [
-                      ...new Map(
-                        this.context.threads().map((thread) => [
-                          thread.workspaceId,
-                          {
-                            id: thread.workspaceId,
-                            name: thread.details?.workspace?.name ?? thread.workspaceId,
-                            path: thread.details?.workspace?.path ?? `/fake/${thread.workspaceId}`,
-                          },
-                        ]),
-                      ).values(),
-                    ]
-                      .filter((workspace) => workspace.id > (op.after ?? ""))
-                      .slice(0, op.limit),
-                  };
+                : { kind: "error", code: "unsupported" };
     return ServerMessage.parse({ type: "workspace.result", requestId: request.requestId, result });
   }
   command(
     payload: CommandPayload,
     commandId = "fixture",
   ): Omit<CommandResult, "commandId"> | undefined {
+    const project = this.projects.command(payload);
+    if (project) return project;
     const forge = this.forge.command(payload);
     if (forge) return forge;
     if (!("threadId" in payload) || !payload.threadId) return undefined;

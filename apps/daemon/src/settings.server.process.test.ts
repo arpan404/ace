@@ -9,7 +9,9 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
 });
-async function setup() {
+async function setup(
+  pressure: NonNullable<import("./server-options.ts").ServerOptions["pressure"]> = {},
+) {
   const f = await fixture();
   const timers = new Set<() => void>();
   const scheduler: Scheduler = {
@@ -33,6 +35,7 @@ async function setup() {
   const { DeviceId } = await import("@ace/protocol");
   const server = await startServer({
     settings,
+    pressure,
     store: f.store,
     handler: stubHandler(),
     token,
@@ -294,10 +297,8 @@ test("daemon startup exposes the same settings service used by its sockets and c
 
 test("settings deliveries exceeding the socket byte cap request a reconnect", async () => {
   const { once } = await import("node:events");
-  const f = await fixture({ pressure: { hardLimit: 64 } });
-  cleanups.push(() => f.close());
-  const client = await f.connect();
-  await client.next();
+  const f = await setup({ maxQueuedBytes: 128 });
+  const client = f.client;
   const closed = once(client.socket, "close");
   client.send({
     type: "settings.get",

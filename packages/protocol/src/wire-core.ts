@@ -1,3 +1,4 @@
+import { Project, ProjectInspection } from "./projects.ts";
 import { z } from "zod";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
@@ -96,6 +97,8 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const CommandResult = z.object({
+  workspace: Project.optional(),
+  inspection: ProjectInspection.optional(),
   threadId: ThreadId.optional(),
   commandId: CommandId,
   ok: z.boolean(),

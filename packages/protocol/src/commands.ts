@@ -1,3 +1,5 @@
+import { ProjectCommands } from "./projects.ts";
+import { ThreadMarkReadCommand } from "./thread-mark-read.ts";
 import { PermissionMode } from "./permissions.ts";
 import { WorkspaceCommands } from "./workspace-actions.ts";
 import { ForgeCommand } from "./forge.ts";
@@ -37,6 +39,7 @@ export type ThreadCreateOptions = z.infer<typeof ThreadCreateOptions>;
 
 export const CommandPayload = z.discriminatedUnion("type", [
   ThreadPrepareCommand,
+  ThreadMarkReadCommand,
   z.object({
     type: z.literal("thread.permission.set"),
     threadId: ThreadId,
@@ -47,6 +50,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
   DiagnosticsHealthCommand,
   ...ThreadOrganizationCommands,
   ...WorkspaceCommands,
+  ...ProjectCommands,
   ...ForgeCommand.options,
   ...ConductorCommandPayload.options,
   ...ReviewCommands,

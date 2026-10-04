@@ -1,5 +1,6 @@
 // Synthetic local CLI boundary for daemon registration; never contacts a provider.
 import { createInterface } from "node:readline";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 if (process.argv.includes("--version")) {
   console.log("2.1.286");
@@ -80,6 +81,10 @@ for await (const line of createInterface({ input: process.stdin })) {
                       name,
                       config,
                       configDir: process.env.CLAUDE_CONFIG_DIR,
+                      // Prove the selected CLI home without depending on private path disclosure.
+                      configDirDigest: createHash("sha256")
+                        .update(process.env.CLAUDE_CONFIG_DIR ?? "")
+                        .digest("hex"),
                       status: "connected",
                       source: "dynamic",
                       validAceConnection:

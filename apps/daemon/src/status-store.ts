@@ -58,22 +58,25 @@ function target(p: EventPayload): { collection: Collection; id: string } | undef
 export class StatusStore {
   private readonly db: DatabaseSync;
   private interactionRead: StatementSync | undefined;
-  constructor(db: DatabaseSync) {
+  private statement: (sql: string) => StatementSync;
+  constructor(
+    db: DatabaseSync,
+    statement: (sql: string) => StatementSync = (sql) => db.prepare(sql),
+  ) {
+    this.statement = statement;
     this.db = db;
   }
   initialize(getThread: (id: ThreadId) => Thread | undefined): void {
     this.db.exec("CREATE INDEX IF NOT EXISTS view_entity_ids ON view_entities(collection, id)");
-    if (this.db.prepare("SELECT id FROM status_migration WHERE id = 1").get()) {
+    if (this.statement("SELECT id FROM status_migration WHERE id = 1").get()) {
       this.migrateUsage(getThread);
       return;
     }
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      for (const row of this.db
-        .prepare(
-          "SELECT * FROM events WHERE type NOT IN ('item.created', 'item.updated', 'item.delta') ORDER BY seq",
-        )
-        .iterate()) {
+      for (const row of this.statement(
+        "SELECT * FROM events WHERE type NOT IN ('item.created', 'item.updated', 'item.delta') ORDER BY seq",
+      ).iterate()) {
         const input = {
           seq: row.seq,
           id: row.id,
@@ -96,15 +99,15 @@ export class StatusStore {
     this.migrateUsage(getThread);
   }
   private migrateUsage(getThread: (id: ThreadId) => Thread | undefined): void {
-    if (this.db.prepare("SELECT id FROM status_migration WHERE id=2").get()) return;
+    if (this.statement("SELECT id FROM status_migration WHERE id=2").get()) return;
     this.db.exec("BEGIN IMMEDIATE");
     try {
       // Rebuild the previously agent-keyed materialization from retained usage only.
       // Stream rows at startup; malformed legacy snapshots remain in the raw log for replay omissions.
       this.db.exec("DELETE FROM view_entities WHERE collection IN ('usage', 'usageSnapshots')");
-      for (const row of this.db
-        .prepare("SELECT * FROM events WHERE type='usage.updated' ORDER BY seq")
-        .iterate()) {
+      for (const row of this.statement(
+        "SELECT * FROM events WHERE type='usage.updated' ORDER BY seq",
+      ).iterate()) {
         const parsed = Event.safeParse({
           seq: row.seq,
           id: row.id,
@@ -125,20 +128,18 @@ export class StatusStore {
   persist(event: Event, thread: Thread): void {
     if (event.payload.type === "queue.updated") {
       const { type: _type, ...queue } = event.payload;
-      this.db
-        .prepare(
-          "INSERT INTO view_entities VALUES (?, 'queue', 'thread', ?) ON CONFLICT(thread_id,collection,id) DO UPDATE SET value=excluded.value",
-        )
-        .run(thread.id, JSON.stringify(queue));
+      this.statement(
+        "INSERT INTO view_entities VALUES (?, 'queue', 'thread', ?) ON CONFLICT(thread_id,collection,id) DO UPDATE SET value=excluded.value",
+      ).run(thread.id, JSON.stringify(queue));
       return;
     }
     const address = target(event.payload);
     if (!address) return;
     const { collection, id } = address;
     const view = createThreadView(thread, event.seq - 1);
-    const previous = this.db
-      .prepare("SELECT value FROM view_entities WHERE thread_id = ? AND collection = ? AND id = ?")
-      .get(thread.id, collection, id);
+    const previous = this.statement(
+      "SELECT value FROM view_entities WHERE thread_id = ? AND collection = ? AND id = ?",
+    ).get(thread.id, collection, id);
     if (previous)
       Object.assign(view, {
         [collection]: ThreadView.shape[collection].parse({
@@ -148,14 +149,12 @@ export class StatusStore {
     applyEvent(view, event);
     const value = Object.hasOwn(view[collection] ?? {}, id) ? view[collection]?.[id] : undefined;
     if (value !== undefined)
-      this.db
-        .prepare(
-          "INSERT INTO view_entities VALUES (?, ?, ?, ?) ON CONFLICT(thread_id, collection, id) DO UPDATE SET value = excluded.value",
-        )
-        .run(thread.id, collection, id, JSON.stringify(value));
+      this.statement(
+        "INSERT INTO view_entities VALUES (?, ?, ?, ?) ON CONFLICT(thread_id, collection, id) DO UPDATE SET value = excluded.value",
+      ).run(thread.id, collection, id, JSON.stringify(value));
   }
   interaction(id: string): Interaction | undefined {
-    this.interactionRead ??= this.db.prepare(
+    this.interactionRead ??= this.statement(
       "SELECT value FROM view_entities WHERE collection = 'interactions' AND id = ? LIMIT 1",
     );
     const row = this.interactionRead.get(id);
@@ -171,9 +170,9 @@ export class StatusStore {
       contextMeters: {},
       usageSnapshots: {},
     };
-    for (const row of this.db
-      .prepare("SELECT collection, id, value FROM view_entities WHERE thread_id = ?")
-      .all(thread.id)) {
+    for (const row of this.statement(
+      "SELECT collection, id, value FROM view_entities WHERE thread_id = ?",
+    ).all(thread.id)) {
       const collection = String(row.collection);
       if (collection === "queue") continue;
       if (
@@ -194,9 +193,9 @@ export class StatusStore {
       });
     }
     const view = ThreadView.parse({ ...createThreadView(thread, seq), ...input });
-    const queue = this.db
-      .prepare("SELECT value FROM view_entities WHERE thread_id=? AND collection='queue'")
-      .get(thread.id);
+    const queue = this.statement(
+      "SELECT value FROM view_entities WHERE thread_id=? AND collection='queue'",
+    ).get(thread.id);
     if (queue) view.queue = QueueState.parse(JSON.parse(String(queue.value)));
     rebuildAgentChildren(view);
     return view;

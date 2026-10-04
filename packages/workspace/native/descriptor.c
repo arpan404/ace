@@ -52,9 +52,25 @@ static napi_value open_at(napi_env env, napi_callback_info info) {
   // One component only: no hidden traversal or injected NUL allowed at this boundary.
   if (strlen(name) != size || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, ".."))
     return fail(env, EINVAL);
-  int descriptor = openat(parent, name, flags | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
+  int descriptor = openat(parent, name, flags | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0600);
   if (descriptor < 0) return fail(env, errno);
   napi_create_int32(env, descriptor, &result);
+  return result;
+}
+static napi_value mkdir_at(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t count = 2, size;
+  int32_t parent;
+  char name[4096];
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok || count != 2 ||
+      napi_get_value_int32(env, args[0], &parent) != napi_ok ||
+      napi_get_value_string_utf8(env, args[1], NULL, 0, &size) != napi_ok ||
+      size == 0 || size >= sizeof(name)) return fail(env, EINVAL);
+  napi_get_value_string_utf8(env, args[1], name, sizeof(name), &size);
+  if (strlen(name) != size || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, ".."))
+    return fail(env, EINVAL);
+  if (mkdirat(parent, name, 0700) < 0) return fail(env, errno);
+  napi_get_undefined(env, &result);
   return result;
 }
 static napi_value stat_at(napi_env env, napi_callback_info info) {
@@ -136,11 +152,12 @@ static napi_value init(napi_env env, napi_value exports) {
   napi_property_descriptor methods[] = {
     {"openAt", NULL, open_at, NULL, NULL, NULL, napi_default, NULL},
     {"openRoot", NULL, open_root, NULL, NULL, NULL, napi_default, NULL},
+    {"mkdirAt", NULL, mkdir_at, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, names, NULL, NULL, NULL, napi_default, NULL},
     {"statAt", NULL, stat_at, NULL, NULL, NULL, napi_default, NULL},
     {"pipe", NULL, make_pipe, NULL, NULL, NULL, napi_default, NULL}
   };
-  napi_define_properties(env, exports, 5, methods);
+  napi_define_properties(env, exports, 6, methods);
   return exports;
 }
 NAPI_MODULE(NODE_GYP_MODULE_NAME, init)

@@ -6,7 +6,13 @@ import {
   flakyCheckout,
   longHistory,
 } from "@ace/fake-daemon";
-import { ServerMessage, type ServerMessage as Message, DeviceId, ThreadId } from "@ace/protocol";
+import {
+  ServerMessage,
+  type ServerMessage as Message,
+  DeviceId,
+  ThreadId,
+  Project,
+} from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import { ClientHost, RemoteClient, type HostOptions, type RemoteOptions } from "./index.ts";
@@ -23,12 +29,17 @@ afterEach(async () => {
 });
 
 /** A worker host serving tabs over real MessageChannels, backed by one fake daemon. */
-function world(snapshotItems?: number, hostOptions: Partial<HostOptions> = {}) {
+function world(
+  snapshotItems?: number,
+  hostOptions: Partial<HostOptions> = {},
+  projectScheduler?: (callback: () => void) => void,
+) {
   let now = 1;
   let ids = 0;
   const daemon = new FakeDaemon({
     clock: () => (now += 1),
     ...(snapshotItems ? { snapshotItems } : {}),
+    ...(projectScheduler ? { projectScheduler } : {}),
   });
   const sockets = { opened: 0, open: 0 };
   let hostTime = 0;
@@ -981,3 +992,197 @@ test("Preview transitions wait for the previous receipt and preserve newer detac
 });
 
 function noop() {}
+
+test("fake creation accepts an existing empty folder and preserves a nonempty destination", async () => {
+  const f = world();
+  const client = f.tab();
+  await client.start();
+  const first = await client.projects.create({ parent: "/fake", name: "existing" });
+  const initialized = await client.projects.create({
+    parent: "/fake",
+    name: "existing",
+    git: { initialBranch: "trunk" },
+  });
+  expect(initialized).toMatchObject({
+    ok: true,
+    workspace: first.workspace,
+    inspection: { git: { branch: "trunk" } },
+  });
+  expect(await client.projects.create({ parent: "/fake", name: "existing" })).toMatchObject({
+    ok: false,
+    error: "destination_not_empty",
+  });
+  await client.projects.create({ parent: "/fake", name: "template", gitignore: "build/\n" });
+  expect(await client.projects.create({ parent: "/fake", name: "template" })).toMatchObject({
+    ok: false,
+    error: "destination_not_empty",
+  });
+  await client.projects.create({ parent: "/fake", name: "parent" });
+  await client.projects.create({ parent: "/fake/parent", name: "child" });
+  expect(await client.projects.create({ parent: "/fake", name: "parent" })).toMatchObject({
+    ok: false,
+    error: "destination_not_empty",
+  });
+});
+
+test("worker project APIs forward create add rename remove folder reads and project pushes", async () => {
+  const f = world();
+  const a = f.tab();
+  const b = f.tab();
+  await a.start();
+  await b.start();
+  const changed = Promise.withResolvers<void>();
+  const changes: string[] = [];
+  b.projects.onChanged((change) => {
+    changes.push(change.change);
+    if (change.change === "removed") changed.resolve();
+  });
+  await b.projects.home();
+  const added = await a.projects.create({ parent: "/fake", name: "empty" });
+  expect(added).toMatchObject({ ok: true, workspace: { name: "empty", path: "/fake/empty" } });
+  if (!added.workspace) throw new Error("Expected created project");
+  expect(await a.projects.add({ path: "/fake/empty" })).toMatchObject({
+    workspace: { id: added.workspace.id },
+  });
+  expect(
+    await b.request({ type: "workspace.request", operation: { op: "workspaces.list" } }),
+  ).toMatchObject({ result: { kind: "workspaces", workspaces: [{ id: added.workspace.id }] } });
+  expect(
+    await a.projects.rename({ workspaceId: added.workspace.id, name: "Renamed" }),
+  ).toMatchObject({ ok: true });
+  expect(await b.projects.home()).toMatchObject({ result: { kind: "home", path: "/fake" } });
+  expect(await b.projects.browse({ path: "/fake" })).toMatchObject({
+    result: { kind: "directories", entries: [{ name: "empty" }] },
+  });
+  expect(await b.projects.inspect("/fake/empty")).toMatchObject({
+    result: { kind: "inspection", git: null },
+  });
+  expect(await b.projects.recentFolders()).toMatchObject({
+    result: { kind: "recentFolders", folders: [{ name: "Renamed" }] },
+  });
+  expect(await a.projects.remove({ workspaceId: added.workspace.id })).toMatchObject({ ok: true });
+  await changed.promise;
+  expect(changes).toEqual(["added", "renamed", "removed"]);
+  expect(
+    await b.request({ type: "workspace.request", operation: { op: "workspaces.list" } }),
+  ).toMatchObject({ result: { workspaces: [] } });
+});
+
+test("worker clone progress arrives before completion and cancellation returns a failed clone receipt", async () => {
+  const stages: (() => void)[] = [];
+  const f = world(undefined, {}, (callback) => stages.push(callback));
+  const client = f.tab();
+  await client.start();
+  const starting = Promise.withResolvers<string>();
+  const stop = client.projects.onCloneProgress((progress) => {
+    if (progress.phase === "starting") starting.resolve(progress.commandId);
+  });
+  const clone = client.projects.clone(
+    { parent: "/fake", name: "cancelled", url: "https://example.com/project.git" },
+    {},
+    "clone-cancel",
+  );
+  const id = await starting.promise;
+  expect(await client.projects.cancelClone(id)).toMatchObject({
+    result: { kind: "cancelled", commandId: id },
+  });
+  expect(await clone).toMatchObject({ ok: false, error: "clone_cancelled" });
+  expect(await client.projects.recentFolders()).toMatchObject({ result: { folders: [] } });
+  stop();
+});
+
+// Mutation cases: dropping named request forwarding, widening a jumped window into the live
+// tail, losing search paging or writing read state for another device. Not executed (tests run at merge).
+test("projects and long-thread reads coexist across the worker without replacing a tab's live tail", async () => {
+  const { daemon, tab } = world(10);
+  const script = new ScenarioPlayer(daemon, longHistory(30));
+  script.runUntilBlocked();
+  const remote = tab();
+  const reference = await inProcess(daemon);
+  await remote.start();
+  await Promise.all([settled(remote), settled(reference)]);
+  const changes: string[] = [];
+  const stop = remote.projects.onChanged((change) => changes.push(change.change));
+  const created = await remote.projects.create({ parent: "/fake", name: "worker-project" });
+  expect(created.ok).toBe(true);
+  const project = Project.parse(created.workspace);
+  expect(await remote.projects.browse({ path: "/fake" })).toMatchObject({
+    result: {
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          name: "worker-project",
+          git: false,
+          modifiedAt: expect.any(Number),
+        }),
+      ]),
+    },
+  });
+  const lease = remote.thread(script.threadId);
+  await vi.waitFor(() => expect(lease.store.order).toHaveLength(10));
+  const tail = [...lease.store.order];
+  const turns = await remote.turnsPage(
+    { threadId: script.threadId },
+    { requestId: "worker-turns" },
+  );
+  expect(turns.turns).toHaveLength(1);
+  expect(turns).toEqual(
+    await reference.turnsPage({ threadId: script.threadId }, { requestId: "worker-turns" }),
+  );
+  const window = await remote.itemsWindow(
+    { threadId: script.threadId, aroundSeq: 0, before: 0, after: 3 },
+    { requestId: "worker-window" },
+  );
+  expect(window.items).toHaveLength(4);
+  expect(window).toEqual(
+    await reference.itemsWindow(
+      { threadId: script.threadId, aroundSeq: 0, before: 0, after: 3 },
+      { requestId: "worker-window" },
+    ),
+  );
+  expect(lease.store.order).toEqual(tail);
+  const hits = await remote.threadSearch({
+    threadId: script.threadId,
+    text: "Question",
+    filter: "messages",
+    limit: 2,
+  });
+  expect(hits.hits).toHaveLength(2);
+  expect(hits.hits[0]?.snippet.text).toContain("Question");
+  if (!hits.cursor) throw new Error("Expected search continuation");
+  const next = await remote.threadSearch({
+    threadId: script.threadId,
+    text: "Question",
+    filter: "messages",
+    limit: 2,
+    cursor: hits.cursor,
+  });
+  expect(next.hits).toHaveLength(2);
+  expect(
+    next.hits.some((hit) => hits.hits.some((previous) => previous.itemId === hit.itemId)),
+  ).toBe(false);
+  const catchUp = await remote.threadCatchUp(
+    { threadId: script.threadId, sinceSeq: 0 },
+    { requestId: "worker-catch-up" },
+  );
+  expect(catchUp).toEqual(
+    await reference.threadCatchUp(
+      { threadId: script.threadId, sinceSeq: 0 },
+      { requestId: "worker-catch-up" },
+    ),
+  );
+  expect(catchUp.latestAgentMessagePreview).toContain("Answer 30");
+  expect(
+    (await remote.markThreadRead({ threadId: script.threadId, lastSeenSeq: window.seq })).ok,
+  ).toBe(true);
+  expect(await remote.threadReadState({ threadId: script.threadId })).toMatchObject({
+    lastSeenSeq: window.seq,
+  });
+  expect(await reference.threadReadState({ threadId: script.threadId })).toMatchObject({
+    lastSeenSeq: 0,
+  });
+  expect(await remote.projects.remove({ workspaceId: project.id })).toMatchObject({ ok: true });
+  await remote.projects.recentFolders();
+  expect(changes).toEqual(["added", "removed"]);
+  stop();
+  lease.release();
+});

@@ -217,3 +217,21 @@ classifies newly integrated client, engine and history transport/process suites.
 ## File transfer review additions
 
 The inventory now includes daemon `files*.test.ts`, all `packages/files` suites and all `packages/workspace` suites. These own real WebSockets, Noise relay endpoints, native rename/blob workers, Git commands and search workers. The CLI bundle keeps `@ace/files` external so its worker URLs resolve beside its source. The new regression cases and this composed bundle need run at merge; no tests or runtime probes were executed under the owner's static-only policy.
+
+## Backend hardening verification, 2026-10-03
+
+The owner explicitly authorized targeted development test runs for this batch.
+`process-runtime.process.test.ts`, `pi-discovery.process.test.ts`,
+`numbering.process.test.ts` and settings `files.test.ts` each passed 20
+consecutive runs with two parallel `yes` CPU hogs. All hogs were stopped afterward.
+No timeout was increased and the full suite was not run.
+
+The Win32 process fixture uses a TCP acknowledgement after descendant exit rather
+than filesystem notifications. Pi discovery isolates Cursor SDK resolution and
+injects the startup timer boundary. The checkpoint regression creates a real ref
+lock and releases it on child close, reproducing the failure before the competing
+writer publishes a new SHA. The settings regression drives the missing-directory
+poll and debounce scheduler explicitly. Reconciliation no longer relies on
+`watchFile` observing its first missing-file sample before directory creation.
+
+The PR #91 review follow-up follows the owner’s newer merge-only execution rule. No tests, probes, mutation runs or benchmarks were executed for those follow-up changes. See [the static review and merge-time mutation plan](hardening-review.md).

@@ -1,4 +1,9 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import { once } from "node:events";
+import { WebSocket, WebSocketServer } from "ws";
+import { Outbox, defaultPressure } from "../outbox.ts";
+import { Client } from "../socket-test-support.ts";
+import type { ConductorRunView } from "@ace/protocol";
 import { deckFixture, closeDeckFixtures } from "./test-support.ts";
 import { ManualClock } from "../engine/test-support.ts";
 import { plan } from "./test-artifacts.ts";
@@ -21,6 +26,16 @@ test("a complete plan beyond transcript preview size reaches workers with its fi
 });
 
 test("a plan at the compact JSON size limit is accepted with its artifact envelope", async () => {
+  const cards = sizeLimitPlan();
+  expect(Buffer.byteLength(JSON.stringify(cards))).toBe(1_048_576);
+  const h = await deckFixture({ cards, planApproval: "required" });
+  expect(await h.startRun()).toMatchObject({ ok: true });
+  await h.subscribe();
+  await h.waitFor((run) => run.needsUser[0]?.kind === "plan");
+  expect((await h.read()).plan).toEqual(cards);
+});
+
+function sizeLimitPlan() {
   const cards = plan();
   const card = cards.workstreams[0];
   if (!card) throw new Error("Card missing");
@@ -30,13 +45,75 @@ test("a plan at the compact JSON size limit is accepted with its artifact envelo
     return prefix + "a".repeat(16384 - prefix.length);
   });
   card.brief.instructions += "i".repeat(1_048_576 - Buffer.byteLength(JSON.stringify(cards)));
-  expect(Buffer.byteLength(JSON.stringify(cards))).toBe(1_048_576);
+  return cards;
+}
+
+// Pressure is injected at the transport boundary; all frames traverse real ws.
+// Replacing pending full views must leave replies and other subscriptions intact.
+test("large pending conductor views replace older views and drain with replies within the byte cap", async () => {
+  const cards = sizeLimitPlan();
   const h = await deckFixture({ cards, planApproval: "required" });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
   await h.waitFor((run) => run.needsUser[0]?.kind === "plan");
-  expect((await h.read()).plan).toEqual(cards);
+  await h.settle();
+  const run = await h.read();
+  await snapshotBurst(run);
 });
+
+async function snapshotBurst(run: ConductorRunView) {
+  const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing port");
+  const connected = once(server, "connection");
+  const client = new Client(`ws://127.0.0.1:${address.port}`);
+  const opened = once(client.socket, "open");
+  const [socket] = await connected;
+  if (!(socket instanceof WebSocket)) throw new Error("Missing server socket");
+  await opened;
+  let buffered = vi.spyOn(socket, "bufferedAmount", "get");
+  buffered.mockReturnValue(defaultPressure.softLimit + 1);
+  const outbox = new Outbox(socket, defaultPressure);
+  try {
+    outbox.send({ type: "conductor.changed", subscriptionId: "a", run });
+    outbox.send({ type: "conductor.result", requestId: "get", ok: true, run });
+    for (let updatedAt = 1; updatedAt <= 12; updatedAt++)
+      outbox.send({ type: "conductor.changed", subscriptionId: "a", run: { ...run, updatedAt } });
+    outbox.send({ type: "conductor.changed", subscriptionId: "b", run });
+    outbox.send({ type: "conductor.changed", subscriptionId: "a", run: { ...run, updatedAt: 13 } });
+    buffered.mockRestore();
+    outbox.tick();
+    // These wire deliveries are the barriers, with no wall-clock sleeps.
+    expect(await client.next()).toEqual({
+      type: "conductor.result",
+      requestId: "get",
+      ok: true,
+      run,
+    });
+    expect(await client.next()).toEqual({ type: "conductor.changed", subscriptionId: "b", run });
+    expect(await client.next()).toEqual({
+      type: "conductor.changed",
+      subscriptionId: "a",
+      run: { ...run, updatedAt: 13 },
+    });
+    outbox.send({ type: "pong" });
+    expect(await client.next()).toEqual({ type: "pong" });
+    // Non-replaceable replies still consume the one absolute output cap.
+    buffered = vi.spyOn(socket, "bufferedAmount", "get");
+    buffered.mockReturnValue(defaultPressure.softLimit + 1);
+    for (let i = 0; i < 4; i++)
+      outbox.send({ type: "conductor.result", requestId: `get-${i}`, ok: true, run });
+    const closed = once(client.socket, "close");
+    buffered.mockRestore();
+    expect((await closed)[0]).toBe(4009);
+  } finally {
+    buffered.mockRestore();
+    outbox.clear();
+    await client.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
 
 test("a complete review beyond transcript preview size is admitted and integrates its card", async () => {
   const h = await deckFixture({ longReview: true });

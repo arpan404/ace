@@ -1,5 +1,5 @@
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
-import { spawn } from "node:child_process";
+import { spawnGitProcess as spawn } from "./index.ts";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -32,8 +32,8 @@ test.each(["darwin", "win32"] as const)(
       `
    if(process.argv.includes('--version')) {process.stdout.write('git version 2.40.0\\n');}
    else {const child=require('node:child_process').fork(${JSON.stringify(descendantFile)},[],{stdio:['ignore',process.stdout,process.stderr,'ipc']});
-    child.once('message',message=>process.stderr.write(JSON.stringify({parent:process.pid,descendant:message.pid})+'\\n'));
-    child.once('exit',()=>require('node:fs').writeFileSync(${JSON.stringify(join(directory, "reaped"))},'reaped'));}
+    const server=require('node:net').createServer(socket=>{socket.once('data',()=>{child.once('exit',()=>{socket.end('reaped');server.close();});child.kill('SIGKILL');});});
+    child.once('message',message=>server.listen(0,'127.0.0.1',()=>process.stderr.write(JSON.stringify({parent:process.pid,descendant:message.pid,port:server.address().port})+'\\n')));}
   `,
     );
     // Execute the Windows command strategy against real processes on this host.
@@ -41,16 +41,14 @@ test.each(["darwin", "win32"] as const)(
     await writeFile(
       taskkillFile,
       `
-   const fs=require('node:fs');const {parent,descendant}=JSON.parse(fs.readFileSync(${JSON.stringify(join(directory, "pids.json"))},'utf8'));
+   const fs=require('node:fs');const {parent,port}=JSON.parse(fs.readFileSync(${JSON.stringify(join(directory, "pids.json"))},'utf8'));
    const args=process.argv.slice(2);
    if(args.join(' ') !== '/PID '+parent+' /T /F') process.exit(22);
-   const watcher=fs.watch(${JSON.stringify(directory)},(_event,name)=>{
-    if(name!=='reaped') return; watcher.close();process.kill(parent,'SIGKILL');
-   });
-   process.kill(descendant,'SIGKILL');
+   const socket=require('node:net').connect(port,'127.0.0.1',()=>socket.write('kill'));
+   socket.once('data',()=>{process.kill(parent,'SIGKILL');socket.destroy();});
   `,
     );
-    const ready = Promise.withResolvers<{ parent: number; descendant: number }>();
+    const ready = Promise.withResolvers<{ parent: number; descendant: number; port: number }>();
     const exited = Promise.withResolvers<void>();
     const deadlines = new Set<() => void>();
     const operation = new GitService({
@@ -65,14 +63,18 @@ test.each(["darwin", "win32"] as const)(
           });
           if (command !== "taskkill" && !args.includes("--version"))
             child.once("exit", () => exited.resolve());
+          let stderr = "";
           if (command !== "taskkill")
             child.stderr.on("data", (bytes: Buffer) => {
+              stderr += bytes.toString();
+              if (!stderr.includes("\n")) return;
               const result = z
                 .object({
                   parent: z.number().int().positive(),
                   descendant: z.number().int().positive(),
+                  port: z.number().int().positive(),
                 })
-                .safeParse(JSON.parse(bytes.toString()));
+                .safeParse(JSON.parse(stderr.trim()));
               if (result.success) {
                 void writeFile(join(directory, "pids.json"), JSON.stringify(result.data)).then(() =>
                   ready.resolve(result.data),
@@ -128,7 +130,7 @@ test.each(["darwin", "win32"] as const)(
         }
       }
     } finally {
-      for (const pid of Object.values(pids)) {
+      for (const pid of [pids.parent, pids.descendant]) {
         try {
           process.kill(pid, "SIGKILL");
         } catch {
