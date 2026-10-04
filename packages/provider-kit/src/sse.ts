@@ -4,6 +4,7 @@ export { SseLimitError } from "./sse-parser.ts";
 export type { SseEvent } from "./sse-parser.ts";
 
 export type SseOptions = SseLimits & {
+  outputFlow?: import("./flow-control.ts").OutputFlow;
   signal: AbortSignal;
   headers?: ConstructorParameters<typeof Headers>[0];
   onEvent: (event: SseEvent) => void;
@@ -99,7 +100,15 @@ export async function readSse(url: string | URL, options: SseOptions): Promise<v
       }
       const decoder = new TextDecoder();
       for await (const chunk of body) {
-        parser.feed(decoder.decode(chunk, { stream: true }));
+        const text = decoder.decode(chunk, { stream: true });
+        let start = 0;
+        while (start < text.length) {
+          if (options.outputFlow?.paused()) await options.outputFlow.wait();
+          const newline = text.indexOf("\n", start);
+          const end = newline < 0 ? text.length : newline + 1;
+          parser.feed(text.slice(start, end));
+          start = end;
+        }
       }
       parser.feed(decoder.decode());
       // Incomplete final events are deliberately discarded, as in EventSource.

@@ -9,6 +9,7 @@ import { Routes } from "./routes.ts";
 import { RecentMap } from "./cache.ts";
 export { eventSession } from "./boundaries.ts";
 export type ServerConsumer = {
+  outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
   accepts(data: unknown, watermark: number): boolean;
   receive(data: unknown): void;
   frame: Observe;
@@ -293,6 +294,8 @@ export class OpenCodeServer {
           signal: AbortSignal.any([connection.signal, this.controller.signal]),
           onActivity: activity,
         })) {
+          for (const consumer of this.consumers)
+            if (consumer.outputFlow?.paused()) await consumer.outputFlow.wait();
           const data = sanitize(native, this.secrets),
             event = NativeEvent.parse(data),
             watermark = ++this.sequence;

@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 export { lineReader } from "./line-reader.ts";
-import { createInterface, type Interface } from "node:readline";
+import type { Interface } from "node:readline";
+import { lineReader } from "./line-reader.ts";
+import type { OutputFlow } from "./flow-control.ts";
 import type { Readable, Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
@@ -32,6 +34,7 @@ export type SupervisedProcess = {
   stop(options?: { graceMs?: number }): Promise<ProcessExit>;
 };
 export type SpawnOptions = {
+  outputFlow?: OutputFlow;
   command: string;
   args?: readonly string[];
   cwd?: string;
@@ -178,8 +181,22 @@ export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
   const raw = spawnTextSupervised(options);
   return {
     ...raw,
-    stdout: createInterface({ input: raw.stdout, crlfDelay: Infinity }),
-    stderr: createInterface({ input: raw.stderr, crlfDelay: Infinity }),
+    stdout: lineReader(
+      raw.stdout,
+      options.maxLineBytes ?? 16 * 1024 * 1024,
+      (error) => {
+        options.onOutputLimit?.(error);
+      },
+      options.outputFlow,
+    ),
+    stderr: lineReader(
+      raw.stderr,
+      options.maxLineBytes ?? 16 * 1024 * 1024,
+      (error) => {
+        options.onOutputLimit?.(error);
+      },
+      options.outputFlow,
+    ),
   };
 }
 

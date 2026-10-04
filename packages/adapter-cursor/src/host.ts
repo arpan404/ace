@@ -16,6 +16,7 @@ import {
 } from "./contracts.ts";
 
 export interface HostOptions {
+  outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
   env: NodeJS.ProcessEnv;
   slots?: CursorHostSlots;
   instanceId?: string;
@@ -60,6 +61,7 @@ export class CursorHost {
         ...(options.cwd ? { cwd: options.cwd } : {}),
         env: { ...options.env, NODE_OPTIONS: undefined, NODE_PATH: undefined },
         name: "cursor-sdk-host",
+        ...(options.outputFlow ? { outputFlow: options.outputFlow } : {}),
         maxLineBytes: this.limits.maxFrameBytes,
       });
     } catch (error) {

@@ -65,6 +65,8 @@ export interface Translator {
 }
 
 export interface SessionContext {
+  /** Backpressure shared by stdout, stderr, SDK iterators and HTTP streams. */
+  outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
   /** Engine root identity, also used by targeted interrupts. */
   rootKey?: Key;
   threadId: ThreadId;

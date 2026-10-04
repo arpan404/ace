@@ -1,5 +1,6 @@
 import { StringDecoder } from "node:string_decoder";
 import type { Readable } from "node:stream";
+import type { OutputFlow } from "./flow-control.ts";
 import { byteLimit } from "./byte-limit.ts";
 export { RpcWriter } from "./rpc-writer.ts";
 /** LF only. Each chunk is scanned once; fragments are joined only at a record boundary. */
@@ -8,12 +9,14 @@ export function readJsonLines(
   maxBytes: number,
   onLine: (line: string) => void,
   onError: (error: Error) => void,
+  flow?: OutputFlow,
 ): () => void {
   const limit = byteLimit(maxBytes, "maxLineBytes");
   const decoder = new StringDecoder("utf8");
   let parts: string[] = [];
   let bytes = 0;
   let failed = false;
+  let detached = false;
   function fail(message: string) {
     if (failed) return;
     failed = true;
@@ -23,7 +26,20 @@ export function readJsonLines(
   }
   function accept(text: string) {
     let start = 0;
-    while (start < text.length && !failed) {
+    while (start < text.length && !failed && !detached) {
+      if (flow?.paused()) {
+        input.pause();
+        const pending = text.slice(start);
+        void flow
+          .wait()
+          .then(() => {
+            if (detached || failed) return;
+            accept(pending);
+            if (!flow.paused()) input.resume();
+          })
+          .catch(error);
+        return;
+      }
       const newline = text.indexOf("\n", start);
       const end = newline < 0 ? text.length : newline;
       const part = text.slice(start, end);
@@ -57,6 +73,7 @@ export function readJsonLines(
   input.once("end", end);
   input.once("error", error);
   return () => {
+    detached = true;
     input.removeListener("data", data);
     input.removeListener("end", end);
     input.removeListener("error", error);
