@@ -1,53 +1,21 @@
-import { once } from "node:events";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { writeFile } from "node:fs/promises";
+import { git, repository, connect, command, queue } from "./thread-creation-test-support.ts";
+import { DeliveryNotStarted } from "./engine/delivery.ts";
+import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Command, DeviceId, ThreadId, type CommandPayload } from "@ace/protocol";
+import { Command, ThreadId } from "@ace/protocol";
 import { transitionHarness } from "./engine/transition-test-support.ts";
 import { startServer } from "./server.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
-import { Client, token } from "./socket-test-support.ts";
+import { token } from "./socket-test-support.ts";
 import { until } from "./projects-test-support.ts";
 
-const git = promisify(execFile);
-async function repository(home: string) {
-  await git("git", ["init", "-b", "main", home]);
-  await writeFile(join(home, "file.txt"), "Synthetic\n");
-  await git("git", ["-C", home, "add", "file.txt"]);
-  await git("git", [
-    "-C",
-    home,
-    "-c",
-    "user.name=Test",
-    "-c",
-    "user.email=test@ace.local",
-    "commit",
-    "-m",
-    "Initial",
-  ]);
-}
-async function connect(url: string) {
-  const client = new Client(url);
-  await once(client.socket, "open");
-  client.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("device"), token });
-  expect(await client.next()).toMatchObject({ type: "welcome" });
-  return client;
-}
-async function command(client: Client, id: string, payload: CommandPayload) {
-  client.send({ type: "command", command: Command.parse({ id, deviceId: "device", payload }) });
-  return until(client, (message) => message.type === "commandResult" && message.commandId === id);
-}
-async function queue(client: Client, threadId: ThreadId) {
-  client.send({ type: "queue.get", requestId: "queue", threadId });
-  const result = await until(client, (message) => message.type === "queue.result");
-  if (result.type !== "queue.result") throw new Error("Expected queue");
-  return result.queue;
-}
-
 test("worktree creation refuses an unusable repository before accepting the first message and the same draft can be retried", async () => {
-  const h = transitionHarness();
+  const h = transitionHarness({
+    prepareWorkspace: async () => {
+      throw new Error("Accepted prepared root must be ready");
+    },
+  });
   await h.engine.ready();
   const runtime = new WorkspaceRuntime(h.store, join(h.home, "data"), () => 1000);
   const server = await startServer({
@@ -83,7 +51,17 @@ test("worktree creation refuses an unusable repository before accepting the firs
     expect(await command(client, "create", payload)).toMatchObject({ ok: true, threadId });
     await h.engine.flush();
     expect(h.inputs.map((entry) => entry.text)).toEqual(["Do not lose this draft"]);
-    expect(h.sessions[0]?.context.cwd).not.toBe(h.home);
+    const created = h.store.getThread(threadId);
+    const cwd = h.sessions[0]?.context.cwd;
+    expect(cwd).toBe(created?.details?.worktree);
+    expect(cwd).not.toBe(await realpath(h.home));
+    expect((await runtime.git.listWorktrees(h.home)).slice(1)).toEqual([
+      expect.objectContaining({ path: cwd, branch: created?.details?.branch }),
+    ]);
+    expect(cwd).toBe(await realpath(runtime.root(threadId)));
+    if (!cwd) throw new Error("Missing provider root");
+    expect(await readFile(join(cwd, "file.txt"), "utf8")).toBe("Synthetic\n");
+    expect((await git("git", ["-C", cwd, "rev-parse", "--show-toplevel"])).stdout.trim()).toBe(cwd);
     expect(await command(client, "create", payload)).toMatchObject({ ok: true, threadId });
     await h.engine.flush();
     expect(h.inputs).toHaveLength(1);
@@ -107,18 +85,20 @@ test("an accepted first message survives late preparation failure and restart an
   });
   await h.engine.ready();
   // Prepared threads and internally admitted creates can only finish physical preparation later.
-  const server = await startServer({
-    store: h.store,
-    get engine() {
-      return h.engine;
-    },
-    get handler() {
-      return h.engine.handler;
-    },
-    port: 0,
-    hostId: "host",
-    token,
-  });
+  const serve = () =>
+    startServer({
+      store: h.store,
+      get engine() {
+        return h.engine;
+      },
+      get handler() {
+        return h.engine.handler;
+      },
+      port: 0,
+      hostId: "host",
+      token,
+    });
+  let server = await serve();
   let client = await connect(server.url);
   const threadId = ThreadId.parse("late");
   try {
@@ -151,11 +131,25 @@ test("an accepted first message survives late preparation failure and restart an
     expect(await until(client, (message) => message.type === "snapshot")).toMatchObject({
       view: { thread: { status: { state: "waiting", on: "queue" } } },
     });
+    const beforeReopen = await queue(client, threadId);
+    expect(
+      await command(client, "edit-before-reopen", {
+        type: "queue.edit",
+        threadId,
+        messageId: Command.shape.id.parse("create"),
+        expectedRevision: beforeReopen.revision,
+        input: [{ type: "text", text: "First message edited before restart" }],
+      }),
+    ).toMatchObject({ ok: true });
     await client.close();
-    await h.restart();
+    await server.close();
+    await h.reopen();
+    server = await serve();
     client = await connect(server.url);
     const held = await queue(client, threadId);
-    expect(held.messages[0]?.input).toEqual([{ type: "text", text: "Original first message" }]);
+    expect(held.messages[0]?.input).toEqual([
+      { type: "text", text: "First message edited before restart" },
+    ]);
     expect(
       await command(client, "edit", {
         type: "queue.edit",
@@ -183,6 +177,76 @@ test("an accepted first message survives late preparation failure and restart an
     await client.close();
     await server.close();
     await runtime?.close();
+    await h.close();
+  }
+});
+
+test("acknowledged input never becomes resendable after a transport failure or database reopen", async () => {
+  const h = transitionHarness();
+  const original = h.registry.get("codex");
+  h.registry.register(
+    {
+      ...original.adapter,
+      async openSession(context) {
+        const session = await original.adapter.openSession(context);
+        return {
+          ...session,
+          async send(...args: Parameters<typeof session.send>) {
+            await session.send(...args);
+            throw new DeliveryNotStarted("Reply lost after consumption");
+          },
+        };
+      },
+    },
+    original.discovery,
+  );
+  const serve = () =>
+    startServer({
+      store: h.store,
+      get engine() {
+        return h.engine;
+      },
+      get handler() {
+        return h.engine.handler;
+      },
+      port: 0,
+      hostId: "host",
+      token,
+    });
+  let server = await serve(),
+    client = await connect(server.url);
+  const id = ThreadId.parse("acknowledged");
+  try {
+    expect(
+      await command(client, "ack", {
+        type: "thread.create",
+        threadId: id,
+        workspaceId: h.workspace,
+        provider: "codex",
+        input: [{ type: "text", text: "Consumed once" }],
+      }),
+    ).toMatchObject({ ok: true });
+    await h.engine.flush();
+    expect((await queue(client, id)).messages).toEqual([]);
+    await client.close();
+    await server.close();
+    await h.reopen();
+    server = await serve();
+    client = await connect(server.url);
+    expect((await queue(client, id)).messages).toEqual([]);
+    expect(
+      await command(client, "following", {
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "Following input" }],
+      }),
+    ).toMatchObject({ ok: true });
+    await h.engine.flush();
+    expect(h.inputs.map((entry) => entry.text)).toEqual(["Consumed once", "Following input"]);
+    expect((await queue(client, id)).messages).toEqual([]);
+  } finally {
+    await client.close();
+    await server.close();
     await h.close();
   }
 });

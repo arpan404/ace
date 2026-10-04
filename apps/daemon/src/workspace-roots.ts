@@ -1,3 +1,4 @@
+import { WorkspaceCreations } from "./creation-workspace.ts";
 import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -10,6 +11,7 @@ export type WorkspaceGit = Pick<GitService, keyof GitService>;
 export class WorkspaceRoots {
   private preparations = new Map<ThreadId, Promise<string>>();
   private closing = false;
+  private creations: WorkspaceCreations;
   private store: Store;
   private git: WorkspaceGit;
   private directory: string;
@@ -22,6 +24,7 @@ export class WorkspaceRoots {
     now: () => number,
     machine: { host: string; name: string },
   ) {
+    this.creations = new WorkspaceCreations(store, git, directory);
     this.store = store;
     this.git = git;
     this.directory = directory;
@@ -73,39 +76,8 @@ export class WorkspaceRoots {
     });
     return path;
   }
-  /** Physical preparation precedes command acceptance; no thread or input has been committed yet. */
-  async prepareCreation(
-    command: Command,
-  ): Promise<{ id: ThreadId; path: string; branch: string } | undefined> {
-    const p = command.payload;
-    if ((p.type !== "thread.create" && p.type !== "thread.prepare") || p.mode !== "worktree")
-      return;
-    const id = ThreadId.parse(
-      p.threadId ?? createHash("sha256").update(`${command.deviceId}:${command.id}`).digest("hex"),
-    );
-    if (this.store.getThread(id)) return;
-    const project = this.store.getWorkspacePath(p.workspaceId);
-    if (!project) throw new Error("workspace_not_found");
-    const existing = this.preparations.get(id);
-    if (existing) {
-      const path = await existing;
-      return {
-        id,
-        path,
-        branch: `ace/${createHash("sha256").update(id).digest("hex").slice(0, 24)}`,
-      };
-    }
-    if (this.closing || this.preparations.size >= 16) throw new Error("workspace_busy");
-    const preparation = this.createWorktree(id, project, p.baseBranch)
-      .then(({ path }) => path)
-      .finally(() => this.preparations.delete(id));
-    this.preparations.set(id, preparation);
-    const path = await preparation;
-    return {
-      id,
-      path,
-      branch: `ace/${createHash("sha256").update(id).digest("hex").slice(0, 24)}`,
-    };
+  prepareCreation(command: Command) {
+    return this.creations.prepare(command);
   }
   private async createWorktree(
     id: ThreadId,
@@ -268,6 +240,7 @@ export class WorkspaceRoots {
   }
   async close(): Promise<void> {
     this.closing = true;
+    await this.creations.close();
     await Promise.allSettled(this.preparations.values());
   }
 }

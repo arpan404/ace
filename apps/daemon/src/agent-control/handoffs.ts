@@ -1,3 +1,4 @@
+import { cleanupOwnedWorktree } from "../owned-worktree.ts";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { mkdir, realpath } from "node:fs/promises";
@@ -62,40 +63,24 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
     if (resource) {
       const git = factory();
       try {
-        const tree = (await git.listWorktrees(resource.repo)).find(
-          (candidate) => candidate.path === resource.path,
-        );
-        if (tree) {
-          if (tree.branch !== resource.branch || tree.head !== resource.base_head)
-            throw new Error("Handoff cleanup identity changed");
-          // Retain branch cleanup authority across a crash after worktree removal.
-          store.atomic((db) =>
-            db
-              .prepare("UPDATE agent_handoff_resources SET cleanup_head=? WHERE child_id=?")
-              .run(tree.head, resource.child_id),
-          );
-          resource.cleanup_head = tree.head;
-          await git.removeWorktree({ repo: resource.repo, path: resource.path });
-        }
-        if (!tree && !resource.cleanup_head && resource.uncertain === 1) {
-          let branchExists = false;
-          try {
-            await git.resolveCommit({
-              worktree: resource.repo,
-              ref: `refs/heads/${resource.branch}`,
-            });
-            branchExists = true;
-          } catch (error) {
-            if (!(error instanceof GitError && error.code === "invalid_ref")) throw error;
-          }
-          if (branchExists) throw new Error("Incomplete Git creation requires cleanup");
-        }
-        if (resource.cleanup_head)
-          await git.deleteBranch({
+        await cleanupOwnedWorktree(
+          git,
+          {
             repo: resource.repo,
+            path: resource.path,
             branch: resource.branch,
-            expectedHead: resource.cleanup_head,
-          });
+            baseHead: resource.base_head,
+            cleanupHead: resource.cleanup_head,
+            uncertain: resource.uncertain === 1,
+          },
+          (head) => {
+            store.atomic((db) =>
+              db
+                .prepare("UPDATE agent_handoff_resources SET cleanup_head=? WHERE child_id=?")
+                .run(head, resource.child_id),
+            );
+          },
+        );
       } finally {
         await git.close();
       }

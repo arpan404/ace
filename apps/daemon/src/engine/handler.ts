@@ -1,19 +1,13 @@
-import { portableContext } from "@ace/context";
 import { permissionResolutionError } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
-import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
+import { validateCreation } from "./creation-validation.ts";
+import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
-import {
-  ExecutionOptions,
-  AcpIdentity,
-  ThreadId,
-  type Command,
-  type CommandResult,
-} from "@ace/protocol";
+import { ExecutionOptions, ThreadId, type Command, type CommandResult } from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -28,6 +22,8 @@ export function engineHandler(
   nextId: () => string,
   recovery: Recovery,
   limits: EngineLimits,
+  admissions: CreationAdmissions,
+  directory: (path: string) => string,
   selectInstance?: (
     provider: string,
     backend?: import("@ace/engine-api").ProviderBackend,
@@ -103,84 +99,31 @@ export function engineHandler(
         let threadId: ThreadId | undefined;
         let resolutionId: string | undefined;
         if (p.type === "thread.create" || p.type === "thread.prepare") {
-          const identity = p.provider === "acp" ? AcpIdentity.safeParse(p) : undefined;
-          if (p.provider === "acp" && !identity?.success) return fail("acp_identity_required");
-          const acpIdentity = identity?.success ? identity.data : undefined;
-          if (!registry.has(p.provider, acpIdentity)) return fail("provider_unavailable");
-          const path = repo.workspace(p.workspaceId);
-          if (!path) return fail("workspace_not_found");
-          let cwd: string;
-          try {
-            cwd = realpathSync(path);
-            if (!statSync(cwd).isDirectory()) return fail("workspace_unavailable");
-          } catch {
-            return fail("workspace_unavailable");
-          }
-          if (repo.store.workspaceReservations.reserved(cwd))
-            return fail("workspace_change_in_progress");
-          const entry = registry.get(p.provider);
-          if (p.permissionMode && !entry.capabilities.permissions?.modes.includes(p.permissionMode))
-            return fail("permission_mode_unsupported");
-          const accountId = p.accountId ?? ("account" in p ? p.account : undefined);
-          if (p.type === "thread.create" && p.instanceId && accountId && p.instanceId !== accountId)
-            return fail("conflicting_account_selection");
-          const instanceId =
-            (p.type === "thread.create" ? p.instanceId : undefined) ??
-            accountId ??
-            selectInstance?.(p.provider, entry.adapter.backend);
-          let handoff: ReturnType<typeof portableContext> | undefined;
-          if (p.handoffFrom) {
-            const source = repo.store.getThread(p.handoffFrom);
-            if (!source) return fail("handoff_source_not_found");
-            const page = repo.store.readItemPage(
-              p.handoffFrom,
-              Number.MAX_SAFE_INTEGER,
-              100,
-              262144,
-            );
-            handoff = portableContext(
-              {
-                threadId: source.id,
-                provider: source.provider,
-                throughSeq: page.seq,
-                totalItems: repo.store.historicalItemCount(source.id, page.seq),
-                ...((source.backend ?? (source.provider === "cursor" ? "acp" : undefined))
-                  ? { backend: source.backend ?? "acp" }
-                  : {}),
-              },
-              page.items,
-              { maxBytes: 65536, maxItems: 100, historyTruncated: page.itemsBefore !== null },
-            );
-            if (p.type === "thread.create")
-              deliveryCommand = {
-                ...command,
-                payload: { ...p, input: [{ type: "text", text: handoff.text }, ...p.input] },
-              };
-          }
+          if (!admissions.authorized(command, context.creationOwner))
+            return fail("thread_creation_in_progress");
+          const creation = validateCreation(
+            command,
+            repo,
+            registry,
+            limits,
+            directory,
+            selectInstance,
+          );
+          if (!creation.ok) return fail(creation.error);
+          let { cwd } = creation;
+          const { entry, acpIdentity, instanceId, handoff } = creation;
+          deliveryCommand = creation.deliveryCommand;
           const at = now();
-          if (entry.adapter.backend === "cursor-sdk") {
-            try {
-              const input = deliveryCommand.payload;
-              if (input.type === "thread.create") boundedJson(input.input, limits.maxInputBytes);
-            } catch {
-              return fail("provider_input_budget_exceeded");
-            }
-          }
-          if (
-            p.options &&
-            Object.keys(p.options)
-              .filter((key) => key === "effort" || key === "serviceTier")
-              .some(
-                (option) =>
-                  !registry
-                    .get(p.provider)
-                    .capabilities.launchOptions?.some((supported) => supported === option),
-              )
-          )
-            return fail("launch_options_unsupported");
           const prepared = context.preparedWorkspace;
           threadId = ThreadId.parse(prepared?.id ?? p.threadId ?? nextId());
           if (prepared) {
+            if (
+              prepared.id !== p.threadId ||
+              prepared.project !== cwd ||
+              prepared.baseBranch !== (p.baseBranch ?? "HEAD") ||
+              p.mode !== "worktree"
+            )
+              return fail("workspace_preparation_mismatch");
             cwd = prepared.path;
             if (repo.store.workspaceReservations.reserved(cwd))
               return fail("workspace_change_in_progress");

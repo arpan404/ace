@@ -1,3 +1,4 @@
+import { deleteUnchangedBranch } from "./branch-cleanup.ts";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Repository } from "./repository.ts";
@@ -37,18 +38,49 @@ export async function createWorktree(
     }
     const path = resolve(options.path);
     const branchArgs = exists.exitCode === 0 ? [] : ["-b", options.branch];
-    await cli.call(
-      root,
-      ["worktree", "add", ...branchArgs, "--", path, exists.exitCode === 0 ? options.branch : sha],
-      { write: true },
-    );
-    const canonical = await realpath(path);
-    const trees = await repository.worktrees(root);
-    const tree = trees.find(
-      (entry) => resolve(entry.path) === canonical || resolve(entry.path) === path,
-    );
-    if (!tree) throw new GitError("git_failed", "Created worktree was not registered");
-    return tree;
+    try {
+      await cli.call(
+        root,
+        [
+          "worktree",
+          "add",
+          ...branchArgs,
+          "--",
+          path,
+          exists.exitCode === 0 ? options.branch : sha,
+        ],
+        { write: true },
+      );
+      const canonical = await realpath(path);
+      const trees = await repository.worktrees(root);
+      const tree = trees.find(
+        (entry) => resolve(entry.path) === canonical || resolve(entry.path) === path,
+      );
+      if (!tree) throw new GitError("git_failed", "Created worktree was not registered");
+      return tree;
+    } catch (error) {
+      // The branch and checkout are one operation. Roll back only the exact resources
+      // created here, preserving external edits or ref changes with compare-and-delete.
+      if (exists.exitCode !== 0) {
+        const trees = await repository.worktrees(root);
+        const owned = trees.find(
+          (tree) =>
+            resolve(tree.path) === path && tree.branch === options.branch && tree.head === sha,
+        );
+        if (owned)
+          await cli.call(root, ["worktree", "remove", "--", path], {
+            write: true,
+            allowFailure: true,
+          });
+        if (!(await repository.worktrees(root)).some((tree) => tree.branch === options.branch))
+          await deleteUnchangedBranch(repository, root, {
+            repo: root,
+            branch: options.branch,
+            expectedHead: sha,
+          });
+      }
+      throw error;
+    }
   });
 }
 

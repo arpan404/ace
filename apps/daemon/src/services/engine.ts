@@ -241,40 +241,60 @@ export function createEngineSession(context: SocketContext): SocketService {
           send({ type: "commandResult", ...receipt });
           return;
         }
-        let preparedWorkspace;
+        let admission: import("../engine/creation-admissions.ts").CreationAdmission | undefined;
+        let preparation: import("../creation-workspace.ts").CreationWorkspace | undefined;
+        let accepted = command;
         try {
           await options.engine?.prepareCommand(command);
-          preparedWorkspace = await options.workspaceActions?.prepareCreation(command);
+          if (
+            options.engine &&
+            (payload.type === "thread.create" || payload.type === "thread.prepare")
+          ) {
+            const result = options.engine.admitCreation(command);
+            if (typeof result === "string") {
+              send({ type: "commandResult", commandId: command.id, ok: false, error: result });
+              return;
+            }
+            admission = result;
+            accepted = admission.command;
+          }
+          // An injected handler without the engine admission port keeps its existing late-preparation path.
+          if (admission) preparation = await options.workspaceActions?.prepareCreation(accepted);
+          if (!context.connected() || !context.authorize("operate")) return;
+          if (
+            payload.type === "thread.create" &&
+            payload.handoffFrom &&
+            !canReadThread(payload.handoffFrom)
+          ) {
+            send({
+              type: "commandResult",
+              commandId: command.id,
+              ok: false,
+              error: "handoff_source_not_found",
+            });
+            return;
+          }
+          const result = options.store.recordCommand(command.id, device, () =>
+            options.handler.handle(accepted, {
+              ...commandContext(options.store),
+              ...(admission ? { creationOwner: admission.owner } : {}),
+              ...(preparation ? { preparedWorkspace: preparation.workspace } : {}),
+            }),
+          );
+          send({ type: "commandResult", ...result });
         } catch {
-          send({
-            type: "commandResult",
-            commandId: command.id,
-            ok: false,
-            error: "workspace_unavailable",
-          });
-          return;
+          if (context.connected())
+            send({
+              type: "commandResult",
+              commandId: command.id,
+              ok: false,
+              error: "workspace_unavailable",
+            });
+        } finally {
+          // Release the slot before announcing cleanup completion at the Git boundary.
+          admission?.release();
+          await preparation?.release();
         }
-        if (!context.connected() || !context.authorize("operate")) return;
-        if (
-          payload.type === "thread.create" &&
-          payload.handoffFrom &&
-          !canReadThread(payload.handoffFrom)
-        ) {
-          send({
-            type: "commandResult",
-            commandId: command.id,
-            ok: false,
-            error: "handoff_source_not_found",
-          });
-          return;
-        }
-        const result = options.store.recordCommand(command.id, device, () =>
-          options.handler.handle(command, {
-            ...commandContext(options.store),
-            ...(preparedWorkspace ? { preparedWorkspace } : {}),
-          }),
-        );
-        send({ type: "commandResult", ...result });
       },
     },
   };
