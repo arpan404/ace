@@ -1,6 +1,6 @@
 import { ApprovalTarget } from "@ace/protocol";
 import type { Fact } from "@ace/core";
-import { decisions, list, obj, questions, raw, str, type Obj } from "./native.ts";
+import { decisions, obj, questions, raw, str, type Obj } from "./native.ts";
 import { toolDraft } from "./item.ts";
 
 export function openRequest(
@@ -44,11 +44,8 @@ export function openRequest(
                 p["networkApprovalContext"] || p["additionalPermissions"]
                   ? "codex-permissions-escalation"
                   : method,
-              command: list(p["commandActions"]).length
-                ? list(p["commandActions"])
-                    .map((action) => str(obj(action)["command"], str(p["command"])))
-                    .join(" && ")
-                : p["command"],
+              // Actions are best-effort descriptions, never executable authority.
+              command: p["command"],
               cwd: p["cwd"],
               access: typeof p["command"] === "string" ? "execute" : "unknown",
               input: p,
