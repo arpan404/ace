@@ -293,7 +293,7 @@ export async function openSession(
       );
       await q.applyFlagSettings({ effortLevel: executionOptions.effort ?? null });
     },
-    async send(parts, delivery, _commandId, origin) {
+    async send(parts, delivery, commandId, origin) {
       ensureOpen();
       if (delivery === "steer")
         throw new Error("Claude steering is unverified; queue the input instead");
@@ -306,6 +306,7 @@ export async function openSession(
         priority: "next" as const,
         ...(origin === "ace" ? { isSynthetic: true } : {}),
       };
+      if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });
       input.push(message);
       frame("send", "sdk", message);
     },

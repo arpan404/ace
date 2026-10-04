@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { apply, createThreadState } from "@ace/core";
-import { createCursorAdapter, openCursorSession } from "./index.ts";
+import { createCursorAdapter, openCursorSession, CursorEnvelopeSchema } from "./index.ts";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 
@@ -12,7 +12,7 @@ const fakeHost = `
 import { createInterface } from 'node:readline';
 let options, sending, run=0;
 const out = (input) => process.stdout.write(JSON.stringify(input)+'\\n');
-const frame = (kind, body) => out({method:'frame',params:{schemaVersion:1,generation:options.generation,operationId:sending?.operationId??'open',segment:sending?.segment??0,agentId:'synthetic-agent',runId:'run-'+run,kind,body}});
+const frame = (kind, body) => out({method:'frame',params:{schemaVersion:1,generation:options.generation,operationId:sending?.operationId??'open',commandId:sending?.commandId,segment:sending?.segment??0,agentId:'synthetic-agent',runId:'run-'+run,kind,body}});
 createInterface({input:process.stdin}).on('line',(line)=>{
  const input=JSON.parse(line);
  if(input.method==='open'){options=input.params;frame('open',{cwd:options.cwd});out({id:input.id,result:{agentId:'synthetic-agent'}});}
@@ -32,6 +32,7 @@ it("supervises a real host, keeps steering in one ace run and rejects child cont
     let id = 0;
     let exit: { deliberate: boolean } | undefined;
     let pinnedNative: string | undefined;
+    const inputMessages = new Map<string, string>();
     const session = await openCursorSession(
       {
         threadId,
@@ -40,11 +41,17 @@ it("supervises a real host, keeps steering in one ace run and rejects child cont
         onSessionIdentity: (identity) => {
           pinnedNative = identity.nativeSessionId;
         },
+        onInputMessage: (identity) => {
+          inputMessages.set(identity.commandId, identity.nativeId);
+        },
         onExit: (value) => {
           exit = value;
         },
         onFrame: (frame) => {
           expect(pinnedNative).toBe("synthetic-agent");
+          const event = CursorEnvelopeSchema.parse(frame.data);
+          if (event.kind === "send" && event.commandId)
+            expect(inputMessages.get(event.commandId)).toBe(event.commandId);
           for (const fact of translator.translate(frame, frame.t))
             apply(state, fact, { now: frame.t, ids: { next: (kind) => `${kind}-${++id}` } });
         },
@@ -79,6 +86,9 @@ it("supervises a real host, keeps steering in one ace run and rejects child cont
     expect(exit).toEqual({ deliberate: true });
     expect(Object.values(state.runs)).toHaveLength(1);
     expect(JSON.stringify(state.items)).toContain("durable-command-1");
+    expect(Object.values(state.items)).toContainEqual(
+      expect.objectContaining({ type: "message", role: "user", nativeId: "durable-command-1" }),
+    );
     expect(session.backend).toBe("cursor-sdk");
   } finally {
     await rm(home, { recursive: true, force: true });

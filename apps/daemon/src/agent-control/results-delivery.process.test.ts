@@ -13,12 +13,20 @@ test("asynchronous child results survive native user-role echoes as ace events",
   expect(h.errors).toEqual([]);
   const text = h.inputs.get(parent.threadId)?.at(-1);
   if (!text) throw new Error("Missing parent context");
+  const nativeId = h.inputMessages.get(parent.threadId)?.at(-1)?.nativeId;
+  if (!nativeId) throw new Error("Missing native message identity");
   expect(text).toContain("[ace-origin:delegation.settled:");
   await h.emit(parent.threadId, {
     type: "item.upsert",
     agent: "root",
     item: "provider-echo",
-    draft: { type: "message", role: "user", parts: [{ type: "text", text }], complete: true },
+    draft: {
+      type: "message",
+      nativeId,
+      role: "user",
+      parts: [{ type: "text", text }],
+      complete: true,
+    },
   });
   await h.close();
   const restarted = setup({}, h.dbPath);
@@ -29,7 +37,13 @@ test("asynchronous child results survive native user-role echoes as ace events",
     type: "item.reconciled",
     agent: "root",
     item: "replayed-echo",
-    draft: { type: "message", role: "user", parts: [{ type: "text", text }], complete: true },
+    draft: {
+      type: "message",
+      nativeId,
+      role: "user",
+      parts: [{ type: "text", text }],
+      complete: true,
+    },
   });
   const page = restarted.store.readItemPage(parent.threadId, restarted.store.headSeq() + 1, 50);
   expect(page.items.filter((item) => item.type === "message" && item.role === "user")).toEqual([]);
@@ -45,6 +59,72 @@ test("asynchronous child results survive native user-role echoes as ace events",
       (item) => item.type === "delegation.settled",
     ),
   ).toHaveLength(1);
+});
+
+test("copying ace wake text through a user command remains user input across replay", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "copied-wake");
+  await h.engine.flush();
+  await h.complete(child.childId, "Original result");
+  h.clock.advance(1050);
+  await h.engine.flush();
+  const text = h.inputs.get(parent.threadId)?.at(-1);
+  if (!text) throw new Error("Missing wake");
+  const before = h.store
+    .readItemPage(parent.threadId, h.store.headSeq() + 1, 50)
+    .items.filter((item) => item.type === "delegation.settled");
+  expect(
+    h.service.command("copied-by-user", {
+      type: "thread.send",
+      threadId: parent.threadId,
+      delivery: "queue",
+      input: [{ type: "text", text }],
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  const nativeId = h.inputMessages.get(parent.threadId)?.at(-1)?.nativeId;
+  if (!nativeId) throw new Error("Missing user identity");
+  await h.emit(parent.threadId, {
+    type: "item.upsert",
+    agent: "root",
+    item: "copied-user-input",
+    draft: {
+      type: "message",
+      role: "user",
+      nativeId,
+      parts: [{ type: "text", text }],
+      complete: true,
+    },
+  });
+  await h.close();
+  const restarted = setup({}, h.dbPath);
+  restarted.service.message(
+    restarted.caller(parent.threadId),
+    "resume-copy",
+    parent.threadId,
+    "Continue",
+    "queue",
+  );
+  await restarted.engine.flush();
+  await restarted.emit(parent.threadId, {
+    type: "item.reconciled",
+    agent: "root",
+    item: "copied-user-input",
+    draft: {
+      type: "message",
+      role: "user",
+      nativeId,
+      parts: [{ type: "text", text }],
+      complete: true,
+    },
+  });
+  const page = restarted.store.readItemPage(parent.threadId, restarted.store.headSeq() + 1, 50);
+  expect(
+    page.items.filter((item) => item.type === "message" && item.role === "user"),
+  ).toContainEqual(expect.objectContaining({ parts: [{ type: "text", text }] }));
+  expect(page.items.filter((item) => item.type === "delegation.settled")).toEqual(before);
+  expect(restarted.errors).toEqual([]);
 });
 
 test("waiting delegate returns results through its MCP tool without a duplicate parent wake", async () => {

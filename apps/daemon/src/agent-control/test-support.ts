@@ -54,6 +54,10 @@ export function setup(
   let nativeSequence = 0;
   const nativeHistories = new Map<string, string[]>();
   const inputs = new Map<ThreadId, string[]>();
+  const inputMessages = new Map<
+    ThreadId,
+    { commandId: string; nativeId: string; origin?: "ace" }[]
+  >();
   const contexts = new Map<ThreadId, SessionContext>();
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
@@ -128,8 +132,20 @@ export function setup(
           return {
             ...session,
             nativeSessionId,
-            async send(input, delivery) {
-              await session.send(input, delivery);
+            async send(input, delivery, commandId, origin) {
+              if (commandId) {
+                const message = {
+                  commandId,
+                  nativeId: `scripted:${commandId}`,
+                  ...(origin ? { origin } : {}),
+                };
+                ctx.onInputMessage?.(message);
+                inputMessages.set(ctx.threadId, [
+                  ...(inputMessages.get(ctx.threadId) ?? []),
+                  message,
+                ]);
+              }
+              await session.send(input, delivery, commandId, origin);
               const text = input.flatMap((part) => (part.type === "text" ? [part.text] : []));
               history.push(...text);
               inputs.set(ctx.threadId, [...(inputs.get(ctx.threadId) ?? []), ...text]);
@@ -238,6 +254,7 @@ export function setup(
     home,
     nativeHistories,
     inputs,
+    inputMessages,
     closeAdmission: () => {
       admitting = false;
     },

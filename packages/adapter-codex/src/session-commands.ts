@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ProviderSession } from "@ace/engine-api";
+import type { ProviderSession, SessionContext } from "@ace/engine-api";
 import type { ContentPart } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
 import type { TurnStartParams } from "./generated/v2/TurnStartParams.ts";
@@ -45,6 +45,7 @@ export type SessionCommandsContext = {
   emit(dir: "send" | "recv" | "stderr" | "note", data: unknown, channel?: string): void;
   getModel(): string;
   userMessageId(): string;
+  onInputMessage?: SessionContext["onInputMessage"];
   refreshQueue(threadId: string): Promise<void>;
 };
 export function createSessionCommands(
@@ -67,20 +68,29 @@ export function createSessionCommands(
     parts: ContentPart[],
     delivery: "steer" | "queue",
     origin?: "ace",
+    commandId?: string,
   ): Promise<void> {
     assertOpen();
     const turn = active.get(threadId);
+    const clientUserMessageId = origin !== "ace" || turn ? config.userMessageId() : undefined;
+    if (commandId && clientUserMessageId)
+      config.onInputMessage?.({ commandId, nativeId: clientUserMessageId });
     if (turn && delivery === "queue") {
       await request("thread/queue/add", {
         threadId,
         input: input(parts),
-        clientUserMessageId: config.userMessageId(),
+        clientUserMessageId: clientUserMessageId ?? config.userMessageId(),
       } satisfies ThreadQueueAddParams);
       await config.refreshQueue(threadId);
     } else if (turn)
       await request(
         "turn/steer",
-        { threadId, expectedTurnId: turn, input: input(parts) } satisfies TurnSteerParams,
+        {
+          threadId,
+          expectedTurnId: turn,
+          input: input(parts),
+          ...(clientUserMessageId ? { clientUserMessageId } : {}),
+        } satisfies TurnSteerParams,
         true,
       );
     else {
@@ -89,6 +99,7 @@ export function createSessionCommands(
         {
           threadId,
           input: origin === "ace" ? [] : input(parts),
+          ...(clientUserMessageId ? { clientUserMessageId } : {}),
           ...(origin === "ace"
             ? {
                 turnTrigger: "subagent_result",
@@ -186,7 +197,8 @@ export function createSessionCommands(
       throw new AggregateError(failures, "Could not completely interrupt Codex agent tree");
   }
   return {
-    send: (parts, delivery, _commandId, origin) => sendTo(nativeSessionId, parts, delivery, origin),
+    send: (parts, delivery, commandId, origin) =>
+      sendTo(nativeSessionId, parts, delivery, origin, commandId),
     async interrupt(target) {
       assertOpen();
       const thread = !target.agent || target.agent === "root" ? nativeSessionId : target.agent;

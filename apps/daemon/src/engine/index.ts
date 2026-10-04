@@ -450,7 +450,7 @@ export class Engine {
     }));
     this.repo.store.atomic(() => {
       if (text)
-        this.repo.aceInputs.record(parentId, commandId, { agent, item, results: summaries, text });
+        this.repo.aceInputs.record(parentId, commandId, { agent, item, results: summaries });
       this.repo.apply(
         parentId,
         [

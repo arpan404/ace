@@ -145,8 +145,14 @@ export class DelegationService {
     const filter = {
       provider: request.provider,
       ...(request.provider === "acp"
-        ? { acpAgentId: request.acpAgentId, installationId: request.installationId, instanceId: request.instanceId }
-        : request.accountId ? { instance: request.accountId } : {}),
+        ? {
+            acpAgentId: request.acpAgentId,
+            installationId: request.installationId,
+            instanceId: request.instanceId,
+          }
+        : request.accountId
+          ? { instance: request.accountId }
+          : {}),
     };
     const page = catalog.list(filter);
     // Auto-selection can choose an account whose catalog is still cold.

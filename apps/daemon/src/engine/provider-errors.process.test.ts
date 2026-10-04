@@ -134,28 +134,55 @@ test("unknown provider errors and assistant prose remain intact", async () => {
 });
 
 // Not executed: tests run at merge. These native codes previously broke frame commits.
-test.each(["constructor", "__proto__", "toString", "hasOwnProperty"])("unknown %s provider errors remain notices and do not poison subsequent frames", async (code) => {
-  const claude = createClaudeAdapter();
-  const warning = `[claude-code:${code}] {}`;
-  const adapter = createScriptedAdapter({
-    provider: "claude",
-    capabilities: claude.capabilities({ installed: true, auth: "logged_in", loginHint: "unused", version: "2.1.286" }),
-    nativeSessionId: "scripted",
-    createTranslator: (init) => claude.createTranslator(init),
-    steps: [{ on: "send", frames: [
-      native(1, { type: "system", subtype: "init", session_id: "scripted" }),
-      native(2, warning, "stderr"),
-      native(3, { type: "assistant", message: { id: "after-unknown", content: [{ type: "text", text: "Continued after unknown error" }] } }),
-      native(4, { type: "result", is_error: false }),
-    ] }],
-  });
-  const h = await harness([], scriptFrames(), { provider: "claude", nativeAdapter: adapter });
-  try {
-    const id = await h.create();
-    const items = h.store.readItemPage(id, h.store.headSeq() + 1, 50).items;
-    expect(items).toContainEqual(expect.objectContaining({ type: "notice", text: warning }));
-    expect(items).toContainEqual(expect.objectContaining({ type: "message", role: "assistant", parts: [expect.objectContaining({ text: "Continued after unknown error" })] }));
-    expect(h.store.getThread(id)?.status.state).toBe("done");
-    expect(h.errors).toEqual([]);
-  } finally { await h.close(); }
-});
+test.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
+  "unknown %s provider errors remain notices and do not poison subsequent frames",
+  async (code) => {
+    const claude = createClaudeAdapter();
+    const warning = `[claude-code:${code}] {}`;
+    const adapter = createScriptedAdapter({
+      provider: "claude",
+      capabilities: claude.capabilities({
+        installed: true,
+        auth: "logged_in",
+        loginHint: "unused",
+        version: "2.1.286",
+      }),
+      nativeSessionId: "scripted",
+      createTranslator: (init) => claude.createTranslator(init),
+      steps: [
+        {
+          on: "send",
+          frames: [
+            native(1, { type: "system", subtype: "init", session_id: "scripted" }),
+            native(2, warning, "stderr"),
+            native(3, {
+              type: "assistant",
+              message: {
+                id: "after-unknown",
+                content: [{ type: "text", text: "Continued after unknown error" }],
+              },
+            }),
+            native(4, { type: "result", is_error: false }),
+          ],
+        },
+      ],
+    });
+    const h = await harness([], scriptFrames(), { provider: "claude", nativeAdapter: adapter });
+    try {
+      const id = await h.create();
+      const items = h.store.readItemPage(id, h.store.headSeq() + 1, 50).items;
+      expect(items).toContainEqual(expect.objectContaining({ type: "notice", text: warning }));
+      expect(items).toContainEqual(
+        expect.objectContaining({
+          type: "message",
+          role: "assistant",
+          parts: [expect.objectContaining({ text: "Continued after unknown error" })],
+        }),
+      );
+      expect(h.store.getThread(id)?.status.state).toBe("done");
+      expect(h.errors).toEqual([]);
+    } finally {
+      await h.close();
+    }
+  },
+);

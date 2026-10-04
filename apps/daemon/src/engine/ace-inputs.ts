@@ -1,15 +1,13 @@
 import { z } from "zod";
-import { DelegationOutcome, type ThreadId } from "@ace/protocol";
+import type { ThreadId } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import type { Store } from "../store.ts";
-
-const Input = z.object({
-  agent: z.string(),
-  item: z.string(),
-  text: z.string(),
-  results: z.array(DelegationOutcome).max(64),
+import { AceInput, settledInputEcho } from "./ace-input-attribution.ts";
+const MessageIdentity = z.strictObject({
+  commandId: z.string().min(1).max(512),
+  nativeId: z.string().min(1).max(256),
 });
-type Input = z.infer<typeof Input>;
+const Correlation = z.object({ command_id: z.string(), origin: z.enum(["ace", "user"]) });
 /** Durable attribution survives native replay, reconnects and daemon restarts. */
 export class AceInputs {
   private store: Store;
@@ -20,19 +18,43 @@ export class AceInputs {
       thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
       command_id TEXT NOT NULL, value TEXT NOT NULL,
       PRIMARY KEY(thread_id,command_id)
+    );
+    CREATE TABLE IF NOT EXISTS engine_input_messages (
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      native_id TEXT NOT NULL, command_id TEXT NOT NULL,
+      origin TEXT NOT NULL CHECK(origin IN ('ace','user')),
+      PRIMARY KEY(thread_id,native_id)
     )`),
     );
   }
-  record(thread: ThreadId, command: string, input: Input) {
+  record(thread: ThreadId, command: string, input: AceInput) {
     this.store
       .statement("INSERT OR IGNORE INTO engine_ace_inputs VALUES (?,?,?)")
       .run(thread, command, JSON.stringify(input));
   }
-  get(thread: ThreadId, command: string): Input | undefined {
+  get(thread: ThreadId, command: string): AceInput | undefined {
     const row = this.store
       .statement("SELECT value FROM engine_ace_inputs WHERE thread_id=? AND command_id=?")
       .get(thread, command);
-    return row ? Input.parse(JSON.parse(z.string().parse(row.value))) : undefined;
+    return row ? AceInput.parse(JSON.parse(z.string().parse(row.value))) : undefined;
+  }
+  correlate(thread: ThreadId, identity: unknown): void {
+    const { commandId, nativeId } = MessageIdentity.parse(identity);
+    this.store.atomic(() => {
+      const row = this.store
+        .statement(
+          "SELECT command_id,origin FROM engine_input_messages WHERE thread_id=? AND native_id=?",
+        )
+        .get(thread, nativeId);
+      if (row) {
+        if (Correlation.parse(row).command_id !== commandId)
+          throw new Error("Provider reused an input message identity for a different command");
+        return;
+      }
+      this.store
+        .statement("INSERT INTO engine_input_messages VALUES (?,?,?,?)")
+        .run(thread, nativeId, commandId, this.get(thread, commandId) ? "ace" : "user");
+    });
   }
   /** Native transports may echo user-role input. Fold that echo into its ace item. */
   attribute(thread: ThreadId, fact: Fact): Fact {
@@ -42,27 +64,15 @@ export class AceInputs {
       fact.draft.role !== "user"
     )
       return fact;
-    const text =
-      fact.draft.parts
-        ?.filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n") ?? "";
-    const match = /^\[ace-origin:delegation\.settled:([^\]]+)\]\n/.exec(text);
-    if (!match?.[1]) return fact;
-    const source = this.get(thread, match[1]);
-    if (!source || source.text !== text) return fact;
-    return {
-      type: "item.upsert",
-      agent: source.agent,
-      item: source.item,
-      draft: {
-        type: "delegation.settled",
-        complete: true,
-        results: source.results,
-        delivery: "ace-input",
-        origin: "ace",
-        ...(fact.draft.raw ? { raw: fact.draft.raw } : {}),
-      },
-    };
+    if (!fact.draft.nativeId) return fact;
+    const row = this.store
+      .statement(
+        "SELECT command_id,origin FROM engine_input_messages WHERE thread_id=? AND native_id=?",
+      )
+      .get(thread, fact.draft.nativeId);
+    if (!row) return fact;
+    const correlation = Correlation.parse(row);
+    if (correlation.origin !== "ace") return fact;
+    return settledInputEcho(this.get(thread, correlation.command_id), fact);
   }
 }
