@@ -49,3 +49,10 @@ export const deckQuestion = "Should the health note live at the project root?";
  * than jumping straight to merged. `ACE_E2E_DECK_STEP_MS` overrides it.
  */
 export const deckStepMs = Number(process.env.ACE_E2E_DECK_STEP_MS ?? 700);
+/**
+ * The long-thread journey's thread: this many turns, each "Checkpoint N" with a word only that
+ * turn has (search finds exactly one), well past the daemon's 200-item snapshot.
+ */
+export const longTitle = "Long thread on a real daemon";
+export const longTurns = Number(process.env.ACE_E2E_LONG_TURNS ?? 110);
+export const longAsk = (n: number) => `Checkpoint ${n}: audit migration shard alpha${n}x.`;

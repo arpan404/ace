@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { createTurnProvider, ScriptedTurnConfig } from "@ace/adapter-testkit";
 import { deckTurn } from "./deck-script.ts";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
-import { ServerMessage, type ProviderKind } from "@ace/protocol";
+import { ThreadId, WorkspaceId, type CommandPayload, type ProviderKind } from "@ace/protocol";
+import { daemonCommands } from "./daemon-socket.ts";
 import {
   deckStepMs,
   daemonHome,
@@ -29,6 +29,9 @@ import {
   deleteTitle,
   queueTitle,
   limitTitle,
+  longAsk,
+  longTitle,
+  longTurns,
   webOrigin,
   pairedDeviceName,
 } from "./real-daemon-config.ts";
@@ -164,6 +167,7 @@ await seedThread(daemon.url, daemonToken, workspace, deleteTitle, "Try something
 await seedThread(daemon.url, daemonToken, workspace, previewTitle, "Show me the page.");
 await seedThread(daemon.url, daemonToken, workspace, queueTitle, "Warm up the queue.");
 await seedThread(daemon.url, daemonToken, workspace, limitTitle, "Warm up before the limit.");
+if (longTurns > 0) await seedLongThread(daemon.url, daemonToken, workspace, longTurns);
 daemon.store.devices.create(pairedDeviceName, ["read", "operate"], Date.now());
 process.stdout.write(`e2e daemon ready on ${daemon.url}\n`);
 
@@ -178,40 +182,36 @@ async function seedThread(
   workspaceId: string,
   title: string,
   text: string,
-): Promise<void> {
-  const deviceId = "e2e-seed";
-  const socket = new WebSocket(url);
-  const result = new Promise<void>((resolve, reject) => {
-    socket.addEventListener("message", (event) => {
-      const parsed = ServerMessage.safeParse(JSON.parse(String(event.data)));
-      if (!parsed.success) return;
-      const reply = parsed.data;
-      if (reply.type === "commandResult")
-        return reply.ok ? resolve() : reject(new Error(`thread.create failed: ${reply.error}`));
-      if (reply.type === "error") reject(new Error(String(event.data)));
+): Promise<string> {
+  const [created] = await daemonCommands(url, token, [
+    {
+      type: "thread.create",
+      workspaceId: WorkspaceId.parse(workspaceId),
+      provider: "claude",
+      title,
+      input: [{ type: "text", text }],
+    },
+  ]);
+  if (!created?.threadId) throw new Error("thread.create returned no thread");
+  return created.threadId;
+}
+
+/**
+ * A thread of `turns` turns, each a person's checkpoint and the scripted reply, so its oldest
+ * turns are far behind the daemon's 200-item snapshot. Follow-ups queue behind the running
+ * turn and run one after another, as a person's would.
+ */
+async function seedLongThread(url: string, token: string, workspaceId: string, turns: number) {
+  const threadId = await seedThread(url, token, workspaceId, longTitle, longAsk(1));
+  const sends: CommandPayload[] = [];
+  for (let n = 2; n <= turns; n++)
+    sends.push({
+      type: "thread.send",
+      threadId: ThreadId.parse(threadId),
+      input: [{ type: "text", text: longAsk(n) }],
+      delivery: "queue",
     });
-    socket.addEventListener("error", () => reject(new Error("Seed socket failed")));
-  });
-  await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
-  socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, deviceId, token }));
-  socket.send(
-    JSON.stringify({
-      type: "command",
-      command: {
-        id: randomUUID(),
-        deviceId,
-        payload: {
-          type: "thread.create",
-          workspaceId,
-          provider: "claude",
-          title,
-          input: [{ type: "text", text }],
-        },
-      },
-    }),
-  );
-  await result;
-  socket.close();
+  await daemonCommands(url, token, sends);
 }
 
 /** A marketplace with one plugin: a skill, a command and an MCP server its review shows. */
