@@ -21,6 +21,13 @@ import { clampToBounds, type Bounds } from "./bounds.ts";
 import { TabContent } from "./tab-content.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 
+/** The floating dock's scrim and leading-edge shadow (inline: one-off values, ADR 0056 CSS budget). */
+const scrim = { background: "color-mix(in oklab, black 40%, transparent)" };
+const edgeShadow = {
+  right: { boxShadow: "-16px 0 40px -12px rgb(0 0 0 / 0.45)" },
+  bottom: { boxShadow: "0 -16px 40px -12px rgb(0 0 0 / 0.45)" },
+};
+
 export interface DockLayout {
   /** Narrow window: the dock floats over the content, which dims; Escape or a click outside hides it. */
   overlay: boolean;
@@ -86,8 +93,9 @@ export function WorkspaceDock(props: {
           aria-hidden
           data-scrim
           onClick={dismiss}
+          style={scrim}
           className={cn(
-            "absolute inset-0 z-20 bg-[color-mix(in_oklab,black_40%,transparent)]",
+            "absolute inset-0 z-20",
             closing ? "fx-fade-out" : presence.toggled && "fx-fade-in",
           )}
         />
@@ -97,7 +105,10 @@ export function WorkspaceDock(props: {
         inert={closing}
         data-dock={side}
         data-edge={right && !layout.sheet ? "right" : "bottom"}
-        style={layout.sheet || expanded ? undefined : right ? { width: size } : { height: size }}
+        style={{
+          ...(layout.sheet || expanded ? undefined : right ? { width: size } : { height: size }),
+          ...(floating ? (right ? edgeShadow.right : edgeShadow.bottom) : undefined),
+        }}
         className={cn(
           "relative flex min-h-0 min-w-0 flex-col bg-panel",
           expanded ? "flex-1" : "shrink-0",
@@ -106,10 +117,10 @@ export function WorkspaceDock(props: {
             : [
                 right ? !expanded && "border-l" : "border-t",
                 layout.overlay &&
-                  // An elevation shadow on the leading edge, over the scrim.
+                  // Over the scrim, with an elevation shadow on its leading edge (`edgeShadow`).
                   (right
-                    ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background shadow-[-16px_0_40px_-12px_rgb(0_0_0/0.45)]"
-                    : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[0_-16px_40px_-12px_rgb(0_0_0/0.45)]"),
+                    ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background"
+                    : "absolute inset-x-0 bottom-0 z-20 bg-background"),
               ],
           panelMotion(presence),
         )}

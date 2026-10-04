@@ -30,6 +30,8 @@ export type DropSide = "before" | "after";
  */
 export const tabChrome = (closeRoom: boolean) => 8 + 14 + 6 + (closeRoom ? 28 : 10);
 const badgeGap = 6;
+/** A folded tab's badge dot: just off the top right of its centred 14px icon. */
+const dotPlace = { top: 3, left: "calc(50% + 5px)" };
 /** Fewer title pixels than this read as noise: the tab folds to its icon instead. */
 const leastTitle = 32;
 
@@ -182,7 +184,8 @@ export function TabItem(props: {
             <span
               aria-hidden
               data-tab-dot
-              className="pointer-events-none absolute top-[3px] left-[calc(50%+5px)] flex empty:hidden"
+              style={dotPlace}
+              className="pointer-events-none absolute flex empty:hidden"
             >
               <Badge scope={props.scope} tab={tab} folded />
             </span>
