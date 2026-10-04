@@ -1,15 +1,23 @@
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
+import { cancellableCdp } from "./cancellable-cdp.ts";
 import { installOriginGuard } from "./origin-guard.ts";
+import { chromiumCloser, type ChromiumCleanupRuntime } from "./chromium-close.ts";
 import { launchContext, type ContextLauncher } from "./io.ts";
 
 export class HeadlessBackend implements BrowserBackend {
   readonly kind = "headless";
   private executable: () => Promise<string>;
   private launch: ContextLauncher;
-  constructor(executable: () => Promise<string>, launch: ContextLauncher = launchContext) {
+  constructor(
+    executable: () => Promise<string>,
+    launch: ContextLauncher = launchContext,
+    privateCleanup: Partial<ChromiumCleanupRuntime> = {},
+  ) {
     this.executable = executable;
     this.launch = launch;
+    this.cleanup = privateCleanup;
   }
+  private cleanup: Partial<ChromiumCleanupRuntime>;
   async open(request: BackendOpen): Promise<BrowserBackendSession> {
     request.signal.throwIfAborted();
     const executablePath = await new Promise<string>((accept, fail) => {
@@ -36,17 +44,21 @@ export class HeadlessBackend implements BrowserBackend {
       handleSIGTERM: false,
       handleSIGHUP: false,
     });
+    const closeContext = await chromiumCloser(context, this.cleanup);
+    const sessionLifetime = new AbortController();
+    const sessionSignal = AbortSignal.any([request.signal, sessionLifetime.signal]);
     let closed = false;
     let closing: Promise<void> | undefined;
     let guard: Awaited<ReturnType<typeof installOriginGuard>> | undefined;
     const close = (): Promise<void> => {
       if (closing) return closing;
       closed = true;
+      sessionLifetime.abort();
       request.signal.removeEventListener("abort", abort);
       guard?.close();
       // Cancellation and explicit teardown share the original process-close promise.
       // Repeated Playwright closes can otherwise finish before that shutdown completes.
-      closing = context.close();
+      closing = closeContext();
       return closing;
     };
     const abort = () => {
@@ -124,7 +136,7 @@ export class HeadlessBackend implements BrowserBackend {
         }),
       );
       return {
-        cdp,
+        cdp: cancellableCdp(cdp, sessionSignal),
         url: () => page.url(),
         navigate: async (url, timeout) => {
           await page.goto(url, { waitUntil: "domcontentloaded", timeout });
