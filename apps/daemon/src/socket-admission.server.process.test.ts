@@ -12,7 +12,10 @@ afterEach(async () => {
 
 /** The HTTP status of a refused upgrade, or 101 when the socket opened. */
 async function upgrade(url: string, origin?: string): Promise<number> {
-  const client = new Client(url, { rejectUnauthorized: false, ...(origin === undefined ? {} : { origin }) });
+  const client = new Client(url, {
+    rejectUnauthorized: false,
+    ...(origin === undefined ? {} : { origin }),
+  });
   const status = new Promise<number>((resolve) => {
     client.socket.once("unexpected-response", (_request, response) => {
       response.resume();
@@ -54,7 +57,24 @@ test("both listeners reject foreign origins and accept desktop, configured and n
 });
 
 test("device subscriber saturation closes cleanly with a limit error and releases capacity on disconnect", async () => {
-  const devices = new DevicesService({ platform: new DevicePlatform({ platform: "linux", home: "/unused", env: {} }) });
+  const devices = new DevicesService({
+    platform: new DevicePlatform({ platform: "linux", home: "/unused", env: {} }),
+    runtime: {
+      now: () => 0,
+      id: () => "device",
+      spawn() {
+        throw new Error("No device process expected");
+      },
+      after() {
+        throw new Error("No device timer expected");
+      },
+    },
+    env: {},
+    recordingDirectory: "/unused",
+    async publishArtifact(artifact) {
+      return artifact;
+    },
+  });
   const f = await fixture({ devices });
   cleanups.push(() => devices.close());
   cleanups.push(() => f.close());
@@ -67,7 +87,11 @@ test("device subscriber saturation closes cleanly with a limit error and release
   const excess = await f.open();
   const closed = once(excess.socket, "close");
   excess.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("device"), token });
-  expect(await excess.next()).toMatchObject({ type: "error", code: "connection_limit", message: expect.stringContaining("64") });
+  expect(await excess.next()).toMatchObject({
+    type: "error",
+    code: "connection_limit",
+    message: expect.stringContaining("64"),
+  });
   const [code, reason] = await closed;
   expect(code).toBe(1009);
   expect(reason.toString()).toBe("connection_limit");

@@ -353,7 +353,11 @@ export async function startServer(options: ServerOptions): Promise<{
         } catch (error) {
           const limit = error instanceof Error && "code" in error && error.code === "limit";
           const code = limit ? "connection_limit" : "service_unavailable";
-          send({ type: "error", code, message: error instanceof Error ? error.message : "Socket service unavailable" });
+          send({
+            type: "error",
+            code,
+            message: error instanceof Error ? error.message : "Socket service unavailable",
+          });
           socket.close(limit ? 1009 : 1011, code);
           return;
         }

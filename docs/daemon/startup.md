@@ -130,3 +130,10 @@ Doctor resolves git from PATH first, then `/usr/bin/git` and `/bin/git` when PAT
 has no installation. It accepts distribution suffixes such as
 `git version 2.50.1 (Apple Git-155)`. An explicit broken PATH installation still
 fails instead of being silently replaced with system git.
+
+Service cleanup has a separate 30-second deadline from the 15-second startup
+bound. Its error reads `Service <name> cleanup exceeded 30000ms`. Chromium gets
+five seconds for graceful context closure, then ace kills its owned process
+group, cancels pending session CDP reads and logs the forced cleanup. That
+fallback releases the browser service without failing daemon shutdown. Both
+cleanup deadlines and the Chromium process-kill boundary are injectable.

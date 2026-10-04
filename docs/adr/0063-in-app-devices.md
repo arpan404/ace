@@ -2,6 +2,9 @@
 
 Date: 2026-10-02. Status: accepted.
 
+Renumbered on 2026-10-03 after checking origin/main and open PRs. PR #90
+reserves 0062, so in-app devices uses 0063 and web performance keeps 0056.
+
 ace owns iOS Simulators and Android emulators through a single `@ace/devices`
 service. A device is an installed simulator or AVD, with a stable platform-prefixed
 identity independent of its current process or adb serial. Physical devices remain
