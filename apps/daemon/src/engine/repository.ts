@@ -1,3 +1,4 @@
+import { shapeProviderError, structuredError } from "./provider-errors.ts";
 import { provisionalTitle } from "./thread-title.ts";
 import { InputJournal, inputOrigin } from "./input-journal.ts";
 import { coalesceFacts } from "./delta-batch.ts";
@@ -234,7 +235,7 @@ export class EngineRepository {
             input = { ...input, trigger: queue.trigger };
           let fact = capFact(
             (raw) => this.store.capRaw(raw, id),
-            this.inputs.correlate(id, input, state.rootKey ?? "root"),
+            shapeProviderError(this.inputs.correlate(id, input, state.rootKey ?? "root"), state.config.provider),
           );
           if (
             (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
@@ -299,6 +300,13 @@ export class EngineRepository {
                   }
                 : {}),
             });
+            if (fact.type === "turn.ended" && fact.error)
+              for (const event of emitted)
+                if (event.type === "run.ended") {
+                  event.error = fact.error;
+                  const run = state.runs[event.runId];
+                  if (run) run.error = fact.error;
+                }
             if (
               fact.type === "turn.started" &&
               (fact.trigger === "restart" || fact.trigger === "limit_resume") &&
@@ -315,6 +323,26 @@ export class EngineRepository {
           }
         });
         events.push(...batch.flush());
+        for (const event of events)
+          if (event.type === "agent.status" && event.status.state === "failed") {
+            const error = structuredError(event.status.error, state.config.provider);
+            event.status = { ...event.status, error };
+            const key = state.indexes.agentKeysById[event.agentId];
+            const record = key ? state.agents[key] : undefined;
+            if (record) {
+              record.agent.status = event.status;
+              if (record.lastError) record.lastError = error;
+              if (record.processSettledStatus?.state === "failed")
+                record.processSettledStatus = event.status;
+              const run = record.lastRun ? state.runs[record.lastRun] : undefined;
+              if (run?.state === "failed") {
+                run.error = error;
+                for (const end of events)
+                  if (end.type === "run.ended" && end.runId === run.id) end.error = error;
+              }
+            }
+          }
+
         // Admission-based providers transfer queue ownership before a run starts.
         // Persist the acknowledgement policy in the existing per-thread record store,
         // so a later run cannot acknowledge the next, unrelated engine input.

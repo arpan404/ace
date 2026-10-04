@@ -219,6 +219,13 @@ export class IntentDelivery {
         type: "notice",
         level: "error",
         text: `${intent.kind}: ${message}`,
+        commandId: intent.commandId,
+        code: "delivery_failed",
+        title:
+          intent.kind === "thread.send" || intent.kind === "thread.create"
+            ? "Not sent"
+            : "Action failed",
+        detail: message,
         complete: true,
         raw: [],
       },

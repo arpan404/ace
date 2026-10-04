@@ -235,6 +235,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       if (run) {
         run.state = p.state;
         run.endedAt = p.endedAt;
+        if (p.error) run.error = structuredCopy(p.error);
         if (p.trigger !== undefined) run.trigger = p.trigger;
       }
       break;

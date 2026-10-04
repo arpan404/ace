@@ -1,3 +1,5 @@
+import { claudeError } from "./provider-error.ts";
+import { raw } from "./native.ts";
 import { ClaudeState } from "./state.ts";
 import { list, number, object, string, text, type Data } from "./native.ts";
 import { matchBlock, type MessageIndex } from "./blocks.ts";
@@ -62,6 +64,26 @@ export function message(
   if (role === "assistant" && content.length > 0) state.contentSeen.add(agent);
   const id = string(m["id"], string(data["uuid"], `${seq}`));
   if (role === "assistant") childUsage(state, agent, id, m);
+  if (typeof data["error"] === "string") {
+    const error = claudeError(data["error"], text(m["content"]), state.model);
+    state.errors.set(agent, error);
+    state.emit({
+      type: "item.upsert",
+      agent,
+      item: state.key("error", id),
+      draft: {
+        type: "notice",
+        level: "error",
+        code: error.code,
+        title: error.title,
+        detail: error.detail,
+        text: error.message,
+        complete: true,
+        raw: [raw(data)],
+      },
+    });
+    return;
+  }
   const blocks = messages.forMessage(agent, id);
   for (const [index, value] of content.entries()) {
     const block = object(value);
@@ -164,20 +186,7 @@ export function message(
       });
     else state.notice(data, `${seq}:${index}`, agent);
   }
-  if (typeof data["error"] === "string") {
-    const error = data["error"];
-    // Provider error metadata is authoritative. Ordinary prose mentioning auth is not.
-    state.errors.set(agent, {
-      kind:
-        error === "authentication_failed"
-          ? "auth"
-          : error === "billing_error" || error === "rate_limit"
-            ? "quota"
-            : "provider",
-      message: text(m["content"]) || error,
-    });
-    state.notice(data, `error:${seq}`, agent, "error", error);
-  }
+
 }
 export interface StreamState {
   id: string;

@@ -29,6 +29,15 @@ export const BlockedReason = z.enum([
 ]);
 export type BlockedReason = z.infer<typeof BlockedReason>;
 
+export const AgentError = z.object({
+  kind: z.enum(["provider", "auth", "quota", "network", "process_exit", "unknown"]),
+  message: z.string(),
+  code: z.string().optional(),
+  title: z.string().optional(),
+  detail: z.string().optional(),
+});
+export type AgentError = z.infer<typeof AgentError>;
+
 export const AgentStatus = z.discriminatedUnion("state", [
   z.object({ state: z.literal("starting") }),
   z.object({
@@ -56,13 +65,7 @@ export const AgentStatus = z.discriminatedUnion("state", [
   z.object({ state: z.literal("interrupted") }),
   z.object({
     state: z.literal("failed"),
-    error: z.object({
-      kind: z.enum(["provider", "auth", "quota", "network", "process_exit", "unknown"]),
-      message: z.string(),
-      code: z.string().optional(),
-      title: z.string().optional(),
-      detail: z.string().optional(),
-    }),
+    error: AgentError,
   }),
   z.object({
     state: z.literal("unresponsive"),
