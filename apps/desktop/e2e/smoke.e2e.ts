@@ -67,9 +67,24 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
   it("renders the app shell from the bundled renderer", async () => {
     await page.getByRole("navigation", { name: "Views" }).waitFor({ timeout: 30_000 });
     expect(new URL(page.url()).protocol).toBe("app:");
-    // The page may render its heading a frame after the rail; wait for it to be visible.
+    // The page may render its heading a frame after the sidebar; wait for it to be visible.
     await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 15_000 });
   });
+
+  it.runIf(process.platform === "darwin")(
+    "keeps the sidebar and, with it hidden, the header clear of the traffic lights",
+    async () => {
+      // The traffic lights end 68 px from the window's left edge.
+      const home = page.getByRole("link", { name: "Home", exact: true });
+      expect((await home.boundingBox())?.x).toBeGreaterThanOrEqual(68);
+      await page.getByRole("button", { name: "Hide sidebar" }).click();
+      const show = page.getByRole("button", { name: "Show sidebar" });
+      await show.waitFor();
+      expect((await show.boundingBox())?.x).toBeGreaterThanOrEqual(68);
+      await show.click();
+      await home.waitFor();
+    },
+  );
 
   it("exposes a working window.ace bridge and no Node APIs", async () => {
     const result = await page.evaluate(async () => {

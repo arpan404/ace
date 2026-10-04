@@ -86,7 +86,7 @@ No Chromium is downloaded into the desktop bundle.
 
 - The desktop app and the standalone archive share one daemon bundle and one pinned Node runtime. The doctor's node-pty check covers both.
 - Two web hooks are injected as CSS by the main process; the web app may later replace them with platform tokens:
-  - the macOS rail inset for the traffic lights;
+  - the macOS title bar inset: the traffic lights sit over the sidebar's top row, and the header clears them while the sidebar is hidden;
   - the transparent wallpaper under vibrancy and Mica.
 - Playwright cannot attach to a packaged build, because the inspect fuse is off. The smoke test therefore runs the unpackaged bundles against the fake daemon.
 - Windows packages build, but the daemon needs `descriptor.node`, which supports only macOS and Linux. Until it gains a Windows backend, the Windows app defaults to a remote-only target: its status is `unavailable` and the page asks for a daemon on another machine (`wss:` only).
