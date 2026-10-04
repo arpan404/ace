@@ -31,9 +31,10 @@ const turnCount = 2_000;
 
 /** Moves the timeline's selection to `target` from whichever end is nearer, as keys. */
 async function selectTurn(page: Page, target: number): Promise<void> {
-  const fromEnd = target > turnCount / 2;
-  await page.keyboard.press(fromEnd ? "End" : "Home");
-  let at = fromEnd ? turnCount : 1;
+  await page.keyboard.press(target > turnCount / 2 ? "End" : "Home");
+  // The live turn may have joined the list: read where the selection landed.
+  const list = page.getByRole("listbox", { name: "Turns of this thread" });
+  let at = Number((await list.getAttribute("aria-activedescendant"))?.replace("turn-option-", ""));
   while (Math.abs(target - at) >= 10) {
     await page.keyboard.press(target > at ? "PageDown" : "PageUp");
     at += target > at ? 10 : -10;
