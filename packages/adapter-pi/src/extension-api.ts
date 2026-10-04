@@ -27,6 +27,28 @@ export interface PiExtensionApi {
       signal: AbortSignal | undefined,
     ) => Promise<{ content: unknown[]; details: unknown }>;
   }): void;
+  on(
+    event: "tool_call",
+    handler: (
+      event: { toolName: string; toolCallId: string; input: unknown },
+      ctx: {
+        cwd: string;
+        hasUI: boolean;
+        ui: { confirm(title: string, message: string): Promise<boolean> };
+      },
+    ) => Promise<{ block: true; reason: string } | undefined>,
+  ): void;
+  on(
+    event: "session_start" | "turn_end" | "model_select" | "session_compact",
+    handler: (
+      event: unknown,
+      ctx: {
+        getContextUsage(): unknown;
+        model?: { provider: string; id: string };
+        ui: { notify(message: string, type: "info" | "error"): void };
+      },
+    ) => void,
+  ): void;
   on(event: "session_shutdown", handler: () => Promise<void>): void;
   on(
     event: "tool_result",

@@ -19,16 +19,16 @@ export function piCapabilities(cli: DiscoveryResult): Capabilities {
     permissions: {
       modes: supported ? ["read-only", "ask", "auto-review", "full-access"] : [],
       nativeAutoReview: false,
-      toolGate: false,
+      toolGate: supported,
       guarantees: supported
         ? [
             {
               mode: "auto-review",
-              level: "tool-selection",
-              gates: { writes: true, network: true, protectedReads: false, shell: true },
+              level: "tool-gate",
+              gates: { writes: true, network: true, protectedReads: true, shell: true },
               limitations: [
-                "Only read,grep,find,ls tools are enabled; ambient extensions and MCP tools are excluded.",
-                "Read tools can access secret files; Pi RPC has no tool permission callback.",
+                "The ace extension gates each selected tool before execution using Pi tool_call and RPC confirmation. Ambient extensions are excluded.",
+                "Pi is not an OS sandbox. Approved shell commands and tools retain the provider process permissions; unknown effects require a human.",
               ],
             },
           ]

@@ -172,7 +172,7 @@ test("interrupt clears native queued continuation before aborting", async () => 
     await h.dispose();
   }
 });
-test("unknown versions and unsupported permissions are refused before process launch", async () => {
+test("unknown versions are refused before process launch", async () => {
   const context = {
     threadId: ThreadId.parse("test"),
     cwd: process.cwd(),
@@ -191,13 +191,6 @@ test("unknown versions and unsupported permissions are refused before process la
       runtime,
     }),
   ).rejects.toThrow("unsupported");
-  await expect(
-    openPiSession(context, {
-      cli: { installed: true, path: "fake", version: "0.85.1", auth: "unknown", loginHint: "none" },
-      permissionMode: "supervised",
-      runtime,
-    }),
-  ).rejects.toThrow("cannot enforce");
 });
 test("missing ace extension fails startup without falling through to a model prompt", async () => {
   await expect(sessionHarness({}, false, { FAKE_PI_EXTENSION_MISSING: "1" })).rejects.toThrow(
