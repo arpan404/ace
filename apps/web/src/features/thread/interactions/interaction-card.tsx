@@ -33,7 +33,7 @@ import {
 import { QuestionForm } from "./question-form.tsx";
 import { PlanReview } from "./plan-review.tsx";
 import type { Answer } from "./answer.ts";
-import { useEarlierAnswer } from "./use-item-interaction.ts";
+import { useEarlierAnswer } from "./use-earlier-answer.ts";
 
 const failures: Record<string, string> = {
   already_resolved: "Already answered on another device.",

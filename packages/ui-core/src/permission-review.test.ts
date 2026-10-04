@@ -1,11 +1,7 @@
 import { InteractionId, Item, type PermissionReview } from "@ace/protocol";
 import { expect, test } from "vitest";
-import {
-  approvalOutcome,
-  describeReview,
-  offeredOptions,
-  reviewedInteraction,
-} from "./permission-review.ts";
+import { approvalOutcome, offeredOptions } from "./approvals.ts";
+import { describeReview, reviewedInteraction } from "./permission-review.ts";
 
 const review: PermissionReview = {
   interactionId: InteractionId.parse("interaction-1"),

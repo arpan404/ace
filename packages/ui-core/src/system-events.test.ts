@@ -2,12 +2,11 @@ import { Item } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   inputLine,
-  noticeInput,
   parseDelegationResults,
   repeatsEarlierEvent,
-  systemInput,
   taskPrompt,
 } from "./system-events.ts";
+import { noticeInput, systemInput } from "./system-input.ts";
 
 let ids = 0;
 const message = (text: string, extra: Record<string, unknown> = {}): Item =>

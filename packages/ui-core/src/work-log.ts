@@ -1,6 +1,6 @@
 import type { FileChange, Interaction, Item, ToolCall } from "@ace/protocol";
 import { quickStat } from "./file-changes.ts";
-import { approvalOutcome } from "./permission-review.ts";
+import { approvalOutcome } from "./approvals.ts";
 import {
   displayCommand,
   stepPath,

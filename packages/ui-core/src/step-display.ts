@@ -1,5 +1,3 @@
-import { describeProviderError } from "./error-display.ts";
-
 /*
  * How provider data reads on screen: project-relative paths, the command a person typed
  * rather than the login shell that ran it, and tools named for what they do. Every surface
@@ -489,9 +487,19 @@ export function namedToolLabel(kind: string, title: string): ToolLabel {
   return label("tool", "Used", "Using", "Use", clean);
 }
 
-/** An error in words, short enough for a row's trailing note (A4); the full text is in the detail. */
+/**
+ * A failure's one-line reason for a row's note (A4): its first line, without a provider tag's
+ * JSON payload ("[claude-code:unrecognized_model] {…}" reads "unrecognized model"). The whole
+ * error, in words, is in the step's detail.
+ */
 export function errorNote(error: string | undefined, max = 60): string | undefined {
-  if (!error?.trim()) return undefined;
-  const title = describeProviderError({ text: error }).title;
-  return title.length > max ? `${title.slice(0, max - 1)}…` : title;
+  const line = error
+    ?.split("\n")
+    .map((part) => part.trim())
+    .find(Boolean);
+  if (!line) return undefined;
+  const tagged = /^\[[\w-]+:([\w.-]+)\]\s*(.*)$/.exec(line);
+  const text = tagged ? tagged[2]!.replace(/^[{[].*$/, "").trim() || humanize(tagged[1]!) : line;
+  const note = text[0]!.toUpperCase() + text.slice(1);
+  return note.length > max ? `${note.slice(0, max - 1)}…` : note;
 }
