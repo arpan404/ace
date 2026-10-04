@@ -55,11 +55,14 @@
   --color-status-failed: var(--status-failed);
   --color-status-done: var(--status-done);
 
-  /* 6 kbd/tags · 8 rows/buttons/inputs · 10 cards · 12 popovers · 16 composer and bubbles. */
+  /*
+   * 4 kbd/tags · 8 small buttons, dense rows, tooltips · 10 rows/buttons/inputs · 14 cards ·
+   * 16 popovers and menus · 22 the composer, dialogs and bubbles. Chips are pills (full).
+   */
   --radius-xs: 4px;
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius);
-  --radius-card: 10px;
+  --radius-card: 14px;
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
 

@@ -1,0 +1,32 @@
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { expect } from "vitest";
+
+/** Open the composer's model chip and return its popover. */
+export async function openModelControl(chip: RegExp | string = /^Model: /): Promise<HTMLElement> {
+  await userEvent.click(await screen.findByRole("button", { name: chip }));
+  return screen.findByRole("dialog", { name: "Model and effort" });
+}
+
+/** From the open popover, go to the model picker (it opens there when no model is chosen). */
+export async function openModelPicker(popover: HTMLElement): Promise<HTMLElement> {
+  const change = within(popover).queryByRole("button", { name: /^Change model/ });
+  if (change) await userEvent.click(change);
+  return within(popover).findByRole("listbox", { name: "Models" });
+}
+
+/** Pick a model by searching for it, as a person would: "GPT-5 Codex" under "Codex". */
+export async function chooseModel(label: string, provider: string, chip?: RegExp | string) {
+  const popover = await openModelControl(chip);
+  await openModelPicker(popover);
+  await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), label);
+  await userEvent.click(within(popover).getByRole("option", { name: `${label}, ${provider}` }));
+}
+
+/** Close the popover and wait for it to leave, so the next control can open. */
+export async function closeModelControl() {
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
+  );
+}

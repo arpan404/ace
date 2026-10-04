@@ -331,10 +331,10 @@ function expand(seed: ThemeSeed): Theme {
     "--w2": seed.washes[1],
     "--w3": seed.washes[2],
     "--w4": seed.washes[3],
-    "--radius-sm": "6px",
-    "--radius": "8px",
-    "--radius-lg": "12px",
-    "--radius-xl": "16px",
+    "--radius-sm": "8px",
+    "--radius": "10px",
+    "--radius-lg": "16px",
+    "--radius-xl": "22px",
   };
   return {
     id: seed.id,
