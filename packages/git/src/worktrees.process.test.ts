@@ -2,7 +2,7 @@ import { lstat, readFile, rm, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
 import { GitService } from "./index.ts";
-import { git, put, repository, scalar, scratch } from "./test-repo.ts";
+import { git, put, repository, scalar, scratch, proxyGit } from "./test-repo.ts";
 
 const service = new GitService();
 
@@ -127,4 +127,35 @@ test("pruning removes stale registrations without touching remaining worktrees",
   await service.pruneWorktrees(repo);
   expect((await service.listWorktrees(repo)).map((tree) => tree.path)).toEqual([repo]);
   expect(await readFile(join(repo, "tracked.txt"), "utf8")).toBe("original\n");
+});
+
+test("a failure reading the newly created checkout rolls back its branch and worktree", async () => {
+  const repo = await repository();
+  const marker = join(await scratch(), "created");
+  const binary = await proxyGit(`
+    const marker = ${JSON.stringify(marker)};
+    const op = args.indexOf('worktree');
+    if (op >= 0 && args[op + 1] === 'add') {
+      const result = spawnSync('git', args);
+      process.stdout.write(result.stdout); process.stderr.write(result.stderr);
+      if (result.status === 0) fs.writeFileSync(marker, 'created');
+      process.exit(result.status ?? 70);
+    }
+    if (op >= 0 && args[op + 1] === 'list' && fs.existsSync(marker)) {
+      fs.unlinkSync(marker); process.stdout.write('invalid\\0'); process.exit(0);
+    }
+  `);
+  const controlled = new GitService({ gitBinary: binary });
+  const path = join(dirname(repo), "uncommitted-creation");
+  const before = await scalar(repo, "for-each-ref", "refs/heads", "--format=%(refname)");
+  try {
+    await expect(
+      controlled.createWorktree({ repo, path, branch: "ace/failure", baseRef: "HEAD" }),
+    ).rejects.toMatchObject({ code: "malformed_output" });
+    expect((await service.listWorktrees(repo)).map((tree) => tree.path)).toEqual([repo]);
+    await expect(lstat(path)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await scalar(repo, "for-each-ref", "refs/heads", "--format=%(refname)")).toBe(before);
+  } finally {
+    await controlled.close();
+  }
 });
