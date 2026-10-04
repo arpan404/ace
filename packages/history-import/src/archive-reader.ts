@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { Thread, Agent, Item } from "@ace/protocol";
 import { z } from "zod";
 

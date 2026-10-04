@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { parentPort, workerData } from "node:worker_threads";
 import { z } from "zod";
 import { CachedEntry } from "./cache-schema.ts";

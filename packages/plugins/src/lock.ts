@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { join } from "node:path";
 import { assertNoSymlinks } from "./files.ts";
 

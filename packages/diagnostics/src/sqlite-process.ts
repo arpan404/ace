@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 const { path, task } = z
   .object({ path: z.string(), task: z.enum(["integrity", "pages"]) })

@@ -370,6 +370,7 @@
       "name": "@ace/conductor",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
     },
@@ -443,6 +444,7 @@
       "name": "@ace/files",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "@ace/workspace": "workspace:*",
         "koffi": "3.3.2",
         "ws": "^8.18.3",
@@ -527,6 +529,7 @@
       "dependencies": {
         "@ace/core": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.1.12",
       },
     },
@@ -624,6 +627,7 @@
       "name": "@ace/service",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "tar": "7.5.7",
         "zod": "^4.6.5",
       },
