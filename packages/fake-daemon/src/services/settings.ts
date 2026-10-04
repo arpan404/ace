@@ -7,7 +7,7 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { defaults } from "@ace/settings/defaults";
-import { legacyPermissionMode } from "@ace/settings";
+import { legacyPermissionMode } from "@ace/settings/legacy-permissions";
 import { z } from "zod";
 
 /** Where a connection's pushes go; the connection owns its own lifetime. */
