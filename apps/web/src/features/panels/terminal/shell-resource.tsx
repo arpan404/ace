@@ -35,7 +35,7 @@ import { FindBar } from "./find-bar.tsx";
 import { TerminalScreen } from "./screen.ts";
 import { SessionsMenu } from "./sessions-menu.tsx";
 import type { TerminalSurface } from "./surface.ts";
-import { newTerminal, shellLabel } from "./tabs.ts";
+import { openNewTerminal, shellLabel } from "./tabs.ts";
 import { setTabUi, useTabUi } from "./tab-ui.ts";
 import { ScreenRows, useScreenSurface, type ScreenMark } from "./terminal-view.tsx";
 import { ToolbarButton } from "./toolbar.tsx";
@@ -272,7 +272,7 @@ function ShellButtons(props: TabViewProps) {
         label="New terminal"
         shortcut="newTerminal"
         disabled={link !== "connected"}
-        onClick={() => actions.open(newTerminal(store.get(scope), dock))}
+        onClick={() => openNewTerminal(actions, store.get(scope), dock)}
       />
       <ToolbarButton
         icon={MagnifyingGlassIcon}

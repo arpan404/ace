@@ -1,4 +1,10 @@
-import type { Dock, OpenTab, ScopeWorkspace } from "@/lib/workspace/index.ts";
+import {
+  findTab,
+  type Dock,
+  type OpenTab,
+  type ScopeWorkspace,
+  type WorkspaceActions,
+} from "@/lib/workspace/index.ts";
 
 /*
  * How terminals and agent shells are named as workspace tabs. Loaded with the thread screen
@@ -30,6 +36,21 @@ export function newTerminal(workspace: ScopeWorkspace, dock: Dock = "bottom"): O
     .filter((tab) => tab.kind === terminalKind && tab.id.startsWith(pendingPrefix))
     .map((tab) => Number(tab.id.slice(pendingPrefix.length)) || 0);
   return { kind: terminalKind, id: `${pendingPrefix}${Math.max(0, ...taken) + 1}`, dock };
+}
+
+/**
+ * New terminal: a shell of its own. The bottom panel's waiting `terminal` tab becomes it if
+ * that tab hasn't started a shell yet, so the strip never shows two tabs called Terminal.
+ */
+export function openNewTerminal(
+  actions: Pick<WorkspaceActions, "open" | "replace">,
+  workspace: ScopeWorkspace,
+  dock: Dock = "bottom",
+): void {
+  const fresh = newTerminal(workspace, dock);
+  const waiting = findTab(workspace, terminalKind);
+  if (waiting) actions.replace(waiting.tab.key, { ...fresh, pinned: waiting.tab.pinned });
+  else actions.open(fresh);
 }
 
 /** The tab of a PTY the daemon already runs (a script run, a shell opened elsewhere). */

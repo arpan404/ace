@@ -87,22 +87,24 @@ test("full view gives the side panel the work area and Back to the conversation 
   expect(Math.round((await sidePanel(page).boundingBox())?.width ?? 0)).toBe(Math.round(split));
 });
 
-test("⌘J shows the bottom panel, and its Terminal moves to the side panel without losing a shell", async ({
+test("⌘J shows the bottom panel, and a terminal moves to the side panel without losing its shell", async ({
   page,
 }) => {
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.keyboard.press("ControlOrMeta+j");
   const bottom = page.getByRole("region", { name: "Bottom panel" });
-  await expect(bottom.getByRole("tab", { name: "Terminal", selected: true })).toBeVisible();
-  await expect(bottom.getByRole("tablist", { name: "Terminals" })).toContainText("relay:soak");
+  await expect(bottom.getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
+  await bottom.getByRole("group", { name: "zsh terminal" }).click();
+  await page.keyboard.type("pwd");
+  await page.keyboard.press("Enter");
+  await expect(bottom.getByRole("group", { name: "zsh terminal" })).toContainText("/Users/dev/ace");
 
-  await bottom.getByRole("tab", { name: "Terminal" }).click({ button: "right" });
+  await bottom.getByRole("tab", { name: "zsh" }).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Move to side panel" }).click();
-  await expect(
-    sidePanel(page).getByRole("tab", { name: "Terminal", selected: true }),
-  ).toBeVisible();
-  await expect(sidePanel(page).getByRole("tablist", { name: "Terminals" })).toContainText(
-    "relay:soak",
+  await expect(sidePanel(page).getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
+  // The same shell, with what it printed.
+  await expect(sidePanel(page).getByRole("group", { name: "zsh terminal" })).toContainText(
+    "/Users/dev/ace",
   );
-  await expect(bottom.getByRole("tab", { name: "Terminal" })).toHaveCount(0);
+  await expect(bottom.getByRole("tab", { name: "zsh" })).toHaveCount(0);
 });

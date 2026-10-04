@@ -12,7 +12,14 @@ import {
 import { keymap } from "@/lib/keymap.ts";
 import { useScopeWorkspace, useWorkspaceActions, type Dock } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
-import { newTerminal, shellKind, shellLabel, shellTab, terminalKind, terminalTab } from "./tabs.ts";
+import {
+  openNewTerminal,
+  shellKind,
+  shellLabel,
+  shellTab,
+  terminalKind,
+  terminalTab,
+} from "./tabs.ts";
 import { distinctLabels, useBackgroundShells, useThreadTerminals } from "./use-terminals.ts";
 
 const shellState = {
@@ -135,7 +142,7 @@ export function SessionsMenu(props: { scope: string; dock: Dock }) {
           keys={keymap.newTerminal.keys}
           disabled={link !== "connected"}
           reason={link === "connected" ? undefined : "Waiting for the daemon to reconnect"}
-          onClick={() => actions.open(newTerminal(workspace, props.dock))}
+          onClick={() => openNewTerminal(actions, workspace, props.dock)}
         >
           New terminal
         </MenuItem>

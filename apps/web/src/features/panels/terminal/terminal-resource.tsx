@@ -40,6 +40,7 @@ import type { TerminalSurface } from "./surface.ts";
 import {
   isPendingTerminal,
   newTerminal,
+  openNewTerminal,
   openTerminalIds,
   reusesSpareShell,
   spareShell,
@@ -395,7 +396,7 @@ function TerminalButtons(props: TabViewProps) {
   const actions = useWorkspaceActions(scope);
   const { link } = useThreadTerminals(terminals, scope);
   const pending = isPendingTerminal(tab.id);
-  const openNew = useEffectEvent(() => actions.open(newTerminal(store.get(scope), dock)));
+  const openNew = useEffectEvent(() => openNewTerminal(actions, store.get(scope), dock));
   useHotkey(keymap.newTerminal.keys, () => openNew());
   return (
     <>

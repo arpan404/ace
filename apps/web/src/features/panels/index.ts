@@ -4,5 +4,11 @@
  */
 export { threadWorkspace } from "./thread-workspace.ts";
 export { findRunningTerminal } from "./services.ts";
-export { newTerminal, shellLabel, shellTab, terminalTab } from "./terminal/tabs.ts";
+export {
+  newTerminal,
+  openNewTerminal,
+  shellLabel,
+  shellTab,
+  terminalTab,
+} from "./terminal/tabs.ts";
 export { useBackgroundShells } from "./terminal/use-terminals.ts";

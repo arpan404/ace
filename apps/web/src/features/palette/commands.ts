@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
+import { openNewTerminal } from "@/features/panels/index.ts";
 import { railViews, type RailView } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useFocusedScope, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -105,6 +106,20 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
                   keys: keymap.terminal.keys,
                   icon: "action",
                   run: run(() => docks.toggleKind("terminal")),
+                } satisfies PaletteCommand,
+                {
+                  id: "new-terminal",
+                  label: "New terminal",
+                  keys: keymap.newTerminal.keys,
+                  icon: "action",
+                  run: run(() => openNewTerminal(docks, workspace)),
+                } satisfies PaletteCommand,
+                {
+                  id: "open-logs",
+                  label: "Show logs",
+                  keys: keymap.logs.keys,
+                  icon: "action",
+                  run: run(() => docks.toggleKind("logs")),
                 } satisfies PaletteCommand,
                 {
                   id: "toggle-right",
