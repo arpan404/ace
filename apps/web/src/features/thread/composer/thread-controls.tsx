@@ -17,11 +17,8 @@ import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import { SwitchDialog } from "../transitions/switch-dialog.tsx";
 import { ModelPicker } from "./model-picker.tsx";
-import {
-  PermissionPicker,
-  usePermissionCapabilities,
-  useSetThreadPermission,
-} from "./permission-picker.tsx";
+import { usePermissionCapabilities, useSetThreadPermission } from "./permission-hooks.ts";
+import { PermissionPicker } from "./permission-picker.tsx";
 
 /**
  * The thread's approval mode, inspectable and changeable after the thread started. A change

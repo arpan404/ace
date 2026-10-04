@@ -1,5 +1,4 @@
 import type { KeymapId } from "@/lib/keymap.ts";
-import type { WorkspaceActions } from "./actions.ts";
 import type { Dock, OpenRequest, ScopeWorkspace, WorkspaceTab } from "./model.ts";
 import type { TabKind } from "./registry.ts";
 
@@ -29,11 +28,17 @@ export interface WorkspaceDefinitionOptions {
   kinds(): Promise<{ default: readonly TabKind[] }>;
 }
 
+/** What a dock's + may do to the scope: open a tab, or turn one into another. */
+export interface PlusActions {
+  open(request: Omit<OpenRequest, "dock"> & { dock?: Dock | undefined }): void;
+  replace(key: string, request: Omit<OpenRequest, "dock">): void;
+}
+
 /** A dock's own + action. */
 export interface DockPlus {
   label: string;
   shortcut?: KeymapId;
-  open(actions: WorkspaceActions, workspace: ScopeWorkspace, dock: Dock): void;
+  open(actions: PlusActions, workspace: ScopeWorkspace, dock: Dock): void;
 }
 
 export interface WorkspaceDefinition extends Omit<WorkspaceDefinitionOptions, "kinds"> {

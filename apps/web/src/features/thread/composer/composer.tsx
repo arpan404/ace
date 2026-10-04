@@ -299,6 +299,9 @@ export function Composer({
               mention(path);
               edit(insertAt(text, caret, `@${path} `));
             }}
+            onInsert={(inserted) => edit(insertAt(text, caret, inserted))}
+            thread={props.thread.draft ? undefined : props.thread}
+            width={width}
           />
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <ComposerCompact value={compact}>{props.controls}</ComposerCompact>

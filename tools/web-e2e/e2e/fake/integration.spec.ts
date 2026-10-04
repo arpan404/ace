@@ -119,7 +119,7 @@ test("a two-line message with a file attached starts a thread under the chosen a
   // + › Files attaches through the file chooser.
   await page.getByRole("button", { name: "Add files and context" }).click();
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("menuitem", { name: "Files" }).click();
+  await page.getByRole("menuitem", { name: /^Files/ }).click();
   await (
     await chooser
   ).setFiles({

@@ -23,7 +23,10 @@ import { menuItem } from "@/components/ui/menu-styles.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { EffortSection, ProviderLabel } from "@/features/models/index.ts";
 import { cn } from "@/lib/cn.ts";
+import type { ThreadRef } from "../sources/index.ts";
+import { DescribedItem } from "./described-item.tsx";
 import { permissionIcons } from "./permission-icons.ts";
+import { ThreadContextRows } from "./thread-context-rows.tsx";
 
 function Note(props: { children: string; pending?: boolean }) {
   return (
@@ -117,8 +120,9 @@ export interface AddAction {
 }
 
 /**
- * The + menu: upload files or images, mention a file, start a command, or mention a file used
- * lately in this project. Drop and paste still attach files directly.
+ * The + menu: upload files or images, mention a file, start a command, and (in a thread) plan
+ * first or point the agent at a page open in the workspace; then files mentioned lately in this
+ * project. Each row says what it does, or why it can't now. Drop and paste still attach files.
  */
 export function AddMenu(props: {
   files: AddAction;
@@ -126,73 +130,87 @@ export function AddMenu(props: {
   mention: AddAction;
   command: AddAction;
   recent: readonly string[];
+  /** The thread the composer writes in, for its own rows; none on New thread. */
+  thread?: ThreadRef | undefined;
   onFiles(): void;
   onImages(): void;
   onMention(): void;
   onCommand(): void;
   onRecent(path: string): void;
+  onInsert(text: string): void;
 }) {
   return (
     <>
       <MenuGroup>
         <MenuLabel>Add to the message</MenuLabel>
-        <MenuItem
+        <DescribedItem
           icon={<Icon icon={PaperclipIcon} />}
-          disabled={!!props.files.reason}
+          description="Attach from this computer"
           reason={props.files.reason}
           onClick={props.onFiles}
         >
           Files
-        </MenuItem>
-        <MenuItem
+        </DescribedItem>
+        <DescribedItem
           icon={<Icon icon={ImageIcon} />}
-          disabled={!!props.images.reason}
+          description="PNG, JPG, screenshots"
           reason={props.images.reason}
           onClick={props.onImages}
         >
           Images
-        </MenuItem>
-        <MenuItem
+        </DescribedItem>
+        <DescribedItem
           icon={<Icon icon={AtIcon} />}
           keys="@"
-          disabled={!!props.mention.reason}
+          description="Reference a checkout file"
           reason={props.mention.reason}
           onClick={props.onMention}
         >
           Mention a file
-        </MenuItem>
-        <MenuItem
+        </DescribedItem>
+        <DescribedItem
           icon={<Icon icon={CommandIcon} />}
           keys="/"
-          disabled={!!props.command.reason}
+          description="Run a slash command"
           reason={props.command.reason}
           onClick={props.onCommand}
         >
           Command
-        </MenuItem>
+        </DescribedItem>
       </MenuGroup>
-      {props.recent.length > 0 && (
+      {props.thread && (
         <>
           <MenuSeparator />
-          <MenuGroup>
-            <MenuLabel>Recent files</MenuLabel>
-            {props.recent.map((path) => (
-              <MenuItem
-                key={path}
-                icon={<Icon icon={FileTextIcon} />}
-                aria-label={`Mention ${path}`}
-                disabled={!!props.mention.reason}
-                onClick={() => props.onRecent(path)}
-              >
-                {path.slice(path.lastIndexOf("/") + 1)}
-                <span className="ml-2 font-mono text-xs text-subtle-foreground">
-                  {path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""}
-                </span>
-              </MenuItem>
-            ))}
-          </MenuGroup>
+          <ThreadContextRows thread={props.thread} onInsert={props.onInsert} />
         </>
       )}
+      <MenuSeparator />
+      <MenuGroup>
+        <MenuLabel>Recent files</MenuLabel>
+        {props.recent.length ? (
+          props.recent.map((path) => (
+            <DescribedItem
+              key={path}
+              icon={<Icon icon={FileTextIcon} />}
+              aria-label={`Mention ${path}`}
+              description={
+                path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "Project root"
+              }
+              reason={props.mention.reason}
+              onClick={() => props.onRecent(path)}
+            >
+              {path.slice(path.lastIndexOf("/") + 1)}
+            </DescribedItem>
+          ))
+        ) : (
+          <DescribedItem
+            icon={<Icon icon={FileTextIcon} />}
+            reason="Files you mention in this project show here"
+          >
+            No recent files
+          </DescribedItem>
+        )}
+      </MenuGroup>
     </>
   );
 }

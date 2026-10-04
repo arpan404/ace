@@ -35,6 +35,32 @@ test("+ offers files, images, a mention and a command instead of a bare file dia
   expect(await screen.findByRole("listbox", { name: "Files" })).toBeTruthy();
 });
 
+test("each + row says what it does, and a thread's rows say why they're off when they are", async () => {
+  await open("idle");
+  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
+  const menu = await screen.findByRole("menu");
+  expect(within(menu).getByRole("menuitem", { name: /^Files/ }).textContent).toContain(
+    "Attach from this computer",
+  );
+  expect(within(menu).getByRole("menuitem", { name: /^Images/ }).textContent).toContain(
+    "PNG, JPG, screenshots",
+  );
+  // Nothing is open in the thread's workspace yet: the page row says what it needs.
+  const page = within(menu).getByRole("menuitem", { name: /^An open page/ });
+  expect(page.getAttribute("aria-disabled")).toBe("true");
+  expect(page.textContent).toContain("Open a page in the Browser");
+  expect(within(menu).getByRole("menuitem", { name: /^Plan first/ })).toBeTruthy();
+});
+
+test("Plan first from + makes the thread read only until the plan is agreed", async () => {
+  const { app } = await open("idle");
+  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
+  const plan = await screen.findByRole("menuitem", { name: /^Plan first/ });
+  await waitFor(() => expect(plan.getAttribute("aria-disabled")).not.toBe("true"));
+  await userEvent.click(plan);
+  await waitFor(() => expect(thread(app, "thread-router")?.permission?.override).toBe("read-only"));
+});
+
 test("a file mentioned once is offered again under Recent files", async () => {
   const { message } = await open("idle");
   await userEvent.type(message, "Look at @check");

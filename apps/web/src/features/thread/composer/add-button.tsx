@@ -2,6 +2,7 @@ import { PlusIcon } from "@phosphor-icons/react";
 import { Suspense, useImperativeHandle, useRef, useState, type Ref, type RefObject } from "react";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import type { ThreadRef } from "../sources/index.ts";
 import { iconControl } from "./composer-styles.ts";
 import { DeferredAddMenu, MenuPending } from "./deferred-menus.tsx";
 
@@ -27,6 +28,12 @@ export function AddButton(props: {
   onMention(): void;
   onCommand(): void;
   onRecent(path: string): void;
+  /** Puts text in the message at the caret (a page's address). */
+  onInsert(text: string): void;
+  /** The thread the composer writes in, for its own rows; none on New thread. */
+  thread?: ThreadRef | undefined;
+  /** The composer's width: the menu spans its writing width (8px in from each side). */
+  width: number;
   /** Opens the menu from elsewhere (the summary's Sources +). */
   handle?: Ref<{ open(): void }> | undefined;
 }) {
@@ -51,7 +58,12 @@ export function AddButton(props: {
             <PlusIcon aria-hidden size={16} />
           </MenuTrigger>
         </Tip>
-        <MenuContent side="top" align="start" className="w-[280px]" finalFocus={props.focusTarget}>
+        <MenuContent
+          side="top"
+          align="start"
+          style={{ width: Math.max(260, props.width - 16) }}
+          finalFocus={props.focusTarget}
+        >
           <Suspense fallback={<MenuPending />}>
             <DeferredAddMenu.Component
               files={{ reason: props.reasons.files }}
@@ -64,6 +76,8 @@ export function AddButton(props: {
               onMention={props.onMention}
               onCommand={props.onCommand}
               onRecent={props.onRecent}
+              thread={props.thread}
+              onInsert={props.onInsert}
             />
           </Suspense>
         </MenuContent>

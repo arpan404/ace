@@ -258,7 +258,7 @@ const screens: Record<string, Setup> = {
   "composer-add-menu": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
     await page.getByRole("button", { name: "Add files and context" }).click();
-    await page.getByRole("menuitem", { name: "Files" }).waitFor();
+    await page.getByRole("menuitem", { name: /^Files/ }).waitFor();
   },
   "composer-approvals": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
