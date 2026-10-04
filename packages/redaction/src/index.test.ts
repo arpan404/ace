@@ -1,7 +1,41 @@
 import { expect, it } from "vitest";
 import { createRedactor } from "@ace/redaction";
+import { createStreamingRedactor, createTextRedactor } from "@ace/redaction";
 const redact = createRedactor({ home: "/private/home" });
 const payload = { refreshToken: ["OPAQUE_REFRESH"], password: { value: "OPAQUE_PASSWORD" } };
+it("literal redaction survives environment key collisions and JSON escaping without losing secrets", () => {
+  const context = { env: { USER: "text", CURSOR_API_KEY: "opaque-key-value" } };
+  expect(createTextRedactor(context)("reason: opaque-key-value")).toBe("reason: <ENV>");
+  const escaped = "\0".repeat(65536);
+  expect(createTextRedactor(context)(escaped)).toBe(escaped);
+  expect([...createStreamingRedactor(context)("[partial text opaque-key-value")].join("")).toBe(
+    "[partial <ENV> <ENV>",
+  );
+});
+
+it("file URL home roots stay private while nested operational paths survive", () => {
+  const redactUrls = createRedactor({});
+  const result = JSON.parse(
+    redactUrls(
+      JSON.stringify({
+        mac: "file:///Users/alice/private.txt",
+        linux: "file://localhost/home/alice/private.txt",
+        encoded: "file:///Users/alice%20smith/private.txt",
+        absolute: "/home/alice/private.txt",
+        operational: "file:///tmp/home/worktrees/project",
+        nested: "/tmp/home/worktrees/project",
+      }),
+    ),
+  );
+  expect(result).toEqual({
+    mac: "file://<HOME>/private.txt",
+    linux: "file://localhost<HOME>/private.txt",
+    encoded: "file://<HOME>/private.txt",
+    absolute: "<HOME>/private.txt",
+    operational: "file:///tmp/home/worktrees/project",
+    nested: "/tmp/home/worktrees/project",
+  });
+});
 it("literal stream fragments keep JSON delimiters while secrets and structural payloads stay scrubbed", () => {
   const redactText = createRedactor({ env: { CURSOR_API_KEY: "sentinel-credential" } }, ["text"]);
   for (const text of ["{", "[", '"', '{"visible":', "sentinel-credential"]) {

@@ -13,15 +13,24 @@ import {
   type RuntimeSdkBoundary,
 } from "./index.ts";
 
-test.each(["setup", "send", "stream", "result"] as const)(
-  "Cursor %s failures publish the actual bounded, redacted SDK reason",
-  async (stage) => {
+test.each(
+  (["setup", "send", "stream", "result"] as const).flatMap((stage) =>
+    (["ordinary", "environment collision", "escaped budget"] as const).map((scenario) => ({
+      stage,
+      scenario,
+    })),
+  ),
+)(
+  "Cursor $stage failures retain terminal reporting with $scenario prose",
+  async ({ stage, scenario }) => {
     const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-error-")));
     const secret = "sk-" + "a".repeat(40);
     const reason =
       "Local SDK sandboxing was requested, but sandboxing is not supported in this environment.";
     const failure = new sdk.ConfigurationError(
-      `${reason} Authorization: Bearer ${secret} ${"x".repeat(12000)}`,
+      scenario === "escaped budget"
+        ? "\0".repeat(65536)
+        : `${reason} Authorization: Bearer ${secret} ${"x".repeat(12000)}`,
     );
     const threadId = ThreadId.parse("error-test");
     const state = createThreadState({ threadId, config: { provider: "cursor", silenceMs: 90000 } });
@@ -82,6 +91,7 @@ test.each(["setup", "send", "stream", "result"] as const)(
         if (envelope.kind === "error" || envelope.kind === "result") terminal.resolve();
       },
       () => home,
+      scenario === "environment collision" ? { USER: "text" } : {},
     );
     try {
       const opening = host.open({
@@ -107,7 +117,8 @@ test.each(["setup", "send", "stream", "result"] as const)(
         .filter((item) => item.type === "notice" && item.level === "error")
         .map((item) => (item.type === "notice" ? item.text : ""))
         .join("\n");
-      expect(visible).toContain(reason);
+      expect(visible).toContain(scenario === "escaped budget" ? "no printable details" : reason);
+      expect(visible).not.toContain("\0");
       expect(visible).not.toContain(secret);
       expect(visible.length).toBeLessThan(5000);
       expect(visible).not.toContain("did not establish a run identity");
@@ -127,7 +138,7 @@ test.each(["raw", "wire"] as const)(
       entry,
       transport === "wire"
         ? `import {hostWire} from ${JSON.stringify(new URL("./host-wire.ts", import.meta.url).href)};
-hostWire(async method=>{if(method==='open')return {agentId:'native'}; if(method==='send'){process.stderr.write('SDK helper dependency missing; opaque-');process.stderr.write('sdk-secret\\n');setTimeout(()=>process.exit(1),20);return new Promise(()=>{});}},()=>process.exit(0));`
+hostWire(async method=>{if(method==='open')return {agentId:'native'}; if(method==='send'){process.stderr.write('SDK helper dependency missing; opaque-');process.stderr.write('sdk-secret\\n',()=>process.stderr.end(()=>process.exit(1)));return new Promise(()=>{});}},()=>process.exit(0));`
         : `import {createInterface} from 'node:readline';
 createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='open') console.log(JSON.stringify({id:m.id,result:{agentId:'native'}}));else if(m.method==='send'){process.stderr.write('SDK helper dependency missing; Bearer sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n',()=>process.exit(1));}});`,
     );
@@ -141,7 +152,11 @@ createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line)
           onFrame() {},
           onExit: exited.resolve,
         },
-        { instanceId: "private", env: { HOME: home, CURSOR_API_KEY: "opaque-sdk-secret" }, entry },
+        {
+          instanceId: "private",
+          env: { HOME: home, USER: "text", CURSOR_API_KEY: "opaque-sdk-secret" },
+          entry,
+        },
       );
       await expect(session.send([{ type: "text", text: "synthetic" }], "queue")).rejects.toThrow(
         "SDK helper dependency missing",

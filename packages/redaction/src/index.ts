@@ -89,14 +89,8 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Build a redactor that scrubs one JSONL line of personal or secret data. */
-export function createRedactor(
-  ctx: RedactionContext,
-  literalTextFields: readonly string[] = [],
-): (line: string) => string {
-  // Streaming text is literal, even when a delta happens to start with a JSON delimiter.
-  // Structural fields keep recursive decoding; literal fields still receive lexical scrubbing.
-  const literalFields = new Set(literalTextFields);
+/** Lexical rules are shared by literal diagnostics and recursive JSON redaction. */
+function createLexicalRedactor(ctx: RedactionContext): (text: string) => string {
   const home = ctx.home ?? "";
   const username = ctx.username ?? "";
   const host = ctx.host ?? "";
@@ -124,12 +118,13 @@ export function createRedactor(
     ),
   ].toSorted((a, b) => b.length - a.length);
   const environment = values.length ? new RegExp(values.map(escape).join("|"), "g") : undefined;
-  const scrub = (line: string): string => {
+  return (line: string): string => {
     if (shortValues.has(line)) return "<ENV>";
     let out = line;
     for (const [pattern, replacement] of paths) {
       if (pattern.source !== "(?:)") out = out.replace(pattern, replacement);
     }
+    out = out.replace(/(\bfile:\/\/[^/\s"'<>]*)\/(?:Users|home)\/[^/\s"'<>?#]+/gi, "$1<HOME>");
     out = out.replace(/(?<![\w./\\-])\/(?:Users|home)\/[^/\s"'<>]+/g, "<HOME>");
     out = out.replace(/\/(?:private\/)?var\/folders\/[^/\s"'<>]+\/[^/\s"'<>]+\/[TC]\//g, "<TEMP>/");
     if (environment) out = out.replace(environment, "<ENV>");
@@ -145,6 +140,34 @@ export function createRedactor(
     if (user) out = out.replace(user, "<USER>");
     return out;
   };
+}
+
+/** Literal prose has no JSON transport keys to collide with environment values. */
+export function createTextRedactor(ctx: RedactionContext): (text: string) => string {
+  const omitted = "<REDACTION FAILED: TEXT OMITTED>";
+  try {
+    const scrub = createLexicalRedactor(ctx);
+    return (text) => {
+      if (text.length > 65536) return "<OVERSIZED REDACTED>";
+      try {
+        const safe = scrub(text);
+        return safe.length > 262144 ? "<OVERSIZED REDACTED>" : safe;
+      } catch {
+        return omitted;
+      }
+    };
+  } catch {
+    return () => omitted;
+  }
+}
+
+/** Build a redactor that scrubs one JSONL line of personal or secret data. */
+export function createRedactor(
+  ctx: RedactionContext,
+  literalTextFields: readonly string[] = [],
+): (line: string) => string {
+  const literalFields = new Set(literalTextFields);
+  const scrub = createLexicalRedactor(ctx);
   const identity =
     /^(installationId|deviceId|accountId|account_uuid|userId|user_id|organizationId|organization_uuid|orgId)$/;
   return (line) => {
@@ -205,7 +228,7 @@ export function createRedactor(
 
 /** Preserve token matches across bounded chunks without rescanning the remaining text. */
 export function createStreamingRedactor(ctx: RedactionContext): (text: string) => Iterable<string> {
-  const scrub = createRedactor(ctx, ["text"]);
+  const scrub = createTextRedactor(ctx);
   const values = sensitiveEnvironment(ctx).map(([, value]) => value);
   const sources = [
     ...SECRETS,
@@ -247,15 +270,7 @@ export function createStreamingRedactor(ctx: RedactionContext): (text: string) =
         low = text.charCodeAt(end);
       if (end < text.length && high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff)
         end++;
-      const parsed: unknown = JSON.parse(scrub(JSON.stringify({ text: text.slice(start, end) })));
-      if (
-        !parsed ||
-        typeof parsed !== "object" ||
-        !("text" in parsed) ||
-        typeof parsed.text !== "string"
-      )
-        throw new Error("SDK text redaction failed");
-      yield parsed.text;
+      yield scrub(text.slice(start, end));
       start = end;
     }
   };

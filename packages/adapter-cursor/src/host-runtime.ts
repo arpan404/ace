@@ -42,16 +42,19 @@ export class HostRuntime {
   private journal: CursorJournal | undefined;
   private store: LocalAgentStore | undefined;
   private storeOwner: Awaited<ReturnType<typeof openSdkCheckpointStore>> | undefined;
-  private scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } }, ["text"]);
+  private scrub = createRedactor({});
   private sdk: RuntimeSdkBoundary;
+  private env: NodeJS.ProcessEnv;
   private emit: (frame: CursorEnvelope) => Promise<void>;
   private home: () => string;
   constructor(
     sdk: RuntimeSdkBoundary,
     emit: (frame: CursorEnvelope) => Promise<void>,
     home = homedir,
+    env: NodeJS.ProcessEnv = process.env,
   ) {
     this.home = home;
+    this.env = env;
     this.sdk = sdk;
     this.emit = emit;
   }
@@ -78,7 +81,7 @@ export class HostRuntime {
             (partKind, part) => this.frame(partKind, part, scope, nativeRun),
             {
               env: {
-                CURSOR_API_KEY: process.env.CURSOR_API_KEY,
+                CURSOR_API_KEY: this.env.CURSOR_API_KEY,
                 ACE_MCP_BEARER: options.mcp?.bearer,
               },
             },
@@ -145,10 +148,10 @@ export class HostRuntime {
       this.options = options;
       this.shellStreams = new ShellStreams(options.limits.maxIdentities);
 
-      if (process.env.CURSOR_API_KEY === "")
+      if (this.env.CURSOR_API_KEY === "")
         throw new Error("Empty Cursor SDK environment authentication override");
       const status = await this.sdk.Cursor.auth.status();
-      if (process.env.CURSOR_API_KEY === undefined && status.status !== "logged-in")
+      if (this.env.CURSOR_API_KEY === undefined && status.status !== "logged-in")
         throw new Error(
           "Cursor SDK requires separate SDK sign-in or launch-environment authentication",
         );
@@ -191,7 +194,7 @@ export class HostRuntime {
       let recoveryBytes = 0;
       this.scrub = createRedactor(
         {
-          env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY, ACE_MCP_BEARER: options.mcp?.bearer },
+          env: { CURSOR_API_KEY: this.env.CURSOR_API_KEY, ACE_MCP_BEARER: options.mcp?.bearer },
         },
         ["text"],
       );
@@ -215,7 +218,7 @@ export class HostRuntime {
             (partKind, part) => this.frame(partKind, part),
             {
               env: {
-                CURSOR_API_KEY: process.env.CURSOR_API_KEY,
+                CURSOR_API_KEY: this.env.CURSOR_API_KEY,
                 ACE_MCP_BEARER: options.mcp?.bearer,
               },
             },
@@ -294,7 +297,7 @@ export class HostRuntime {
     } catch (error) {
       await this.frame("error", {
         code: "setup_failed",
-        message: `${safeCursorErrorMessage(error, process.env)} Preserve the checkpoint and inspect this thread before retrying.`,
+        message: `${safeCursorErrorMessage(error, this.env)} Preserve the checkpoint and inspect this thread before retrying.`,
       });
       throw new Error("SDK setup failed", { cause: error });
     } finally {
@@ -340,7 +343,7 @@ export class HostRuntime {
       await this.frame("error", {
         ...failure,
         code: failure.code ?? "send_uncertain",
-        message: `${safeCursorErrorMessage(error, process.env)} Delivery may be uncertain; inspect this thread before submitting again.`,
+        message: `${safeCursorErrorMessage(error, this.env)} Delivery may be uncertain; inspect this thread before submitting again.`,
       });
       throw new Error("SDK send uncertain", { cause: error });
     } finally {
@@ -358,7 +361,7 @@ export class HostRuntime {
               ...result,
               error: {
                 ...result.error,
-                message: safeCursorErrorMessage(result.error.message, process.env),
+                message: safeCursorErrorMessage(result.error.message, this.env),
               },
             }
           : result,
@@ -377,7 +380,7 @@ export class HostRuntime {
         {
           ...failure,
           code: failure.code ?? "runtime_failed",
-          message: `${safeCursorErrorMessage(error, process.env)} Checkpoint retained; cancellation and child work may be uncertain.`,
+          message: `${safeCursorErrorMessage(error, this.env)} Checkpoint retained; cancellation and child work may be uncertain.`,
         },
         scope,
         run,
