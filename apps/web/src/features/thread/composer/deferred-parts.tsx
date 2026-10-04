@@ -20,6 +20,11 @@ export const DeferredSuggestionList = deferredComponent(() =>
   import("./suggestion-list.tsx").then((module) => module.SuggestionList),
 );
 
+/** The thread's tokens and cost in the context meter's tooltip, read when the tooltip opens. */
+export const DeferredThreadUsage = deferredComponent(() =>
+  import("./thread-usage.tsx").then((module) => module.ThreadUsage),
+);
+
 export function preloadComposerParts(): Promise<unknown> {
   return Promise.all([
     preloadComposerMenus(),
@@ -29,6 +34,7 @@ export function preloadComposerParts(): Promise<unknown> {
     DeferredQueuedPills.preload(),
     DeferredQueueNotice.preload(),
     DeferredSuggestionList.preload(),
+    DeferredThreadUsage.preload(),
   ]);
 }
 

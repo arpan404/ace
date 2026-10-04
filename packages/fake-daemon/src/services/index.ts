@@ -7,7 +7,7 @@ import type {
   ProviderKind,
   ServerMessage,
 } from "@ace/protocol";
-import { usageReport } from "../catalog/usage.ts";
+import { FakeUsage } from "../catalog/usage.ts";
 import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
 import { accountSummaries } from "./accounts.ts";
 import { commandCatalog, listCommands } from "./commands.ts";
@@ -34,7 +34,10 @@ export interface ServiceHost {
 export class FakeServices {
   accounts: AccountSummary[];
   models: CatalogModel[];
+  providerStatuses: import("@ace/protocol").ProviderStatus[];
   commands: PaletteCommand[];
+  /** Usage over time and Claude's per-session totals; replace its fields to stage a report. */
+  readonly usage: FakeUsage;
   readonly settings: FakeSettings;
   installations: import("@ace/protocol").RegistryInstallation[] = [];
   /**
@@ -49,7 +52,20 @@ export class FakeServices {
     const now = host.clock();
     this.accounts = accountSummaries(now);
     this.models = modelCatalog();
+    this.providerStatuses = (
+      ["claude", "codex", "opencode", "cursor", "pi", "antigravity"] as const
+    ).map((provider) => ({
+      provider,
+      runtime: "cli",
+      installed: this.installed.has(provider),
+      auth: "unknown",
+      loginHint: "Use the CLI login command",
+      checkedAt: now,
+      stale: false,
+      refreshing: false,
+    }));
     this.commands = commandCatalog();
+    this.usage = new FakeUsage(now);
     this.settings = new FakeSettings(
       settingsValues(),
       (threadId) => host.thread(threadId)?.workspaceId,
@@ -120,7 +136,10 @@ export class FakeServices {
           type: "usage.result",
           requestId: message.requestId,
           kind: message.type === "usage.summary" ? "summary" : "series",
-          result: usageReport(message.query),
+          result: this.usage.report(
+            message.query,
+            message.type === "usage.summary" ? "summary" : "series",
+          ),
         };
       case "accounts.migrate":
         return {
@@ -129,7 +148,17 @@ export class FakeServices {
           result: { status: "unsupported", reason: "No native sessions in the fake daemon" },
         };
       case "usage.session_totals":
-        return { type: "usage.session_totals.result", requestId: message.requestId, totals: [] };
+        return {
+          type: "usage.session_totals.result",
+          requestId: message.requestId,
+          totals: this.usage.sessionTotals(message.query),
+        };
+      case "providers.request":
+        return {
+          type: "providers.result",
+          requestId: message.requestId,
+          result: { ok: true, providers: structuredClone(this.providerStatuses) },
+        };
       case "models.list":
         return {
           type: "models.result",

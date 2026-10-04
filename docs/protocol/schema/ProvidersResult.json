@@ -1,0 +1,66 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProvidersResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "providers": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ProviderStatus.json"
+              },
+              "maxItems": 16,
+              "type": "array"
+            }
+          },
+          "required": [
+            "ok",
+            "providers"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "error": {
+              "enum": [
+                "forbidden",
+                "unavailable",
+                "busy"
+              ],
+              "type": "string"
+            },
+            "ok": {
+              "const": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "providers.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}
