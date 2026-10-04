@@ -147,7 +147,7 @@ export class IntentDelivery {
       this.dependencies.repo.syntheticInput(
         actor.id,
         key,
-        queue.continuation,
+        queue.trigger === "restart" ? "continue" : queue.continuation,
         { kind: queue.trigger ?? "restart", commandId: intent.command.id },
         this.dependencies.clock.now(),
       );
@@ -155,7 +155,7 @@ export class IntentDelivery {
         ...this.dependencies.transitions
           .input(actor.id)
           .map((text) => ({ type: "text" as const, text })),
-        { type: "text" as const, text: queue.continuation },
+        { type: "text" as const, text: queue.trigger === "restart" ? "continue" : queue.continuation },
       ];
       this.dependencies.repo.inputs.sending(actor.id, key, input, this.dependencies.repo.requireState(actor.id).config.provider, actor.generation);
       this.dependencies.repo.pending.submit(intent, actor.generation);

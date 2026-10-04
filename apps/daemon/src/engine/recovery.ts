@@ -157,7 +157,7 @@ export class Recovery {
       this.repo.backend(id),
     );
     if (!text) return;
-    this.repo.queue.set(id, { continuation: text, trigger: "restart" }, this.clock.now());
+    this.repo.queue.set(id, { continuation: "continue", trigger: "restart" }, this.clock.now());
     this.sync(id);
   }
   observe(state: ThreadState, facts: Fact[], _events: EventPayload[], at: number): void {
@@ -200,7 +200,7 @@ export class Recovery {
         resetAt: reset,
         continuation:
           queue.continuation ??
-          "ace is resuming after a provider usage limit. Continue the interrupted task from native history.",
+          "continue",
         trigger: queue.trigger ?? "limit_resume",
         resumeAt: timed && reset !== null && reset > at ? reset : null,
         timerAction:
