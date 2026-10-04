@@ -32,3 +32,27 @@ test("Claude summary titles remain available for daemon title adoption", () => {
     title: "Fix redirect handling",
   });
 });
+
+test("one user envelope with several text parts remains one canonical message", () => {
+  const h = harness();
+  h.send({
+    type: "user",
+    uuid: "input-uuid",
+    message: {
+      content: [
+        { type: "text", text: "Context for the provider" },
+        { type: "text", text: "My question" },
+      ],
+    },
+  });
+  expect(h.items()).toHaveLength(1);
+  expect(h.items()[0]).toMatchObject({
+    type: "message",
+    role: "user",
+    nativeId: "input-uuid",
+    parts: [
+      { type: "text", text: "Context for the provider" },
+      { type: "text", text: "My question" },
+    ],
+  });
+});

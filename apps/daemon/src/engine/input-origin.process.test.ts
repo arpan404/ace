@@ -114,3 +114,61 @@ test("delegation results retain their origin when a provider echoes them as user
     ),
   ).toHaveLength(2);
 });
+
+test("provider-expanded context echoes preserve the person's original message parts", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            start,
+            {
+              type: "item.upsert",
+              agent: "root",
+              item: "expanded-echo",
+              draft: {
+                type: "message",
+                role: "user",
+                parts: [{ type: "text", text: "Attached context\nOriginal question" }],
+                complete: true,
+              },
+            },
+            end,
+          ),
+        ],
+      },
+    ],
+    frames,
+    {
+      prepareInput: async () => ({
+        input: [{ type: "text", text: "Attached context\nOriginal question" }],
+        release() {},
+      }),
+    },
+  );
+  close.push(h.close);
+  const receipt = h.command(
+    {
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      context: { mentions: [{ path: "notes.md" }], attachments: [] },
+      input: [{ type: "text", text: "Original question" }],
+    },
+    "device",
+    "expanded",
+  );
+  if (!receipt.threadId) throw new Error("Missing thread");
+  await h.engine.flush();
+  const items = Object.values(h.store.snapshotThread(receipt.threadId).items).filter(
+    (item) => item.type === "message",
+  );
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({
+    id: "input:expanded",
+    parts: [{ type: "text", text: "Original question" }],
+    nativeId: "expanded-echo",
+  });
+});
