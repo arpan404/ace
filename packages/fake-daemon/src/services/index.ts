@@ -37,6 +37,11 @@ export class FakeServices {
   commands: PaletteCommand[];
   readonly settings: FakeSettings;
   installations: import("@ace/protocol").RegistryInstallation[] = [];
+  /**
+   * The provider CLIs discovery found on this machine. Like the daemon, only these have an
+   * adapter, so `permissions.capabilities` for any other answers `provider_unavailable`.
+   */
+  installed = new Set<ProviderKind>(["claude", "codex", "opencode", "cursor", "acp"]);
   localCommands = new Set(["fake-acp"]);
   private host: ServiceHost;
   constructor(host: ServiceHost) {
@@ -149,12 +154,19 @@ export class FakeServices {
       case "settings.unsubscribe":
         return this.settings.handle(message, push);
       case "permissions.capabilities":
-        return {
-          type: "permissions.capabilities.result",
-          requestId: message.requestId,
-          ok: true,
-          permissions: structuredClone(fakePermissionCapabilities.permissions),
-        };
+        return this.installed.has(message.provider)
+          ? {
+              type: "permissions.capabilities.result",
+              requestId: message.requestId,
+              ok: true,
+              permissions: structuredClone(fakePermissionCapabilities.permissions),
+            }
+          : {
+              type: "permissions.capabilities.result",
+              requestId: message.requestId,
+              ok: false,
+              error: "provider_unavailable",
+            };
       case "search.query":
         return {
           type: "search.results",

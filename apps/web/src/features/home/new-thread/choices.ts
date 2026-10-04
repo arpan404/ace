@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import type { AccountOption, ModelOption } from "@ace/ui-core";
+import type { ProviderKind } from "@ace/protocol";
 
 export interface NewThreadOptions {
   models: readonly ModelOption[];
@@ -34,12 +35,24 @@ export interface Resolved {
   effort: string | undefined;
 }
 
-/** The chosen model if it still exists, else the default; an account for that provider. */
-export function resolve(options: NewThreadOptions | undefined, choices: Choices): Resolved {
+/**
+ * The model on `provider` (the one picked on this visit, else the starting provider): the
+ * remembered model when it is one of that provider's, else the provider's default; any default
+ * when the provider has no models. Then an account for the model's provider.
+ */
+export function resolve(
+  options: NewThreadOptions | undefined,
+  choices: Choices,
+  provider: ProviderKind | undefined,
+): Resolved {
+  const models = options?.models ?? [];
+  const own = provider === undefined ? models : models.filter((m) => m.provider === provider);
   const model =
-    options?.models.find((m) => m.id === choices.model) ??
-    options?.models.find((m) => m.isDefault) ??
-    options?.models[0];
+    own.find((m) => m.id === choices.model) ??
+    own.find((m) => m.isDefault) ??
+    own[0] ??
+    models.find((m) => m.isDefault) ??
+    models[0];
   const forProvider = options?.accounts.filter((a) => a.provider === model?.provider) ?? [];
   const account =
     forProvider.find((a) => a.id === choices.account) ??

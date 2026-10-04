@@ -116,6 +116,7 @@ test("New thread lists each model once and defaults to an account with headroom"
       ),
       account("claude-personal", "claude", { five_hour: { usedPercent: 38, resetsAt: 1 } }),
     ],
+    [{ provider: "claude", state: "ready" }],
   );
 
   expect(options.models.map((m) => m.id)).toEqual(["opus"]);
@@ -125,14 +126,24 @@ test("New thread lists each model once and defaults to an account with headroom"
   ]);
 });
 
-test("with no model catalog, New thread still offers each provider on its default model", () => {
-  const options = newThreadOptions([], []);
+test("New thread offers only installed CLIs, each on its default model when the catalog has none", () => {
+  const options = newThreadOptions(
+    [model("claude", "claude-personal", "opus", true), model("cursor", "cursor", "auto", true)],
+    [],
+    [
+      { provider: "claude", state: "not_installed" },
+      { provider: "codex", state: "ready" },
+      { provider: "opencode", state: "signed_out" },
+      { provider: "cursor", state: "ready" },
+      { provider: "antigravity", state: "not_installed" },
+    ],
+  );
 
-  expect(options.models.map((m) => [m.label, m.fromCatalog])).toContainEqual([
-    "Claude Code default",
-    false,
+  expect(options.models.map((m) => [m.label, m.fromCatalog])).toEqual([
+    ["auto", true],
+    ["Codex default", false],
+    ["OpenCode default", false],
   ]);
-  expect(options.models.filter((m) => m.isDefault)).toHaveLength(1);
 });
 
 test("a model choice reads as provider, lower-case account tag and model", () => {

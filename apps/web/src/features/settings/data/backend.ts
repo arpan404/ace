@@ -1,9 +1,10 @@
 import type { CatalogModel, Device, DeviceScope, ProviderKind } from "@ace/protocol";
+import type { ProviderState } from "@ace/ui-core";
 
 /**
  * Everything Settings reads from or writes to the daemon, behind one narrow seam
  * (daemon-backend.ts): values over `settings.subscribe` / `settings.set`, providers from
- * `accounts.list`, models from `models.list` / `models.refresh`, paired devices, pairing and
+ * discovery and `accounts.list`, models from `models.list` / `models.refresh`, paired devices, pairing and
  * revoking from the daemon's access routes (access-source.ts). Machines and ACP agents added by
  * command wait for daemon support (access-gaps.ts).
  */
@@ -40,14 +41,16 @@ export interface ProviderAccount {
   availability: "available" | "near_limit" | "exhausted" | "logged_out" | "unknown";
 }
 
-/** A provider CLI as discovery found it. `version: null` means it is not installed. */
+/** A provider CLI as discovery found it, with the person's ace accounts on it. */
 export interface ProviderInstall {
   kind: ProviderKind;
   /** The ACP registry agent behind an `acp` install, which picks its mark. */
   acpAgentId?: string | undefined;
   name: string;
   binary: string;
-  version: string | null;
+  state: ProviderState;
+  /** The CLI version an account reported; undefined when none did. */
+  version: string | undefined;
   via?: string;
   accounts: ProviderAccount[];
 }

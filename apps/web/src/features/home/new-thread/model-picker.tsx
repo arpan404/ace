@@ -34,19 +34,22 @@ export function ModelPicker(props: {
   const accounts = props.options?.accounts.filter((a) => a.provider === model?.provider) ?? [];
   const tag = account ? accountTag(account.label) : undefined;
   const compact = useComposerCompact();
+  // Discovery found no provider CLI: say so rather than waiting for models that won't come.
+  const none = props.options !== undefined && props.options.models.length === 0;
+  const empty = none ? "No provider CLI installed" : "Loading models…";
   return (
     <Menu>
       <Tip
         label={
           model
             ? [providerNames[model.provider], model.label, tag, effort].filter(Boolean).join(" · ")
-            : "Loading models"
+            : empty
         }
         side="top"
       >
         <MenuTrigger
           disabled={!model}
-          aria-label={`Model: ${model?.label ?? "loading"}${tag ? `, account ${tag}` : ""}${effort ? `, ${effort} effort` : ""}`}
+          aria-label={`Model: ${model?.label ?? (none ? "no provider installed" : "loading")}${tag ? `, account ${tag}` : ""}${effort ? `, ${effort} effort` : ""}`}
           className={cn(composerChip, "max-w-64")}
         >
           {model ? (
@@ -58,7 +61,7 @@ export function ModelPicker(props: {
               compact={compact}
             />
           ) : (
-            <span className="truncate">Loading models…</span>
+            <span className="truncate">{empty}</span>
           )}
         </MenuTrigger>
       </Tip>

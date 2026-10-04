@@ -9,6 +9,8 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
+import { useLayout } from "@/lib/layout.tsx";
+import { rememberProvider } from "@/lib/provider-statuses.ts";
 
 export interface CreateRequest {
   project: string;
@@ -50,7 +52,8 @@ export function createPayload(request: CreateRequest): CreatePayload {
 
 /**
  * Send `thread.create` and open the thread the daemon's receipt names. The request is not
- * queued while offline: it fails at once, so the draft stays in the composer.
+ * queued while offline: it fails at once, so the draft stays in the composer. A thread the
+ * daemon started makes its provider the last used one, which the next thread starts on.
  */
 export function useCreateThread(): {
   /** Resolves false when the daemon didn't create the thread. */
@@ -60,6 +63,7 @@ export function useCreateThread(): {
 } {
   const client = useClient();
   const navigate = useNavigate();
+  const { storage } = useLayout();
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -70,6 +74,7 @@ export function useCreateThread(): {
       try {
         const result = await runCommand(client, createPayload(request));
         if (!result.threadId) throw new Error("The daemon didn't say which thread it started.");
+        rememberProvider(storage, request.provider);
         void navigate({ to: "/t/$threadId", params: { threadId: result.threadId } });
         return true;
       } catch (failure) {
@@ -79,7 +84,7 @@ export function useCreateThread(): {
         setSending(false);
       }
     },
-    [client, navigate],
+    [client, navigate, storage],
   );
   return { create, sending, error };
 }
