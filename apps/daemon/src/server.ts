@@ -404,6 +404,7 @@ export async function startServer(options: ServerOptions): Promise<{
               send,
               250,
               runtime.delay,
+              message.paced,
             );
             subscriptions.set(message.subscriptionId, stop);
           } catch {
@@ -432,6 +433,33 @@ export async function startServer(options: ServerOptions): Promise<{
             offset: message.offset,
             ...options.store.readOutput(message.streamId, message.offset, message.limit),
           });
+          break;
+        }
+        case "entities.page": {
+          if (
+            !authorize("read") ||
+            !options.store.getThread(message.threadId) ||
+            options.canReadThread?.(device, message.threadId) === false
+          ) {
+            fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });
+            break;
+          }
+          try {
+            send({
+              type: "entities.page",
+              requestId: message.requestId,
+              page: options.store.readEntityPage(
+                message.threadId,
+                message.collection,
+                message.before,
+                message.limit,
+              ),
+            });
+          } catch {
+            fail("page_failed", "Could not read entity page", false, {
+              requestId: message.requestId,
+            });
+          }
           break;
         }
         case "items.page": {

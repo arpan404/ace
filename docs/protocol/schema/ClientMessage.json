@@ -912,6 +912,9 @@
           "minimum": 0,
           "type": "integer"
         },
+        "paced": {
+          "type": "boolean"
+        },
         "scope": {
           "$ref": "https://ace.local/protocol/v1/SubscriptionScope.json"
         },
@@ -1026,6 +1029,43 @@
         "type",
         "requestId",
         "threadId",
+        "before",
+        "limit"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "before": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "collection": {
+          "$ref": "https://ace.local/protocol/v1/EntityCollection.json"
+        },
+        "limit": {
+          "exclusiveMinimum": 0,
+          "maximum": 200,
+          "type": "integer"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "entities.page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "threadId",
+        "collection",
         "before",
         "limit"
       ],

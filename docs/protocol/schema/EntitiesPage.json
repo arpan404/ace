@@ -1,0 +1,178 @@
+{
+  "$id": "https://ace.local/protocol/v1/EntitiesPage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "collection": {
+          "const": "agents",
+          "type": "string"
+        },
+        "entitiesBefore": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "entries": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/Agent.json"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "seq",
+        "threadId",
+        "entitiesBefore",
+        "collection",
+        "entries"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "collection": {
+          "const": "runs",
+          "type": "string"
+        },
+        "entitiesBefore": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "entries": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/Run.json"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "seq",
+        "threadId",
+        "entitiesBefore",
+        "collection",
+        "entries"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "collection": {
+          "const": "interactions",
+          "type": "string"
+        },
+        "entitiesBefore": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "entries": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/Interaction.json"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "seq",
+        "threadId",
+        "entitiesBefore",
+        "collection",
+        "entries"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "collection": {
+          "const": "backgroundTasks",
+          "type": "string"
+        },
+        "entitiesBefore": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "entries": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/BackgroundTask.json"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "seq",
+        "threadId",
+        "entitiesBefore",
+        "collection",
+        "entries"
+      ],
+      "type": "object"
+    }
+  ]
+}

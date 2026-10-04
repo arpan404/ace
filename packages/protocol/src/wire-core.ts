@@ -41,7 +41,11 @@ const records = <T>(schema: z.ZodType<T>) =>
       "x-ace-constraint":
         "Plain JSON object with every own opaque ID, including __proto__, validated and retained.",
     });
+export const EntityCollection = z.enum(["agents", "runs", "interactions", "backgroundTasks"]);
+export type EntityCollection = z.infer<typeof EntityCollection>;
 export const ThreadView = z.object({
+  /** Exclusive entity creation cursors. Active entities remain in every snapshot. */
+  entitiesBefore: z.partialRecord(EntityCollection, seq.positive().nullable()).optional(),
   queue: QueueState.optional(),
   contextMeters: records(ContextMeter).optional(),
   kind: z.literal("thread"),
@@ -95,6 +99,18 @@ export const ItemsPage = z.object({
   itemsBefore: seq.positive().nullable(),
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
+export const EntitiesPage = z
+  .discriminatedUnion("collection", [
+    z.object({ collection: z.literal("agents"), entries: z.array(Agent).max(200) }),
+    z.object({ collection: z.literal("runs"), entries: z.array(Run).max(200) }),
+    z.object({ collection: z.literal("interactions"), entries: z.array(Interaction).max(200) }),
+    z.object({
+      collection: z.literal("backgroundTasks"),
+      entries: z.array(BackgroundTask).max(200),
+    }),
+  ])
+  .and(z.object({ seq, threadId: ThreadId, entitiesBefore: seq.positive().nullable() }));
+export type EntitiesPage = z.infer<typeof EntitiesPage>;
 export const CommandResult = z.object({
   threadId: ThreadId.optional(),
   commandId: CommandId,
@@ -132,6 +148,8 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     type: z.literal("subscribe"),
     subscriptionId: z.string().min(1),
     scope: SubscriptionScope,
+    /** Request an explicit completion acknowledgement for paced resubscription. */
+    paced: z.boolean().optional(),
     afterSeq: seq.optional(),
   }),
   z.object({ type: z.literal("unsubscribe"), subscriptionId: z.string().min(1) }),
@@ -150,11 +168,29 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     before: seq.positive(),
     limit: seq.positive().max(200),
   }),
+  z.object({
+    type: z.literal("entities.page"),
+    requestId: z.string().min(1),
+    threadId: ThreadId,
+    collection: EntityCollection,
+    before: seq.positive(),
+    limit: seq.positive().max(200),
+  }),
   z.object({ type: z.literal("ping") }),
 ]);
 export type CoreClientMessage = z.infer<typeof CoreClientMessage>;
 /** The core server messages, in the order the full `ServerMessage` lists them. */
 export const CoreServerMessage = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("subscription.ready"), subscriptionId: z.string().min(1), seq }),
+  z.object({
+    type: z.literal("snapshot.part"),
+    subscriptionId: z.string().min(1),
+    seq,
+    index: seq,
+    done: z.boolean(),
+    data: z.string().max(131072),
+  }),
+  z.object({ type: z.literal("entities.page"), requestId: z.string().min(1), page: EntitiesPage }),
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,
@@ -235,17 +271,21 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
   "command",
   "output.read",
   "items.page",
+  "entities.page",
   "ping",
 ]);
 /** `type` of every core server message. */
 export const coreServerTypes: ReadonlySet<string> = new Set([
   "welcome",
   "snapshot",
+  "snapshot.part",
+  "subscription.ready",
   "events",
   "progress",
   "commandResult",
   "error",
   "output.data",
   "items.page",
+  "entities.page",
   "pong",
 ]);

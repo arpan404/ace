@@ -1,3 +1,4 @@
+import { EntityWindow } from "./entity-window.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import {
   QueueState,
@@ -57,6 +58,7 @@ function target(p: EventPayload): { collection: Collection; id: string } | undef
 /** Materialized work entities, independent of transcript history. Canonical folding owns updates. */
 export class StatusStore {
   private readonly db: DatabaseSync;
+  private window: EntityWindow | undefined;
   private interactionRead: StatementSync | undefined;
   private statement: (sql: string) => StatementSync;
   constructor(
@@ -70,6 +72,7 @@ export class StatusStore {
     this.db.exec("CREATE INDEX IF NOT EXISTS view_entity_ids ON view_entities(collection, id)");
     if (this.statement("SELECT id FROM status_migration WHERE id = 1").get()) {
       this.migrateUsage(getThread);
+      this.window = new EntityWindow(this.db, this.statement);
       return;
     }
     this.db.exec("BEGIN IMMEDIATE");
@@ -97,6 +100,7 @@ export class StatusStore {
       throw error;
     }
     this.migrateUsage(getThread);
+    this.window = new EntityWindow(this.db, this.statement);
   }
   private migrateUsage(getThread: (id: ThreadId) => Thread | undefined): void {
     if (this.statement("SELECT id FROM status_migration WHERE id=2").get()) return;
@@ -148,10 +152,12 @@ export class StatusStore {
       });
     applyEvent(view, event);
     const value = Object.hasOwn(view[collection] ?? {}, id) ? view[collection]?.[id] : undefined;
-    if (value !== undefined)
+    if (value !== undefined) {
       this.statement(
         "INSERT INTO view_entities VALUES (?, ?, ?, ?) ON CONFLICT(thread_id, collection, id) DO UPDATE SET value = excluded.value",
       ).run(thread.id, collection, id, JSON.stringify(value));
+      this.window?.capture(thread.id, collection, id, event.seq);
+    }
   }
   interaction(id: string): Interaction | undefined {
     this.interactionRead ??= this.statement(
@@ -159,6 +165,19 @@ export class StatusStore {
     );
     const row = this.interactionRead.get(id);
     return row ? Interaction.parse(JSON.parse(String(row.value))) : undefined;
+  }
+  page(
+    thread: Thread,
+    collection: import("@ace/protocol").EntityCollection,
+    before: number,
+    limit: number,
+  ) {
+    if (!this.window) throw new Error("Entity windows not initialized");
+    return this.window.page(thread, collection, before, limit);
+  }
+  retainItemAgents(view: ThreadView): void {
+    this.window?.retainAgents(view);
+    rebuildAgentChildren(view);
   }
   snapshot(thread: Thread, seq: number): ThreadView {
     const input: Record<Collection, Record<string, unknown>> = {
@@ -170,29 +189,27 @@ export class StatusStore {
       contextMeters: {},
       usageSnapshots: {},
     };
-    for (const row of this.statement(
-      "SELECT collection, id, value FROM view_entities WHERE thread_id = ?",
-    ).all(thread.id)) {
-      const collection = String(row.collection);
-      if (collection === "queue") continue;
-      if (
-        collection !== "agents" &&
-        collection !== "runs" &&
-        collection !== "interactions" &&
-        collection !== "backgroundTasks" &&
-        collection !== "usage" &&
-        collection !== "contextMeters" &&
-        collection !== "usageSnapshots"
-      )
-        throw new Error("Unknown entity collection");
-      Object.defineProperty(input[collection], String(row.id), {
-        value: JSON.parse(String(row.value)),
-        enumerable: true,
-        configurable: true,
-        writable: true,
-      });
-    }
     const view = ThreadView.parse({ ...createThreadView(thread, seq), ...input });
+    this.window?.fill(view);
+    const agentIds = Object.keys(view.agents);
+    for (const collection of ["usage", "contextMeters"] as const) {
+      for (const id of agentIds) {
+        const row = this.statement(
+          "SELECT value FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
+        ).get(thread.id, collection, id);
+        if (row)
+          Object.assign(
+            input[collection],
+            Object.fromEntries([[id, JSON.parse(String(row.value))]]),
+          );
+      }
+      Object.assign(view, { [collection]: ThreadView.shape[collection].parse(input[collection]) });
+    }
+    for (const row of this.statement(
+      "SELECT id,value FROM view_entities WHERE thread_id=? AND collection='usageSnapshots' ORDER BY rowid DESC LIMIT 200",
+    ).iterate(thread.id))
+      input.usageSnapshots[String(row.id)] = JSON.parse(String(row.value));
+    view.usageSnapshots = ThreadView.shape.usageSnapshots.parse(input.usageSnapshots);
     const queue = this.statement(
       "SELECT value FROM view_entities WHERE thread_id=? AND collection='queue'",
     ).get(thread.id);
