@@ -4,7 +4,7 @@ Date: 2026-10-03. Status: accepted for implementation.
 
 ## Number allocation
 
-Checked origin/main and open PRs #82 and #83 before writing this record. Main ends at 0057 and has two records numbered 0056. PR #82 reserves 0058 and 0059; PR #83 now reserves 0060. This record moves from 0060 to the next free number, 0061. The separate renumbering change moved in-app devices to [ADR 0063](0063-in-app-devices.md).
+Checked origin/main and open PRs #82 and #83 before writing this record. Main ends at 0057 and has two records numbered 0056. PR #82 reserves 0058 and 0059; PR #83 now reserves 0060. This record moves from 0060 to the next free number, 0061. The separate renumbering change moved in-app devices to [ADR 0064](0064-in-app-devices.md).
 
 ## Decision
 

@@ -54,9 +54,10 @@ was neither hand-edited nor regenerated, and no provider CLI received a prompt.
 The passive capture regression guards future recordings. An approved new capture
 or a recovered raw original is required to replace the existing redacted fixture.
 
-`origin/main` was already an ancestor when the requested fetch and merge ran.
-Open PRs were checked with `gh pr list`; ADR 0063 remains the in-app devices ADR
-and all remaining 0056 references describe web performance. No comment titled
+`origin/main` was already an ancestor at the first fetch and merge. A second
+fetch found #90 merged; its long-thread APIs were merged without conflicts. Open
+PR files revealed #93 also reserving 0063, so in-app devices moved to 0064 and all
+references were updated. Remaining 0056 references describe web performance. No comment titled
 “Integration rehearsal: findings for this PR” was present when comments were read.
 
 ## UI follow-up for the Claude web agent

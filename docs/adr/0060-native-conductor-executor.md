@@ -6,7 +6,7 @@ Date: 2026-10-03. Status: accepted for implementation.
 
 Deck's durable plan, card and lane reducer exists, but the real daemon has no executor. Its fake client can display runs that the real daemon cannot start. ADR 0004 makes the engine the owner of whole-tree status; ADR 0052 explicitly provides a delegation service for Deck. A second provider runner would lose approvals, queue admission, account selection and recovery.
 
-Rechecked origin/main and open PRs #82 and #83 on 2026-10-03. Main contains two 0056 records and 0057. PR #82 reserves 0058 and 0059, so this ADR uses the next free number, 0060. Its initial 0058 allocation preceded PR #82 and is superseded. The duplicate was later resolved by moving in-app devices to [ADR 0063](0063-in-app-devices.md).
+Rechecked origin/main and open PRs #82 and #83 on 2026-10-03. Main contains two 0056 records and 0057. PR #82 reserves 0058 and 0059, so this ADR uses the next free number, 0060. Its initial 0058 allocation preceded PR #82 and is superseded. The duplicate was later resolved by moving in-app devices to [ADR 0064](0064-in-app-devices.md).
 
 ## Decision
 

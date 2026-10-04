@@ -1,9 +1,10 @@
-# 0063: Daemon-owned in-app devices
+# 0064: Daemon-owned in-app devices
 
 Date: 2026-10-02. Status: accepted.
 
-Renumbered on 2026-10-03 after checking origin/main and open PRs. PR #90
-reserves 0062, so in-app devices uses 0063 and web performance keeps 0056.
+Renumbered after checking origin/main and open PRs on 2026-10-03. The initial
+0063 allocation avoided #90’s 0062. A subsequent check found #90 merged and
+#93 reserving 0063, so in-app devices now uses 0064. Web performance keeps 0056.
 
 ace owns iOS Simulators and Android emulators through a single `@ace/devices`
 service. A device is an installed simulator or AVD, with a stable platform-prefixed
