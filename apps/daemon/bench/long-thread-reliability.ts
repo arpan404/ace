@@ -110,7 +110,13 @@ async function measureWrites(append: string) {
   store.statement("PRAGMA wal_autocheckpoint=256").get();
   return { walBytesPerDelta, rowsPerDelta };
 }
-const samples: { rss: number; heap: number }[] = [];
+const samples: {
+  rss: number;
+  heap: number;
+  heapTotal: number;
+  external: number;
+  arrayBuffers: number;
+}[] = [];
 let baseline: { rss: number; heap: number } | undefined;
 try {
   const command = Command.parse({
@@ -227,6 +233,16 @@ try {
   const pendingSnapshotBytes = Buffer.byteLength(JSON.stringify(pendingView));
   assert(pendingSnapshotBytes < 4 * 1024 * 1024, "pending snapshot grew with history");
   const pendingWrites = await measureWrites("p");
+  console.error(
+    "write budgets",
+    JSON.stringify({
+      snapshotBytes,
+      pendingSnapshotBytes,
+      walBytesPerDelta,
+      rowsPerDelta,
+      pendingWrites,
+    }),
+  );
   const started = performance.now();
   let expectedStream = 4 + provider.burstDeltas + 2000;
   let cycle = 0;
@@ -281,12 +297,21 @@ try {
       expectedStream * 2,
       "lost or duplicated deltas",
     );
-    globalThis.gc?.();
+    // Await collection and compaction before measuring retained memory, not V8's
+    // variable reservation for the preceding burst. Reachable native buffers remain charged.
+    await globalThis.gc?.({ type: "major", execution: "async", flavor: "last-resort" });
     const memory = process.memoryUsage();
-    const retained = { rss: memory.rss, heap: memory.heapUsed };
+    const retained = {
+      rss: memory.rss,
+      heap: memory.heapUsed,
+      heapTotal: memory.heapTotal,
+      external: memory.external,
+      arrayBuffers: memory.arrayBuffers,
+    };
     samples.push(retained);
     // Keep the original warm baseline after the telemetry ring rotates over days.
     if (cycle === 1) baseline = retained;
+    console.error("retained memory", JSON.stringify({ cycle, baseline, ...retained }));
     if (baseline) {
       assert(retained.heap - baseline.heap < 16 * 1024 * 1024, "retained heap grew");
       assert(retained.rss - baseline.rss < 64 * 1024 * 1024, "retained RSS grew");
