@@ -14,6 +14,7 @@ export const keymap = {
   rightPanel: { keys: "shift+mod+b", label: "Show or hide the side panel" },
   bottomPanel: { keys: "mod+j", label: "Show or hide the bottom panel" },
   fullView: { keys: "shift+mod+f", label: "Full view" },
+  summary: { keys: "alt+mod+o", label: "Pin or unpin the thread summary" },
   newTab: { keys: "alt+mod+t", label: "New tab" },
   closeTab: { keys: "alt+mod+w", label: "Close tab" },
   nextTab: { keys: "shift+mod+]", label: "Next tab" },

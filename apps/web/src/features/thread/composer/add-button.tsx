@@ -1,5 +1,5 @@
 import { PlusIcon } from "@phosphor-icons/react";
-import { Suspense, useRef, useState, type RefObject } from "react";
+import { Suspense, useImperativeHandle, useRef, useState, type Ref, type RefObject } from "react";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { iconControl } from "./composer-styles.ts";
@@ -27,17 +27,25 @@ export function AddButton(props: {
   onMention(): void;
   onCommand(): void;
   onRecent(path: string): void;
+  /** Opens the menu from elsewhere (the summary's Sources +). */
+  handle?: Ref<{ open(): void }> | undefined;
 }) {
   const files = useRef<HTMLInputElement>(null);
   const images = useRef<HTMLInputElement>(null);
   const [recent, setRecent] = useState<readonly string[]>([]);
+  const [open, setOpen] = useState(false);
+  const change = (next: boolean) => {
+    if (next) setRecent(props.recent());
+    setOpen(next);
+  };
+  useImperativeHandle(props.handle, () => ({ open: () => change(true) }));
   const picked = (event: { target: HTMLInputElement }) => {
     if (event.target.files?.length) props.onFiles(event.target.files);
     event.target.value = "";
   };
   return (
     <>
-      <Menu onOpenChange={(open) => open && setRecent(props.recent())}>
+      <Menu open={open} onOpenChange={change}>
         <Tip label="Add files and context" side="top">
           <MenuTrigger aria-label="Add files and context" className={iconControl}>
             <PlusIcon aria-hidden size={16} />

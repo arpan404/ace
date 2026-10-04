@@ -21,7 +21,7 @@ import {
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { AddressBar } from "../browser/address-bar.tsx";
-import { useTurns } from "../changes/use-turns.ts";
+import { useTurns } from "@/lib/diffs/use-turns.ts";
 import type { PreviewSource } from "../sources.ts";
 import { useLoadedServices, usePanelServices } from "../services.ts";
 import { WithServices } from "../with-services.tsx";

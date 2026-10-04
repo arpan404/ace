@@ -9,9 +9,8 @@ import {
 } from "@phosphor-icons/react";
 import type { ThreadReader } from "@ace/client";
 import { useClient, useThread } from "@ace/client-react";
-import { nextGitStep, prBlocker, type GitStep } from "@ace/ui-core";
+import { nextGitStep, type GitStep } from "@ace/ui-core";
 import { useMutation } from "@tanstack/react-query";
-import { lazy, Suspense, useState } from "react";
 import { launchEditor } from "@/boot/editor-launch.ts";
 import { EditorIcon } from "@/components/editor-icon.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
@@ -22,14 +21,10 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useEditors } from "@/lib/editors.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
 import { useTaskKeys } from "../lib/use-task-keys.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Script } from "../sources/workspace-source.ts";
-import type { GitDialogKind } from "./git-dialog.tsx";
-
-// Loaded on first open: the thread route's first paint doesn't need the commit or PR form.
-const GitDialog = lazy(() => import("./git-dialog.tsx").then((m) => ({ default: m.GitDialog })));
+import { useGitFlow } from "./use-git-flow.tsx";
 
 const failure = (error: unknown) =>
   error instanceof Error ? error.message : "The daemon couldn't do that.";
@@ -179,7 +174,7 @@ export function OpenButton(props: { thread: ThreadRef }) {
   );
 }
 
-function openUrl(url: string) {
+export function openUrl(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
@@ -228,11 +223,9 @@ function GitPlaceholder(props: { actionLabel: string }) {
 
 /** Commit → Push → Create PR → PR #N: the next step towards a merged change. */
 export function GitButton(props: { thread: ThreadRef }) {
-  const { checkout, state } = useCheckoutState(props.thread);
-  const { change, pending } = useGitActions(props.thread, checkout);
-  const [dialog, setDialog] = useState<GitDialogKind>();
-  const toast = useToast();
+  const git = useGitFlow(props.thread);
   const workspace = useWorkspaceActions(props.thread.id);
+  const { checkout, state } = git;
   if (!checkout)
     return (
       <GitPlaceholder
@@ -246,30 +239,7 @@ export function GitButton(props: { thread: ThreadRef }) {
       />
     );
   const step = nextGitStep(checkout);
-  const blocked = prBlocker(checkout);
-  const submit = async (next: GitChange) => {
-    const number = await change(next);
-    toast.add({
-      title:
-        next.kind === "commit"
-          ? next.push
-            ? "Committed and pushed"
-            : "Committed"
-          : next.kind === "push"
-            ? "Pushed"
-            : `${next.draft ? "Draft pull request" : "Pull request"} #${number ?? ""} opened`,
-    });
-  };
-  const push = () =>
-    void submit({ kind: "push" }).catch((error: unknown) =>
-      toast.add({ title: "Couldn't push", description: failure(error) }),
-    );
   const pr = checkout.pr;
-  const draftBlocked =
-    blocked ??
-    (pr?.state === "open" || pr?.state === "draft"
-      ? `PR #${pr.number} is already open`
-      : undefined);
   const actionLabel =
     step.kind === "pr"
       ? `Open PR #${step.pr.number}${step.pr.ci && ci[step.pr.ci] ? ` · ${ci[step.pr.ci]}` : ""}`
@@ -283,43 +253,43 @@ export function GitButton(props: { thread: ThreadRef }) {
         label={stepLabel(step)}
         actionLabel={actionLabel}
         menuLabel="Git actions"
-        disabled={pending}
+        disabled={git.pending}
         actionDisabled={step.kind === "create-pr" && !!step.blocked}
         onAction={() => {
           if (step.kind === "pr") {
             if (step.pr.url) openUrl(step.pr.url);
-          } else if (step.kind === "push") push();
-          else if (step.kind === "commit") setDialog("commit");
-          else if (!step.blocked) setDialog("pr");
+          } else if (step.kind === "push") git.push();
+          else if (step.kind === "commit") git.open("commit");
+          else if (!step.blocked) git.open("pr");
         }}
         menu={
           <>
             <MenuItem
               icon={<GitCommitIcon aria-hidden size={16} />}
               disabled={checkout.changed === 0}
-              onClick={() => setDialog("commit")}
+              onClick={() => git.open("commit")}
             >
               Commit…
             </MenuItem>
             <MenuItem
               icon={<PaperPlaneTiltIcon aria-hidden size={16} />}
               disabled={checkout.changed === 0}
-              onClick={() => setDialog("commit-push")}
+              onClick={() => git.open("commit-push")}
             >
               Commit &amp; push…
             </MenuItem>
             <MenuItem
               icon={<UploadSimpleIcon aria-hidden size={16} />}
               disabled={!checkout.branch}
-              onClick={push}
+              onClick={git.push}
             >
               Push
             </MenuItem>
             <MenuItem
               icon={<GitPullRequestIcon aria-hidden size={16} />}
-              disabled={!!draftBlocked}
-              reason={draftBlocked}
-              onClick={() => setDialog("draft-pr")}
+              disabled={!!git.draftBlocked}
+              reason={git.draftBlocked}
+              onClick={() => git.open("draft-pr")}
             >
               Create draft PR…
             </MenuItem>
@@ -344,18 +314,7 @@ export function GitButton(props: { thread: ThreadRef }) {
           </>
         }
       />
-      {dialog && (
-        <Suspense fallback={null}>
-          <GitDialog
-            kind={dialog}
-            title={props.thread.title}
-            checkout={checkout}
-            pending={pending}
-            onSubmit={submit}
-            onClose={() => setDialog(undefined)}
-          />
-        </Suspense>
-      )}
+      {git.dialog}
     </>
   );
 }

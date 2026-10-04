@@ -198,9 +198,9 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
   await beat(1000);
 
   // The pinned summary: changes, subagents and sources at a glance.
-  await page.getByRole("button", { name: "Show thread summary" }).click();
+  await page.getByRole("button", { name: "Pin thread summary" }).click();
   await beat(1200);
-  await page.getByRole("button", { name: "Hide thread summary" }).first().click();
+  await page.getByRole("button", { name: "Unpin thread summary" }).first().click();
   await beat(500);
 
   // The side panel and its launcher.

@@ -2,11 +2,13 @@ import type { Mention } from "@ace/protocol";
 import {
   Suspense,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -21,6 +23,12 @@ import { DeferredSuggestionList } from "./deferred-parts.tsx";
 import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
 import { useDraftPersistence } from "./use-draft-persistence.ts";
+
+/** What other parts of the thread screen may ask of its composer. */
+export interface ComposerHandle {
+  /** Open the + menu (files, images, a mention, a page) over the composer. */
+  openAdd(): void;
+}
 
 export interface Draft {
   text: string;
@@ -41,7 +49,10 @@ const terseWidth = 640;
  * a leading `/` completes commands, and paste or drop attach files. The unsent draft is kept per
  * `draftKey` across navigation and reloads, and cleared once the daemon has the message.
  */
-export function Composer(props: {
+export function Composer({
+  ref,
+  ...props
+}: {
   thread: ThreadRef;
   /** Where this device keeps the unsent draft; without one it lives only while mounted. */
   draftKey?: string | undefined;
@@ -61,6 +72,7 @@ export function Composer(props: {
   imagesUnavailable?: string | undefined;
   placeholder?: string | undefined;
   autoFocus?: boolean | undefined;
+  ref?: Ref<ComposerHandle> | undefined;
 }) {
   const { storage } = useLayout();
   const [restored] = useState(() =>
@@ -78,6 +90,8 @@ export function Composer(props: {
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const listId = useId();
+  const addMenu = useRef<{ open(): void }>(null);
+  useImperativeHandle(ref, () => ({ openAdd: () => addMenu.current?.open() }));
   const attachments = useAttachments(
     props.thread,
     props.keepsAttachments ? restored?.attachments : undefined,
@@ -269,6 +283,7 @@ export function Composer(props: {
           className="mb-1 flex h-10 items-center gap-2 px-2"
         >
           <AddButton
+            handle={addMenu}
             reasons={{
               files: unscoped,
               images: unscoped ?? props.imagesUnavailable,

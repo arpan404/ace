@@ -209,11 +209,17 @@ const screens: Record<string, Setup> = {
   },
   "thread-summary": async (page) => {
     await openThread("/t/thread-dedupe")(page);
-    await page.getByRole("button", { name: "Show thread summary" }).click();
+    await page.getByRole("button", { name: "Pin thread summary" }).click();
     await page
       .getByRole("complementary", { name: "Thread summary" })
-      .getByRole("button", { name: /^Agents/ })
+      .getByRole("button", { name: "Open reconnect-audit" })
       .waitFor();
+  },
+  // The summary's project and git menu.
+  "thread-summary-menu": async (page) => {
+    await screens["thread-summary"]?.(page);
+    await page.getByRole("button", { name: "Project and git actions" }).click();
+    await page.getByRole("menu").waitFor();
   },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   // Nothing to preview yet: open a browser, or preview a dev server by its port.

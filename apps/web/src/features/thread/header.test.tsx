@@ -392,23 +392,3 @@ test("snoozing from the ⋯ menu snoozes it on the daemon and confirms until whe
     view?.kind === "threads" && view.threads["thread-replay-cursor"]?.snoozedUntil,
   ).toBeGreaterThan(Date.now());
 });
-
-test("the summary pins the thread at a glance over the conversation, per thread, and opens each part's tool", async () => {
-  await openThread("checkout");
-  await userEvent.click(screen.getByRole("button", { name: "Show thread summary" }));
-  const card = await screen.findByRole("complementary", { name: "Thread summary" });
-  const agents = within(card).getByRole("button", { name: /^Agents/ });
-  await waitFor(() => expect(agents.textContent).toMatch(/\d+ (working|done|waiting)/));
-  expect(within(card).getByRole("button", { name: /^Background/ }).textContent).toMatch(
-    /running|Nothing running/,
-  );
-
-  // Pinned, it stays while a tool opens from it.
-  await userEvent.click(agents);
-  const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();
-  expect(screen.getByRole("complementary", { name: "Thread summary" })).toBeTruthy();
-
-  await userEvent.click(screen.getByRole("button", { name: "Hide thread summary", pressed: true }));
-  expect(screen.queryByRole("complementary", { name: "Thread summary" })).toBeNull();
-});

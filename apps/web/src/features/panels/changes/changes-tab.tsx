@@ -31,7 +31,7 @@ import { FileTree } from "./file-tree.tsx";
 import { CommentComposer, DraftCard } from "./line-comment.tsx";
 import { ReviewBar } from "./review-bar.tsx";
 import { setViewed } from "./review-store.ts";
-import { useTurns } from "./use-turns.ts";
+import { useTurns } from "@/lib/diffs/use-turns.ts";
 import { WorkingTree } from "./working-tree.tsx";
 
 /** Past this many rows across the files shown, only the files near the viewport mount. */

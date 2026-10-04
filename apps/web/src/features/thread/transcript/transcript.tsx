@@ -3,7 +3,7 @@ import { ArrowDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { RefObject } from "react";
+import type { CSSProperties, RefObject } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -36,6 +36,11 @@ const gap: Record<Block["kind"], string> = {
  * Blocks that arrive while the thread is open rise in; streaming text grows in place and the
  * follow is instant, so the column never jitters.
  */
+const viewportStyle = {
+  paddingRight: "var(--summary-inset, 0px)",
+  "--scroll-fade-reveal": "2px",
+} as CSSProperties;
+
 export function Transcript(props: { threadId: string }) {
   const blocks = useBlocks(props.threadId);
   const order = useItemOrder(props.threadId) ?? none;
@@ -96,6 +101,9 @@ export function Transcript(props: { threadId: string }) {
         data-virtual-viewport=""
         // A classic scrollbar reserves the same room on both edges, so the column stays centred
         // on the composer's axis; `useGutter` gives the composer the same inset.
+        // The top fade reaches its full 24px within 2px of scrolling, so nothing reads as cut
+        // under the header; a pinned summary beside the text keeps it clear (`--summary-inset`).
+        style={viewportStyle}
         className="scroll-fade-t min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-fade-t-6 [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
         onScroll={(event) => {
           const el = event.currentTarget;
