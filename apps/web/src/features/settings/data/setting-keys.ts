@@ -1,4 +1,4 @@
-import { LimitPolicy, ProviderKind, type SettingsKey } from "@ace/protocol";
+import { LimitPolicy, type SettingsKey } from "@ace/protocol";
 import { z } from "zod";
 
 /** A daemon setting the UI edits: its key, how to read it, and what it is when unset. */
@@ -27,10 +27,10 @@ export type LimitPolicy = z.infer<typeof LimitPolicy>;
 /**
  * Every daemon setting the app edits, by its key in the protocol's SettingsValues. Only keys
  * something acts on belong here: the login item and this computer's notifications are the
- * desktop app's own (`useDesktopPreferences`).
+ * desktop app's own (`useDesktopPreferences`). The default provider isn't one: it has no value
+ * of its own until the person picks one (`useStartingProvider`), so Reset can't write it back.
  */
 export const settingKeys = {
-  defaultProvider: setting("providers.default", ProviderKind, "claude"),
   worktree: setting("threads.useWorktree", z.boolean(), true),
   autoSettle: setting("threads.autoSettleAfter", AutoSettle, "2d"),
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),

@@ -17,6 +17,8 @@ export interface BrowserView {
   owner?: string;
   url: string;
   closed: boolean;
+  /** Where the page runs: the desktop app's embedded view, or the daemon's headless Chromium. */
+  backend?: "embedded" | "headless";
 }
 export interface ScreenFrame {
   sequence: number;
@@ -97,8 +99,9 @@ export class FakeBrowser {
   servers(threadId: string): readonly PreviewServer[] {
     return this.entries.get(threadId)?.servers ?? [];
   }
-  async takeover(threadId: string): Promise<void> {
-    this.control(threadId, "human");
+  /** A person takes control through their client's connection (`owner`). */
+  async takeover(threadId: string, owner = "fake-connection"): Promise<void> {
+    this.control(threadId, "human", owner);
   }
   async handback(threadId: string): Promise<void> {
     this.control(threadId, "agent");
@@ -169,10 +172,19 @@ export class FakeBrowser {
     return parsed.href;
   }
   /** Scripting: an agent opens the browser on a page and starts typing into it. */
-  drive(threadId: string, options: { url: string; typed?: string }): void {
+  drive(
+    threadId: string,
+    options: { url: string; typed?: string; backend?: "embedded" | "headless" },
+  ): void {
     const entry = this.entry(threadId);
     if (!entry.view || entry.view.closed) entry.generation++;
-    entry.view = { threadId, controller: "agent", url: options.url, closed: false };
+    entry.view = {
+      threadId,
+      controller: "agent",
+      url: options.url,
+      closed: false,
+      ...(options.backend ? { backend: options.backend } : {}),
+    };
     entry.page = options.url === "about:blank" ? "site" : "pair";
     this.paint(entry, options.typed ?? "");
   }
@@ -199,10 +211,11 @@ export class FakeBrowser {
     if (entry) entry.servers = entry.servers.filter((server) => server.port !== port);
     this.changed();
   }
-  private control(threadId: string, controller: "agent" | "human"): void {
+  private control(threadId: string, controller: "agent" | "human", owner?: string): void {
     const entry = this.entries.get(threadId);
     if (!entry?.view || entry.view.closed) throw new Error("no_browser");
-    entry.view = { ...entry.view, controller };
+    const { owner: _previous, ...view } = entry.view;
+    entry.view = { ...view, controller, ...(owner ? { owner } : {}) };
     this.changed();
   }
   private paint(entry: Entry, typed: string): void {

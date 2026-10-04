@@ -43,6 +43,8 @@ function usePage(source: PreviewSource, threadId: string) {
     frame: source.frame(threadId),
     servers: source.servers(threadId),
     download: source.download(),
+    /** The connection through which this client holds the page, while it does. */
+    heldAs: source.heldAs(threadId),
   };
 }
 

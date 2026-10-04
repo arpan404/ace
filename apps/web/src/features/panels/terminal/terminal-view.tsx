@@ -16,6 +16,7 @@ import type { Row, Style } from "./screen.ts";
 import type { TerminalSessions } from "./sessions.ts";
 import { terminalText, type TerminalSurface } from "./surface.ts";
 import { canUseXterm, XtermView } from "./xterm-view.tsx";
+import { terminalFont } from "./fonts.ts";
 
 const keys: Record<string, string> = {
   Enter: "\r",
@@ -123,6 +124,11 @@ export function ScreenRows(props: {
   const virtual = useRef<VirtualRowsHandle>(null);
   const stick = useRef(true);
   const { rows, mark } = props;
+  // The resolved monospace stack plus the symbol faces, read once from the font-mono class.
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (element) element.style.fontFamily = terminalFont(element);
+  }, []);
   useLayoutEffect(() => {
     const element = box.current;
     // Scroll this box only (never its ancestors), once per redraw.

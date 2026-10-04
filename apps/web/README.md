@@ -184,8 +184,11 @@ Browser (`features/panels/browser`): one tab per page over the thread's single l
 browser service keeps one session per thread). Each tab keeps its address and history in its
 data; the tab that last navigated shows the page live (`loading.ts` `pageOwners`), others offer to
 load their own address there. Navigating takes the control lease (the daemon refuses a person's
-commands without it). Back and Forward re-open the tab's earlier addresses: the relay has no
-history or stop commands. Preview is only a thread's dev servers through the preview gateway.
+commands without it). In the desktop app an `embedded` page is the app's own native view,
+drawn over the tab's page area (`browser/native-view.ts`); it steps aside while anything is
+drawn over it, and the last screencast frame shows meanwhile. A tab whose page isn't open (after
+a restart) offers to open its address again. Back and Forward re-open the tab's earlier
+addresses: the relay has no history or stop commands. Preview is only a thread's dev servers through the preview gateway.
 
 Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌘J bottom panel, ⇧⌘F full view, ⌥⌘T new tab,
 ⌥⌘W close tab, ⇧⌘] and ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,

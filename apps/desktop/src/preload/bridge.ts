@@ -142,6 +142,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       setController: (request: RequestOf<"browser.control">) => call("browser.control", request),
       onController: (listener: (value: EventOf<"browser.controller">) => void) =>
         subscribe("browser.controller", listener),
+      onWantsControl: (listener: (value: EventOf<"browser.wants-control">) => void) =>
+        subscribe("browser.wants-control", listener),
     },
     updates: {
       check: () => call("updates.check"),

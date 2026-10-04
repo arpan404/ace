@@ -1,4 +1,4 @@
-import type { PermissionMode } from "@ace/protocol";
+import type { PermissionMode, ProviderKind } from "@ace/protocol";
 import { permissionModes } from "@ace/client";
 import { useEffect, useMemo, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
@@ -14,6 +14,7 @@ import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useRegisteredProjects } from "@/lib/projects.ts";
+import { useStartingProvider } from "@/lib/provider-statuses.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
@@ -41,8 +42,12 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   const { create, sending, error } = useCreateThread();
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
 
-  const options = useNewThreadOptions();
-  const resolved = resolve(options, choices);
+  // Until the starting provider is known, show models loading rather than a provider to undo.
+  const start = useStartingProvider();
+  const catalog = useNewThreadOptions();
+  const options = start.loaded ? catalog : undefined;
+  const [picked, setPicked] = useState<ProviderKind>();
+  const resolved = resolve(options, choices, picked ?? start.provider);
   const branches = useBranches(project);
   const base = baseChoice && branches.includes(baseChoice) ? baseChoice : branches[0];
   const provider = resolved.model?.provider;
@@ -141,7 +146,10 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                 <ModelPicker
                   options={options}
                   resolved={resolved}
-                  onModel={(model) => choose({ model, account: undefined, effort: undefined })}
+                  onModel={(model) => {
+                    setPicked(options?.models.find((m) => m.id === model)?.provider);
+                    choose({ model, account: undefined, effort: undefined });
+                  }}
                   onAccount={(account) => choose({ account })}
                   onEffort={(effort) => choose({ effort })}
                 />
