@@ -217,3 +217,45 @@ it("an Error name accessor cannot replace its safe own message or escape to the 
   });
   await logger.close();
 });
+
+it("debug levels and nested home/worktrees paths survive redaction while credentials stay hidden", async () => {
+  const directory = await temporary();
+  const logContext = {
+    home: join(directory, "user"),
+    env: { ACE_LOG_LEVEL: "debug", NODE_ENV: "development", CURSOR_API_KEY: "opaque-sdk-secret" },
+  };
+  const sink = await createFileSink({
+    directory,
+    fileBytes: 65536,
+    totalBytes: 131072,
+    context: logContext,
+  });
+  const logger = createLogger({
+    sink,
+    now: () => 1,
+    redact: createRedactor(logContext),
+    level: "debug",
+  });
+  const path = join(directory, "home", "worktrees", "project");
+  try {
+    logger.log(
+      "debug",
+      "development probe",
+      logFields([
+        ["cwd", path],
+        ["personal", join(logContext.home, "private")],
+        ["message", "opaque-sdk-secret"],
+      ]),
+    );
+    await logger.flush();
+    const line = await readFile(join(directory, "ace.jsonl"), "utf8");
+    const record = JSON.parse(line);
+    expect(record.level).toBe("debug");
+    expect(record.message).toBe("development probe");
+    expect(record.data.cwd).toBe(path);
+    expect(record.data.personal).toBe("<HOME>/private");
+    expect(line).not.toContain("opaque-sdk-secret");
+  } finally {
+    await logger.close();
+  }
+});

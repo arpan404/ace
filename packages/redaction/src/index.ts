@@ -50,6 +50,23 @@ export function isSecretKey(key: string): boolean {
   return SECRET_KEY.test(key);
 }
 
+// These values describe runtime operation, not identity or authentication.
+const OPERATIONAL_ENV = new Set([
+  "ACE_LOG_LEVEL",
+  "LOG_LEVEL",
+  "NODE_ENV",
+  "DEBUG",
+  "TERM",
+  "COLORTERM",
+  "NO_COLOR",
+  "FORCE_COLOR",
+]);
+function sensitiveEnvironment(ctx: RedactionContext): Array<[string, string]> {
+  return Object.entries(ctx.env ?? {}).filter(
+    (entry): entry is [string, string] => Boolean(entry[1]) && !OPERATIONAL_ENV.has(entry[0]),
+  );
+}
+
 const EMAIL = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const SECRETS: readonly RegExp[] = [
   /\bAIza[A-Za-z0-9_-]{35}/g,
@@ -95,9 +112,7 @@ export function createRedactor(
   ];
   const user = username.length >= 3 ? new RegExp(`\\b${escape(username)}\\b`, "g") : undefined;
 
-  const environmentValues = Object.entries(ctx.env ?? {}).filter(
-    (entry): entry is [string, string] => Boolean(entry[1]),
-  );
+  const environmentValues = sensitiveEnvironment(ctx);
   const shortValues = new Set(
     environmentValues.map(([, value]) => value).filter((value) => value.length < 4),
   );
@@ -115,7 +130,7 @@ export function createRedactor(
     for (const [pattern, replacement] of paths) {
       if (pattern.source !== "(?:)") out = out.replace(pattern, replacement);
     }
-    out = out.replace(/\/(?:Users|home)\/[^/\s"'<>]+/g, "<HOME>");
+    out = out.replace(/(?<![\w./\\-])\/(?:Users|home)\/[^/\s"'<>]+/g, "<HOME>");
     out = out.replace(/\/(?:private\/)?var\/folders\/[^/\s"'<>]+\/[^/\s"'<>]+\/[TC]\//g, "<TEMP>/");
     if (environment) out = out.replace(environment, "<ENV>");
     out = out.replace(/([#&](?:code|ticket|token)=)[^&#\s]+/gi, "$1<SECRET>");
@@ -191,7 +206,7 @@ export function createRedactor(
 /** Preserve token matches across bounded chunks without rescanning the remaining text. */
 export function createStreamingRedactor(ctx: RedactionContext): (text: string) => Iterable<string> {
   const scrub = createRedactor(ctx, ["text"]);
-  const values = Object.values(ctx.env ?? {}).filter((value): value is string => !!value);
+  const values = sensitiveEnvironment(ctx).map(([, value]) => value);
   const sources = [
     ...SECRETS,
     EMAIL,
