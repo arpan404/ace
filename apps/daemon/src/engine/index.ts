@@ -1,4 +1,6 @@
-import { nameWorktreeBranch } from "./worktree-title.ts";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { nameWorktreeBranch, runWorktreeGit, type WorktreeGit } from "./worktree-title.ts";
 import { CreationAdmissions, type CreationAdmission } from "./creation-admissions.ts";
 import { validateCreation } from "./creation-validation.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
@@ -35,6 +37,7 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  worktreeGit?: WorktreeGit;
   permissionSettings?: PermissionSettings;
   selectInstance?: (
     provider: string,
@@ -104,6 +107,8 @@ export class Engine {
   ) => import("@ace/protocol").CommandResult;
   constructor(store: Store, options: EngineOptions = {}) {
     this.limits = engineLimits(options.limits);
+    const executeGit = promisify(execFile);
+    const worktreeGit = options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, cwd, args));
     this.nextThreadId = options.threadId ?? randomUUID;
     this.repo = new EngineRepository(
       store,
@@ -177,7 +182,7 @@ export class Engine {
       recovery: this.recovery,
       prepareInput: options.prepareInput,
       beforeSend: async (threadId, commandId) => {
-        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now());
+        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now(), worktreeGit);
         await options.beforeSend?.(threadId, commandId);
       },
       transitions: this.transitions,

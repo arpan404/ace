@@ -1,3 +1,4 @@
+import { indexTitleInputs } from "./title-input.ts";
 import { InteractionLedger } from "./interaction-ledger.ts";
 import { shapeProviderError, structuredError } from "./provider-errors.ts";
 import { provisionalTitle } from "./thread-title.ts";
@@ -60,6 +61,7 @@ export class EngineRepository {
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    indexTitleInputs(store);
     store.atomic((db) =>
       db.exec(
         "CREATE INDEX IF NOT EXISTS engine_entity_ids ON engine_state_records(thread_id,section,json_extract(value,'$.id')) WHERE section IN ('interactions','tasks')",

@@ -358,7 +358,7 @@ test("concurrent preview closes share one owner cleanup and release the registra
 test("title regeneration uses the oldest person message beyond the recent item window", async () => {
   const f = await daemonFixture();
   try {
-    for (let i = 0; i < 30; i++)
+    for (let i = 0; i < 130; i++)
       f.controls.delegations.command(`later-${i}`, {
         type: "thread.send",
         threadId: f.caller.threadId,

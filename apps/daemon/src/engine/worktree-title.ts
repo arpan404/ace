@@ -1,10 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { worktreeBranchName } from "@ace/workspace";
 import type { ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
-const execute = promisify(execFile);
-async function git(cwd: string, args: string[]): Promise<string | undefined> {
+export type WorktreeGit = (cwd: string, args: string[]) => Promise<string | undefined>;
+/** Native process execution belongs to the injected engine boundary. */
+export async function runWorktreeGit(execute: (file: string, args: string[], options: { maxBuffer: number }) => Promise<{ stdout: string }>, cwd: string, args: string[]): Promise<string | undefined> {
   try {
     return (await execute("git", ["-C", cwd, ...args], { maxBuffer: 65536 })).stdout.trim();
   } catch (error) {
@@ -19,7 +18,7 @@ async function git(cwd: string, args: string[]): Promise<string | undefined> {
   }
 }
 /** Rename only ace's untouched provisional branch. User commits/upstreams fence this operation. */
-export async function nameWorktreeBranch(store: Store, id: ThreadId, at: number): Promise<void> {
+export async function nameWorktreeBranch(store: Store, id: ThreadId, at: number, git: WorktreeGit): Promise<void> {
   const thread = store.getThread(id);
   const path = thread?.details?.worktree;
   const branch = thread?.details?.branch;

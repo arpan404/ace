@@ -1,3 +1,4 @@
+import { oldestTitleInput } from "../engine/title-input.ts";
 import { provisionalTitle } from "../engine/thread-title.ts";
 import {
   AgentControlOperation,
@@ -203,21 +204,7 @@ export function createAgentControlPort(
           ]);
           return { ok: true };
         case "thread.regenerate_title": {
-          let before = store.headSeq() + 1;
-          let oldest: import("@ace/protocol").ContentPart[] | undefined;
-          for (;;) {
-            const page = store.readItemPage(operation.threadId, before, 100, 256 * 1024);
-            for (const item of page.items.toReversed())
-              if (
-                item.type === "message" &&
-                item.role === "user" &&
-                !item.synthetic &&
-                (!item.origin || item.origin.kind === "person" || item.origin.kind === "queue")
-              )
-                oldest = item.parts;
-            if (page.itemsBefore === null) break;
-            before = page.itemsBefore;
-          }
+          const oldest = oldestTitleInput(store, operation.threadId);
           if (!oldest) return { ok: false, code: "not_ready" };
           store.appendEvents(operation.threadId, [
             { type: "thread.updated", title: provisionalTitle(oldest), titleSource: "agent" },
