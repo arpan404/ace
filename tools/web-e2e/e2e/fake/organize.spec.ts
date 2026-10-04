@@ -46,7 +46,13 @@ test("snoozing from a row shows when the thread wakes", async ({ page }) => {
   await page.getByRole("button", { name: "Snooze Partial refunds double-count tax" }).click();
   await page.getByRole("menuitem", { name: /^Tomorrow/ }).click();
 
-  // A snoozed thread sinks below the working ones until it wakes.
+  // A snoozed thread sinks to the end of its project's folder until it wakes, saying when.
   await expect(page.getByText(/^Snoozed until tomorrow/)).toBeVisible();
-  await expect(row).toHaveCount(0);
+  const threads = page.getByRole("navigation", { name: "Threads" });
+  const snoozed = threads.getByRole("link", { name: /^Partial refunds double-count tax/ });
+  await expect(snoozed).toHaveAccessibleName(/Snoozed until tomorrow/);
+  const vat = threads.getByRole("link", { name: /^VAT rounding/ });
+  await expect
+    .poll(async () => ((await snoozed.boundingBox())?.y ?? 0) > ((await vat.boundingBox())?.y ?? 0))
+    .toBe(true);
 });

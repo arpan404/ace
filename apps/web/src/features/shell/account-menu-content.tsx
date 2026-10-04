@@ -16,13 +16,16 @@ import { connectionLabels } from "./connection-labels.ts";
  * The account menu's contents, loaded after the first paint (`SidebarMenu`): who this is, the
  * daemon connection, usage and connection settings.
  */
-export function AccountMenuContent(props: { compact: boolean }) {
+export function AccountMenuContent(props: { from: "rail" | "header" }) {
   const label = connectionLabels[useConnectionState()];
   const [name] = useProfileName();
   const connection = useDaemonConnection();
   const navigate = useNavigate();
   return (
-    <MenuContent side={props.compact ? "right" : "top"} align={props.compact ? "end" : "start"}>
+    <MenuContent
+      side={props.from === "rail" ? "right" : "bottom"}
+      align={props.from === "rail" ? "end" : "start"}
+    >
       <MenuGroup>
         {name && (
           <div className="truncate px-2.5 pt-1.5 text-ui font-medium text-foreground">{name}</div>

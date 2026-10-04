@@ -1,91 +1,77 @@
-import { ChatsIcon, FolderPlusIcon } from "@phosphor-icons/react";
+import { ChatsIcon } from "@phosphor-icons/react";
 import { useClient, useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { SidebarHeader } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
+import { SidebarHeader } from "@/features/shell/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { activityOf, isUnread } from "@ace/ui-core";
-import { ProjectFilter } from "./project-filter.tsx";
+import { ThreadsActions } from "./folder-rows.tsx";
 import { ThreadList } from "./thread-list.tsx";
-import { useHomeArrangement } from "./use-home-threads.ts";
+import { useHomeList } from "./use-home-threads.ts";
 import { rememberThread } from "./last-thread.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
 /**
- * Home's list in the sidebar: every thread from every project and machine in one list ordered
- * by what is owed, with Settled folded away at the end. New thread and Search sit above it.
+ * Home's list in the sidebar: pinned threads, then a folder per project with its threads in the
+ * order of what is owed, with Settled folded away at the end. New thread sits above it.
  */
 export function HomeSidebar() {
-  const arrangement = useHomeArrangement();
+  const list = useHomeList();
   const { project } = useOrganizerState();
   const organizer = useOrganizer();
   useSeenWhileOpen();
   const loaded = useSidebarLoaded();
-  const empty = !arrangement.active.length && !arrangement.settled.length;
+  const empty = !list.groups.pinned.length && !list.groups.projects.length && !list.settled.length;
   const directory = useProjectDirectory();
   const dialogs = useProjectDialogs();
   const noProjects = directory.loaded && directory.projects.length === 0;
   return (
     <>
-      <SidebarHeader
-        title="Threads"
-        actions={
-          <>
-            <ProjectFilter />
-            <IconButton
-              icon={FolderPlusIcon}
-              label="Add project"
-              shortcut="addProject"
-              onClick={() => dialogs.open({ kind: "add", tab: "open" })}
-              onPointerEnter={dialogs.preload}
-              className="size-[26px] rounded-sm hover:bg-sidebar-accent"
-            />
-          </>
-        }
-      />
+      <SidebarHeader title="Threads" actions={<ThreadsActions />} />
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {!loaded ? (
           <ListSkeleton label="threads" shape="card" className="px-2" />
         ) : empty ? (
-          <EmptyState
-            icon={ChatsIcon}
-            title={project ? `Nothing in ${project}` : "No threads yet"}
-            description={
-              project
-                ? "Threads from this project will land here."
-                : noProjects
-                  ? "Add a project first: a folder agents can work in."
-                  : "Start one with ⌘N. Threads from every project and machine land here."
-            }
-            action={
-              !project && noProjects ? (
-                <button
-                  type="button"
-                  className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
-                  onClick={() => dialogs.open({ kind: "add", tab: "open" })}
-                  onPointerEnter={dialogs.preload}
-                >
-                  Add project…
-                </button>
-              ) : project ? (
-                <button
-                  type="button"
-                  className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
-                  onClick={() => organizer.setProject(null)}
-                >
-                  Show all projects
-                </button>
-              ) : undefined
-            }
-          />
+          <>
+            <EmptyState
+              icon={ChatsIcon}
+              title={project ? `Nothing in ${project}` : "No threads yet"}
+              description={
+                project
+                  ? "Threads from this project will land here."
+                  : noProjects
+                    ? "Add a project first: a folder agents can work in."
+                    : "Start one with ⌘N. Threads from every project and machine land here."
+              }
+              action={
+                !project && noProjects ? (
+                  <button
+                    type="button"
+                    className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
+                    onClick={() => dialogs.open({ kind: "add", tab: "open" })}
+                    onPointerEnter={dialogs.preload}
+                  >
+                    Add project…
+                  </button>
+                ) : project ? (
+                  <button
+                    type="button"
+                    className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
+                    onClick={() => organizer.setProject(null)}
+                  >
+                    Show all projects
+                  </button>
+                ) : undefined
+              }
+            />
+          </>
         ) : (
-          <ThreadList arrangement={arrangement} />
+          <ThreadList list={list} />
         )}
       </nav>
     </>
