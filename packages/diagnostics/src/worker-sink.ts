@@ -1,3 +1,4 @@
+import { isWorkerRuntimeMessage } from "@ace/provider-kit/idle-worker";
 import type { Worker } from "node:worker_threads";
 import { z } from "zod";
 import type { RedactionContext } from "@ace/redaction";
@@ -50,6 +51,7 @@ export async function createFileSink(
   });
   arm();
   worker.on("message", (input: unknown) => {
+    if (isWorkerRuntimeMessage(input)) return;
     cancel?.();
     const parsed = z
       .object({ ready: z.boolean().optional(), ok: z.boolean().optional() })

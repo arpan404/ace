@@ -7,12 +7,17 @@ import { spawnTextSupervised } from "@ace/provider-kit/process";
 import { createPiAdapter, type PiOptions } from "./index.ts";
 import type { Frame } from "@ace/engine-api";
 import { obj, str, list } from "./native.ts";
-import { ThreadId } from "@ace/protocol";
+import { ApprovalTarget, ThreadId } from "@ace/protocol";
 import { sessionFixture } from "./testing/native-history.ts";
 
-test.each([1, 3])(
-  "v%s cold native fork uses saved cwd, preserves conversation context and never delivers input or MCP",
-  async (version) => {
+test.each([
+  { version: 1, mode: "default" },
+  { version: 1, mode: "read-only" },
+  { version: 3, mode: "default" },
+  { version: 3, mode: "read-only" },
+] as const)(
+  "v$version cold native fork preserves context without input or MCP and resumes with $mode permissions",
+  async ({ version, mode }) => {
     const cwd = await mkdtemp(join(tmpdir(), "ace-pi-fork-"));
     const path = join(cwd, "source.jsonl");
     const source = sessionFixture(cwd, "native", version === 1 ? undefined : version);
@@ -32,7 +37,7 @@ test.each([1, 3])(
           spawnTextSupervised({
             ...options,
             command: process.execPath,
-            env: { ...options.env, FAKE_PI_COLD_CWD: cwd },
+            env: { ...options.env, FAKE_PI_COLD_CWD: cwd, FAKE_PI_HOME: cwd },
             args: [
               fileURLToPath(new URL("./testing/fake-pi.ts", import.meta.url)),
               ...(options.args ?? []),
@@ -52,13 +57,22 @@ test.each([1, 3])(
         signal: new AbortController().signal,
       });
       const frames: Frame[] = [];
+      const approval = Promise.withResolvers<Frame>();
+      const completedWrite = Promise.withResolvers<Frame>();
       const reopened = await createPiAdapter(adapterOptions).openSession({
         threadId: ThreadId.parse("cold-fork-reopen"),
         cwd,
         signal: new AbortController().signal,
         resume: { nativeSessionId },
+        ...(mode === "read-only" ? { permissionMode: mode } : {}),
         onFrame(frame) {
           frames.push(frame);
+          const event = obj(frame.data);
+          if (frame.dir !== "recv") return;
+          if (event.type === "extension_ui_request" && event.method === "confirm")
+            approval.resolve(frame);
+          if (event.type === "tool_execution_end" && event.toolName === "write")
+            completedWrite.resolve(frame);
         },
         onExit() {},
       });
@@ -81,7 +95,22 @@ test.each([1, 3])(
           list(obj(obj(toolProof?.data).message).content)
             .map((block) => str(obj(block).text))
             .join(""),
-        ).toBe("write unavailable");
+        ).toBe(mode === "read-only" ? "write unavailable" : "write available");
+        const written = join(cwd, "approved.txt");
+        await reopened.send([{ type: "text", text: "gated-write" }], "queue");
+        if (mode === "default") {
+          const event = obj((await approval.promise).data);
+          expect(ApprovalTarget.parse(JSON.parse(str(event.message)))).toMatchObject({
+            tool: "write",
+            access: "write",
+            paths: [written],
+          });
+          await expect(readFile(written, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+          await reopened.resolve(str(event.id), { kind: "approval", optionId: "allow" });
+        }
+        expect(obj((await completedWrite.promise).data).isError).toBe(mode === "read-only");
+        if (mode === "default") expect(await readFile(written, "utf8")).toBe("approved");
+        else await expect(readFile(written, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       } finally {
         await reopened.close("idle");
       }

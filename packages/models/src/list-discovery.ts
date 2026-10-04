@@ -80,8 +80,30 @@ async function piModels(
   instance: ModelInstance,
   signal: AbortSignal,
 ): Promise<CatalogModel[]> {
-  const payload = await new Promise<unknown>((resolve, reject) => {
-    proc.stdout.on("line", (line: string) => {
+  const payload = await piRequest(proc, "get_available_models", "ace-models");
+  const state = z
+    .object({ model: z.object({ provider: z.string(), id: z.string() }).nullish() })
+    .passthrough()
+    .parse(await piRequest(proc, "get_state", "ace-models-state"));
+  signal.throwIfAborted();
+  return PiReply.parse(payload).data.models.map((native) =>
+    CatalogModel.parse({
+      ...base(instance, `${native.provider}/${native.id}`, native.name, native),
+      isDefault: state.model?.provider === native.provider && state.model.id === native.id,
+      nativeProviderId: native.provider,
+      nativeModelId: native.id,
+      contextWindow: native.contextWindow,
+      inputModalities: native.input ?? [],
+    }),
+  );
+}
+async function piRequest(
+  proc: SupervisedProcess,
+  command: "get_available_models" | "get_state",
+  id: string,
+): Promise<unknown> {
+  return new Promise<unknown>((resolve, reject) => {
+    const receive = (line: string) => {
       let data: unknown;
       try {
         data = JSON.parse(line);
@@ -92,32 +114,29 @@ async function piModels(
       if (
         !envelope.success ||
         envelope.data.type !== "response" ||
-        envelope.data.id !== "ace-models" ||
-        envelope.data.command !== "get_available_models"
+        envelope.data.id !== id ||
+        envelope.data.command !== command
       )
         return;
       try {
-        resolve(PiReply.parse(data));
+        const reply = z
+          .object({ success: z.literal(true), data: z.unknown() })
+          .passthrough()
+          .parse(data);
+        proc.stdout.removeListener("line", receive);
+        resolve(command === "get_available_models" ? PiReply.parse(data) : reply.data);
       } catch (error) {
+        proc.stdout.removeListener("line", receive);
         reject(error);
       }
+    };
+    proc.stdout.on("line", receive);
+    void proc.exited.then(() => {
+      proc.stdout.removeListener("line", receive);
+      reject(new Error("Pi metadata process exited before listing"));
     });
-    void proc.exited.then(() => reject(new Error("Pi metadata process exited before listing")));
-    proc.stdin.write(
-      JSON.stringify({ type: "get_available_models", id: "ace-models" }) + "\n",
-      (error) => {
-        if (error) reject(error);
-      },
-    );
+    proc.stdin.write(JSON.stringify({ type: command, id }) + "\n", (error) => {
+      if (error) reject(error);
+    });
   });
-  signal.throwIfAborted();
-  return PiReply.parse(payload).data.models.map((native) =>
-    CatalogModel.parse({
-      ...base(instance, `${native.provider}/${native.id}`, native.name, native),
-      nativeProviderId: native.provider,
-      nativeModelId: native.id,
-      contextWindow: native.contextWindow,
-      inputModalities: native.input ?? [],
-    }),
-  );
 }

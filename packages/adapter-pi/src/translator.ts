@@ -4,11 +4,13 @@ import type { ThreadId } from "@ace/protocol";
 import { Dialog, Envelope, obj, str, list, isBlockingDialogMethod } from "./native.ts";
 import { dialogRequest } from "./dialogs.ts";
 import { toolDetail, resultSuffix } from "./tools.ts";
+import { piContextSample } from "./context-usage.ts";
 import { messageFacts } from "./messages.ts";
 
 const raw = (data: unknown) => [{ type: str(obj(data).type) || "unknown", data }];
 export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
   const agent = init.rootKey;
+  let diagnostics: import("@ace/protocol").RawPayload[] = [];
   let run = 0,
     active = false,
     message = 0,
@@ -61,6 +63,11 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
     ];
   }
   return {
+    takeDiagnostics() {
+      const pending = diagnostics;
+      diagnostics = [];
+      return pending;
+    },
     nextDeadline() {
       return deadline;
     },
@@ -76,6 +83,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
       return facts;
     },
     translate(frame, now) {
+      diagnostics = [];
       const decoded = Envelope.safeParse(frame.data);
       if (!decoded.success)
         return frame.dir === "stderr"
@@ -252,6 +260,19 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           return facts;
         }
         case "extension_ui_request": {
+          const sample = e.method === "notify" ? piContextSample(e.message) : undefined;
+          if (sample) {
+            diagnostics = raw(e);
+            return [
+              {
+                type: "context.sample",
+                agent,
+                usedTokens: sample.tokens,
+                windowTokens: sample.contextWindow,
+                ...(sample.model ? { model: sample.model } : {}),
+              },
+            ];
+          }
           const p = Dialog.safeParse(e);
           if (!p.success && isBlockingDialogMethod(e.method)) return overflow(frame);
           if (!p.success)
