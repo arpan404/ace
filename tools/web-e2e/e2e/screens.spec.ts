@@ -45,8 +45,15 @@ const bottomTab =
       .getByRole("tab", { name: tab })
       .click();
   };
-/** Home lands on a thread (the last opened, else the top row). */
+/**
+ * Home lands on a thread (the last opened, else the top row). The design's hero was the last
+ * one opened here; the top rows are a running deck's lanes.
+ */
 const home: Setup = async (page) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("ace.home.lastThread"))
+      localStorage.setItem("ace.home.lastThread", JSON.stringify("thread-dedupe"));
+  });
   await page.goto("/");
   await page.waitForURL(/\/t\//);
   await transcript(page);
@@ -514,9 +521,13 @@ const screens: Record<string, Setup> = {
     await page.getByText("Decks unavailable").waitFor();
   }),
   "state-preview-download": staged("daemon.browser.requireDownload(180_000_000);", async (page) => {
-    await rightTab("/t/thread-install-page", "Preview")(page);
+    // The thread's first page downloads the browser: the Browser tab shows its progress.
+    await rightTab("/t/thread-settings", /^Changes/)(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
-    await panel.getByRole("button", { name: "Open a browser" }).click();
+    await panel.getByRole("button", { name: "New tab" }).click();
+    const address = panel.getByRole("combobox", { name: "Address" });
+    await address.fill("localhost:5173");
+    await address.press("Enter");
     await panel.getByRole("heading", { name: "Getting the browser ready" }).waitFor();
   }),
 };
