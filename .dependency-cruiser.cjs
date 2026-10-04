@@ -31,8 +31,10 @@ module.exports = {
       severity: "error",
       comment:
         "Browser bundles cannot reach Node built-ins, including through Node-only package entries such as @ace/settings. Import a portable subpath such as @ace/settings/defaults instead.",
-      from: { path: scope, pathNot: testOnly },
-      to: { path: nodeOnly, reachable: true },
+      // Every followed runtime dependency belongs to a browser bundle, even
+      // when it lives in a workspace package or node_modules.
+      from: { path: ".", pathNot: testOnly },
+      to: { path: nodeOnly, dependencyTypesNot: ["type-only"] },
     },
     {
       name: "no-circular",
@@ -94,7 +96,7 @@ module.exports = {
       severity: "error",
       comment: "@ace/ui-core runs in React Native too: no Node built-ins.",
       from: { path: "^packages/ui-core/", pathNot: testOnly },
-      to: { dependencyTypes: ["core"] },
+      to: { dependencyTypes: ["core"], dependencyTypesNot: ["type-only"] },
     },
     {
       name: "packages-not-apps",
@@ -114,15 +116,16 @@ module.exports = {
   options: {
     parser: "swc",
     // Follow workspace exports so a Node-only package root cannot hide a built-in import.
-    doNotFollow: { path: "node_modules" },
-    exclude: { path: "(^|/)routeTree\\.gen\\.ts$|/node_modules/" },
+    doNotFollow: { dependencyTypes: ["type-only"] },
+    exclude: { path: `(^|/)routeTree\\.gen\\.ts$|${testOnly}` },
     tsPreCompilationDeps: true,
     combinedDependencies: true,
     enhancedResolveOptions: {
       exportsFields: ["exports"],
-      conditionNames: ["import", "default"],
+      aliasFields: ["browser"],
+      conditionNames: ["browser", "import", "default"],
       extensions: [".ts", ".tsx", ".js", ".mjs", ".d.ts"],
-      mainFields: ["module", "main", "types"],
+      mainFields: ["browser", "module", "main", "types"],
     },
     webpackConfig: { fileName: "scripts/depcruise-resolve.cjs" },
     reporterOptions: { text: { highlightFocused: true } },

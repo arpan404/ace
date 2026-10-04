@@ -38,6 +38,27 @@ test("browser dependency checks reject built-ins and Node-only exports while per
       join(directory, "packages/settings/src/defaults.ts"),
       "export const defaults = {};",
     );
+    for (const name of ["node-only", "conditional"]) {
+      await mkdir(join(directory, "node_modules", name), { recursive: true });
+      await writeFile(
+        join(directory, "node_modules", name, "package.json"),
+        JSON.stringify({
+          name,
+          exports:
+            name === "conditional"
+              ? { browser: "./browser.js", default: "./node.js" }
+              : "./node.js",
+        }),
+      );
+      await writeFile(
+        join(directory, "node_modules", name, "node.js"),
+        'export { readFile } from "node:fs/promises";',
+      );
+      await writeFile(
+        join(directory, "node_modules", name, "browser.js"),
+        "export const portable = true;",
+      );
+    }
     const config = join(directory, "deps.cjs");
     await writeFile(
       config,
@@ -51,14 +72,17 @@ test("browser dependency checks reject built-ins and Node-only exports while per
       );
     for (const source of sources) {
       const file = join(directory, source, "src/entry.ts");
-      for (const dependency of ["node:fs", "fs", "@ace/settings"]) {
+      for (const dependency of ["node:fs", "fs", "@ace/settings", "node-only"]) {
         await writeFile(file, `import ${JSON.stringify(dependency)};`);
         await expect(check()).rejects.toMatchObject({
           code: expect.any(Number),
           stdout: expect.stringContaining("browser-no-node"),
         });
       }
-      await writeFile(file, 'import "@ace/settings/defaults";');
+      await writeFile(
+        file,
+        'import "@ace/settings/defaults"; import "conditional"; import type { readFile } from "@ace/settings"; import type { Stats } from "node:fs";',
+      );
       await writeFile(join(directory, source, "src/entry.process.test.ts"), 'import "node:fs";');
       await expect(check()).resolves.toMatchObject({
         stdout: expect.stringContaining("no dependency violations found"),
