@@ -14,15 +14,26 @@
  * - routes/: thin TanStack file routes; may import feature public surfaces only
  */
 const web = "^apps/web/src/";
-/** What this config guards; everything else is resolved but neither followed nor reported. */
+/** Browser source roots. Workspace dependencies are followed to detect Node-only entries. */
 const scope = "^(apps/web/|packages/(client|client-worker|client-react|fake-daemon|ui-core)/)";
 /** Test-only code may reach a daemon or fixtures that production code must not. */
 const testOnly = "(\\.test\\.tsx?|\\.fixture\\.ts|/test-support\\.ts)$";
 const feature = `${web}features/([^/]+)/`;
+const { builtinModules } = require("node:module");
+const builtins = [...new Set(builtinModules.map((name) => name.replace(/^node:/, "")))];
+const nodeOnly = `^(?:node:.*|${builtins.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`;
 
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
+    {
+      name: "browser-no-node",
+      severity: "error",
+      comment:
+        "Browser bundles cannot reach Node built-ins, including through Node-only package entries such as @ace/settings. Import a portable subpath such as @ace/settings/defaults instead.",
+      from: { path: scope, pathNot: testOnly },
+      to: { path: nodeOnly, reachable: true },
+    },
     {
       name: "no-circular",
       severity: "error",
@@ -82,7 +93,7 @@ module.exports = {
       name: "ui-core-no-platform",
       severity: "error",
       comment: "@ace/ui-core runs in React Native too: no Node built-ins.",
-      from: { path: "^packages/ui-core/" },
+      from: { path: "^packages/ui-core/", pathNot: testOnly },
       to: { dependencyTypes: ["core"] },
     },
     {
@@ -102,7 +113,8 @@ module.exports = {
   ],
   options: {
     parser: "swc",
-    doNotFollow: { path: `node_modules|^(?!${scope.slice(1)})` },
+    // Follow workspace exports so a Node-only package root cannot hide a built-in import.
+    doNotFollow: { path: "node_modules" },
     exclude: { path: "(^|/)routeTree\\.gen\\.ts$|/node_modules/" },
     tsPreCompilationDeps: true,
     combinedDependencies: true,
