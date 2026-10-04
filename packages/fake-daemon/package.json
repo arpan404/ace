@@ -18,6 +18,7 @@
     "@ace/search": "workspace:*",
     "@ace/settings": "workspace:*",
     "@ace/usage": "workspace:*",
+    "image-size": "^2.0.2",
     "zod": "^4.6.5"
   }
 }

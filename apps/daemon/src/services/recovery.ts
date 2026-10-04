@@ -200,6 +200,7 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
     try {
       return {
         input: [...p.input, ...canonicalContext(prepared.projection)],
+        attachments: prepared.attachments,
         diagnostics: prepared.diagnostics,
         release: prepared.release,
       };

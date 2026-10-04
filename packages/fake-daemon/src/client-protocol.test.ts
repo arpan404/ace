@@ -959,3 +959,79 @@ test("a queued follow-up is visible before a held queue read returns", async () 
     await f.client.close();
   }
 });
+
+test("fake draft images appear as attachment metadata and serve fixture bytes on their owning connection", async () => {
+  const f = await fixture();
+  try {
+    const bytes = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
+      ),
+      (c) => c.charCodeAt(0),
+    );
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const draft = await f.client.request({
+      type: "context.request",
+      operation: { op: "draft.create", workspaceId: WorkspaceId.parse("workspace") },
+    });
+    if (draft.result.kind !== "draft") throw new Error("Expected draft");
+    const begin = await f.client.request({
+      type: "context.request",
+      operation: {
+        op: "draft.upload.begin",
+        draftId: draft.result.draftId,
+        sha256,
+        bytes: bytes.length,
+        name: "screen.txt",
+      },
+    });
+    if (begin.result.kind !== "upload") throw new Error("Expected upload");
+    await f.client.request({
+      type: "context.request",
+      operation: {
+        op: "upload.chunk",
+        uploadId: begin.result.uploadId,
+        offset: 0,
+        data: btoa(String.fromCharCode(...bytes)),
+      },
+    });
+    await f.client.request({
+      type: "context.request",
+      operation: { op: "upload.commit", uploadId: begin.result.uploadId },
+    });
+    const created = await f.client.command({
+      type: "thread.create",
+      workspaceId: WorkspaceId.parse("workspace"),
+      provider: "codex",
+      input: [{ type: "text", text: "inspect" }],
+      context: { draftId: draft.result.draftId, mentions: [], attachments: [{ sha256 }] },
+    });
+    if (!created.threadId) throw new Error("Expected thread");
+    const page = await f.client.itemsPage({ threadId: created.threadId, limit: 20 });
+    expect(
+      page.items.find((item) => item.type === "message" && item.role === "user"),
+    ).toMatchObject({
+      attachments: [
+        {
+          sha256,
+          name: "screen.txt",
+          mimeType: "image/png",
+          bytes: bytes.length,
+          width: 1,
+          height: 1,
+          thumbnailAvailable: true,
+        },
+      ],
+    });
+    expect(
+      (await f.client.attachmentBytes({ threadId: created.threadId, sha256, variant: "original" }))
+        .bytes,
+    ).toEqual(bytes);
+    expect((await f.client.attachmentBytes({ threadId: created.threadId, sha256 })).bytes).toEqual(
+      bytes,
+    );
+    await expect(f.client.attachmentBytes({ threadId: "other-thread", sha256 })).rejects.toThrow();
+  } finally {
+    await f.client.close();
+  }
+});

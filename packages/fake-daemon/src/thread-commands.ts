@@ -35,6 +35,7 @@ export function admissionFacts(
   host: ThreadHost,
   key: string,
   input: readonly ContentPart[],
+  attachments: import("@ace/protocol").Attachment[] = [],
 ): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined) return [];
@@ -49,6 +50,7 @@ export function admissionFacts(
         complete: true,
         synthetic: false,
         parts: [...input],
+        ...(attachments.length ? { attachments } : {}),
         origin: { kind: "person", commandId: CommandId.parse(key) },
       },
     },
@@ -76,6 +78,7 @@ export function sendFacts(
     input: readonly ContentPart[];
     context?: MessageContext | undefined;
     delivery: "steer" | "queue";
+    attachments?: import("@ace/protocol").Attachment[];
   },
 ): ThreadCommandOutcome {
   const root = host.state.rootKey;
@@ -90,7 +93,7 @@ export function sendFacts(
     return {
       ok: true,
       facts: [
-        ...admissionFacts(host, commandId, payload.input),
+        ...admissionFacts(host, commandId, payload.input, payload.attachments),
         ...startTurn(host, commandId, text),
       ],
     };
@@ -104,7 +107,7 @@ export function sendFacts(
     return {
       ok: true,
       facts: [
-        ...admissionFacts(host, commandId, payload.input),
+        ...admissionFacts(host, commandId, payload.input, payload.attachments),
         ...steerFacts(host, commandId, text),
       ],
     };
@@ -113,6 +116,7 @@ export function sendFacts(
     key: commandId,
     text,
     input: [...payload.input],
+    ...(payload.attachments ? { attachments: payload.attachments } : {}),
     ...(payload.context ? { context: payload.context } : {}),
     delivery: payload.delivery,
     state: "queued",
@@ -123,7 +127,7 @@ export function sendFacts(
   return {
     ok: true,
     facts: [
-      ...admissionFacts(host, commandId, payload.input),
+      ...admissionFacts(host, commandId, payload.input, payload.attachments),
       { type: "queue.changed", count: host.queued.length },
     ],
   };

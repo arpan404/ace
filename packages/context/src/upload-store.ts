@@ -1,3 +1,4 @@
+import { hasThumbnail } from "./attachment-bytes.ts";
 import { beginUpload } from "./upload-admission.ts";
 import { BlobLeases, type BlobLease } from "./blob-leases.ts";
 import { constants } from "node:fs";
@@ -375,7 +376,11 @@ export class UploadStore {
         "hash_mismatch",
         "Upload hash does not match declared sha256",
       );
-      attachment = Attachment.parse({ ...inspected, name: row.name });
+      attachment = Attachment.parse({
+        ...inspected,
+        name: row.name,
+        thumbnailAvailable: hasThumbnail(inspected.mimeType),
+      });
     } catch (error) {
       await this.removeUpload(row);
       if (error instanceof ContextError) throw error;

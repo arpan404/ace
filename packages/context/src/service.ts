@@ -1,3 +1,4 @@
+import { AttachmentBytes, providerImagePath } from "./attachment-bytes.ts";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -32,6 +33,7 @@ export interface ContextServiceOptions extends UploadOptions {
 }
 export class ContextService {
   readonly uploads: UploadStore;
+  private attachmentBytes = new AttachmentBytes();
   private workspaces = new WorkspaceCache();
   private options: ContextServiceOptions;
   private constructor(options: ContextServiceOptions, uploads: UploadStore) {
@@ -71,7 +73,27 @@ export class ContextService {
       requireContext(access(), "forbidden", "Device access revoked");
       const op = request.operation;
       let result: ContextResult["result"];
-      if (op.op === "draft.mention.complete")
+      if (op.op === "attachment.read") {
+        const read = await this.readAttachment(
+          device,
+          op.threadId,
+          op.sha256,
+          op.variant,
+          op.offset,
+          op.limit,
+          access,
+        );
+        result = {
+          kind: "attachment.data",
+          sha256: op.sha256,
+          variant: op.variant,
+          mimeType: read.mimeType,
+          bytes: read.bytes,
+          offset: op.offset,
+          data: read.data.toString("base64"),
+          eof: op.offset + read.data.length === read.bytes,
+        };
+      } else if (op.op === "draft.mention.complete")
         result = {
           kind: "completion",
           paths: (
@@ -146,7 +168,12 @@ export class ContextService {
     thread: string,
     value: MessageContext,
     settings: ProjectionCapabilities,
-  ): Promise<{ projection: Projection; diagnostics: ContextDiagnostic[]; release(): void }> {
+  ): Promise<{
+    projection: Projection;
+    attachments: import("@ace/protocol").Attachment[];
+    diagnostics: ContextDiagnostic[];
+    release(): void;
+  }> {
     const context = MessageContext.parse(value);
     const capabilities = ProjectionCapabilities.parse(settings);
     requireContext(
@@ -182,11 +209,14 @@ export class ContextService {
       let remaining = capabilities.maxInlineBytes;
       for (const blob of lease.blobs) {
         const attachment: PreparedAttachment = {
-          path: blob.path,
+          path: await providerImagePath(blob.path, blob.attachment.mimeType),
           name: blob.attachment.name,
           mimeType: blob.attachment.mimeType,
         };
-        const needsInline = capabilities.provider === "claude" || capabilities.provider === "acp";
+        const needsInline =
+          capabilities.provider === "claude" ||
+          capabilities.provider === "acp" ||
+          capabilities.provider === "opencode";
         if (
           needsInline &&
           blob.attachment.bytes <= remaining &&
@@ -222,12 +252,34 @@ export class ContextService {
       const projection = projectAttachments(prepared, capabilities);
       return {
         projection,
+        attachments: lease.blobs.map((blob) => blob.attachment),
         diagnostics: [...mentions.diagnostics, ...projection.diagnostics],
         release: lease.release,
       };
     } catch (error) {
       lease.release();
       throw error;
+    }
+  }
+  async readAttachment(
+    device: string,
+    thread: string,
+    hash: string,
+    variant: "original" | "thumbnail",
+    offset: number,
+    limit: number,
+    access: () => boolean = () => true,
+  ) {
+    requireContext(access(), "forbidden", "Thread read permission required");
+    const lease = await this.uploads.acquire(device, thread, [hash]);
+    try {
+      const blob = lease.blobs[0];
+      requireContext(blob, "not_found", "Attachment unavailable");
+      const result = await this.attachmentBytes.read(blob, variant, offset, limit);
+      requireContext(access(), "forbidden", "Thread read permission revoked");
+      return result;
+    } finally {
+      lease.release();
     }
   }
   async close(): Promise<void> {

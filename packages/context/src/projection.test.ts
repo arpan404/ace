@@ -47,10 +47,14 @@ describe("native attachment projection", () => {
     const result = projectAttachments([text, image, pdf], capabilities("codex"));
     expect(result.input).toEqual([
       { type: "text", text: text.text, text_elements: [] },
-      { type: "localImage", path: image.path },
-      { type: "text", text: `Attachment: ${pdf.path}`, text_elements: [] },
+      { type: "localImage", path: image.path, mimeType: "image/png" },
+      {
+        type: "text",
+        text: `Provider ${result.provider} cannot take attachment "report.pdf" (application/pdf) within its media capabilities and size limits.`,
+        text_elements: [],
+      },
     ]);
-    expect(result.diagnostics[0]).toMatchObject({ code: "unsupported", path: pdf.path });
+    expect(result.diagnostics[0]).toMatchObject({ code: "unsupported" });
   });
   test("OpenCode receives file parts with MIME and escaped local URLs", () => {
     const result = projectAttachments([text, image, pdf], capabilities("opencode"));
@@ -60,9 +64,14 @@ describe("native attachment projection", () => {
         type: "file",
         mime: "image/png",
         filename: image.name,
-        url: "file:///repo/image%20one.png",
+        url: "data:image/png;base64,YWJj",
       },
-      { type: "file", mime: "application/pdf", filename: pdf.name, url: "file:///repo/report.pdf" },
+      {
+        type: "file",
+        mime: "application/pdf",
+        filename: pdf.name,
+        url: "file:///repo/report.pdf",
+      },
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -89,8 +98,14 @@ describe("native attachment projection", () => {
     });
     expect(result.input).toEqual([
       { type: "text", text: text.text },
-      { type: "text", text: `Attachment: ${image.path}` },
-      { type: "text", text: `Attachment: ${pdf.path}` },
+      {
+        type: "text",
+        text: `Provider acp cannot take attachment "image one.png" (image/png) within its media capabilities and size limits.`,
+      },
+      {
+        type: "text",
+        text: `Provider ${result.provider} cannot take attachment "report.pdf" (application/pdf) within its media capabilities and size limits.`,
+      },
     ]);
     expect(result.diagnostics.map((d) => d.code)).toEqual(["unsupported", "unsupported"]);
   });
@@ -100,7 +115,10 @@ describe("native attachment projection", () => {
       maxInlineBytes: 3,
     });
     expect(result.input[0]).toMatchObject({ type: "image" });
-    expect(result.input[1]).toEqual({ type: "text", text: `Attachment: ${pdf.path}` });
+    expect(result.input[1]).toEqual({
+      type: "text",
+      text: `Provider ${result.provider} cannot take attachment "report.pdf" (application/pdf) within its media capabilities and size limits.`,
+    });
     expect(result.diagnostics).toHaveLength(1);
   });
   test("missing bytes and unsupported MIME types produce path references with diagnostics", () => {
@@ -144,4 +162,16 @@ test("projection rejects noncanonical padding bits before producing provider med
       );
     }
   }
+});
+
+test("OpenCode diagnoses an image above its inline budget without sending an opaque path", () => {
+  const result = projectAttachments([image], { ...capabilities("opencode"), maxInlineBytes: 0 });
+  expect(result.input).toEqual([
+    {
+      type: "text",
+      text: 'Provider opencode cannot take attachment "image one.png" (image/png) within its media capabilities and size limits.',
+    },
+  ]);
+  expect(result.diagnostics).toMatchObject([{ code: "unsupported" }]);
+  expect(JSON.stringify(result)).not.toContain("/repo/");
 });

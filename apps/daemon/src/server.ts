@@ -11,6 +11,7 @@ import { z } from "zod";
 import { defaultTicketLimits } from "./ticket-pool.ts";
 import { createServer as httpServer, type Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
+import { attachmentsHttp } from "./attachments-http.ts";
 import { accessHttp } from "./access-http.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
@@ -107,21 +108,31 @@ export async function startServer(options: ServerOptions): Promise<{
     ready: () => ready,
   };
   const local = httpServer(
-    previewHttp(
-      () => preview,
-      accessHttp({
-        ...access,
-        authenticate: auth.localBearer.bind(auth),
-        maintenance,
-      }),
+    attachmentsHttp(
+      options,
+      auth,
+      false,
+      previewHttp(
+        () => preview,
+        accessHttp({
+          ...access,
+          authenticate: auth.localBearer.bind(auth),
+          maintenance,
+        }),
+      ),
     ),
   );
   const remote = options.remote
     ? httpsServer(
         { ...options.remote.identity, minVersion: "TLSv1.2" },
-        previewHttp(
-          () => preview,
-          accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+        attachmentsHttp(
+          options,
+          auth,
+          true,
+          previewHttp(
+            () => preview,
+            accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+          ),
         ),
       )
     : undefined;

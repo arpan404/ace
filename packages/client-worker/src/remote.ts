@@ -368,6 +368,11 @@ export class RemoteClient implements ClientApi {
     if (this.closed || this.current !== "ready") throw new ClientError("offline");
     this.post({ t: "send", message });
   }
+  attachmentBytes(input: import("@ace/client").AttachmentInput, options: RequestOptions = {}) {
+    return import("@ace/client").then(({ attachmentBytes }) =>
+      attachmentBytes(this, input, options),
+    );
+  }
   async *downloadFile(
     input: FileDownloadInput,
     options: RequestOptions = {},

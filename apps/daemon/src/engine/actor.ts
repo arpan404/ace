@@ -1,3 +1,4 @@
+import { attachmentEcho } from "./attachment-echo.ts";
 import { type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
@@ -41,6 +42,15 @@ export class ThreadActor {
   poisoned = false;
   idleSince: number | undefined;
   idleDue = false;
+  private attachments = new Map<string, import("@ace/protocol").Attachment>();
+  rememberAttachments(attachments: readonly import("@ace/protocol").Attachment[]): void {
+    for (const attachment of attachments) this.attachments.set(attachment.sha256, attachment);
+    while (this.attachments.size > 256) {
+      const oldest = this.attachments.keys().next().value;
+      if (oldest === undefined) break;
+      this.attachments.delete(oldest);
+    }
+  }
   private inputLeases = new Map<number, { release(): void; runId: string | undefined }>();
   private queued = 0;
   private queuedBytes = 0;
@@ -115,6 +125,8 @@ export class ThreadActor {
     this.wake = wake;
     this.report = report;
     this.diagnostic = diagnostic;
+    for (const item of Object.values(repo.requireState(id).items))
+      if (item.type === "message") this.rememberAttachments(item.attachments ?? []);
   }
   retainInput(id: number, release: () => void, runId: string | undefined): void {
     if (this.inputLeases.size >= 256) {
@@ -372,7 +384,7 @@ export class ThreadActor {
       // The outer mailbox transaction commits provenance, offsets and facts together.
       this.repo.recovery.commit(this.id, decoded);
     }
-    return facts;
+    return facts.map((fact) => attachmentEcho(fact, this.attachments));
   }
   private queueFact(): Extract<Fact, { type: "queue.changed" }> {
     return {

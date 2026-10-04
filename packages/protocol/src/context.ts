@@ -48,6 +48,8 @@ export const Attachment = z.object({
   name: z.string().max(255),
   width: size.positive().optional(),
   height: size.positive().optional(),
+  /** A bounded PNG preview can be fetched without downloading the original. */
+  thumbnailAvailable: z.boolean().optional(),
 });
 export type Attachment = z.infer<typeof Attachment>;
 export const ContextErrorCode = z.enum([
@@ -115,6 +117,14 @@ export const ContextOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("upload.commit"), uploadId: key }),
   z.object({ op: z.literal("upload.cancel"), uploadId: key }),
   z.object({ op: z.literal("attachment.list"), threadId: ThreadId }),
+  z.object({
+    op: z.literal("attachment.read"),
+    threadId: ThreadId,
+    sha256: BlobHash,
+    variant: z.enum(["original", "thumbnail"]).default("original"),
+    offset: size.default(0),
+    limit: size.positive().max(65536).default(65536),
+  }),
   z.object({ op: z.literal("attachment.release"), threadId: ThreadId, sha256: BlobHash }),
   z.object({
     op: z.literal("mention.resolve"),
@@ -143,6 +153,16 @@ export const ContextResult = z.object({
     z.object({ kind: z.literal("error"), code: ContextErrorCode, message: z.string() }),
     z.object({ kind: z.literal("upload"), uploadId: key, offset: size, bytes: size }),
     z.object({ kind: z.literal("attachment"), attachment: Attachment }),
+    z.object({
+      kind: z.literal("attachment.data"),
+      sha256: BlobHash,
+      variant: z.enum(["original", "thumbnail"]),
+      mimeType: z.string().max(128),
+      offset: size,
+      bytes: size,
+      data: z.string().max(87384),
+      eof: z.boolean(),
+    }),
     z.object({ kind: z.literal("attachments"), attachments: z.array(Attachment).max(256) }),
     z.object({
       kind: z.literal("mentions"),

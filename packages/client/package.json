@@ -24,7 +24,9 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@ace/adapter-codex": "workspace:*",
     "@ace/adapter-testkit": "workspace:*",
+    "@ace/core": "workspace:*",
     "@ace/daemon": "workspace:*",
     "@ace/relay": "workspace:*",
     "@types/ws": "^8.18.1",

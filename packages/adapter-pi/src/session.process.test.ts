@@ -317,3 +317,23 @@ test("MCP bearer echoes are redacted before raw frames and lease ends on close",
   }
   expect(ended).toBe(true);
 });
+
+test("Pi RPC prompts carry original image MIME and base64 bytes", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(
+      [
+        ...text("hello"),
+        { type: "image", mimeType: "image/jpeg", url: "data:image/jpeg;base64,YWJj" },
+      ],
+      "queue",
+    );
+    const frame = h.frames.find((f) => f.dir === "send" && obj(f.data).type === "prompt");
+    expect(obj(frame?.data).images).toEqual([
+      { type: "image", data: "YWJj", mimeType: "image/jpeg" },
+    ]);
+    expect(obj(frame?.data).message).toBe("hello");
+  } finally {
+    await h.dispose();
+  }
+});

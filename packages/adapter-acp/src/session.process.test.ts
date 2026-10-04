@@ -394,3 +394,20 @@ it("binds the root before queued input when session creation and root traffic sh
     await session.close("shutdown");
   }
 });
+
+it("negotiated ACP image prompts carry native MIME and base64 instead of file references", async () => {
+  const h = await setup();
+  try {
+    await h.session.send(
+      [...input("ok"), { type: "image", mimeType: "image/png", url: "data:image/png;base64,YWJj" }],
+      "queue",
+    );
+    const frame = h.frames.find((f) => f.dir === "send" && method(f, "session/prompt"));
+    expect(object(object(frame?.data).params).prompt).toEqual([
+      { type: "text", text: "ok" },
+      { type: "image", mimeType: "image/png", data: "YWJj" },
+    ]);
+  } finally {
+    await h.session.close("user");
+  }
+});
