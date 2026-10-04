@@ -1,6 +1,6 @@
 import type { StatementSync } from "node:sqlite";
 import { FactBatch, type Fact, type ThreadState, type IdSource } from "@ace/core";
-import type { EventPayload, ThreadId } from "@ace/protocol";
+import type { EventPayload } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { Snapshot } from "./persistence.ts";
 import type { TransitionReadiness } from "./transition-readiness.ts";
@@ -129,7 +129,7 @@ export function foldProviderFacts(
           : {}),
       });
       repo.interactions.opened(state, fact, generation);
-      for (const event of [...emitted])
+      for (const event of emitted)
         if (event.type === "interaction.closed")
           for (const settled of repo.interactions.closed(state, event))
             emitted.push(...batch.apply(settled, { now, ids: ports.ids }));

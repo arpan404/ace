@@ -133,7 +133,6 @@ export async function executeIntent(
         ...(prepared?.input ??
           (p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input)),
       ];
-      repo.pending.submit(intent, generation);
       repo.inputs.sending(
         actor.id,
         `input:${intent.command.id}`,
@@ -141,6 +140,7 @@ export async function executeIntent(
         state.config.provider,
         generation,
       );
+      repo.pending.submit(intent, generation);
       const activeInputRun = state.agents[state.rootKey ?? ""]?.activeRun;
       if (activeInputRun) repo.inputs.attachRun(actor.id, `input:${intent.command.id}`, activeInputRun);
       await session.send(
