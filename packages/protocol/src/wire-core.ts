@@ -181,6 +181,15 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
 export type CoreClientMessage = z.infer<typeof CoreClientMessage>;
 /** The core server messages, in the order the full `ServerMessage` lists them. */
 export const CoreServerMessage = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("entities.page.part"),
+    requestId: z.string().min(1),
+    threadId: ThreadId,
+    seq,
+    index: seq,
+    done: z.boolean(),
+    data: z.string().max(131072),
+  }),
   z.object({ type: z.literal("subscription.ready"), subscriptionId: z.string().min(1), seq }),
   z.object({
     type: z.literal("snapshot.part"),
@@ -287,5 +296,6 @@ export const coreServerTypes: ReadonlySet<string> = new Set([
   "output.data",
   "items.page",
   "entities.page",
+  "entities.page.part",
   "pong",
 ]);

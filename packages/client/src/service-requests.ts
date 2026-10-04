@@ -170,6 +170,12 @@ export function decodeServiceResponse<Q extends ServiceRequest>(
   value: unknown,
 ): ServiceResponse<Q> {
   const response = schema.parse(value);
+  if (
+    query.type === "entities.page" &&
+    response.type === "entities.page" &&
+    (response.page.threadId !== query.threadId || response.page.collection !== query.collection)
+  )
+    throw new ClientError("protocol", "Unexpected entity page owner");
   if (!isServiceResponse(query, id, response))
     throw new ClientError("protocol", "Unexpected service response");
   return response;

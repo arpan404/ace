@@ -60,21 +60,23 @@ interface SerializedFrame {
   encoded: string;
   snapshotId: string | undefined;
 }
-interface SnapshotStream {
-  type: "snapshot";
+interface FragmentStream {
+  type: "stream";
   chargedBytes: 0;
   encoded: string;
-  subscriptionId: string;
-  seq: number;
+  header:
+    | Omit<Extract<ServerMessage, { type: "snapshot.part" }>, "index" | "done" | "data">
+    | Omit<Extract<ServerMessage, { type: "entities.page.part" }>, "index" | "done" | "data">;
   offset: number;
   index: number;
 }
-type PendingFrame = EventBatch | SerializedFrame | SnapshotStream;
+type PendingFrame = EventBatch | SerializedFrame | FragmentStream;
 export class Outbox {
   private pending = new Map<number, PendingFrame>();
   private snapshots = new Map<string, number>();
   private tail = 0;
-  private snapshotSources = 0;
+  private streamSources = 0;
+  private sourceBytes = 0;
   private bytes = 0;
   private aboveHardSince: number | undefined;
   private options: PressureOptions;
@@ -95,7 +97,7 @@ export class Outbox {
   send(message: ServerMessage | PluginServerMessage): void {
     if (message.type === "events") {
       for (const frame of this.encoder.split(message)) this.sendOne(frame);
-    } else if (message.type === "snapshot") {
+    } else if (message.type === "snapshot" || message.type === "entities.page") {
       const encoded = this.encoder.encode(message);
       if (Buffer.byteLength(encoded) <= eventFrameBytes) this.sendOne(message);
       else {
@@ -103,17 +105,35 @@ export class Outbox {
         // fragment when transport drains; serialized fragments share the admission cap.
         // Released subscriptions can still have bytes in flight. Bound their retained
         // logical sources too, independently of the serialized transport queue.
-        if (this.snapshotSources >= 4) {
+        const sourceBytes = encoded.length * 2;
+        if (sourceBytes > 64 * 1024 * 1024 && message.type === "entities.page") {
+          this.sendOne({
+            type: "error",
+            code: "entity_page_too_large",
+            message: "Entity page exceeds the 64 MiB retained-text budget",
+            requestId: message.requestId,
+          });
+          return;
+        }
+        if (this.streamSources >= 4 || this.sourceBytes + sourceBytes > 64 * 1024 * 1024) {
           this.resync();
           return;
         }
-        this.snapshotSources++;
+        this.streamSources++;
+        this.sourceBytes += sourceBytes;
         this.pending.set(++this.tail, {
-          type: "snapshot",
+          type: "stream",
           chargedBytes: 0,
           encoded,
-          subscriptionId: message.subscriptionId,
-          seq: message.seq,
+          header:
+            message.type === "snapshot"
+              ? { type: "snapshot.part", subscriptionId: message.subscriptionId, seq: message.seq }
+              : {
+                  type: "entities.page.part",
+                  requestId: message.requestId,
+                  threadId: message.page.threadId,
+                  seq: message.page.seq,
+                },
           offset: 0,
           index: 0,
         });
@@ -200,17 +220,15 @@ export class Outbox {
       const entry = this.pending.entries().next().value;
       if (!entry) break;
       const [index, frame] = entry;
-      if (frame.type !== "snapshot") this.pending.delete(index);
+      if (frame.type !== "stream") this.pending.delete(index);
       if (frame.type === "serialized" && frame.snapshotId !== undefined)
         this.snapshots.delete(frame.snapshotId);
       this.bytes -= frame.chargedBytes;
       let encoded: string;
-      if (frame.type === "snapshot") {
+      if (frame.type === "stream") {
         const end = frame.offset + 131072;
         encoded = this.encoder.encode({
-          type: "snapshot.part",
-          subscriptionId: frame.subscriptionId,
-          seq: frame.seq,
+          ...frame.header,
           index: frame.index++,
           done: end >= frame.encoded.length,
           data: frame.encoded.slice(frame.offset, end),
@@ -218,7 +236,8 @@ export class Outbox {
         frame.offset = end;
         if (end >= frame.encoded.length) {
           this.pending.delete(index);
-          this.snapshotSources--;
+          this.streamSources--;
+          this.sourceBytes -= frame.encoded.length * 2;
         }
       } else
         encoded =
@@ -254,7 +273,8 @@ export class Outbox {
     this.snapshots.clear();
     this.bytes = 0;
     this.tail = 0;
-    this.snapshotSources = 0;
+    this.streamSources = 0;
+    this.sourceBytes = 0;
     this.socket.close(RESYNC_CLOSE_CODE, "Reconnect with afterSeq");
   }
   clear(): void {
@@ -262,6 +282,7 @@ export class Outbox {
     this.snapshots.clear();
     this.bytes = 0;
     this.tail = 0;
-    this.snapshotSources = 0;
+    this.streamSources = 0;
+    this.sourceBytes = 0;
   }
 }

@@ -1,6 +1,7 @@
 import { parseCredential } from "./credentials.ts";
 import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts";
 import { fitsUtf8 } from "./bounds.ts";
+import { FragmentPolicy } from "./fragment-policy.ts";
 import type { ClientMessage, ServerMessage as Message } from "@ace/protocol";
 import type { WireCodec } from "./wire-codec.ts";
 import {
@@ -32,7 +33,8 @@ export class Connection {
   /** Frames waiting, in order, for the service schemas a frame among them needs. */
   private held: string[] | undefined;
   private heldBytes = 0;
-  private snapshots = new Map<string, { seq: number; index: number; parts: string[] }>();
+  private fragments: FragmentPolicy;
+  private fragmentTimers = new Map<string, () => void>();
   constructor(
     options: ClientOptions,
     codec: WireCodec,
@@ -47,6 +49,7 @@ export class Connection {
     this.received = received;
     this.changed = changed;
     this.disconnected = disconnected;
+    this.fragments = new FragmentPolicy(limits.fragmentBytes);
   }
   start(): void {
     if (this.active || this.state === "fatal") return;
@@ -77,7 +80,9 @@ export class Connection {
     this.epoch++;
     this.held = undefined;
     this.heldBytes = 0;
-    this.snapshots.clear();
+    this.fragments.clear();
+    for (const cancel of this.fragmentTimers.values()) cancel();
+    this.fragmentTimers.clear();
     this.cancel?.();
     this.cancel = undefined;
     this.heartbeat?.();
@@ -220,31 +225,8 @@ export class Connection {
         this.changed();
         return;
       } else if (message.type === "welcome") throw new ClientError("protocol");
-      if (message.type === "snapshot.part") {
-        let snapshot = this.snapshots.get(message.subscriptionId);
-        if (message.index === 0) {
-          if (!this.snapshots.has(message.subscriptionId) && this.snapshots.size >= 4) {
-            this.lost(4009);
-            return;
-          }
-          snapshot = { seq: message.seq, index: 0, parts: [] };
-          this.snapshots.set(message.subscriptionId, snapshot);
-        }
-        if (!snapshot || snapshot.seq !== message.seq || snapshot.index++ !== message.index)
-          throw new ClientError("protocol");
-        snapshot.parts.push(message.data);
-        if (message.done) {
-          this.snapshots.delete(message.subscriptionId);
-          const complete = this.codec.decode(JSON.parse(snapshot.parts.join("")));
-          if (
-            !complete ||
-            complete.type !== "snapshot" ||
-            complete.subscriptionId !== message.subscriptionId ||
-            complete.seq !== message.seq
-          )
-            throw new ClientError("protocol");
-          this.received(complete);
-        }
+      if (message.type === "snapshot.part" || message.type === "entities.page.part") {
+        this.receiveFragment(message, epoch);
         return;
       }
       if (message.type === "pong") this.awaitingPong = false;
@@ -252,6 +234,53 @@ export class Connection {
     } catch (error) {
       this.fail(error instanceof ClientError ? error : new ClientError("protocol"));
     }
+  }
+  private receiveFragment(
+    message: Extract<Message, { type: "snapshot.part" | "entities.page.part" }>,
+    epoch: number,
+  ): void {
+    const key =
+      message.type === "snapshot.part"
+        ? `snapshot:${message.subscriptionId}`
+        : `page:${message.requestId}`;
+    let data: string | undefined;
+    try {
+      data = this.fragments.add(key, message.seq, message.index, message.data, message.done);
+    } catch (error) {
+      if (error instanceof ClientError && error.code === "limit") {
+        this.lost(4009);
+        return;
+      }
+      throw error;
+    }
+    if (message.index === 0)
+      this.fragmentTimers.set(
+        key,
+        this.options.scheduler.set(this.limits.fragmentMs, () => {
+          if (epoch === this.epoch) this.lost(4009);
+        }),
+      );
+    if (data === undefined) return;
+    this.fragmentTimers.get(key)?.();
+    this.fragmentTimers.delete(key);
+    const complete = this.codec.decode(JSON.parse(data));
+    if (message.type === "snapshot.part") {
+      if (
+        !complete ||
+        complete.type !== "snapshot" ||
+        complete.subscriptionId !== message.subscriptionId ||
+        complete.seq !== message.seq
+      )
+        throw new ClientError("protocol");
+    } else if (
+      !complete ||
+      complete.type !== "entities.page" ||
+      complete.requestId !== message.requestId ||
+      complete.page.threadId !== message.threadId ||
+      complete.page.seq !== message.seq
+    )
+      throw new ClientError("protocol");
+    this.received(complete);
   }
   private tick(): void {
     if (this.state !== "ready") return;
