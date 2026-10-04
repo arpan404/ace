@@ -28,7 +28,7 @@ import { AddressBar } from "./address-bar.tsx";
 import { PageNav, PageToolbar } from "./page-toolbar.tsx";
 import { bindPage } from "./loading.ts";
 import { useNativeView } from "./native-view.ts";
-import { LoadFailed, Offline, Opening, Parked, StartPage } from "./page-states.tsx";
+import { LoadFailed, Offline, Opening, Parked, Reopen, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { viewportById, viewports } from "./viewports.ts";
@@ -214,6 +214,15 @@ function Browser(props: TabViewProps) {
         liveUrl={page.live.url}
         onShowHere={() => page.data.url && page.go(page.data.url)}
         onGoToTab={() => page.owner && actions.activate(page.owner)}
+      />
+    );
+  else if (page.data.url && !page.bound)
+    content = (
+      <Reopen
+        url={page.data.url}
+        liveUrl={page.live?.url}
+        disabled={offline}
+        onReopen={() => page.data.url && page.go(page.data.url)}
       />
     );
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
