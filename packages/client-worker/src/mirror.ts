@@ -223,6 +223,9 @@ function set<T>(map: Map<string, T>, id: string, value: unknown): void {
 }
 
 export class MirrorSidebar implements SidebarSource {
+  observe(tap: import("@ace/client").ChangeTap): () => void {
+    return this.notifications.tap(tap);
+  }
   private notifications: Notifications;
   private failure: ClientError | undefined;
   private list: readonly string[] = none;
