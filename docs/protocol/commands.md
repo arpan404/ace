@@ -1339,6 +1339,7 @@ Example:
 | threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | accountId | no | string | {"minLength":1,"maxLength":128} |
 | trigger | no | [RunTrigger.json](schema/RunTrigger.json) |  |
+| origin | no | [MessageOrigin.json](schema/MessageOrigin.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
 | installationId | no | string | {"minLength":1,"maxLength":256} |
 | instanceId | no | string | {"minLength":1,"maxLength":256} |
@@ -1355,16 +1356,21 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
+  "account": "example",
   "input": [
     {
       "mimeType": "example",
-      "path": "example",
-      "type": "file"
+      "type": "image",
+      "url": "example"
     }
   ],
-  "mode": "local",
-  "model": "example",
+  "installationId": "example",
+  "origin": {
+    "interactionId": "example",
+    "kind": "background_completion",
+    "parentThreadId": "example",
+    "role": "example"
+  },
   "provider": "opencode",
   "threadId": "example",
   "trigger": "background_completion",
@@ -1381,6 +1387,7 @@ Example:
 | model | no | string | {"minLength":1,"maxLength":256} |
 | options | no | [ExecutionOptions.json](schema/ExecutionOptions.json) |  |
 | trigger | no | [RunTrigger.json](schema/RunTrigger.json) |  |
+| origin | no | [MessageOrigin.json](schema/MessageOrigin.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | input | yes | array | {"minItems":1,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
 | context | no | [MessageContext.json](schema/MessageContext.json) |  |
@@ -1392,12 +1399,14 @@ Example:
 {
   "input": [
     {
-      "path": "example",
-      "type": "file"
+      "mimeType": "example",
+      "type": "image",
+      "url": "example"
     }
   ],
   "options": {},
   "threadId": "example",
+  "trigger": "spawn",
   "type": "thread.send"
 }
 ```
@@ -1407,6 +1416,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"thread.interrupt"` |  |
+| runId | no | [RunId.json](schema/RunId.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | agentId | no | [AgentId.json](schema/AgentId.json) |  |
 | cascade | no | boolean | {"default":true} |
@@ -1415,6 +1425,7 @@ Example:
 
 ```json
 {
+  "runId": "example",
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -1486,9 +1497,8 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "kind": "approval",
-    "message": "example",
-    "optionId": "example"
+    "action": "decline",
+    "kind": "elicitation"
   },
   "type": "interaction.resolve"
 }
@@ -1536,83 +1546,14 @@ Example:
 ```json
 {
   "commandId": "example",
-  "commit": "13563de8e34e117869487ceb91910e743dbf6a7f56a542f50667fe",
-  "health": {
-    "activeSessions": null,
-    "at": 7,
-    "eventLoop": {
-      "maxMs": null,
-      "meanMs": null,
-      "p99Ms": null
-    },
-    "logs": {
-      "dropped": 9,
-      "failed": 6,
-      "queued": 7
-    },
-    "memory": {
-      "heapTotalBytes": 7,
-      "heapUsedBytes": 3,
-      "rssBytes": 5
-    },
-    "openHandles": 1,
-    "queues": {},
-    "sqlite": {
-      "pageBytes": 8,
-      "walBytes": null
-    }
-  },
-  "ok": false,
-  "pr": {
-    "number": 10,
-    "repository": {
-      "forge": "github",
-      "host": "CUssdwE",
-      "name": "PlB2DoC_",
-      "owner": "tDQ7s"
-    }
-  },
-  "prStatus": {
-    "checks": [],
-    "ci": "none",
-    "comments": [],
-    "headSha": "example",
-    "mergeability": "mergeable",
-    "raw": null,
-    "ref": {
-      "number": 8,
-      "repository": {
-        "forge": "gitlab",
-        "host": "PALOys4lw",
-        "name": "UBALQEPB6l",
-        "owner": "tHwh"
-      }
-    },
-    "reviewThreads": [],
-    "state": "merged",
-    "title": "example",
-    "url": "example"
-  },
-  "review": {
-    "session": {
-      "createdAt": 7,
-      "id": "example",
-      "source": {
-        "from": {
-          "id": "example",
-          "kind": "checkpoint"
-        },
-        "threadId": "example",
-        "to": {
-          "kind": "commit",
-          "ref": "example"
-        },
-        "workspaceId": "example"
-      },
-      "status": "approved"
-    },
-    "sessions": []
-  },
-  "terminalId": "example"
+  "commit": "717582c50f2af315eeaf1fe148eb54d071d1a9b4640340e",
+  "ok": true,
+  "terminalId": "example",
+  "threadId": "example",
+  "workspace": {
+    "id": "example",
+    "name": "example",
+    "path": "example"
+  }
 }
 ```

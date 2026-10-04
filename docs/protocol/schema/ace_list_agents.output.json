@@ -328,6 +328,12 @@
                   "error": {
                     "additionalProperties": false,
                     "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "detail": {
+                        "type": "string"
+                      },
                       "kind": {
                         "enum": [
                           "provider",
@@ -340,6 +346,9 @@
                         "type": "string"
                       },
                       "message": {
+                        "type": "string"
+                      },
+                      "title": {
                         "type": "string"
                       }
                     },
