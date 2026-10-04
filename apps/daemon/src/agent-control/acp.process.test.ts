@@ -5,7 +5,7 @@ import { start, end } from "../engine/test-support.ts";
 import { setup } from "./test-support.ts";
 import { scriptedModelInstance, seedScriptedModels } from "../testing/models.ts";
 
-test("delegation carries approved ACP installation identity without inventing an account assignment", async () => {
+test("delegation resolves an approved ACP catalog by installation and account identity instead of catalog id", async () => {
   const h = setup();
   const identity = {
     acpAgentId: "local:agent",
@@ -32,7 +32,7 @@ test("delegation carries approved ACP installation identity without inventing an
   );
   const parent = await h.parent();
   await seedScriptedModels(h.catalog, {
-    ...scriptedModelInstance("acp", h.home, identity.instanceId),
+    ...scriptedModelInstance("acp", h.home, "acp-production-catalog-digest"),
     ...identity,
   });
   const request = {
@@ -49,11 +49,13 @@ test("delegation carries approved ACP installation identity without inventing an
   await h.engine.flush();
   expect(h.store.getThread(child.childId)).toMatchObject({ provider: "acp", ...identity });
   expect(contexts[0]?.acpIdentity).toEqual(identity);
+  expect(contexts[0]?.model).toBe("chosen-model");
+  for (const mismatch of [{ installationId: "not-approved" }, { instanceId: "other:default", accountId: "other:default" }, { acpAgentId: "local:other" }])
   expect(() =>
     h.service.delegate(parent, {
       ...request,
-      requestId: "unapproved",
-      installationId: "not-approved",
+      requestId: `unapproved-${Object.keys(mismatch)[0]}`,
+      ...mismatch,
     }),
   ).toThrow(/no valid configured default/);
   expect(h.store.listThreads()).toHaveLength(2);

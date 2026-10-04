@@ -11,9 +11,9 @@ export function delegationModel(
 ): string {
   const filter = {
     provider: request.provider,
-    ...(instance ? { instance } : {}),
+    ...(request.provider !== "acp" && instance ? { instance } : {}),
     ...(request.provider === "acp"
-      ? { acpAgentId: request.acpAgentId, installationId: request.installationId }
+      ? { acpAgentId: request.acpAgentId, installationId: request.installationId, instanceId: request.instanceId }
       : {}),
   };
   // resolve(default) may choose the first row, which is not a user's default.
