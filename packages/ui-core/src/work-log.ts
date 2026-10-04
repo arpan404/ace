@@ -386,8 +386,8 @@ export interface WorkLogHeadline {
   /** A step waits for approval, so the log should open by itself. */
   awaiting: boolean;
   /** "2 failed · 1 retried" (also the end of `counts`), and the first failed step. */
-  failures: string;
-  firstFailed: string | undefined;
+  failures?: string | undefined;
+  firstFailed?: string | undefined;
 }
 
 /** Headline for a work log. `now` only matters while it runs; a short burst reads as 1s. */
