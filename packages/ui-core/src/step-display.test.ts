@@ -15,6 +15,12 @@ test("paths inside the working directory read relative to it", () => {
   expect(stepPath(`${cwd}/apps/web/src/app.tsx`, { cwd }).full).toBe(`${cwd}/apps/web/src/app.tsx`);
 });
 
+test("the working directory itself reads by where it is, not as '.'", () => {
+  expect(stepPath("/Users/ada/code/relay", { cwd: "/Users/ada/code/relay" }).text).toBe(
+    "~/code/relay",
+  );
+});
+
 test("a skill's files read as the skill's name", () => {
   const path = stepPath("/Users/ada/.agents/skills/diagnosing-bugs/SKILL.md", { cwd });
   expect(path).toMatchObject({ text: "diagnosing-bugs", skill: "diagnosing-bugs" });

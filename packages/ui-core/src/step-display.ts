@@ -73,7 +73,8 @@ export function stepPath(path: string, context: PathContext = {}): DisplayPath {
   const skill = skillPath.exec(clean)?.[1];
   if (skill) return { text: skill, full, skill };
   const own = inside(clean, context.cwd);
-  if (own !== undefined) return { text: middleTruncate(own), full };
+  // The working directory itself reads by where it is ("~/relay"), never ".".
+  if (own !== undefined && own !== ".") return { text: middleTruncate(own), full };
   for (const tree of context.worktrees ?? []) {
     const relative = inside(clean, tree.path);
     if (relative !== undefined)
