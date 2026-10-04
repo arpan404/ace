@@ -30,6 +30,8 @@ export const saveChoices = (storage: KeyValueStorage | undefined, choices: Choic
 
 export interface Resolved {
   model: ModelOption | undefined;
+  /** The option key to save in place of a legacy bare model id the choice matched. */
+  upgradedModel?: string | undefined;
   account: AccountOption | undefined;
   mode: WorkMode;
   /** One of the model's efforts: the chosen one, else the model's default. */
@@ -48,8 +50,16 @@ export function resolve(
 ): Resolved {
   const models = options?.models ?? [];
   const own = provider === undefined ? models : models.filter((m) => m.provider === provider);
+  const saved = own.find((m) => m.key === choices.model);
+  // Choices saved before option keys hold a bare native id. Providers share ids, so only the
+  // selected provider's options may claim one.
+  const legacy =
+    saved || provider === undefined || choices.model === undefined
+      ? undefined
+      : own.find((m) => m.id === choices.model);
   const model =
-    own.find((m) => m.key === choices.model) ??
+    saved ??
+    legacy ??
     own.find((m) => m.isDefault) ??
     own[0] ??
     models.find((m) => m.isDefault) ??
@@ -66,7 +76,13 @@ export function resolve(
       : model?.defaultEffort && efforts.includes(model.defaultEffort)
         ? model.defaultEffort
         : undefined;
-  return { model, account, mode: choices.mode ?? "worktree", effort };
+  return {
+    model,
+    account,
+    mode: choices.mode ?? "worktree",
+    effort,
+    ...(legacy ? { upgradedModel: legacy.key } : {}),
+  };
 }
 
 /**
