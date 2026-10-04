@@ -15,13 +15,17 @@ import { object } from "./quota-decode.ts";
 import { initialQuota, ingestQuota, availability, type QuotaFact } from "./quota.ts";
 import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
+import { assertManagedHome } from "./managed-home.ts";
 import { canonicalHome } from "./paths.ts";
+const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanceId });
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
 
 async function canonicalInstance(input: ProviderInstance): Promise<ProviderInstance> {
   const parsed = ProviderInstance.parse(input);
   instanceEnv(parsed, {});
   if (parsed.implicit) return parsed;
+  // Managed identities are immutable. validateHome refuses aliases instead of rewriting them.
+  if (parsed.managed) return parsed;
   const homeDir = await canonicalHome(parsed.homeDir);
   const env: ProviderInstance["env"] = {};
   for (const key of Object.keys(parsed.env)) {
@@ -61,13 +65,21 @@ function summarize(
 export class AccountRegistry {
   private db: DatabaseSync;
   private validating = false;
+  private managedDataDir: string | undefined;
   ready: Promise<void> = Promise.resolve();
   private select;
   private all;
   private upsert;
   private updateQuota;
-  constructor(db: DatabaseSync) {
+  private selection;
+  private selections;
+  private setSelection;
+  private clearSelection;
+  private deleteSelections;
+  private deleteAccount;
+  constructor(db: DatabaseSync, managedDataDir?: string) {
     this.db = db;
+    this.managedDataDir = managedDataDir;
     db.exec("PRAGMA busy_timeout = 3000");
     db.exec(
       "CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, instance TEXT NOT NULL, quota TEXT NOT NULL)",
@@ -75,12 +87,25 @@ export class AccountRegistry {
     db.exec(
       "CREATE TABLE IF NOT EXISTS account_selection (backend TEXT PRIMARY KEY, instance_id TEXT NOT NULL REFERENCES accounts(id))",
     );
+    this.selection = db.prepare("SELECT instance_id FROM account_selection WHERE backend=?");
+    this.selections = db.prepare("SELECT backend, instance_id FROM account_selection LIMIT 257");
+    this.setSelection = db.prepare(
+      "INSERT INTO account_selection VALUES (?,?) ON CONFLICT(backend) DO UPDATE SET instance_id=excluded.instance_id",
+    );
+    this.clearSelection = db.prepare("DELETE FROM account_selection WHERE backend=?");
+    this.deleteSelections = db.prepare("DELETE FROM account_selection WHERE instance_id=?");
+    this.deleteAccount = db.prepare("DELETE FROM accounts WHERE id=?");
     this.updateQuota = db.prepare("UPDATE accounts SET quota=? WHERE id=?");
     this.select = db.prepare("SELECT instance, quota FROM accounts WHERE id = ?");
     this.all = db.prepare("SELECT instance, quota FROM accounts ORDER BY id LIMIT 257");
     this.upsert = db.prepare(
       "INSERT INTO accounts VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET instance=excluded.instance, quota=excluded.quota",
     );
+  }
+  async validateHome(instance: ProviderInstance): Promise<void> {
+    if (!instance.managed) return;
+    if (!this.managedDataDir) throw new Error("Managed account needs its daemon data root");
+    await assertManagedHome(this.managedDataDir, instance);
   }
   private decode(value: unknown) {
     const parsed = row.parse(value);
@@ -114,22 +139,16 @@ export class AccountRegistry {
     this.updateQuota.run(JSON.stringify({ ...account.quota, cursorSdkAuth: status }), id);
   }
   selectedCursorSdk(): string | undefined {
-    const value = this.db
-      .prepare("SELECT instance_id FROM account_selection WHERE backend='cursor-sdk'")
-      .get();
+    const value = this.selection.get("cursor-sdk");
     return value ? AccountId.parse(value.instance_id) : undefined;
   }
   selectCursorSdk(id: string | undefined): void {
     if (id === undefined) {
-      this.db.prepare("DELETE FROM account_selection WHERE backend='cursor-sdk'").run();
+      this.clearSelection.run("cursor-sdk");
       return;
     }
     if (this.get(id)?.instance.provider !== "cursor") throw new Error("Unknown Cursor instance");
-    this.db
-      .prepare(
-        "INSERT INTO account_selection VALUES ('cursor-sdk',?) ON CONFLICT(backend) DO UPDATE SET instance_id=excluded.instance_id",
-      )
-      .run(AccountId.parse(id));
+    this.setSelection.run("cursor-sdk", AccountId.parse(id));
   }
   list() {
     if (this.validating) throw new Error("Account homes are still being validated");
@@ -142,6 +161,7 @@ export class AccountRegistry {
   }
   async register(input: ProviderInstance) {
     const instance = await canonicalInstance(input);
+    await this.validateHome(instance);
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const accounts = this.list();
@@ -155,6 +175,8 @@ export class AccountRegistry {
           if (
             AccountEnvKey.options.some((key) => other.instance.env[key] !== instance.env[key]) ||
             other.instance.provider !== instance.provider ||
+            other.instance.managed !== instance.managed ||
+            other.instance.implicit !== instance.implicit ||
             other.instance.homeDir !== instance.homeDir ||
             other.instance.acpAgentId !== instance.acpAgentId ||
             other.instance.installationId !== instance.installationId ||
@@ -206,7 +228,9 @@ export class AccountRegistry {
     const normalized = [];
     for (const account of accounts) {
       signal?.throwIfAborted();
-      normalized.push({ ...account, instance: await canonicalInstance(account.instance) });
+      const instance = await canonicalInstance(account.instance);
+      await this.validateHome(instance);
+      normalized.push({ ...account, instance });
     }
     signal?.throwIfAborted();
     const roots = new Map<string, Set<string>>();
@@ -269,18 +293,12 @@ export class AccountRegistry {
     }
   }
   selectedProvider(provider: string): string | undefined {
-    const value = this.db
-      .prepare("SELECT instance_id FROM account_selection WHERE backend=?")
-      .get(`provider:${provider}`);
+    const value = this.selection.get(`provider:${provider}`);
     return value ? AccountInstanceId.parse(value.instance_id) : undefined;
   }
   selectProvider(provider: string, id: string): void {
     if (this.get(id)?.instance.provider !== provider) throw new Error("Provider mismatch");
-    this.db
-      .prepare(
-        "INSERT INTO account_selection VALUES (?,?) ON CONFLICT(backend) DO UPDATE SET instance_id=excluded.instance_id",
-      )
-      .run(`provider:${provider}`, id);
+    this.setSelection.run(`provider:${provider}`, id);
   }
   rename(id: string, label: string): void {
     const account = this.get(id);
@@ -296,8 +314,8 @@ export class AccountRegistry {
     if (!account || account.instance.implicit) throw new Error("Account is immutable");
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      this.db.prepare("DELETE FROM account_selection WHERE instance_id=?").run(id);
-      this.db.prepare("DELETE FROM accounts WHERE id=?").run(id);
+      this.deleteSelections.run(id);
+      this.deleteAccount.run(id);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -316,10 +334,16 @@ export class AccountRegistry {
       : undefined;
   }
   summaries(now: number) {
+    const selected = new Map(
+      this.selections.all().map((value) => {
+        const selectedRow = selectionRow.parse(value);
+        return [selectedRow.backend, selectedRow.instance_id];
+      }),
+    );
     return this.list().map((account) =>
       Object.assign(summarize(account, now), {
         isDefault:
-          (this.selectedProvider(account.instance.provider) ??
+          (selected.get(`provider:${account.instance.provider}`) ??
             `${account.instance.provider}-cli-default`) === account.instance.id,
       }),
     );
@@ -335,6 +359,7 @@ export class AccountRegistry {
 export async function openRegistryIndex(
   path: string,
   signal?: AbortSignal,
+  managedDataDir: string = dirname(path),
 ): Promise<AccountRegistry> {
   assertTestHomeIsolation(path);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -347,13 +372,16 @@ export async function openRegistryIndex(
   const stat = await lstat(path);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Registry must be a regular file");
   await chmod(path, 0o600);
-  const registry = new AccountRegistry(new DatabaseSync(path));
+  const registry = new AccountRegistry(new DatabaseSync(path), managedDataDir);
   registry.canonicalizeHomes(signal);
   return registry;
 }
 
-export async function openRegistry(path: string): Promise<AccountRegistry> {
-  const registry = await openRegistryIndex(path);
+export async function openRegistry(
+  path: string,
+  managedDataDir: string = dirname(path),
+): Promise<AccountRegistry> {
+  const registry = await openRegistryIndex(path, undefined, managedDataDir);
   try {
     await registry.ready;
     return registry;

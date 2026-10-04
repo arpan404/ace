@@ -11,6 +11,7 @@ export async function startAccounts(context: ServiceContext) {
   const registry = await openRegistryIndex(
     process.env.ACE_ACCOUNTS_DB ?? join(config.dataDir, "accounts.sqlite"),
     context.signal,
+    config.dataDir,
   );
   const validation = warmup(context, "accounts", () => registry.ready);
   resources.own(async () => {

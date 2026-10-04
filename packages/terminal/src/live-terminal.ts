@@ -1,3 +1,4 @@
+import { StringDecoder } from "node:string_decoder";
 import type { PtyBackend } from "./pty.ts";
 import type { ExitStatus, TerminalEvent } from "./types.ts";
 import { validateDimensions } from "./types.ts";
@@ -12,24 +13,31 @@ export class LiveTerminal {
   constructor(backend: PtyBackend, emit: (event: TerminalEvent) => void) {
     this.backend = backend;
     this.pid = backend.pid;
+    const decoder = new StringDecoder("utf8");
+    let emittedOffset = 0;
+    const forward = (data: string) => {
+      if (!data) return;
+      emit({
+        type: "data",
+        offset: emittedOffset,
+        endOffset: this.offset,
+        data,
+        truncatedBefore: false,
+      });
+      emittedOffset = this.offset;
+    };
     const stopData = backend.onData((bytes) => {
       // Bound each wire frame. Authentication clients decode the live stream.
       for (let at = 0; at < bytes.length; at += 16384) {
         const chunk = bytes.subarray(at, at + 16384);
-        const offset = this.offset;
         this.offset += chunk.length;
-        emit({
-          type: "data",
-          offset,
-          endOffset: this.offset,
-          data: chunk.toString("utf8"),
-          truncatedBefore: false,
-        });
+        forward(decoder.write(chunk));
       }
     });
     this.exited = new Promise((resolve, reject) => {
       backend.onExit((status) => {
         stopData();
+        forward(decoder.end());
         if (status instanceof Error) reject(status);
         else {
           emit({ type: "exit", status, nextOffset: this.offset });

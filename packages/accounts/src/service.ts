@@ -167,6 +167,8 @@ export class AccountService {
     this.migrating.add(to.id);
     let releaseFailed = false;
     try {
+      await this.registry.validateHome(from);
+      await this.registry.validateHome(to);
       const result = await migrateSession(
         { provider: request.provider, nativeSessionId: request.nativeSessionId, from, to },
         this.safety,
@@ -270,6 +272,8 @@ export class AccountService {
       );
     };
     try {
+      await this.registry.validateHome(chosen);
+      lifetime.signal.throwIfAborted();
       const session = await adapter.openSession({
         ...context,
         instanceId: chosen.id,

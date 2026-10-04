@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -31,9 +31,16 @@ const provider = path.basename(process.argv[1]);
 const args = process.argv.slice(2);
 const home = process.env.CODEX_HOME || process.env.CLAUDE_CONFIG_DIR || process.env.CURSOR_CONFIG_DIR || process.env.PI_CODING_AGENT_DIR || process.env.XDG_DATA_HOME;
 const marker = path.join(home, 'fixture-signed-in');
+fs.appendFileSync(process.env.ACE_FIXTURE_INVOCATIONS, JSON.stringify({provider,args,home}) + '\\n');
+
 if (args[0] === '--version') {
   console.log(provider === 'codex' ? 'codex-cli 0.150.0' : provider === 'agent' ? '2026.09.26-dd393fe' : '2.1.4');
 } else if (args.join(' ') === 'login status' || args.join(' ') === 'auth status' || args[0] === 'status' || args[1] === 'list') {
+  if (fs.existsSync(path.join(home, 'fixture-hold-status'))) {
+    fs.writeFileSync(path.join(home, 'fixture-status-pid'), String(process.pid));
+    setInterval(() => {}, 1000);
+    return;
+  }
   const signedIn = fs.existsSync(marker);
   console.log(provider === 'claude' ? JSON.stringify({loggedIn:signedIn}) : provider === 'opencode' ? (signedIn ? '1 credential' : 'No authenticated integrations') : (signedIn ? 'Logged in using ChatGPT' : 'Not logged in'));
 } else if (args[0] === 'app-server') {
@@ -64,8 +71,19 @@ if (args[0] === '--version') {
   });
 }
 `;
-export async function harness(remote = false) {
-  const root = await mkdtemp(join(tmpdir(), "ace-managed-accounts-"));
+export async function harness(
+  remote = false,
+  options: {
+    discovery?: import("@ace/provider-kit/discovery").DiscoveryOptions;
+    cursor?: import("./account-management.ts").AccountManagementOptions["cursor"];
+    terminal?: import("@ace/terminal").TerminalManagerOptions;
+    discover?: import("@ace/models").DiscoverModels;
+    storage?: (
+      storage: import("@ace/models").CatalogStorage,
+    ) => import("@ace/models").CatalogStorage;
+  } = {},
+) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-managed-accounts-")));
   const dataDir = join(root, "daemon");
   const normalHome = join(root, "normal-home");
   const bin = join(root, "bin");
@@ -77,6 +95,7 @@ export async function harness(remote = false) {
   const env = {
     ...process.env,
     PATH: bin,
+    ACE_FIXTURE_INVOCATIONS: join(dataDir, "fixture-invocations.jsonl"),
     HOME: normalHome,
     CODEX_HOME: undefined,
     CLAUDE_CONFIG_DIR: undefined,
@@ -87,14 +106,15 @@ export async function harness(remote = false) {
   };
   const registry = await openRegistry(join(dataDir, "accounts.sqlite"));
   const accounts = new AccountService({ registry, env, now: () => 100, timeZone: "UTC" });
+  const storage = openModelStorage(join(dataDir, "models.sqlite"));
   const models = new ModelCatalog({
-    storage: openModelStorage(join(dataDir, "models.sqlite")),
+    storage: options.storage?.(storage) ?? storage,
     now: () => 100,
     deadline: (expire, ms) => {
       const timer = setTimeout(expire, ms);
       return () => clearTimeout(timer);
     },
-    discover: createModelDiscovery(),
+    discover: options.discover ?? createModelDiscovery(),
   });
   const management = new AccountManagement({
     registry,
@@ -103,7 +123,9 @@ export async function harness(remote = false) {
     env,
     now: () => 100,
     id: randomUUID,
-    terminal: { graceMs: 50 },
+    terminal: options.terminal ?? { graceMs: 50 },
+    ...(options.cursor ? { cursor: options.cursor } : {}),
+    discovery: options.discovery,
     models: () => models,
   });
   await management.initialize();
@@ -193,6 +215,8 @@ export async function harness(remote = false) {
     registry,
     management,
     models,
+    accounts,
+    env,
     close,
   };
 }

@@ -24,12 +24,12 @@ import {
 
 type State = {
   config: ModelInstance;
+  admit?: (() => Promise<void>) | undefined;
   entry?: CacheEntry;
   error?: ModelInstanceStatus["error"];
   retryAt: number;
   invalidating?: Promise<void>;
   flight?: Promise<ModelInstanceStatus>;
-  cleanup?: Promise<void>;
   abort?: AbortController;
 };
 function cacheRevision(instance: ModelInstance): string {
@@ -69,6 +69,8 @@ export class ModelCatalog implements ModelCatalogApi {
   readonly #queue: (() => void)[] = [];
   readonly #deletions: PendingDeletions;
   readonly #discoveries = new Set<Promise<void>>();
+  readonly #instanceDiscoveries = new Map<string, Set<Promise<void>>>();
+  readonly #removals = new Map<string, Promise<void>>();
   readonly #invalidations = new Set<Promise<void>>();
   readonly #flights = new Set<Promise<ModelInstanceStatus>>();
   readonly #sessionWrites = new Set<Promise<void>>();
@@ -97,9 +99,10 @@ export class ModelCatalog implements ModelCatalogApi {
     for (const entry of entries) this.#persisted.set(entry.instance, CachedEntry.parse(entry));
     for (const instance of options.instances ?? []) this.registerInstance(instance);
   }
-  registerInstance(input: InstanceInput): void {
+  registerInstance(input: InstanceInput, admit?: () => Promise<void>): void {
     if (this.#closed) throw new Error("Catalog closed");
     const config = ModelInstance.parse(input);
+    if (this.#removals.has(config.id)) throw new Error("Instance removal is still draining");
     const old = this.#states.get(config.id);
     if (!old && this.#states.size >= 64) throw new Error("Instance limit reached");
     // Re-registration also invalidates flights when executable/env/cwd changed.
@@ -118,6 +121,7 @@ export class ModelCatalog implements ModelCatalogApi {
     }
     this.#states.set(config.id, {
       config,
+      ...((admit ?? old?.admit) ? { admit: admit ?? old?.admit } : {}),
       ...(compatible ? { entry } : {}),
       retryAt: 0,
     });
@@ -175,15 +179,35 @@ export class ModelCatalog implements ModelCatalogApi {
   }
   removeInstance(instance: string): Promise<void> {
     instance = ModelInstance.shape.id.parse(instance);
-    const pending = this.#deletions.remove(instance);
+    const existing = this.#removals.get(instance);
+    if (existing) return existing;
+    if (this.#removals.size >= 128) throw new Error("Instance removal capacity reached");
     const state = this.#states.get(instance);
     state?.abort?.abort();
     if (state) this.#providers.get(state.config.provider)?.delete(instance);
     this.#states.delete(instance);
     this.#persisted.delete(instance);
-    return Promise.all([pending, state?.flight]).then(async () => {
-      await state?.cleanup;
+    const removal = Promise.resolve().then(async () => {
+      // Storage failure must not short-circuit process cleanup. Flight settles before
+      // sampling cleanup, including a discovery that started during admission.
+      const results = await Promise.allSettled([
+        this.#deletions.remove(instance),
+        state?.flight,
+        state?.invalidating,
+        this.#sessionTails.get(instance),
+      ]);
+      await Promise.all(this.#instanceDiscoveries.get(instance) ?? []);
+      // A flight/write already committing may have raced the first deletion.
+      const failures = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (failures.length) throw new AggregateError(failures, "Model persistence deletion failed");
+      await this.#deletions.remove(instance);
     });
+    this.#removals.set(instance, removal);
+    const settled = () => this.#removals.delete(instance);
+    void removal.then(settled, settled);
+    return removal;
   }
   #select(filter: ModelFilter): State[] {
     const matches = (state: State) =>
@@ -310,6 +334,7 @@ export class ModelCatalog implements ModelCatalogApi {
         let timedOut = false;
         try {
           await state.invalidating;
+          await state.admit?.();
           if (abort.signal.aborted || this.#closed) return;
           if (this.#discoveries.size >= 64) throw new Error("Discovery cleanup limit reached");
           const failure = new Promise<never>((_, reject) => {
@@ -331,9 +356,15 @@ export class ModelCatalog implements ModelCatalogApi {
             () => {},
             () => {},
           );
-          state.cleanup = cleanup;
           this.#discoveries.add(cleanup);
-          void cleanup.then(() => this.#discoveries.delete(cleanup));
+          const owned = this.#instanceDiscoveries.get(state.config.id) ?? new Set<Promise<void>>();
+          owned.add(cleanup);
+          this.#instanceDiscoveries.set(state.config.id, owned);
+          void cleanup.then(() => {
+            this.#discoveries.delete(cleanup);
+            owned.delete(cleanup);
+            if (!owned.size) this.#instanceDiscoveries.delete(state.config.id);
+          });
           const models = await Promise.race([discovery, failure]);
           if (this.#states.get(state.config.id) !== state || this.#closed) return;
           const entry = CachedEntry.parse({
@@ -402,6 +433,7 @@ export class ModelCatalog implements ModelCatalogApi {
       );
       if (failures.length) throw new AggregateError(failures, "Session model persistence failed");
       await Promise.all(this.#discoveries);
+      await Promise.allSettled(this.#removals.values());
       await this.#deletions.flush();
       await this.#options.storage.close();
     })();

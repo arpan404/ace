@@ -31,13 +31,13 @@ export async function runAccountsCommand(
   const driver = async () =>
     cursorDaemonDriver((auth ??= await (options.cursorAuth ?? (() => daemonCursorAuth(env)))()));
   const [namespace, command, ...rest] = args;
-  const path =
-    env["ACE_ACCOUNTS_DB"] ?? join(env["ACE_HOME"] ?? join(homedir(), ".ace"), "accounts.sqlite");
+  const dataDir = env["ACE_HOME"] ?? join(homedir(), ".ace");
+  const path = env["ACE_ACCOUNTS_DB"] ?? join(dataDir, "accounts.sqlite");
   if (namespace !== "accounts" || !["add", "list", "status", "discover"].includes(command ?? ""))
     throw new Error(
       "Usage: ace accounts add <provider> <id> <homeDir> <label> [--console] | list | status <id> | discover",
     );
-  const registry = await openRegistry(path);
+  const registry = await openRegistry(path, dataDir);
   try {
     if (command === "add") {
       const parsed = z
@@ -68,6 +68,7 @@ export async function runAccountsCommand(
       if (rest.length !== 1) throw new Error("Expected instance ID");
       const account = registry.get(rest[0] ?? "");
       if (!account) throw new Error("Unknown instance");
+      await registry.validateHome(account.instance);
       const sdk = account.instance.provider === "cursor" ? await discovery() : undefined;
       if (sdk?.installed && !sdk.supported) throw new Error(sdk.error ?? "Unsupported Cursor SDK");
       const sdkStatus = sdk?.installed

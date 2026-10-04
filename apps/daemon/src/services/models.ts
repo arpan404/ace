@@ -48,14 +48,20 @@ export async function startModels(context: ServiceContext): Promise<void> {
       ? daemonCursorInstance(context)
       : undefined);
   if (sdkInstance)
-    models.registerInstance({
-      id: sdkInstance.id,
-      provider: "cursor",
-      backend: "cursor-sdk",
-      homeDir: sdkInstance.homeDir,
-      cwd: sdkInstance.homeDir,
-      loginRevision: "cursor-sdk-default-v1",
-    });
+    models.registerInstance(
+      {
+        id: sdkInstance.id,
+        provider: "cursor",
+        backend: "cursor-sdk",
+        homeDir: sdkInstance.homeDir,
+        cwd: sdkInstance.homeDir,
+        loginRevision: "cursor-sdk-default-v1",
+      },
+      async () => {
+        const sdkAccount = services.accountRegistry?.get(sdkInstance.id)?.instance;
+        if (sdkAccount) await services.accountRegistry?.validateHome(sdkAccount);
+      },
+    );
   if (options.modelInstances === undefined) {
     const admission = registerDefaultModelInstances(
       models,

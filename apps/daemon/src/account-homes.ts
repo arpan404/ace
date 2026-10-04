@@ -1,6 +1,6 @@
 import { mkdir, lstat, realpath, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { createInstance, type AccountRegistry } from "@ace/accounts";
+import { assertManagedHome, createInstance, type AccountRegistry } from "@ace/accounts";
 import { AccountId, NativeAccountProvider, ProviderInstance } from "@ace/protocol/accounts";
 
 /** Account metadata points to the normal CLI home; admission never creates that home. */
@@ -55,28 +55,6 @@ export async function createManagedHome(
   // Restrict even incidental CLI writes such as caches and browser helpers to this home.
   await mkdir(join(homeDir, "user"), { mode: 0o700 });
   return { ...createInstance({ id, provider, label, homeDir }), managed: true };
-}
-
-/** Only daemon-created direct children are eligible. Never follow a replaced home symlink. */
-export async function assertManagedHome(
-  dataDir: string,
-  instance: ProviderInstance,
-): Promise<void> {
-  const parent = join(await realpath(dataDir), "account-homes");
-  const expected = join(parent, instance.id);
-  const stat = await lstat(parent);
-  if (
-    !instance.managed ||
-    instance.implicit ||
-    !stat.isDirectory() ||
-    stat.isSymbolicLink() ||
-    (await realpath(parent)) !== parent ||
-    instance.homeDir !== expected
-  )
-    throw new Error("Home deletion refused");
-  const home = await lstat(expected);
-  if (!home.isDirectory() || home.isSymbolicLink() || (await realpath(expected)) !== expected)
-    throw new Error("Home deletion refused");
 }
 
 export async function deleteManagedHome(

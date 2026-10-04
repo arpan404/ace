@@ -122,3 +122,28 @@ Primary command references: [Claude CLI](https://code.claude.com/docs/en/cli-ref
 [OpenCode auth](https://opencode.ai/v2/docs/cli/commands/),
 [Cursor CLI auth](https://docs.cursor.com/en/cli/reference/authentication), and
 [Pi quickstart](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/quickstart.md).
+
+### Amendment: managed-home admission and cancellation ownership
+
+Managed home identities remain lexical and immutable after registration. Registry
+restart rejects a changed canonical identity instead of adopting a symlink target.
+Before auth, status, SDK auth, session admission or metadata discovery, validate
+the direct child of the injected daemon data root and its directory selectors,
+including HOME/XDG directories. Inspect directory metadata only, never credential
+files. The same accounts-owned validator serves every launch boundary. Filesystem
+validation and process launch are separate system calls; concurrent hostile local
+filesystem mutation is outside this guarantee.
+
+Auth startup is owned from reservation through discovery and fencing. Disconnect
+aborts its per-terminal signal and awaits startup cleanup before releasing the
+account. A cancellation check immediately before terminal admission prevents a
+successful late fence from launching the helper. Model deletion retains a shared
+per-instance removal promise and every discovery generation until cleanup settles.
+Storage failures are reported only after draining processes, remain retryable,
+and cannot authorize home deletion while cleanup is outstanding.
+
+These changes satisfy ADR 0002 through provider-owned auth and directory metadata
+validation. The UTF-8 decoder holds at most an incomplete character; it creates
+no auth history, capture, replay or persisted output. Review regressions and
+mutation cases are written but not executed under the owner's merge-time testing
+rule. Runtime, process-effects and benchmark measurements need run at merge.

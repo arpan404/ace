@@ -93,9 +93,26 @@ test("socket account lifecycle isolates login, refreshes models, persists defaul
       expect(bytes.toString()).not.toContain("fixture-auth-output-private");
       expect(bytes.toString()).not.toContain("ambient-fixture-value");
     }
-    expect((await readFile(join(f.home, "events.sqlite"))).toString()).not.toContain(
+    // Query committed rows through the store: SQLite WAL is part of the logical database.
+    expect(JSON.stringify(f.store.readEvents({ afterSeq: 0, limit: 10000 }))).not.toContain(
       "fixture-auth-output-private",
     );
+    const payloads = f.store.atomic((db) =>
+      db
+        .prepare(
+          "SELECT item AS value FROM items UNION ALL SELECT bytes FROM blobs UNION ALL SELECT bytes FROM output_chunks UNION ALL SELECT append FROM item_text_chunks",
+        )
+        .all()
+        .map((row) =>
+          typeof row.value === "string"
+            ? row.value
+            : row.value instanceof Uint8Array
+              ? Buffer.from(row.value).toString("utf8")
+              : "",
+        )
+        .join("\n"),
+    );
+    expect(payloads).not.toContain("fixture-auth-output-private");
     expect(await readdir(f.normalHome)).toEqual(["untouched"]);
   } finally {
     await f.close();
@@ -137,6 +154,14 @@ test.each([
         });
         return result.type;
       }).toBe("accounts.changed");
+      const invocations = (await readFile(join(f.dataDir, "fixture-invocations.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => z.object({ provider: z.string() }).parse(JSON.parse(line)));
+      expect(new Set(invocations.map((invocation) => invocation.provider))).toEqual(
+        new Set([provider === "cursor" ? "agent" : provider]),
+      );
+
       expect(
         await f.request(f.owner, {
           type: "accounts.remove",

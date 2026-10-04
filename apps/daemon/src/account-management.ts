@@ -11,19 +11,22 @@ import {
   type LiveTerminal,
   type TerminalManagerOptions,
 } from "@ace/terminal";
-import { instanceEnv, loginStatus, type AccountRegistry, type AccountService } from "@ace/accounts";
-import { ProviderPayload } from "@ace/provider-kit/payload";
-import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
 import {
   assertManagedHome,
-  createManagedHome,
-  deleteManagedHome,
-  registerImplicitAccounts,
-} from "./account-homes.ts";
+  instanceEnv,
+  loginStatus,
+  type AccountRegistry,
+  type AccountService,
+} from "@ace/accounts";
+import { ProviderPayload } from "@ace/provider-kit/payload";
+import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
+import { createManagedHome, deleteManagedHome, registerImplicitAccounts } from "./account-homes.ts";
 import type { ModelCatalog } from "@ace/models";
 
 interface AuthTerminal {
   starting?: boolean;
+  startup?: Promise<void>;
+  controller: AbortController;
   sdk?: boolean;
   owner: string;
   instance: ProviderInstance;
@@ -135,6 +138,7 @@ export class AccountManagement {
         const terminalId = this.options.id();
         this.terminals.set(terminalId, {
           owner,
+          controller: new AbortController(),
           instance,
           action: request.type === "accounts.login" ? "login" : "logout",
           release,
@@ -171,11 +175,24 @@ export class AccountManagement {
   owns(id: string, owner: string): boolean {
     return this.terminals.get(id)?.owner === owner;
   }
-  async subscribe(id: string, owner: string, emit: (event: TerminalEvent) => void): Promise<void> {
+  subscribe(id: string, owner: string, emit: (event: TerminalEvent) => void): Promise<void> {
     const entry = this.terminals.get(id);
     if (!entry || entry.owner !== owner || entry.terminal || entry.starting)
       throw new Error("Auth terminal unavailable");
     entry.starting = true;
+    // Install ownership before the first await so disconnect can abort and drain startup.
+    entry.startup = Promise.resolve().then(() => this.start(id, entry, emit));
+    return entry.startup;
+  }
+  private async start(
+    id: string,
+    entry: AuthTerminal,
+    emit: (event: TerminalEvent) => void,
+  ): Promise<void> {
+    const signal = this.options.signal
+      ? AbortSignal.any([entry.controller.signal, this.options.signal])
+      : entry.controller.signal;
+    signal.throwIfAborted();
     const { instance, action } = entry;
     await assertManagedHome(this.options.dataDir, instance);
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
@@ -186,10 +203,11 @@ export class AccountManagement {
       : await loginStatus(instance, {
           ...this.options.discovery,
           env,
-          ...(this.options.signal ? { signal: this.options.signal } : {}),
+          signal,
         });
     if (sdk) await sdk.fence(instance.id);
-    if (this.closed || this.terminals.get(id) !== entry) throw new Error("Auth terminal cancelled");
+    await assertManagedHome(this.options.dataDir, instance);
+    signal.throwIfAborted();
     if (!status.path || (instance.provider === "cursor" && status.error))
       throw new Error("Provider unavailable or isolation unverified");
     const args = sdk
@@ -249,6 +267,9 @@ export class AccountManagement {
   async stop(id: string, owner: string): Promise<void> {
     const entry = this.terminals.get(id);
     if (!entry || entry.owner !== owner) return;
+    entry.controller.abort(new Error("Auth terminal cancelled"));
+    // Discovery/fencing owns resources until its promise settles, even on cancellation.
+    await entry.startup?.catch(() => {});
     if (entry.terminal) {
       await this.manager.releaseLive(entry.terminal);
       await entry.done;
@@ -265,6 +286,7 @@ export class AccountManagement {
     );
   }
   private async refresh(instance: ProviderInstance): Promise<void> {
+    await assertManagedHome(this.options.dataDir, instance);
     const { registry, models, now } = this.options;
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
     const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);
@@ -286,14 +308,17 @@ export class AccountManagement {
     await catalog.removeInstance(instance.id);
     if ((!status.path && !sdk) || status.auth === "logged_out") return;
     if (sdk) {
-      catalog.registerInstance({
-        id: instance.id,
-        provider: "cursor",
-        backend: "cursor-sdk",
-        homeDir: instance.homeDir,
-        cwd: instance.homeDir,
-        loginRevision: registry.get(instance.id)?.instance.loginRevision ?? "0",
-      });
+      catalog.registerInstance(
+        {
+          id: instance.id,
+          provider: "cursor",
+          backend: "cursor-sdk",
+          homeDir: instance.homeDir,
+          cwd: instance.homeDir,
+          loginRevision: registry.get(instance.id)?.instance.loginRevision ?? "0",
+        },
+        () => assertManagedHome(this.options.dataDir, instance),
+      );
       await catalog.refresh({ instance: instance.id });
       return;
     }
@@ -301,14 +326,17 @@ export class AccountManagement {
     const modelEnv = Object.fromEntries(
       Object.entries(env).map(([key, value]) => [key, value ?? ""]),
     );
-    catalog.registerInstance({
-      id: instance.id,
-      provider: instance.provider,
-      executable: status.path,
-      cwd: instance.homeDir,
-      env: modelEnv,
-      loginRevision: registry.get(instance.id)?.instance.loginRevision ?? "0",
-    });
+    catalog.registerInstance(
+      {
+        id: instance.id,
+        provider: instance.provider,
+        executable: status.path,
+        cwd: instance.homeDir,
+        env: modelEnv,
+        loginRevision: registry.get(instance.id)?.instance.loginRevision ?? "0",
+      },
+      () => assertManagedHome(this.options.dataDir, instance),
+    );
     await catalog.refresh({ instance: instance.id });
   }
   async close(): Promise<void> {
