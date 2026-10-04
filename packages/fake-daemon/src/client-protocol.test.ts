@@ -856,3 +856,62 @@ test("fake Preview reopening by one client restores the other client's existing 
     await a.client.close();
   }
 });
+
+test("provider discovery keeps native CLI login separate from ace account records", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.services.accounts = [];
+    f.daemon.services.providerStatuses = [
+      {
+        provider: "codex",
+        runtime: "cli",
+        installed: true,
+        path: "/fake/bin/codex",
+        version: "0.159.1",
+        auth: "logged_out",
+        loginHint: "codex login",
+        checkedAt: 1000,
+        stale: false,
+        refreshing: false,
+      },
+      {
+        provider: "claude",
+        runtime: "cli",
+        installed: true,
+        auth: "logged_in",
+        accountLabel: "person@example.com",
+        loginHint: "claude auth login",
+        checkedAt: 1000,
+        stale: false,
+        refreshing: false,
+      },
+    ];
+    expect(
+      (await f.client.request({ type: "providers.request", operation: "list" })).result,
+    ).toEqual({ ok: true, providers: f.daemon.services.providerStatuses });
+    f.daemon.services.providerStatuses[0] = {
+      ...f.daemon.services.providerStatuses[0],
+      provider: "codex",
+      runtime: "cli",
+      installed: true,
+      auth: "logged_in",
+      loginHint: "codex login",
+      stale: false,
+      refreshing: false,
+    };
+    expect(
+      (await f.client.request({ type: "providers.request", operation: "refresh" })).result,
+    ).toEqual({ ok: true, providers: f.daemon.services.providerStatuses });
+    f.daemon.projects.seedFolders("/canonical/home", [], { homeLink: "/display/home" });
+    expect(
+      (await f.client.request({ type: "projects.request", operation: { op: "fs.home" } })).result,
+    ).toMatchObject({
+      kind: "home",
+      path: "/display/home",
+      canonicalPath: "/canonical/home",
+      roots: ["/canonical/home"],
+    });
+  } finally {
+    await f.client.close();
+  }
+});

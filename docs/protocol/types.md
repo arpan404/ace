@@ -10040,7 +10040,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"projects.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096},"git":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectGit.json"},{"type":"null"}]},"suggestedRepoRoot":{"type":"string","minLength":1,"maxLength":4096},"kind":{"type":"string","const":"inspection"}},"required":["path","git","kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"home"},"path":{"type":"string","minLength":1,"maxLength":4096},"roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"initialBranch":{"type":"string","maxLength":1024}},"required":["kind","path","roots","initialBranch"]},{"type":"object","properties":{"kind":{"type":"string","const":"recentFolders"},"folders":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Project.json"}}},"required":["kind","folders"]},{"type":"object","properties":{"kind":{"type":"string","const":"directories"},"path":{"type":"string","minLength":1,"maxLength":4096},"entries":{"maxItems":100,"type":"array","items":{"type":"object","properties":{"name":{"$ref":"https://ace.local/protocol/v1/ProjectDirectoryName.json"},"path":{"type":"string","minLength":1,"maxLength":4096},"git":{"type":"boolean"},"modifiedAt":{"type":"number","minimum":0}},"required":["name","path","git","modifiedAt"]}},"next":{"$ref":"https://ace.local/protocol/v1/ProjectDirectoryName.json"}},"required":["kind","path","entries"]},{"type":"object","properties":{"kind":{"type":"string","const":"cancelled"},"commandId":{"$ref":"https://ace.local/protocol/v1/CommandId.json"}},"required":["kind","commandId"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","maxLength":128}},"required":["kind","code"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096},"git":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectGit.json"},{"type":"null"}]},"suggestedRepoRoot":{"type":"string","minLength":1,"maxLength":4096},"kind":{"type":"string","const":"inspection"}},"required":["path","git","kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"home"},"path":{"type":"string","minLength":1,"maxLength":4096},"canonicalPath":{"type":"string","minLength":1,"maxLength":4096},"roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"initialBranch":{"type":"string","maxLength":1024}},"required":["kind","path","canonicalPath","roots","initialBranch"]},{"type":"object","properties":{"kind":{"type":"string","const":"recentFolders"},"folders":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Project.json"}}},"required":["kind","folders"]},{"type":"object","properties":{"kind":{"type":"string","const":"directories"},"path":{"type":"string","minLength":1,"maxLength":4096},"entries":{"maxItems":100,"type":"array","items":{"type":"object","properties":{"name":{"$ref":"https://ace.local/protocol/v1/ProjectDirectoryName.json"},"path":{"type":"string","minLength":1,"maxLength":4096},"git":{"type":"boolean"},"modifiedAt":{"type":"number","minimum":0}},"required":["name","path","git","modifiedAt"]}},"next":{"$ref":"https://ace.local/protocol/v1/ProjectDirectoryName.json"}},"required":["kind","path","entries"]},{"type":"object","properties":{"kind":{"type":"string","const":"cancelled"},"commandId":{"$ref":"https://ace.local/protocol/v1/CommandId.json"}},"required":["kind","commandId"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","maxLength":128}},"required":["kind","code"]}]} |
 
 Example:
 
@@ -10048,6 +10048,7 @@ Example:
 {
   "requestId": "example",
   "result": {
+    "canonicalPath": "example",
     "initialBranch": "example",
     "kind": "home",
     "path": "example",
@@ -10173,6 +10174,85 @@ Example:
 "cursor"
 ```
 
+## ProvidersRequest
+
+[JSON Schema](schema/ProvidersRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"providers.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | no | ["list","refresh"] | {"default":"list"} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "providers.request"
+}
+```
+
+## ProvidersResult
+
+[JSON Schema](schema/ProvidersResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"providers.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"providers":{"maxItems":16,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ProviderStatus.json"}}},"required":["ok","providers"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"error":{"type":"string","enum":["forbidden","unavailable","busy"]}},"required":["ok","error"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "error": "forbidden",
+    "ok": false
+  },
+  "type": "providers.result"
+}
+```
+
+## ProviderStatus
+
+[JSON Schema](schema/ProviderStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| runtime | yes | ["cli","cursor-sdk"] |  |
+| installed | yes | boolean,null |  |
+| path | no | string | {"minLength":1,"maxLength":4096} |
+| version | no | string | {"minLength":1,"maxLength":256} |
+| auth | yes | ["logged_in","logged_out","unknown"] |  |
+| accountLabel | no | string | {"minLength":1,"maxLength":256} |
+| authDetail | no | string | {"maxLength":1024} |
+| authEvidence | no | `"credentials_configured"` |  |
+| loginHint | yes | string | {"maxLength":1024} |
+| error | no | string | {"maxLength":1024} |
+| checkedAt | no | number | {"minimum":0} |
+| stale | yes | boolean |  |
+| refreshing | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "auth": "unknown",
+  "checkedAt": 0,
+  "error": "example",
+  "installed": false,
+  "loginHint": "example",
+  "provider": "cursor",
+  "refreshing": false,
+  "runtime": "cli",
+  "stale": true
+}
+```
+
 ## PtyBytesSchema
 
 [JSON Schema](schema/PtyBytesSchema.json), input validation.
@@ -10192,7 +10272,8 @@ Example:
 
 ```json
 {
-  "exitCode": 6
+  "exitCode": 7,
+  "signal": 8
 }
 ```
 
@@ -10213,7 +10294,6 @@ Example:
 
 ```json
 {
-  "header": "example",
   "id": "example",
   "options": [],
   "text": "example"
@@ -10236,6 +10316,7 @@ Example:
 
 ```json
 {
+  "context": {},
   "delivery": "queue",
   "id": "example",
   "input": [
@@ -10265,6 +10346,8 @@ Example:
 
 ```json
 {
+  "after": "example",
+  "limit": 7,
   "requestId": "example",
   "threadId": "example",
   "type": "queue.get"
@@ -10282,13 +10365,8 @@ Example:
 ```json
 [
   {
-    "source": {
-      "bytes": 0,
-      "encoding": "utf-16le",
-      "streamId": "example"
-    },
-    "text": "example",
-    "type": "text"
+    "path": "example",
+    "type": "file"
   }
 ]
 ```
@@ -10313,13 +10391,13 @@ Example:
 ```json
 {
   "messages": [],
-  "next": null,
+  "next": "example",
   "paused": false,
-  "reason": null,
-  "resumeAt": 8,
-  "revision": 4,
+  "reason": "restart",
+  "resumeAt": 9,
+  "revision": 7,
   "threadId": "example",
-  "total": 7
+  "total": 0
 }
 ```
 
@@ -10340,10 +10418,10 @@ Example:
   "queue": {
     "messages": [],
     "next": null,
-    "paused": true,
-    "reason": null,
+    "paused": false,
+    "reason": "manual",
     "resumeAt": 4,
-    "revision": 3,
+    "revision": 7,
     "threadId": "example",
     "total": 7
   },
@@ -10372,7 +10450,7 @@ Example:
   "messages": [],
   "paused": false,
   "reason": null,
-  "resumeAt": 5,
+  "resumeAt": 8,
   "revision": 7,
   "threadId": "example"
 }
@@ -10395,8 +10473,8 @@ Example:
 {
   "paused": false,
   "reason": null,
-  "resumeAt": null,
-  "revision": 0
+  "resumeAt": 3,
+  "revision": 6
 }
 ```
 
@@ -10416,10 +10494,10 @@ Example:
 
 ```json
 {
-  "paused": false,
+  "paused": true,
   "reason": "restart",
-  "resumeAt": 9,
-  "revision": 7,
+  "resumeAt": 4,
+  "revision": 3,
   "type": "queue.updated"
 }
 ```
@@ -10438,8 +10516,8 @@ Example:
 
 ```json
 {
-  "endMinute": 1,
-  "startMinute": 0,
+  "endMinute": 0,
+  "startMinute": 8,
   "timeZone": "UTC"
 }
 ```
@@ -10458,7 +10536,7 @@ Example:
 ```json
 {
   "resetsAt": null,
-  "usedPercent": 7
+  "usedPercent": 0
 }
 ```
 
@@ -10479,7 +10557,6 @@ Example:
 ```json
 {
   "data": null,
-  "name": "example",
   "type": "example"
 }
 ```
@@ -10501,7 +10578,7 @@ Example:
   "blobRef": "example",
   "name": "example",
   "preview": "example",
-  "size": 3,
+  "size": 6,
   "type": "example"
 }
 ```
@@ -10532,7 +10609,7 @@ Example:
   "acpAgentId": "example",
   "auth": "unknown",
   "authors": [],
-  "availability": "unsupported_distribution",
+  "availability": "unsupported_target",
   "coverage": "generic",
   "description": "example",
   "isolation": "unsupported",
@@ -10564,7 +10641,7 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "evidence": "unsigned_https",
+  "evidence": "package_manager",
   "installationId": "example",
   "instanceId": "example",
   "profileRevision": "example",
@@ -10597,12 +10674,12 @@ Example:
   "acpAgentId": "example",
   "argv": [],
   "destination": "example",
-  "digest": "707458bf0eeea18ba8fa46342b8150b1962887e8c5b0fad25445f2dac701266a",
+  "digest": "8150b1962887e8c5b0fad25445f2dac701266ab5bbe6709b131fb94fa666908e",
   "publisher": [],
   "runtime": "binary",
   "source": "https://example.invalid/",
   "target": "example",
-  "verification": "package_manager",
+  "verification": "sha256",
   "version": "example"
 }
 ```
@@ -10622,9 +10699,9 @@ Example:
 
 ```json
 {
-  "digest": "be6709b131fb94fa666908ead3c11ac530673563e83a4701746cec3a58fad208",
+  "digest": "c11ac530673563e83a4701746cec3a58fad208253ce3af17270a559604a276ce",
   "intentId": "example",
-  "phase": "extract",
+  "phase": "download",
   "receivedBytes": 7
 }
 ```
@@ -10646,7 +10723,7 @@ Example:
 
 ```json
 {
-  "limit": 3,
+  "limit": 6,
   "requestId": "example",
   "type": "registry.list"
 }
@@ -10712,7 +10789,7 @@ Example:
 {
   "acpAgentId": "example",
   "requestId": "example",
-  "runtime": "binary",
+  "runtime": "uv",
   "type": "registry.install-plan"
 }
 ```
@@ -10730,7 +10807,7 @@ Example:
 
 ```json
 {
-  "digest": "17270a559604a276cee68b37588ecc18b9832a95ce3dea037afb8ddc38d2713e",
+  "digest": "8ecc18b9832a95ce3dea037afb8ddc38d2713ef6c342cf8d9ddc370cd67c19f3",
   "intentId": "example",
   "requestId": "example",
   "type": "registry.install-intent"
@@ -10771,14 +10848,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "agents": [],
-    "fetchedAt": 3,
-    "installations": [],
-    "ok": true,
-    "refreshing": true,
-    "release": "example",
-    "source": "example",
-    "stale": false
+    "cancelled": true,
+    "ok": true
   },
   "type": "registry.result"
 }
@@ -10793,7 +10864,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"releases/215.4127814935.1089673750-darwin-arm64"
+"releases/8.67375000559.0-linux-arm64"
 ```
 
 ## ReleaseManifest
@@ -10813,12 +10884,12 @@ Example:
 
 ```json
 {
-  "archive": "ace-6.tar.gz",
-  "bytes": 4,
-  "channel": "stable",
-  "sha256": "fd99ca6a26807165e3331852f8f333dcae55ec1c380c1c1f99d4936fb3d02886",
-  "target": "darwin-x64",
-  "version": "5900377.638782109.98"
+  "archive": "ace-49p6s41.tar.gz",
+  "bytes": 3,
+  "channel": "preview",
+  "sha256": "331852f8f333dcae55ec1c380c1c1f99d4936fb3d02886b5f64d2068b48a9623",
+  "target": "darwin-arm64",
+  "version": "763878210.19821308363.991"
 }
 ```
 
@@ -10831,7 +10902,7 @@ Type: ["darwin-arm64","darwin-x64","linux-arm64","linux-x64"]. See JSON Schema f
 Example:
 
 ```json
-"darwin-arm64"
+"linux-x64"
 ```
 
 ## ReleaseVersion
@@ -10843,7 +10914,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"376254790.90975698.980175881-fveft"
+"798017588.94.51"
 ```
 
 ## ResolvedMention
@@ -10862,7 +10933,7 @@ Example:
 {
   "path": "example",
   "text": "example",
-  "truncated": true
+  "truncated": false
 }
 ```
 
@@ -10883,7 +10954,7 @@ Example:
 ```json
 {
   "pointer": {
-    "before": null,
+    "before": 5,
     "threadId": "example"
   },
   "summary": "example",

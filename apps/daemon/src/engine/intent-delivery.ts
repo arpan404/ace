@@ -101,9 +101,12 @@ export class IntentDelivery {
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
         if (send && acknowledged) this.dependencies.transitions.delivered(actor.id);
-        const uncertain = editableSend && !acknowledged && !(error instanceof DeliveryNotStarted);
+        const undelivered = editableSend && !acknowledged && error instanceof DeliveryNotStarted;
+        const uncertain = editableSend && !acknowledged && !undelivered;
         if (uncertain) this.dependencies.repo.queue.uncertain(intent.id);
-        this.fail(intent, error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        if (undelivered) this.retainInput(intent, message);
+        else this.fail(intent, message);
         if (uncertain)
           this.dependencies.repo.queue.set(
             actor.id,
@@ -160,46 +163,61 @@ export class IntentDelivery {
   fail(intent: IntentHeader, message: string): void {
     this.dependencies.repo.store.atomic(() => {
       this.dependencies.repo.mark(intent, "failed", message);
-      this.dependencies.releaseGuards(intent);
-      if (intent.kind === "thread.switch") {
-        const pending = this.dependencies.repo.store.getThread(intent.threadId)?.switch;
-        if (pending)
-          this.dependencies.repo.store.appendEvents(
-            intent.threadId,
-            [
-              {
-                type: "thread.updated",
-                switch: {
-                  ...pending,
-                  state: "failed",
-                  error: message.slice(0, 2048),
-                  at: this.dependencies.clock.now(),
-                },
-              },
-            ],
-            this.dependencies.clock.now(),
-          );
-      }
-      if (["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind))
-        this.dependencies.repo.queue.set(
+      this.reportFailure(intent, message);
+    });
+  }
+  private retainInput(intent: IntentHeader, message: string): void {
+    this.dependencies.repo.store.atomic(() => {
+      this.dependencies.repo.mark(intent, "queued", message);
+      this.dependencies.repo.beginSend(intent, undefined);
+      this.dependencies.repo.queue.set(
+        intent.threadId,
+        { paused: true, reason: "manual" },
+        this.dependencies.clock.now(),
+      );
+      this.reportFailure(intent, message);
+    });
+  }
+  private reportFailure(intent: IntentHeader, message: string): void {
+    this.dependencies.releaseGuards(intent);
+    if (intent.kind === "thread.switch") {
+      const pending = this.dependencies.repo.store.getThread(intent.threadId)?.switch;
+      if (pending)
+        this.dependencies.repo.store.appendEvents(
           intent.threadId,
-          { paused: true, reason: "manual" },
+          [
+            {
+              type: "thread.updated",
+              switch: {
+                ...pending,
+                state: "failed",
+                error: message.slice(0, 2048),
+                at: this.dependencies.clock.now(),
+              },
+            },
+          ],
           this.dependencies.clock.now(),
         );
-      const fact: Fact = {
-        type: "item.upsert",
-        agent: "root",
-        item: `intent:${intent.id}`,
-        draft: {
-          type: "notice",
-          level: "error",
-          text: `${intent.kind}: ${message}`,
-          complete: true,
-          raw: [],
-        },
-      };
-      this.dependencies.repo.apply(intent.threadId, [fact], this.dependencies.clock.now());
-    });
+    }
+    if (["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind))
+      this.dependencies.repo.queue.set(
+        intent.threadId,
+        { paused: true, reason: "manual" },
+        this.dependencies.clock.now(),
+      );
+    const fact: Fact = {
+      type: "item.upsert",
+      agent: "root",
+      item: `intent:${intent.id}`,
+      draft: {
+        type: "notice",
+        level: "error",
+        text: `${intent.kind}: ${message}`,
+        complete: true,
+        raw: [],
+      },
+    };
+    this.dependencies.repo.apply(intent.threadId, [fact], this.dependencies.clock.now());
   }
   expire(actor: ThreadActor): void {
     if (this.dependencies.repo.pending.recoveryAcknowledgement(actor.id)) {

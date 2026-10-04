@@ -80,6 +80,9 @@ export class WorkspaceRuntime {
   prepare(id: ThreadId): Promise<string> {
     return this.roots.prepare(id);
   }
+  prepareCreation(command: Command) {
+    return this.roots.prepareCreation(command);
+  }
   details(id: ThreadId): Promise<ThreadDetails> {
     return this.roots.details(id);
   }

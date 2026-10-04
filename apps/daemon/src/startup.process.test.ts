@@ -148,6 +148,20 @@ it("a source daemon with a fresh empty home reaches ready, publishes its endpoin
     name: "engine",
     state: "ready",
   });
+  expect(status.services.find((service) => service.name === "providerStatuses")).toEqual({
+    name: "providerStatuses",
+    state: "ready",
+  });
+  daemon.client.send({
+    type: "providers.request",
+    requestId: "startup-catalog",
+    operation: "list",
+  });
+  expect(await daemon.client.next()).toMatchObject({
+    type: "providers.result",
+    requestId: "startup-catalog",
+    result: { ok: true },
+  });
   await daemon.client.close();
   daemon.child.kill("SIGTERM");
   expect((await daemon.exited)[0]).toBe(0);
