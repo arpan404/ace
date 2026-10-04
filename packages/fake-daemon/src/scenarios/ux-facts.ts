@@ -26,6 +26,7 @@ export function scenario(
   facts: Fact[],
   options: {
     provider?: ProviderKind;
+    initialInput?: Fact;
     after?: Step[];
     pending?: boolean;
   } = {},
@@ -50,7 +51,7 @@ export function scenario(
         facts: [
           rootAgent(provider, cwd),
           turn(root),
-          input("request", title, { kind: "person" }),
+          options.initialInput ?? input("request", title, { kind: "person" }),
           ...facts,
           ...(options.pending || options.after ? [] : [endTurn(root)]),
         ],

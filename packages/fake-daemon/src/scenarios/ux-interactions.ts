@@ -105,11 +105,6 @@ export function delegation(): Scenario[] {
     "delegated-model-error",
     "Delegated child with an unknown model",
     [
-      input("task", "Role: greeter\n\nTask:\nWrite a short welcome message.", {
-        kind: "spawn",
-        parentThreadId: ThreadId.parse(parentId),
-        role: "greeter",
-      }),
       {
         type: "item.upsert",
         agent: root,
@@ -127,7 +122,15 @@ export function delegation(): Scenario[] {
       },
       endTurn(root, "failed", error),
     ],
-    { provider: "claude", pending: true },
+    {
+      provider: "claude",
+      pending: true,
+      initialInput: input("task", "Role: greeter\n\nTask:\nWrite a short welcome message.", {
+        kind: "spawn",
+        parentThreadId: ThreadId.parse(parentId),
+        role: "greeter",
+      }),
+    },
   );
   child.thread.parentThreadId = parentId;
   const parent = scenario("delegation-results", "Delegated work returns to the parent", [

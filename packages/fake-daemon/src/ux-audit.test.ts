@@ -46,15 +46,14 @@ test("audit scenarios retain terminal failures, stops, handoff and the pending p
   expect(
     Object.values(child.items).filter((item) => item.type === "notice" && item.level === "error"),
   ).toHaveLength(1);
-  expect(Object.values(child.items)).toContainEqual(
-    expect.objectContaining({
-      type: "message",
-      origin: expect.objectContaining({
-        kind: "spawn",
-        parentThreadId: "thread-ux-delegation-results",
-      }),
-    }),
-  );
+  expect(
+    Object.values(child.items).filter((item) => item.type === "message" && item.role === "user"),
+  ).toMatchObject([
+    {
+      origin: { kind: "spawn", parentThreadId: "thread-ux-delegation-results" },
+      parts: [{ type: "text", text: "Role: greeter\n\nTask:\nWrite a short welcome message." }],
+    },
+  ]);
   const switched = thread(daemon, "thread-ux-switch-handoff");
   expect(switched.thread.switch).toMatchObject({ state: "applied", lossy: true });
   expect(Object.values(switched.items)).toContainEqual(
