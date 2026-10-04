@@ -250,7 +250,9 @@ export function Composer({
         }}
         className={cn(
           "glass flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
-          "focus-within:border-[color-mix(in_oklab,var(--foreground)_22%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_6%,transparent)]",
+          // Typing keeps the shell calm: a slightly firmer edge and a faint halo, nothing louder;
+          // the footer's controls carry their own focus-visible rings.
+          "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
         )}
       >
         <AttachmentChips items={attachments.items} onRemove={attachments.remove} />
