@@ -9,16 +9,39 @@ test("frames queued while history owns SQLite commit after publication without p
     const ctx = h.contexts[0];
     if (!ctx) throw new Error("Missing context");
     h.store.setHistoryWriting(true);
-    const committed = ctx.onFrame(
-      frames.frame(
-        { type: "item.delta", agent: "root", item: "live", field: "text", append: "preserved" },
-        end,
+    const blocked = h.store.writable();
+    let acknowledged = false;
+    const committed = Promise.resolve(
+      ctx.onFrame(
+        frames.frame(
+          { type: "item.delta", agent: "root", item: "live", field: "text", append: "preserved" },
+          end,
+        ),
       ),
-    );
-    await new Promise((resolve) => setImmediate(resolve));
+    ).then(() => {
+      acknowledged = true;
+    });
+    const client = await h.connect("history-barrier");
+    client.send({
+      type: "items.page",
+      requestId: "history-barrier",
+      threadId: id,
+      before: Number.MAX_SAFE_INTEGER,
+      limit: 1,
+    });
+    await client.next();
+    expect(acknowledged).toBe(false);
+    expect(
+      Object.values(h.store.snapshotThread(id).items).some(
+        (item) =>
+          item.type === "message" &&
+          item.parts.some((part) => part.type === "text" && part.text === "preserved"),
+      ),
+    ).toBe(false);
     h.store.setHistoryWriting(false);
     await h.engine.flush();
     await committed;
+    await blocked;
     expect(h.errors).toEqual([]);
     expect(h.store.getThread(id)?.status.state).toBe("done");
     expect(
@@ -45,6 +68,7 @@ test("a transient SQLite writer lock retries before translation and commits each
     if (!context) throw new Error("Missing session");
     h.store.statement("PRAGMA busy_timeout=0").get();
     writer.exec("BEGIN IMMEDIATE");
+    const retrying = h.clock.waitForDelay(100);
     const ack = context.onFrame(
       frames.frame(
         { type: "item.delta", agent: "root", item: "busy", field: "text", append: "once" },
@@ -52,7 +76,7 @@ test("a transient SQLite writer lock retries before translation and commits each
       ),
     );
     const flushed = h.engine.flush();
-    await new Promise((resolve) => setImmediate(resolve));
+    await retrying;
     writer.exec("COMMIT");
     h.clock.advance(1100);
     await flushed;
@@ -135,11 +159,17 @@ test("a transport signal before each token keeps liveness while appends share du
     );
     await h.engine.flush();
     await Promise.all(acknowledgements);
-    expect(
-      h.store
-        .readEvents({ afterSeq, limit: 2000 })
-        .filter((event) => event.payload.type === "item.delta").length,
-    ).toBeLessThan(10);
+    const deltas = h.store
+      .readEvents({ afterSeq, limit: 2000 })
+      .filter((event) => event.payload.type === "item.delta");
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(deltas.length).toBeLessThan(10);
+    const texts = Object.values(h.store.snapshotThread(id).items).flatMap((item) =>
+      item.type === "message"
+        ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+        : [],
+    );
+    expect(texts).toContain("x".repeat(1000));
     expect(h.store.getThread(id)?.status.state).toBe("working");
     h.clock.advance(1101);
     await h.engine.flush();

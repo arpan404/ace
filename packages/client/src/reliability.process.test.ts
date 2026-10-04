@@ -76,13 +76,26 @@ test("reconnect starts at most four subscriptions until their replay completion 
     const { client, faults } = h.make();
     await ready(client);
     const releases: (() => void)[] = [];
+    const ids = Array.from({ length: 11 }, () => createDevThread(h.daemon.store, h.workspaceId).id);
+    ids.push(h.thread.id);
+    for (const id of ids) {
+      const lease = client.thread(id);
+      releases.push(lease.release);
+      await when(
+        lease.store.select(["thread"], (reader) => reader.thread?.id),
+        (value) => value === id,
+      );
+    }
+    await barrier(client, h.thread.id);
+    client.networkOnline(false);
+    faults.sent.length = 0;
     const held: (() => void)[] = [];
     faults.incoming = (incoming, text, deliver) => {
       if (incoming.type === "subscription.ready") held.push(() => deliver(text));
       else deliver(text);
     };
-    const ids = Array.from({ length: 12 }, () => createDevThread(h.daemon.store, h.workspaceId).id);
-    for (const id of ids) releases.push(client.thread(id).release);
+    client.networkOnline(true);
+    await when(client.connectionState(), (state) => state === "ready");
     await barrier(client, h.thread.id);
     const subscribes = () =>
       faults.sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "subscribe");
@@ -91,6 +104,15 @@ test("reconnect starts at most four subscriptions until their replay completion 
     for (const finish of held.splice(0)) finish();
     await barrier(client, h.thread.id);
     expect(subscribes()).toHaveLength(8);
+    expect(held).toHaveLength(4);
+    for (const finish of held.splice(0)) finish();
+    await barrier(client, h.thread.id);
+    expect(subscribes()).toHaveLength(12);
+    expect(held).toHaveLength(4);
+    faults.incoming = (_incoming, text, deliver) => deliver(text);
+    for (const finish of held.splice(0)) finish();
+    await barrier(client, h.thread.id);
+    expect(new Set(subscribes().map((frame) => frame.scope.threadId))).toEqual(new Set(ids));
     for (const release of releases) release();
   } finally {
     await h.cleanup();

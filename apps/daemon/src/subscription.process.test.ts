@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Store, createDevThread } from "./index.ts";
 import { message as transcriptMessage } from "./payload-test-support.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Agent, AgentId, ThreadId, type ServerMessage } from "@ace/protocol";
+import { Agent, AgentId, ItemId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { applyDelivery, createThreadView } from "@ace/projection";
 import { fixture } from "./socket-test-support.ts";
 import { subscribe, type SubscriptionStore } from "./subscription.ts";
@@ -376,6 +376,23 @@ it.each([2, 4])(
         seq: f.store.headSeq(),
         view: { thread: { title: "Head" } },
       });
+      const snapshot = messages[0];
+      if (snapshot?.type !== "snapshot" || !("thread" in snapshot.view))
+        throw new Error("Missing thread snapshot");
+      const recovered = new Map(Object.values(snapshot.view.items).map((item) => [item.id, item]));
+      let cursor = snapshot.view.itemsBefore;
+      while (cursor !== null && cursor !== undefined) {
+        const page = f.store.readItemPage(f.thread.id, cursor, 200);
+        for (const item of page.items) recovered.set(item.id, item);
+        cursor = page.itemsBefore;
+      }
+      expect(
+        Array.from(recovered.values()).filter((item) => item.id.startsWith("big-")).length,
+      ).toBe(count);
+      for (const [i, text] of texts.entries())
+        expect(recovered.get(ItemId.parse(`big-${i}`))).toMatchObject({
+          parts: [{ type: "text", text }],
+        });
       return;
     }
     expect(messages.length).toBeGreaterThan(1);
@@ -386,5 +403,8 @@ it.each([2, 4])(
     }
     expect(view.seq).toBe(f.store.headSeq());
     expect(view.thread.title).toBe("Head");
+    expect(Object.values(view.items)).toHaveLength(count);
+    for (const [i, text] of texts.entries())
+      expect(view.items[`big-${i}`]).toMatchObject({ parts: [{ type: "text", text }] });
   },
 );

@@ -97,6 +97,7 @@ test("mailbox overload remains resumable when its durable notice encounters a wr
     }
   });
   try {
+    const retrying = h.clock.waitForDelay(100);
     for (const append of ["one", "two", "rejected"])
       void Promise.resolve(
         context.onFrame(
@@ -110,7 +111,7 @@ test("mailbox overload remains resumable when its durable notice encounters a wr
         ),
       ).catch(() => {});
     const flushed = h.engine.flush();
-    await new Promise((resolve) => setImmediate(resolve));
+    await retrying;
     expect(locked).toBe(true);
     writer.exec("COMMIT");
     unsubscribe();

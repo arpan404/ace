@@ -21,10 +21,20 @@ import { Client, token } from "../socket-test-support.ts";
 export class ManualClock implements EngineClock {
   time = 1_000;
   private timers = new Set<{ at: number; callback: () => void }>();
+  private registrations = new Map<number, (() => void)[]>();
+  waitForDelay(delay: number): Promise<void> {
+    return new Promise((resolve) => {
+      const observers = this.registrations.get(delay) ?? [];
+      observers.push(resolve);
+      this.registrations.set(delay, observers);
+    });
+  }
   now = () => this.time;
   setTimer = (callback: () => void, delay: number) => {
     const timer = { at: this.time + delay, callback };
     this.timers.add(timer);
+    for (const resolve of this.registrations.get(delay) ?? []) resolve();
+    this.registrations.delete(delay);
     return () => {
       this.timers.delete(timer);
     };

@@ -5,6 +5,7 @@ import { expect, test } from "vitest";
 import { Store, Engine, AdapterRegistry } from "@ace/daemon";
 import { Command } from "@ace/protocol";
 import { scriptedProvider } from "../../bench/scripted.ts";
+import { ManualClock } from "../engine/test-support.ts";
 
 // Real SQLite and daemon entry, without any installed provider executable.
 test("the measurement provider starts under default permissions and persists its scripted stream", async () => {
@@ -55,7 +56,8 @@ test("an adapter awaiting each durable frame can stream without a 20 ms token de
   const provider = scriptedProvider();
   const registry = new AdapterRegistry();
   registry.register(provider.adapter, { installed: true, auth: "logged_in", loginHint: "unused" });
-  const engine = new Engine(store, { registry });
+  const clock = new ManualClock();
+  const engine = new Engine(store, { registry, clock });
   try {
     const workspaceId = store.createWorkspace(home, "Fixture");
     const command = Command.parse({
@@ -71,13 +73,20 @@ test("an adapter awaiting each durable frame can stream without a 20 ms token de
     const result = engine.handler.handle(command, store);
     if (!result.threadId) throw new Error("Missing thread");
     await engine.flush();
-    const started = performance.now();
-    for (let index = 0; index < 100; index++) await provider.emit(result.threadId, index);
-    expect(performance.now() - started).toBeLessThan(1500);
+    for (let index = 0; index < 100; index++) {
+      const committed = provider.emit(result.threadId, index);
+      clock.advance(clock.now() + 1);
+      await committed;
+    }
     const deltas = store
       .readEvents({ afterSeq: 0, limit: 1000 })
       .filter((event) => event.payload.type === "item.delta");
     expect(deltas).toHaveLength(100);
+    expect(
+      deltas.map((event) =>
+        event.payload.type === "item.delta" ? JSON.parse(event.payload.append).index : undefined,
+      ),
+    ).toEqual(Array.from({ length: 100 }, (_, index) => index));
   } finally {
     await engine.close();
     await store.close();

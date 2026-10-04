@@ -68,9 +68,21 @@ test.each(["bytes", "aggregate", "timeout"])(
         limits: { fragmentBytes: 3000, fragmentMs: 1000 },
       });
       let partial = true;
+      let late: (() => void) | undefined;
       faults.incoming = (message, text, deliver) => {
         if (partial && message.type === "snapshot") {
           partial = false;
+          late = () =>
+            deliver(
+              JSON.stringify({
+                type: "snapshot.part",
+                subscriptionId: message.subscriptionId,
+                seq: message.seq,
+                index: 1,
+                done: false,
+                data: "x",
+              }),
+            );
           deliver(
             JSON.stringify({
               type: "snapshot.part",
@@ -81,7 +93,7 @@ test.each(["bytes", "aggregate", "timeout"])(
               data: "x".repeat(1024),
             }),
           );
-        if (budget === "bytes")
+          if (budget === "bytes")
             deliver(
               JSON.stringify({
                 type: "snapshot.part",
@@ -91,15 +103,29 @@ test.each(["bytes", "aggregate", "timeout"])(
                 done: false,
                 data: "x".repeat(1024),
               }),
-          );
-        if (budget === "aggregate")
-          deliver(JSON.stringify({ type: "entities.page.part", requestId: "parallel-page", threadId: h.thread.id, seq: message.seq, index: 0, done: false, data: "x".repeat(1024) }));
+            );
+          if (budget === "aggregate")
+            deliver(
+              JSON.stringify({
+                type: "entities.page.part",
+                requestId: "parallel-page",
+                threadId: h.thread.id,
+                seq: message.seq,
+                index: 0,
+                done: false,
+                data: "x".repeat(1024),
+              }),
+            );
         } else deliver(text);
       };
       await ready(client);
       const lease = client.thread(h.thread.id);
       await faults.wait((message) => message.type === "snapshot");
-      if (budget === "timeout") scheduler.advance(1000);
+      if (budget === "timeout") {
+        scheduler.advance(900);
+        late?.();
+        scheduler.advance(100);
+      }
       await when(client.connectionState(), (state) => state === "reconnecting");
       scheduler.advance(250);
       await when(client.connectionState(), (state) => state === "ready");
