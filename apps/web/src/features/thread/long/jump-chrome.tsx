@@ -11,9 +11,11 @@ import { Spinner } from "@/components/ui/spinner.tsx";
  * the live end with how much arrived meanwhile.
  */
 
-/** The context bar over a jumped transcript. */
+/** The context bar over a jumped transcript: where the jump landed and where the reader is. */
 export function JumpBar(props: {
   turn: number | undefined;
+  /** The turn at the top of the view, once the reader has moved on from the jump's. */
+  reading: number | undefined;
   count: number | undefined;
   failed: string | undefined;
   onLive(): void;
@@ -22,6 +24,8 @@ export function JumpBar(props: {
     props.turn === undefined
       ? "Viewing earlier history"
       : `Jumped to turn ${formatCount(props.turn)}`;
+  const at = props.reading ?? props.turn;
+  const moved = at !== undefined && at !== props.turn;
   return (
     <div
       role="status"
@@ -31,8 +35,11 @@ export function JumpBar(props: {
     >
       <ClockCounterClockwiseIcon aria-hidden size={14} className="shrink-0" />
       <span className="font-medium text-foreground">{where}</span>
-      {props.turn !== undefined && props.count !== undefined && props.count >= props.turn && (
-        <span className="tabular-nums">of {formatCount(props.count)}</span>
+      {at !== undefined && (
+        <span className="tabular-nums">
+          {moved ? `· at turn ${formatCount(at)}` : ""}
+          {props.count !== undefined && props.count >= at ? ` of ${formatCount(props.count)}` : ""}
+        </span>
       )}
       {props.failed && <span className="text-status-failed">{props.failed}</span>}
       <IconButton icon={XIcon} label="Back to live" size="sm" onClick={props.onLive} />

@@ -45,7 +45,7 @@ test("the turn timeline lists every turn with its digest and jumps to one", asyn
   expect(first.getAttribute("aria-selected")).toBe("true");
   // The digest: two tools (the command and the edit), the file and its lines, the approval.
   expect(first.getAttribute("aria-label")).toBe(
-    `Turn 1: ${ask(1)}. Completed, 3 tools, 1 file, +2 −1, 1 approval, 1 subagent`,
+    `Turn 1: ${ask(1)} Completed, 3 tools, 1 file, +2 −1, 1 approval, 1 subagent`,
   );
   await user.keyboard("{ArrowDown}{Enter}");
 
@@ -81,7 +81,7 @@ test("older turns fold into one-line digests that open and fold again", async ()
   expect(within(feed).getByText(answer(6))).toBeTruthy();
   expect(within(feed).getByText(answer(4))).toBeTruthy();
   expect(within(feed).queryByText(answer(2))).toBeNull();
-  const folded = within(feed).getByRole("button", { name: `Turn 2: ${ask(2)}. Show the turn` });
+  const folded = within(feed).getByRole("button", { name: `Turn 2: ${ask(2)} Show the turn` });
   await waitFor(() => expect(folded.textContent).toContain("3 tools"));
   expect(folded.textContent).toContain("1 approval");
 

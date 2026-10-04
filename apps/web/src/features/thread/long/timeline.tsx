@@ -1,5 +1,12 @@
 import { useThreadMeta } from "@ace/client-react";
-import { digestFacts, formatCount, turnHeadline, turnOutcomeLabel, turnSpan } from "@ace/ui-core";
+import {
+  asSentence,
+  digestFacts,
+  formatCount,
+  turnHeadline,
+  turnOutcomeLabel,
+  turnSpan,
+} from "@ace/ui-core";
 import { XIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -165,7 +172,7 @@ function TurnOption(props: {
       aria-selected={props.active}
       aria-label={
         summary
-          ? `Turn ${props.ordinal}: ${turnHeadline(summary)}. ${outcome}${facts.length ? `, ${facts.map((fact) => fact.text).join(", ")}` : ""}`
+          ? `Turn ${props.ordinal}: ${asSentence(turnHeadline(summary))} ${outcome}${facts.length ? `, ${facts.map((fact) => fact.text).join(", ")}` : ""}`
           : `Turn ${props.ordinal}`
       }
       onClick={props.onPick}

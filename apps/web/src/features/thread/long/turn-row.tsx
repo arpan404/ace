@@ -1,5 +1,5 @@
 import { useItem } from "@ace/client-react";
-import { digestFacts, oneLine, turnHeadline, turnSpan } from "@ace/ui-core";
+import { asSentence, digestFacts, oneLine, turnHeadline, turnSpan } from "@ace/ui-core";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { useNow } from "@/lib/time.ts";
 import { DigestFacts } from "./digest-facts.tsx";
@@ -31,7 +31,7 @@ export function FoldedTurn(props: {
     <button
       type="button"
       aria-expanded={false}
-      aria-label={`Turn ${props.ordinal}: ${headline}. Show the turn`}
+      aria-label={`Turn ${props.ordinal}: ${asSentence(headline)} Show the turn`}
       onClick={props.onOpen}
       className="group -mx-1.5 flex h-8 w-[calc(100%+12px)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
     >

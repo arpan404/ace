@@ -121,6 +121,11 @@ export function turnHeadline(
   return answer ? answer : "Automatic turn";
 }
 
+/** The text as a sentence for an accessible name: ends with one full stop. */
+export function asSentence(text: string): string {
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
+}
+
 /** Collapse whitespace so a preview fits one row. */
 export function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();

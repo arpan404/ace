@@ -52,8 +52,13 @@ const gap: Record<Block["kind"], string> = {
  * the old position and drags the view away from where it was sent. Telling it at once (its
  * public `scrollOffset`) keeps a jump where it landed.
  */
-function settle(virtualizer: { scrollOffset: number | null }, el: HTMLElement | null): void {
+function settle(
+  virtualizer: { scrollOffset: number | null },
+  el: HTMLElement | null,
+  placedUntil: { current: number },
+): void {
   if (el) virtualizer.scrollOffset = el.scrollTop;
+  placedUntil.current = performance.now() + 250;
 }
 const rowGap = (row: Row) => (row.kind === "block" ? gap[row.block.kind] : "pb-1");
 const rowKey = (row: Row) => row.key;
@@ -107,8 +112,16 @@ export function Feed(props: FeedProps) {
       set.add(focusOrdinal);
     return set;
   }, [opened, focus, focusOrdinal]);
+  // Live, the newest turns show whole. In a jumped window the reader reads on from the turn
+  // they jumped to: it and every later turn show whole, the turns before it fold.
   const latest = newestOrdinal(blocks, ordinalOf);
-  const openFrom = detached || latest === undefined ? Infinity : latest - recentTurns + 1;
+  const recent = latest === undefined ? Infinity : latest - recentTurns + 1;
+  // A window not joined to the tail holds no recent turns: only its own from the jump on.
+  const openFrom = detached
+    ? (jump.turn ?? Infinity)
+    : window
+      ? Math.min(jump.turn ?? Infinity, recent)
+      : recent;
   const rows = useMemo(
     () => transcriptRows(blocks, { ordinalOf, open, openFrom }),
     [blocks, ordinalOf, open, openFrom],
@@ -129,6 +142,9 @@ export function Feed(props: FeedProps) {
   const feed = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(!detached);
   const glidingUntil = useRef(0);
+  // Until this moment the view is where code put it (a restored place, a jump): its scroll
+  // events are not the reader's and never page the window.
+  const placedUntil = useRef(0);
   const anchor = useRef<Anchor | undefined>(undefined);
   const [pinned, setPinnedState] = useState(!detached);
   const setPinned = useCallback((value: boolean) => {
@@ -159,11 +175,16 @@ export function Feed(props: FeedProps) {
       const start = virtualizer.measurementsCache[index]?.start;
       if (start === undefined) virtualizer.scrollToIndex(index, { align: "start" });
       else virtualizer.scrollToOffset(start - offset);
-      settle(virtualizer, viewport.current);
+      settle(virtualizer, viewport.current, placedUntil);
     },
     [virtualizer],
   );
   useKeepPlace(keys, anchor, pinnedRef, restore);
+  // Rows changing (a slide, a fold, history paging in) move the view by themselves; those
+  // scroll events are not the reader's.
+  useLayoutEffect(() => {
+    placedUntil.current = performance.now() + 250;
+  }, [keys]);
   useStayPinned(viewport, pinnedRef, glidingUntil);
   useGutter(viewport);
   // A window that isn't joined to the tail has no live end to follow.
@@ -182,25 +203,34 @@ export function Feed(props: FeedProps) {
     return () => clearTimeout(timer);
   }, [nav.jump, window, jump.joined, pinned]);
 
+  // The turn in the middle of the view: what the jump bar says the reader is looking at.
+  const [reading, setReading] = useState<number>();
   /** The first row in view, which turn the reader is in, and where its top sits. */
   const readTop = () => {
     const el = viewport.current;
     if (!el) return;
     const top = el.scrollTop + topRoom;
-    const first = virtualizer.getVirtualItems().find((item) => item.end > top);
+    const items = virtualizer.getVirtualItems();
+    const first = items.find((item) => item.end > top);
     if (!first) return;
     anchor.current = {
       key: rows[first.index]?.key ?? String(first.key),
       index: first.index,
       offset: first.start - el.scrollTop,
     };
-    for (let index = first.index; index < Math.min(rows.length, first.index + 8); index++) {
-      const ordinal = rows[index]?.ordinal;
-      if (ordinal !== undefined) {
-        nav.currentTurn.set(ordinal);
-        return;
+    const turnFrom = (index: number) => {
+      for (let at = index; at < Math.min(rows.length, index + 8); at++) {
+        const ordinal = rows[at]?.ordinal;
+        if (ordinal !== undefined) return ordinal;
       }
-    }
+      return undefined;
+    };
+    const topTurn = turnFrom(first.index);
+    if (topTurn !== undefined) nav.currentTurn.set(topTurn);
+    const middle = el.scrollTop + el.clientHeight / 2;
+    const centre = items.find((item) => item.end > middle) ?? first;
+    const centreTurn = turnFrom(centre.index);
+    if (centreTurn !== reading) setReading(centreTurn);
   };
   useEffect(readTop);
 
@@ -216,7 +246,7 @@ export function Feed(props: FeedProps) {
         previous.has(focusOrdinal) ? previous : new Set(previous).add(focusOrdinal),
       );
     virtualizer.scrollToIndex(index, { align: focus.query ? "center" : "start" });
-    settle(virtualizer, viewport.current);
+    settle(virtualizer, viewport.current, placedUntil);
     const key = rows[index]?.key;
     if (key) setFlash({ key, hit: focus.query !== undefined });
   }, [focus, rows, focusOrdinal, virtualizer, setPinned]);
@@ -235,18 +265,29 @@ export function Feed(props: FeedProps) {
       void loadOlder();
   }, [window, firstVisible, hasOlder, loading, loadOlder]);
   // A jumped window slides only as the reader scrolls toward one of its edges, so a window
-  // that fits on screen never pages itself in both directions.
+  // that fits on screen never pages itself in both directions. Travel counts the reader's own
+  // scrolling one way; code moving the view (a restored place, a jump) never adds to it.
   const lastTop = useRef(0);
+  const travel = useRef(0);
   const slideOnScroll = (el: HTMLElement) => {
     const moved = el.scrollTop - lastTop.current;
     lastTop.current = el.scrollTop;
-    if (!window || jump.loading || moved === 0) return;
+    if (performance.now() < placedUntil.current) {
+      travel.current = 0;
+      return;
+    }
+    travel.current =
+      Math.sign(moved) === Math.sign(travel.current) ? travel.current + moved : moved;
+    if (!window || jump.loading || Math.abs(travel.current) < 120) return;
     const room = el.clientHeight;
-    if (moved < 0 && el.scrollTop < room && hasOlder) void loadOlder();
-    else if (moved > 0 && detached && el.scrollHeight - el.scrollTop - el.clientHeight < room)
+    if (travel.current < 0 && el.scrollTop < room && hasOlder) void loadOlder();
+    else if (
+      travel.current > 0 &&
+      detached &&
+      el.scrollHeight - el.scrollTop - el.clientHeight < room
+    )
       void nav.jump.newer();
   };
-
   const toLive = () => {
     glidingUntil.current = performance.now() + 800;
     setPinned(true);
@@ -257,7 +298,7 @@ export function Feed(props: FeedProps) {
     scrollTo: (index) => {
       setPinned(false);
       virtualizer.scrollToIndex(index, { align: "start" });
-      settle(virtualizer, viewport.current);
+      settle(virtualizer, viewport.current, placedUntil);
     },
     toLive,
   });
@@ -371,7 +412,13 @@ export function Feed(props: FeedProps) {
           </Suspense>
         )}
         {window && (
-          <JumpBar turn={jump.turn} count={props.turnCount} failed={jump.failed} onLive={toLive} />
+          <JumpBar
+            turn={jump.turn}
+            reading={reading}
+            count={props.turnCount}
+            failed={jump.failed}
+            onLive={toLive}
+          />
         )}
         {!window && jump.failed && (
           <p
