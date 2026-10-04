@@ -1,3 +1,4 @@
+import { NativeSessionId } from "./ids.ts";
 import { z } from "zod";
 import { AcpIdentity } from "./agent-registry.ts";
 
@@ -143,7 +144,7 @@ const cleanupWarnings = z
 export const MigrationResult = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("migrated"),
-    nativeSessionId: z.string().max(128),
+    nativeSessionId: NativeSessionId,
     action: z.enum(["fork", "resume"]),
     copiedFiles: z.number().int().nonnegative(),
     cleanupWarnings,
@@ -163,7 +164,7 @@ export const AccountsRequest = z.discriminatedUnion("type", [
     type: z.literal("accounts.migrate"),
     requestId: z.string().max(128),
     provider: AccountProvider,
-    nativeSessionId: z.string().max(128),
+    nativeSessionId: NativeSessionId,
     from: AccountInstanceId,
     to: AccountInstanceId,
   }),

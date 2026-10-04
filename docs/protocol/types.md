@@ -172,7 +172,7 @@ Example:
 | type | yes | `"accounts.migrate"` |  |
 | requestId | yes | string | {"maxLength":128} |
 | provider | yes | [AccountProvider.json](schema/AccountProvider.json) |  |
-| nativeSessionId | yes | string | {"maxLength":128} |
+| nativeSessionId | yes | [NativeSessionId.json](schema/NativeSessionId.json) |  |
 | from | yes | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
 | to | yes | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
 
@@ -5637,7 +5637,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| nativeSessionId | yes | string | {"minLength":1,"maxLength":256} |
+| nativeSessionId | yes | [NativeSessionId.json](schema/NativeSessionId.json) |  |
 | selection | yes | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 
 Example:
@@ -8034,7 +8034,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | status | yes | `"migrated"` |  |
-| nativeSessionId | yes | string | {"maxLength":128} |
+| nativeSessionId | yes | [NativeSessionId.json](schema/NativeSessionId.json) |  |
 | action | yes | ["fork","resume"] |  |
 | copiedFiles | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | cleanupWarnings | no | array | {"maxItems":3,"items":{"type":"string","enum":["lease_release_failed","staging_cleanup_failed","rollback_failed"]}} |
@@ -8119,6 +8119,18 @@ Example:
   "installationId": "example",
   "provider": "opencode"
 }
+```
+
+## NativeSessionId
+
+[JSON Schema](schema/NativeSessionId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
 ```
 
 ## Notification

@@ -1,10 +1,11 @@
+import { NativeSessionId } from "@ace/protocol";
 import { z } from "zod";
 import { HandoffAccess } from "../handoff-access.ts";
 import type { Store } from "../store.ts";
 import { ExecutionSelection, ExecutionOptions, PortableHandoff, ThreadId } from "@ace/protocol";
 
 export const NativeFork = z.object({
-  nativeSessionId: z.string().min(1).max(256),
+  nativeSessionId: NativeSessionId,
   point: z.object({ type: z.enum(["turn", "item", "end"]), nativeId: z.string().min(1).max(256) }),
 });
 const Metadata = z.object({
