@@ -10,7 +10,8 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { JumpController, type JumpSnapshot } from "./jump-controller.ts";
+import type { JumpSnapshot } from "./jump-controller.ts";
+import { Jump } from "./jump.ts";
 
 /*
  * Navigation state of one open thread: the jump controller (a window of older history beside
@@ -40,7 +41,7 @@ export class Watched<T> {
 
 export interface ThreadNav {
   threadId: string;
-  jump: JumpController;
+  jump: Jump;
   /** The root turn at the top of the transcript's viewport. */
   currentTurn: Watched<number | undefined>;
   /** The reader is at the live end and new output scrolls into view. */
@@ -76,7 +77,7 @@ function firstItemOf(live: ThreadSource | undefined, ordinal: number): string | 
 export function ThreadNavProvider(props: { threadId: string; children: ReactNode }) {
   const client = useClient();
   const live = useThreadStore(props.threadId);
-  const [jump] = useState(() => new JumpController(client, props.threadId));
+  const [jump] = useState(() => new Jump(client, props.threadId));
   useEffect(
     () =>
       jump.setTail(() => ({
@@ -124,7 +125,7 @@ export function useOptionalThreadNav(): ThreadNav | undefined {
   return useContext(NavContext);
 }
 
-export function useJumpState(jump: JumpController): JumpSnapshot {
+export function useJumpState(jump: Jump): JumpSnapshot {
   return useSyncExternalStore(jump.subscribe, jump.snapshot, jump.snapshot);
 }
 

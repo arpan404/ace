@@ -1,6 +1,8 @@
-import type { ClientApi } from "@ace/client";
+import type { ClientApi, ThreadSource } from "@ace/client";
+import { windowSource } from "@ace/client-react";
 import type { ItemsWindowResponse } from "@ace/protocol";
 import {
+  windowTurnOrdinals,
   meetsTail,
   newerRequest,
   olderRequest,
@@ -37,6 +39,11 @@ export interface JumpSnapshot {
   loading: "jump" | "older" | "newer" | undefined;
   failed: string | undefined;
   focus: Focus | undefined;
+  /**
+   * Each window item's root turn, from where the turn index says turns start (a window's old
+   * items may outlive the client's runs). Filled in once the index answers.
+   */
+  turns: ReadonlyMap<string, number> | undefined;
 }
 
 /** What the controller needs from the live tail: its edge, and where a turn starts in it. */
@@ -57,7 +64,10 @@ const idle: JumpSnapshot = {
   loading: undefined,
   failed: undefined,
   focus: undefined,
+  turns: undefined,
 };
+/** Turn starts kept for windows: a page of the index either side of where the reader is. */
+const keptStarts = 300;
 
 export class JumpController {
   private state: JumpSnapshot = idle;
@@ -66,6 +76,8 @@ export class JumpController {
   private nonce = 0;
   private client: ClientApi;
   private threadId: string;
+  /** Where turns start (ordinal → creation sequence), for the windows' turns. */
+  private starts = new Map<number, { startSeq: number; endSeq: number }>();
   private tail: () => LiveTail = () => ({
     order: [],
     before: undefined,
@@ -87,8 +99,57 @@ export class JumpController {
   snapshot = (): JumpSnapshot => this.state;
 
   private set(patch: Partial<JumpSnapshot>): void {
+    const window = this.state.window;
     this.state = { ...this.state, ...patch };
+    if (this.state.window !== window) {
+      this.state = { ...this.state, turns: this.turnsOf(this.state.window) };
+      if (this.state.window) void this.learnTurns(this.state.window);
+    }
     for (const listener of this.listeners) listener();
+  }
+  private turnsOf(window: JumpWindow | undefined): ReadonlyMap<string, number> | undefined {
+    if (!window || !this.starts.size) return undefined;
+    const starts: { ordinal: number; startSeq: number }[] = [];
+    for (const [ordinal, turn] of this.starts) starts.push({ ordinal, startSeq: turn.startSeq });
+    return windowTurnOrdinals(window, starts);
+  }
+  /** Read the turn index around the window until its items' turns are known (a few pages). */
+  private async learnTurns(window: JumpWindow): Promise<void> {
+    const seqOf = (index: number) => {
+      const item = window.items.at(index);
+      return item ? window.seqs.get(item.id) : undefined;
+    };
+    const first = seqOf(0);
+    const last = seqOf(-1);
+    if (first === undefined || last === undefined) return;
+    for (let reads = 0; reads < 4 && this.state.window === window; reads++) {
+      const known = [...this.starts].toSorted((a, b) => a[0] - b[0]);
+      const low = known[0];
+      const high = known.at(-1);
+      let request: { before?: number; after?: number } | undefined;
+      if (!low || !high) request = this.state.turn ? { before: this.state.turn + 26 } : {};
+      else if (first < low[1].startSeq && low[0] > 1) request = { before: low[0] };
+      else if (last > high[1].endSeq) request = { after: high[0] };
+      if (!request) break;
+      let page;
+      try {
+        page = await this.client.turnsPage({ threadId: this.threadId, limit: 50, ...request });
+      } catch {
+        return;
+      }
+      if (!page.turns.length) break;
+      for (const turn of page.turns)
+        this.starts.set(turn.ordinal, { startSeq: turn.startSeq, endSeq: turn.endSeq });
+      if (this.starts.size > keptStarts) {
+        const sorted = [...this.starts.keys()].toSorted((a, b) => a - b);
+        const keep = new Set(sorted.slice(-keptStarts));
+        for (const ordinal of sorted) if (!keep.has(ordinal)) this.starts.delete(ordinal);
+      }
+      if (this.state.window === window) {
+        this.state = { ...this.state, turns: this.turnsOf(window) };
+        for (const listener of this.listeners) listener();
+      }
+    }
   }
   private focus(itemId: string, query?: string): Focus {
     return { itemId, nonce: ++this.nonce, query };
@@ -223,4 +284,13 @@ export class JumpController {
     this.abort?.abort();
     this.abort = undefined;
   }
+}
+
+/** The thread as the transcript shows it while a window is open: its items, live the rest. */
+export function jumpedSource(
+  live: ThreadSource,
+  window: JumpWindow,
+  joined: boolean,
+): ThreadSource {
+  return windowSource(live, { items: window.items, before: window.before, joined });
 }

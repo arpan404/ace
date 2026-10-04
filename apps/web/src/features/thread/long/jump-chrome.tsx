@@ -1,14 +1,15 @@
 import { formatCount } from "@ace/ui-core";
-import { ArrowDownIcon, ClockCounterClockwiseIcon, XIcon } from "@phosphor-icons/react";
+import { ClockCounterClockwiseIcon, XIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { useTurnHead } from "./turn-index.ts";
 
 /*
  * What a jumped transcript says about itself: where the reader is ("Jumped to turn 128 of
- * 2,000"), that newer history is not loaded after the window (the gap), and the way back to
- * the live end with how much arrived meanwhile.
+ * 2,000") and that newer history is not loaded after the window (the gap). Loaded after first
+ * paint: only a jump shows them.
  */
 
 /** The context bar over a jumped transcript: where the jump landed and where the reader is. */
@@ -16,10 +17,11 @@ export function JumpBar(props: {
   turn: number | undefined;
   /** The turn at the top of the view, once the reader has moved on from the jump's. */
   reading: number | undefined;
-  count: number | undefined;
+  threadId: string;
   failed: string | undefined;
   onLive(): void;
 }) {
+  const count = useTurnHead(props.threadId)?.count;
   const where =
     props.turn === undefined
       ? "Viewing earlier history"
@@ -38,7 +40,7 @@ export function JumpBar(props: {
       {at !== undefined && (
         <span className="tabular-nums">
           {moved ? `· at turn ${formatCount(at)}` : ""}
-          {props.count !== undefined && props.count >= at ? ` of ${formatCount(props.count)}` : ""}
+          {count !== undefined && count >= at ? ` of ${formatCount(count)}` : ""}
         </span>
       )}
       {props.failed && <span className="text-status-failed">{props.failed}</span>}
@@ -52,18 +54,22 @@ export function JumpBar(props: {
  * scrolls (or at once with Jump to live). Never a hole the list pretends isn't there.
  */
 export function GapRow(props: {
-  /** Turns after the window's last one, when the index says. */
-  newerTurns: number | undefined;
+  threadId: string;
+  /** The window's last item's turn, when known. */
+  lastTurn: number | undefined;
   loading: boolean;
   onNewer(): void;
   onLive(): void;
 }) {
+  const count = useTurnHead(props.threadId)?.count;
+  const newerTurns =
+    count === undefined || props.lastTurn === undefined ? undefined : count - props.lastTurn;
   const label =
-    props.newerTurns === undefined
+    newerTurns === undefined
       ? "Newer history isn't loaded"
-      : props.newerTurns <= 0
+      : newerTurns <= 0
         ? "The rest of this turn isn't loaded"
-        : `${formatCount(props.newerTurns)} newer ${props.newerTurns === 1 ? "turn" : "turns"} until live`;
+        : `${formatCount(newerTurns)} newer ${newerTurns === 1 ? "turn" : "turns"} until live`;
   return (
     <div
       role="group"
@@ -86,35 +92,18 @@ export function GapRow(props: {
   );
 }
 
-/**
- * Back to the live end. It says how many items arrived since the reader left it, and that
- * following is paused while the agent works.
- */
-export function LivePill(props: {
-  newItems: number;
-  /** More arrived than the live window holds. */
-  more: boolean;
-  paused: boolean;
-  onClick(): void;
-}) {
-  const count = props.newItems ? `${formatCount(props.newItems)}${props.more ? "+" : ""} new` : "";
+/** A jump that couldn't load, said over the live transcript it left in place. */
+export function JumpFailed(props: { message: string; onDismiss(): void }) {
   return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      aria-label={count ? `Jump to live, ${count}` : "Jump to live"}
-      className="fx-rise-in glass absolute bottom-3 left-1/2 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
+    <p
+      role="alert"
+      style={{ pointerEvents: "auto" }}
+      className="glass flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-status-failed"
     >
-      <ArrowDownIcon aria-hidden size={14} />
-      {props.paused && (
-        <span className="font-normal text-subtle-foreground">Following paused ·</span>
-      )}
-      Jump to live
-      {count && (
-        <span className="rounded-full bg-[color-mix(in_oklab,var(--ring)_22%,transparent)] px-1.5 text-xs tabular-nums text-foreground">
-          {count}
-        </span>
-      )}
-    </button>
+      {props.message}
+      <Button variant="ghost" size="sm" onClick={props.onDismiss}>
+        Dismiss
+      </Button>
+    </p>
   );
 }

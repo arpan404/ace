@@ -1,4 +1,4 @@
-import { ListNumbersIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
@@ -26,7 +26,7 @@ export function LongThreadButtons() {
         onClick={() => (nav.searchOpen ? nav.setSearchOpen(false) : find())}
       />
       <IconButton
-        icon={ListNumbersIcon}
+        icon={ChatCircleTextIcon}
         label="Turns"
         shortcut="turns"
         pressed={nav.turnsOpen}

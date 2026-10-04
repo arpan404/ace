@@ -35,14 +35,13 @@ import { AgentComposer } from "./composer/agent-composer.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import {
-  DeferredCatchUpCard,
+  DeferredCatchUpSlot,
   DeferredThreadHotkeys,
   DeferredThreadMenu,
   DeferredTurnsPanel,
   preloadDeferred,
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
-import { useCatchUp, useReadMarker } from "./long/catch-up.ts";
 import { LongThreadButtons } from "./long/header-buttons.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
 
@@ -162,7 +161,14 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 </Suspense>
               )}
               <div className="min-h-0 flex-1">
-                <Transcript threadId={id} overlay={<CatchUpSlot threadId={id} />} />
+                <Transcript
+                  threadId={id}
+                  overlay={
+                    <Suspense fallback={null}>
+                      <DeferredCatchUpSlot.Component threadId={id} />
+                    </Suspense>
+                  }
+                />
               </div>
               <TargetJump target={props.target} />
               {thread && (
@@ -209,25 +215,4 @@ function TargetJump(props: { target: ThreadTarget | undefined }) {
     if (seq !== undefined) void nav.jump.toSeq(seq, query ? { query } : {});
   }, [nav.jump, seq, query]);
   return null;
-}
-
-/** The catch-up card while there is news since this device last read the thread. */
-function CatchUpSlot(props: { threadId: string }) {
-  const nav = useThreadNav();
-  const { ready, catchUp, dismiss } = useCatchUp(props.threadId);
-  useReadMarker(props.threadId, nav, ready);
-  if (!catchUp) return null;
-  return (
-    <Suspense fallback={null}>
-      <DeferredCatchUpCard.Component
-        threadId={props.threadId}
-        catchUp={catchUp}
-        onDismiss={dismiss}
-        onLive={() => {
-          dismiss();
-          nav.jump.live();
-        }}
-      />
-    </Suspense>
-  );
 }

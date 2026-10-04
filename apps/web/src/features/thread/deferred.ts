@@ -3,6 +3,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { preloadComposerParts } from "./composer/deferred-parts.tsx";
 import { DeferredInteractionCard } from "./interactions/deferred-card.ts";
 import { DeferredReviewNote, DeferredReviewSummary } from "./items/deferred-review.ts";
+import { preloadJump } from "./long/jump.ts";
 
 export { DeferredInteractionCard };
 
@@ -39,8 +40,31 @@ export const DeferredTurnsPanel = deferredComponent(() =>
 export const DeferredSearchBar = deferredComponent(() =>
   import("./long/search-bar.tsx").then((module) => module.SearchBar),
 );
-export const DeferredCatchUpCard = deferredComponent(() =>
-  import("./long/catch-up-card.tsx").then((module) => module.CatchUpCard),
+
+/** What only a jump shows: where the reader is, and the gap to the live end. */
+export const DeferredJumpBar = deferredComponent(() =>
+  import("./long/jump-chrome.tsx").then((module) => module.JumpBar),
+);
+export const DeferredJumpFailed = deferredComponent(() =>
+  import("./long/jump-chrome.tsx").then((module) => module.JumpFailed),
+);
+export const DeferredGapRow = deferredComponent(() =>
+  import("./long/jump-chrome.tsx").then((module) => module.GapRow),
+);
+/** Older turns folded to a digest line, and the header that folds an opened one again. */
+export const DeferredFoldedTurn = deferredComponent(() =>
+  import("./long/turn-row.tsx").then((module) => module.FoldedTurn),
+);
+export const DeferredOpenTurnHead = deferredComponent(() =>
+  import("./long/turn-row.tsx").then((module) => module.OpenTurnHead),
+);
+/** ⌥⌘↑ and ⌥⌘↓ between turns, bound once the thread screen is idle. */
+export const DeferredTurnKeys = deferredComponent(() =>
+  import("./long/turn-keys.tsx").then((module) => module.TurnKeys),
+);
+/** The catch-up check, its card and the read cursor that advances while the reader follows. */
+export const DeferredCatchUpSlot = deferredComponent(() =>
+  import("./long/catch-up-slot.tsx").then((module) => module.CatchUpSlot),
 );
 
 export function preloadDeferred(): Promise<unknown> {
@@ -56,6 +80,13 @@ export function preloadDeferred(): Promise<unknown> {
     preloadComposerParts(),
     DeferredTurnsPanel.preload(),
     DeferredSearchBar.preload(),
-    DeferredCatchUpCard.preload(),
+    DeferredJumpBar.preload(),
+    DeferredGapRow.preload(),
+    DeferredJumpFailed.preload(),
+    DeferredFoldedTurn.preload(),
+    DeferredOpenTurnHead.preload(),
+    DeferredCatchUpSlot.preload(),
+    DeferredTurnKeys.preload(),
+    preloadJump(),
   ]);
 }

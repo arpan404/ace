@@ -3,13 +3,10 @@ import {
   useHistoryPager,
   useItemOrder,
   useThreadStore,
-  windowSource,
   type HistoryPager,
 } from "@ace/client-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useThreadNav, useJumpState, useWatched } from "../long/nav.tsx";
-import { useTurnHead } from "../long/turn-index.ts";
-import { useWindowTurns } from "../long/window-turns.ts";
 import { Feed } from "./feed.tsx";
 
 const none: readonly string[] = [];
@@ -44,14 +41,10 @@ export function Transcript(props: { threadId: string; overlay?: ReactNode }) {
   const liveOrder = useItemOrder(props.threadId) ?? none;
   const livePager = useHistoryPager(props.threadId);
   const following = useWatched(nav.following);
-  const current = useWatched(nav.currentTurn);
   const window = jump.window;
   const source = useMemo(
-    () =>
-      live && window
-        ? windowSource(live, { items: window.items, before: window.before, joined: jump.joined })
-        : undefined,
-    [live, window, jump.joined],
+    () => (live && window ? nav.jump.source(live, window, jump.joined) : undefined),
+    [nav.jump, live, window, jump.joined],
   );
   // A joined window stops overlapping when far more arrives than the tail holds.
   const tailEnd = liveOrder.at(-1);
@@ -63,8 +56,6 @@ export function Transcript(props: { threadId: string; overlay?: ReactNode }) {
   useEffect(() => {
     if (landed !== undefined && jump.turn !== undefined) nav.currentTurn.set(jump.turn);
   }, [nav.currentTurn, jump.turn, landed]);
-  const seqTurns = useWindowTurns(props.threadId, window, current ?? jump.turn);
-  const head = useTurnHead(props.threadId, { enabled: !!window && !jump.joined });
   const fresh = useNewSince(liveOrder, !following || !!window);
   const pager: HistoryPager = window
     ? {
@@ -81,8 +72,7 @@ export function Transcript(props: { threadId: string; overlay?: ReactNode }) {
         nav={nav}
         jump={jump}
         pager={pager}
-        seqTurns={seqTurns}
-        turnCount={head?.count}
+        seqTurns={jump.turns}
         fresh={fresh}
         liveNewest={liveOrder.at(-1)}
         overlay={props.overlay}

@@ -16,17 +16,22 @@ import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useTopFade } from "@/lib/edge-fade.ts";
-import { useHotkey } from "@/lib/hotkeys.ts";
-import { keymap } from "@/lib/keymap.ts";
 import { scrollToEnd as glideToEnd, useListMotion } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
-import { DeferredSearchBar } from "../deferred.ts";
+import {
+  DeferredFoldedTurn,
+  DeferredGapRow,
+  DeferredJumpBar,
+  DeferredJumpFailed,
+  DeferredOpenTurnHead,
+  DeferredSearchBar,
+  DeferredTurnKeys,
+} from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
 import { readingColumn } from "../lib/column.ts";
-import { GapRow, JumpBar, LivePill } from "../long/jump-chrome.tsx";
+import { LivePill } from "../long/live-pill.tsx";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
-import { FoldedTurn, OpenTurnHead } from "../long/turn-row.tsx";
 import { openWorkIndex, type Block } from "./blocks.ts";
 import { LiveFooter, useRootWorking } from "./live-footer.tsx";
 import { newestOrdinal, recentTurns, rowOf, transcriptRows, type Row } from "./rows.ts";
@@ -78,8 +83,6 @@ export interface FeedProps {
   pager: HistoryPager;
   /** Jumped windows' items' turns, from the turn index. */
   seqTurns: ReadonlyMap<string, number> | undefined;
-  /** How many turns the thread has, when the index has been read. */
-  turnCount: number | undefined;
   /** Items that reached the live end since the reader left it. */
   fresh: { count: number; more: boolean };
   liveNewest: string | undefined;
@@ -297,14 +300,6 @@ export function Feed(props: FeedProps) {
     if (window) nav.jump.live();
     else if (viewport.current) glideToEnd(viewport.current, true);
   };
-  useTurnKeys(rows, anchor, nav, props.turnCount, {
-    scrollTo: (index) => {
-      setPinned(false);
-      virtualizer.scrollToIndex(index, { align: "start" });
-      settle(virtualizer, viewport.current, placedUntil);
-    },
-    toLive,
-  });
 
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
   const fadeTop = useTopFade(viewport);
@@ -401,16 +396,15 @@ export function Feed(props: FeedProps) {
             })}
           </div>
           {detached ? (
-            <GapRow
-              newerTurns={
-                props.turnCount !== undefined && lastWindowOrdinal !== undefined
-                  ? props.turnCount - lastWindowOrdinal
-                  : undefined
-              }
-              loading={jump.loading === "newer"}
-              onNewer={() => void nav.jump.newer()}
-              onLive={toLive}
-            />
+            <Suspense fallback={null}>
+              <DeferredGapRow.Component
+                threadId={threadId}
+                lastTurn={lastWindowOrdinal}
+                loading={jump.loading === "newer"}
+                onNewer={() => void nav.jump.newer()}
+                onLive={toLive}
+              />
+            </Suspense>
           ) : (
             <LiveFooter threadId={threadId} quiet={liveWork} />
           )}
@@ -423,28 +417,39 @@ export function Feed(props: FeedProps) {
           </Suspense>
         )}
         {window && (
-          <JumpBar
-            turn={jump.turn}
-            reading={reading}
-            count={props.turnCount}
-            failed={jump.failed}
-            onLive={toLive}
-          />
+          <Suspense fallback={null}>
+            <DeferredJumpBar.Component
+              turn={jump.turn}
+              reading={reading}
+              threadId={threadId}
+              failed={jump.failed}
+              onLive={toLive}
+            />
+          </Suspense>
         )}
         {!window && jump.failed && (
-          <p
-            role="alert"
-            style={{ pointerEvents: "auto" }}
-            className="glass flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-status-failed"
-          >
-            {jump.failed}
-            <Button variant="ghost" size="sm" onClick={() => nav.jump.dismissError()}>
-              Dismiss
-            </Button>
-          </p>
+          <Suspense fallback={null}>
+            <DeferredJumpFailed.Component
+              message={jump.failed}
+              onDismiss={() => nav.jump.dismissError()}
+            />
+          </Suspense>
         )}
         {!window && props.overlay}
       </div>
+      <Suspense fallback={null}>
+        <DeferredTurnKeys.Component
+          rows={rows}
+          anchor={anchor}
+          nav={nav}
+          scrollTo={(index) => {
+            setPinned(false);
+            virtualizer.scrollToIndex(index, { align: "start" });
+            settle(virtualizer, viewport.current, placedUntil);
+          }}
+          toLive={toLive}
+        />
+      </Suspense>
       {(!pinned || detached) && (
         <LivePill
           newItems={props.fresh.count}
@@ -470,16 +475,34 @@ function RowView(props: {
       return <BlockView threadId={props.threadId} block={row.block} live={props.live} />;
     case "turn":
       return (
-        <FoldedTurn
-          threadId={props.threadId}
-          ordinal={row.ordinal}
-          askId={row.askId}
-          onOpen={() => props.onOpen(row.ordinal)}
-        />
+        <Suspense fallback={<TurnLine ordinal={row.ordinal} />}>
+          <DeferredFoldedTurn.Component
+            threadId={props.threadId}
+            ordinal={row.ordinal}
+            askId={row.askId}
+            onOpen={() => props.onOpen(row.ordinal)}
+          />
+        </Suspense>
       );
     case "head":
-      return <OpenTurnHead ordinal={row.ordinal} onFold={() => props.onFold(row.ordinal)} />;
+      return (
+        <Suspense fallback={<TurnLine ordinal={row.ordinal} />}>
+          <DeferredOpenTurnHead.Component
+            ordinal={row.ordinal}
+            onFold={() => props.onFold(row.ordinal)}
+          />
+        </Suspense>
+      );
   }
+}
+
+/** A turn's line while its row's code loads (it loads while idle, so rarely seen). */
+function TurnLine(props: { ordinal: number }) {
+  return (
+    <p className="flex h-8 items-center font-mono text-xs tabular-nums text-subtle-foreground">
+      Turn {props.ordinal}
+    </p>
+  );
 }
 
 function NewActivity() {
@@ -492,52 +515,4 @@ function NewActivity() {
       New activity
     </div>
   );
-}
-
-/** Where each turn starts among the rows. */
-function turnStarts(rows: readonly Row[]): { index: number; ordinal: number }[] {
-  const starts: { index: number; ordinal: number }[] = [];
-  let previous: number | undefined;
-  rows.forEach((row, index) => {
-    const ordinal = row.ordinal;
-    if (ordinal === undefined || ordinal === previous) return;
-    starts.push({ index, ordinal });
-    previous = ordinal;
-  });
-  return starts;
-}
-
-/**
- * ⌥⌘↑ and ⌥⌘↓: the previous and next turn. Within the rows it scrolls; past them it jumps
- * (a window of older history, or the live end after the last turn).
- */
-function useTurnKeys(
-  rows: readonly Row[],
-  anchor: { current: Anchor | undefined },
-  nav: ThreadNav,
-  turnCount: number | undefined,
-  actions: { scrollTo(index: number): void; toLive(): void },
-) {
-  const step = (direction: 1 | -1) => {
-    const starts = turnStarts(rows);
-    const top = anchor.current?.index ?? 0;
-    const current = nav.currentTurn.get();
-    if (direction === 1) {
-      const next = starts.find((start) => start.index > top);
-      if (next) return actions.scrollTo(next.index);
-      const last = current ?? starts.at(-1)?.ordinal;
-      if (last !== undefined && turnCount !== undefined && last < turnCount)
-        return void nav.jump.toTurn(last + 1);
-      return actions.toLive();
-    }
-    const here = starts.findLast((start) => start.index <= top);
-    const offset = anchor.current?.offset ?? 0;
-    if (here && (here.index < top || offset < -8)) return actions.scrollTo(here.index);
-    const previous = starts.findLast((start) => start.index < (here?.index ?? top));
-    if (previous) return actions.scrollTo(previous.index);
-    const first = here?.ordinal ?? current;
-    if (first !== undefined && first > 1) void nav.jump.toTurn(first - 1);
-  };
-  useHotkey(keymap.nextTurn.keys, () => step(1));
-  useHotkey(keymap.previousTurn.keys, () => step(-1));
 }
