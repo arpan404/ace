@@ -20,6 +20,9 @@ export function scriptedProvider() {
     provider: "codex",
     capabilities: () =>
       Capabilities.parse({
+        // This in-process script executes no tools or native provider code.
+        // Declare the default mode so #84 admission can actually start sessions.
+        permissions: { modes: ["auto-review"], nativeAutoReview: false, toolGate: true },
         steer: false,
         interruptCascades: false,
         resume: true,
