@@ -28,8 +28,8 @@ test("a crash before acceptance cleans its journaled checkout on reopen and the 
     import { Store, Engine, AdapterRegistry } from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
     import { startServer } from ${JSON.stringify(new URL("./server.ts", import.meta.url).href)};
     import { WorkspaceRuntime } from ${JSON.stringify(new URL("./workspace-runtime.ts", import.meta.url).href)};
-    import { GitService } from '@ace/git';
-    import { Capabilities } from '@ace/protocol';
+    import { GitService } from ${JSON.stringify(import.meta.resolve("@ace/git"))};
+    import { Capabilities } from ${JSON.stringify(import.meta.resolve("@ace/protocol"))};
     const store = new Store(${JSON.stringify(join(h.home, "events.sqlite"))});
     const registry = new AdapterRegistry();
     registry.register({ provider: 'codex', capabilities: () => Capabilities.parse({ steer: false, interruptCascades: false, resume: false, fork: false, subagentTranscripts: false, backgroundTaskControl: false, backgroundVisibility: 'none', planMode: false, tokenUsage: false, imageInput: false, rewindFiles: false }),
