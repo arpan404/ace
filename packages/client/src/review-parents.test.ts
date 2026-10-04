@@ -65,10 +65,16 @@ test("reparenting preserves current children while removing empty historical par
   expect(view.agents[agent.id]?.status.state).toBe("working");
 });
 
-test("a snapshot cannot retain more parent references than the entity budget", () => {
+test("a snapshot discards stale parent references without rejecting active agents over its recent budget", () => {
   const view = createThreadView(thread);
   view.agents[agent.id] = agent;
+  const second = Agent.parse({ ...agent, id: "second-child", parentId: agent.id });
+  view.agents[second.id] = second;
   view.agentChildren = { first: [agent.id], second: [agent.id] };
   const store = new ThreadStore({ ...defaultLimits, entities: 1 });
-  expect(() => store.snapshot(view)).toThrow("capacity");
+  store.snapshot(view);
+  expect(store.agent(agent.id)?.status.state).toBe("working");
+  expect(store.agent(second.id)?.status.state).toBe("working");
+  expect(store.children(agent.id)).toEqual([second.id]);
+  expect(store.export().view?.agentChildren).toEqual({ [agent.id]: [second.id] });
 });

@@ -3,7 +3,7 @@ import { clipItem } from "./item-window.ts";
 import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
-import { applyDelivery, usageSnapshotKey } from "@ace/projection";
+import { applyDelivery, usageSnapshotKey, rebuildAgentChildren } from "@ace/projection";
 import type { ThreadView, EventBatch, Progress, ItemsPage } from "@ace/protocol";
 import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
 import type { ThreadKey, ThreadReader } from "./readers.ts";
@@ -151,6 +151,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     );
     endedTasks(view, Math.max(0, Object.keys(view.backgroundTasks).length - this.limits.entities));
     endedAgents(view, Math.max(0, Object.keys(view.agents).length - this.limits.entities));
+    // Parent indexes are derived from retained agents, never retained from stale wire references.
+    rebuildAgentChildren(view);
     const counts = new Map<string, number>();
     // Entity collections must stay bounded without discarding tree status facts.
     for (const [name, record] of Object.entries({
