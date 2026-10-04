@@ -127,13 +127,26 @@ test("below 1100px the sidebar steps aside for the right panel and comes back wh
   await waitFor(() => expect(sidebar()).toBeTruthy());
 });
 
-test("on a tablet the floating panel closes with Escape, as an overlay does", async () => {
+test("on a tablet the floating panel closes with Escape, as an overlay does, and focus returns to its toggle", async () => {
+  windowWidth(1024);
+  await openThread();
+  const toggle = within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" });
+  await userEvent.click(toggle);
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await userEvent.click(within(panel).getAllByRole("tab")[0]!);
+
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(document.activeElement).toBe(toggle);
+});
+
+test("on a tablet a click beside the floating panel closes it", async () => {
   windowWidth(1024);
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   await screen.findByRole("region", { name: "Thread panel" });
 
-  await userEvent.keyboard("{Escape}");
+  await userEvent.click(document.querySelector<HTMLElement>("[data-scrim]")!);
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 

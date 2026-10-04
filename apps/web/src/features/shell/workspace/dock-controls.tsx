@@ -39,6 +39,7 @@ export function DockControls(props: {
           icon={SquareHalfBottomIcon}
           label="Bottom panel"
           shortcut="bottomPanel"
+          data-dock-toggle="bottom"
           pressed={workspace.bottom.open}
           onClick={() => actions.toggle("bottom")}
         />
@@ -63,6 +64,7 @@ export function DockControls(props: {
         icon={SquareSplitHorizontalIcon}
         label="Right panel"
         shortcut="rightPanel"
+        data-dock-toggle="right"
         pressed={workspace.right.open}
         onClick={() => actions.toggle("right")}
       />

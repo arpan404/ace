@@ -66,7 +66,13 @@ export function WorkspaceDock(props: {
     setRightPanel(() => actions.setOpen("right", false));
     return () => setRightPanel(undefined);
   }, [right, state.open, setRightPanel, actions]);
-  useHotkey("escape", hide, { enabled: floating && state.open });
+  // Floating, it closes like any overlay: Escape or a click on the scrim, and focus goes back
+  // to the toggle that opened it rather than to the page.
+  const dismiss = () => {
+    hide();
+    toggleOutside(side)?.focus();
+  };
+  useHotkey("escape", dismiss, { enabled: floating && state.open });
   if (!presence.mounted) return null;
 
   const size = maximized ? layout.bounds.max : clampToBounds(layout.size, layout.bounds);
@@ -78,9 +84,10 @@ export function WorkspaceDock(props: {
       {floating && (
         <div
           aria-hidden
-          onClick={hide}
+          data-scrim
+          onClick={dismiss}
           className={cn(
-            "absolute inset-0 z-20 bg-black/20",
+            "absolute inset-0 z-20 bg-[color-mix(in_oklab,black_40%,transparent)]",
             closing ? "fx-fade-out" : presence.toggled && "fx-fade-in",
           )}
         />
@@ -99,9 +106,10 @@ export function WorkspaceDock(props: {
             : [
                 right ? !expanded && "border-l" : "border-t",
                 layout.overlay &&
+                  // An elevation shadow on the leading edge, over the scrim.
                   (right
-                    ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background shadow-[var(--glass-shadow)]"
-                    : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[var(--glass-shadow)]"),
+                    ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background shadow-[-16px_0_40px_-12px_rgb(0_0_0/0.45)]"
+                    : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[0_-16px_40px_-12px_rgb(0_0_0/0.45)]"),
               ],
           panelMotion(presence),
         )}
@@ -188,5 +196,12 @@ export function WorkspaceDock(props: {
         />
       </section>
     </>
+  );
+}
+
+/** The dock's toggle outside the dock itself (the header's), to return focus to. */
+function toggleOutside(side: Dock): HTMLElement | undefined {
+  return [...document.querySelectorAll<HTMLElement>(`[data-dock-toggle="${side}"]`)].find(
+    (toggle) => !toggle.closest("[data-dock]"),
   );
 }
