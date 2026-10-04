@@ -192,9 +192,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
     update,
     scope,
     docks,
-    workspace.right.open,
-    workspace.bottom.open,
-    workspace.expanded,
+    workspace,
   ]);
   return useMemo(
     () => [...threadGroups, ...staticGroups].filter((group) => group.items.length > 0),
