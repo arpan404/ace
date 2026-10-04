@@ -3,6 +3,7 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { Choices } from "./choices.ts";
 
 function app(options: Parameters<typeof harness>[0] = {}) {
   const made = harness(options);
@@ -47,6 +48,76 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   expect(within(nav).getByRole("link", { name: /Log every restart/ })).toBeTruthy();
 });
 
+/** Cursor also lists Codex's `gpt-5`, as Codex, Pi and Cursor all list `gpt-5.5` in practice. */
+function cursorSharesGpt5(made: ReturnType<typeof harness>) {
+  const { services } = made.daemon;
+  const codexGpt5 = services.models.find(
+    (m) => m.provider === "codex" && m.nativeModelId === "gpt-5",
+  );
+  if (!codexGpt5) throw new Error("fixture lists Codex GPT-5");
+  services.models.push({
+    ...codexGpt5,
+    id: "cursor:gpt-5",
+    provider: "cursor",
+    instance: "cursor",
+  });
+}
+const savedModel = (storage: ReturnType<typeof memoryKeyValue>) =>
+  Choices.parse(JSON.parse(storage.getItem("ace.home.newThread") ?? "{}")).model;
+
+test("a model id two providers share starts the thread on the provider it was picked under", async () => {
+  const made = app();
+  cursorSharesGpt5(made);
+  await made.open("/new?project=relay");
+
+  await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4.1/ }));
+  const cursor = await screen.findByRole("group", { name: "Cursor" });
+  await userEvent.click(within(cursor).getByRole("menuitemradio", { name: "GPT-5" }));
+  const codex = screen.getByRole("group", { name: "Codex" });
+  expect(within(codex).getByRole("menuitemradio", { name: "GPT-5" }).ariaChecked).toBe("false");
+  expect(within(cursor).getByRole("menuitemradio", { name: "GPT-5" }).ariaChecked).toBe("true");
+  await userEvent.keyboard("{Escape}");
+  await menuClosed();
+
+  await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
+  const created = listed(made).find((t) => t.title === "Trace the reconnect loop");
+  expect(created).toMatchObject({ provider: "cursor" });
+  expect(created?.live?.model).toBe("gpt-5");
+});
+
+test("a model remembered as a bare id stays picked on the starting provider and is saved by key", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.home.newThread", JSON.stringify({ model: "gpt-5" }));
+  const made = app({ storage });
+  cursorSharesGpt5(made);
+  made.daemon.services.settings.seed({ "providers.default": "codex" });
+  await made.open("/new?project=relay");
+
+  expect(
+    await screen.findByRole("button", { name: "Model: GPT-5, account personal" }),
+  ).toBeTruthy();
+  await waitFor(() => expect(savedModel(storage)).toBe("codex\u0000gpt-5"));
+  await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
+  const created = listed(made).find((t) => t.title === "Trace the reconnect loop");
+  expect(created).toMatchObject({ provider: "codex" });
+  expect(created?.live?.model).toBe("gpt-5");
+  expect(savedModel(storage)).toBe("codex\u0000gpt-5");
+});
+
+test("a bare id remembered for a model the starting provider doesn't list is not claimed by another provider", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.home.newThread", JSON.stringify({ model: "gpt-5" }));
+  const made = app({ storage });
+  cursorSharesGpt5(made);
+  // Claude Code starts; only Codex and Cursor list gpt-5.
+  await made.open("/new?project=relay");
+
+  expect(await screen.findByRole("button", { name: /^Model: Opus 4\.1/ })).toBeTruthy();
+  expect(savedModel(storage)).toBe("gpt-5");
+});
+
 test("Shift+Enter writes a new line instead of sending", async () => {
   const made = app();
   await made.open("/new");
@@ -59,8 +130,12 @@ test("Shift+Enter writes a new line instead of sending", async () => {
 test("the last model, account and work mode are remembered for the next thread", async () => {
   const storage = memoryKeyValue();
   await app({ storage }).open("/new?project=ace");
-  await userEvent.click(await screen.findByRole("button", { name: /^Model:/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4\.1/ }));
+  const claude = await screen.findByRole("group", { name: "Claude Code" });
+  await userEvent.click(within(claude).getByRole("menuitemradio", { name: "Sonnet 4.5" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Account work" }));
+  await userEvent.keyboard("{Escape}");
+  await menuClosed();
   await userEvent.click(screen.getByRole("button", { name: "Where the work happens: Worktree" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Local" }));
   // A worktree's base branch only applies to worktrees.
@@ -69,9 +144,18 @@ test("the last model, account and work mode are remembered for the next thread",
   );
   cleanup();
 
-  await app({ storage }).open("/new");
-  expect(await screen.findByRole("button", { name: "Model: Opus 4.1, account work" })).toBeTruthy();
+  const made = app({ storage });
+  await made.open("/new");
+  expect(
+    await screen.findByRole("button", { name: "Model: Sonnet 4.5, account work" }),
+  ).toBeTruthy();
   expect(screen.getByRole("button", { name: "Where the work happens: Local" })).toBeTruthy();
+
+  await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
+  const created = listed(made).find((t) => t.title === "Trace the reconnect loop");
+  expect(created).toMatchObject({ provider: "claude", details: { mode: "local" } });
+  expect(created?.live).toMatchObject({ model: "claude-sonnet-4-5", account: "claude-work" });
 });
 
 test("⌘N and the sidebar's New thread start in the project Home is narrowed to, before the last one used", async () => {

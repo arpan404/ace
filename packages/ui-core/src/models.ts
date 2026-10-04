@@ -178,6 +178,11 @@ export function choiceSelection(choice: ModelChoice): ThreadSelection & { model:
 
 /** A model to start a thread with; the account is picked separately. */
 export interface ModelOption {
+  /**
+   * Identifies the option in the picker. Providers share native ids (Codex, Pi and Cursor all
+   * list `gpt-5.5`), so picking by `id` alone would land on another provider's model.
+   */
+  key: string;
   /** `nativeModelId`, which is what thread.create carries. */
   id: string;
   label: string;
@@ -201,6 +206,10 @@ export interface AccountOption {
   isDefault: boolean;
 }
 
+function modelOptionKey(provider: ProviderKind, id: string): string {
+  return `${provider}\u0000${id}`;
+}
+
 /**
  * The New thread pickers: each model once per provider (whichever accounts serve it), and the
  * signed-in accounts, the first with headroom marked as the default for its provider. Only
@@ -219,10 +228,11 @@ export function newThreadOptions(
   const seen = new Set<string>();
   const options: ModelOption[] = [];
   for (const model of models) {
-    const key = `${model.provider}\u0000${model.nativeModelId}`;
+    const key = modelOptionKey(model.provider, model.nativeModelId);
     if (model.hidden || missing.has(model.provider) || seen.has(key)) continue;
     seen.add(key);
     options.push({
+      key,
       id: model.nativeModelId,
       label: model.displayName,
       provider: model.provider,
@@ -238,6 +248,7 @@ export function newThreadOptions(
     if (state !== "not_installed" && provider !== "acp" && !listed.has(provider)) {
       listed.add(provider);
       options.push({
+        key: modelOptionKey(provider, `${provider}:default`),
         id: `${provider}:default`,
         label: `${providerNames[provider]} default`,
         provider,
