@@ -11,5 +11,6 @@ test("an approval is answered from Activity and leaves the needs-you list", asyn
   await card.getByRole("button", { name: "Approve" }).click();
 
   await expect(card).toHaveCount(0);
-  await expect(page.getByRole("banner").getByText("5 need you")).toBeVisible();
+  // The release dry-run that ace's risk policy sent on still needs you, with the other five.
+  await expect(page.getByRole("banner").getByText("6 need you")).toBeVisible();
 });

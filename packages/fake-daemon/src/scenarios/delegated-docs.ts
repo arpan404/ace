@@ -1,7 +1,7 @@
 import type { Fact } from "@ace/core";
 import { ThreadId } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
-import { message, rootAgent, tool, toolDone, turn } from "./facts.ts";
+import { endTurn, message, rootAgent, tool, toolDone, turn } from "./facts.ts";
 
 const cwd = "/Users/dev/relay";
 export const delegatedDocsIds = {
@@ -18,7 +18,7 @@ const prompt = [
 
 /**
  * A Claude thread that delegated the relay protocol reference to Codex through ace (ADR 0052):
- * the delegate is an agent of the tree whose work is a thread of its own, still writing. The
+ * the delegate is an agent of the tree whose work is a thread of its own, now finished. The
  * agent tab shows the delegation record, the child thread's transcript and a follow-up that
  * goes to that thread. Play `delegatedDocs()` whole: the parent first, then the child thread it delegated.
  */
@@ -49,8 +49,9 @@ export function delegatedDocs(): Scenario[] {
             "root",
             "progress",
             "assistant",
-            "Drafted the frame table for `hello`, `resume` and `ack`; writing the gap-handling section next.",
+            "Drafted the frame table for `hello`, `resume` and `ack`, then the gap-handling section: docs/protocol/relay.md is 312 lines and links ADR 0006 for windowing.",
           ),
+          endTurn("root"),
         ],
       },
     ],
@@ -83,7 +84,7 @@ export function delegatedDocs(): Scenario[] {
       type: "agent.external",
       agent: "docs",
       threadId: ThreadId.parse(delegatedDocsIds.child),
-      status: { state: "working", agents: 1 },
+      status: { state: "done" },
     },
   ];
   const parent: Scenario = {
@@ -111,8 +112,9 @@ export function delegatedDocs(): Scenario[] {
             "root",
             "handoff",
             "assistant",
-            "Codex is drafting the reference in its own thread; I'll review it when it lands and update the changelog meanwhile.",
+            "Codex wrote the reference in its own thread (docs/protocol/relay.md); I've updated the changelog to link it.",
           ),
+          endTurn("root"),
         ],
       },
     ],

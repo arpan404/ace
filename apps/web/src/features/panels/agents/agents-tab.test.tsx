@@ -4,8 +4,7 @@ import {
   delegatedDocsIds,
   failingSubagent,
 } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -183,12 +182,6 @@ test("an agent ace delegated shows its own thread and takes a follow-up there", 
     "Add a table of close codes too.",
   );
   await userEvent.click(within(panel).getByRole("button", { name: /^Send/ }));
-  await waitFor(async () => {
-    const reply = await app.client.request({
-      type: "queue.get",
-      threadId: ThreadId.parse(delegatedDocsIds.child),
-      limit: 10,
-    });
-    expect(JSON.stringify(reply)).toContain("Add a table of close codes too.");
-  });
+  // The child thread was settled, so the follow-up starts its next turn there.
+  expect(await within(transcript).findByText("Add a table of close codes too.")).toBeTruthy();
 });

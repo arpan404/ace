@@ -41,7 +41,7 @@ export function devWorld(): WorldThread[] {
     // ace's risk policy approving, denying and escalating a release's commands.
     { scenario: permissionAudit(), agoMs: 6 * minute },
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
-    ...delegatedDocs().map((scenario) => ({ scenario, agoMs: minute })),
+    ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
     ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
   ]);
