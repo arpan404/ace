@@ -1,41 +1,66 @@
 import { close, fstat, read, write, type Stats } from "node:fs";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { getSystemErrorName } from "node:util";
 import { z } from "zod";
 import { DIRECTORY_CAP, WorkspaceError } from "./types.ts";
 
 const require = createRequire(import.meta.url);
-const binding = z
-  .object({
-    pipe: z.function({
-      input: [],
-      output: z.object({
-        read: z.number().int().nonnegative(),
-        write: z.number().int().nonnegative(),
-      }),
+const Binding = z.object({
+  pipe: z.function({
+    input: [],
+    output: z.object({
+      read: z.number().int().nonnegative(),
+      write: z.number().int().nonnegative(),
     }),
-    openRoot: z.function({ input: [z.string()], output: z.number().int().nonnegative() }),
-    openAt: z.function({
-      input: [z.number().int(), z.string(), z.number().int()],
-      output: z.number().int().nonnegative(),
+  }),
+  openRoot: z.function({ input: [z.string()], output: z.number().int().nonnegative() }),
+  openAt: z.function({
+    input: [z.number().int(), z.string(), z.number().int()],
+    output: z.number().int().nonnegative(),
+  }),
+  unlinkAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
+  renameAt: z.function({ input: [z.number().int(), z.string(), z.string()], output: z.void() }),
+  mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
+  statAt: z.function({
+    input: [z.number().int(), z.string()],
+    output: z.object({
+      dev: z.number(),
+      ino: z.number(),
+      mode: z.number().int(),
+      size: z.number(),
+      mtime: z.number(),
     }),
-    mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
-    statAt: z.function({
-      input: [z.number().int(), z.string()],
-      output: z.object({
-        dev: z.number(),
-        ino: z.number(),
-        mode: z.number().int(),
-        size: z.number(),
-        mtime: z.number(),
-      }),
-    }),
-    names: z.function({
-      input: [z.number().int(), z.number().int()],
-      output: z.array(z.string()).max(DIRECTORY_CAP),
-    }),
-  })
-  .parse(require("../dist/descriptor.node"));
+  }),
+  names: z.function({
+    input: [z.number().int(), z.number().int()],
+    output: z.array(z.string()).max(DIRECTORY_CAP),
+  }),
+});
+let loaded: z.infer<typeof Binding> | undefined;
+function binding(): z.infer<typeof Binding> {
+  // Importing the shared service API needs no native addon. Filesystem operations load it on demand.
+  if (!loaded) {
+    let native: unknown;
+    try {
+      native = require("../dist/descriptor.node");
+    } catch (error) {
+      if (
+        !process.versions.electron ||
+        !(error instanceof Error && "code" in error && error.code === "MODULE_NOT_FOUND")
+      )
+        throw error;
+      native = require(
+        join(
+          z.object({ resourcesPath: z.string().min(1) }).parse(process).resourcesPath,
+          "daemon/descriptor.node",
+        ),
+      );
+    }
+    loaded = Binding.parse(native);
+  }
+  return loaded;
+}
 function nativeFailure(error: unknown): never {
   if (error instanceof Error && "errno" in error && typeof error.errno === "number") {
     const code = getSystemErrorName(error.errno);
@@ -47,21 +72,21 @@ function nativeFailure(error: unknown): never {
 }
 export function openAt(parent: number, name: string, flags: number): Descriptor {
   try {
-    return new Descriptor(binding.openAt(parent, name, flags));
+    return new Descriptor(binding().openAt(parent, name, flags));
   } catch (error) {
     return nativeFailure(error);
   }
 }
 export function mkdirAt(parent: number, name: string): void {
   try {
-    binding.mkdirAt(parent, name);
+    binding().mkdirAt(parent, name);
   } catch (error) {
     nativeFailure(error);
   }
 }
 export function descriptorNames(fd: number, limit = DIRECTORY_CAP): string[] {
   try {
-    return binding.names(fd, limit).toSorted();
+    return binding().names(fd, limit).toSorted();
   } catch (error) {
     return nativeFailure(error);
   }
@@ -110,7 +135,7 @@ export class Descriptor {
 
 export function statAt(parent: number, name: string) {
   try {
-    return binding.statAt(parent, name);
+    return binding().statAt(parent, name);
   } catch (error) {
     return nativeFailure(error);
   }
@@ -118,7 +143,7 @@ export function statAt(parent: number, name: string) {
 
 export function openRoot(path: string): Descriptor {
   try {
-    return new Descriptor(binding.openRoot(path));
+    return new Descriptor(binding().openRoot(path));
   } catch (error) {
     return nativeFailure(error);
   }
@@ -126,8 +151,23 @@ export function openRoot(path: string): Descriptor {
 
 export function pipeDescriptors() {
   try {
-    return binding.pipe();
+    return binding().pipe();
   } catch (error) {
     return nativeFailure(error);
+  }
+}
+
+export function unlinkAt(parent: number, name: string): void {
+  try {
+    binding().unlinkAt(parent, name);
+  } catch (error) {
+    nativeFailure(error);
+  }
+}
+export function renameAt(parent: number, from: string, to: string): void {
+  try {
+    binding().renameAt(parent, from, to);
+  } catch (error) {
+    nativeFailure(error);
   }
 }
