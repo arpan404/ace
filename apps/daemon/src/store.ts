@@ -1,3 +1,15 @@
+import { LongThreadIndex } from "./long-thread/index.ts";
+import {
+  TurnsPageRequest,
+  ItemsWindowRequest,
+  ItemsWindowResponse,
+  ThreadSearchRequest,
+  ThreadCatchUpRequest,
+  type TurnsPageRequest as TurnsQuery,
+  type ItemsWindowRequest as WindowQuery,
+  type ThreadSearchRequest as ThreadSearchQuery,
+  type ThreadCatchUpRequest as CatchUpQuery,
+} from "@ace/protocol";
 import {
   migrateDeckWorkspaces,
   saveWorkspaceDeck,
@@ -72,6 +84,7 @@ export class Store {
   private readonly payloads: PayloadStore;
   private readonly history: HistoryIndex;
   private readonly status: StatusStore;
+  private readonly longThreads: LongThreadIndex;
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
@@ -122,6 +135,10 @@ export class Store {
       this.history.initialize();
       this.status.initialize((id) => this.getThread(id));
       this.atomic(migrateRunClient);
+      this.longThreads = new LongThreadIndex(this.db, (id) => {
+        const thread = this.getThread(ThreadId.parse(id));
+        return thread?.deletedAt === undefined ? thread : undefined;
+      });
       this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
@@ -147,6 +164,7 @@ export class Store {
       throw error;
     }
     void this.search.backfill(this, { signal: this.searchAbort.signal }).catch(this.onError);
+    void this.longThreads.backfill(this, this.searchAbort.signal).catch(this.onError);
   }
   private onError: (error: unknown) => void;
   close(): Promise<void> {
@@ -547,6 +565,7 @@ export class Store {
         this.payloads.persist(event);
         this.history.record(event);
         this.status.persist(event, thread);
+        this.longThreads.append(event, thread);
         this.statement("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)").run(
           seq,
           event.id,
@@ -725,6 +744,83 @@ export class Store {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
     return { ...this.payloads.page(threadId, before, limit), seq: this.headSeq() };
   }
+  private readableThread(id: ThreadId): Thread {
+    const thread = this.getThread(id);
+    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
+    return thread;
+  }
+  turnsPage(input: Omit<TurnsQuery, "type" | "requestId"> & { requestId?: string }) {
+    const query = TurnsPageRequest.parse({ type: "turns.page", requestId: "turns", ...input });
+    this.readableThread(query.threadId);
+    return this.longThreads.reader.page(query, this.headSeq());
+  }
+  itemsWindow(input: Omit<WindowQuery, "type" | "requestId"> & { requestId?: string }) {
+    const query = ItemsWindowRequest.parse({ type: "items.window", requestId: "window", ...input });
+    this.readableThread(query.threadId);
+    let target = query.aroundSeq;
+    if (query.turnOrdinal !== undefined) {
+      const row = this.longThreads.data
+        .sql(
+          "SELECT MIN(i.created_seq) AS seq FROM long_items i JOIN item_heads h ON h.id=i.item_id AND h.thread_id=i.thread_id WHERE i.thread_id=? AND i.ordinal=?",
+        )
+        .get(query.threadId, query.turnOrdinal);
+      if (row?.seq == null) throw new Error("turn_target_unavailable");
+      target = Number(row.seq);
+    }
+    return ItemsWindowResponse.parse({
+      type: "items.window",
+      requestId: query.requestId,
+      seq: this.headSeq(),
+      ...this.payloads.window(query.threadId, target ?? 0, query.before, query.after, 1024 * 1024),
+    });
+  }
+  threadSearch(
+    input: Omit<ThreadSearchQuery, "type" | "requestId"> & { requestId?: string },
+    authorize: (id: ThreadId) => boolean = () => true,
+  ) {
+    const query = ThreadSearchRequest.parse({
+      type: "thread.search",
+      requestId: "search",
+      ...input,
+    });
+    this.readableThread(query.threadId);
+    const threads =
+      query.scope === "tree"
+        ? this.longThreads.reader.descendantThreads(query.threadId)
+        : [query.threadId];
+    if (threads.some((id) => !authorize(ThreadId.parse(id)))) throw new Error("forbidden");
+    const response = this.search.threadQuery(query, {
+      headSeq: this.headSeq(),
+      threadIds: threads,
+      turnOrdinalForItem: (thread, item) => this.longThreads.reader.ordinal(thread, item),
+    });
+    const indexedSeq = Math.min(response.indexedSeq, this.longThreads.data.indexedSeq());
+    return { ...response, indexedSeq, ready: response.ready && indexedSeq >= response.headSeq };
+  }
+  threadCatchUp(
+    input: Omit<CatchUpQuery, "type" | "requestId"> & { requestId?: string },
+    authorize: (id: ThreadId) => boolean = () => true,
+  ) {
+    const query = ThreadCatchUpRequest.parse({
+      type: "thread.catchUp",
+      requestId: "catch-up",
+      ...input,
+    });
+    this.readableThread(query.threadId);
+    const family = this.longThreads.reader.descendantThreads(query.threadId);
+    if (family.some((id) => !authorize(ThreadId.parse(id)))) throw new Error("forbidden");
+    return this.longThreads.reader.catchUp(query, this.headSeq(), family);
+  }
+  threadReadState(threadId: ThreadId, deviceId: DeviceId, requestId = "read-state") {
+    this.readableThread(threadId);
+    return this.longThreads.reader.readState(threadId, deviceId, requestId);
+  }
+  markThreadRead(threadId: ThreadId, deviceId: DeviceId, lastSeenSeq: number): void {
+    this.readableThread(threadId);
+    this.atomic(() =>
+      this.longThreads.reader.markRead(threadId, deviceId, lastSeenSeq, this.headSeq(), this.now()),
+    );
+  }
   outputThread(streamId: string) {
     return this.payloads.liveStreamThread(streamId);
   }
@@ -787,6 +883,9 @@ export class Store {
       this.statement("INSERT INTO usage_deletions VALUES (?, ?, ?)").run(seq, id, this.now());
       this.statement("UPDATE host_sequence SET seq=? WHERE id=1").run(seq);
       this.search.deleteThread(id);
+      this.search.acknowledgeDeletion(seq);
+      if (this.longThreads.data.indexedSeq() === seq - 1)
+        this.longThreads.data.run("UPDATE long_meta SET seq=? WHERE id=1", seq);
       this.mcp.deleteThread(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);

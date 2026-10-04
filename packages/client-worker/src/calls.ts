@@ -1,5 +1,14 @@
 import { ClientError, type Client, type RegistryQuery, type ServiceRequest } from "@ace/client";
-import { CommandPayload, TextSource } from "@ace/protocol";
+import {
+  CommandPayload,
+  TextSource,
+  TurnsPageRequest,
+  ItemsWindowRequest,
+  ThreadSearchRequest,
+  ThreadCatchUpRequest,
+  ThreadReadStateRequest,
+  ThreadMarkReadCommand,
+} from "@ace/protocol";
 import { z } from "zod";
 
 /*
@@ -37,6 +46,21 @@ const ServiceInput = z.custom<ServiceRequest>(
 );
 
 const schemas = {
+  turnsPage: z.tuple([
+    z.object(TurnsPageRequest.shape).omit({ type: true, requestId: true }),
+    Options,
+  ]),
+  itemsWindow: z.tuple([
+    z.object(ItemsWindowRequest.shape).omit({ type: true, requestId: true }),
+    Options,
+  ]),
+  threadSearch: z.tuple([ThreadSearchRequest.omit({ type: true, requestId: true }), Options]),
+  threadCatchUp: z.tuple([
+    z.object(ThreadCatchUpRequest.shape).omit({ type: true, requestId: true }),
+    Options,
+  ]),
+  threadReadState: z.tuple([ThreadReadStateRequest.omit({ type: true, requestId: true }), Options]),
+  markThreadRead: z.tuple([ThreadMarkReadCommand.omit({ type: true }), Options]),
   enqueue: z.tuple([CommandPayload, z.string().optional()]),
   command: z.tuple([CommandPayload, Options, z.string().optional()]),
   registry: z.tuple([RegistryInput, Options]),
@@ -89,6 +113,30 @@ export async function callArgs(
     case "registry": {
       const [input, parsed] = decode(schemas.registry, args);
       return client.registry(input, options(parsed, signal));
+    }
+    case "turnsPage": {
+      const [input, parsed] = decode(schemas.turnsPage, args);
+      return client.turnsPage(input, options(parsed, signal));
+    }
+    case "itemsWindow": {
+      const [input, parsed] = decode(schemas.itemsWindow, args);
+      return client.itemsWindow(input, options(parsed, signal));
+    }
+    case "threadSearch": {
+      const [input, parsed] = decode(schemas.threadSearch, args);
+      return client.threadSearch(input, options(parsed, signal));
+    }
+    case "threadCatchUp": {
+      const [input, parsed] = decode(schemas.threadCatchUp, args);
+      return client.threadCatchUp(input, options(parsed, signal));
+    }
+    case "threadReadState": {
+      const [input, parsed] = decode(schemas.threadReadState, args);
+      return client.threadReadState(input, options(parsed, signal));
+    }
+    case "markThreadRead": {
+      const [input, parsed] = decode(schemas.markThreadRead, args);
+      return client.markThreadRead(input, options(parsed, signal));
     }
     case "itemsPage": {
       const [page, parsed] = decode(schemas.itemsPage, args);

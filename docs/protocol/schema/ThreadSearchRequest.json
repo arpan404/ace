@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadSearchRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursor": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "filter": {
+      "enum": [
+        "messages",
+        "tool_output",
+        "commands",
+        "files",
+        "errors"
+      ],
+      "type": "string"
+    },
+    "limit": {
+      "default": 30,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scope": {
+      "default": "thread",
+      "enum": [
+        "thread",
+        "tree"
+      ],
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "thread.search",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "text"
+  ],
+  "type": "object"
+}

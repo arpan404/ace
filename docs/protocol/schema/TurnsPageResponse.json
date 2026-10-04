@@ -1,0 +1,74 @@
+{
+  "$id": "https://ace.local/protocol/v1/TurnsPageResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "after": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "before": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "indexedSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "ready": {
+      "type": "boolean"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "turns": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/TurnSummary.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "type": {
+      "const": "turns.page",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "seq",
+    "indexedSeq",
+    "ready",
+    "turns",
+    "before",
+    "after"
+  ],
+  "type": "object"
+}
