@@ -14,7 +14,12 @@ export async function verifyNatives(arch: Arch): Promise<void> {
     join(dist, "bin", process.platform === "win32" ? "rg.exe" : "rg"),
     ...(process.platform === "win32"
       ? []
-      : [join(dist, "daemon/descriptor.node"), join(dist, "runtime/bin/node")]),
+      : [
+          join(dist, "daemon/descriptor.node"),
+          // Every terminal the daemon opens starts this guardian.
+          join(dist, "daemon/group-keeper"),
+          join(dist, "runtime/bin/node"),
+        ]),
   ];
   const problems = required.filter((path) => !existsSync(path)).map((path) => `missing ${path}`);
   const pty = [
