@@ -3,7 +3,8 @@ import type { ThreadId } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import type { Store } from "../store.ts";
 import { AceInput, settledInputEcho } from "./ace-input-attribution.ts";
-const MessageIdentity = z.strictObject({
+// Adapters may report extra metadata. Origin is derived exclusively from the host command.
+const MessageIdentity = z.object({
   commandId: z.string().min(1).max(512),
   nativeId: z.string().min(1).max(256),
 });

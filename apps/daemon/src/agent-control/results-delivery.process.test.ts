@@ -83,8 +83,14 @@ test("copying ace wake text through a user command remains user input across rep
     }).ok,
   ).toBe(true);
   await h.engine.flush();
-  const nativeId = h.inputMessages.get(parent.threadId)?.at(-1)?.nativeId;
-  if (!nativeId) throw new Error("Missing user identity");
+  const sentId = h.inputMessages.get(parent.threadId)?.at(-1)?.nativeId;
+  if (!sentId) throw new Error("Missing user identity");
+  const nativeId = `echo:${sentId}`;
+  // Provider metadata cannot override the durable host command's attribution.
+  const claimedOrigin = { commandId: "copied-by-user", nativeId, origin: "ace" };
+  const context = h.contexts.get(parent.threadId);
+  if (!context?.onInputMessage) throw new Error("Missing input correlation boundary");
+  context.onInputMessage(claimedOrigin);
   await h.emit(parent.threadId, {
     type: "item.upsert",
     agent: "root",
@@ -122,7 +128,9 @@ test("copying ace wake text through a user command remains user input across rep
   const page = restarted.store.readItemPage(parent.threadId, restarted.store.headSeq() + 1, 50);
   expect(
     page.items.filter((item) => item.type === "message" && item.role === "user"),
-  ).toContainEqual(expect.objectContaining({ parts: [{ type: "text", text }] }));
+  ).toContainEqual(
+    expect.objectContaining({ parts: [expect.objectContaining({ type: "text", text })] }),
+  );
   expect(page.items.filter((item) => item.type === "delegation.settled")).toEqual(before);
   expect(restarted.errors).toEqual([]);
 });
