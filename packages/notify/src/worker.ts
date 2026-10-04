@@ -119,7 +119,9 @@ export class NotificationWorker {
     for (const flight of this.flights.values()) flight.abort();
     this.flights.clear();
   }
-  private call(call: WorkerCall): Promise<number | undefined> {
+  private call(call: WorkerCall, signal?: AbortSignal): Promise<number | undefined> {
+    if (signal?.aborted)
+      return Promise.reject(new DOMException("Notification operation aborted", "AbortError"));
     if (this.failed) return Promise.reject(this.failed);
     if (this.closing && call.method !== "close")
       return Promise.reject(new Error("Notification worker closing"));
@@ -140,11 +142,32 @@ export class NotificationWorker {
     )
       return Promise.reject(new Error("Notification worker byte backpressure"));
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, bytes, disconnect });
+      const cancel = () => {
+        if (!this.pending.delete(id)) return;
+        this.pendingBytes -= bytes;
+        if (disconnect) this.pendingDisconnects--;
+        signal?.removeEventListener("abort", cancel);
+        reject(new DOMException("Notification operation aborted", "AbortError"));
+      };
+      this.pending.set(id, {
+        resolve(value) {
+          signal?.removeEventListener("abort", cancel);
+          resolve(value);
+        },
+        reject(error) {
+          signal?.removeEventListener("abort", cancel);
+          reject(error);
+        },
+        bytes,
+        disconnect,
+      });
       if (disconnect) this.pendingDisconnects++;
       this.pendingBytes += bytes;
+      signal?.addEventListener("abort", cancel, { once: true });
+      if (signal?.aborted) cancel();
       void this.ready
         .then(() => {
+          if (!this.pending.has(id)) return;
           if (this.failed) throw this.failed;
           this.worker.postMessage(message, []);
         })
@@ -153,12 +176,13 @@ export class NotificationWorker {
             this.pendingBytes -= bytes;
             if (disconnect) this.pendingDisconnects--;
           }
+          signal?.removeEventListener("abort", cancel);
           reject(error);
         });
     });
   }
-  async cursor(): Promise<number> {
-    return (await this.call({ method: "cursor" })) ?? 0;
+  async cursor(signal?: AbortSignal): Promise<number> {
+    return (await this.call({ method: "cursor" }, signal)) ?? 0;
   }
   ingest(events: readonly Event[]): Promise<void> {
     if (events.length > 256)
@@ -214,8 +238,8 @@ export class NotificationWorker {
   async disconnect(session: string): Promise<void> {
     await this.call({ method: "disconnect", session });
   }
-  async revoke(device: DeviceId): Promise<void> {
-    await this.call({ method: "revoke", device });
+  async revoke(device: DeviceId, signal?: AbortSignal): Promise<void> {
+    await this.call({ method: "revoke", device }, signal);
   }
   async drain(): Promise<void> {
     await this.call({ method: "drain" });

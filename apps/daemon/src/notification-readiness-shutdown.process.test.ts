@@ -76,7 +76,8 @@ for (const method of ["cursor", "revoke"])
     );
     await io.held;
     const closing = notifications.close();
-    io.release();
+    // The caller never releases the held RPC. Shutdown must cancel readiness
+    // independently while preserving uncancelled ingestion and presence calls.
     const result = await readiness;
     expect(result).toBeInstanceOf(Error);
     expect(result).toMatchObject({ name: "AbortError" });

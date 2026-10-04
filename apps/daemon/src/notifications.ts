@@ -54,10 +54,19 @@ export function createDaemonNotifications(
       },
     },
   });
-  const attached = attachNotifications(service, store, (error) => {
-    if (signal?.aborted && error instanceof Error && error.name === "AbortError") return;
-    onError(error);
-  });
+  const attached = attachNotifications(
+    {
+      cursor: () => service.cursor(signal),
+      // Admitted ingestion remains durable shutdown work, not cancellable startup.
+      ingest: (events) => service.ingest(events),
+      drain: () => service.drain(),
+    },
+    store,
+    (error) => {
+      if (signal.aborted && error instanceof Error && error.name === "AbortError") return;
+      onError(error);
+    },
+  );
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
   const startups = new Set<Promise<void>>();
@@ -77,7 +86,7 @@ export function createDaemonNotifications(
     track(
       (async () => {
         cancelled();
-        await service.cursor();
+        await service.cursor(signal);
         cancelled();
       })(),
     );
@@ -86,13 +95,13 @@ export function createDaemonNotifications(
     readiness ??= track(
       (async () => {
         cancelled();
-        await service.cursor();
+        await service.cursor(signal);
         cancelled();
         // Check after every RPC before scheduling another one, especially durable revocations.
         for (const device of store.devices.list()) {
           if (device.revokedAt === null) continue;
           cancelled();
-          await service.revoke(device.id);
+          await service.revoke(device.id, signal);
           cancelled();
         }
         for (;;) {
