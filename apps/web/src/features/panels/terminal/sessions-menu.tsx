@@ -79,7 +79,9 @@ export function SessionsMenu(props: { scope: string; dock: Dock }) {
         {unseen > 0 && (
           <span
             aria-hidden
-            className="pointer-events-none absolute top-0 right-0 grid h-3 min-w-3 place-items-center rounded-full bg-foreground px-[3px] text-[9px] leading-none font-semibold text-background tabular-nums"
+            // 14px at the button's corner, ringed in the panel's colour so it stands clear of
+            // the glyph under it.
+            className="pointer-events-none absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-foreground px-1 text-[10px] leading-none font-semibold text-background tabular-nums shadow-[0_0_0_1.5px_var(--color-panel)]"
           >
             {unseen}
           </span>
