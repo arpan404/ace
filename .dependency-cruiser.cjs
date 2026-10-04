@@ -14,15 +14,28 @@
  * - routes/: thin TanStack file routes; may import feature public surfaces only
  */
 const web = "^apps/web/src/";
-/** What this config guards; everything else is resolved but neither followed nor reported. */
+/** Browser source roots. Workspace dependencies are followed to detect Node-only entries. */
 const scope = "^(apps/web/|packages/(client|client-worker|client-react|fake-daemon|ui-core)/)";
 /** Test-only code may reach a daemon or fixtures that production code must not. */
 const testOnly = "(\\.test\\.tsx?|\\.fixture\\.ts|/test-support\\.ts)$";
 const feature = `${web}features/([^/]+)/`;
+const { builtinModules } = require("node:module");
+const builtins = [...new Set(builtinModules.map((name) => name.replace(/^node:/, "")))];
+const nodeOnly = `^(?:node:.*|${builtins.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`;
 
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
+    {
+      name: "browser-no-node",
+      severity: "error",
+      comment:
+        "Browser bundles cannot reach Node built-ins, including through Node-only package entries such as @ace/settings. Import a portable subpath such as @ace/settings/defaults instead.",
+      // Every followed runtime dependency belongs to a browser bundle, even
+      // when it lives in a workspace package or node_modules.
+      from: { path: ".", pathNot: testOnly },
+      to: { path: nodeOnly, dependencyTypesNot: ["type-only"] },
+    },
     {
       name: "no-circular",
       severity: "error",
@@ -82,8 +95,8 @@ module.exports = {
       name: "ui-core-no-platform",
       severity: "error",
       comment: "@ace/ui-core runs in React Native too: no Node built-ins.",
-      from: { path: "^packages/ui-core/" },
-      to: { dependencyTypes: ["core"] },
+      from: { path: "^packages/ui-core/", pathNot: testOnly },
+      to: { dependencyTypes: ["core"], dependencyTypesNot: ["type-only"] },
     },
     {
       name: "packages-not-apps",
@@ -102,15 +115,17 @@ module.exports = {
   ],
   options: {
     parser: "swc",
-    doNotFollow: { path: `node_modules|^(?!${scope.slice(1)})` },
-    exclude: { path: "(^|/)routeTree\\.gen\\.ts$|/node_modules/" },
+    // Follow workspace exports so a Node-only package root cannot hide a built-in import.
+    doNotFollow: { dependencyTypes: ["type-only"] },
+    exclude: { path: `(^|/)routeTree\\.gen\\.ts$|${testOnly}` },
     tsPreCompilationDeps: true,
     combinedDependencies: true,
     enhancedResolveOptions: {
       exportsFields: ["exports"],
-      conditionNames: ["import", "default"],
+      aliasFields: ["browser"],
+      conditionNames: ["browser", "import", "default"],
       extensions: [".ts", ".tsx", ".js", ".mjs", ".d.ts"],
-      mainFields: ["module", "main", "types"],
+      mainFields: ["browser", "module", "main", "types"],
     },
     webpackConfig: { fileName: "scripts/depcruise-resolve.cjs" },
     reporterOptions: { text: { highlightFocused: true } },

@@ -90,3 +90,15 @@ it("omits opaque encrypted provider reasoning state from captures", () => {
     ),
   ).toEqual({ state: { reasoningEncryptedContent: "<SECRET>" } });
 });
+
+it("redacts macOS per-user temp roots outside the configured workspace", () => {
+  expect(
+    JSON.parse(
+      redact(
+        JSON.stringify({
+          text: "/var/folders/ab/private-temp-id/T/other/file /private/var/folders/cd/other-private-id/C/cache/file",
+        }),
+      ),
+    ),
+  ).toEqual({ text: "<TEMP>/other/file <TEMP>/cache/file" });
+});

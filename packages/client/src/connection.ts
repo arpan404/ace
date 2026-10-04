@@ -109,6 +109,10 @@ export class Connection {
       this.fail(new ClientError(code === 4002 ? "protocol" : code === 1009 ? "limit" : "auth"));
       return;
     }
+    this.error =
+      code === 4013
+        ? new ClientError("limit", "Device state subscriber capacity reached; retrying")
+        : undefined;
     this.cleanup();
     this.disconnected();
     if (decision === "offline") {
@@ -128,7 +132,9 @@ export class Connection {
       this.fail(new ClientError("protocol"));
       return;
     }
-    this.cancel = this.options.scheduler.set(delay, () => this.connect());
+    this.cancel = this.options.scheduler.set(code === 4013 ? Math.max(5000, delay) : delay, () =>
+      this.connect(),
+    );
   }
   private connect(): void {
     this.cleanup();
@@ -219,6 +225,7 @@ export class Connection {
           this.healthy = undefined;
         });
         this.awaitingPong = false;
+        this.error = undefined;
         this.state = "ready";
         this.tick();
         this.received(message);
