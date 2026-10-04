@@ -1,3 +1,4 @@
+import { mergeTurnDigests, turnActivityStatus } from "@ace/projection";
 import { threadItemText } from "@ace/search/thread-text";
 import type {
   ClientMessage,
@@ -75,7 +76,10 @@ export class FakeLongThreadWire {
       return true;
     }
     const seq = this.host.head();
-    const turns = this.index.summaries(message.threadId);
+    const turns =
+      message.type === "turns.page" || message.type === "items.window"
+        ? this.index.summaries(message.threadId)
+        : [];
     switch (message.type) {
       case "turns.page": {
         const selected = turns.filter(
@@ -147,11 +151,29 @@ export class FakeLongThreadWire {
         return true;
       }
       case "thread.catchUp": {
-        const changed = turns.filter((turn) =>
-          message.sinceSeq !== undefined
-            ? turn.endSeq > message.sinceSeq
-            : (turn.endedAt ?? turn.startedAt) > (message.sinceTime ?? 0),
+        const family = this.tree(host.view);
+        if (!family) {
+          send({
+            type: "error",
+            requestId: message.requestId,
+            code: "family_too_large",
+            message: "family_too_large",
+          });
+          return true;
+        }
+        const latest = family
+          .map((source) => this.index.latestMessage(source.id))
+          .filter((value) => value !== undefined)
+          .toSorted((a, b) => b.seq - a.seq)[0];
+        const index = this.index;
+        const since = { sinceSeq: message.sinceSeq, sinceTime: message.sinceTime };
+        const statuses = family.map(
+          (source) => index.currentStatus(source.id) ?? source.view.thread.status,
         );
+        function* digests() {
+          for (const source of family ?? []) yield index.rangeDigest(source.id, since);
+        }
+        const digest = mergeTurnDigests(digests());
         send({
           type: message.type,
           requestId: message.requestId,
@@ -159,12 +181,26 @@ export class FakeLongThreadWire {
           seq,
           indexedSeq: seq,
           ready: true,
-          turnsCompleted: changed.filter(
-            (turn) => turn.outcome === "completed" && turn.status.state === "done",
-          ).length,
-          status: structuredClone(host.view.thread.status),
-          digest: this.index.rangeDigest(message.threadId, message),
-          latestAgentMessagePreview: turns.at(-1)?.latestAgentMessagePreview ?? "",
+          turnsCompleted: this.index.completed(message.threadId, message),
+          status: structuredClone(
+            turnActivityStatus(
+              {
+                "live:interactions": digest.approvalsPending,
+                "live:agents": family.filter(
+                  (source) =>
+                    !["done", "new", "failed"].includes(
+                      (index.currentStatus(source.id) ?? source.view.thread.status).state,
+                    ),
+                ).length,
+              },
+              statuses,
+            ) ??
+              (statuses.some((status) => status.state === "failed")
+                ? { state: "failed" }
+                : host.view.thread.status),
+          ),
+          digest,
+          latestAgentMessagePreview: latest?.preview ?? "",
         });
         return true;
       }
@@ -204,6 +240,15 @@ export class FakeLongThreadWire {
           return true;
         }
         const sources = message.scope === "tree" ? this.tree(host.view) : [host];
+        if (!sources) {
+          send({
+            type: "error",
+            requestId: message.requestId,
+            code: "family_too_large",
+            message: "family_too_large",
+          });
+          return true;
+        }
         const matches: import("@ace/protocol").ThreadSearchResponse["hits"] = [];
         for (const source of sources)
           for (const id of source.view.itemOrder) {
@@ -230,7 +275,7 @@ export class FakeLongThreadWire {
                 ],
               },
             });
-            matches.sort((left, right) => left.seq - right.seq);
+            matches.toSorted((left, right) => left.seq - right.seq);
             if (matches.length > message.limit + 1) matches.pop();
           }
         const hits = matches.slice(0, message.limit);
@@ -252,7 +297,7 @@ export class FakeLongThreadWire {
     }
   }
 
-  private tree(view: ThreadView): ThreadHost[] {
+  private tree(view: ThreadView): ThreadHost[] | undefined {
     const result: ThreadHost[] = [];
     const seen = new Set<string>();
     const pending = [view.thread.id];
@@ -260,6 +305,7 @@ export class FakeLongThreadWire {
       const id = pending.pop();
       if (id === undefined || seen.has(id)) continue;
       seen.add(id);
+      if (seen.size > 512) return undefined;
       const host = this.visible(id);
       if (!host) continue;
       result.push(host);

@@ -38,6 +38,358 @@ async function connect(daemon: FakeDaemon, device = "phone") {
   return client;
 }
 
+// Mutation cases: count only approvals opened after the cutoff; omit descendant facts;
+// include inclusive provider/model-session token samples; use sequence order as time order.
+// Not executed (tests run at merge). These regressions are written before the fixes.
+test("fake catch-up includes already pending approvals and later linked child commands", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  for (const id of ["family", "child"])
+    daemon.createThread({
+      id,
+      workspaceId: "ace",
+      title: id,
+      provider: "codex",
+      permissionMode: "ask",
+    });
+  const root = {
+    type: "agent.seen" as const,
+    agent: "root",
+    origin: "root" as const,
+    fidelity: "full" as const,
+    native: { provider: "codex" as const, nativeId: "root" },
+    cwd: "/fake",
+  };
+  daemon.apply("family", [
+    root,
+    { type: "turn.started", agent: "root", trigger: "user" },
+    {
+      type: "agent.seen",
+      agent: "proxy",
+      parent: "root",
+      origin: "provider_subagent",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "proxy" },
+      cwd: "/fake",
+    },
+    {
+      type: "agent.external",
+      agent: "proxy",
+      threadId: ThreadId.parse("child"),
+      status: { state: "working", agents: 1 },
+    },
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "pending",
+      blocking: true,
+      request: {
+        kind: "approval",
+        title: "Approve migration",
+        options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+      },
+    },
+  ]);
+  const sinceSeq = daemon.head;
+  daemon.apply("child", [
+    root,
+    { type: "turn.started", agent: "root", trigger: "user" },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "command",
+      draft: {
+        type: "tool_call",
+        call: {
+          kind: "shell",
+          title: "Validate child",
+          status: "failed",
+          detail: { kind: "shell", command: "child-check", exitCode: 7 },
+        },
+      },
+    },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "message",
+      draft: {
+        type: "message",
+        role: "assistant",
+        complete: true,
+        parts: [{ type: "text", text: "Child validation failed" }],
+      },
+    },
+  ]);
+  const client = await connect(daemon);
+  try {
+    expect(await client.threadCatchUp({ threadId: "family", sinceSeq })).toMatchObject({
+      digest: {
+        approvalsAsked: 0,
+        approvalsPending: 1,
+        commandsRun: 1,
+        commandsFailed: 1,
+        errors: 1,
+        commands: [{ command: "child-check", failed: true, exitCode: 7 }],
+      },
+      latestAgentMessagePreview: "Child validation failed",
+    });
+    daemon.apply("family", [
+      {
+        type: "interaction.closed",
+        interaction: "pending",
+        state: "resolved",
+        resolution: { kind: "approval", optionId: "allow" },
+      },
+    ]);
+    expect((await client.threadCatchUp({ threadId: "family", sinceSeq })).digest).toMatchObject({
+      approvalsPending: 0,
+      approvalsAnswered: 1,
+      commandsRun: 1,
+    });
+  } finally {
+    await client.close();
+  }
+});
+
+test("fake turn usage excludes inclusive session totals and deduplicates model counters", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  daemon.createThread({ id: "usage-scope", workspaceId: "ace", title: "Usage", provider: "codex" });
+  daemon.apply("usage-scope", [
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "root" },
+      cwd: "/fake",
+    },
+    { type: "turn.started", agent: "root", trigger: "user" },
+    {
+      type: "usage",
+      agent: "root",
+      model: "model-a",
+      inputTokens: 100,
+      outputTokens: 25,
+      counterMode: "cumulative",
+      usageScope: "agent",
+    },
+    {
+      type: "usage",
+      agent: "root",
+      model: "model-a",
+      inputTokens: 100,
+      outputTokens: 25,
+      counterMode: "cumulative",
+      usageScope: "provider_session",
+    },
+    {
+      type: "usage",
+      agent: "root",
+      model: "model-a",
+      inputTokens: 100,
+      outputTokens: 25,
+      counterMode: "cumulative",
+      usageScope: "model_session",
+    },
+    {
+      type: "usage",
+      agent: "root",
+      model: "model-b",
+      inputTokens: 40,
+      outputTokens: 10,
+      counterMode: "cumulative",
+      usageScope: "agent",
+    },
+  ]);
+  const client = await connect(daemon);
+  try {
+    expect((await client.turnsPage({ threadId: "usage-scope" })).turns[0]?.digest).toMatchObject({
+      inputTokens: 140,
+      outputTokens: 35,
+    });
+    expect(
+      (await client.threadCatchUp({ threadId: "usage-scope", sinceSeq: 0 })).digest,
+    ).toMatchObject({ inputTokens: 140, outputTokens: 35 });
+    // A known token counter has a zero delta after this cursor, rather than unknown usage.
+    expect(
+      (await client.threadCatchUp({ threadId: "usage-scope", sinceSeq: daemon.head })).digest,
+    ).toMatchObject({ inputTokens: 0, outputTokens: 0 });
+  } finally {
+    await client.close();
+  }
+});
+
+test("fake catch-up uses event timestamps when a later append has an earlier timestamp", async () => {
+  let now = 200;
+  const daemon = new FakeDaemon({ clock: () => now });
+  daemon.createThread({
+    id: "unordered-time",
+    workspaceId: "ace",
+    title: "Time",
+    provider: "codex",
+  });
+  daemon.apply("unordered-time", [
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "root" },
+      cwd: "/fake",
+    },
+    { type: "turn.started", agent: "root", trigger: "user" },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "a",
+      draft: {
+        type: "tool_call",
+        call: {
+          kind: "shell",
+          title: "A",
+          status: "succeeded",
+          detail: { kind: "shell", command: "command-a" },
+        },
+      },
+    },
+  ]);
+  now = 100;
+  daemon.apply("unordered-time", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "b",
+      draft: {
+        type: "tool_call",
+        call: {
+          kind: "shell",
+          title: "B",
+          status: "failed",
+          detail: { kind: "shell", command: "command-b", exitCode: 1 },
+        },
+      },
+    },
+  ]);
+  const client = await connect(daemon);
+  try {
+    const catchUp = await client.threadCatchUp({ threadId: "unordered-time", sinceTime: 150 });
+    expect(catchUp.digest).toMatchObject({
+      commandsRun: 1,
+      commandsFailed: 0,
+      commands: [{ command: "command-a", failed: false }],
+    });
+    expect(
+      (await client.threadCatchUp({ threadId: "unordered-time", sinceTime: 100 })).digest
+        .commandsRun,
+    ).toBe(1);
+  } finally {
+    await client.close();
+  }
+});
+
+// Mutation cases: count a replacement as another command/tool; retain removed file paths;
+// keep the old command result in a cached aggregate; rescan the transcript for partial catch-up.
+// Not executed (tests run at merge).
+test("fake incremental digests replace command outcomes and changed files without duplicate facts", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  daemon.createThread({
+    id: "replace-digest",
+    workspaceId: "ace",
+    title: "Replace",
+    provider: "codex",
+  });
+  daemon.apply("replace-digest", [
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "root" },
+      cwd: "/fake",
+    },
+    { type: "turn.started", agent: "root", trigger: "user" },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "command",
+      draft: {
+        type: "tool_call",
+        call: {
+          kind: "shell",
+          title: "Validation",
+          status: "running",
+          detail: { kind: "shell", command: "validate" },
+        },
+      },
+    },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "edit",
+      draft: {
+        type: "tool_call",
+        call: {
+          kind: "file.edit",
+          title: "Migration",
+          status: "succeeded",
+          detail: {
+            kind: "file.edit",
+            changes: [{ path: "old.ts", kind: "add", newText: "first\nsecond\n" }],
+          },
+        },
+      },
+    },
+  ]);
+  const sinceSeq = daemon.head;
+  daemon.apply("replace-digest", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "command",
+      draft: {
+        type: "tool_call",
+        complete: true,
+        call: { status: "failed", detail: { kind: "shell", exitCode: 9 } },
+      },
+    },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "edit",
+      draft: {
+        type: "tool_call",
+        call: {
+          detail: {
+            kind: "file.edit",
+            changes: [{ path: "new.ts", kind: "add", newText: "replacement\n" }],
+          },
+        },
+      },
+    },
+  ]);
+  const client = await connect(daemon);
+  try {
+    expect((await client.turnsPage({ threadId: "replace-digest" })).turns[0]?.digest).toMatchObject(
+      {
+        toolCounts: { shell: 1, "file.edit": 1 },
+        commandsRun: 1,
+        commandsFailed: 1,
+        commands: [{ command: "validate", failed: true, exitCode: 9 }],
+        files: [{ path: "new.ts", added: 1, removed: 0 }],
+      },
+    );
+    expect(
+      (await client.threadCatchUp({ threadId: "replace-digest", sinceSeq })).digest,
+    ).toMatchObject({
+      commandsRun: 0,
+      commandsFailed: 1,
+      commands: [{ command: "validate", failed: true, exitCode: 9 }],
+      files: [{ path: "new.ts", added: 1, removed: 0 }],
+    });
+  } finally {
+    await client.close();
+  }
+});
+
 // Mutation cases: discard turn boundaries; double-count authoritative tool replacements;
 // drop answered approvals; lose commands/files/tokens. Not executed (tests run at merge).
 test("fake turn pages report outcomes and digest facts across five days", async () => {
@@ -91,6 +443,62 @@ test("fake turn pages report outcomes and digest facts across five days", async 
       status: { state: "done" },
       digest: { commandsRun: 2, approvalsAnswered: 2, inputTokens: 2000 },
     });
+  } finally {
+    await client.close();
+  }
+});
+
+// Mutation cases: count only successful completions; omit interrupted/failed settled turns;
+// ignore sequence/time cutoffs on current completion membership.
+// Not executed (tests run at merge).
+test("fake catch-up counts failed and interrupted turns once their trees settle", async () => {
+  let now = 100;
+  const daemon = new FakeDaemon({ clock: () => now });
+  daemon.createThread({
+    id: "settled-outcomes",
+    workspaceId: "ace",
+    title: "Outcomes",
+    provider: "codex",
+  });
+  daemon.apply("settled-outcomes", [
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "root" },
+      cwd: "/fake",
+    },
+    { type: "turn.started", agent: "root", nativeTurnId: "failed", trigger: "user" },
+    {
+      type: "turn.ended",
+      agent: "root",
+      nativeTurnId: "failed",
+      outcome: "failed",
+      error: { kind: "provider", message: "Failed validation" },
+    },
+  ]);
+  const failedSeq = daemon.head;
+  now = 200;
+  daemon.apply("settled-outcomes", [
+    { type: "turn.started", agent: "root", nativeTurnId: "interrupted", trigger: "user" },
+    { type: "turn.ended", agent: "root", nativeTurnId: "interrupted", outcome: "interrupted" },
+  ]);
+  const client = await connect(daemon);
+  try {
+    expect(
+      (await client.threadCatchUp({ threadId: "settled-outcomes", sinceSeq: 0 })).turnsCompleted,
+    ).toBe(2);
+    expect(
+      (await client.threadCatchUp({ threadId: "settled-outcomes", sinceSeq: failedSeq }))
+        .turnsCompleted,
+    ).toBe(1);
+    expect(
+      (await client.threadCatchUp({ threadId: "settled-outcomes", sinceTime: 150 })).turnsCompleted,
+    ).toBe(1);
+    expect(
+      (await client.turnsPage({ threadId: "settled-outcomes" })).turns.map((turn) => turn.outcome),
+    ).toEqual(["failed", "interrupted"]);
   } finally {
     await client.close();
   }

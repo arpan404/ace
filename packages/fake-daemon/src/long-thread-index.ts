@@ -1,14 +1,12 @@
-import { accountSample, counterPolicy } from "@ace/usage/accounting";
+import { accountSample, counterPolicy, countsTowardTurnUsage } from "@ace/usage/accounting";
 import {
   agentThreadStatus,
   approvalAutoReviewed,
+  turnIsSettled,
   turnActivityStatus,
-  digestContributions,
-  digestFromCounters,
   emptyTurnDigest,
   itemDigestContribution,
   itemMessagePreview,
-  mergeTurnDigests,
   type DigestContribution,
 } from "@ace/projection";
 import type {
@@ -19,25 +17,34 @@ import type {
   TurnSubagentSummary,
 } from "@ace/protocol";
 
+import {
+  AggregateIndex,
+  ChangeIndex,
+  aggregateDigest,
+  contributionAggregate,
+  combineAggregates,
+  emptyAggregate,
+} from "./long-thread-aggregate.ts";
+
 interface TurnRecord {
   summary: TurnSummary;
   contributions: Map<string, DigestContribution>;
   counters: Record<string, number>;
+  reportedCounters: Record<string, number>;
+  itemAggregate: AggregateIndex;
+  agentAggregates: Map<string, AggregateIndex>;
+  messages: AggregateIndex;
+  settled?: { seq: number; at: number };
   agents: Set<string>;
 }
 
 /** Fake-mode derived data. Reads use these summaries rather than replaying the transcript. */
 export class FakeTurnIndex {
-  private changes = new Map<
-    string,
-    Array<{
-      seq: number;
-      at: number;
-      counters: Record<string, number>;
-      files: TurnDigest["files"];
-      commands: TurnDigest["commands"];
-    }>
-  >();
+  private changes = new Map<string, ChangeIndex>();
+  private completedSeq = new Map<string, AggregateIndex>();
+  private completedTime = new Map<string, AggregateIndex>();
+  private threadMessages = new Map<string, AggregateIndex>();
+  private itemSeqs = new Map<string, number>();
   private itemAgents = new Map<string, string>();
   private turns = new Map<string, Map<number, TurnRecord>>();
   private runs = new Map<string, number>();
@@ -47,6 +54,7 @@ export class FakeTurnIndex {
   private autoReviewed = new Map<string, boolean>();
   private current = new Map<string, number>();
   private usage = new Map<string, ReturnType<typeof accountSample>["next"]>();
+  private usageKnown = new Set<string>();
   private agentRuns = new Map<string, string>();
   private agentStates = new Map<string, string>();
 
@@ -75,6 +83,10 @@ export class FakeTurnIndex {
         },
         contributions: new Map(),
         counters: {},
+        reportedCounters: {},
+        itemAggregate: new AggregateIndex(),
+        agentAggregates: new Map(),
+        messages: new AggregateIndex(),
         agents: new Set(),
       };
       thread.set(ordinal, turn);
@@ -88,7 +100,6 @@ export class FakeTurnIndex {
     let ordinal = this.current.get(threadId);
     let previousContribution: DigestContribution | undefined;
     let nextContribution: DigestContribution | undefined;
-    let previousCounters: Record<string, number> = {};
     if (payload.type === "run.started") {
       ordinal =
         payload.run.agentId === view.thread.rootAgentId
@@ -116,6 +127,7 @@ export class FakeTurnIndex {
       }
       if (ordinal === undefined) return;
       this.items.set(item.id, ordinal);
+      if (!this.itemSeqs.has(item.id)) this.itemSeqs.set(item.id, event.seq);
       const turn = this.ensure(event, ordinal);
       previousContribution = turn.contributions.get(item.id);
       nextContribution = itemDigestContribution(item);
@@ -126,26 +138,27 @@ export class FakeTurnIndex {
       )
         turn.contributions.set(item.id, nextContribution);
       else turn.contributions.delete(item.id);
-      if (item.agentId) this.itemAgents.set(item.id, item.agentId);
-      if (item.type === "message") {
-        if (item.role === "user" && !turn.summary.initiatingMessagePreview)
-          turn.summary.initiatingMessagePreview = itemMessagePreview(item);
-        if (item.role === "assistant")
-          turn.summary.latestAgentMessagePreview = itemMessagePreview(item);
-      }
+      this.replaceItem(turn, item.id, turn.contributions.get(item.id), item.agentId, event.seq);
+      if (item.type === "message")
+        this.replaceMessage(
+          turn,
+          threadId,
+          item.id,
+          item.role,
+          itemMessagePreview(item),
+          event.seq,
+        );
     } else if (payload.type === "agent.created" && payload.agent.parentId !== null) {
       ordinal = this.agents.get(payload.agent.parentId) ?? ordinal;
       if (ordinal === undefined) return;
       this.agents.set(payload.agent.id, ordinal);
       const turn = this.ensure(event, ordinal);
       turn.agents.add(payload.agent.id);
-      previousCounters = { ...turn.counters };
       turn.counters.subagentsStarted = (turn.counters.subagentsStarted ?? 0) + 1;
     } else if (payload.type === "agent.status") {
       ordinal = this.agents.get(payload.agentId) ?? ordinal;
       if (ordinal !== undefined) {
         const counters = this.ensure(event, ordinal).counters;
-        previousCounters = { ...counters };
         if (payload.status.state === "failed" && this.agentStates.get(payload.agentId) !== "failed")
           counters.errors = (counters.errors ?? 0) + 1;
       }
@@ -165,9 +178,9 @@ export class FakeTurnIndex {
       this.interactions.set(payload.interaction.id, ordinal);
       if (payload.interaction.request.kind === "approval") {
         const counters = this.ensure(event, ordinal).counters;
-        previousCounters = { ...counters };
         counters.approvalsAsked = (counters.approvalsAsked ?? 0) + 1;
         counters.approvalsPending = (counters.approvalsPending ?? 0) + 1;
+        this.pending.set(threadId, (this.pending.get(threadId) ?? 0) + 1);
         const reviewed = approvalAutoReviewed(payload.interaction);
         counters.approvalsAutoReviewed = (counters.approvalsAutoReviewed ?? 0) + Number(reviewed);
         this.autoReviewed.set(payload.interaction.id, reviewed);
@@ -178,8 +191,8 @@ export class FakeTurnIndex {
       const interaction = view.interactions[payload.interactionId];
       if (interaction?.request.kind === "approval") {
         const counters = this.ensure(event, ordinal).counters;
-        previousCounters = { ...counters };
         counters.approvalsPending = Math.max(0, (counters.approvalsPending ?? 0) - 1);
+        this.pending.set(threadId, Math.max(0, (this.pending.get(threadId) ?? 0) - 1));
         if (payload.state === "resolved")
           counters.approvalsAnswered = (counters.approvalsAnswered ?? 0) + 1;
         const reviewed = approvalAutoReviewed(interaction);
@@ -195,7 +208,6 @@ export class FakeTurnIndex {
       const interaction = view.interactions[payload.review.interactionId];
       if (interaction?.request.kind === "approval") {
         const counters = this.ensure(event, ordinal).counters;
-        previousCounters = { ...counters };
         const reviewed = approvalAutoReviewed(interaction);
         counters.approvalsAutoReviewed =
           (counters.approvalsAutoReviewed ?? 0) +
@@ -204,22 +216,16 @@ export class FakeTurnIndex {
         this.autoReviewed.set(payload.review.interactionId, reviewed);
       }
     } else if (payload.type === "usage.updated") {
+      if (!countsTowardTurnUsage(payload)) return;
       ordinal = this.agents.get(payload.agentId) ?? ordinal;
       if (ordinal === undefined) return;
       const counters = this.ensure(event, ordinal).counters;
-      previousCounters = { ...counters };
       const policy = counterPolicy(
         payload,
         view.thread.provider,
         this.agentRuns.get(payload.agentId) ?? "unknown",
       );
-      const scope = JSON.stringify([
-        threadId,
-        payload.usageScope === "provider_session" || payload.usageScope === "model_session"
-          ? null
-          : payload.agentId,
-        policy.scope,
-      ]);
+      const scope = JSON.stringify([threadId, payload.agentId, payload.model ?? "", policy.scope]);
       const sample = accountSample(
         payload,
         view.thread.provider,
@@ -227,19 +233,30 @@ export class FakeTurnIndex {
         this.usage.get(scope),
       );
       if (policy.tracked) this.usage.set(scope, sample.next);
+      this.usageKnown.add(threadId);
+      counters.tokenSamples = (counters.tokenSamples ?? 0) + 1;
       counters.inputTokens = (counters.inputTokens ?? 0) + sample.delta.input;
       counters.outputTokens = (counters.outputTokens ?? 0) + sample.delta.output;
     } else if (payload.type === "item.delta") {
       ordinal = this.items.get(payload.itemId) ?? ordinal;
       const item = view.items[payload.itemId];
-      if (ordinal !== undefined && item?.type === "message" && item.role === "assistant")
-        this.ensure(event, ordinal).summary.latestAgentMessagePreview = itemMessagePreview(item);
+      if (ordinal !== undefined && item?.type === "message")
+        this.replaceMessage(
+          this.ensure(event, ordinal),
+          threadId,
+          item.id,
+          item.role,
+          itemMessagePreview(item),
+          event.seq,
+        );
     } else if (payload.type === "item.deleted") {
       ordinal = this.items.get(payload.itemId) ?? ordinal;
       if (ordinal !== undefined) {
         const owner = this.ensure(event, ordinal);
         previousContribution = owner.contributions.get(payload.itemId);
         owner.contributions.delete(payload.itemId);
+        this.replaceItem(owner, payload.itemId, undefined, undefined, event.seq);
+        this.replaceMessage(owner, threadId, payload.itemId, undefined, "", event.seq);
       }
     }
     if (ordinal === undefined) return;
@@ -248,34 +265,30 @@ export class FakeTurnIndex {
     this.refresh(turn, view);
     const difference: Record<string, number> = {};
     for (const key of new Set([
-      ...Object.keys(previousContribution?.counters ?? {}),
-      ...Object.keys(nextContribution?.counters ?? {}),
+      ...Object.keys(turn.reportedCounters),
+      ...Object.keys(turn.counters),
     ]))
-      difference[key] =
-        (nextContribution?.counters[key] ?? 0) - (previousContribution?.counters[key] ?? 0);
+      difference[key] = (turn.counters[key] ?? 0) - (turn.reportedCounters[key] ?? 0);
+    turn.reportedCounters = { ...turn.counters };
+    const changed = combineAggregates(
+      contributionAggregate(previousContribution, event.seq, -1),
+      contributionAggregate(nextContribution, event.seq),
+      { ...emptyAggregate(), counters: difference },
+    );
     if (
-      [
-        "interaction.opened",
-        "interaction.closed",
-        "permission.reviewed",
-        "usage.updated",
-        "agent.created",
-        "agent.status",
-      ].includes(payload.type)
-    )
-      for (const [key, value] of Object.entries(turn.counters))
-        difference[key] = (difference[key] ?? 0) + value - (previousCounters[key] ?? 0);
-    const files =
-      nextContribution?.files.length && !previousContribution?.files.length
-        ? nextContribution.files
-        : [];
-    const commands = nextContribution?.commands ?? [];
-    if (Object.values(difference).some((value) => value !== 0) || files.length || commands.length) {
-      const changes = this.changes.get(threadId) ?? [];
-      changes.push({ seq: event.seq, at: event.at, counters: difference, files, commands });
+      Object.values(changed.counters).some((value) => value !== 0) ||
+      changed.files.length ||
+      changed.commands.length
+    ) {
+      const changes = this.changes.get(threadId) ?? new ChangeIndex();
+      changes.append(event.seq, event.at, changed);
       this.changes.set(threadId, changes);
     }
-    if (ordinal === this.current.get(threadId)) turn.summary.status = { ...view.thread.status };
+    if (ordinal === this.current.get(threadId))
+      turn.summary.status = turnActivityStatus({}, [turn.summary.status, view.thread.status]) ?? {
+        ...view.thread.status,
+      };
+    this.recordCompletion(threadId, turn, event);
   }
 
   private refresh(turn: TurnRecord, view: ThreadView): void {
@@ -286,16 +299,13 @@ export class FakeTurnIndex {
     turn.counters.subagentsFinished = children.filter((agent) =>
       ["idle", "interrupted", "failed"].includes(agent.status.state),
     ).length;
-    turn.summary.digest = mergeTurnDigests([
-      digestContributions(turn.contributions.values()),
-      digestFromCounters(turn.counters),
-    ]);
+    turn.summary.digest = aggregateDigest(
+      combineAggregates(turn.itemAggregate.all(), { ...emptyAggregate(), counters: turn.counters }),
+    );
     const liveChildren = children.filter(
       (agent) => !["idle", "interrupted", "failed"].includes(agent.status.state),
     );
-    const liveTools = [...turn.contributions.values()].some(
-      (contribution) => (contribution.counters["live:tools"] ?? 0) > 0,
-    );
+    const liveTools = (turn.itemAggregate.all().counters["live:tools"] ?? 0) > 0;
     turn.summary.status = turnActivityStatus(
       {
         "live:interactions": turn.summary.digest.approvalsPending,
@@ -310,11 +320,7 @@ export class FakeTurnIndex {
         agentId: agent.id,
         status: agentThreadStatus(agent.status),
         startedAt: agent.createdAt,
-        digest: digestContributions(
-          [...turn.contributions]
-            .filter(([id]) => this.itemAgents.get(id) === agent.id)
-            .map(([, contribution]) => contribution),
-        ),
+        digest: aggregateDigest(turn.agentAggregates.get(agent.id)?.all() ?? emptyAggregate()),
       };
       if (agent.childThreadId) summary.threadId = agent.childThreadId;
       if (agent.name) summary.name = agent.name.slice(0, 1024);
@@ -329,30 +335,99 @@ export class FakeTurnIndex {
       .map((turn) => turn.summary)
       .toSorted((left, right) => left.ordinal - right.ordinal);
   }
+  currentStatus(threadId: string): TurnSummary["status"] | undefined {
+    const ordinal = this.current.get(threadId);
+    return ordinal === undefined
+      ? undefined
+      : this.turns.get(threadId)?.get(ordinal)?.summary.status;
+  }
   itemTurn(itemId: string): number | null {
     return this.items.get(itemId) ?? null;
+  }
+  private replaceMessage(
+    turn: TurnRecord,
+    threadId: string,
+    itemId: string,
+    role: string | undefined,
+    preview: string,
+    eventSeq: number,
+  ): void {
+    const seq = this.itemSeqs.get(itemId) ?? eventSeq;
+    const value = emptyAggregate();
+    if (role === "user") value.firstUser = { seq, preview };
+    if (role === "assistant") value.latestAssistant = { seq, preview };
+    turn.messages.set(seq, 0, value);
+    const thread = this.threadMessages.get(threadId) ?? new AggregateIndex();
+    thread.set(seq, 0, value);
+    this.threadMessages.set(threadId, thread);
+    turn.summary.initiatingMessagePreview = turn.messages.all().firstUser?.preview ?? "";
+    turn.summary.latestAgentMessagePreview = turn.messages.all().latestAssistant?.preview ?? "";
+  }
+  private replaceItem(
+    turn: TurnRecord,
+    itemId: string,
+    contribution: DigestContribution | undefined,
+    agentId: string | undefined,
+    seq: number,
+  ): void {
+    const key = this.itemSeqs.get(itemId) ?? seq;
+    const aggregate = contributionAggregate(contribution, seq);
+    if (contribution || this.itemAgents.has(itemId)) turn.itemAggregate.set(key, 0, aggregate);
+    const previousAgent = this.itemAgents.get(itemId);
+    if (previousAgent && previousAgent !== agentId)
+      turn.agentAggregates.get(previousAgent)?.set(key, 0, emptyAggregate());
+    if (agentId && contribution) {
+      this.itemAgents.set(itemId, agentId);
+      const agent = turn.agentAggregates.get(agentId) ?? new AggregateIndex();
+      agent.set(key, 0, aggregate);
+      turn.agentAggregates.set(agentId, agent);
+    }
+  }
+
+  private recordCompletion(threadId: string, turn: TurnRecord, event: DeliveryEvent): void {
+    const done = turn.summary.outcome !== "active" && turnIsSettled(turn.summary.status);
+    if (done === Boolean(turn.settled)) return;
+    const sequence = this.completedSeq.get(threadId) ?? new AggregateIndex();
+    const time = this.completedTime.get(threadId) ?? new AggregateIndex();
+    if (turn.settled) {
+      sequence.set(turn.settled.seq, turn.summary.ordinal, emptyAggregate());
+      time.set(turn.settled.at, turn.summary.ordinal, emptyAggregate());
+      delete turn.settled;
+    } else {
+      turn.settled = { seq: event.seq, at: event.at };
+      const value = { ...emptyAggregate(), counters: { turnsCompleted: 1 } };
+      sequence.set(event.seq, turn.summary.ordinal, value);
+      time.set(event.at, turn.summary.ordinal, value);
+    }
+    this.completedSeq.set(threadId, sequence);
+    this.completedTime.set(threadId, time);
+  }
+
+  completed(
+    threadId: string,
+    since: { sinceSeq?: number | undefined; sinceTime?: number | undefined },
+  ): number {
+    return (
+      (since.sinceSeq !== undefined
+        ? this.completedSeq.get(threadId)?.after(since.sinceSeq)
+        : this.completedTime.get(threadId)?.after(since.sinceTime ?? 0)
+      )?.counters.turnsCompleted ?? 0
+    );
+  }
+  latestMessage(threadId: string): { seq: number; preview: string } | undefined {
+    return this.threadMessages.get(threadId)?.all().latestAssistant;
   }
   rangeDigest(
     threadId: string,
     since: { sinceSeq?: number | undefined; sinceTime?: number | undefined },
   ): TurnDigest {
-    const counters: Record<string, number> = {};
-    const changes = this.changes.get(threadId) ?? [];
-    const changed = (change: { seq: number; at: number }) =>
-      since.sinceSeq !== undefined
-        ? change.seq > since.sinceSeq
-        : change.at > (since.sinceTime ?? 0);
-    for (const change of changes) {
-      if (!changed(change)) continue;
-      for (const [key, value] of Object.entries(change.counters))
-        counters[key] = (counters[key] ?? 0) + value;
+    const result = aggregateDigest(this.changes.get(threadId)?.range(since) ?? emptyAggregate());
+    if (this.usageKnown.has(threadId)) {
+      result.inputTokens ??= 0;
+      result.outputTokens ??= 0;
     }
-    function* digests(): Generator<TurnDigest> {
-      yield digestFromCounters(counters);
-      for (const change of changes)
-        if (changed(change) && (change.files.length || change.commands.length))
-          yield { ...emptyTurnDigest(), files: change.files, commands: change.commands };
-    }
-    return mergeTurnDigests(digests());
+    result.approvalsPending = this.pending.get(threadId) ?? 0;
+    return result;
   }
+  private pending = new Map<string, number>();
 }
