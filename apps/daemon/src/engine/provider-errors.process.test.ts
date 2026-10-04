@@ -69,6 +69,17 @@ test("Claude model rejection renders readable notices and retains codes and prov
       ),
     ).toBe(false);
     expect(view.thread.status.state).toBe("failed");
+    expect(Object.values(view.agents)).toContainEqual(
+      expect.objectContaining({
+        status: {
+          state: "failed",
+          error: expect.objectContaining({
+            message: expect.stringContaining("Claude could not use the selected model"),
+            details: { code: "model_not_found", provider: "claude", model: "opus-5.5" },
+          }),
+        },
+      }),
+    );
     expect(h.errors).toEqual([]);
   } finally {
     await h.close();

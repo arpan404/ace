@@ -68,7 +68,11 @@ export function readableProviderFact(
       };
   }
   if (fact.type === "turn.ended" && fact.error) {
-    const error = readable(provider, fact.error.message, selectedModel);
+    const error = readable(
+      provider,
+      fact.error.details?.code ?? fact.error.message,
+      fact.error.details?.model ?? selectedModel,
+    );
     if (error)
       return { ...fact, error: { ...fact.error, message: error.text, details: error.details } };
   }
