@@ -1,5 +1,6 @@
 import { EntityWindow } from "./entity-window.ts";
 import { EntityRetention, retainedEntity } from "./entity-retention.ts";
+import { trimAgentMetadata } from "./metadata-retention.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import {
   QueueState,
@@ -273,7 +274,6 @@ export class StatusStore {
       )
         restore(collection, id);
       else {
-        if (collection !== "usageSnapshots" && !policy.hasAgent(id)) continue;
         const row = this.statement(
           "SELECT value FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
         ).get(view.thread.id, collection, id);
@@ -292,6 +292,9 @@ export class StatusStore {
       }
     }
     this.removeEvicted(view, policy);
+    for (const collection of ["usage", "contextMeters"] as const)
+      if (Array.from(changed.values()).some((entry) => entry.collection === collection))
+        trimAgentMetadata(view, collection);
   }
   replaceCache(view: ThreadView, source: ThreadView): void {
     Object.assign(view, source);
@@ -313,6 +316,10 @@ export class StatusStore {
     this.window?.fill(view);
     const agentIds = Object.keys(view.agents);
     for (const collection of ["usage", "contextMeters"] as const) {
+      // Facts may precede agent.created. Retention must not depend on metadata arrival order.
+      const recent = Array.from(this.window?.metadata(thread.id, collection) ?? []);
+      for (const row of recent.toReversed())
+        setValue(input[collection], String(row.id), JSON.parse(String(row.value)));
       for (const id of agentIds) {
         const row = this.statement(
           "SELECT value FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
@@ -324,6 +331,7 @@ export class StatusStore {
           );
       }
       Object.assign(view, { [collection]: ThreadView.shape[collection].parse(input[collection]) });
+      trimAgentMetadata(view, collection);
     }
     for (const row of this.statement(
       "SELECT id,value FROM view_entities WHERE thread_id=? AND collection='usageSnapshots' ORDER BY rowid DESC LIMIT 200",

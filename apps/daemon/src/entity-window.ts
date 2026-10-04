@@ -80,6 +80,9 @@ export class EntityWindow {
     view.entitiesBefore = cursors;
     this.retainAgents(view);
   }
+  metadata(threadId: string, collection: "usage" | "contextMeters") {
+    return this.rows(threadId, collection, "1=1", "DESC LIMIT 200");
+  }
   retainAgents(view: ThreadView): void {
     const agents = new Set(Object.keys(view.agents));
     for (const entity of [
