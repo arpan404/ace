@@ -45,9 +45,12 @@ Run `node packages/client-worker/bench/machines.ts` in an isolated process under
 Node 24+. Repeat each scenario at least three times; retain raw JSON and record
 machine load, Node version and commit. The benchmark uses public pool APIs,
 separate worker threads, fake host catalogs and no provider prompts or user
-home. It measures 1, 2 and 3 hosts, each with 100, 1,000 and 5,000 sidebar rows.
+home. It measures 1, 2 and 3 hosts, each with 100, 500 and 1,000 sidebar rows.
+The fixture retains the client's existing frame and entity limits. Its fake
+transport sends whole snapshots, so these cases stay below the unfragmented
+frame budget rather than increasing it for the benchmark.
 For an isolated scenario, append host count and rows, for example
-`node packages/client-worker/bench/machines.ts 2 5000`.
+`node packages/client-worker/bench/machines.ts 2 1000`.
 
 Output includes startup time, merged changes/second, command-to-merged p95,
 predicate reads per changed row, healthy-host latency while another worker is

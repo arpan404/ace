@@ -96,11 +96,11 @@ if (process.argv.length > 2) {
   const [hosts, threadsPerHost] = z
     .tuple([
       z.coerce.number().int().min(1).max(3),
-      z.coerce.number().pipe(z.union([z.literal(100), z.literal(1000), z.literal(5000)])),
+      z.coerce.number().pipe(z.union([z.literal(100), z.literal(500), z.literal(1000)])),
     ])
     .parse(process.argv.slice(2));
   await measure(hosts, threadsPerHost);
 } else {
   for (const hosts of [1, 2, 3])
-    for (const threadsPerHost of [100, 1000, 5000]) await measure(hosts, threadsPerHost);
+    for (const threadsPerHost of [100, 500, 1000]) await measure(hosts, threadsPerHost);
 }

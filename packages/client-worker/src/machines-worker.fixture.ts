@@ -13,7 +13,7 @@ const config = z
     token: z.string(),
     sidebarFault: z.enum(["hold", "fail"]).optional(),
     gate: z.instanceof(SharedArrayBuffer),
-    threadCount: z.number().int().min(1).max(10000).optional(),
+    threadCount: z.number().int().min(1).max(1000).optional(),
   })
   .parse(workerData);
 const daemon = new FakeDaemon({
@@ -103,7 +103,6 @@ const host = new ClientHost({
             retryBaseMs: 10,
             retryCapMs: 20,
             heartbeatMs: 10000,
-            entities: Math.max(4096, config.threadCount ?? 1),
           },
         }),
     };
