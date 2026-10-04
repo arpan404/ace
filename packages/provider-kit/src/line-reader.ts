@@ -4,25 +4,26 @@ import { StringDecoder } from "node:string_decoder";
 import { outputGate } from "./output-budget.ts";
 import { byteLimit } from "./byte-limit.ts";
 import type { OutputFlow } from "./flow-control.ts";
+import { lineSegments } from "./line-segments.ts";
 
 /** Yield one line per read. readline.pause() otherwise emits the rest of the current chunk. */
 async function* framed(input: Readable, flow?: OutputFlow): AsyncGenerator<string> {
   const decoder = new StringDecoder("utf8");
   let parts: string[] = [];
+  let skipLf = false;
   for await (const chunk of input) {
     const text = decoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    let start = 0;
-    for (;;) {
-      const newline = text.indexOf("\n", start);
-      if (newline < 0) {
-        if (start < text.length) parts.push(text.slice(start));
-        break;
-      }
+    for (let segment of lineSegments(text)) {
+      if (skipLf && segment.startsWith("\n")) { skipLf = false; continue; }
+      skipLf = false;
+      const ending = segment.at(-1);
+      if (ending !== "\r" && ending !== "\n") { parts.push(segment); continue; }
       if (flow?.paused()) await flow.wait();
-      parts.push(text.slice(start, newline + 1));
+      skipLf = ending === "\r";
+      segment = segment.slice(0, -1) + "\n";
+      parts.push(segment);
       yield parts.join("");
       parts = [];
-      start = newline + 1;
     }
   }
   parts.push(decoder.end());

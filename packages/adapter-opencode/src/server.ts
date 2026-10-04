@@ -7,6 +7,7 @@ import { NativeEvent, loopback, validateSpec, version } from "./boundaries.ts";
 import { observedFetch, sanitize, type Observe } from "./observation.ts";
 import { Routes } from "./routes.ts";
 import { RecentMap } from "./cache.ts";
+import { waitForOutput } from "@ace/provider-kit/flow-control";
 export { eventSession } from "./boundaries.ts";
 export type ServerConsumer = {
   outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
@@ -290,12 +291,13 @@ export class OpenCodeServer {
         activity();
         const client = this.client;
         if (!client) throw new Error("Missing OpenCode client");
+        const signal = AbortSignal.any([connection.signal, this.controller.signal]);
         for await (const native of client.event.subscribe({
-          signal: AbortSignal.any([connection.signal, this.controller.signal]),
+          signal,
           onActivity: activity,
         })) {
           for (const consumer of this.consumers)
-            if (consumer.outputFlow?.paused()) await consumer.outputFlow.wait();
+            await waitForOutput(consumer.outputFlow, signal);
           const data = sanitize(native, this.secrets),
             event = NativeEvent.parse(data),
             watermark = ++this.sequence;

@@ -1,4 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { lineSegments } from "./line-segments.ts";
+import { waitForOutput } from "./flow-control.ts";
 import { SseParser, SseLimitError, type SseLimits, type SseEvent } from "./sse-parser.ts";
 export { SseLimitError } from "./sse-parser.ts";
 export type { SseEvent } from "./sse-parser.ts";
@@ -101,13 +103,9 @@ export async function readSse(url: string | URL, options: SseOptions): Promise<v
       const decoder = new TextDecoder();
       for await (const chunk of body) {
         const text = decoder.decode(chunk, { stream: true });
-        let start = 0;
-        while (start < text.length) {
-          if (options.outputFlow?.paused()) await options.outputFlow.wait();
-          const newline = text.indexOf("\n", start);
-          const end = newline < 0 ? text.length : newline + 1;
-          parser.feed(text.slice(start, end));
-          start = end;
+        for (const segment of lineSegments(text)) {
+          await waitForOutput(options.outputFlow, signal);
+          parser.feed(segment);
         }
       }
       parser.feed(decoder.decode());
