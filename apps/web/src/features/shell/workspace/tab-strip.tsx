@@ -13,7 +13,8 @@ import type {
 import { shownTab, useWorkspaceStore } from "@/lib/workspace/index.ts";
 import { useReducedMotion } from "@/lib/motion.ts";
 import { tabDragType, TabItem, type DropSide } from "./tab-item.tsx";
-import { useEdgeFade, useRevealShown, useTabFit } from "./use-tab-layout.ts";
+import { useEdgeFade } from "@/lib/edge-fade.ts";
+import { useRevealShown, useTabFit } from "./use-tab-layout.ts";
 
 /**
  * A dock's tabs: one tab stop (arrows move between tabs and show them, Home/End jump, Delete

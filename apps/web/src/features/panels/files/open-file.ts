@@ -8,6 +8,8 @@ export interface OpenFileOptions {
   /** The tab the pick came from (its tree): an empty or preview tab turns into the file. */
   from?: string | undefined;
   line?: number | undefined;
+  /** The tree choice the tab carries over (a tree laid over the file closes on a pick). */
+  tree?: boolean | undefined;
 }
 
 /**
@@ -23,18 +25,21 @@ export function openFile(
 ): void {
   const id = fileTabId(path);
   const keep = options.keep ?? false;
-  const line = options.line === undefined ? {} : { line: options.line };
+  const extra = {
+    ...(options.line === undefined ? {} : { line: options.line }),
+    ...(options.tree === undefined ? {} : { tree: options.tree }),
+  };
   const existing = findTab(workspace, `files:${id}`);
   if (existing) {
     const data = fileTabData(existing.tab);
     actions.open({
       kind: "files",
       id,
-      data: { ...data, path, ...line, preview: keep ? false : data.preview },
+      data: { ...data, path, ...extra, preview: keep ? false : data.preview },
     });
     return;
   }
-  const data = { path, preview: !keep, ...line };
+  const data = { path, preview: !keep, ...extra };
   const replaceable = (key: string | undefined) => {
     const found = key ? findTab(workspace, key) : undefined;
     if (found?.tab.kind !== "files") return undefined;

@@ -182,3 +182,22 @@ test("an upload lands in the checkout and opens; an existing name asks before re
     expect(await readCheckout(app, "apps/web/src/relay/notes.md")).toBe("second draft\n"),
   );
 });
+
+test("an empty Open file tab shows the checkout tree, and a tab remembers hiding it", async () => {
+  await openThread();
+  await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
+  const side = await panel();
+  await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
+  const tools = await within(side).findByRole("list", { name: "Tools" });
+  await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
+  expect(await within(side).findByRole("tab", { name: "Open file", selected: true })).toBeTruthy();
+  expect(within(side).getByRole("complementary", { name: "Checkout files" })).toBeTruthy();
+
+  await userEvent.click(within(side).getByRole("button", { name: "Hide the file tree" }));
+  expect(within(side).queryByRole("complementary", { name: "Checkout files" })).toBeNull();
+  // Away and back: the tab kept the choice.
+  await userEvent.click(within(side).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.click(within(side).getByRole("tab", { name: "Open file" }));
+  expect(within(side).queryByRole("complementary", { name: "Checkout files" })).toBeNull();
+  expect(within(side).getByRole("button", { name: "Show the file tree" })).toBeTruthy();
+});
