@@ -6,6 +6,7 @@
       "name": "@ace/monorepo",
       "devDependencies": {
         "@ace/provider-kit": "workspace:*",
+        "@ace/service": "workspace:*",
         "@lobehub/icons-static-svg": "1.95.1",
         "@swc/core": "^1.16.13",
         "@types/node": "^26.6.4",

@@ -1,5 +1,6 @@
 import { assertCompatibleService } from "./compatibility.ts";
 import { assertCompatibleHome } from "./home.ts";
+import { assertTestHomeIsolation } from "./test-home-guard.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -12,11 +13,13 @@ import { withInstallLock } from "./files.ts";
 /** OS/environment discovery belongs only in this local I/O boundary. */
 export function localService(dataDir: string) {
   assertCompatibleHome(dataDir);
+  const home = homedir();
+  assertTestHomeIsolation(home);
   const plan = planService({
     environment: ServiceEnvironment.parse(process.env),
     updatePolicy: process.env.ACE_AUTO_UPDATE === "0" ? "manual" : "daily",
     platform: z.enum(["darwin", "linux"]).parse(process.platform),
-    home: homedir(),
+    home,
     dataDir,
     executable: join(dataDir, "bin/ace"),
     path: process.env.PATH ?? "/usr/bin:/bin",

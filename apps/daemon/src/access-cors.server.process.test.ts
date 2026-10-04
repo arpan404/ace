@@ -1,4 +1,7 @@
 import { expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { readConfig } from "./config.ts";
 import { setup } from "./remote-test-support.ts";
 import { token } from "./socket-test-support.ts";
@@ -109,8 +112,15 @@ it("the desktop app's renderer is allowed without configuration; other origins a
   }
 });
 
-it("ACE_WEB_ORIGINS configures the allowlist and rejects anything that is not an http(s) origin", async () => {
-  const config = readConfig({ ACE_WEB_ORIGINS: "http://localhost:5173, https://ace.example.com" });
+it("ACE_WEB_ORIGINS configures the allowlist and rejects anything that is not an http(s) origin", async ({
+  onTestFinished,
+}) => {
+  const home = await mkdtemp(join(tmpdir(), "ace-cors-config-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  const config = readConfig({
+    ACE_HOME: home,
+    ACE_WEB_ORIGINS: "http://localhost:5173, https://ace.example.com",
+  });
   const f = await setup(config.webOrigins ? { webOrigins: config.webOrigins } : {});
   for (const origin of ["http://localhost:5173", "https://ace.example.com"]) {
     const allowed = await preflight(`${f.server.httpUrl}/v1/devices`, origin, "GET");
@@ -118,5 +128,5 @@ it("ACE_WEB_ORIGINS configures the allowlist and rejects anything that is not an
   }
 
   for (const value of ["*", "http://localhost:5173/app", "ace://thread", "localhost:5173"])
-    expect(() => readConfig({ ACE_WEB_ORIGINS: value })).toThrow();
+    expect(() => readConfig({ ACE_HOME: home, ACE_WEB_ORIGINS: value })).toThrow();
 });

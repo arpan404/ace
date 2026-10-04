@@ -2,7 +2,7 @@ export { runDaemonProcess } from "./process-daemon.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
 export type { DaemonCommandIntegration } from "./services/commands.ts";
-import { assertCompatibleHome } from "@ace/service";
+import { assertCompatibleHome, assertTestHomeIsolation } from "@ace/service";
 import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -51,6 +51,8 @@ export type { HistoryAdapterPort } from "./history-continuation.ts";
 
 export async function startDaemon(options: DaemonOptions = {}) {
   options.signal?.throwIfAborted();
+  const home = homedir();
+  assertTestHomeIsolation(home);
   const clock = options.engine?.clock;
   const now = clock ? () => clock.now() : Date.now;
   const config = options.config ?? readConfig();
@@ -90,7 +92,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     }
   };
   try {
-    const context = { home: homedir(), env: process.env };
+    const context = { home, env: process.env };
     const sink = await createFileSink({
       directory: join(config.dataDir, "logs"),
       fileBytes: 1024 * 1024,

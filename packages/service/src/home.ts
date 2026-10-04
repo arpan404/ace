@@ -5,6 +5,7 @@ import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { renderLauncher } from "./launcher.ts";
 import { selectDefaultHome, type HomeLayout } from "./home-policy.ts";
+import { assertTestHomeIsolation } from "./test-home-guard.ts";
 
 const MARKER = "legacy-home.json";
 const LOCK = ".ace-home-selection.lock";
@@ -85,6 +86,7 @@ function inspect(root: string, directory: PinnedDirectory): HomeLayout {
   return directory.empty() ? "empty" : "unknown";
 }
 export function assertCompatibleHome(root: string): void {
+  assertTestHomeIsolation(root);
   let directory: PinnedDirectory;
   try {
     directory = PinnedDirectory.atBoundary(root);
@@ -189,6 +191,7 @@ export interface HomeFileSystem {
 }
 export function createDaemonHomeResolver(filesystem: HomeFileSystem) {
   return function resolveHome(home: string, requested?: string): string {
+    assertTestHomeIsolation(home);
     if (requested !== undefined) {
       const root = resolve(requested);
       assertCompatibleHome(root);

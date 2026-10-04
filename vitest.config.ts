@@ -16,6 +16,8 @@ export default defineConfig({
       {
         test: {
           name: "unit",
+          globalSetup: ["./scripts/test-home-global-setup.ts"],
+          setupFiles: ["./scripts/test-home-setup.ts"],
           include: [
             "packages/*/src/**/*.test.ts",
             "tools/*/src/**/*.test.ts",
@@ -35,7 +37,8 @@ export default defineConfig({
           sequence: { groupOrder: 1 },
           testTimeout: PROCESS_TEST_TIMEOUT,
           hookTimeout: PROCESS_TEST_TIMEOUT,
-          globalSetup: ["./scripts/process-test-setup.ts"],
+          globalSetup: ["./scripts/test-home-global-setup.ts", "./scripts/process-test-setup.ts"],
+          setupFiles: ["./scripts/test-home-setup.ts"],
         },
       },
       "apps/web/vitest.config.ts",
