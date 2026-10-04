@@ -2,7 +2,7 @@ import { useSidebarThread } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { formatAge, threadStatusLabel, type DeckAgent } from "@ace/ui-core";
 import { buttonVariants } from "@/components/ui/button.tsx";
-import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
+import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -38,7 +38,7 @@ function AgentRow(props: { agent: DeckAgent }) {
       )}
     >
       <span className="flex min-w-0 items-center gap-2 text-ui">
-        {agent.provider && <ProviderMark provider={agent.provider} />}
+        {agent.provider && <ProviderIconTip provider={agent.provider} />}
         <span className="shrink-0 font-medium">{agent.label}</span>
         <span className="min-w-0 truncate text-muted-foreground">{agent.account}</span>
       </span>

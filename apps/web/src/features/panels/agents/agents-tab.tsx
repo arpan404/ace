@@ -33,7 +33,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { useNow } from "@/lib/time.ts";
 import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
-import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
+import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-subtle-foreground";
 
@@ -191,7 +191,11 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
       <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
         {formatSpan(agent.createdAt, end)}
       </span>
-      <ProviderMark provider={agent.native.provider} className="shrink-0" />
+      <ProviderIconTip
+        provider={agent.native.provider}
+        acpAgentId={agent.native.acpAgentId}
+        className="shrink-0"
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { cn } from "@/lib/cn.ts";
 import { Fragment } from "react";
 import { Menu, MenuContent, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { accountTag, providerNames } from "@ace/ui-core";
 import type { ModelChoice } from "@ace/ui-core";
 
@@ -26,6 +27,7 @@ export function ModelPicker(props: {
       >
         {props.value ? (
           <>
+            <ProviderIcon provider={props.value.provider} size={14} decorative />
             {props.value.model}
             <span className="font-normal text-subtle-foreground">
               {accountTag(props.value.account)}
@@ -48,7 +50,10 @@ export function ModelPicker(props: {
             <Fragment key={provider}>
               {index > 0 && <MenuSeparator />}
               <MenuPrimitive.Group>
-                <MenuLabel>{providerNames[provider]}</MenuLabel>
+                <MenuLabel className="flex items-center gap-1.5">
+                  <ProviderIcon provider={provider} decorative />
+                  {providerNames[provider]}
+                </MenuLabel>
                 {props.choices
                   .filter((choice) => choice.provider === provider)
                   .map((choice) => (

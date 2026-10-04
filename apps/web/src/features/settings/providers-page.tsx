@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
@@ -77,7 +78,21 @@ function ProviderRow(props: { install: ProviderInstall }) {
   const installed = install.version !== null;
   return (
     <>
-      <SettingRow title={install.name} description={describeInstall(install)}>
+      <SettingRow
+        title={
+          <span className="flex items-center gap-2">
+            <ProviderIcon
+              provider={install.kind}
+              acpAgentId={install.acpAgentId}
+              size={16}
+              decorative
+              className={installed ? undefined : "text-subtle-foreground"}
+            />
+            {install.name}
+          </span>
+        }
+        description={describeInstall(install)}
+      >
         {installed && (
           <Button
             size="sm"

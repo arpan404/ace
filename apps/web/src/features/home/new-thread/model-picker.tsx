@@ -10,7 +10,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { ProviderGlyph } from "@/components/ui/provider-glyph.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { accountTag, providerNames } from "@ace/ui-core";
 import type { NewThreadOptions, Resolved } from "./choices.ts";
 
@@ -37,6 +37,7 @@ export function ModelPicker(props: {
         aria-label={`Model: ${model?.label ?? "loading"}${account ? `, account ${accountTag(account.label)}` : ""}${effort ? `, ${effort} effort` : ""}`}
         className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-ui font-medium text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent aria-expanded:bg-accent disabled:opacity-50"
       >
+        {model && <ProviderIcon provider={model.provider} size={14} decorative />}
         {model?.label ?? "Loading models…"}
         {account && (
           <span className="font-normal text-subtle-foreground">{accountTag(account.label)}</span>
@@ -111,7 +112,7 @@ export function ModelPicker(props: {
 function ProviderLabel(props: { provider: ProviderKind }) {
   return (
     <MenuLabel className="flex items-center gap-1.5">
-      <ProviderGlyph provider={props.provider} />
+      <ProviderIcon provider={props.provider} decorative />
       {providerNames[props.provider]}
     </MenuLabel>
   );
