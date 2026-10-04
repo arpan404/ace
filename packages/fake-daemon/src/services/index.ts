@@ -34,6 +34,7 @@ export interface ServiceHost {
 export class FakeServices {
   accounts: AccountSummary[];
   models: CatalogModel[];
+  providerStatuses: import("@ace/protocol").ProviderStatus[];
   commands: PaletteCommand[];
   readonly settings: FakeSettings;
   installations: import("@ace/protocol").RegistryInstallation[] = [];
@@ -49,6 +50,18 @@ export class FakeServices {
     const now = host.clock();
     this.accounts = accountSummaries(now);
     this.models = modelCatalog();
+    this.providerStatuses = (
+      ["claude", "codex", "opencode", "cursor", "pi", "antigravity"] as const
+    ).map((provider) => ({
+      provider,
+      runtime: "cli",
+      installed: this.installed.has(provider),
+      auth: "unknown",
+      loginHint: "Use the CLI login command",
+      checkedAt: now,
+      stale: false,
+      refreshing: false,
+    }));
     this.commands = commandCatalog();
     this.settings = new FakeSettings(
       settingsValues(),
@@ -130,6 +143,12 @@ export class FakeServices {
         };
       case "usage.session_totals":
         return { type: "usage.session_totals.result", requestId: message.requestId, totals: [] };
+      case "providers.request":
+        return {
+          type: "providers.result",
+          requestId: message.requestId,
+          result: { ok: true, providers: structuredClone(this.providerStatuses) },
+        };
       case "models.list":
         return {
           type: "models.result",

@@ -4,8 +4,13 @@ import { stripVTControlCharacters } from "node:util";
 export type AuthStatus = {
   auth: "logged_in" | "logged_out" | "unknown";
   authDetail?: string;
+  accountLabel?: string;
   authEvidence?: "credentials_configured";
 };
+function accountLabel(value: unknown): Pick<AuthStatus, "accountLabel"> {
+  const parsed = z.email().max(256).safeParse(value);
+  return parsed.success ? { accountLabel: parsed.data } : {};
+}
 const unknown: AuthStatus = { auth: "unknown" };
 
 function record(text: string): Record<string, unknown> | undefined {
@@ -25,9 +30,20 @@ export function parseClaudeAuth(text: string): AuthStatus {
   if (value?.["loggedIn"] === false) return { auth: "logged_out" };
   if (value?.["loggedIn"] !== true) return unknown;
   const method = value["authMethod"];
-  const allowed = ["claude.ai", "api_key", "apiKey", "oauth_token", "bedrock", "vertex", "foundry"];
+  const allowed = [
+    "claude.ai",
+    "api_key",
+    "apiKey",
+    "api_key_helper",
+    "third_party",
+    "oauth_token",
+    "bedrock",
+    "vertex",
+    "foundry",
+  ];
   return {
     auth: "logged_in",
+    ...accountLabel(value["email"]),
     ...(typeof method === "string" && allowed.includes(method) ? { authDetail: method } : {}),
   };
 }
@@ -49,11 +65,13 @@ export function parseCodexAuth(text: string): AuthStatus {
 export function parseCursorAuth(text: string): AuthStatus {
   const clean = stripVTControlCharacters(text);
   const value = record(clean);
-  if (value?.["isAuthenticated"] === true) return { auth: "logged_in" };
+  if (value?.["isAuthenticated"] === true)
+    return { auth: "logged_in", ...accountLabel(value["email"]) };
   if (value?.["isAuthenticated"] === false) return { auth: "logged_out" };
   if (/\b(?:not logged in|logged out|not authenticated)\b/i.test(clean))
     return { auth: "logged_out" };
-  if (/\blogged in\b/i.test(clean)) return { auth: "logged_in" };
+  if (/\blogged in\b/i.test(clean))
+    return { auth: "logged_in", ...accountLabel(/\blogged in as\s+([^\s]+)/i.exec(clean)?.[1]) };
   return unknown;
 }
 

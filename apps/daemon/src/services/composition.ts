@@ -1,3 +1,4 @@
+import { startProviderStatuses } from "./provider-status.ts";
 import { startProjects } from "./projects.ts";
 import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
@@ -30,6 +31,13 @@ import type { ServiceContext, Services } from "./types.ts";
 import type { ServiceDefinition } from "./startup.ts";
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceFactories: readonly ServiceDefinition[] = [
+  {
+    name: "providerStatuses",
+    phase: "core",
+    requires: [],
+    after: ["accounts"],
+    start: startProviderStatuses,
+  },
   { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
   { name: "accounts", phase: "core", requires: [], after: [], start: startAccounts },
   { name: "commands", phase: "core", requires: ["accounts"], after: [], start: startCommands },
