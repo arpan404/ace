@@ -4,7 +4,6 @@ import { CaretDownIcon, CaretUpIcon, MagnifyingGlassIcon, XIcon } from "@phospho
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { LongRows } from "@/components/virtual-rows.tsx";
@@ -155,16 +154,28 @@ export function SearchBar(props: { nav: ThreadNav }) {
         <IconButton icon={XIcon} label="Close search" size="sm" onClick={close} />
       </div>
       <div className="flex items-center justify-between gap-3 border-t border-border px-2 py-1.5">
-        <SegmentedControl<SearchFilter | "all">
-          label="Search in"
-          size="sm"
-          value={filter}
-          options={filters}
-          onValueChange={(next) => {
-            setFilter(next);
-            setListOpen(true);
-          }}
-        />
+        <div
+          role="group"
+          aria-label="Search in"
+          className="inline-flex gap-0.5 rounded-[9px] bg-secondary p-[3px]"
+        >
+          {filters.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={filter === option.value}
+              // The segmented control's own look, from its `data-pressed` styles.
+              {...(filter === option.value ? { "data-pressed": "" } : {})}
+              onClick={() => {
+                setFilter(option.value);
+                setListOpen(true);
+              }}
+              className="h-[22px] rounded-[7px] px-[11px] text-[12px] font-medium whitespace-nowrap text-muted-foreground outline-none transition-[background-color,color] duration-(--dur-1) hover:text-foreground data-pressed:bg-popover data-pressed:text-foreground data-pressed:shadow-raised"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
         <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
           <Switch
             checked={tree}

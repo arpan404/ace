@@ -5,10 +5,13 @@ import { deckLaneParts } from "@/features/deck/index.ts";
 import { ThreadPartsProvider } from "@/features/panels/index.ts";
 import { ThreadView } from "@/features/thread/index.ts";
 
-/** `/t/<id>?seq=1234&q=words`: both optional; a link into the thread at an item (a search hit). */
+/**
+ * `/t/<id>?seq=1234&q=words`: both optional; a link into the thread at an item (a search hit).
+ * The router reads `seq=1234` as a number; the thread view ignores one that isn't a sequence.
+ */
 const ThreadSearch = z.object({
-  seq: z.catch(z.optional(z.coerce.number().check(z.int(), z.nonnegative())), undefined),
-  q: z.catch(z.optional(z.string().check(z.maxLength(512))), undefined),
+  seq: z.catch(z.optional(z.number()), undefined),
+  q: z.catch(z.optional(z.string()), undefined),
 });
 
 export const Route = createFileRoute("/_home/t/$threadId")({
@@ -25,7 +28,11 @@ function ThreadRoute() {
       <ThreadView
         key={threadId}
         threadId={threadId}
-        target={seq === undefined ? undefined : { seq, query: q }}
+        target={
+          seq !== undefined && Number.isSafeInteger(seq) && seq >= 0
+            ? { seq, query: q?.slice(0, 512) }
+            : undefined
+        }
       />
     </ThreadPartsProvider>
   );

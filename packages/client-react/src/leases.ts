@@ -1,7 +1,7 @@
 import type { SidebarSource, ThreadSource } from "@ace/client";
 import { useMemo, useSyncExternalStore } from "react";
 import { useClient } from "./context.ts";
-import { useThreadWindow } from "./window-source.ts";
+import { useThreadWindow } from "./window-context.ts";
 
 interface Lease<T> {
   subscribe(changed: () => void): () => void;

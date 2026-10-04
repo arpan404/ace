@@ -1,6 +1,6 @@
 import { Agent, Item, Run, Thread } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { itemTurnOrdinals } from "./turns.ts";
+import { itemTurnOrdinals } from "./turn-ordinals.ts";
 
 const message = (id: string, role: "user" | "assistant", runId?: string): Item =>
   Item.parse({

@@ -39,6 +39,7 @@ export * from "./storage.ts";
 export * from "./thread-card.ts";
 export * from "./time.ts";
 export * from "./turns.ts";
+export * from "./turn-ordinals.ts";
 export * from "./turn-digest.ts";
 export * from "./jump-window.ts";
 export * from "./search-snippet.ts";
