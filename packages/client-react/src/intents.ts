@@ -19,7 +19,7 @@ export function useIntent(id: string | undefined): Intent | undefined {
  * command; the effect itself arrives through the live stores.
  */
 export function useIntentSender(): {
-  send(payload: CommandPayload): Promise<string>;
+  send(payload: CommandPayload, id?: string): Promise<string>;
   intent: Intent | undefined;
   error: unknown;
 } {
@@ -28,10 +28,11 @@ export function useIntentSender(): {
   const [error, setError] = useState<unknown>();
   const intent = useIntent(id);
   const send = useCallback(
-    async (payload: CommandPayload) => {
+    async (payload: CommandPayload, commandId?: string) => {
+      if (commandId) setId(commandId);
       setError(undefined);
       try {
-        const sent = await client.enqueue(payload);
+        const sent = await client.enqueue(payload, commandId);
         setId(sent);
         return sent;
       } catch (caught) {
