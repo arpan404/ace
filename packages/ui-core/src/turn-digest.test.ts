@@ -49,7 +49,8 @@ test("a digest reads as tools, files with their lines, failures, approvals and s
     "2 approvals",
     "1 waiting on you",
     "1 subagent",
-    "3 errors",
+    // Three errors, one of them the failed command already counted.
+    "2 errors",
   ]);
   expect(facts.find((fact) => fact.kind === "failed")?.tone).toBe("failed");
   expect(facts.find((fact) => fact.kind === "waiting")?.tone).toBe("needs-you");

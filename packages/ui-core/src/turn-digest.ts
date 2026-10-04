@@ -87,8 +87,10 @@ export function digestFacts(digest: TurnDigest): DigestFact[] {
     });
   if (digest.subagentsStarted)
     facts.push({ kind: "subagents", text: counted(digest.subagentsStarted, "subagent") });
-  if (digest.errors)
-    facts.push({ kind: "errors", text: counted(digest.errors, "error"), tone: "failed" });
+  // A failed command is counted as an error too; say only the errors beyond those.
+  const otherErrors = digest.errors - digest.commandsFailed;
+  if (otherErrors > 0)
+    facts.push({ kind: "errors", text: counted(otherErrors, "error"), tone: "failed" });
   return facts;
 }
 
