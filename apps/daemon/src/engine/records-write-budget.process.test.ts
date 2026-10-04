@@ -7,6 +7,26 @@ function approval(interaction: string): Fact {
   return { ...question, interaction };
 }
 
+test("a lone transport heartbeat revives a silent working thread before acknowledgement", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start)] }], frames);
+  try {
+    const id = await h.create();
+    h.clock.advance(1200);
+    await h.engine.flush();
+    expect(h.store.getThread(id)?.status.state).toBe("unresponsive");
+    const context = h.contexts[0];
+    if (!context) throw new Error("Missing provider context");
+    const acknowledgement = context.onFrame(frames.frame({ type: "signal", agent: "root" }));
+    await h.engine.flush();
+    await acknowledgement;
+    expect(h.store.getThread(id)?.status.state).toBe("working");
+    expect(h.errors).toEqual([]);
+  } finally {
+    await h.close();
+  }
+});
+
 test("transcript writes stay bounded while hundreds of approvals remain actionable", async () => {
   const frames = scriptFrames();
   const h = await harness([{ on: "send", frames: [frames.frame(start)] }], frames);
@@ -15,7 +35,10 @@ test("transcript writes stay bounded while hundreds of approvals remain actionab
     const context = h.contexts[0];
     if (!context) throw new Error("Missing provider context");
     for (let first = 0; first < 400; first += 100) {
-      const facts = Array.from({ length: 100 }, (_, i) => approval(`approval:${first + i}`));
+      const facts = Array.from({ length: 100 }, (_, i): Fact[] => [
+        { type: "signal", agent: "root" },
+        approval(`approval:${first + i}`),
+      ]).flat();
       context.onFrame(frames.frame(...facts));
       await h.engine.flush();
     }

@@ -39,7 +39,7 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
   return fold(state, input, ctx, (events) => recomputeStatuses(state, ctx.now, events));
 }
 
-/** A provider frame commits atomically. Consecutive entity facts need one derived
+/** A provider frame commits atomically. Consecutive entity and transport facts need one derived
  * status, but turn/control boundaries still observe all preceding facts.
  */
 export class FactBatch {
@@ -50,6 +50,7 @@ export class FactBatch {
   }
   apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
     const batchable =
+      fact.type === "signal" ||
       (fact.type === "interaction.opened" && fact.item === undefined) ||
       (fact.type === "item.upsert" &&
         (fact.draft?.type === "message" || fact.draft?.type === "notice") &&
