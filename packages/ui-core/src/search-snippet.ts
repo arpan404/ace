@@ -38,12 +38,13 @@ export function snippetRuns(snippet: {
 }
 
 /**
- * "24 results", "30+ results" while more pages remain, "No results"; "Searching…" before the
- * first page. A sparse page with a cursor (ADR 0062) still means more may come.
+ * "24 results", "30+ results" while more pages remain, "No results"; "Searching…" while a page
+ * is on its way, and "None yet" when the history read so far held nothing but more remains (a
+ * sparse page with a cursor, ADR 0062).
  */
 export function resultCountLabel(found: number, more: boolean, searching: boolean): string {
   if (!found && searching) return "Searching…";
-  if (!found) return more ? "Searching…" : "No results";
+  if (!found) return more ? "None yet" : "No results";
   const count = new Intl.NumberFormat("en-US").format(found);
   return `${count}${more ? "+" : ""} ${found === 1 && !more ? "result" : "results"}`;
 }

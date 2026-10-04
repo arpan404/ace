@@ -225,11 +225,15 @@ function Results(props: {
     // The scroller VirtualRows finds by its computed overflow.
     <div className="border-t border-border p-1" style={{ maxHeight: 320, overflowY: "auto" }}>
       {hits.length === 0 && !props.failed && (
-        <p className="px-2.5 py-2 text-ui text-muted-foreground">Nothing in this thread matches.</p>
+        <p className="px-2.5 py-2 text-ui text-muted-foreground">
+          {props.more
+            ? "Nothing yet in the history read so far."
+            : "Nothing in this thread matches."}
+        </p>
       )}
       <div role="listbox" aria-label="Results">
         <LongRows
-          virtualAbove={60}
+          virtualAbove={20}
           items={hits}
           rowKey={(hit) => `${hit.threadId}:${hit.itemId}`}
           estimate={52}
@@ -253,15 +257,18 @@ function Results(props: {
           Showing the first 500 results. Add words or a filter to narrow them.
         </p>
       ) : (
-        props.more &&
-        hits.length > 0 && (
+        props.more && (
           <button
             type="button"
             disabled={props.loading}
             onClick={props.onMore}
             className="w-full rounded-md px-2.5 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
           >
-            {props.loading ? "Searching…" : "Show more results"}
+            {props.loading
+              ? "Searching…"
+              : hits.length
+                ? "Show more results"
+                : "Search further back"}
           </button>
         )
       )}

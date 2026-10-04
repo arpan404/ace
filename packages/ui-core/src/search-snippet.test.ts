@@ -38,7 +38,7 @@ test("markup in a snippet stays text", () => {
 test("result counts say when more pages remain", () => {
   expect(resultCountLabel(0, false, true)).toBe("Searching…");
   expect(resultCountLabel(0, false, false)).toBe("No results");
-  expect(resultCountLabel(0, true, false)).toBe("Searching…");
+  expect(resultCountLabel(0, true, false)).toBe("None yet");
   expect(resultCountLabel(1, false, false)).toBe("1 result");
   expect(resultCountLabel(30, true, false)).toBe("30+ results");
   expect(resultCountLabel(1_204, false, false)).toBe("1,204 results");
