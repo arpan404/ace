@@ -134,6 +134,10 @@ export async function openCodexSession(
         )
           revisions.set(thread, (revisions.get(thread) ?? 0) + 1);
       }
+      if (dir === "recv" && method === "thread/name/updated" && thread === nativeSessionId) {
+        const title = str(p["threadName"]).trim();
+        if (title) emit("note", { event: "provider-title", title });
+      }
       if (dir === "recv" && method === "turn/completed" && thread === nativeSessionId)
         emit("note", {
           event: "discovery-start",
@@ -377,6 +381,8 @@ export async function openCodexSession(
     nativeSessionId = str(obj(result["thread"])["id"]);
     if (!nativeSessionId) throw new Error("Codex did not return a thread id");
     known.add(nativeSessionId);
+    const title = str(obj(result["thread"])["name"]).trim();
+    if (title) emit("note", { event: "provider-title", title });
 
     model = str(result["model"], model);
     if (ctx.options !== undefined)

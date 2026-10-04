@@ -1,4 +1,4 @@
-import { PermissionMode, NativeSessionId } from "@ace/protocol";
+import { Thread, PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
@@ -9,6 +9,10 @@ import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
 
 const TurnPermissionSession = z.object({ permissionModePerTurn: z.literal(true) });
+const ProviderTitle = z.object({
+  event: z.literal("provider-title"),
+  title: Thread.shape.title.trim().min(1),
+});
 const AppliedPermission = z.object({
   event: z.literal("permission-mode-applied"),
   mode: PermissionMode,
@@ -205,6 +209,23 @@ export class Sessions {
         },
         onFrame: (frame) => {
           if (state.config.provider === "codex" && frame.dir === "note") {
+            const title = ProviderTitle.safeParse(frame.data);
+            if (title.success)
+              actor.enqueue(() => {
+                if (generation !== actor.generation || lifetime.signal.aborted) return;
+                const currentThread = this.dependencies.repo.store.getThread(actor.id);
+                if (!currentThread || currentThread.deletedAt !== undefined) return;
+                if (
+                  currentThread.titleSource !== "provisional" &&
+                  !(currentThread.titleSource === undefined && currentThread.title === "New thread")
+                )
+                  return;
+                this.dependencies.repo.store.appendEvents(
+                  actor.id,
+                  [{ type: "thread.updated", title: title.data.title, titleSource: "provider" }],
+                  this.dependencies.clock.now(),
+                );
+              });
             const permission = AppliedPermission.safeParse(frame.data);
             if (permission.success)
               actor.enqueue(() => {
