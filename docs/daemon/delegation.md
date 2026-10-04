@@ -26,8 +26,16 @@ consume the pending wake. A canceled wait leaves the child running and allows an
 asynchronous wake. Codex uses `additionalContext` with `kind: "untrusted"`; Pi uses
 its extension's custom-message API; Claude's SDK accepts only user-role streamed
 input and receives `isSynthetic: true`. Other user-input transports receive an
-ace-origin marker. The daemon retains attribution and folds native user-role echoes
-and replay into the ace item, preserving provider raw data.
+ace-origin marker as a readable transport label. Text is never an attribution credential.
+Before sending input, adapters call `SessionContext.onInputMessage` with the host
+command ID and the exact message identity projected in `draft.nativeId`. The daemon
+stores this correlation under a thread/message primary key, including an explicit
+`user` origin for ordinary commands. It folds correlated ace echoes and native
+replay into the settled item, preserving provider raw data. Handoff, merge and
+attachment preparation can change the input parts without changing attribution.
+Copying the marker or the entire prompt in a user command remains user input.
+Uncorrelated historical input is preserved as user input; ace does not guess
+identities for older records. Attribution rows cascade away when the thread is deleted.
 
 Provider interfaces are based on the installed Claude SDK `SDKUserMessage` and
 Codex's generated `TurnStartParams`, plus Pi's primary
@@ -43,3 +51,15 @@ Ace approval targets carry `origin: "ace"`, an exact `description`, and `riskCla
 `read-only`, `thread-write`, `agent-execution`, or `external-effect`. Display the
 description as the action; validated reads resolve automatically, including in ask
 mode. Read-only mode denies writes and execution.
+
+## UI follow-up for the Claude web agent
+
+No renderer is changed in this backend PR. Add renderers for both item kinds and
+child navigation in web/desktop, including navigation and reconnect coverage.
+Use `ClientApi.thread(parentId)` to acquire the live `ThreadSource`, select `order`
+and `item:<id>` keys, and read each entry with `ThreadReader.item(id)`. Release
+the lease when leaving the thread. Open the card's `childThreadId` with
+`ClientApi.thread(childThreadId)`. Use `ClientApi.itemsPage` for older retained
+entries and `ClientApi.itemsWindow` for long-thread navigation; both retain these
+item kinds. The `delegatedDocs` fake-daemon scenario publishes running cards and
+settled rows for this work. Show `notice.details.code` in expandable details.
