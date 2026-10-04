@@ -197,3 +197,31 @@ test("uncertain resend atomically retires its original while preserving other me
     }),
   ).toMatchObject({ ok: false, error: "queue_conflict" });
 });
+
+test("an acknowledgement racing exit settles only its matching command", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame({ type: "input.admitted", agent: "root",
+    nativeInputId: "native-ack", commandId: "ack-before-exit" })], exit: { deliberate: false } }], frames);
+  cleanups.push(h.close);
+  const receipt = h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex",
+    input: [{ type: "text", text: "accepted" }] }, "device", "ack-before-exit");
+  if (!receipt.threadId) throw new Error("No thread");
+  await h.engine.flush();
+  h.command({ type: "queue.pause", threadId: receipt.threadId, expectedRevision: h.engine.queue(receipt.threadId).revision });
+  h.command({ type: "thread.send", threadId: receipt.threadId, input: [{ type: "text", text: "next" }] }, "device", "next-unconsumed");
+  expect(h.engine.queue(receipt.threadId).messages).toEqual([expect.objectContaining({ id: "next-unconsumed", state: "queued" })]);
+  expect(Object.values(h.store.snapshotThread(receipt.threadId).items).some((item) => item.type === "notice" && item.code === "delivery_uncertain")).toBe(false);
+});
+
+test("removing the final uncertain copy retains a separate quota hold", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame({ type: "retry", agent: "root", on: "rate_limit", message: "quota", until: 9000 })], exit: { deliberate: false } }], frames);
+  cleanups.push(h.close);
+  const receipt = h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex",
+    input: [{ type: "text", text: "ambiguous under quota" }] }, "device", "quota-uncertain");
+  if (!receipt.threadId) throw new Error("No thread");
+  await h.engine.flush();
+  expect(h.command({ type: "queue.remove", threadId: receipt.threadId, messageId: CommandId.parse("quota-uncertain"),
+    expectedRevision: h.engine.queue(receipt.threadId).revision }).ok).toBe(true);
+  expect(h.engine.queue(receipt.threadId)).toMatchObject({ paused: true, reason: "limit", messages: [] });
+});

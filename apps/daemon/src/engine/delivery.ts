@@ -141,6 +141,8 @@ export async function executeIntent(
         state.config.provider,
         generation,
       );
+      const activeInputRun = state.agents[state.rootKey ?? ""]?.activeRun;
+      if (activeInputRun) repo.inputs.attachRun(actor.id, `input:${intent.command.id}`, activeInputRun);
       await session.send(
         input,
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer

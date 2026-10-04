@@ -54,6 +54,7 @@ test("interrupt keeps one queued send paused after Stop, including after reload"
   expect(h.store.snapshotThread(id).items["input:queued"]).toMatchObject({
     parts: [{ type: "text", text: "queued" }],
   });
+  expect(h.store.snapshotThread(id).items["input:queued"]).not.toHaveProperty("notAnswered");
 });
 test("a Stop for an ended run refuses to interrupt a later run", async () => {
   const frames = scriptFrames();

@@ -55,8 +55,6 @@ export function admitInput(
   const key = `input:${command.id}`;
   const origin = inputOrigin(command);
   repo.inputs.register(id, key, p.input, origin);
-  const active = repo.requireState(id).agents[repo.requireState(id).rootKey ?? ""]?.activeRun;
-  if (active) repo.inputs.attachRun(id, key, active);
   repo.apply(
     id,
     [
