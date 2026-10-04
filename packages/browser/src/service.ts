@@ -61,28 +61,32 @@ export class BrowserService {
     this.id = options.id ?? randomUUID;
     this.headless =
       options.headlessBackend ??
-      new HeadlessBackend(() => {
-        if (options.executablePath) return Promise.resolve(options.executablePath);
-        this.acquiring ??= acquireChromium({
-          ...options.acquisition,
-          dataDir: options.dataDir,
-          signal: this.lifetime.signal,
-          progress: (progress) => {
-            options.onDownload?.(progress);
-            for (const listener of this.downloadListeners) {
-              try {
-                listener(progress);
-              } catch (error) {
-                options.onError?.(error);
+      new HeadlessBackend(
+        () => {
+          if (options.executablePath) return Promise.resolve(options.executablePath);
+          this.acquiring ??= acquireChromium({
+            ...options.acquisition,
+            dataDir: options.dataDir,
+            signal: this.lifetime.signal,
+            progress: (progress) => {
+              options.onDownload?.(progress);
+              for (const listener of this.downloadListeners) {
+                try {
+                  listener(progress);
+                } catch (error) {
+                  options.onError?.(error);
+                }
               }
-            }
-          },
-        }).catch((error) => {
-          this.acquiring = undefined;
-          throw error;
-        });
-        return this.acquiring;
-      }, options.launchContext);
+            },
+          }).catch((error) => {
+            this.acquiring = undefined;
+            throw error;
+          });
+          return this.acquiring;
+        },
+        options.launchContext,
+        options.cleanup,
+      );
   }
   async open(raw: unknown): Promise<BrowserState> {
     if (this.closing) throw new Error("Browser service shutting down");

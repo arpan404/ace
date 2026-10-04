@@ -75,6 +75,22 @@ export class GitCli {
     );
     return result;
   }
+  /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
+  pause(milliseconds: number): Promise<void> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    return new Promise((resolve, reject) => {
+      const cancelled = () => {
+        stop();
+        this.cancellations.delete(cancelled);
+        reject(new GitError("git_closed", "Git service closed"));
+      };
+      const stop = this.runtime.scheduleTimeout(() => {
+        this.cancellations.delete(cancelled);
+        resolve();
+      }, milliseconds);
+      this.cancellations.add(cancelled);
+    });
+  }
   private async runCall(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (args.some((arg) => arg.includes("\0"))) {
       throw new GitError("invalid_argument", "Git arguments cannot contain NUL bytes");

@@ -25,6 +25,7 @@ export interface BrowserServiceOptions {
   id?: () => string;
   maxSessions?: number;
   launchContext?: ContextLauncher;
+  cleanup?: Partial<import("./chromium-close.ts").ChromiumCleanupRuntime>;
   spawn?: ProcessSpawner;
   headlessBackend?: BrowserBackend;
   backendPreference?: (

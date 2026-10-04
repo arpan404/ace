@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +33,84 @@ const SourceCoordinates = z.object({
   sourceSeq: z.number().optional(),
   sourceTimeMs: z.number().optional(),
 });
+it.each([
+  "/Users/private-person-name/private-file.txt",
+  "/var/folders/zz/private-temp-identifier/T/disposable-workspace/private-file.txt",
+])("records a full carry window and another agent's boundary without leaking %s", async (path) => {
+  const root = await mkdtemp(join(tmpdir(), "cursor-sdk-carry-sink-"));
+  const output = join(root, "capture.jsonl");
+  const capture = cursorSdkCapture(
+    output,
+    {
+      format: "ace-recording/v1",
+      provider: "cursor-sdk",
+      cliVersion: "1.0.35",
+      sdkVersion: "1.0.35",
+      model: "composer-2.5",
+      scenario: "nested-task",
+      sandbox: false,
+      autoReview: false,
+      checkpointExpected: true,
+      startedAt: "2026-10-03T00:00:00.000Z",
+      platform: "synthetic",
+      workspace: "/var/folders/zz/private-temp-identifier/T/disposable-workspace",
+    },
+    { scenario: "nested-task", approved: true },
+  );
+  let seq = 0;
+  async function text(threadId: string, value: string) {
+    await capture.frame(
+      {
+        seq: ++seq,
+        t: seq,
+        dir: "recv",
+        channel: "sdk",
+        data: {
+          schemaVersion: 1,
+          generation: "synthetic",
+          operationId: threadId,
+          agentId: threadId,
+          segment: 0,
+          kind: "delta",
+          body: { type: "text", text: value },
+        },
+      },
+      threadId,
+    );
+  }
+  try {
+    for (let index = 0; index < 32; index++) {
+      const fragment = path.slice(
+        Math.floor((path.length * index) / 32),
+        Math.floor((path.length * (index + 1)) / 32),
+      );
+      await text("child", (index === 0 ? "see (" : "") + fragment);
+    }
+    // This one call flushes the full carry window AND the parent's boundary record.
+    await text("parent", "done\n");
+    await text("child", "-private-continuation)\n");
+    await capture.close();
+    const fixture = await readFixture(output);
+    expect(fixture.frames.map((frame) => frame.seq)).toEqual(
+      Array.from({ length: 34 }, (_, index) => index + 1),
+    );
+    expect(fixture.threads?.["child"]).toHaveLength(33);
+    expect(fixture.threads?.["parent"]).toHaveLength(1);
+    const body = z.object({ body: z.object({ text: z.string() }) });
+    expect(body.parse(fixture.threads?.["parent"]?.[0]?.data).body.text).toBe("done\n");
+    const childText = fixture.threads?.["child"]
+      ?.map((frame) => body.parse(frame.data).body.text)
+      .join("");
+    expect(childText).toBe("see <FRAGMENT OMITTED>\n");
+    expect(await readFile(output, "utf8")).not.toMatch(
+      /private-person|private-temp-identifier|disposable-workspace|private-continuation/,
+    );
+  } finally {
+    await capture.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it.each(cases)(
   "round-trips recorded %s evidence through the bounded sink without changing terminal state or thread ownership",
   async (scenario) => {

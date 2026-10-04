@@ -1,6 +1,6 @@
-import { watch, watchFile, unwatchFile } from "node:fs";
+import { watch } from "node:fs";
 import { stat } from "node:fs/promises";
-import { dirname, relative, sep } from "node:path";
+import { dirname, relative, sep, join } from "node:path";
 import { SettingsError } from "./validation.ts";
 
 type DirectoryWatch = (
@@ -14,10 +14,65 @@ const watchDirectory: DirectoryWatch = (path, changed, failed) => {
   watcher.on("error", failed);
   return () => watcher.close();
 };
+type MissingFilePoll = (path: string, changed: () => void) => () => void;
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    // Other errors must trigger the normal reload diagnostic path.
+    return !(error instanceof Error && "code" in error && error.code === "ENOENT");
+  }
+}
+function repeatPoll(tick: () => Promise<void>): () => void {
+  const timer = setInterval(() => {
+    void tick();
+  }, 500);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+/** The watcher has already observed this ancestor missing. No asynchronous
+ * baseline sample can swallow creation between registration and the first tick. */
+function createMissingDirectoryPoll(
+  exists: (path: string) => Promise<boolean> = directoryExists,
+  repeat: (tick: () => Promise<void>) => () => void = repeatPoll,
+): MissingFilePoll {
+  return (path, changed) => {
+    let stopped = false;
+    let checking: Promise<void> | undefined;
+    const tick = (): Promise<void> => {
+      if (stopped) return Promise.resolve();
+      checking ??= exists(path)
+        .then((present) => {
+          if (present && !stopped) {
+            stopped = true;
+            stop();
+            changed();
+          }
+        })
+        .finally(() => {
+          checking = undefined;
+        });
+      return checking;
+    };
+    const stop = repeat(tick);
+    // Reconcile after registration as well as on subsequent ticks.
+    void tick();
+    return () => {
+      stopped = true;
+      stop();
+    };
+  };
+}
 
 /** Ancestor notifications can miss directory creation; stat polling bridges
  * that gap only until the destination's own parent can be watched. */
-export function createFileWatcher(directory: DirectoryWatch = watchDirectory) {
+export function createFileWatcher(
+  directory: DirectoryWatch = watchDirectory,
+  poll?: MissingFilePoll,
+  repeat: (tick: () => Promise<void>) => () => void = repeatPoll,
+) {
+  const missingPoll = poll ?? createMissingDirectoryPoll(directoryExists, repeat);
   // Missing thread scopes share the same ancestor. Opening one native watch per
   // file repeatedly rebuilds the macOS FSEvents stream as the file LRU turns over.
   const parents = new Map<
@@ -93,16 +148,16 @@ export function createFileWatcher(directory: DirectoryWatch = watchDirectory) {
       },
       failed,
     );
-    const polling = parent !== dirname(path);
+    let stopPolling: (() => void) | undefined;
     try {
-      if (polling) watchFile(path, { persistent: false, interval: 500 }, changed);
+      if (parent !== dirname(path)) stopPolling = missingPoll(join(parent, child ?? ""), changed);
     } catch (error) {
       stopDirectory();
       throw error;
     }
     return () => {
       stopDirectory();
-      if (polling) unwatchFile(path, changed);
+      stopPolling?.();
     };
   };
 }

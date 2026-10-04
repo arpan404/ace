@@ -57,7 +57,8 @@ export async function startDevices(context: ServiceContext): Promise<void> {
 export function createDevicesSession(context: SocketContext): SocketService {
   let channel: ReturnType<typeof connectDevices> | undefined;
   return {
-    authenticated() {
+    authenticated(kind) {
+      if (kind !== undefined && kind !== "devices") return;
       const service = context.options.devices;
       if (!service || !context.authorize("admin")) return;
       channel = connectDevices(service, context.sessionId, {
