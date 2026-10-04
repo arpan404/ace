@@ -59,14 +59,19 @@ export function olderRequest(
   return window.before === null ? undefined : { aroundSeq: window.before, before: size, after: 0 };
 }
 
-/** The request for newer items: up to `size` after the window's last item. */
+/**
+ * The request for newer items: up to `size` after the window's last item. A live thread keeps
+ * growing, so there is always a next request, even when the window ended at the thread's end.
+ */
 export function newerRequest(
   window: JumpWindow,
   size = slideSize,
 ): { aroundSeq: number; before: 0; after: number } | undefined {
-  return window.after === null
+  const last = window.items.at(-1);
+  const seq = last ? window.seqs.get(last.id) : window.after;
+  return seq === undefined || seq === null
     ? undefined
-    : { aroundSeq: window.after + 1, before: 0, after: Math.max(0, size - 1) };
+    : { aroundSeq: seq + 1, before: 0, after: Math.max(0, size - 1) };
 }
 
 function merged(window: JumpWindow, reply: WindowReply) {
@@ -148,12 +153,11 @@ export interface TailEdge {
 }
 
 /**
- * Whether the window has reached the live tail, so it can be dropped for the tail without
- * leaving a hole: it ends where the thread ends, shares an item with the tail, or the tail
- * holds the whole thread.
+ * Whether the window overlaps the live tail, so the tail's newer items can follow it without a
+ * hole: they share an item, the tail starts at or before the window's end, or the tail holds
+ * the whole thread.
  */
 export function meetsTail(window: JumpWindow, tail: TailEdge): boolean {
-  if (window.after === null) return true;
   if (tail.before === null) return true;
   const last = window.items.at(-1);
   const lastSeq = last ? window.seqs.get(last.id) : undefined;
@@ -166,4 +170,27 @@ export function meetsTail(window: JumpWindow, tail: TailEdge): boolean {
 /** Whether the window holds this item. */
 export function windowHas(window: JumpWindow, itemId: string): boolean {
   return window.seqs.has(itemId);
+}
+
+/**
+ * Each window item's root turn, from where turns start (`turns.page` summaries): the latest
+ * turn that started at or before the item's sequence. Items older than every known start are
+ * left out. A window's items may outlive the client's runs, so this is how a jumped window
+ * knows its turns.
+ */
+export function windowTurnOrdinals(
+  window: JumpWindow,
+  starts: Iterable<{ ordinal: number; startSeq: number }>,
+): Map<string, number> {
+  const sorted = [...starts].toSorted((a, b) => a.startSeq - b.startSeq);
+  const ordinals = new Map<string, number>();
+  let at = -1;
+  for (const item of window.items) {
+    const seq = window.seqs.get(item.id);
+    if (seq === undefined) continue;
+    while (at + 1 < sorted.length && (sorted[at + 1]?.startSeq ?? Infinity) <= seq) at++;
+    const turn = sorted[at];
+    if (turn) ordinals.set(item.id, turn.ordinal);
+  }
+  return ordinals;
 }

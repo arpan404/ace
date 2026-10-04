@@ -37,8 +37,18 @@ function longThread(): Scenario {
     });
   steps.push({
     kind: "facts",
+    label: "answer-31",
+    facts: [
+      facts.message("root", "ask-31", "user", "Question 31"),
+      { type: "turn.started", agent: "root", nativeTurnId: "turn-31", trigger: "user" },
+      facts.message("root", "answer-31", "assistant", "Answer 31"),
+      { type: "turn.ended", agent: "root", nativeTurnId: "turn-31", outcome: "completed" },
+    ],
+  });
+  steps.push({
+    kind: "facts",
     label: "working",
-    facts: [{ type: "turn.started", agent: "root", nativeTurnId: "turn-31", trigger: "user" }],
+    facts: [{ type: "turn.started", agent: "root", nativeTurnId: "turn-32", trigger: "user" }],
   });
   return {
     thread: { id: "thread-long", workspaceId: "ws", title: "Long", provider: "claude" },
@@ -92,8 +102,8 @@ function RootStatus() {
   return <output aria-label="root">{root?.status.state ?? "?"}</output>;
 }
 
-/** Jumps to the first turn the way the thread screen does, and shows it through the window. */
-function Jumped() {
+/** Jumps to a turn the way the thread screen does, and shows it through the window. */
+function Jumped(props: { turn: number; joined?: boolean }) {
   const client = useClient();
   const live = useThreadStore("thread-long");
   const [items, setItems] = useState<Parameters<typeof windowSource>[1]>();
@@ -104,8 +114,10 @@ function Jumped() {
         type="button"
         onClick={() =>
           void client
-            .itemsWindow({ threadId: "thread-long", turnOrdinal: 1, before: 0, after: 5 })
-            .then((reply) => setItems({ items: reply.items, before: reply.itemsBefore }))
+            .itemsWindow({ threadId: "thread-long", turnOrdinal: props.turn, before: 0, after: 20 })
+            .then((reply) =>
+              setItems({ items: reply.items, before: reply.itemsBefore, joined: props.joined }),
+            )
         }
       >
         Jump
@@ -125,7 +137,7 @@ test("a jumped window shows old items in place of the tail while the rest stays 
   await client.start();
   render(
     <ClientProvider client={client}>
-      <Jumped />
+      <Jumped turn={1} />
     </ClientProvider>,
   );
   await screen.findByText("Answer 30");
@@ -140,5 +152,29 @@ test("a jumped window shows old items in place of the tail while the rest stays 
   // A new turn starts: the agent's status is live inside the window, its items aren't added.
   await act(async () => script.runThrough("working"));
   await screen.findByText("working");
-  expect(screen.queryByText("Answer 30")).toBeNull();
+  expect(screen.queryByText("Answer 31")).toBeNull();
+});
+
+test("a window joined to the tail keeps its older items and follows the tail's new ones", async () => {
+  const { daemon, client } = setup();
+  const script = new ScenarioPlayer(daemon, longThread());
+  script.runThrough("exchange-30");
+  await client.start();
+  render(
+    <ClientProvider client={client}>
+      <Jumped turn={24} joined />
+    </ClientProvider>,
+  );
+  await screen.findByText("Answer 30");
+  // The live tail holds the newest ten items only.
+  expect(screen.queryByText("Question 24")).toBeNull();
+
+  await act(async () => screen.getByRole("button", { name: "Jump" }).click());
+  await screen.findByText("Question 24");
+  await act(async () => script.runThrough("answer-31"));
+  await screen.findByText("Answer 31");
+  const texts = screen.getAllByRole("listitem").map((row) => row.textContent);
+  expect(texts.indexOf("Question 24")).toBeLessThan(texts.indexOf("Answer 30"));
+  expect(texts.indexOf("Answer 30")).toBeLessThan(texts.indexOf("Answer 31"));
+  expect(texts.filter((text) => text === "Answer 30")).toHaveLength(1);
 });

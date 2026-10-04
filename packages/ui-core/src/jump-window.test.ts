@@ -8,6 +8,7 @@ import {
   windowCapacity,
   withNewer,
   withOlder,
+  windowTurnOrdinals,
 } from "./jump-window.ts";
 
 /*
@@ -111,14 +112,29 @@ test("a window reaches the live tail when it shares an item with it", () => {
   expect(ids(window)).toContain("item-801");
 });
 
-test("a window that ends where the thread ends has reached the tail", () => {
+test("a window at the thread's end still asks for newer items, since a live thread grows", () => {
   const window = openWindow(reply(seqOf(990), 50, 50));
   expect(window.after).toBeNull();
-  expect(newerRequest(window)).toBeUndefined();
-  expect(meetsTail(window, { order: [], before: seqOf(999) })).toBe(true);
+  expect(newerRequest(window)).toEqual({ aroundSeq: seqOf(total) + 1, before: 0, after: 99 });
+  // It overlaps a tail that holds its newest items, and not one that has moved past them.
+  expect(meetsTail(window, { order: ["item-1000"], before: seqOf(1000) })).toBe(true);
+  expect(meetsTail(window, { order: ["item-1300"], before: seqOf(1300) })).toBe(false);
 });
 
 test("a tail holding the whole thread always meets a window", () => {
   const window = openWindow(reply(seqOf(10), 5, 5));
   expect(meetsTail(window, { order: ["item-900"], before: null })).toBe(true);
+});
+
+test("window items take the turn that started at or before them", () => {
+  const window = openWindow(reply(seqOf(500), 5, 5));
+  const ordinals = windowTurnOrdinals(window, [
+    { ordinal: 41, startSeq: seqOf(503) },
+    { ordinal: 40, startSeq: seqOf(497) },
+  ]);
+  expect(ordinals.get("item-495")).toBeUndefined();
+  expect(ordinals.get("item-497")).toBe(40);
+  expect(ordinals.get("item-502")).toBe(40);
+  expect(ordinals.get("item-503")).toBe(41);
+  expect(ordinals.get("item-505")).toBe(41);
 });

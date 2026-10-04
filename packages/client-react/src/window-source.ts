@@ -16,6 +16,11 @@ const windowKey = (key: ThreadKey) =>
 export interface ThreadWindow {
   items: readonly Item[];
   before: number | null;
+  /**
+   * The window overlaps the live tail: the tail's newer items follow it (deduplicated by id,
+   * the tail's copy winning), and they stay live.
+   */
+  joined?: boolean;
 }
 
 /**
@@ -25,7 +30,19 @@ export interface ThreadWindow {
 export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSource {
   const items = new Map<string, Item>();
   for (const item of window.items) items.set(item.id, item);
-  const order = window.items.map((item) => item.id);
+  const own = window.items.map((item) => item.id);
+  const joined = window.joined === true;
+  // A joined order follows the tail's; it is rebuilt only when the tail's order changes.
+  let tailOrder: readonly string[] | undefined;
+  let order: readonly string[] = own;
+  const currentOrder = () => {
+    if (!joined || live.order === tailOrder) return order;
+    tailOrder = live.order;
+    const newer = tailOrder.filter((id) => !items.has(id));
+    order = newer.length ? [...own, ...newer] : own;
+    return order;
+  };
+  const item = (id: string) => (joined ? (live.item(id) ?? items.get(id)) : items.get(id));
   const source: ThreadSource = {
     get error() {
       return live.error;
@@ -42,13 +59,15 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     get cursor() {
       return live.cursor;
     },
-    order,
+    get order() {
+      return currentOrder();
+    },
     itemsBefore: window.before,
     agentIds: () => live.agentIds(),
     children: (agentId) => live.children(agentId),
     interactionIds: () => live.interactionIds(),
     taskIds: () => live.taskIds(),
-    item: (id) => items.get(id),
+    item,
     agent: (id) => live.agent(id),
     run: (id) => live.run(id),
     interaction: (id) => live.interaction(id),
@@ -56,14 +75,17 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     usage: (id) => live.usage(id),
     contextMeter: (id) => live.contextMeter(id),
     usageSnapshot: (key) => live.usageSnapshot(key),
-    // A window's items arrive whole from the daemon's bounded reply; nothing was cut here.
-    truncated: () => false,
+    // A window's own items arrive whole from the daemon's bounded reply; nothing was cut here.
+    truncated: (id) => (items.has(id) && !(joined && live.item(id)) ? false : live.truncated(id)),
     select<T>(
       keys: readonly ThreadKey[],
       selector: (reader: ThreadReader) => T,
       equal?: (a: T, b: T) => boolean,
     ): Selection<T> {
-      const liveKeys = keys.filter((key) => !windowKey(key));
+      // A joined window follows the tail's order and items; a detached one only its own.
+      const liveKeys = joined
+        ? keys.filter((key) => key !== "history")
+        : keys.filter((key) => !windowKey(key));
       if (!liveKeys.length) {
         const value = selector(source);
         return { getSnapshot: () => value, subscribe: () => () => {} };
