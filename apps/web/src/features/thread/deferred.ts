@@ -29,6 +29,10 @@ export const DeferredThreadHotkeys = deferredComponent(() =>
 export const DeferredSummaryBody = deferredComponent(() =>
   import("./header/summary-body.tsx").then((module) => module.SummaryBody),
 );
+/** The pinned summary's ⋯: the project's and git's actions. */
+export const DeferredSummaryMenu = deferredComponent(() =>
+  import("./header/summary-menu.tsx").then((module) => module.SummaryMenu),
+);
 
 /**
  * The long-thread tools, loaded when first opened and warmed while idle: the turn timeline,
@@ -50,6 +54,10 @@ export const DeferredJumpFailed = deferredComponent(() =>
 );
 export const DeferredGapRow = deferredComponent(() =>
   import("./long/jump-chrome.tsx").then((module) => module.GapRow),
+);
+/** Back to the live end, shown once the reader has left it. */
+export const DeferredLivePill = deferredComponent(() =>
+  import("./long/live-pill.tsx").then((module) => module.LivePill),
 );
 /** Older turns folded to a digest line, and the header that folds an opened one again. */
 export const DeferredFoldedTurn = deferredComponent(() =>
@@ -75,6 +83,7 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredReviewSummary.preload(),
     DeferredThreadMenu.preload(),
     DeferredSummaryBody.preload(),
+    DeferredSummaryMenu.preload(),
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.
     threadWorkspace.load(),
     preloadComposerParts(),
@@ -83,6 +92,7 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredJumpBar.preload(),
     DeferredGapRow.preload(),
     DeferredJumpFailed.preload(),
+    DeferredLivePill.preload(),
     DeferredFoldedTurn.preload(),
     DeferredOpenTurnHead.preload(),
     DeferredCatchUpSlot.preload(),

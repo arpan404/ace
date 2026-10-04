@@ -23,13 +23,13 @@ import {
   DeferredGapRow,
   DeferredJumpBar,
   DeferredJumpFailed,
+  DeferredLivePill,
   DeferredOpenTurnHead,
   DeferredSearchBar,
   DeferredTurnKeys,
 } from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
 import { readingColumn } from "../lib/column.ts";
-import { LivePill } from "../long/live-pill.tsx";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
 import { openWorkIndex, type Block } from "./blocks.ts";
@@ -483,12 +483,14 @@ export function Feed(props: FeedProps) {
         />
       </Suspense>
       {(!pinned || detached) && (
-        <LivePill
-          newItems={props.fresh.count}
-          more={props.fresh.more}
-          paused={rootWorking}
-          onClick={toLive}
-        />
+        <Suspense fallback={null}>
+          <DeferredLivePill.Component
+            newItems={props.fresh.count}
+            more={props.fresh.more}
+            paused={rootWorking}
+            onClick={toLive}
+          />
+        </Suspense>
       )}
     </div>
   );

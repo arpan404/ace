@@ -246,7 +246,9 @@ thread screen reads it through the daemon's long-thread APIs (ADR 0062), never b
   never asks a provider; Summarise sends one ordinary `thread.send`. While the reader follows the
   live end of a visible page the cursor advances (`markThreadRead`, coalesced by the client).
 - The timeline (`timeline.tsx`), search (`search-bar.tsx`, CSS Custom Highlight marks in the
-  transcript) and the catch-up card load after first paint through `deferred.ts`.
+  transcript), the catch-up card, the jump bar and gap, folded turns' digests and `LivePill`
+  load after first paint through `deferred.ts`; so do the jump controller (`jump.ts` loads it on
+  the first jump or when idle) and ⌥⌘↑ ⌥⌘↓.
 
 Shortcuts: ⌥⌘G turns, ⌘F search this thread (a file or terminal tab's own find wins while it
 has focus), ⌥⌘↑ and ⌥⌘↓ the previous and next turn (past the loaded turns they jump), and in

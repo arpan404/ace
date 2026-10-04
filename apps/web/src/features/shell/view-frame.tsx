@@ -1,13 +1,13 @@
 import { SidebarSimpleIcon } from "@phosphor-icons/react";
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, Suspense, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { crowdedQuery, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
 import { panelMotion, usePresence } from "@/lib/motion.ts";
 import { cn } from "@/lib/cn.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 interface FrameValue {
   /** This view has a second sidebar (the header shows its toggle). */
@@ -27,6 +27,11 @@ const FrameContext = createContext<FrameValue>({
   hideSidebar: () => {},
 });
 export const useViewFrame = () => useContext(FrameContext);
+
+/** The sidebar as a sheet: only narrow windows use it, so its code loads when one does. */
+const DeferredSidebarSheet = deferredComponent(() =>
+  import("./sidebar-sheet.tsx").then((module) => module.SidebarSheet),
+);
 
 /**
  * A view: its second sidebar (296px, translucent, collapsible with ⌘\) and its main column.
@@ -77,18 +82,16 @@ export function ViewFrame(props: { label: string; sidebar: ReactNode; children: 
             {props.sidebar}
           </aside>
         ) : (
-          <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-            <SheetContent
-              side="left"
-              showCloseButton={false}
-              className="w-[min(320px,85vw)] gap-0 bg-[rgb(var(--sidebar-rgb))] p-0"
+          // Closed until asked for, so it renders nothing while its code arrives.
+          <Suspense fallback={null}>
+            <DeferredSidebarSheet.Component
+              label={props.label}
+              open={sheetOpen}
+              onOpenChange={setSheetOpen}
             >
-              <SheetTitle className="sr-only">{props.label}</SheetTitle>
-              <aside aria-label={props.label} className="flex min-h-0 flex-1 flex-col">
-                {props.sidebar}
-              </aside>
-            </SheetContent>
-          </Sheet>
+              {props.sidebar}
+            </DeferredSidebarSheet.Component>
+          </Suspense>
         )}
         <div className="relative flex min-w-0 flex-1 flex-col bg-reading">{props.children}</div>
       </div>
