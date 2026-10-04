@@ -20,7 +20,9 @@ import {
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
+  type Item,
   ThreadId,
+  CommandId,
   ThreadMarkReadCommand,
   CoreClientMessage,
   CoreServerMessage,
@@ -88,7 +90,7 @@ export class Client implements ClientApi {
       options.scheduler,
       limits.requests,
       limits.requestMs,
-      (input) => this.command(ThreadMarkReadCommand.parse({ type: "thread.markRead", ...input })),
+      (input) => this.readMark(input),
     );
     this.connection = new Connection(
       options,
@@ -167,6 +169,7 @@ export class Client implements ClientApi {
           default:
             this.subscriptions.receive(message);
             this.sidebar.receive(message);
+            this.observeInputs(message);
         }
       },
       () => this.notifications.emit(["connection"]),
@@ -206,6 +209,21 @@ export class Client implements ClientApi {
           run,
         ),
     );
+  }
+  private observeInputs(message: ServerMessage): void {
+    const observe = (item: Item) => {
+      if (item.type !== "message" || item.role !== "user") return;
+      const id =
+        item.origin?.commandId ?? (item.id.startsWith("input:") ? item.id.slice(6) : undefined);
+      if (id)
+        void this.intents.observe(id).catch(() => this.connection.fail(new ClientError("storage")));
+    };
+    if (message.type === "snapshot" && message.view.kind === "thread")
+      for (const item of Object.values(message.view.items)) observe(item);
+    else if (message.type === "events")
+      for (const event of message.events) {
+        if (event.payload.type === "item.created") observe(event.payload.item);
+      }
   }
   get state(): ConnectionState {
     return this.connection.state;
@@ -253,6 +271,21 @@ export class Client implements ClientApi {
     if (this.closed) throw new ClientError("offline");
     await this.intents.enqueue(id, payload);
     return id;
+  }
+  /** Read cursors are last-write-wins hints, never durable outbox payloads. */
+  private readMark(input: ThreadMarkReadInput): Promise<CommandResult> {
+    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
+    const id = this.options.id();
+    return this.requests.wait(id, CommandResult.parse, {}, () => {
+      this.connection.send({
+        type: "command",
+        command: {
+          id: CommandId.parse(id),
+          deviceId: this.options.deviceId,
+          payload: ThreadMarkReadCommand.parse({ type: "thread.markRead", ...input }),
+        },
+      });
+    });
   }
   command(
     payload: CommandPayload,

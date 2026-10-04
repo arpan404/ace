@@ -166,3 +166,10 @@ its already saved command. Reuse the command id when reattaching or retrying a
 create. Closing the client stops local waiters; saved commands survive reload.
 UI callers should show "Will apply when reconnected" offline and a waiting hint
 after five seconds, and roll back only after a definite daemon refusal.
+
+Outboxes may provide `Storage.records.load/write` for per-intent writes. Settled
+non-send commands leave disk as soon as their receipt arrives; sends leave disk
+when their `input:<commandId>` item is observed. Both count and byte caps evict
+settled in-memory entries before refusing active work. Legacy aggregate storage
+is accepted and trimmed on load, so an old oversized history cannot wedge sends.
+Read marks bypass persistence and coalesce by the greatest sequence per thread.

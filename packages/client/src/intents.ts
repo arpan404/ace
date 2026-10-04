@@ -7,6 +7,8 @@ const Intent = z.object({
   command: Command,
   state: z.enum(["pending", "acked", "failed"]),
   error: z.string().optional(),
+  delivered: z.boolean().optional(),
+  threadId: z.string().optional(),
 });
 export type Intent = z.infer<typeof Intent>;
 /** A transient refusal (update drain, rolled-back transaction) is retried this many times. */
@@ -28,6 +30,7 @@ export class Intents {
   private ready = false;
   private connected = false;
   private inFlight = new Set<string>();
+  private saving = new Set<string>();
   private initializing: Promise<void> | undefined;
   constructor(
     storage: Storage,
@@ -51,17 +54,18 @@ export class Intents {
   initialize(): Promise<void> {
     this.initializing ??= (async () => {
       try {
-        const raw = await this.storage.load();
-        if (raw !== null && !fitsUtf8(raw, this.bytes)) throw new ClientError("limit");
-        const records = z
-          .array(Intent)
-          .max(this.limit)
-          .parse(raw === null ? [] : JSON.parse(raw));
-        for (const intent of records) {
+        const values = this.storage.records
+          ? (await this.storage.records.load()).map((raw) => Intent.parse(JSON.parse(raw)))
+          : z.array(Intent).parse(JSON.parse((await this.storage.load()) ?? "[]"));
+        // Old builds retained settled payloads indefinitely. Trim them before enforcing bounds.
+        for (const intent of values) {
           if (intent.command.deviceId !== this.device || this.records.has(intent.command.id))
             throw new Error("Outbox identity mismatch");
           this.records.set(intent.command.id, intent);
         }
+        const evicted = this.evict();
+        await this.persist(undefined, evicted);
+        for (const id of this.records.keys()) this.changed(id);
         this.ready = true;
       } catch {
         throw new ClientError("storage");
@@ -95,28 +99,19 @@ export class Intents {
         else if (this.connected) this.send(existing.command);
         return;
       }
-      let evicted: string | undefined;
-      if (this.records.size >= this.limit) {
-        const evict = [...this.records].find(([, intent]) => intent.state !== "pending");
-        if (!evict) throw new ClientError("limit");
-        evicted = evict[0];
-      }
       const intent: Intent = { command, state: "pending" };
-      const next = [...this.records.values()]
-        .filter((record) => record.command.id !== evicted)
-        .concat(intent);
-      const serialized = JSON.stringify(next);
-      if (!fitsUtf8(serialized, this.bytes)) throw new ClientError("limit");
-      try {
-        await this.storage.save(serialized);
-      } catch {
-        throw new ClientError("storage");
-      }
-      if (evicted) {
-        this.records.delete(evicted);
-        this.changed(evicted);
-      }
+      this.saving.add(id);
       this.records.set(id, intent);
+      let evicted: string[];
+      try {
+        evicted = this.evict(id);
+        await this.persist(intent, evicted);
+      } catch (error) {
+        this.records.delete(id);
+        this.saving.delete(id);
+        throw error instanceof ClientError ? error : new ClientError("storage");
+      }
+      this.saving.delete(id);
       this.changed(id);
       this.pump();
     });
@@ -155,22 +150,85 @@ export class Intents {
         state: result.ok ? "acked" : "failed",
         ...(result.error === undefined ? {} : { error: result.error }),
       };
-      const serialized = JSON.stringify(
-        [...this.records.values()].map((intent) => (intent === previous ? next : intent)),
-      );
-      if (!fitsUtf8(serialized, this.bytes)) throw new ClientError("storage");
+      if (previous.delivered) next.delivered = true;
+      if (result.threadId) next.threadId = result.threadId;
+      this.records.set(result.commandId, next);
       try {
-        await this.storage.save(serialized);
+        const evicted = this.evict(result.commandId);
+        await this.persist(next, evicted);
       } catch {
+        this.records.set(result.commandId, previous);
         throw new ClientError("storage");
       }
-      this.records.set(result.commandId, next);
       this.changed(result.commandId);
     }).finally(() => {
       this.acknowledging.delete(result.commandId);
       this.inFlight.delete(result.commandId);
       this.pump();
     });
+  }
+  values(): readonly Intent[] {
+    return [...this.records.values()];
+  }
+  /** The admission item replaced the optimistic bubble. Release its persisted payload. */
+  observe(id: string): Promise<void> {
+    return this.serialize(async () => {
+      const previous = this.records.get(id);
+      if (!previous || previous.delivered) return;
+      const next = { ...previous, delivered: true };
+      this.records.set(id, next);
+      try {
+        await this.persist(next, []);
+      } catch {
+        this.records.set(id, previous);
+        throw new ClientError("storage");
+      }
+      this.changed(id);
+    });
+  }
+  private retained(intent: Intent): boolean {
+    return (
+      intent.state !== "acked" ||
+      ((intent.command.payload.type === "thread.send" ||
+        intent.command.payload.type === "thread.create") &&
+        !intent.delivered)
+    );
+  }
+  /** Bound memory as well as disk, evicting settled entries before refusing active work. */
+  private evict(protect?: string): string[] {
+    const evicted: string[] = [];
+    const fits = () =>
+      this.records.size <= this.limit &&
+      fitsUtf8(JSON.stringify([...this.records.values()]), this.bytes);
+    for (const [id, intent] of this.records) {
+      if (fits()) break;
+      if (
+        id === protect ||
+        intent.state === "pending" ||
+        (intent.state === "acked" && this.retained(intent))
+      )
+        continue;
+      this.records.delete(id);
+      evicted.push(id);
+      this.changed(id);
+    }
+    if (!fits()) throw new ClientError("limit");
+    return evicted;
+  }
+  private async persist(intent: Intent | undefined, evicted: readonly string[]): Promise<void> {
+    const records = this.storage.records;
+    if (records) {
+      for (const id of evicted) await records.write(id, null);
+      if (intent)
+        await records.write(
+          intent.command.id,
+          this.retained(intent) ? JSON.stringify(intent) : null,
+        );
+      return;
+    }
+    await this.storage.save(
+      JSON.stringify([...this.records.values()].filter((entry) => this.retained(entry))),
+    );
   }
   settled(): Promise<void> {
     return this.chain;
@@ -190,6 +248,7 @@ export class Intents {
       const id = intent.command.id;
       if (
         intent.state !== "pending" ||
+        this.saving.has(id) ||
         this.inFlight.has(id) ||
         this.acknowledging.has(id) ||
         this.retries.get(id)?.cancel

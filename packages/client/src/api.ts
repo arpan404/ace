@@ -107,7 +107,7 @@ export interface ClientApi {
     input: ThreadReadStateInput,
     options?: RequestOptions,
   ): Promise<ThreadReadStateResponse>;
-  /** Coalesce pending monotonic read updates per thread into durable commands. */
+  /** Coalesce read updates per thread. Never persisted or replayed through the outbox. */
   markThreadRead(input: ThreadMarkReadInput, options?: RequestOptions): Promise<CommandResult>;
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },

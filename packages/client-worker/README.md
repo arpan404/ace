@@ -8,3 +8,8 @@ Runs `@ace/client` off the main thread (ADR 0056). `ClientHost` lives in a Share
 - Tabs ping; a tab silent for `silenceMs` is dropped and its leases released. A client outlives its last tab by `lingerMs`, so a reload reattaches to a warm socket.
 
 The browser entry and the IndexedDB outbox are in `apps/web/src/boot/client-worker.ts` and `idb-storage.ts`.
+
+`idbOutbox(key, seed)` provides record-level IndexedDB storage and atomically
+migrates the old `ace/outbox` aggregate or localStorage seed once. Web boot should
+import this adapter from `@ace/client-worker` in place of its local
+`boot/idb-storage.ts` adapter. Each enqueue or receipt writes only its own intent.

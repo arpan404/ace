@@ -8,6 +8,7 @@ export type {
   Transport,
   TransportEvents,
   Storage,
+  IntentRecords,
   Scheduler,
   Limits,
   RequestOptions,

@@ -288,7 +288,7 @@ test("turn pages and deterministic catch-up retain a root outcome while its chil
 
 // Mutation cases: retaining an unsent mark after disconnect, losing an accepted mark from the
 // durable outbox, changing the command id on replay. Not executed (tests run at merge).
-test("disconnect drops unsent read marks and reloaded clients replay a mark whose receipt was lost", async () => {
+test("read marks never enter the outbox, including when their receipt is lost", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   const { client, faults, scheduler } = h.make({ storage: h.storage });
@@ -313,7 +313,8 @@ test("disconnect drops unsent read marks and reloaded clients replay a mark whos
   await lostReceipt;
   const reloaded = h.make({ storage: h.storage }).client;
   await ready(reloaded);
-  await when(reloaded.intent(receipt.commandId), (intent) => intent?.state === "acked");
+  expect(reloaded.intent(receipt.commandId).getSnapshot()).toBeUndefined();
+  expect(await h.storage.load()).toBe("[]");
   expect(await reloaded.threadReadState({ threadId: h.thread.id })).toMatchObject({
     lastSeenSeq: head,
   });
