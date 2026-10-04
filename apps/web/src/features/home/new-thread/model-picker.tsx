@@ -24,7 +24,8 @@ import type { NewThreadOptions, Resolved } from "./choices.ts";
 export function ModelPicker(props: {
   options: NewThreadOptions | undefined;
   resolved: Resolved;
-  onModel(id: string): void;
+  /** Called with the option's `key`, which tells apart providers that share a model id. */
+  onModel(key: string): void;
   onAccount(id: string): void;
   onEffort(effort: string): void;
 }) {
@@ -66,7 +67,10 @@ export function ModelPicker(props: {
         </MenuTrigger>
       </Tip>
       <MenuContent align="start" side="top" className="max-h-[60vh] w-[320px] overflow-y-auto">
-        <MenuRadioGroup value={model?.id ?? ""} onValueChange={(id) => props.onModel(String(id))}>
+        <MenuRadioGroup
+          value={model?.key ?? ""}
+          onValueChange={(key) => props.onModel(String(key))}
+        >
           {providers.map((provider, index) => (
             <MenuGroup key={provider}>
               {index > 0 && <MenuSeparator />}
@@ -74,7 +78,7 @@ export function ModelPicker(props: {
               {props.options?.models
                 .filter((m) => m.provider === provider)
                 .map((m) => (
-                  <MenuRadioItem key={m.id} value={m.id}>
+                  <MenuRadioItem key={m.key} value={m.key}>
                     {m.label}
                   </MenuRadioItem>
                 ))}

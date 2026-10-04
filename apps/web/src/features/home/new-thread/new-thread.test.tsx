@@ -47,6 +47,36 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   expect(within(nav).getByRole("link", { name: /Log every restart/ })).toBeTruthy();
 });
 
+test("a model id two providers share starts the thread on the provider it was picked under", async () => {
+  const made = app();
+  const { services } = made.daemon;
+  const codexGpt5 = services.models.find(
+    (m) => m.provider === "codex" && m.nativeModelId === "gpt-5",
+  );
+  if (!codexGpt5) throw new Error("fixture lists Codex GPT-5");
+  services.models.push({
+    ...codexGpt5,
+    id: "cursor:gpt-5",
+    provider: "cursor",
+    instance: "cursor",
+  });
+  await made.open("/new?project=relay");
+
+  await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4.1/ }));
+  const cursor = await screen.findByRole("group", { name: "Cursor" });
+  await userEvent.click(within(cursor).getByRole("menuitemradio", { name: "GPT-5" }));
+  const codex = screen.getByRole("group", { name: "Codex" });
+  expect(within(codex).getByRole("menuitemradio", { name: "GPT-5" }).ariaChecked).toBe("false");
+  expect(within(cursor).getByRole("menuitemradio", { name: "GPT-5" }).ariaChecked).toBe("true");
+  await userEvent.keyboard("{Escape}");
+  await menuClosed();
+
+  await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
+  const created = listed(made).find((t) => t.title === "Trace the reconnect loop");
+  expect(created).toMatchObject({ provider: "cursor" });
+});
+
 test("Shift+Enter writes a new line instead of sending", async () => {
   const made = app();
   await made.open("/new");
