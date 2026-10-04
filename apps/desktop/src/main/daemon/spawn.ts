@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
+import { DaemonHealth } from "@ace/protocol";
 import type { DaemonProcess } from "./supervisor.ts";
 
 /** Files the packaged app ships next to the daemon. */
@@ -46,6 +47,15 @@ export interface SpawnOptions {
   onOutput(line: string): void;
 }
 
+/**
+ * The version the daemon reports in its health. Clients refuse to adopt a daemon reporting a
+ * 0.x version, which is the legacy app's (ADR 0041), so an app version that health rule
+ * rejects (a local build's `0.1.0`) runs its daemon as `development` instead.
+ */
+function daemonVersion(appVersion: string): string {
+  return DaemonHealth.shape.version.safeParse(appVersion).success ? appVersion : "development";
+}
+
 /** Environment for the daemon child, run by `program`. */
 export function daemonEnvironment(
   options: Omit<SpawnOptions, "onOutput">,
@@ -59,7 +69,7 @@ export function daemonEnvironment(
     ...options.env,
     ...program,
     ACE_HOME: options.home,
-    ACE_VERSION: options.version,
+    ACE_VERSION: daemonVersion(options.version),
     PATH: path,
   };
   // Electron-only switches must not leak into the Node child.
