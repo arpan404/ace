@@ -1,7 +1,7 @@
 import { MergedForkContext, ExecutionSource } from "./thread-transitions.ts";
 import { z } from "zod";
-import { AgentId, ItemId, RunId, Timestamp } from "./ids.ts";
-import { RawPayload } from "./provider.ts";
+import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
+import { ProviderKind, RawPayload } from "./provider.ts";
 import { ToolCall } from "./tools.ts";
 
 export const TextSource = z.object({
@@ -17,6 +17,33 @@ export const ContentPart = z.discriminatedUnion("type", [
   z.object({ type: z.literal("file"), path: z.string(), mimeType: z.string().optional() }),
 ]);
 export type ContentPart = z.infer<typeof ContentPart>;
+
+/** Provenance of provider input, retained on its canonical transcript item. */
+export const MessageOrigin = z.object({
+  kind: z.enum([
+    "person",
+    "interaction_answer",
+    "subagent_result",
+    "handoff",
+    "spawn",
+    "parent_agent",
+    "restart",
+    "limit_resume",
+    "queue",
+    "automation",
+    "schedule",
+    "background_completion",
+  ]),
+  commandId: CommandId.optional(),
+  interactionId: InteractionId.optional(),
+  threadIds: z.array(ThreadId).optional(),
+  parentThreadId: ThreadId.optional(),
+  role: z.string().optional(),
+  from: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
+  to: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
+  lossy: z.boolean().optional(),
+});
+export type MessageOrigin = z.infer<typeof MessageOrigin>;
 
 const ItemBase = z.object({
   id: ItemId,
@@ -38,6 +65,7 @@ export const AgentItem = z.discriminatedUnion("type", [
     parts: z.array(ContentPart),
     /** Message ace did not send itself: task notifications, injected results. */
     synthetic: z.boolean().default(false),
+    origin: MessageOrigin.optional(),
     mergedContext: MergedForkContext.optional(),
     raw: z.array(RawPayload).default([]),
   }),
@@ -53,6 +81,9 @@ export const AgentItem = z.discriminatedUnion("type", [
   ItemBase.extend({
     type: z.literal("notice"),
     level: z.enum(["info", "warning", "error"]),
+    code: z.string().optional(),
+    title: z.string().optional(),
+    detail: z.string().optional(),
     /** Native history output linked to its canonical call. */
     toolCallId: ItemId.optional(),
     text: z.string(),
