@@ -66,7 +66,7 @@ test("fake catch-up includes already pending approvals and later linked child co
       type: "agent.seen",
       agent: "proxy",
       parent: "root",
-      origin: "provider_subagent",
+      origin: "ace",
       fidelity: "full",
       native: { provider: "codex", nativeId: "proxy" },
       cwd: "/fake",
@@ -180,6 +180,7 @@ test("fake turn usage excludes inclusive session totals and deduplicates model c
       outputTokens: 25,
       counterMode: "cumulative",
       usageScope: "provider_session",
+      counterKey: "provider-session",
     },
     {
       type: "usage",
@@ -189,6 +190,7 @@ test("fake turn usage excludes inclusive session totals and deduplicates model c
       outputTokens: 25,
       counterMode: "cumulative",
       usageScope: "model_session",
+      counterKey: "model-session-a",
     },
     {
       type: "usage",
@@ -196,6 +198,15 @@ test("fake turn usage excludes inclusive session totals and deduplicates model c
       model: "model-b",
       inputTokens: 40,
       outputTokens: 10,
+      counterMode: "cumulative",
+      usageScope: "agent",
+    },
+    {
+      type: "usage",
+      agent: "root",
+      model: "model-a",
+      inputTokens: 100,
+      outputTokens: 25,
       counterMode: "cumulative",
       usageScope: "agent",
     },
@@ -520,7 +531,11 @@ test("fake search finds older shell output and turns jump to a separate bounded 
     });
     expect(first.hits).toHaveLength(2);
     expect(first.hits[0]?.snippet.text).toContain("Inspecting checkpoint 1");
-    expect(first.hits[0]?.snippet.highlights).toEqual([{ start: 0, end: 20 }]);
+    const snippet = first.hits[0]?.snippet;
+    expect(snippet?.highlights).toEqual([{ start: 0, end: 21 }]);
+    expect(snippet?.highlights.map((mark) => snippet.text.slice(mark.start, mark.end))).toEqual([
+      "Inspecting checkpoint",
+    ]);
     const next = await client.threadSearch({
       threadId: "thread-multi-day",
       text: "Inspecting checkpoint",
