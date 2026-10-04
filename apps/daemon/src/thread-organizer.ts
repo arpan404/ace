@@ -191,20 +191,20 @@ export class ThreadOrganizer {
       }
     })().finally(async () => {
       try {
-      await this.store.writable();
-      this.pending = undefined;
-      if (!this.stopped) {
-        const dirty = this.store.atomic((db) =>
-          Boolean(db.prepare("SELECT 1 FROM thread_organizer_dirty LIMIT 1").get()),
-        );
-        const due = this.store.atomic(
-          (db) => db.prepare("SELECT MIN(due) AS due FROM thread_settle_due").get()?.due,
-        );
-        const delay =
-          typeof due === "number" ? Math.min(60_000, Math.max(0, due - this.now())) : 60_000;
-        this.arm(this.retry ? 60_000 : dirty ? 0 : delay);
-        this.retry = false;
-      }
+        await this.store.writable();
+        this.pending = undefined;
+        if (!this.stopped) {
+          const dirty = this.store.atomic((db) =>
+            Boolean(db.prepare("SELECT 1 FROM thread_organizer_dirty LIMIT 1").get()),
+          );
+          const due = this.store.atomic(
+            (db) => db.prepare("SELECT MIN(due) AS due FROM thread_settle_due").get()?.due,
+          );
+          const delay =
+            typeof due === "number" ? Math.min(60_000, Math.max(0, due - this.now())) : 60_000;
+          this.arm(this.retry ? 60_000 : dirty ? 0 : delay);
+          this.retry = false;
+        }
       } catch {
         this.pending = undefined;
         this.retry = false;
