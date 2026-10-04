@@ -129,6 +129,7 @@ export class Client implements ClientApi {
             this.subscriptions.reconnect();
             this.sidebar.reconnect();
             this.intents.replay();
+            this.readMarkers.reconnect();
             break;
           case "commandResult":
             this.requests.resolve(message.commandId, message);
@@ -218,6 +219,8 @@ export class Client implements ClientApi {
           this.waitingHints.get(id)?.();
           this.waitingHints.delete(id);
         }
+        if (intent?.state === "failed" && !intent.localFailure)
+          this.requests.resolve(id, { commandId: id, ok: false, error: intent.error });
         const entry = intent && pendingSend(intent);
         if (entry) this.pendingSendEntries.set(id, entry);
         else this.pendingSendEntries.delete(id);

@@ -12,18 +12,22 @@ const Intent = z.object({
   sent: z.boolean().optional(),
   waiting: z.boolean().optional(),
   localFailure: z.boolean().optional(),
+  order: z.number().int().nonnegative().optional(),
 });
 export type Intent = z.infer<typeof Intent>;
 /** A transient refusal (update drain, rolled-back transaction) is retried this many times. */
 const maxRetries = 10;
 export class Intents {
   private records = new Map<string, Intent>();
+  private sizes = new Map<string, number>();
+  private retainedBytes = 0;
   private optimistic = new Map<string, Intent>();
   private enqueuing = new Map<string, Promise<void>>();
   private storage: Storage;
   private device: DeviceId;
   private limit: number;
   private operations = 0;
+  private sequence = 0;
   private acknowledging = new Set<string>();
   private bytes: number;
   private frameBytes: number;
@@ -63,10 +67,11 @@ export class Intents {
           ? (await this.storage.records.load()).map((raw) => Intent.parse(JSON.parse(raw)))
           : z.array(Intent).parse(JSON.parse((await this.storage.load()) ?? "[]"));
         // Old builds retained settled payloads indefinitely. Trim them before enforcing bounds.
-        for (const intent of values) {
+        for (const intent of values.toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
+          this.sequence = Math.max(this.sequence, intent.order ?? 0);
           if (intent.command.deviceId !== this.device || this.records.has(intent.command.id))
             throw new Error("Outbox identity mismatch");
-          this.records.set(intent.command.id, intent);
+          this.put(intent.command.id, intent);
         }
         const evicted = this.evict();
         if (values.length)
@@ -102,34 +107,33 @@ export class Intents {
         new ClientError("protocol", "Idempotency key reused with different payload"),
       );
     const inflight = this.enqueuing.get(id);
-    if (inflight) return inflight;
+    if (inflight) return inflight.then(() => this.enqueue(id, payload));
     if (!existing || existing.localFailure) {
-      if (existing?.localFailure) this.records.delete(id);
+      if (existing?.localFailure) this.remove(id);
       this.optimistic.set(id, { command, state: "saving" });
       this.changed(id);
     }
     const operation = this.serialize(async () => {
       if (!this.ready) throw new ClientError("storage");
-      const command = Command.parse({ id, deviceId: this.device, payload });
       if (!fitsUtf8(JSON.stringify({ type: "command", command }), this.frameBytes))
         throw new ClientError("limit");
-      const existing = this.records.get(id);
-      if (existing) {
-        if (JSON.stringify(existing.command) !== JSON.stringify(command))
+      const stored = this.records.get(id);
+      if (stored) {
+        if (JSON.stringify(stored.command) !== JSON.stringify(command))
           throw new ClientError("protocol", "Idempotency key reused with different payload");
-        if (existing.state === "pending") this.pump();
-        else if (this.connected) this.send(existing.command);
+        if (stored.state === "pending") this.pump();
+        else if (this.connected) this.send(stored.command);
         return;
       }
-      const intent: Intent = { command, state: "pending" };
+      const intent: Intent = { command, state: "pending", order: ++this.sequence };
       this.saving.add(id);
-      this.records.set(id, intent);
+      this.put(id, intent);
       let evicted: string[];
       try {
         evicted = this.evict(id);
         await this.persist(intent, evicted);
       } catch (error) {
-        this.records.delete(id);
+        this.remove(id);
         this.saving.delete(id);
         throw error instanceof ClientError ? error : new ClientError("storage");
       }
@@ -140,9 +144,11 @@ export class Intents {
     })
       .catch((error: unknown) => {
         if (this.optimistic.has(id)) {
-          this.optimistic.set(id, {
+          this.optimistic.delete(id);
+          this.put(id, {
             command,
             state: "failed",
+            localFailure: true,
             error: error instanceof ClientError ? error.code : "storage",
           });
           this.changed(id);
@@ -184,17 +190,18 @@ export class Intents {
       if (!previous || previous.state !== "pending") return;
       const next: Intent = {
         command: previous.command,
+        ...(previous.order === undefined ? {} : { order: previous.order }),
         state: result.ok ? "acked" : "failed",
         ...(result.error === undefined ? {} : { error: result.error }),
       };
       if (previous.delivered) next.delivered = true;
       if (result.threadId) next.threadId = result.threadId;
-      this.records.set(result.commandId, next);
+      this.put(result.commandId, next);
       try {
         const evicted = this.evict(result.commandId);
         await this.persist(next, evicted);
       } catch {
-        this.records.set(result.commandId, previous);
+        this.put(result.commandId, previous);
         throw new ClientError("storage");
       }
       this.changed(result.commandId);
@@ -210,7 +217,7 @@ export class Intents {
   waiting(id: string): void {
     const previous = this.records.get(id);
     if (previous?.state !== "pending" || previous.waiting) return;
-    this.records.set(id, { ...previous, waiting: true });
+    this.put(id, { ...previous, waiting: true });
     this.changed(id);
   }
   /** The admission item replaced the optimistic bubble. Release its persisted payload. */
@@ -219,15 +226,26 @@ export class Intents {
       const previous = this.records.get(id);
       if (!previous || previous.delivered) return;
       const next = { ...previous, delivered: true };
-      this.records.set(id, next);
+      this.put(id, next);
       try {
         await this.persist(next, []);
       } catch {
-        this.records.set(id, previous);
+        this.put(id, previous);
         throw new ClientError("storage");
       }
       this.changed(id);
     });
+  }
+  private put(id: string, intent: Intent): void {
+    const size = new TextEncoder().encode(JSON.stringify(intent)).byteLength;
+    this.retainedBytes += size - (this.sizes.get(id) ?? 0);
+    this.sizes.set(id, size);
+    this.records.set(id, intent);
+  }
+  private remove(id: string): void {
+    this.retainedBytes -= this.sizes.get(id) ?? 0;
+    this.sizes.delete(id);
+    this.records.delete(id);
   }
   private retained(intent: Intent): boolean {
     return (
@@ -242,7 +260,7 @@ export class Intents {
     const evicted: string[] = [];
     const fits = () =>
       this.records.size <= this.limit &&
-      fitsUtf8(JSON.stringify([...this.records.values()]), this.bytes);
+      this.retainedBytes + 2 + Math.max(0, this.records.size - 1) <= this.bytes;
     for (const [id, intent] of this.records) {
       if (fits()) break;
       if (
@@ -251,7 +269,7 @@ export class Intents {
         (intent.state === "acked" && this.retained(intent))
       )
         continue;
-      this.records.delete(id);
+      this.remove(id);
       evicted.push(id);
       this.changed(id);
     }
@@ -298,7 +316,7 @@ export class Intents {
       )
         continue;
       this.inFlight.add(id);
-      this.records.set(id, { ...intent, sent: true });
+      this.put(id, { ...intent, sent: true });
       this.changed(id);
       this.send(intent.command);
     }

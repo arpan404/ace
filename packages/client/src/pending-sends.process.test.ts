@@ -134,37 +134,49 @@ test("a storage refusal keeps the pending bubble and same-id retry preserves its
   ]);
 });
 
-test("a queued follow-up is visible before a held queue read returns", async () => {
-  const h = await setup({ handle: (command) => ({ commandId: command.id, ok: true }) });
+test("record storage preserves offline send order across a restart and retains complete input", async () => {
+  const seen: string[] = [];
+  const h = await setup({
+    handle: (command) => {
+      seen.push(command.id);
+      return { commandId: command.id, ok: true };
+    },
+  });
   cleanup = h.cleanup;
-  const { client, faults } = h.make();
-  await ready(client);
-  let release: (() => void) | undefined;
-  faults.incoming = (message, frame, deliver) => {
-    if (message.type === "queue.result") release = () => deliver(frame);
-    else deliver(frame);
+  const rows = new Map<string, string>();
+  const storage = {
+    load: async () => null,
+    save: async () => {
+      throw new Error("Aggregate write forbidden");
+    },
+    records: {
+      load: async () =>
+        [...rows].toSorted(([a], [b]) => a.localeCompare(b)).map(([, value]) => value),
+      write: async (id: string, value: string | null) => {
+        if (value === null) rows.delete(id);
+        else rows.set(id, value);
+      },
+    },
   };
-  const queue = client.queue(h.thread.id);
-  await faults.wait((message) => message.type === "queue.result");
-  const sent = client.enqueue(
-    {
-      type: "thread.send",
-      threadId: h.thread.id,
-      delivery: "queue",
-      input: [{ type: "text", text: "Visible before queue.get" }],
-    },
-    "queued-pill",
-  );
-  expect(client.pendingSends(h.thread.id).getSnapshot()).toMatchObject([
-    {
-      commandId: "queued-pill",
-      itemId: "input:queued-pill",
-      state: "saving",
-      payload: { delivery: "queue" },
-    },
-  ]);
-  await sent;
-  await when(client.pendingSends(h.thread.id), (entries) => entries[0]?.state === "accepted");
-  release?.();
-  await queue;
+  const first = h.make({ storage }).client;
+  await ready(first);
+  first.networkOnline(false);
+  for (const id of ["z-first", "a-second"])
+    await first.enqueue(
+      {
+        type: "thread.send",
+        threadId: h.thread.id,
+        input: [{ type: "text", text: id }],
+        delivery: "queue",
+      },
+      id,
+    );
+  expect(JSON.parse(rows.get("z-first") ?? "null")).toMatchObject({
+    command: { payload: { input: [{ type: "text", text: "z-first" }] } },
+  });
+  await first.close();
+  const second = h.make({ storage }).client;
+  await ready(second);
+  await when(second.intent("a-second"), (intent) => intent?.state === "acked");
+  expect(seen).toEqual(["z-first", "a-second"]);
 });

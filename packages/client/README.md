@@ -155,7 +155,8 @@ that action and its wording.
 `lastSeenSeq`. `markThreadRead({ threadId, lastSeenSeq })` coalesces updates for
 100 ms per thread into one ephemeral command using the greatest active cursor.
 Read marks never enter the outbox; unsent marks and in-flight read waiters reject
-on disconnect. The UI can send the latest cursor again when it reconnects.
+on disconnect. The latest failed cursor is retried on reconnect in memory and
+never survives a client restart.
 
 Durable `command()` calls persist even while offline and wait across disconnects.
 They have no receipt deadline. `timeoutMs` only sets deadlines for one-shot reads

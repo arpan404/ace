@@ -300,7 +300,9 @@ test("read marks never enter the outbox, including when their receipt is lost", 
   await disconnected;
   scheduler.advance(250);
   await when(client.connectionState(), (state) => state === "ready");
-  expect(await client.threadReadState({ threadId: h.thread.id })).toMatchObject({ lastSeenSeq: 0 });
+  expect(await client.threadReadState({ threadId: h.thread.id })).toMatchObject({
+    lastSeenSeq: head,
+  });
   faults.incoming = (event, frame, deliver) => {
     if (event.type !== "commandResult") deliver(frame);
   };
@@ -314,7 +316,7 @@ test("read marks never enter the outbox, including when their receipt is lost", 
   const reloaded = h.make({ storage: h.storage }).client;
   await ready(reloaded);
   expect(reloaded.intent(receipt.commandId).getSnapshot()).toBeUndefined();
-  expect(await h.storage.load()).toBe("[]");
+  expect(await h.storage.load()).toBeNull();
   expect(await reloaded.threadReadState({ threadId: h.thread.id })).toMatchObject({
     lastSeenSeq: head,
   });
