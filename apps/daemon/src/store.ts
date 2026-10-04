@@ -140,7 +140,11 @@ export class Store {
         try {
           this.search.flush();
         } catch (error) {
-          this.onError(error);
+          try {
+            this.onError(error);
+          } catch {
+            /* The interval retries on its next pass. */
+          }
         }
       });
     } catch (error) {

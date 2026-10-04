@@ -184,3 +184,59 @@ it("terminates a socket after a transport send callback fails", async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+it("a congested delta burst keeps every append and contiguous coverage below the frame budget", async () => {
+  const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing port");
+  const connected = once(server, "connection");
+  const client = new Client(`ws://127.0.0.1:${address.port}`);
+  const opened = once(client.socket, "open");
+  const [socket] = await connected;
+  if (!(socket instanceof WebSocket)) throw new Error("Missing socket");
+  await opened;
+  try {
+    const outbox = new Outbox(socket, { ...defaultPressure, softLimit: -1 });
+    for (let seq = 1; seq <= 600; seq++)
+      outbox.send({
+        type: "events",
+        subscriptionId: "s",
+        afterSeq: seq - 1,
+        throughSeq: seq,
+        events: [
+          Event.parse({
+            seq,
+            id: `e${seq}`,
+            at: 1,
+            threadId: "t",
+            payload: {
+              type: "item.delta",
+              itemId: "i",
+              agentId: "a",
+              field: "text",
+              append: "x".repeat(4096),
+            },
+          }),
+        ],
+      });
+    outbox.send({ type: "pong" });
+    let cursor = 0;
+    let bytes = 0;
+    for (;;) {
+      const message = ServerMessage.parse(await client.next());
+      if (message.type === "pong") break;
+      if (message.type !== "events") throw new Error("Expected appends");
+      expect(Buffer.byteLength(JSON.stringify(message))).toBeLessThan(1024 * 1024);
+      expect(message.afterSeq).toBe(cursor);
+      cursor = message.throughSeq;
+      for (const event of message.events)
+        if (event.payload.type === "item.delta") bytes += event.payload.append.length;
+    }
+    expect(cursor).toBe(600);
+    expect(bytes).toBe(600 * 4096);
+  } finally {
+    await client.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

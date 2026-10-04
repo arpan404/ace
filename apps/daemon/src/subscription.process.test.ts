@@ -350,29 +350,41 @@ it("thread replay never reads another thread's event payloads", () => {
   expect(messages.at(-1)).toMatchObject({ throughSeq: store.headSeq() });
 });
 
-it("a large replay is split into contiguous frames below the client frame limit", async () => {
-  const f = await setup();
-  const view = createThreadView(f.thread);
-  const before = f.store.headSeq();
-  view.seq = before;
-  const texts = Array.from({ length: 4 }, (_, i) => String(i).repeat(700 * 1024));
-  for (const [i, text] of texts.entries())
-    f.store.appendEvents(f.thread.id, [
-      { type: "item.created", item: transcriptMessage(`big-${i}`, text) },
-    ]);
-  f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Head" }]);
-  const messages: ServerMessage[] = [];
-  cleanups.push(
-    subscribe(f.store, "s", { kind: "thread", threadId: f.thread.id }, before, 5000, (m) =>
-      messages.push(m),
-    ),
-  );
-  expect(messages.length).toBeGreaterThan(1);
-  for (const message of messages) {
-    expect(Buffer.byteLength(JSON.stringify(message))).toBeLessThan(2 * 1024 * 1024);
-    if (message.type !== "events") throw new Error(`Unexpected ${message.type}`);
-    expect(applyDelivery(view, message).kind).toBe("applied");
-  }
-  expect(view.seq).toBe(f.store.headSeq());
-  expect(view.thread.title).toBe("Head");
-});
+it.each([2, 4])(
+  "a replay with %s large items splits within budget or falls back to a snapshot",
+  async (count) => {
+    const f = await setup();
+    const view = createThreadView(f.thread);
+    const before = f.store.headSeq();
+    view.seq = before;
+    const texts = Array.from({ length: count }, (_, i) => String(i).repeat(700 * 1024));
+    for (const [i, text] of texts.entries())
+      f.store.appendEvents(f.thread.id, [
+        { type: "item.created", item: transcriptMessage(`big-${i}`, text) },
+      ]);
+    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Head" }]);
+    const messages: ServerMessage[] = [];
+    cleanups.push(
+      subscribe(f.store, "s", { kind: "thread", threadId: f.thread.id }, before, 5000, (m) =>
+        messages.push(m),
+      ),
+    );
+    if (count === 4) {
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({
+        type: "snapshot",
+        seq: f.store.headSeq(),
+        view: { thread: { title: "Head" } },
+      });
+      return;
+    }
+    expect(messages.length).toBeGreaterThan(1);
+    for (const message of messages) {
+      expect(Buffer.byteLength(JSON.stringify(message))).toBeLessThan(2 * 1024 * 1024);
+      if (message.type !== "events") throw new Error(`Unexpected ${message.type}`);
+      expect(applyDelivery(view, message).kind).toBe("applied");
+    }
+    expect(view.seq).toBe(f.store.headSeq());
+    expect(view.thread.title).toBe("Head");
+  },
+);

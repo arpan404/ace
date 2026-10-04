@@ -2,7 +2,7 @@ import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { WebSocket } from "ws";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
-import { WireEncoder } from "./wire-encoder.ts";
+import { WireEncoder, eventFrameBytes } from "./wire-encoder.ts";
 
 export const RESYNC_CLOSE_CODE = 4009;
 export interface PressureOptions {
@@ -35,7 +35,8 @@ function appendCoalesced(result: DeliveryEvent[], events: DeliveryEvent[]): void
       last.threadId === event.threadId &&
       last.payload.itemId === event.payload.itemId &&
       last.payload.agentId === event.payload.agentId &&
-      last.payload.field === event.payload.field
+      last.payload.field === event.payload.field &&
+      last.payload.append.length + event.payload.append.length <= 65536
     ) {
       result[result.length - 1] = {
         ...event,
@@ -59,7 +60,16 @@ interface SerializedFrame {
   encoded: string;
   snapshotId: string | undefined;
 }
-type PendingFrame = EventBatch | SerializedFrame;
+interface SnapshotStream {
+  type: "snapshot";
+  chargedBytes: 0;
+  encoded: string;
+  subscriptionId: string;
+  seq: number;
+  offset: number;
+  index: number;
+}
+type PendingFrame = EventBatch | SerializedFrame | SnapshotStream;
 export class Outbox {
   private pending = new Map<number, PendingFrame>();
   private snapshots = new Map<string, number>();
@@ -82,15 +92,43 @@ export class Outbox {
     this.encoder = encoder;
   }
   send(message: ServerMessage | PluginServerMessage): void {
+    if (message.type === "events") {
+      for (const frame of this.encoder.split(message)) this.sendOne(frame);
+    } else if (message.type === "snapshot") {
+      const encoded = this.encoder.encode(message);
+      if (Buffer.byteLength(encoded) <= eventFrameBytes) this.sendOne(message);
+      else {
+        // The active-entity source may exceed the queue budget. Produce only the next
+        // fragment when transport drains; serialized fragments share the admission cap.
+        this.pending.set(++this.tail, {
+          type: "snapshot",
+          chargedBytes: 0,
+          encoded,
+          subscriptionId: message.subscriptionId,
+          seq: message.seq,
+          offset: 0,
+          index: 0,
+        });
+        this.flush();
+        this.tick();
+      }
+    } else this.sendOne(message);
+  }
+  private sendOne(message: ServerMessage | PluginServerMessage): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (message.type === "events" && this.socket.bufferedAmount > this.options.softLimit) {
       const charge = Buffer.byteLength(this.encoder.encode(message));
+      if (charge > eventFrameBytes) {
+        this.resync();
+        return;
+      }
       if (!this.admit(charge)) return;
       const last = this.pending.get(this.tail);
       if (
         last?.type === "events" &&
         last.subscriptionId === message.subscriptionId &&
-        last.throughSeq === message.afterSeq
+        last.throughSeq === message.afterSeq &&
+        last.chargedBytes + charge <= eventFrameBytes
       ) {
         appendCoalesced(last.events, message.events);
         last.throughSeq = message.throughSeq;
@@ -110,6 +148,10 @@ export class Outbox {
     }
     const encoded = this.encoder.encode(message);
     const charge = Buffer.byteLength(encoded);
+    if (charge > eventFrameBytes) {
+      this.resync();
+      return;
+    }
     // Conductor changes are complete replaceable views. Keep only the latest
     // unsent view per subscription, after any intervening replies/events.
     const snapshotId = message.type === "conductor.changed" ? message.subscriptionId : undefined;
@@ -150,20 +192,38 @@ export class Outbox {
       const entry = this.pending.entries().next().value;
       if (!entry) break;
       const [index, frame] = entry;
-      this.pending.delete(index);
+      if (frame.type !== "snapshot") this.pending.delete(index);
       if (frame.type === "serialized" && frame.snapshotId !== undefined)
         this.snapshots.delete(frame.snapshotId);
       this.bytes -= frame.chargedBytes;
-      const encoded =
-        frame.type === "serialized"
-          ? frame.encoded
-          : this.encoder.encode({
-              type: "events",
-              subscriptionId: frame.subscriptionId,
-              afterSeq: frame.afterSeq,
-              throughSeq: frame.throughSeq,
-              events: frame.events,
-            });
+      let encoded: string;
+      if (frame.type === "snapshot") {
+        const end = frame.offset + 131072;
+        encoded = this.encoder.encode({
+          type: "snapshot.part",
+          subscriptionId: frame.subscriptionId,
+          seq: frame.seq,
+          index: frame.index++,
+          done: end >= frame.encoded.length,
+          data: frame.encoded.slice(frame.offset, end),
+        });
+        frame.offset = end;
+        if (end >= frame.encoded.length) this.pending.delete(index);
+      } else
+        encoded =
+          frame.type === "serialized"
+            ? frame.encoded
+            : this.encoder.encode({
+                type: "events",
+                subscriptionId: frame.subscriptionId,
+                afterSeq: frame.afterSeq,
+                throughSeq: frame.throughSeq,
+                events: frame.events,
+              });
+      if (Buffer.byteLength(encoded) > eventFrameBytes) {
+        this.resync();
+        return;
+      }
       if (!this.admit(Buffer.byteLength(encoded))) return;
       this.socket.send(encoded, (error) => {
         if (error) this.socket.terminate();

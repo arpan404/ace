@@ -557,7 +557,17 @@ export async function startServer(options: ServerOptions): Promise<{
   });
   const stopTimer = runtime.every(
     () => {
-      for (const tick of ticks.values()) tick();
+      for (const tick of ticks.values()) {
+        try {
+          tick();
+        } catch (error) {
+          try {
+            options.log?.(error);
+          } catch {
+            /* Keep peers and the next timer pass alive. */
+          }
+        }
+      }
     },
     Math.max(10, Math.min(1000, (options.idleTimeoutMs ?? 60_000) / 2)),
   );
