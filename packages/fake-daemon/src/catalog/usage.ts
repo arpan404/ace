@@ -183,6 +183,8 @@ function add(a: UsageTotals, b: UsageTotals): UsageTotals {
 export class FakeUsage {
   sources: UsageSource[];
   sessions: Record<string, UsageSessionTotal[]>;
+  /** The zone the daemon counts days in, named in every reply. */
+  timezone = "UTC";
   constructor(now: number) {
     this.sources = [...sources];
     this.sessions = claudeSessions(now);
@@ -190,9 +192,13 @@ export class FakeUsage {
 
   /**
    * Answers `usage.series` / `usage.summary`. Groups and filters by day, thread, provider,
-   * account and model; other dimensions group as null.
+   * account and model; other dimensions group as null. Like the daemon, a series is always per day.
    */
-  report(query: UsageQuery): UsageResult {
+  report(asked: UsageQuery, kind: "summary" | "series"): UsageResult {
+    const query =
+      kind === "series" && !asked.groupBy.includes("day")
+        ? { ...asked, groupBy: ["day" as const, ...asked.groupBy] }
+        : asked;
     const from = Math.floor(Date.parse(query.from) / dayMs);
     const to = Math.floor(Date.parse(query.to) / dayMs);
     const groups = new Map<string, UsageRow>();
@@ -235,7 +241,7 @@ export class FakeUsage {
     return {
       cursor: 0,
       omittedEvents: 0,
-      timezone: "UTC",
+      timezone: this.timezone,
       priceVersion: "fake-2026-10",
       rows: rows.slice(0, query.limit),
       truncated: rows.length > query.limit,

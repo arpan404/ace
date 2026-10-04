@@ -123,7 +123,10 @@ export class FakeServices {
           type: "usage.result",
           requestId: message.requestId,
           kind: message.type === "usage.summary" ? "summary" : "series",
-          result: this.usage.report(message.query),
+          result: this.usage.report(
+            message.query,
+            message.type === "usage.summary" ? "summary" : "series",
+          ),
         };
       case "accounts.migrate":
         return {

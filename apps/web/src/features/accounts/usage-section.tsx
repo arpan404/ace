@@ -1,6 +1,7 @@
 import type { UsageRow, UsageTotals } from "@ace/protocol";
 import { useMemo, useState } from "react";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import {
@@ -10,15 +11,16 @@ import {
   providerNames,
   usageCost,
   usageDay,
-  type SessionCost,
 } from "@ace/ui-core";
 import { useNow } from "@/lib/time.ts";
+import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { ProviderKind } from "@ace/protocol";
 import {
   useDailyUsage,
   useModelUsage,
-  useSessionCosts,
-  type SessionCosts,
+  useReportedCosts,
+  type ReportedCosts,
+  type UsageRange,
 } from "./usage-source.ts";
 
 type Range = "7" | "14" | "30";
@@ -48,7 +50,7 @@ const columns: DataColumns<ModelRow> = [
 
 const providerLabel = (id: string | null | undefined) => {
   const parsed = ProviderKind.safeParse(id);
-  return parsed.success ? providerNames[parsed.data] : (id ?? "Unknown provider");
+  return parsed.success ? providerNames[parsed.data] : (id ?? "Other");
 };
 
 const dayLabel = new Intl.DateTimeFormat(undefined, {
@@ -58,54 +60,55 @@ const dayLabel = new Intl.DateTimeFormat(undefined, {
   timeZone: "UTC",
 });
 
-const noSessions: SessionCost = { count: 0, usd: 0 };
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
-function allSessions(costs: SessionCosts | undefined): SessionCost {
-  let count = 0;
-  let usd = 0;
-  for (const cost of costs?.byProvider.values() ?? []) {
-    count += cost.count;
-    usd += cost.usd;
-  }
-  return count ? { count, usd } : noSessions;
-}
-
-/** Each provider's reported dollars, per step and per session, largest first. */
-function reportedByProvider(rows: readonly UsageRow[], sessions: SessionCosts | undefined) {
+/** Everything providers reported, and each provider's share (per step and per session). */
+function reportedSummary(costs: ReportedCosts) {
   const providers = new Map<string | null, { usd: number; sessions: number }>();
-  for (const row of rows) {
-    if (row.totals.providerReportedUsd <= 0) continue;
-    const provider = row.dimensions.provider ?? null;
-    const entry = providers.get(provider) ?? { usd: 0, sessions: 0 };
-    entry.usd += row.totals.providerReportedUsd;
-    providers.set(provider, entry);
-  }
-  for (const [provider, cost] of sessions?.byProvider ?? []) {
+  for (const [provider, usd] of costs.perStep)
+    if (usd > 0) providers.set(provider, { usd, sessions: 0 });
+  for (const [provider, cost] of costs.sessions.byProvider) {
     if (cost.usd <= 0) continue;
     const entry = providers.get(provider) ?? { usd: 0, sessions: 0 };
-    entry.usd += cost.usd;
-    entry.sessions += cost.count;
-    providers.set(provider, entry);
+    providers.set(provider, { usd: entry.usd + cost.usd, sessions: entry.sessions + cost.count });
   }
-  return [...providers]
+  let total = 0;
+  for (const entry of providers.values()) total += entry.usd;
+  const shares = [...providers]
     .toSorted((a, b) => b[1].usd - a[1].usd)
     .map(([provider, entry]) => {
-      const over = entry.sessions
-        ? ` over ${entry.sessions} session${entry.sessions === 1 ? "" : "s"}`
-        : "";
-      return `${providerLabel(provider)} ${formatUsd(entry.usd)}${over}`;
+      const name = provider === null ? "Other sessions" : providerLabel(provider);
+      const over = entry.sessions ? ` over ${plural(entry.sessions, "session")}` : "";
+      return `${name} ${formatUsd(entry.usd)}${over}`;
     });
+  const { unread, unlisted, failed, clipped } = costs.gaps;
+  const gaps = [
+    (unread > 0 || unlisted) &&
+      `leaves out sessions of ${unlisted ? "more than " : ""}${plural(unread, "quieter thread")}`,
+    failed > 0 && `${plural(failed, "thread")} couldn't be read`,
+    clipped > 0 && `${plural(clipped, "thread")} had more sessions than one read returns`,
+    costs.truncated && "leaves out some providers",
+  ].filter((gap) => typeof gap === "string");
+  const notes = [shares.length ? shares.join(" · ") : "No provider reported a cost"];
+  if (gaps.length) notes.push(`Partial: ${gaps.join("; ")}`);
+  return { total, note: notes.join(". ") };
 }
 
 /** Tokens per day and per model over a range, what providers reported and API-price estimates. */
 export function UsageSection() {
   const now = useNow();
+  const zone = useUsageTimeZone();
   const [range, setRange] = useState<Range>("14");
-  const span = { from: usageDay(now, Number(range) - 1), to: usageDay(now) };
+  const span: UsageRange = {
+    from: usageDay(now, zone.timeZone, Number(range) - 1),
+    to: usageDay(now, zone.timeZone),
+    timeZone: zone.timeZone,
+    ready: zone.ready,
+  };
   const daily = useDailyUsage(span);
   const byModel = useModelUsage(span);
-  const sessions = useSessionCosts(span);
-  const sessionCosts = sessions.data?.byProvider;
+  const reported = useReportedCosts(span);
+  const sessionCosts = reported.data?.sessions.byProvider;
   const models = useMemo<ModelRow[]>(
     () =>
       (byModel.data?.rows ?? []).map((row) => {
@@ -129,15 +132,12 @@ export function UsageSection() {
   const rows = daily.data?.rows ?? [];
   const total = rows.reduce((sum, row) => sum + tokens(row.totals), 0);
   const subscription = rows.reduce((sum, row) => sum + row.totals.subscriptionTokens, 0);
-  const sessionsSettled = sessions.data !== undefined || sessions.isError;
-  const cost = byModel.data && usageCost(byModel.data.rows, allSessions(sessions.data));
-  const reported = byModel.data ? reportedByProvider(byModel.data.rows, sessions.data) : [];
-  const reportedNotes = [
-    reported.length ? reported.join(" · ") : "No provider reported a cost",
-    sessions.isError && "Session totals unavailable",
-    sessions.data?.failed && "Some session totals couldn't be read",
-    sessions.data?.skipped && "Sessions of the 50 busiest threads",
-  ].filter((note) => typeof note === "string");
+  const api = byModel.data && usageCost(byModel.data.rows);
+  const paid = reported.data && reportedSummary(reported.data);
+  const retry = () => {
+    if (byModel.isError) void byModel.refetch();
+    if (reported.isError) void reported.refetch();
+  };
   return (
     <section aria-labelledby="usage-title" className="mt-10">
       <div className="flex items-center gap-4">
@@ -162,18 +162,25 @@ export function UsageSection() {
             <Stat label="Tokens" value={daily.data && formatTokens(total)} />
             <Stat
               label="Reported cost"
-              value={cost && sessionsSettled ? formatUsd(cost.reported) : undefined}
-              note={reportedNotes.join(". ")}
+              value={reported.isError ? "Unavailable" : paid && formatUsd(paid.total)}
+              note={reported.isError ? "Reported costs couldn't be read" : paid?.note}
             />
             <Stat
               label="At API prices"
-              value={cost && formatApiPrice(cost.apiPrice)}
+              value={byModel.isError ? "Unavailable" : api && formatApiPrice(api.apiPrice)}
               note={
-                cost?.apiPrice === null
-                  ? "No API prices for these models"
-                  : cost?.unpricedTokens
-                    ? `Leaves out ${formatTokens(cost.unpricedTokens)} tokens without a price`
-                    : undefined
+                byModel.isError
+                  ? "Usage by model couldn't be read"
+                  : [
+                      api?.apiPrice === null
+                        ? "No API prices for these models"
+                        : api?.unpricedTokens
+                          ? `Leaves out ${formatTokens(api.unpricedTokens)} tokens without a price`
+                          : undefined,
+                      byModel.data?.truncated && "Covers the 1,000 busiest models",
+                    ]
+                      .filter((note) => typeof note === "string")
+                      .join(". ")
               }
             />
             <Stat
@@ -182,9 +189,31 @@ export function UsageSection() {
             />
           </dl>
           <DailyBars rows={rows} />
-          <div className="mt-5">
-            <DataTable caption="Usage by model" columns={columns} data={models} empty="No usage." />
-          </div>
+          {(byModel.isError || reported.isError) && (
+            <div
+              role="alert"
+              className="mt-5 flex items-center gap-3 text-ui text-muted-foreground"
+            >
+              <span className="min-w-0 flex-1">
+                {byModel.isError
+                  ? "Usage by model couldn't be read."
+                  : "Reported costs couldn't be read."}
+              </span>
+              <Button size="sm" onClick={retry}>
+                Try again
+              </Button>
+            </div>
+          )}
+          {!byModel.isError && (
+            <div className="mt-5">
+              <DataTable
+                caption="Usage by model"
+                columns={columns}
+                data={models}
+                empty={byModel.data ? "No usage." : "Loading usage…"}
+              />
+            </div>
+          )}
         </>
       )}
     </section>

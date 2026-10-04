@@ -29,7 +29,7 @@ function snapshot(
     counterKey: "claude:replay:initial",
     scope,
     model,
-    at: 5_000,
+    at: Date.now(),
     inputTokens: 40_000,
     outputTokens: 2_000,
     cachedInputTokens: 30_000,
@@ -73,7 +73,7 @@ test("the context meter names the model and what Claude reported the thread cost
   expect(tip.textContent).toContain("Opus 4.6 · 168,000 of 200,000 tokens in context");
   // A year of 100K tokens a day; the session counts once, not again with its model totals.
   expect(
-    await screen.findByText("Thread: 36.5M tokens · $0.08 reported", {}, { timeout: 2000 }),
+    await screen.findByText("Past year: 36.5M tokens · $0.08 reported", {}, { timeout: 2000 }),
   ).toBeTruthy();
 });
 
@@ -81,6 +81,6 @@ test("a thread nothing reported a cost for, and with no API prices, says its cos
   await hoverMeter({ source: { ...usage, apiUsdPerMillion: null }, sessions: [] });
 
   expect(
-    await screen.findByText("Thread: 36.5M tokens · cost unavailable", {}, { timeout: 2000 }),
+    await screen.findByText("Past year: 36.5M tokens · cost unavailable", {}, { timeout: 2000 }),
   ).toBeTruthy();
 });

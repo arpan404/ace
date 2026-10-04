@@ -67,6 +67,58 @@ export function sessionCost(snapshots: Iterable<SessionTotalSnapshot>): SessionC
   return { count: totals.size, usd };
 }
 
+/** The session totals one thread returned, and the providers that used it over the span. */
+export interface ThreadSessionTotals {
+  providers: Iterable<string>;
+  snapshots: Iterable<SessionTotalSnapshot>;
+}
+
+export interface SessionCostsByProvider {
+  /** Per provider; null for sessions whose provider can't be told. */
+  byProvider: Map<string | null, SessionCost>;
+  total: SessionCost;
+}
+
+/**
+ * Reported session costs per provider, over threads read one by one. A session (its counter key)
+ * counts once however many threads returned it, so a fork that shares it adds nothing. Snapshots
+ * don't name their provider, so a session belongs to the one provider its per-model totals'
+ * models run on (`modelProvider`), else to the one provider every thread that holds it ran on,
+ * else to none (null).
+ */
+export function sessionCostsByProvider(
+  threads: Iterable<ThreadSessionTotals>,
+  modelProvider: (model: string) => string | undefined,
+): SessionCostsByProvider {
+  const sessions = new Map<string, { snapshots: SessionTotalSnapshot[]; threads: Set<string> }>();
+  for (const thread of threads) {
+    const providers = [...thread.providers];
+    for (const snapshot of thread.snapshots) {
+      const session = sessions.get(snapshot.counterKey) ?? { snapshots: [], threads: new Set() };
+      session.snapshots.push(snapshot);
+      for (const provider of providers) session.threads.add(provider);
+      sessions.set(snapshot.counterKey, session);
+    }
+  }
+  const byProvider = new Map<string | null, SessionCost>();
+  let total = none;
+  for (const session of sessions.values()) {
+    const cost = sessionCost(session.snapshots);
+    const models = new Set<string>();
+    for (const snapshot of session.snapshots) {
+      const provider =
+        snapshot.scope === "model_session" ? modelProvider(snapshot.model) : undefined;
+      if (provider) models.add(provider);
+    }
+    const owners = models.size ? models : session.threads;
+    const provider = owners.size === 1 ? ([...owners][0] ?? null) : null;
+    const sum = byProvider.get(provider) ?? none;
+    byProvider.set(provider, { count: sum.count + cost.count, usd: sum.usd + cost.usd });
+    total = { count: total.count + cost.count, usd: total.usd + cost.usd };
+  }
+  return { byProvider, total };
+}
+
 /**
  * The cost of additive usage rows (`usage.series` / `usage.summary`) and the provider sessions
  * active over the same span. The daemon keeps session totals out of the rows, so adding the
@@ -124,12 +176,4 @@ export function formatUsd(value: number): string {
 /** An API-price estimate, or "Unavailable" when the usage has no prices (never "$0.00"). */
 export function formatApiPrice(value: number | null): string {
   return value === null ? "Unavailable" : formatUsd(value);
-}
-
-const pad = (n: number) => String(n).padStart(2, "0");
-
-/** The local calendar day `days` before `now` as YYYY-MM-DD, as usage queries name days. */
-export function usageDay(now: number, days = 0): string {
-  const date = new Date(now - days * 86_400_000);
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }

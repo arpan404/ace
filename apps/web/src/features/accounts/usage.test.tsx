@@ -18,6 +18,16 @@ const claude: UsageSource = {
   billing: "subscription",
   threads: ["thread-a"],
 };
+const codex: UsageSource = {
+  provider: "codex",
+  account: "codex-personal",
+  model: "gpt-5.3-codex",
+  daily: 80_000,
+  steady: true,
+  apiUsdPerMillion: 5,
+  billing: "subscription",
+  threads: ["thread-b"],
+};
 const opencode: UsageSource = {
   provider: "opencode",
   account: "opencode-api",
@@ -36,12 +46,13 @@ function snapshot(
   scope: UsageSessionTotal["scope"],
   model: string,
   costUsd: number,
+  at = Date.now(),
 ): UsageSessionTotal {
   return {
     counterKey,
     scope,
     model,
-    at: Date.now(),
+    at,
     inputTokens: 40_000,
     outputTokens: 2_000,
     cachedInputTokens: 30_000,
@@ -55,10 +66,12 @@ function snapshot(
 async function openWeek(stage: {
   sources: UsageSource[];
   sessions?: Record<string, UsageSessionTotal[]>;
+  timezone?: string;
 }) {
   const app = harness();
   app.daemon.services.usage.sources = stage.sources;
   app.daemon.services.usage.sessions = stage.sessions ?? {};
+  if (stage.timezone) app.daemon.services.usage.timezone = stage.timezone;
   await app.open("/more/accounts");
   await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
   return app;
@@ -148,4 +161,81 @@ test("usage without API prices reads unavailable instead of costing $0.00", asyn
   await waitFor(() => expect(api()).toEqual(["Unavailable", "No API prices for these models"]));
   expect(modelRow("opencode/kimi-k2")[4]).toBe("Unavailable");
   expect(screen.queryByText("$0.00")).toBeNull();
+});
+
+test("a session shared by a fork that switched provider counts once, for the provider that ran it", async () => {
+  await openWeek({
+    // The fork ran on Claude, then switched to Codex.
+    sources: [
+      { ...claude, threads: ["thread-a", "thread-fork"] },
+      { ...codex, threads: ["thread-fork"] },
+    ],
+    sessions: {
+      // The original holds an older snapshot of the shared session; the fork the latest.
+      "thread-a": [
+        snapshot("claude:s1:initial", "provider_session", "", 0.9),
+        snapshot("claude:s1:initial", "model_session", "claude-opus-4-6", 0.9),
+      ],
+      "thread-fork": [
+        snapshot("claude:s1:initial", "provider_session", "", 1),
+        snapshot("claude:s1:initial", "model_session", "claude-opus-4-6", 1),
+      ],
+    },
+  });
+
+  const reported = await stat("Reported cost");
+  await waitFor(() => expect(reported()).toEqual(["$1.00", "Claude Code $1.00 over 1 session"]));
+});
+
+test("a thread with more session totals than one read returns marks the reported cost partial", async () => {
+  const sessions = Array.from({ length: 51 }, (_, index) => [
+    snapshot(`claude:s${index}:initial`, "provider_session", "", 0.1),
+    snapshot(`claude:s${index}:initial`, "model_session", "claude-opus-4-6", 0.1),
+  ]).flat();
+  await openWeek({ sources: [claude], sessions: { "thread-a": sessions } });
+
+  const reported = await stat("Reported cost");
+  await waitFor(() =>
+    expect(reported()[1]).toContain("Partial: 1 thread had more sessions than one read returns"),
+  );
+});
+
+test("sessions count from the start of the range in the daemon's time zone, not the device's", async () => {
+  // The daemon counts days at UTC+14. The 7-day range starts at its midnight six days ago.
+  const hour = 3_600_000;
+  const day = 24 * hour;
+  const start = (Math.floor((Date.now() + 14 * hour) / day) - 6) * day - 14 * hour;
+  await openWeek({
+    timezone: "Etc/GMT-14",
+    sources: [claude],
+    sessions: {
+      "thread-a": [
+        snapshot("claude:before:initial", "provider_session", "", 0.3, start - hour),
+        snapshot("claude:within:initial", "provider_session", "", 0.05, start + hour),
+      ],
+    },
+  });
+
+  const reported = await stat("Reported cost");
+  await waitFor(() => expect(reported()).toEqual(["$0.05", "Claude Code $0.05 over 1 session"]));
+});
+
+test("when usage by model can't be read, the page says so and reads it again on Try again", async () => {
+  const app = harness();
+  app.daemon.failRequests("usage.summary");
+  await app.open("/more/accounts");
+
+  expect(
+    await screen.findByText("Usage by model couldn't be read.", {}, { timeout: 8000 }),
+  ).toBeTruthy();
+  expect((await stat("At API prices"))()).toEqual([
+    "Unavailable",
+    "Usage by model couldn't be read",
+  ]);
+  expect(screen.queryByRole("table", { name: "Usage by model" })).toBeNull();
+
+  app.daemon.restoreRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  const table = await screen.findByRole("table", { name: "Usage by model" }, { timeout: 4000 });
+  await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(5));
 });
