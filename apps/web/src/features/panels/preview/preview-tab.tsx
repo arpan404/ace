@@ -167,7 +167,7 @@ function DevServer(props: {
                   label: label(each),
                 }))}
                 onValueChange={(value) => setPort(Number(value))}
-                className="h-7 w-[120px]"
+                className="h-7 w-32"
               />
             )}
             {server.source === "listener" && (

@@ -90,10 +90,10 @@ export function PinnedSummary(props: {
   return (
     <aside
       aria-label="Thread summary"
-      style={{ width: props.inline ? undefined : summaryWidth }}
+      style={props.inline ? { margin: "12px 16px 0" } : { width: summaryWidth }}
       className={
         props.inline
-          ? "glass fx-rise-in relative z-[6] m-4 mb-0 shrink-0 rounded-xl p-1.5 shadow-[var(--glass-shadow)]"
+          ? "glass fx-rise-in relative z-[6] shrink-0 rounded-xl p-1.5 shadow-[var(--glass-shadow)]"
           : "glass fx-rise-in absolute top-3 right-4 z-[6] rounded-xl p-1.5 shadow-[var(--glass-shadow)]"
       }
     >

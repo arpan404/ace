@@ -68,8 +68,8 @@ export function AddressBar(props: {
         className={cn(
           "flex h-8 min-w-0 items-center gap-2 rounded-full px-3 transition-[background-color,box-shadow] duration-(--dur-1)",
           "bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] hover:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
-          // Focus lightens the capsule; a keyboard focus adds a neutral edge, never the accent.
-          "focus-within:bg-[color-mix(in_oklab,var(--foreground)_9%,transparent)] has-[:focus-visible]:shadow-[0_0_0_1px_color-mix(in_oklab,var(--foreground)_22%,transparent)]",
+          // Focus lightens the capsule, never an accent ring.
+          "focus-within:bg-[color-mix(in_oklab,var(--foreground)_9%,transparent)]",
           error && "shadow-[0_0_0_1px_var(--destructive)]",
         )}
       >

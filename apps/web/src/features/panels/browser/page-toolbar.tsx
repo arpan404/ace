@@ -3,6 +3,10 @@ import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 
 const tool = "size-7 rounded-[7px]";
+/** Navigation, the address (at most 640px), actions: the address on the toolbar's centre. */
+const columns = { gridTemplateColumns: "1fr minmax(0, 640px) 1fr" };
+/** Three buttons wide at least, on both sides, so the address stays centred. */
+const sideGroup = { minWidth: 88 };
 
 /** One navigation control: available with `onClick`, else disabled with the reason it isn't. */
 export interface NavControl {
@@ -38,7 +42,7 @@ export function PageNav(props: {
     />
   );
   return (
-    <div className="flex min-w-22 shrink-0 items-center">
+    <div style={sideGroup} className="flex shrink-0 items-center">
       {control("Back", ArrowLeftIcon, props.back)}
       {control("Forward", ArrowRightIcon, props.forward)}
       {props.loading
@@ -63,11 +67,13 @@ export function PageToolbar(props: {
   progress?: string | undefined;
 }) {
   return (
-    <div className="relative grid h-10 shrink-0 grid-cols-[1fr_minmax(0,640px)_1fr] items-center gap-1 border-b px-2">
+    <div style={columns} className="relative grid h-10 shrink-0 items-center gap-1 border-b px-2">
       {props.nav}
       {props.address}
       {/* As wide as the navigation at least, so the address sits on the toolbar's centre. */}
-      <div className="flex min-w-22 shrink-0 items-center justify-end gap-0.5">{props.actions}</div>
+      <div style={sideGroup} className="flex shrink-0 items-center justify-end gap-0.5">
+        {props.actions}
+      </div>
       {props.progress !== undefined && (
         <span
           role="progressbar"

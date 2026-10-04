@@ -305,7 +305,7 @@ function ChoiceItem(props: { choice: ModelChoice; selected: boolean }) {
       value={choice.id}
       disabled={exhausted}
       aria-label={`${choice.model} · ${account}`}
-      className={cn(menuItem, "h-auto min-h-[30px] items-start py-[6px]")}
+      className={cn(menuItem, "h-auto min-h-[30px] items-start py-1.5")}
     >
       <span className="mt-px grid w-4 shrink-0 place-items-center">
         <MenuPrimitive.RadioItemIndicator>
