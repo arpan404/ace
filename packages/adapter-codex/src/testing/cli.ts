@@ -112,9 +112,9 @@ for await (const line of createInterface({ input: process.stdin })) {
               id: "old",
               status: "completed",
               items: [
-                ...["answered-a", "answered-b"].map((id) => ({
+                ...["answered-a", "answered-b"].map((questionId) => ({
                   type: "agentMessage",
-                  id,
+                  id: questionId,
                   delivery: "async",
                   text: "Previously answered",
                   questions: [{ title: "Continue?", options: ["yes"] }],
@@ -287,10 +287,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (process.env["ACE_FAKE_RESUME"] !== "reply-before-start")
       notify("turn/started", { threadId: "native", turn: { id: "turn" } });
     if (text === "replay-answered") {
-      for (const id of ["answered-a", "answered-b"])
+      for (const questionId of ["answered-a", "answered-b"])
         item("native", "old", {
           type: "agentMessage",
-          id,
+          id: questionId,
           delivery: "async",
           text: "Previously answered",
           questions: [{ title: "Continue?", options: ["yes"] }],
@@ -435,8 +435,13 @@ for await (const line of createInterface({ input: process.stdin })) {
         });
       }
       end();
-    } else if (text === "exit") process.exit(7);
-    else if (text === "terminal-proof") {
+    } else if (text === "exit") {
+      if (process.env["ACE_FAKE_RESUME"] === "exit-diagnostic") {
+        process.stderr.write("x".repeat(10000) + "\n");
+        process.stderr.write("offline app-server failure api_key=super-secret-test-token\n");
+      }
+      process.exit(7);
+    } else if (text === "terminal-proof") {
       message(JSON.stringify([...terminals.values()].flat()), "terminal-proof");
       end();
     } else if (text === "finish") end();
