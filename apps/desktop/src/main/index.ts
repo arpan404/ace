@@ -15,6 +15,7 @@ import { DaemonRuntime } from "./daemon/runtime.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
+import { claimKeychainName } from "./keychain.ts";
 import { acceleratorToKey, applicationMenu } from "./menu.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { appPaths } from "./paths.ts";
@@ -28,6 +29,8 @@ declare const ACE_APP_VERSION: string;
 // Development keeps window state, sessions and settings in `.ace-dev/electron`.
 if (process.env.ACE_DESKTOP_USER_DATA)
   app.setPath("userData", resolve(process.env.ACE_DESKTOP_USER_DATA));
+// Before anything starts Chromium's network service: never the older ace app's keychain item.
+claimKeychainName(app, process.platform);
 registerAppScheme();
 
 if (!app.requestSingleInstanceLock()) {

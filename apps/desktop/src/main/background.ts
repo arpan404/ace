@@ -26,6 +26,9 @@ export interface BackgroundOptions {
   onController(state: ControllerState): void;
 }
 
+/** How long Quit waits for the daemon link to close before it moves on. */
+const stopGraceMs = 2_000;
+
 const timers = {
   set(delayMs: number, callback: () => void) {
     const timer = setTimeout(callback, delayMs);
@@ -234,7 +237,16 @@ export class Background {
   async stop(): Promise<void> {
     this.stopped = true;
     this.browser?.connection.close();
-    await this.links?.close().catch(() => {});
+    // A link stuck mid-handshake never holds up Quit: the daemon still drops its socket.
+    await new Promise<void>((resolve) => {
+      const cancel = timers.set(stopGraceMs, resolve);
+      void (this.links?.close() ?? Promise.resolve())
+        .catch(() => {})
+        .finally(() => {
+          cancel();
+          resolve();
+        });
+    });
     this.tray.hide();
   }
 

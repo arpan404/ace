@@ -88,7 +88,11 @@ const config: Configuration = {
     // this off, no local process can run arbitrary JS as the signed ace app.
     runAsNode: false,
     grantFileProtocolExtraPrivileges: false,
-    enableCookieEncryption: true,
+    // Encrypted cookies make Chromium's network service wait on the OS keychain before its
+    // first request: on macOS a keychain password prompt then stalled the daemon socket and
+    // Quit. The app keeps no secrets in cookies (the daemon token comes over the bridge from
+    // ACE_HOME), and anything that can read the cookie files can read ACE_HOME's token too.
+    enableCookieEncryption: false,
     enableNodeOptionsEnvironmentVariable: false,
     enableNodeCliInspectArguments: false,
     enableEmbeddedAsarIntegrityValidation: true,
