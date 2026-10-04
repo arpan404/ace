@@ -1,4 +1,5 @@
 import {
+  accountLimit,
   delegatedDocs,
   delegatedDocsIds,
   facts,
@@ -270,4 +271,19 @@ test("the subagents line opens to the agents started, with their model, and open
 
   await userEvent.click(within(tree).getByRole("link", { name: "Open protocol-docs's thread" }));
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
+});
+
+test("a usage-limit pause marks where the turn stopped", async () => {
+  const app = harness();
+  app
+    .play(accountLimit("thread-limit-flags", "Remove the legacy feature-flag reader"))
+    .runUntilBlocked();
+  await app.open("/t/thread-limit-flags");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const pause = await screen.findByRole("status", {
+    name: "Paused · Codex usage limit · reset time unknown",
+  });
+  expect(follows(within(feed).getByText("Remove the legacy feature-flag reader"), pause)).toBe(
+    true,
+  );
 });
