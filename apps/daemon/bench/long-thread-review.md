@@ -1,6 +1,6 @@
 # PR 90 review fixes
 
-The review targets revision `34c75d40`. This round merged `origin/main` first; the branch was already up to date. The PR had one comment starting **Verdict: changes required.** and no comment titled **Integration rehearsal: findings for this PR** when inspected.
+The review targets revision `34c75d40`. The initial `origin/main` merge was already up to date. Main advanced during this run to `91b2392f`, which merges PR 88. The branch then merged that update and regenerated the conflicting protocol manifest from merged sources. The PR had one comment starting **Verdict: changes required.** and no comment titled **Integration rehearsal: findings for this PR** when inspected.
 
 ## Findings and regressions
 

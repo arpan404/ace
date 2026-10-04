@@ -19,7 +19,7 @@
     "record:cursor-sdk": "node tools/recorder/src/record-cursor-sdk.ts",
     "check:size": "node scripts/check-file-size.ts",
     "check:deps": "depcruise apps/web/src packages/client/src packages/client-worker/src packages/client-react/src packages/fake-daemon/src packages/ui-core/src --config .dependency-cruiser.cjs --output-type err",
-    "check:perf": "bun run --filter @ace/web-perf check",
+    "check:perf": "node apps/daemon/bench/check.ts && bun run --filter @ace/web-perf check",
     "web:dev": "bun run --filter @ace/web dev",
     "web:dev:fake": "bun run --filter @ace/web dev:fake",
     "web:build": "bun run --filter @ace/web build",

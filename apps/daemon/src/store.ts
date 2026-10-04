@@ -59,6 +59,7 @@ import { PayloadStore } from "./payload-store.ts";
 
 import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
 import { scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
+import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 
 export interface StoreOptions extends Partial<CredentialRuntime> {
   /** Store owns and closes this SQLite connection when supplied. */
@@ -88,7 +89,7 @@ export class Store {
   private readonly now: () => number;
   private readonly mcp: McpData;
   private engineSessionsKnown = false;
-  private statements = new Map<string, StatementSync>();
+  private statements = new BoundedCache<string, StatementSync>(256, 256);
   private transactionEvents: Event[] | undefined;
   private depth = 0;
   private installingHistory = false;
@@ -107,14 +108,14 @@ export class Store {
     this.nextId = options.nextId ?? randomUUID;
     this.now = options.now ?? Date.now;
     this.payloads = new PayloadStore(this.db, this.nextId, (sql) => this.statement(sql));
-    this.status = new StatusStore(this.db);
+    this.status = new StatusStore(this.db, (sql) => this.statement(sql));
     try {
       this.db.exec(
-        "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
+        "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256;",
       );
       migrate(this.db);
       migrateDeckWorkspaces(this.db);
-      this.workspaceReservations = new WorkspaceReservations(this.db);
+      this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
       this.usageReplay = new UsageReplay(this.db);
       this.db.exec(
@@ -193,11 +194,12 @@ export class Store {
     }, finished.reject);
     return this.closing;
   }
-  private statement(sql: string): StatementSync {
+  /** Shared per-connection prepared statements; SQL text, never entity IDs, keys the bounded LRU. */
+  statement(sql: string): StatementSync {
     let statement = this.statements.get(sql);
     if (!statement) {
       statement = this.db.prepare(sql);
-      this.statements.set(sql, statement);
+      this.statements.set(sql, statement, 1);
     }
     return statement;
   }

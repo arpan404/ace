@@ -1,25 +1,37 @@
+import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import type { DatabaseSync } from "node:sqlite";
 import type { ThreadId } from "@ace/protocol";
 import { Append, restoreAppend } from "./append.ts";
 import { z } from "zod";
+function validRecord<T>(schema: z.ZodType<T>, value: unknown): value is T {
+  return schema.safeParse(value).success;
+}
+function parseRecord<T>(schema: z.ZodType<T>, value: unknown): T {
+  if (!validRecord(schema, value)) throw new Error("Invalid snapshot record");
+  // Validate without stripping future fields. Reuse the schema's compiled validator.
+  return value;
+}
 
 /** Disk-backed dictionaries return plain entities, so core can clone emitted events. */
 export class Records<T> {
   readonly values: Record<string, T>;
-  private cache = new Map<string, { value: T; json: string; bytes: number }>();
+  private cache = new BoundedCache<string, { value: T; json: string; bytes: number }>(
+    128,
+    1_048_576,
+  );
   private tracking = false;
   private appendValue: { key: string; value: T } | undefined;
   private replaced = new Set<string>();
   private appended = new Set<string>();
   private touched = new Map<string, T | undefined>();
-  private db: DatabaseSync;
+  private db: Pick<DatabaseSync, "prepare">;
   private thread: ThreadId;
   private group: string;
   private decoder: z.ZodType<T>;
   private decorate: (key: string, value: T) => T;
   private encode: (key: string, value: T) => string;
   constructor(
-    db: DatabaseSync,
+    db: Pick<DatabaseSync, "prepare">,
     thread: ThreadId,
     group: string,
     schema: z.ZodType<T>,
@@ -30,7 +42,7 @@ export class Records<T> {
     this.db = db;
     this.thread = thread;
     this.group = group;
-    this.decoder = z.custom<T>((value) => schema.safeParse(value).success);
+    this.decoder = schema;
     this.decorate = decorate;
     this.encode = encode;
     const target: Record<string, T> = {};
@@ -48,12 +60,12 @@ export class Records<T> {
       defineProperty: (_target, key, descriptor) => {
         if (typeof key !== "string") throw new Error("Snapshot keys must be strings");
         // Core-created entities also cross the persistence boundary.
-        this.write(key, this.decoder.parse(descriptor.value));
+        this.write(key, parseRecord(this.decoder, descriptor.value));
         return true;
       },
       set: (_target, key, value: unknown) => {
         if (typeof key !== "string") throw new Error("Snapshot keys must be strings");
-        this.write(key, this.decoder.parse(value));
+        this.write(key, parseRecord(this.decoder, value));
         return true;
       },
       deleteProperty: (_target, key) => {
@@ -69,7 +81,11 @@ export class Records<T> {
   private write(key: string, value: T): void {
     const decorated = this.decorate(key, value);
     const previous = this.cache.get(key)?.json ?? "";
-    this.cache.set(key, { value: decorated, json: previous, bytes: Buffer.byteLength(previous) });
+    this.cache.set(
+      key,
+      { value: decorated, json: previous, bytes: Buffer.byteLength(previous) },
+      Buffer.byteLength(previous),
+    );
     this.replaced.add(key);
     this.touched.set(key, decorated);
   }
@@ -97,13 +113,12 @@ export class Records<T> {
         value = restoreAppend(value, patch);
         bytes += Buffer.byteLength(patch.text);
       }
-      entry = { json, bytes, value: this.decorate(key, this.decoder.parse(value)) };
+      entry = { json, bytes, value: this.decorate(key, parseRecord(this.decoder, value)) };
     }
     this.cache.delete(key);
-    this.cache.set(key, entry);
+    this.cache.set(key, entry, entry.bytes);
     // An accessed plain entity can be mutated in place by core.
     if (this.tracking) this.touched.set(key, entry.value);
-    else this.trim();
     return entry.value;
   }
   private keys(): string[] {
@@ -180,21 +195,11 @@ export class Records<T> {
           )
           .run(this.thread, this.group, key, json);
       }
-      this.cache.set(key, { value, json, bytes: Buffer.byteLength(json) });
+      this.cache.set(key, { value, json, bytes: Buffer.byteLength(json) }, Buffer.byteLength(json));
     }
     this.touched.clear();
     this.replaced.clear();
     this.appended.clear();
     this.tracking = false;
-    this.trim();
-  }
-  private trim(): void {
-    // Historical entities stay on disk. A single large entity is not retained.
-    let bytes = 0;
-    const entries = [...this.cache.entries()].toReversed();
-    for (const [index, [key, entry]] of entries.entries()) {
-      bytes += entry.bytes;
-      if (bytes > 1_048_576 || index >= 128) this.cache.delete(key);
-    }
   }
 }

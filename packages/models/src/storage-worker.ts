@@ -9,7 +9,7 @@ const { path } = z.object({ path: z.string().min(1).max(4096) }).parse(workerDat
 const db = new DatabaseSync(path);
 // :memory: creates a separate database in this thread.
 db.exec(
-  "CREATE TABLE IF NOT EXISTS model_catalog (instance TEXT PRIMARY KEY, payload TEXT NOT NULL)",
+  "PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; CREATE TABLE IF NOT EXISTS model_catalog (instance TEXT PRIMARY KEY, payload TEXT NOT NULL)",
 );
 const write = db.prepare(
   "INSERT INTO model_catalog(instance, payload) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM model_catalog WHERE instance=?) OR (SELECT count(*) FROM model_catalog) < 64 ON CONFLICT(instance) DO UPDATE SET payload=excluded.payload",
