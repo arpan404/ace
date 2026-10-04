@@ -35,3 +35,11 @@ Historical benchmark measurements remain labelled with their revision. The owner
 ## Constraints
 
 Do not change engine actor, outbox, status-store, backpressure or snapshot internals while PR #88 owns those paths. Storage migrations and backfills must be bounded, resumable and idempotent. Derived data is written in the canonical transaction, so rollback cannot advance an index. Tombstoned threads and unauthorized descendant scopes are not readable through these APIs.
+
+## Web client (2026-10-04)
+
+The thread screen keeps its leased live tail and at most one jumped window. A window slides by 100 items only as the reader scrolls toward one of its edges; scroll events caused by code (restoring the reader's place, a jump, rows changing) never slide it, so a window that fits on screen cannot page itself back and forth. A window that overlaps the tail joins it: the transcript shows the window followed by the tail's newer items, deduplicated by id, while the two overlap, and drops the window once the reader follows the live end. If the tail moves past the window's end, the window shows its gap again. The gap names how many turns lie between the window and live and offers Jump to live, which discards the window at once.
+
+A window's items may outlive the client's runs, so their turns come from the turn index (the latest turn that started at or before each item's sequence). Turn pages are read in fixed blocks of 50 ordinals and dropped soon after nothing shows them; the newest turn the live tail shows keys the index's head read, so the client never polls it. Live, the three newest turns show whole and older ones fold to digest rows; in a window the turn jumped to and later ones show whole.
+
+The read cursor advances only while the reader follows the live end of a visible page. Opening a thread reads the cursor once; if the thread moved on, the catch-up digest from that cursor is shown. Summarise sends one ordinary `thread.send`. The million-item performance run serves `multiDayThread` on demand (`LongThreadSoak`: each turn owns a fixed block of creation sequences and is regenerated when a request needs it) and its budgets are in ADR 0056.

@@ -1,4 +1,5 @@
 import { budgets } from "./budgets.ts";
+import { observe, readRecord, report, resetRecord } from "./measure.ts";
 import { open, withPerfApp } from "./perf-app.ts";
 
 /*
@@ -11,24 +12,6 @@ import { open, withPerfApp } from "./perf-app.ts";
 const port = 5_197;
 const seconds = Number(process.env.PERF_SECONDS ?? 12);
 const rate = budgets.browser.eventsPerSecond;
-
-const observe = () => {
-  const record = { longTasks: [] as number[], events: new Map<number, number>(), start: 0 };
-  Object.assign(globalThis, { acePerfRecord: record });
-  new PerformanceObserver((list) => {
-    for (const entry of list.getEntries()) record.longTasks.push(entry.duration);
-  }).observe({ type: "longtask", buffered: true });
-  new PerformanceObserver((list) => {
-    for (const entry of list.getEntries()) {
-      const id =
-        "interactionId" in entry && typeof entry.interactionId === "number"
-          ? entry.interactionId
-          : 0;
-      if (!id) continue;
-      record.events.set(id, Math.max(record.events.get(id) ?? 0, entry.duration));
-    }
-  }).observe({ type: "event", durationThreshold: 16, buffered: true } as PerformanceObserverInit);
-};
 
 let failed = false;
 await withPerfApp(port, async ({ browser, origin }) => {
@@ -56,12 +39,8 @@ await withPerfApp(port, async ({ browser, origin }) => {
       Reflect.get(globalThis, "acePerfRecord").longTasks.some((value: number) => value >= 100),
     );
     if (!detected) throw new Error("The long-task detector did not see a 120 ms task");
-    const before = await page.evaluate(() => {
-      const record = Reflect.get(globalThis, "acePerfRecord");
-      record.longTasks.length = 0;
-      record.events.clear();
-      return { events: Reflect.get(globalThis, "acePerf")?.events ?? 0, at: performance.now() };
-    });
+    const startEvents = await page.evaluate(() => Reflect.get(globalThis, "acePerf")?.events ?? 0);
+    const start = await resetRecord(page);
     const feed = page.getByRole("feed", { name: "Transcript" });
     const until = Date.now() + seconds * 1000;
     let typed = 0;
@@ -76,25 +55,12 @@ await withPerfApp(port, async ({ browser, origin }) => {
       await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
       await page.keyboard.press("Backspace");
     }
-    const result = await page.evaluate((start) => {
-      const record = Reflect.get(globalThis, "acePerfRecord");
-      const elapsed = (performance.now() - start.at) / 1000;
-      const durations = [...record.events.values()].toSorted((a: number, b: number) => a - b);
-      const at = (q: number) =>
-        durations[Math.min(durations.length - 1, Math.floor(q * durations.length))] ?? 0;
-      const longTasks: number[] = record.longTasks;
-      return {
-        rate: ((Reflect.get(globalThis, "acePerf")?.events ?? 0) - start.events) / elapsed,
-        interactions: durations.length,
-        p75: at(0.75),
-        p95: at(0.95),
-        longest: Math.max(0, ...longTasks),
-        longShare: longTasks.reduce((sum, value) => sum + value, 0) / (elapsed * 1000),
-        longCount: longTasks.length,
-      };
-    }, before);
+    const result = await readRecord(page, start);
+    const streamed =
+      ((await page.evaluate(() => Reflect.get(globalThis, "acePerf")?.events ?? 0)) - startEvents) /
+      result.seconds;
     const lines = [
-      [`events/s streamed`, result.rate, rate, result.rate >= rate * 0.9],
+      [`events/s streamed`, streamed, rate, streamed >= rate * 0.9],
       [
         `interaction p95 (ms, ${result.interactions} interactions)`,
         result.p95,
@@ -115,12 +81,8 @@ await withPerfApp(port, async ({ browser, origin }) => {
         result.longShare <= budgets.browser.longTaskShare,
       ],
     ] as const;
-    for (const [label, value, limit, ok] of lines) {
-      process.stdout.write(
-        `${ok ? " " : "✗"} ${label.padEnd(48)} ${value.toFixed(2).padStart(9)}  (budget ${limit})\n`,
-      );
-      if (!ok) failed = true;
-    }
+    for (const [label, value, limit, ok] of lines)
+      if (!report(label, value, limit, ok)) failed = true;
     process.stdout.write(`  typed ${typed} characters while streaming\n`);
   }
 });

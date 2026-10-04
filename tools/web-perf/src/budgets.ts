@@ -42,6 +42,24 @@ export const budgets = {
     /** Retained client worker heap growth while streaming. 0.4 MB over 5 minutes measured. */
     workerGrowthMb: 3,
   },
+  longThread: {
+    /** Items of the synthetic five-day thread (`multiDayThread`, ADR 0062), in 2,000 turns. */
+    items: 1_000_000,
+    /** Rounds of opening, jumping, scrolling the window, searching and going back live. */
+    rounds: 6,
+    /** Live items per second added to the thread's last turn meanwhile. */
+    liveRate: 20,
+    /** From navigation until the transcript shows and the composer is there. */
+    readyMs: 3_000,
+    /** Input to next paint, p95, across every interaction of the rounds. */
+    interactionP95Ms: 100,
+    longestTaskMs: 200,
+    longTaskShare: 0.1,
+    /** DOM nodes at any sample: windows and the timeline are virtual. */
+    domNodes: 1_500,
+    /** Retained page heap growth from the first round to the last. */
+    pageGrowthMb: 4,
+  },
   browser: {
     /** Fake-daemon events per second streamed while interacting. */
     eventsPerSecond: 5_000,

@@ -1,5 +1,5 @@
 import { ClientHost, type PortLike } from "@ace/client-worker";
-import { SoakDaemon, fakeTransport } from "@ace/fake-daemon";
+import { LongThreadSoak, SoakDaemon, fakeTransport } from "@ace/fake-daemon";
 import { z } from "zod";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 
@@ -10,13 +10,28 @@ import { createBrowserClient, memoryStorage } from "./client.ts";
  */
 
 const Config = z.object({
-  rate: z.number().int().positive().max(100_000),
+  rate: z.number().int().nonnegative().max(100_000),
   history: z.number().int().nonnegative().max(100_000_000),
+  /** The synthetic five-day thread of a million items (ADR 0062) instead of the endless agent. */
+  long: z.boolean().default(false),
 });
-let daemon: SoakDaemon | undefined;
+let daemon: SoakDaemon | LongThreadSoak | undefined;
 let pumping = false;
 
-function pump(source: SoakDaemon, rate: number, report: (events: number) => void): void {
+/** The perf device last read the long thread five turns before its end. */
+const unreadTurns = 5;
+
+function longThread(): LongThreadSoak {
+  const soak = new LongThreadSoak({ clock: () => Date.now() });
+  soak.seedRead("web-perf-device", soak.history.shape.turns - unreadTurns + 1);
+  return soak;
+}
+
+function pump(
+  source: { pump(count: number): void; readonly head: number },
+  rate: number,
+  report: (events: number) => void,
+): void {
   if (pumping) return;
   pumping = true;
   let owed = 0;
@@ -27,8 +42,8 @@ function pump(source: SoakDaemon, rate: number, report: (events: number) => void
     last = now;
     const due = Math.floor(owed);
     owed -= due;
-    if (due > 0) source.pump(due, 64);
-    report(source.events);
+    if (due > 0) source.pump(due);
+    report(source.head);
   }, 8);
 }
 
@@ -39,11 +54,13 @@ if (isPort(scope)) {
   const port = scope;
   const host = new ClientHost({
     target(config) {
-      const { rate, history } = Config.parse(config);
+      const { rate, history, long } = Config.parse(config);
       return {
         key: "perf",
         create: () => {
-          const soak = (daemon ??= new SoakDaemon({ clock: () => Date.now(), history }));
+          const soak = (daemon ??= long
+            ? longThread()
+            : new SoakDaemon({ clock: () => Date.now(), history }));
           const client = createBrowserClient({
             deviceId: "web-perf-device",
             transport: () => fakeTransport(soak),
@@ -51,15 +68,16 @@ if (isPort(scope)) {
             storage: memoryStorage(),
           });
           // Stream once the tab is attached and following the thread.
-          setTimeout(
-            () =>
-              pump(soak, rate, (events) =>
-                // A dedicated worker answers its own page; there is no target origin.
-                // oxlint-disable-next-line unicorn/require-post-message-target-origin
-                port.postMessage({ t: "perf", events }),
-              ),
-            1_000,
-          );
+          if (rate > 0)
+            setTimeout(
+              () =>
+                pump(soak, rate, (events) =>
+                  // A dedicated worker answers its own page; there is no target origin.
+                  // oxlint-disable-next-line unicorn/require-post-message-target-origin
+                  port.postMessage({ t: "perf", events }),
+                ),
+              1_000,
+            );
           return client;
         },
       };

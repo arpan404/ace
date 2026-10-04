@@ -19,6 +19,8 @@ import {
 } from "@ace/projection";
 import {
   AgentId,
+  CommandId,
+  DeviceId,
   EventId,
   HostId,
   ThreadId,
@@ -422,6 +424,24 @@ export class FakeDaemon implements Host {
   itemId(threadId: string, key: Key): string | undefined {
     const host = this.threads.get(threadId);
     return host && Object.hasOwn(host.state.items, key) ? host.state.items[key]?.id : undefined;
+  }
+  /**
+   * Seeds where a device last read a thread: through the item an adapter key became, as if it
+   * had followed the thread that far (the catch-up card in dev:fake and the screens).
+   */
+  markReadThrough(threadId: string, key: Key, deviceId: string): void {
+    const host = this.thread(threadId);
+    const itemId = this.itemId(threadId, key);
+    const seq = itemId === undefined ? undefined : host.creation.get(itemId);
+    const item = itemId === undefined ? undefined : host.view.items[itemId];
+    if (seq === undefined || !item) throw new Error(`No item ${key} in ${threadId}`);
+    // Read when that item arrived, as a reader following the thread would have.
+    this.longThreads.markRead(
+      CommandId.parse(`seed-read-${threadId}`),
+      { type: "thread.markRead", threadId: ThreadId.parse(threadId), lastSeenSeq: seq },
+      DeviceId.parse(deviceId),
+      item.createdAt,
+    );
   }
   isPending(threadId: string, key: Key): boolean {
     return this.thread(threadId).interaction(key)?.state === "pending";

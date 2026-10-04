@@ -3,13 +3,20 @@ export type { FakeDaemonOptions, ThreadInit } from "./daemon.ts";
 export { fakeTransport } from "./transport.ts";
 export { SoakDaemon } from "./soak.ts";
 export type { SoakOptions } from "./soak.ts";
+export { LongThreadSoak } from "./long-thread-soak.ts";
+export type { LongThreadSoakOptions } from "./long-thread-soak.ts";
 export { ScenarioPlayer } from "./scenario.ts";
 export type { PlayOptions, Scenario, Step, Timer } from "./scenario.ts";
 export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
 export { permissionAudit } from "./scenarios/permission-audit.ts";
 export { delegatedDocs, delegatedDocsIds } from "./scenarios/delegated-docs.ts";
 export { failingSubagent } from "./scenarios/failing-subagent.ts";
-export { multiDayThread } from "./scenarios/multi-day-thread.ts";
+export {
+  multiDayThread,
+  multiDayShape,
+  multiDayTurn,
+  multiDayPrelude,
+} from "./scenarios/multi-day-thread.ts";
 export type { MultiDayThreadOptions, SyntheticThreadEvent } from "./scenarios/multi-day-thread.ts";
 export { multiDayDemo } from "./scenarios/multi-day-demo.ts";
 export { longHistory } from "./scenarios/long-history.ts";
