@@ -147,7 +147,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                   options={options}
                   resolved={resolved}
                   onModel={(model) => {
-                    setPicked(options?.models.find((m) => m.id === model)?.provider);
+                    setPicked(options?.models.find((m) => m.key === model)?.provider);
                     choose({ model, account: undefined, effort: undefined });
                   }}
                   onAccount={(account) => choose({ account })}

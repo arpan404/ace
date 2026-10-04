@@ -14,6 +14,7 @@ export type WorkMode = z.infer<typeof WorkMode>;
 /** What the next thread starts with. The last choices are remembered on this device. */
 export const Choices = z.object({
   project: z.string().min(1).optional().catch(undefined),
+  /** The picked model option's `key`. */
   model: z.string().min(1).optional().catch(undefined),
   account: z.string().min(1).optional().catch(undefined),
   mode: WorkMode.optional().catch(undefined),
@@ -48,7 +49,7 @@ export function resolve(
   const models = options?.models ?? [];
   const own = provider === undefined ? models : models.filter((m) => m.provider === provider);
   const model =
-    own.find((m) => m.id === choices.model) ??
+    own.find((m) => m.key === choices.model) ??
     own.find((m) => m.isDefault) ??
     own[0] ??
     models.find((m) => m.isDefault) ??

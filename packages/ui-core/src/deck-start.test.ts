@@ -3,6 +3,7 @@ import { deckProviderChoices } from "./deck-start.ts";
 import type { AccountOption, ModelOption } from "./models.ts";
 
 const model = (patch: Partial<ModelOption>): ModelOption => ({
+  key: "codex:m",
   id: "m",
   label: "M",
   provider: "codex",
