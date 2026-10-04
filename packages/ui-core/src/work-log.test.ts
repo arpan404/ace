@@ -58,7 +58,7 @@ test("a step in flight keeps the log running and names what it is doing", () => 
     call({ kind: "shell", command: "bun run build" }, "running", 1000),
   ]);
   expect(summary.running).toBe(true);
-  expect(summary.current).toBe("shell call");
+  expect(summary.current).toBe("Running bun run build");
 });
 
 test("a step waiting for approval opens the log and failures are counted", () => {
@@ -128,7 +128,7 @@ test("the headline counts the elapsed time live while running and freezes when d
   const running = summarizeWork([call({ kind: "shell", command: "bun run build" }, "running", 0)]);
   expect(workLogHeadline(running, 12_000)).toMatchObject({
     label: "Working for 12s",
-    current: "shell call",
+    current: "Running bun run build",
   });
   const done = summarizeWork([
     call({ kind: "shell", command: "bun run build" }, "succeeded", 0, 4 * 60_000 + 12_000),
@@ -141,4 +141,90 @@ test("the headline counts the elapsed time live while running and freezes when d
 test("an instant burst of work still reads as one second", () => {
   const done = summarizeWork([call({ kind: "file.read", path: "a" }, "succeeded", 5, 5)]);
   expect(workLogHeadline(done, 5).label).toBe("Worked for 1s");
+});
+
+test("a wrapped command reads as the command inside it", () => {
+  const step = describeStep(
+    call({ kind: "shell", command: "/bin/zsh -lc 'bun install --frozen-lockfile'" }, "running", 0),
+  );
+  expect(step).toMatchObject({ verb: "Running", target: "bun install --frozen-lockfile" });
+});
+
+test("paths read relative to where the agent works, and skills by name", () => {
+  const cwd = "/Users/ada/.ace-next/worktrees/3359/app";
+  const read = describeStep(
+    call({ kind: "file.read", path: `${cwd}/src/app.tsx` }, "succeeded", 0, 1),
+    {
+      cwd,
+    },
+  );
+  expect(read).toMatchObject({ verb: "Read", target: "src/app.tsx", title: `${cwd}/src/app.tsx` });
+  const skill = describeStep(
+    call(
+      { kind: "file.read", path: "/Users/ada/.agents/skills/diagnosing-bugs/SKILL.md" },
+      "succeeded",
+      0,
+      1,
+    ),
+    { cwd },
+  );
+  expect(skill).toMatchObject({ verb: "Loaded skill", target: "diagnosing-bugs" });
+});
+
+test("a failed step says why: the exit code for commands, the error otherwise", () => {
+  const shell = describeStep(
+    call({ kind: "shell", command: "bun run test", exitCode: 1 }, "failed", 0, 1),
+  );
+  expect(shell).toMatchObject({ note: "exit 1", failed: true });
+  const item = call(
+    {
+      kind: "mcp",
+      server: "ace",
+      tool: "ace_browser_open",
+      arguments: { url: "https://youtube.com" },
+    },
+    "failed",
+    0,
+    1,
+  );
+  if (item.type === "tool_call") item.call.error = "Navigation blocked by the permission mode";
+  expect(describeStep(item)).toMatchObject({
+    verb: "Opened",
+    target: "youtube.com",
+    note: "Navigation blocked by the permission mode",
+  });
+});
+
+test("a step behind an approval carries the approval's outcome on its row", () => {
+  const item = call({ kind: "shell", command: "npm publish --dry-run" }, "awaiting_approval", 0);
+  const request = {
+    kind: "approval" as const,
+    title: "Run npm publish",
+    options: [
+      { id: "once", label: "Allow once", kind: "allow_once" as const },
+      { id: "deny", label: "Deny", kind: "deny" as const },
+    ],
+  };
+  const waiting = describeStep(item, { interaction: { state: "pending", request } });
+  expect(waiting).toMatchObject({ verb: "Run", note: "Waiting for your approval", needsYou: true });
+  const approved = describeStep(item, {
+    interaction: { state: "resolved", request, resolution: { kind: "approval", optionId: "once" } },
+  });
+  expect(approved).toMatchObject({ verb: "Running", note: "Approved by you", needsYou: false });
+  const clicked = describeStep(item, {
+    interaction: { state: "pending", request },
+    answering: "deny",
+  });
+  expect(clicked).toMatchObject({ note: "Denied by you", failed: true });
+});
+
+test("a command that failed and then passed on a re-run counts as retried, not failed", () => {
+  const summary = summarizeWork([
+    call({ kind: "shell", command: "bun run test", exitCode: 1 }, "failed", 0, 1),
+    call({ kind: "shell", command: "bun run lint", exitCode: 1 }, "failed", 1, 2),
+    call({ kind: "shell", command: "bun run test", exitCode: 0 }, "succeeded", 2, 3),
+  ]);
+  expect(summary).toMatchObject({ failed: 1, retried: 1 });
+  expect(workCounts(summary)).toBe("Ran 3 commands · 1 failed · 1 retried");
+  expect(workLogHeadline(summary, 3).firstFailed).toBe(summary.firstFailed);
 });

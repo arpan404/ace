@@ -11,40 +11,59 @@ async function openAudit(path: string) {
   return app;
 }
 
-test("the transcript records each decision ace's risk policy took, and why", async () => {
+/** Opens every collapsed work log, so each step's row is on screen. */
+async function openWorkLogs(feed: HTMLElement) {
+  for (const header of within(feed).queryAllByRole("button", { expanded: false }))
+    if (/Work(ed|ing) for/.test(header.textContent ?? "")) await userEvent.click(header);
+}
+
+test("each decision ace's risk policy took reads once, on the step it judged", async () => {
   await openAudit("/t/thread-release-audit");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const approved = await within(feed).findByRole("article", {
-    name: "Permission review: Approved by ace",
-  });
-  expect(approved.textContent).toContain("Read-only workspace inspection command");
-  const denied = within(feed).getByRole("article", { name: "Permission review: Denied by ace" });
-  expect(denied.textContent).toContain("Destructive command is outside the automatic risk policy");
+  await within(feed).findByText(/ace declined deleting dist/);
+  await openWorkLogs(feed);
   expect(
-    within(feed).getByRole("article", { name: "Permission review: Sent to you" }).textContent,
-  ).toContain("Command is not in the low-risk allowlist");
+    await within(feed).findByRole("button", { name: "Ran pwd Approved by ace · auto-review" }),
+  ).toBeTruthy();
+  const denied = within(feed).getByRole("button", {
+    name: "Run rm -rf dist Denied by ace · auto-review",
+  });
+  // No second copy of the decision as its own note, and no raw tool name anywhere.
+  expect(within(feed).queryByRole("article", { name: /Permission review/ })).toBeNull();
+  expect(feed.textContent).not.toMatch(/Unknown tool|requestApproval/);
 
-  // The exact target it judged opens under the decision.
-  await userEvent.click(within(denied).getByRole("button", { expanded: false }));
-  expect(within(denied).getByText("rm -rf dist")).toBeTruthy();
-  expect(within(denied).getByText("/Users/dev/relay")).toBeTruthy();
-  expect(within(denied).getByText("ace risk policy · Auto-review")).toBeTruthy();
+  // The review (who decided, why, on exactly what) opens under the step.
+  await userEvent.click(denied);
+  const review = await within(feed).findByRole("region", { name: "ace's review" });
+  expect(review.textContent).toContain("Destructive command is outside the automatic risk policy");
+  expect(within(review).getByText("rm -rf dist")).toBeTruthy();
+  expect(within(review).getByText("ace risk policy · Auto-review")).toBeTruthy();
+  expect(within(review).getAllByText("Command").length).toBeGreaterThan(0);
 });
 
-test("a request sent to the person shows the needs-you dot only until it is answered", async () => {
+test("a request sent to the person waits on its step, then reads as their answer", async () => {
   await openAudit("/t/thread-release-audit");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const sent = await within(feed).findByRole("article", {
-    name: "Permission review: Sent to you",
-  });
-  expect(within(sent).getByRole("img", { name: "Waiting for you" })).toBeTruthy();
+  await openWorkLogs(feed);
+  expect(
+    await within(feed).findByRole("button", {
+      name: "Run npm publish --dry-run Waiting for your approval",
+    }),
+  ).toBeTruthy();
 
   const card = await screen.findByRole("article", { name: "Run npm publish --dry-run?" });
   await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
+  // The pick shows on the step at once, and stays once the daemon has it.
+  expect(
+    await within(feed).findByRole("button", {
+      name: /^Run(ning)? npm publish --dry-run Approved by you$/,
+    }),
+  ).toBeTruthy();
   await waitFor(() =>
-    expect(within(sent).queryByRole("img", { name: "Waiting for you" })).toBeNull(),
+    expect(screen.queryByRole("article", { name: "Run npm publish --dry-run?" })).toBeNull(),
   );
-  expect(sent.textContent).toContain("Sent to you");
+  expect(within(feed).queryByText("Waiting for your approval")).toBeNull();
+  expect(feed.textContent).not.toContain("Sent to you");
 });
 
 test("a request ace sent on says why, in the thread and in Activity", async () => {

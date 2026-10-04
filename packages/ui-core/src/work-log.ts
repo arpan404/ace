@@ -1,5 +1,14 @@
-import type { FileChange, Item, ToolCall } from "@ace/protocol";
+import type { FileChange, Interaction, Item, ToolCall } from "@ace/protocol";
 import { quickStat } from "./file-changes.ts";
+import { approvalOutcome } from "./permission-review.ts";
+import {
+  displayCommand,
+  stepPath,
+  errorNote,
+  mcpToolLabel,
+  namedToolLabel,
+  type PathContext,
+} from "./step-display.ts";
 import { formatElapsed } from "./time.ts";
 
 export type StepIcon = "read" | "search" | "shell" | "edit" | "web" | "tool" | "think" | "note";
@@ -21,6 +30,20 @@ export interface StepText {
   /** False while the step is still in flight. */
   settled: boolean;
   failed: boolean;
+  /** The full target (absolute path, whole command) for the row's tooltip. */
+  title?: string | undefined;
+  /** The step waits on the person: an approval nobody has answered yet. */
+  needsYou?: boolean | undefined;
+}
+
+/** What a step row needs beyond its item: where it ran, and the approval that gated it. */
+export interface StepContext extends PathContext {
+  /** The approval interaction whose `toolCallId` is this step. */
+  interaction?:
+    | Pick<Interaction, "state" | "request" | "resolution" | "review" | "autoReviewed">
+    | undefined;
+  /** The option the person just picked on this device, before the daemon confirms it. */
+  answering?: string | undefined;
 }
 
 const unsettled = new Set<ToolCall["status"]>(["pending", "running", "awaiting_approval"]);
@@ -58,6 +81,7 @@ const inFlight: Record<string, { running: string; awaiting: string }> = {
   "Updated the plan": { running: "Updating the plan", awaiting: "Update the plan" },
   "Asked a question": { running: "Asking a question", awaiting: "Ask a question" },
   "Messaged a subagent": { running: "Messaging a subagent", awaiting: "Message a subagent" },
+  "Loaded skill": { running: "Loading skill", awaiting: "Load skill" },
 };
 
 function verbFor(verb: string, status: ToolCall["status"]): string {
@@ -69,31 +93,50 @@ function verbFor(verb: string, status: ToolCall["status"]): string {
   return verb;
 }
 
-function callText(call: ToolCall): Omit<StepText, "settled" | "failed"> {
+type CallText = Omit<StepText, "settled" | "failed"> & {
+  /** Verb forms for steps whose verb is not in the shared table. */
+  forms?: { running: string; awaiting: string };
+};
+
+function callText(call: ToolCall, context: StepContext): CallText {
   const detail = call.detail;
   switch (detail.kind) {
-    case "file.read":
-      return { icon: "read", verb: "Read", target: detail.path };
-    case "search":
+    case "file.read": {
+      const path = stepPath(detail.path, context);
+      if (path.skill)
+        return { icon: "read", verb: "Loaded skill", target: path.skill, title: path.full };
+      const range = detail.range ? `:${detail.range.start}-${detail.range.end}` : "";
+      return { icon: "read", verb: "Read", target: path.text + range, title: path.full };
+    }
+    case "search": {
+      const where = detail.path ? stepPath(detail.path, context).text : undefined;
       return {
         icon: "search",
         verb: "Searched",
-        target: detail.query,
+        target: where && where !== "." ? `${detail.query} in ${where}` : detail.query,
         note:
           detail.matches === undefined
             ? undefined
             : `${detail.matches} ${detail.matches === 1 ? "match" : "matches"}`,
       };
+    }
     case "web.search":
       return { icon: "web", verb: "Searched the web", target: detail.query };
     case "web.fetch":
-      return { icon: "web", verb: "Fetched", target: detail.url };
+      return { icon: "web", verb: "Fetched", target: detail.url, title: detail.url };
     case "shell": {
+      const command = displayCommand(detail);
       const exit =
         detail.exitCode === undefined || detail.exitCode === null
           ? undefined
           : `exit ${detail.exitCode}`;
-      return { icon: "shell", verb: "Ran", target: detail.command, note: exit };
+      return {
+        icon: "shell",
+        verb: "Ran",
+        target: command.command,
+        note: exit,
+        title: command.raw ?? command.command,
+      };
     }
     case "file.edit":
     case "file.write":
@@ -106,24 +149,28 @@ function callText(call: ToolCall): Omit<StepText, "settled" | "failed"> {
         "file.move": "Moved",
       }[detail.kind];
       const first = detail.changes[0];
-      const target =
-        detail.changes.length > 1
-          ? `${detail.changes.length} files`
-          : first
-            ? (first.movePath ?? first.path)
-            : undefined;
+      const path = first ? stepPath(first.movePath ?? first.path, context) : undefined;
+      const target = detail.changes.length > 1 ? `${detail.changes.length} files` : path?.text;
+      const title = detail.changes.length > 1 ? undefined : path?.full;
       let added = 0;
       let removed = 0;
       for (const change of detail.changes) {
         const stat = quickStat(change);
-        if (!stat) return { icon: "edit", verb, target, diffFor: detail.changes };
+        if (!stat) return { icon: "edit", verb, target, title, diffFor: detail.changes };
         added += stat.added;
         removed += stat.removed;
       }
-      return { icon: "edit", verb, target, added, removed };
+      return { icon: "edit", verb, target, title, added, removed };
     }
-    case "mcp":
-      return { icon: "tool", verb: "Called", target: `${detail.server}.${detail.tool}` };
+    case "mcp": {
+      const label = mcpToolLabel(detail.server, detail.tool, detail.arguments);
+      return {
+        icon: label.icon === "agent" ? "tool" : label.icon === "shell" ? "shell" : label.icon,
+        verb: label.verb,
+        target: label.target,
+        forms: { running: label.running, awaiting: label.awaiting },
+      };
+    }
     case "todo":
     case "plan":
       return { icon: "note", verb: "Updated the plan" };
@@ -131,12 +178,37 @@ function callText(call: ToolCall): Omit<StepText, "settled" | "failed"> {
       return { icon: "note", verb: "Asked a question" };
     case "agent.message":
       return { icon: "tool", verb: "Messaged a subagent", target: detail.message };
-    default:
-      return { icon: "tool", verb: call.title };
+    default: {
+      const label = namedToolLabel(detail.kind, call.title);
+      return {
+        icon: label.icon === "web" ? "web" : "tool",
+        verb: label.verb,
+        target: label.target,
+        forms: { running: label.running, awaiting: label.awaiting },
+      };
+    }
   }
 }
 
-export function describeStep(item: Item): StepText {
+/** The trailing note: the approval's outcome, a failure's reason, or the step's own note. */
+function noteFor(call: ToolCall, text: CallText, context: StepContext) {
+  if (call.status === "failed") {
+    const exit = call.detail.kind === "shell" ? text.note : undefined;
+    return { note: exit ?? errorNote(call.error) ?? "Failed" };
+  }
+  // The approval reads on its step, settled or not: "Approved by you", "Denied by ace".
+  if (context.interaction?.request.kind === "approval") {
+    const outcome = approvalOutcome(context.interaction, context.answering);
+    return { note: outcome.text, needsYou: outcome.state === "pending", outcome };
+  }
+  return { note: statusNote(call) ?? text.note };
+}
+
+/**
+ * How one step reads. `context` shortens its paths (IR-6) and, for a step behind an approval,
+ * turns the approval into the row's note ("Approved by you", IR-2).
+ */
+export function describeStep(item: Item, context: StepContext = {}): StepText {
   if (item.type === "reasoning")
     return {
       icon: "think",
@@ -154,20 +226,48 @@ export function describeStep(item: Item): StepText {
   if (item.type !== "tool_call")
     return { icon: "tool", verb: item.type, settled: true, failed: false };
   const call = item.call;
-  const text = callText(call);
+  const text = callText(call, context);
+  const { forms, ...shown } = text;
+  const { note, needsYou, outcome } = noteFor(call, text, context);
+  // An approval the person just gave runs next; one they refused never ran.
+  const status =
+    call.status === "awaiting_approval" && outcome && outcome.state !== "pending"
+      ? outcome.tone === "approved"
+        ? "running"
+        : "declined"
+      : call.status;
+  const verb = forms
+    ? status === "awaiting_approval" || status === "declined"
+      ? forms.awaiting
+      : status === "pending" || status === "running"
+        ? forms.running
+        : text.verb
+    : verbFor(text.verb, status);
   return {
-    ...text,
-    verb: verbFor(text.verb, call.status),
-    note: statusNote(call) ?? text.note,
-    settled: !unsettled.has(call.status),
-    failed: call.status === "failed",
+    ...shown,
+    verb,
+    note,
+    needsYou,
+    settled: !unsettled.has(status),
+    failed: call.status === "failed" || outcome?.tone === "denied",
   };
+}
+
+/** "Running bun install" for the live line: the step in flight, never the provider's title. */
+export function stepLine(item: Item, context: StepContext = {}): string {
+  const step = describeStep(item, context);
+  return step.target ? `${step.verb} ${step.target}` : step.verb;
 }
 
 export interface WorkSummary {
   running: boolean;
   awaiting: boolean;
+  /** Steps that failed and were not re-run successfully later in the group. */
   failed: number;
+  /** Failed steps a later step re-ran with success: "· 1 retried". */
+  retried: number;
+  /** The first step counted in `failed`, to scroll to. */
+  firstFailed: string | undefined;
   startedAt: number;
   endedAt: number;
   read: number;
@@ -187,6 +287,8 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
     running: false,
     awaiting: false,
     failed: 0,
+    retried: 0,
+    firstFailed: undefined,
     startedAt: Number.POSITIVE_INFINITY,
     endedAt: 0,
     read: 0,
@@ -196,7 +298,15 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
     other: 0,
     current: undefined,
   };
-  for (const item of items) {
+  // A failed command run again later with success was retried, not failed (TS-6).
+  const failures: { id: string; key: string }[] = [];
+  const succeeded = new Map<string, number>();
+  items.forEach((item, index) => {
+    if (item?.type !== "tool_call") return;
+    const key = retryKey(item.call);
+    if (key && item.call.status === "succeeded") succeeded.set(key, index);
+  });
+  for (const [index, item] of items.entries()) {
     if (!item) continue;
     summary.startedAt = Math.min(summary.startedAt, item.createdAt);
     summary.endedAt = Math.max(summary.endedAt, item.createdAt);
@@ -209,10 +319,14 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
     summary.endedAt = Math.max(summary.endedAt, call.endedAt ?? call.startedAt);
     if (unsettled.has(call.status)) {
       summary.running = true;
-      summary.current = call.title;
+      summary.current = stepLine(item);
     }
     if (call.status === "awaiting_approval") summary.awaiting = true;
-    if (call.status === "failed") summary.failed++;
+    if (call.status === "failed") {
+      const key = retryKey(call);
+      if (key && (succeeded.get(key) ?? -1) > index) summary.retried++;
+      else failures.push({ id: item.id, key: key ?? item.id });
+    }
     const detail = call.detail;
     if (detail.kind === "file.read") reads.add(detail.path);
     else if (detail.kind === "search" || detail.kind === "web.search") summary.searched++;
@@ -220,10 +334,22 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
     else if ("changes" in detail) for (const change of detail.changes) edits.add(change.path);
     else summary.other++;
   }
+  summary.failed = failures.length;
+  summary.firstFailed = failures[0]?.id;
   summary.read = reads.size;
   summary.edited = edits.size;
   if (summary.startedAt === Number.POSITIVE_INFINITY) summary.startedAt = summary.endedAt;
   return summary;
+}
+
+/** Two runs of the same command (or call on the same target) are the same step tried again. */
+function retryKey(call: ToolCall): string | undefined {
+  const detail = call.detail;
+  if (detail.kind === "shell") return `shell:${displayCommand(detail).command}`;
+  if (detail.kind === "mcp")
+    return `mcp:${detail.server}:${detail.tool}:${JSON.stringify(detail.arguments ?? null)}`;
+  if (detail.kind === "file.read") return `read:${detail.path}`;
+  return undefined;
 }
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
@@ -236,7 +362,16 @@ export function workCounts(summary: WorkSummary): string {
   if (summary.ran) parts.push(`Ran ${plural(summary.ran, "command", "commands")}`);
   if (summary.edited) parts.push(`Edited ${plural(summary.edited, "file", "files")}`);
   if (summary.other) parts.push(`Used ${plural(summary.other, "tool", "tools")}`);
+  const failures = failureCounts(summary);
+  if (failures) parts.push(failures);
+  return parts.join(" · ");
+}
+
+/** "2 failed · 1 retried", or "" when nothing failed. Its own part, so it can be a button. */
+export function failureCounts(summary: Pick<WorkSummary, "failed" | "retried">): string {
+  const parts: string[] = [];
   if (summary.failed) parts.push(`${summary.failed} failed`);
+  if (summary.retried) parts.push(`${summary.retried} retried`);
   return parts.join(" · ");
 }
 
@@ -250,6 +385,9 @@ export interface WorkLogHeadline {
   current: string | undefined;
   /** A step waits for approval, so the log should open by itself. */
   awaiting: boolean;
+  /** "2 failed · 1 retried" (also the end of `counts`), and the first failed step. */
+  failures: string;
+  firstFailed: string | undefined;
 }
 
 /** Headline for a work log. `now` only matters while it runs; a short burst reads as 1s. */
@@ -262,5 +400,7 @@ export function workLogHeadline(summary: WorkSummary, now: number): WorkLogHeadl
     running: summary.running,
     current: summary.running ? summary.current : undefined,
     awaiting: summary.awaiting,
+    failures: failureCounts(summary),
+    firstFailed: summary.firstFailed,
   };
 }

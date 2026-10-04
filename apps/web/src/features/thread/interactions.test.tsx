@@ -16,11 +16,11 @@ test("an approval is answered in the thread and the agent carries on", async () 
   });
   expect(within(card).getByText("rm -rf node_modules/.cache/vitest")).toBeTruthy();
   expect(within(card).getByText(/Clears cached test results/)).toBeTruthy();
-  // The step that asked is open in the work log, marked as waiting.
+  // The step that asked is open in the work log, marked as waiting for the person.
   const feed = screen.getByRole("feed", { name: "Transcript" });
   expect(
-    within(feed).getByRole("button", {
-      name: "Run rm -rf node_modules/.cache/vitest Awaiting approval",
+    await within(feed).findByRole("button", {
+      name: "Run rm -rf node_modules/.cache/vitest Waiting for your approval",
     }),
   ).toBeTruthy();
 
