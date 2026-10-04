@@ -57,7 +57,7 @@ test("rebindings survive leaving Settings › Keyboard, and Reset all restores e
   expect((await shortcut("Agents")).textContent).toBe("Alt+Ctrl+U");
 
   await userEvent.click(screen.getByRole("button", { name: "Reset all shortcuts" }));
-  expect((await shortcut("Agents")).textContent).toBe("Ctrl+J");
+  expect((await shortcut("Agents")).textContent).toBe("Ctrl+Shift+A");
   expect(screen.queryByRole("button", { name: "Reset all shortcuts" })).toBeNull();
 });
 

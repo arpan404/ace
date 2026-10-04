@@ -3,8 +3,6 @@ import {
   ClipboardTextIcon,
   CopyIcon,
   MagnifyingGlassIcon,
-  PencilSimpleIcon,
-  PowerIcon,
   SelectionAllIcon,
   TerminalWindowIcon,
   TrashIcon,
@@ -33,7 +31,6 @@ import { WithServices } from "../with-services.tsx";
 import { FindBar } from "./find-bar.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
 import type { TerminalSessions } from "./sessions.ts";
-import { SessionsMenu } from "./sessions-menu.tsx";
 import type { TerminalSurface } from "./surface.ts";
 import {
   isPendingTerminal,
@@ -46,8 +43,6 @@ import {
 import { setTabUi, useTabUi } from "./tab-ui.ts";
 import { TerminalView } from "./terminal-view.tsx";
 import { useExitCode, useThreadTerminals } from "./use-terminals.ts";
-import { NewTerminalButton } from "./new-terminal-button.tsx";
-import { MoreMenu, ToolbarButton } from "./toolbar.tsx";
 
 /*
  * One terminal tab: a PTY of yours in the thread's checkout. A tab without a shell yet starts
@@ -378,56 +373,4 @@ function LiveTerminal(
   );
 }
 
-/** The strip's buttons while a terminal shows: New terminal, Find, sessions and more. */
-export function TerminalActions(props: TabViewProps) {
-  return (
-    <WithServices quiet>
-      <TerminalButtons {...props} />
-    </WithServices>
-  );
-}
-
-function TerminalButtons(props: TabViewProps) {
-  const { scope, tab, dock } = props;
-  const { terminals, terminalUi } = usePanelServices();
-  const actions = useWorkspaceActions(scope);
-  const pending = isPendingTerminal(tab.id);
-  return (
-    <>
-      <NewTerminalButton scope={scope} dock={dock} />
-      <ToolbarButton
-        icon={MagnifyingGlassIcon}
-        label="Find"
-        shortcut="findInTerminal"
-        disabled={pending}
-        onClick={() => setTabUi(terminalUi, tab.key, { find: true })}
-      />
-      <SessionsMenu scope={scope} dock={dock} />
-      <MoreMenu label="Terminal actions">
-        <MenuItem
-          icon={<PencilSimpleIcon aria-hidden size={16} />}
-          disabled={pending}
-          onClick={() => setTabUi(terminalUi, tab.key, { rename: true })}
-        >
-          Rename…
-        </MenuItem>
-        <MenuItem
-          icon={<TrashIcon aria-hidden size={16} />}
-          disabled={pending}
-          onClick={() => terminals.clear(tab.id)}
-        >
-          Clear terminal
-        </MenuItem>
-        <MenuSeparator />
-        <MenuItem
-          icon={<PowerIcon aria-hidden size={16} />}
-          danger
-          disabled={pending}
-          onClick={() => actions.close(tab.key)}
-        >
-          End session
-        </MenuItem>
-      </MoreMenu>
-    </>
-  );
-}
+export { TerminalActions } from "./terminal-actions.tsx";
