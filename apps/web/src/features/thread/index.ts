@@ -6,7 +6,7 @@ export { PermissionPicker, usePermissionCapabilities } from "./composer/permissi
 export { chipControl as composerChip } from "./composer/composer-styles.ts";
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";
-export { ThreadView } from "./thread-view.tsx";
+export { ThreadView, type ThreadTarget } from "./thread-view.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */
 export { preloadDeferred } from "./deferred.ts";
 /** Where the reader left a thread; the fake boot seeds it so "New activity" has a place. */

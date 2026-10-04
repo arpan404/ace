@@ -25,6 +25,20 @@ export const DeferredSummaryBody = deferredComponent(() =>
   import("./header/summary-body.tsx").then((module) => module.SummaryBody),
 );
 
+/**
+ * The long-thread tools, loaded when first opened and warmed while idle: the turn timeline,
+ * search within the thread and the catch-up card (ADR 0056: off the route's first paint).
+ */
+export const DeferredTurnsPanel = deferredComponent(() =>
+  import("./long/timeline.tsx").then((module) => module.TurnsPanel),
+);
+export const DeferredSearchBar = deferredComponent(() =>
+  import("./long/search-bar.tsx").then((module) => module.SearchBar),
+);
+export const DeferredCatchUpCard = deferredComponent(() =>
+  import("./long/catch-up-card.tsx").then((module) => module.CatchUpCard),
+);
+
 export function preloadDeferred(): Promise<unknown> {
   return Promise.all([
     DeferredStepDetail.preload(),
@@ -36,5 +50,8 @@ export function preloadDeferred(): Promise<unknown> {
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.
     threadWorkspace.load(),
     preloadComposerParts(),
+    DeferredTurnsPanel.preload(),
+    DeferredSearchBar.preload(),
+    DeferredCatchUpCard.preload(),
   ]);
 }
