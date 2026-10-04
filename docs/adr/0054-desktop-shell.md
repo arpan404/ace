@@ -34,6 +34,12 @@ The main process's own daemon link (notifications, badge, tray, power save) foll
 
 Launch at login starts with no window when background mode is on. Windows passes the login item's `--background` argument; macOS ignores login-item arguments, so the app reads `wasOpenedAtLogin`. Linux has no launch at login yet: it needs an XDG autostart entry.
 
+### Daemon home and app data
+
+The app picks its daemon home once at startup with `@ace/service`'s shared resolver (`@ace/service/home`, ADR 0041), exactly as the CLI daemon does: `~/.ace` when it is empty or this rewrite's, otherwise the marked, isolated `~/.ace-next`. Nothing under a legacy 0.x `~/.ace` is read beyond the resolver's metadata checks, written or run. The spawned daemon gets that home as `ACE_HOME`. The login service is offered only when the home holds this rewrite's validated installation (`installedVersion`), so a 0.x `bin/ace` or its service is never started. An explicit `ACE_HOME` wins, through the same resolver: one holding legacy data is refused, and the app reports `failed` with the reason instead of spawning. Development's attach mode takes the dev daemon's `ACE_HOME` as given, since it never spawns or starts a service there.
+
+The app's own data (window state, settings, web storage, browser profiles, the single-instance lock) follows the same choice: beside the isolated home it lives in `<appData>/ace-next` (macOS `~/Library/Application Support/ace-next`), never the `<appData>/ace` folder the 0.x app owns; beside `~/.ace` it stays in Electron's default `<appData>/ace`. `ACE_DESKTOP_USER_DATA` always wins.
+
 ### Keychain
 
 The desktop needs no keychain at startup: the daemon token and the browser credential are read from `ACE_HOME`, settings are plain files, and nothing calls `safeStorage`. Cookie encryption is off (see Fuses). On macOS, Chromium names its keychain item after the app (`"<name> Safe Storage"`) when it starts, and the older ace 0.x app already owns "ace Safe Storage". The main script starts Chromium as "ace desktop" and takes its own name back once ready, so a future keychain use creates its own item rather than prompting for the legacy one.

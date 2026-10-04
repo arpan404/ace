@@ -1,4 +1,6 @@
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
+import { resolveDaemonHome } from "@ace/service/home";
 import { resolveTarget } from "./target.ts";
 
 const options = (platform: NodeJS.Platform) => ({
@@ -6,6 +8,8 @@ const options = (platform: NodeJS.Platform) => ({
   daemonEntry: "/app/daemon/ace.mjs",
   readToken: () => "",
   platform,
+  homedir: tmpdir(),
+  resolveHome: resolveDaemonHome,
 });
 
 describe("which daemon the packaged app uses", () => {

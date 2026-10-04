@@ -1,5 +1,4 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { z } from "zod";
 import { SocketUrl } from "../../shared/contract.ts";
 
@@ -15,13 +14,23 @@ const localDaemonPlatforms = new Set<NodeJS.Platform>(["darwin", "linux"]);
  * - `fake`: the renderer runs the in-page fake daemon (`dev:desktop:fake`).
  * - `remote-only`: this platform runs no local daemon (Windows today) and no remote one is
  *   configured; the page asks for one.
+ * - `refused`: the daemon home can't be used (an explicit `ACE_HOME` with legacy 0.x data, or
+ *   unrecognized data in the isolated home); nothing is spawned and the page says why.
+ *
+ * A local target's `home` comes from `@ace/service`'s shared resolver, as the daemon's own
+ * does (ADR 0041): `~/.ace` for a fresh or recognized home, `~/.ace-next` when `~/.ace` holds
+ * legacy 0.x or unrecognized data. `isolated` says the resolver chose that separate home.
  */
 export type DaemonTarget =
-  | { kind: "managed"; home: string; entry: string }
-  | { kind: "attach"; home: string }
+  | { kind: "managed"; home: string; entry: string; isolated: boolean }
+  | { kind: "attach"; home: string; isolated: boolean }
   | { kind: "remote"; url: string; token: string }
   | { kind: "fake" }
-  | { kind: "remote-only"; reason: string };
+  | { kind: "remote-only"; reason: string }
+  | { kind: "refused"; reason: string };
+
+/** `resolveDaemonHome` from `@ace/service/home`; injected so tests can use temp homes. */
+export type HomeResolver = (home: string, requested?: string) => string;
 
 const Environment = z.object({
   ACE_HOME: z.string().min(1).optional(),
@@ -40,6 +49,9 @@ export function resolveTarget(
     daemonEntry: string;
     readToken(path: string): string;
     platform: NodeJS.Platform;
+    /** The user's home directory, under which the default daemon homes live. */
+    homedir: string;
+    resolveHome: HomeResolver;
   },
 ): DaemonTarget {
   const settings = Environment.parse(env);
@@ -51,7 +63,6 @@ export function resolveTarget(
       throw new Error("ACE_DAEMON_URL needs ACE_DAEMON_TOKEN or ACE_DAEMON_TOKEN_FILE");
     return { kind: "remote", url: settings.ACE_DAEMON_URL, token: token.toLowerCase() };
   }
-  const home = settings.ACE_HOME ?? join(homedir(), ".ace");
   const mode = settings.ACE_DESKTOP_DAEMON ?? (options.packaged ? "managed" : "attach");
   if (mode === "fake") return { kind: "fake" };
   // Never try to spawn (or wait for) a local daemon that cannot exist here.
@@ -60,6 +71,17 @@ export function resolveTarget(
       kind: "remote-only",
       reason: "ace runs its daemon on macOS and Linux; connect to a daemon on another machine",
     };
-  if (mode === "attach") return { kind: "attach", home };
-  return { kind: "managed", home, entry: options.daemonEntry };
+  // Development names its dev daemon's home and never spawns or starts a service there.
+  if (mode === "attach" && settings.ACE_HOME)
+    return { kind: "attach", home: resolve(settings.ACE_HOME), isolated: false };
+  let home: string;
+  try {
+    home = options.resolveHome(options.homedir, settings.ACE_HOME);
+  } catch (error) {
+    return { kind: "refused", reason: error instanceof Error ? error.message : String(error) };
+  }
+  const isolated =
+    settings.ACE_HOME === undefined && home !== join(resolve(options.homedir), ".ace");
+  if (mode === "attach") return { kind: "attach", home, isolated };
+  return { kind: "managed", home, entry: options.daemonEntry, isolated };
 }

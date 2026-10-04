@@ -11,7 +11,7 @@ import {
 } from "electron";
 import type { AppInfo, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import { Background } from "./background.ts";
-import { DaemonRuntime } from "./daemon/runtime.ts";
+import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
@@ -21,14 +21,33 @@ import { backgroundArgument, startHidden } from "./os/login.ts";
 import { appPaths } from "./paths.ts";
 import { applyDevCsp, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { SettingsStore } from "./settings-store.ts";
+import { desktopUserData } from "./user-data.ts";
 import { createMainWindow } from "./window/main-window.ts";
 
 /** Set at build time; unpackaged runs have no app package.json for `app.getVersion()`. */
 declare const ACE_APP_VERSION: string;
 
-// Development keeps window state, sessions and settings in `.ace-dev/electron`.
-if (process.env.ACE_DESKTOP_USER_DATA)
-  app.setPath("userData", resolve(process.env.ACE_DESKTOP_USER_DATA));
+const paths = appPaths({
+  appDirectory: import.meta.dirname,
+  packaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  platform: process.platform,
+});
+// The daemon home, chosen once by the shared resolver (a legacy 0.x `~/.ace` selects
+// `~/.ace-next`), and the app's own data folder with it. Development keeps window state,
+// sessions and settings in `.ace-dev/electron` (ACE_DESKTOP_USER_DATA).
+const target = desktopTarget({
+  env: process.env,
+  packaged: app.isPackaged,
+  daemonEntry: paths.daemonEntry,
+  platform: process.platform,
+});
+const userData = desktopUserData({
+  explicit: process.env.ACE_DESKTOP_USER_DATA,
+  target,
+  appData: app.getPath("appData"),
+});
+if (userData) app.setPath("userData", userData);
 // Before anything starts Chromium's network service: never the older ace app's keychain item.
 claimKeychainName(app, process.platform);
 registerAppScheme();
@@ -52,12 +71,6 @@ function isDirectory(path: string): boolean {
 }
 
 function main(): void {
-  const paths = appPaths({
-    appDirectory: import.meta.dirname,
-    packaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    platform: process.platform,
-  });
   const info: AppInfo = {
     version: app.isPackaged ? app.getVersion() : ACE_APP_VERSION,
     platform:
@@ -67,6 +80,7 @@ function main(): void {
     packaged: app.isPackaged,
   };
   const runtime = new DaemonRuntime({
+    target,
     packaged: app.isPackaged,
     version: info.version,
     resources: {
