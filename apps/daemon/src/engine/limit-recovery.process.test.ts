@@ -73,6 +73,15 @@ test("limits stay distinct from failures after provider exit and manual resume p
   expect(
     Object.values(h.store.snapshotThread(id).runs).some((run) => run.trigger === "limit_resume"),
   ).toBe(true);
+  expect(Object.values(h.store.snapshotThread(id).items)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: "message",
+        synthetic: true,
+        origin: expect.objectContaining({ kind: "limit_resume" }),
+      }),
+    ]),
+  );
   expect(
     replacement.commands
       .filter((command) => command.type === "send")
