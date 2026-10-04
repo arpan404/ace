@@ -19,6 +19,7 @@ export interface DaemonNotifications {
   ready(): Promise<void>;
   activate(): void;
   start(): Promise<void>;
+  stop(): void;
   close(): Promise<void>;
 }
 export function createDaemonNotifications(
@@ -29,7 +30,11 @@ export function createDaemonNotifications(
   windowMs = 5000,
   runtime: Pick<ConstructorParameters<typeof NotificationWorker>[0], "signal" | "spawn"> = {},
 ): DaemonNotifications {
-  const { signal, spawn } = runtime;
+  const deliveryLifetime = new AbortController();
+  const signal = runtime.signal
+    ? AbortSignal.any([runtime.signal, deliveryLifetime.signal])
+    : deliveryLifetime.signal;
+  const { spawn } = runtime;
   let send: (device: DeviceId, notification: Notification) => boolean = offline;
   const delivery = createNotificationRouter({
     ...channels,
@@ -49,22 +54,70 @@ export function createDaemonNotifications(
       },
     },
   });
-  const attached = attachNotifications(service, store, onError);
+  const attached = attachNotifications(
+    {
+      cursor: () => service.cursor(signal),
+      // Admitted ingestion remains durable shutdown work, not cancellable startup.
+      ingest: (events) => service.ingest(events),
+      drain: () => service.drain(),
+    },
+    store,
+    (error) => {
+      if (signal.aborted && error instanceof Error && error.name === "AbortError") return;
+      onError(error);
+    },
+  );
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
-  const ready = async () => {
-    await service.cursor();
-    // Revocation is durable authority, independent of whether delivery has a job.
-    for (const device of store.devices.list())
-      if (device.revokedAt !== null) await service.revoke(device.id);
-    while (!(await attached.recover())) {
-      if (closed || signal?.aborted) throw new Error("Notification recovery aborted");
-      await setImmediate();
-    }
-    if (closed || signal?.aborted) throw new Error("Notification startup aborted");
+  const startups = new Set<Promise<void>>();
+  const cancelled = () => {
+    signal.throwIfAborted();
+    if (closed) throw new DOMException("Notification startup aborted", "AbortError");
+  };
+  const track = (operation: Promise<void>) => {
+    startups.add(operation);
+    void operation.then(
+      () => startups.delete(operation),
+      () => startups.delete(operation),
+    );
+    return operation;
+  };
+  const open = () =>
+    track(
+      (async () => {
+        cancelled();
+        await service.cursor(signal);
+        cancelled();
+      })(),
+    );
+  let readiness: Promise<void> | undefined;
+  const ready = () => {
+    readiness ??= track(
+      (async () => {
+        cancelled();
+        await service.cursor(signal);
+        cancelled();
+        // Check after every RPC before scheduling another one, especially durable revocations.
+        for (const device of store.devices.list()) {
+          if (device.revokedAt === null) continue;
+          cancelled();
+          await service.revoke(device.id, signal);
+          cancelled();
+        }
+        for (;;) {
+          const recovered = await attached.recover();
+          cancelled();
+          if (recovered) return;
+          await setImmediate();
+          cancelled();
+        }
+      })(),
+    );
+    return readiness;
   };
   const activate = () => {
-    if (closed || signal?.aborted) throw new Error("Notification startup aborted");
+    signal?.throwIfAborted();
+    if (closed) throw new DOMException("Notification startup aborted", "AbortError");
     if (timer) return;
     // Replay and delivery ticks are lifetime work, separate from readiness.
     void attached.tick();
@@ -73,11 +126,21 @@ export function createDaemonNotifications(
     }, 1000);
     timer.unref();
   };
+  let stopped: Promise<void> | undefined;
+  const stop = () => {
+    closed = true;
+    deliveryLifetime.abort();
+    if (timer) clearInterval(timer);
+    stopped ??= (async () => {
+      await attached.close();
+      // Settle startup RPC continuations before the worker enters its closing state.
+      await Promise.allSettled(startups);
+    })();
+  };
   return {
+    stop,
     service,
-    open: async () => {
-      await service.cursor();
-    },
+    open,
     ready,
     activate,
     setSender(sender) {
@@ -88,9 +151,8 @@ export function createDaemonNotifications(
       activate();
     },
     async close() {
-      closed = true;
-      if (timer) clearInterval(timer);
-      attached.close();
+      stop();
+      await stopped;
       await service.close();
     },
   };

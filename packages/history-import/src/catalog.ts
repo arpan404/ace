@@ -2,7 +2,7 @@ import { contains } from "@ace/native-session";
 import { setImmediate } from "node:timers/promises";
 import type { ProviderHome } from "./contracts.ts";
 import { dirname, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { StatementSync } from "node:sqlite";
 import { HistoryListRequest, HistoryListResponse, HistorySession } from "@ace/protocol/history";
 import { z } from "zod";

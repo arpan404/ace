@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { chmodSync } from "node:fs";
 import { IdleWorker } from "@ace/provider-kit/idle-worker";
 import { z } from "zod";

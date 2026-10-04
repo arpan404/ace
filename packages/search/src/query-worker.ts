@@ -1,5 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import { SearchWorkerData, SearchWorkerRequest } from "./worker-protocol.ts";
 import { querySearch } from "./query.ts";

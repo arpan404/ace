@@ -1,5 +1,5 @@
 import { chmodSync } from "node:fs";
-import { DatabaseSync, type StatementSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import {
   Notification,

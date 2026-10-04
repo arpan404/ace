@@ -49,3 +49,9 @@ Long raw series are stored losslessly as `.json.gz`. Any measurement accepts `--
 `node --expose-gc apps/daemon/bench/long-thread-reliability.ts --long` seeds one million items and runs for two days. `--items=N`, `--cycles=N` and `--duration-ms=N` allow shorter investigations. The synthetic provider is a local Node fixture; it never invokes a provider CLI. Memory telemetry retains at most 128 samples, and SQLite checkpointing resumes after the isolated write-volume sample.
 
 `long-thread-writes.ts` compares 1,000 one-character tokens, each preceded by a transport signal, on a WAL truncated immediately before measurement. `long-thread-snapshot.ts` compares the same 10,000-item, 5,000-approval, 48-subagent fixture on both branches. Run each copied script from its own worktree so workspace dependencies resolve to that checkout.
+
+For packaged-desktop idle diagnosis, `compile.ts --cli --runtime` builds the actual
+release CLI entry. `measure.ts --idle-only --entry=… --node=…` samples it for one
+minute and quits with SIGTERM, without sending scripted IPC or provider prompts.
+See [desktop smoke measurements](desktop-smoke-REPORT.md) for the measured source,
+bundle, worker and SQLite differences.

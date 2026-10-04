@@ -1,5 +1,5 @@
 import { reviewSummary } from "./review-pages.ts";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import {
   PluginAvailability,

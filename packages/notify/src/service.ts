@@ -179,12 +179,17 @@ export function attachNotifications(
   },
   log: NotificationLog,
   onError: (error: unknown) => void,
-): { recover(): Promise<boolean>; tick(): Promise<void>; close(): void } {
+): { recover(): Promise<boolean>; tick(): Promise<void>; close(): Promise<void> } {
   let running: Promise<void> | undefined;
+  let closed = false;
+  const ingestions = new Set<Promise<void>>();
   const replay = async () => {
     // Bounded work per tick; startup callers can tick until cursor reaches head.
     for (let page = 0; page < 16; page++) {
-      const events = log.readEvents({ afterSeq: await service.cursor(), limit: 256 });
+      if (closed) return false;
+      const cursor = await service.cursor();
+      if (closed) return false;
+      const events = log.readEvents({ afterSeq: cursor, limit: 256 });
       if (!events.length) return true;
       await service.ingest(events);
     }
@@ -193,7 +198,10 @@ export function attachNotifications(
   const stop = log.subscribe((events) => {
     try {
       const ingested = service.ingest(events);
-      if (ingested instanceof Promise) void ingested.catch(onError);
+      if (ingested instanceof Promise) {
+        const pending = ingested.catch(onError).finally(() => ingestions.delete(pending));
+        ingestions.add(pending);
+      }
     } catch (error) {
       onError(error);
     }
@@ -202,9 +210,10 @@ export function attachNotifications(
     // Finite log recovery is separate from delivery and propagates initialization errors.
     recover: replay,
     tick() {
+      if (closed) return Promise.resolve();
       running ??= (async () => {
         try {
-          if (await replay()) await service.drain();
+          if ((await replay()) && !closed) await service.drain();
         } catch (error) {
           onError(error);
         }
@@ -213,6 +222,11 @@ export function attachNotifications(
       });
       return running;
     },
-    close: stop,
+    async close() {
+      closed = true;
+      stop();
+      await running;
+      await Promise.all(ingestions);
+    },
   };
 }

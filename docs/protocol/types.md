@@ -4377,15 +4377,16 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | running | yes | `true` |  |
-| version | yes | string |  |
+| version | yes | union | {"anyOf":[{"type":"string","const":"development"},{"type":"string","maxLength":80,"pattern":"^\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.]+)?$","x-ace-constraint":"Daemon version must have a nonzero major version; legacy ace 0.x is incompatible."}]} |
 | ready | no | `true` |  |
 
 Example:
 
 ```json
 {
+  "ready": true,
   "running": true,
-  "version": "example"
+  "version": "development"
 }
 ```
 

@@ -20,6 +20,7 @@ export async function startNotifications(context: ServiceContext): Promise<void>
       ...(options.notificationWorker ? { spawn: options.notificationWorker } : {}),
     },
   );
+  resources.onShutdown(notifications.stop);
   resources.own(() => notifications.close());
   // A cursor reply proves the worker has opened its store, even when the log is empty.
   await notifications.open();

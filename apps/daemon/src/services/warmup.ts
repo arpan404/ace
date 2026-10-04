@@ -21,6 +21,12 @@ export function warmup(
         report();
       },
       (error: unknown) => {
+        if (
+          context.signal.aborted &&
+          (error === context.signal.reason ||
+            (error instanceof Error && error.name === "AbortError"))
+        )
+          return;
         const message = error instanceof Error ? error.message : "Background initialization failed";
         status = { name, state: "degraded", error: `Service ${name}: ${message.slice(0, 8192)}` };
         report();

@@ -1,5 +1,5 @@
 import { createRedactor } from "@ace/redaction";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { workerData, parentPort } from "node:worker_threads";
 import { z } from "zod";
 const redact = createRedactor({});

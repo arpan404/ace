@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { mkdir, open, chmod, lstat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";

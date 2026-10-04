@@ -1,5 +1,5 @@
 import { setImmediate } from "node:timers/promises";
-import { DatabaseSync, type StatementSync, type SQLInputValue } from "node:sqlite";
+import { DatabaseSync, type StatementSync, type SQLInputValue } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import { Attachment, BlobHash } from "@ace/protocol";
 

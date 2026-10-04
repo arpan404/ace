@@ -26,6 +26,7 @@ import {
   releasePointer,
   withInstallLock,
   durableJson,
+  renderLauncher,
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
 import { finished } from "node:stream/promises";
@@ -159,7 +160,6 @@ export async function updateCli(args: string[]) {
     ports,
   });
 }
-const shell = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 export async function installArtifact(artifact: string) {
   const root = dataDir();
   const manifest = InstalledRelease.parse(
@@ -176,11 +176,7 @@ export async function installArtifact(artifact: string) {
     await durableJson(join(root, target, "release.json"), manifest);
     await mkdir(join(root, "bin"), { recursive: true });
     const { writeFile } = await import("node:fs/promises");
-    await writeFile(
-      join(root, "bin/ace"),
-      `#!/bin/sh\nACE_HOME=${shell(root)}\nexport ACE_HOME\ntarget=$(readlink "$ACE_HOME/current")\ncase "$target" in releases/*) ;; *) exit 1;; esac\nartifact="$ACE_HOME/$target"\nexec "$artifact/bin/node" "$artifact/ace.mjs" "$@"\n`,
-      { mode: 0o755 },
-    );
+    await writeFile(join(root, "bin/ace"), renderLauncher(root), { mode: 0o755 });
     await syncTree(join(root, target));
     await syncDirectory(join(root, "releases"));
     await atomicPointer(join(root, "current"), target);

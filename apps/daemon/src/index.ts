@@ -2,6 +2,7 @@ export { runDaemonProcess } from "./process-daemon.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
 export type { DaemonCommandIntegration } from "./services/commands.ts";
+import { assertCompatibleHome } from "@ace/service";
 import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -53,6 +54,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const clock = options.engine?.clock;
   const now = clock ? () => clock.now() : Date.now;
   const config = options.config ?? readConfig();
+  assertCompatibleHome(config.dataDir);
   const unlock = acquireLock(config.dataDir);
   const resources = new Resources();
   const lifetime = new AbortController();
