@@ -23,12 +23,17 @@ afterEach(async () => {
 });
 
 /** A worker host serving tabs over real MessageChannels, backed by one fake daemon. */
-function world(snapshotItems?: number, hostOptions: Partial<HostOptions> = {}) {
+function world(
+  snapshotItems?: number,
+  hostOptions: Partial<HostOptions> = {},
+  projectScheduler?: (callback: () => void) => void,
+) {
   let now = 1;
   let ids = 0;
   const daemon = new FakeDaemon({
     clock: () => (now += 1),
     ...(snapshotItems ? { snapshotItems } : {}),
+    ...(projectScheduler ? { projectScheduler } : {}),
   });
   const sockets = { opened: 0, open: 0 };
   let hostTime = 0;
@@ -978,3 +983,69 @@ test("Preview transitions wait for the previous receipt and preserve newer detac
 });
 
 function noop() {}
+
+test("worker project APIs forward create add rename remove folder reads and project pushes", async () => {
+  const f = world();
+  const a = f.tab();
+  const b = f.tab();
+  await a.start();
+  await b.start();
+  const changed = Promise.withResolvers<void>();
+  const changes: string[] = [];
+  b.projects.onChanged((change) => {
+    changes.push(change.change);
+    if (change.change === "removed") changed.resolve();
+  });
+  await b.projects.home();
+  const added = await a.projects.create({ parent: "/fake", name: "empty" });
+  expect(added).toMatchObject({ ok: true, workspace: { name: "empty", path: "/fake/empty" } });
+  if (!added.workspace) throw new Error("Expected created project");
+  expect(await a.projects.add({ path: "/fake/empty" })).toMatchObject({
+    workspace: { id: added.workspace.id },
+  });
+  expect(
+    await b.request({ type: "workspace.request", operation: { op: "workspaces.list" } }),
+  ).toMatchObject({ result: { kind: "workspaces", workspaces: [{ id: added.workspace.id }] } });
+  expect(
+    await a.projects.rename({ workspaceId: added.workspace.id, name: "Renamed" }),
+  ).toMatchObject({ ok: true });
+  expect(await b.projects.home()).toMatchObject({ result: { kind: "home", path: "/fake" } });
+  expect(await b.projects.browse({ path: "/fake" })).toMatchObject({
+    result: { kind: "directories", entries: [{ name: "empty" }] },
+  });
+  expect(await b.projects.inspect("/fake/empty")).toMatchObject({
+    result: { kind: "inspection", git: null },
+  });
+  expect(await b.projects.recentFolders()).toMatchObject({
+    result: { kind: "recentFolders", folders: [{ name: "Renamed" }] },
+  });
+  expect(await a.projects.remove({ workspaceId: added.workspace.id })).toMatchObject({ ok: true });
+  await changed.promise;
+  expect(changes).toEqual(["added", "renamed", "removed"]);
+  expect(
+    await b.request({ type: "workspace.request", operation: { op: "workspaces.list" } }),
+  ).toMatchObject({ result: { workspaces: [] } });
+});
+
+test("worker clone progress arrives before completion and cancellation returns a failed clone receipt", async () => {
+  const stages: (() => void)[] = [];
+  const f = world(undefined, {}, (callback) => stages.push(callback));
+  const client = f.tab();
+  await client.start();
+  const starting = Promise.withResolvers<string>();
+  const stop = client.projects.onCloneProgress((progress) => {
+    if (progress.phase === "starting") starting.resolve(progress.commandId);
+  });
+  const clone = client.projects.clone(
+    { parent: "/fake", name: "cancelled", url: "https://example.com/project.git" },
+    {},
+    "clone-cancel",
+  );
+  const id = await starting.promise;
+  expect(await client.projects.cancelClone(id)).toMatchObject({
+    result: { kind: "cancelled", commandId: id },
+  });
+  expect(await clone).toMatchObject({ ok: false, error: "clone_cancelled" });
+  expect(await client.projects.recentFolders()).toMatchObject({ result: { folders: [] } });
+  stop();
+});
