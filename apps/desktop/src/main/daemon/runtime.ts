@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolveDaemonHome } from "@ace/service/home";
 import type { DaemonConnection, DaemonStatus } from "../../shared/contract.ts";
 import { DoctorReport, providerSummaries, type ProviderSummary } from "../../shared/onboarding.ts";
 import { loginShellPath } from "./login-path.ts";
@@ -16,12 +18,34 @@ import type { DaemonProcess } from "./supervisor.ts";
 import { DaemonSupervisor } from "./supervisor.ts";
 import { resolveTarget, type DaemonTarget } from "./target.ts";
 
+/**
+ * The app's daemon target from its environment, with the daemon home chosen by
+ * `@ace/service`'s shared resolver under the user's home directory.
+ */
+export function desktopTarget(input: {
+  env: NodeJS.ProcessEnv;
+  packaged: boolean;
+  daemonEntry: string;
+  platform: NodeJS.Platform;
+}): DaemonTarget {
+  return resolveTarget(input.env, {
+    packaged: input.packaged,
+    daemonEntry: input.daemonEntry,
+    readToken: (path) => readFileSync(path, "utf8"),
+    platform: input.platform,
+    homedir: homedir(),
+    resolveHome: resolveDaemonHome,
+  });
+}
+
 export interface RuntimeOptions {
   packaged: boolean;
   version: string;
   resources: DaemonResources;
   env: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
+  /** The daemon this app talks to, when the caller chose it already (see `desktopTarget`). */
+  target?: DaemonTarget;
   /** Starts the bundled daemon; tests substitute their own. */
   spawnDaemon?: (options: SpawnOptions) => DaemonProcess;
   log(level: "info" | "warn" | "error", message: string): void;
@@ -42,12 +66,14 @@ export class DaemonRuntime {
 
   constructor(options: RuntimeOptions) {
     this.options = options;
-    this.target = resolveTarget(options.env, {
-      packaged: options.packaged,
-      daemonEntry: options.resources.entry,
-      readToken: (path) => readFileSync(path, "utf8"),
-      platform: options.platform ?? process.platform,
-    });
+    this.target =
+      options.target ??
+      desktopTarget({
+        env: options.env,
+        packaged: options.packaged,
+        daemonEntry: options.resources.entry,
+        platform: options.platform ?? process.platform,
+      });
     this.path = loginShellPath(options.env);
     const source =
       this.target.kind === "remote" ? "remote" : this.target.kind === "fake" ? "fake" : "external";
@@ -60,7 +86,15 @@ export class DaemonRuntime {
             paused: false,
             message: this.target.reason,
           }
-        : { state: "starting", source, restarts: 0, paused: false };
+        : this.target.kind === "refused"
+          ? {
+              state: "failed",
+              source: "external",
+              restarts: 0,
+              paused: false,
+              message: this.target.reason,
+            }
+          : { state: "starting", source, restarts: 0, paused: false };
     if (this.target.kind === "managed" || this.target.kind === "attach") {
       const home = this.target.home;
       this.supervisor = new DaemonSupervisor(
@@ -121,7 +155,8 @@ export class DaemonRuntime {
    */
   async connection(): Promise<DaemonConnection> {
     if (this.target.kind === "fake") return { mode: "fake" };
-    if (this.target.kind === "remote-only") throw new Error(this.target.reason);
+    if (this.target.kind === "remote-only" || this.target.kind === "refused")
+      throw new Error(this.target.reason);
     if (this.target.kind === "remote")
       return { mode: "daemon", url: this.target.url, token: this.target.token };
     if (!this.supervisor) throw new Error("No local daemon for this target");
