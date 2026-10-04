@@ -72,29 +72,24 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
   });
 
   it.runIf(process.platform === "darwin")(
-    "keeps the sidebar, its Home link as icons, and the header with it hidden clear of the traffic lights",
+    "keeps the rail, the sidebar's title and, with the sidebar hidden, the header clear of the traffic lights",
     async () => {
-      // The traffic lights end 68 px from the window's left edge.
-      const home = page.getByRole("link", { name: "Home", exact: true });
-      expect((await home.boundingBox())?.x).toBeGreaterThanOrEqual(68);
+      // The traffic lights end 68 px from the window's left edge and 28 px from its top.
+      const views = page.getByRole("navigation", { name: "Views" });
+      const home = views.getByRole("link", { name: /^Home/ });
+      expect((await home.boundingBox())?.y).toBeGreaterThanOrEqual(28);
+      const title = page.getByRole("button", { name: "ace menu" });
+      expect((await title.boundingBox())?.x).toBeGreaterThanOrEqual(68);
       await page.getByRole("button", { name: "Hide sidebar" }).click();
       const show = page.getByRole("button", { name: "Show sidebar" });
       await show.waitFor();
       expect((await show.boundingBox())?.x).toBeGreaterThanOrEqual(68);
-      await show.click();
-      await home.waitFor();
-
-      // As icons, Home sits below the traffic lights (which end 28 px from the top) and works.
-      await page.getByRole("link", { name: "Activity", exact: false }).first().click();
-      await page.getByRole("button", { name: "Collapse sidebar" }).click();
-      await page.getByRole("button", { name: "Expand sidebar" }).waitFor();
-      const box = await home.boundingBox();
-      expect(box?.y).toBeGreaterThanOrEqual(28);
-      await expect.poll(() => home.isVisible()).toBe(true);
+      // The rail stays, and Home on it still works.
+      await views.getByRole("link", { name: /^Activity/ }).click();
       await home.click();
       await expect.poll(() => new URL(page.url()).pathname).not.toBe("/activity");
-      await page.getByRole("button", { name: "Expand sidebar" }).click();
-      await page.getByRole("button", { name: "Collapse sidebar" }).waitFor();
+      await show.click();
+      await title.waitFor();
     },
   );
 
