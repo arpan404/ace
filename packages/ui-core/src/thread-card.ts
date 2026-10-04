@@ -1,5 +1,5 @@
 import type { ProviderKind, ThreadListEntry } from "@ace/protocol";
-import { activityOf, isSnoozed, isUnread } from "./arrange.ts";
+import { activityOf, isSnoozed, isUnread } from "./thread-state.ts";
 import { providerDisplayName, providerLabel } from "./providers.ts";
 import { describeWake } from "./snooze.ts";
 import {

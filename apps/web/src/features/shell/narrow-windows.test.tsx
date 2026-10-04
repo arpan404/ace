@@ -50,13 +50,14 @@ async function openThread() {
   return app;
 }
 
-test("on a narrow window the sidebar is a sheet from the header, and it closes once a view is chosen", async () => {
+test("on a narrow window the rail and sidebar are a sheet from the header, closing once a view is chosen", async () => {
   windowWidth(390);
   await openThread();
   expect(screen.queryByRole("navigation", { name: "Views" })).toBeNull();
 
   await userEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
+  expect(within(sheet).getByRole("navigation", { name: "Views" })).toBeTruthy();
   expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
   expect(within(sheet).getByLabelText("Daemon: Connected")).toBeTruthy();
   await userEvent.click(within(sheet).getByRole("link", { name: /^Automations/ }));
@@ -135,7 +136,7 @@ test("on a phone a panel covers the thread as a sheet with its own close", async
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("below 1100px the sidebar steps down to icons for the right panel and comes back when it closes", async () => {
+test("below 1100px the sidebar steps aside for the right panel, the rail stays, and both come back", async () => {
   windowWidth(1024);
   await openThread();
   expect(sidebar()).toBeTruthy();
@@ -143,7 +144,7 @@ test("below 1100px the sidebar steps down to icons for the right panel and comes
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await waitFor(() => expect(sidebar()).toBeNull());
-  // The views stay one click away, as icons.
+  // The views stay one click away on the rail.
   expect(
     within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", { name: "Deck" }),
   ).toBeTruthy();
@@ -152,14 +153,16 @@ test("below 1100px the sidebar steps down to icons for the right panel and comes
   await waitFor(() => expect(sidebar()).toBeTruthy());
 });
 
-test("below 1100px asking for the full sidebar puts the right panel away", async () => {
+test("below 1100px asking for the sidebar back puts the right panel away", async () => {
   windowWidth(1024);
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   await screen.findByRole("region", { name: "Thread panel" });
   await waitFor(() => expect(sidebar()).toBeNull());
 
-  await userEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+  await userEvent.click(
+    within(screen.getByRole("banner")).getByRole("button", { name: "Show sidebar" }),
+  );
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
   expect(sidebar()).toBeTruthy();
 });

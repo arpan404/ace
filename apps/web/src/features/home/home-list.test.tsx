@@ -6,12 +6,20 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const titles = workbench().map((scenario) => scenario.thread.title);
-/** Thread titles in the order the Home list shows them (cards, then settled rows if open). */
+/** Thread titles in the order the Home list shows them (rows, then settled rows if open). */
 const order = () =>
   within(threads())
     .queryAllByRole("link")
     .map((link) => titles.find((title) => link.textContent?.includes(title)));
 const card = (title: string | RegExp) => within(threads()).getByRole("link", { name: title });
+/** The open project folders, top to bottom (the only open disclosures in the list). */
+const folders = () =>
+  within(threads())
+    .queryAllByRole("button", { expanded: true })
+    .map((button) => button.textContent);
+
+/** `a` shows above `b` in the list. */
+const before = (a: string, b: string) => order().indexOf(a) < order().indexOf(b);
 
 /** Open the app and wait for the list to arrive. */
 async function openHome(app: ReturnType<typeof harness>, path = "/") {
@@ -27,18 +35,20 @@ function workbenchApp(options: Parameters<typeof harness>[0] = {}) {
   return app;
 }
 
-test("Home lists what needs you first, then work in motion, then trouble; done work settles", async () => {
+test("Home groups threads by project, the folder that owes most first, each in the order of what needs you", async () => {
   await openHome(workbenchApp());
+  // A folder comes where its first thread would in Home order: needs you, then work in
+  // motion, then trouble.
+  expect(folders()).toEqual(["billing-api", "ace-mobile", "relay", "ace", "docs-site"]);
   expect(order()).toEqual([
     "Partial refunds double-count tax",
+    // Failed work ranks below what needs you, but stays with its project.
+    "Invoice PDF locale fallback",
     "Approval sheet loses its state on rotate",
     "Retry budget for app-server restarts",
-    // Working and waiting rank together, by when each last moved: the hero thread's
-    // subagent picked up work 35s ago, the install page has been drafting for minutes.
     "Backpressure on broadcast fan-out",
     "Dedupe thread events after reconnect",
     "Rewrite the install page for the daemon",
-    "Invoice PDF locale fallback",
   ]);
   // The finished thread's PR merged, so the daemon has settled it out of the way.
   const settled = screen.getByRole("button", { name: "Settled (1)" });
@@ -47,19 +57,16 @@ test("Home lists what needs you first, then work in motion, then trouble; done w
   expect(card(/Bump Codex app-server to 0.48/)).toBeTruthy();
 });
 
-test("a card carries project, branch and PR, the status in words and the running subagents", async () => {
+test("a row says its status in words, its pull request and worktree, the provider and its subagents", async () => {
   await openHome(workbenchApp());
   const refund = await within(threads()).findByRole("link", { name: /Partial refunds/ });
-  expect(refund.textContent).toContain("billing-api");
-  expect(refund.textContent).toContain("fix/refund-tax");
-  expect(refund.textContent).toContain("#77");
+  expect(within(refund).getByRole("img", { name: "Pull request #77" })).toBeTruthy();
   expect(within(refund).getByText("Needs you")).toBeTruthy();
   const dedupe = card(/Dedupe thread events/);
+  expect(within(dedupe).getByRole("img", { name: "Worktree fix/replay-dedupe" })).toBeTruthy();
   expect(within(dedupe).getByText("Working")).toBeTruthy();
   expect(within(dedupe).getByText("Claude Code · 2 subagents running")).toBeTruthy();
-  expect(
-    within(card(/Backpressure/)).getByRole("img", { name: "Running on build-box" }),
-  ).toBeTruthy();
+  expect(card(/Backpressure/).textContent).toContain("running on build-box");
 });
 
 test("Settle drops a finished thread into Settled on the daemon and Undo puts it back", async () => {
@@ -69,8 +76,8 @@ test("Settle drops a finished thread into Settled on the daemon and Undo puts it
   await userEvent.click(
     screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
   );
-  await waitFor(() => expect(order()[7]).toBe("Bump Codex app-server to 0.48"));
-  expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
+  expect(order()).toContain("Bump Codex app-server to 0.48");
 
   await userEvent.click(
     screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" }),
@@ -108,17 +115,17 @@ test("a settled thread comes back to the list as soon as it moves again", async 
   await userEvent.click(
     screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
   );
-  await waitFor(() => expect(order()[7]).toBe("Bump Codex app-server to 0.48"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
   await userEvent.click(
     screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" }),
   );
-  await waitFor(() => expect(order().slice(0, 7)).not.toContain("Bump Codex app-server to 0.48"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy());
 
   // New work on it: the agent starts another turn and the thread is working again.
   app.daemon.apply("thread-bump-codex", [
     { type: "turn.started", agent: "root", nativeTurnId: "follow-up", trigger: "user" },
   ]);
-  await waitFor(() => expect(order().slice(0, 7)).toContain("Bump Codex app-server to 0.48"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
   expect(within(card(/Bump Codex/)).getByText("Working")).toBeTruthy();
 });
 
@@ -134,7 +141,7 @@ test("the auto-settle rule under Settled is the daemon's setting", async () => {
   expect(app.daemon.services.settings.get("threads.autoSettleAfter")).toBe("never");
 });
 
-test("Snooze sinks a thread to the end with its wake time; Undo wakes it", async () => {
+test("Snooze sinks a thread to the end of its folder with its wake time; Undo wakes it", async () => {
   await openHome(workbenchApp());
   await within(threads()).findByRole("link", { name: /Retry budget/ });
   await userEvent.click(
@@ -142,13 +149,19 @@ test("Snooze sinks a thread to the end with its wake time; Undo wakes it", async
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
 
-  await waitFor(() => expect(order().at(-1)).toBe("Retry budget for app-server restarts"));
+  await waitFor(() =>
+    expect(
+      before("Backpressure on broadcast fan-out", "Retry budget for app-server restarts"),
+    ).toBe(true),
+  );
   expect(
     within(card(/Retry budget/)).getByRole("img", { name: /Snoozed until tomorrow/ }),
   ).toBeTruthy();
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
   await waitFor(() =>
-    expect(order().indexOf("Retry budget for app-server restarts")).toBeLessThan(3),
+    expect(
+      before("Retry budget for app-server restarts", "Backpressure on broadcast fan-out"),
+    ).toBe(true),
   );
 });
 

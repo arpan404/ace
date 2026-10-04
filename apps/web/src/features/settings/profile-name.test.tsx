@@ -5,7 +5,7 @@ import { harness } from "@/test/harness.tsx";
 
 const account = () => screen.findByRole("button", { name: "Account and connection" });
 
-test("the account button shows the initials and the name given in Settings", async () => {
+test("the account button shows the initials of the name given in Settings, and its menu the name", async () => {
   await harness().open("/settings/general");
   expect(within(await account()).queryByText("AB")).toBeNull();
 
@@ -13,7 +13,8 @@ test("the account button shows the initials and the name given in Settings", asy
   await userEvent.type(name, "Arpan Bhandari{Enter}");
 
   expect(within(await account()).getByText("AB")).toBeTruthy();
-  expect(within(await account()).getByText("Arpan Bhandari")).toBeTruthy();
+  await userEvent.click(await account());
+  expect(within(await screen.findByRole("menu")).getByText("Arpan Bhandari")).toBeTruthy();
 });
 
 test("the name is kept on this device across reloads", async () => {

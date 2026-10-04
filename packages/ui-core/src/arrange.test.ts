@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { arrange, homeMachine, isUnread, projectCounts } from "./arrange.ts";
+import { arrange, homeMachine, projectCounts } from "./arrange.ts";
+import { homeAttention, isUnread } from "./thread-state.ts";
 import type { OrganizerState } from "./organizer.ts";
 import { entry } from "./test-entries.fixture.ts";
 
@@ -105,4 +106,22 @@ test("the home machine is where most threads run", () => {
     entry(id, { state: "done" }, now, { details: { machine: { host, name: host } } });
   expect(homeMachine([on("a", "laptop"), on("b", "build-box"), on("c", "laptop")])).toBe("laptop");
   expect(homeMachine([entry("x", { state: "done" }, now)])).toBeUndefined();
+});
+
+test("Home's rail mark: needs you wins, then news the person read past, never settled or snoozed", () => {
+  const read = { readAt: now - 2 * hour };
+  expect(homeAttention([entry("done", { state: "done" }, now - hour)])).toBeUndefined();
+  expect(homeAttention([entry("news", { state: "done" }, now - hour, read)])).toBe("unread");
+  expect(
+    homeAttention([
+      entry("news", { state: "done" }, now - hour, read),
+      entry("asks", { state: "needs_you", interactions: 1 }, now - 3 * hour),
+    ]),
+  ).toBe("needs-you");
+  expect(
+    homeAttention([
+      entry("settled", { state: "done" }, now - hour, { ...read, settledAt: now - hour }),
+      entry("later", { state: "done" }, now - hour, { ...read, snoozedUntil: now + hour }),
+    ]),
+  ).toBeUndefined();
 });

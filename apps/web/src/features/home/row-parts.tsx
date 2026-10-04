@@ -1,16 +1,8 @@
-import {
-  FolderSimpleIcon,
-  GitBranchIcon,
-  LaptopIcon,
-  MoonIcon,
-  PushPinIcon,
-} from "@phosphor-icons/react";
-import type { ProviderKind } from "@ace/protocol";
+import { GitBranchIcon, GitPullRequestIcon, MoonIcon } from "@phosphor-icons/react";
 import type { ThreadCard, ThreadMarkKind } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -38,49 +30,7 @@ export function StatusMark(props: { mark: ThreadMarkKind; label: string }) {
   );
 }
 
-/** Provider mark with the running subagent count beside it. */
-export function ProviderMark(props: {
-  provider: ProviderKind;
-  acpAgentId?: string | undefined;
-  subagents: number;
-  label: string;
-}) {
-  return (
-    <Tip label={props.label}>
-      <span className="inline-flex items-center gap-[3px] text-xs text-subtle-foreground">
-        {/* 14px in a 16px box: small enough for the row, large enough to read the mark. */}
-        <span className="grid size-4 place-items-center">
-          <ProviderIcon
-            provider={props.provider}
-            acpAgentId={props.acpAgentId}
-            size={14}
-            decorative
-            className="text-muted-foreground"
-          />
-        </span>
-        {props.subagents > 0 && <span aria-hidden>{props.subagents}</span>}
-        <span className="sr-only">{props.label}</span>
-      </span>
-    </Tip>
-  );
-}
-
-/** Line-one glyphs: another machine, pinned, snoozed. Each says what it means on hover. */
-export function RowGlyphs(props: {
-  machine?: string | undefined;
-  pinned: boolean;
-  wake?: string | undefined;
-}) {
-  return (
-    <>
-      {props.machine && <Glyph icon={LaptopIcon} label={`Running on ${props.machine}`} />}
-      {props.pinned && <Glyph icon={PushPinIcon} label="Pinned" />}
-      {props.wake && <Glyph icon={MoonIcon} label={`Snoozed until ${props.wake}`} />}
-    </>
-  );
-}
-
-function Glyph(props: { icon: typeof LaptopIcon; label: string }) {
+function Glyph(props: { icon: typeof MoonIcon; label: string }) {
   return (
     <Tip label={props.label}>
       <span className="inline-flex text-subtle-foreground">
@@ -90,61 +40,36 @@ function Glyph(props: { icon: typeof LaptopIcon; label: string }) {
   );
 }
 
-/** The card's title: medium when it needs you, is unread or is the open thread. */
-export function CardTitle(props: { card: ThreadCard }) {
-  return (
-    <span
-      className={cn(
-        "col-span-2 line-clamp-2 text-base leading-[1.3] tracking-[-0.005em] text-muted-foreground compact:line-clamp-1",
-        "group-data-[status=active]/link:font-medium group-data-[status=active]/link:text-foreground",
-        props.card.emphasis && "font-medium text-foreground",
-      )}
-    >
-      {props.card.title}
-      {props.card.announceUnread && <span className="sr-only">, unread</span>}
-    </span>
-  );
-}
-
 /**
- * A Home card's four cells: project and glyphs with the age, the title (or whatever replaces it
- * while renaming), branch and PR, and the status and provider marks.
+ * A Home row's one line: the title (medium when it needs you, is unread or is open), then on
+ * the right a snooze, its worktree and pull request, and the status mark. The provider and
+ * another machine are said in words to assistive tech; the thread's header shows them. The
+ * right side gives way to Settle and Snooze on hover.
  */
-export function CardLines(props: { card: ThreadCard; title: ReactNode }) {
+export function ThreadLine(props: { card: ThreadCard; title: ReactNode }) {
   const { card } = props;
+  const branch = card.branch;
   return (
     <>
-      {/* Settle and Snooze float over this line's end on hover; it fades under them. */}
-      <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-subtle-foreground [--under:6.75rem] group-focus-within/row:fade-under-actions group-hover/row:fade-under-actions">
-        <span className="truncate">{card.project}</span>
-        <RowGlyphs machine={card.machine} pinned={card.flags.pinned} wake={card.wake} />
-      </span>
-      <span className="self-center text-xs whitespace-nowrap text-subtle-foreground group-focus-within/row:invisible group-hover/row:invisible">
-        {card.age}
-      </span>
-      {props.title}
-      <span className="flex min-w-0 items-center gap-[5px] font-mono text-[11px] text-subtle-foreground">
-        {card.branch ? (
-          <>
-            <Icon icon={card.branch.worktree ? FolderSimpleIcon : GitBranchIcon} size={12} />
-            <span className="truncate">{card.branch.name}</span>
-            {card.branch.pr !== undefined && (
-              <span className="shrink-0 font-sans text-xs">#{card.branch.pr}</span>
-            )}
-          </>
-        ) : (
-          // No branch reported yet: say where it runs rather than leave the line empty.
-          <span className="truncate font-sans text-xs">local checkout</span>
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate tracking-[-0.005em] text-sidebar-foreground",
+          "group-data-[status=active]/link:font-medium group-data-[status=active]/link:text-foreground",
+          card.emphasis && "font-medium text-foreground",
         )}
+      >
+        {props.title}
+        {card.announceUnread && <span className="sr-only">, unread</span>}
+        {card.machine && <span className="sr-only">, running on {card.machine}</span>}
       </span>
-      <span className="flex items-center justify-end gap-2 whitespace-nowrap">
+      <span className="flex shrink-0 items-center gap-1 group-focus-within/row:invisible group-hover/row:invisible">
+        {card.wake && <Glyph icon={MoonIcon} label={`Snoozed until ${card.wake}`} />}
+        {branch?.worktree && <Glyph icon={GitBranchIcon} label={`Worktree ${branch.name}`} />}
+        {branch?.pr !== undefined && (
+          <Glyph icon={GitPullRequestIcon} label={`Pull request #${branch.pr}`} />
+        )}
         <StatusMark mark={card.status.mark} label={card.status.label} />
-        <ProviderMark
-          provider={card.provider}
-          acpAgentId={card.acpAgentId}
-          subagents={card.subagents}
-          label={card.providerLabel}
-        />
+        <span className="sr-only">{card.providerLabel}</span>
       </span>
     </>
   );

@@ -47,7 +47,10 @@ test("Usage & accounts moves every thread stopped at an account's limit", async 
   await expect(page.getByText("Moved 3 threads to Codex · Personal")).toBeVisible();
   await expect(team.getByRole("button", { name: "Move running threads" })).toHaveCount(0);
   const threads = page.getByRole("navigation", { name: "Threads" });
-  await page.getByRole("link", { name: "Home" }).click();
+  await page
+    .getByRole("navigation", { name: "Views" })
+    .getByRole("link", { name: /^Home/ })
+    .click();
   await expect(threads.getByRole("link", { name: /Split the CI matrix/ })).not.toContainText(
     "Limited",
   );
