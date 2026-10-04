@@ -56,11 +56,13 @@ export function cursorSdkCapture(
   const write = (input: unknown) => {
     if (closing) throw new Error("SDK capture is closing");
     if (failure) throw new Error("SDK capture failed; no further frames accepted");
-    const lines = scrub.push(boundedJson(input, 262144));
-    return Promise.all(lines.map(writeLine)).then(() => {});
+    return writeBatch(scrub.push(boundedJson(input, 262144)));
   };
-  const writeLine = (redacted: string) => {
-    const line = redacted + "\n";
+  const writeBatch = (lines: readonly string[]) => {
+    if (!lines.length) return Promise.resolve();
+    // One bounded carry flush can emit 32 retained records plus the triggering record.
+    // Charge its complete byte size to one queued write.
+    const line = lines.join("\n") + "\n";
     const size = Buffer.byteLength(line);
     if (totalBytes + size > 33554432) throw new Error("SDK capture exceeds recording byte budget");
     if (queued >= 32 || bytes + size > 1_048_576)
@@ -120,7 +122,7 @@ export function cursorSdkCapture(
     close() {
       closing ??= (async () => {
         try {
-          for (const line of scrub.finish()) void writeLine(line);
+          void writeBatch(scrub.finish());
           await tail;
           const finished = once(output, "finish");
           output.end();
