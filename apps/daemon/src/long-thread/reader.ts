@@ -174,8 +174,8 @@ export class TurnReader {
       requestId: input.requestId,
       threadId: input.threadId,
       seq,
-      indexedSeq: this.data.indexedSeq(),
-      ready: this.data.indexedSeq() >= seq,
+      indexedSeq: this.data.digestIndexedSeq(),
+      ready: this.data.digestIndexedSeq() >= seq,
       turns,
       before,
       after,
@@ -188,15 +188,6 @@ export class TurnReader {
   ): import("@ace/protocol").ThreadCatchUpResponse {
     const thread = this.thread(input.threadId);
     if (!thread) throw new Error("thread_not_found");
-    const since =
-      input.sinceSeq ??
-      Number(
-        this.data
-          .sql(
-            "SELECT seq FROM events WHERE thread_id=? AND at<=? ORDER BY at DESC,seq DESC LIMIT 1",
-          )
-          .get(input.threadId, input.sinceTime ?? 0)?.seq ?? 0,
-      );
     let latest = "",
       latestSeq = -1;
     for (const id of family) {
@@ -210,20 +201,12 @@ export class TurnReader {
         latestSeq = Number(message.created_seq);
       }
     }
-    const data = this.data,
-      digests = this.digests;
+    const digests = this.digests;
     function* summaries(): Generator<import("@ace/protocol").TurnDigest> {
       for (const id of family) {
-        const cutoff =
-          input.sinceSeq ??
-          Number(
-            data
-              .sql(
-                "SELECT seq FROM events WHERE thread_id=? AND at<=? ORDER BY at DESC,seq DESC LIMIT 1",
-              )
-              .get(id, input.sinceTime ?? 0)?.seq ?? 0,
-          );
-        yield digests.read(id, 0, cutoff);
+        yield input.sinceSeq === undefined
+          ? digests.readSinceTime(id, input.sinceTime ?? 0)
+          : digests.read(id, 0, input.sinceSeq);
       }
     }
     const digest = mergeTurnDigests(summaries());
@@ -232,12 +215,13 @@ export class TurnReader {
       requestId: input.requestId,
       threadId: input.threadId,
       seq,
-      indexedSeq: this.data.indexedSeq(),
-      ready: this.data.indexedSeq() >= seq,
-      turnsCompleted: Number(
-        this.data
-          .sql("SELECT COUNT(*) AS n FROM long_turns WHERE thread_id=? AND settled_seq>?")
-          .get(input.threadId, since)?.n ?? 0,
+      indexedSeq: this.data.digestIndexedSeq(),
+      ready: this.data.digestIndexedSeq() >= seq,
+      turnsCompleted: this.digests.ranges.completedAfter(
+        input.threadId,
+        input.sinceSeq === undefined
+          ? { sinceTime: input.sinceTime ?? 0 }
+          : { sinceSeq: input.sinceSeq },
       ),
       status: thread.status,
       digest,

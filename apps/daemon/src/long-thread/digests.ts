@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { TurnDigest, ToolKind, type Event } from "@ace/protocol";
-import { emptyTurnDigest, digestFromCounters, type DigestContribution } from "@ace/projection";
+import { TurnDigest, type Event } from "@ace/protocol";
+import { digestFromCounters, type DigestContribution } from "@ace/projection";
 import { LongThreadDatabase, decodeCounters, type Counters } from "./database.ts";
+import { Ranges } from "./ranges.ts";
 
 const FileRow = z.object({
   path: z.string(),
@@ -20,8 +21,10 @@ const Command = TurnDigest.shape.commands.element;
 
 export class Digests {
   private readonly data: LongThreadDatabase;
+  readonly ranges: Ranges;
   constructor(data: LongThreadDatabase) {
     this.data = data;
+    this.ranges = new Ranges(data);
   }
   bump(event: Event, ordinal: number, key: string, delta: number): void {
     if (!delta) return;
@@ -31,6 +34,13 @@ export class Digests {
     update.get(event.threadId, ordinal, key, delta);
     if (key.startsWith("live:")) return;
     const value = Number(update.get(event.threadId, 0, key, delta)?.value);
+    this.ranges.counter(event, key, delta);
+    if (key === "turnsCompleted")
+      this.ranges.completion(
+        event.threadId,
+        ordinal,
+        delta > 0 ? { seq: event.seq, at: event.at } : undefined,
+      );
     this.data.run(
       `INSERT INTO long_prefix VALUES(?,?,?,?,?) ON CONFLICT(thread_id,key,seq) DO UPDATE SET value=excluded.value`,
       event.threadId,
@@ -163,6 +173,14 @@ export class Digests {
         "SELECT added,removed,unknown FROM long_files WHERE thread_id=? AND ordinal=0 AND path=?",
       )
       .get(event.threadId, path);
+    this.ranges.file(
+      event,
+      path,
+      (added ?? 0) * sign,
+      (removed ?? 0) * sign,
+      Number(added === null || removed === null) * sign,
+      sign,
+    );
     this.data.run(
       "INSERT INTO long_file_prefix VALUES(?,?,?,?,?,?) ON CONFLICT(thread_id,path,seq) DO UPDATE SET added=excluded.added,removed=excluded.removed,unknown=excluded.unknown",
       event.threadId,
@@ -247,11 +265,16 @@ export class Digests {
       );
       this.file(event, ordinal, value.path, value.added, value.removed, 1, agent);
     }
+    const wasCommand = this.data
+      .sql("SELECT 1 FROM long_commands WHERE thread_id=? AND item_id=? LIMIT 1")
+      .get(event.threadId, itemId);
     this.data.run(
       "DELETE FROM long_commands WHERE thread_id=? AND item_id=?",
       event.threadId,
       itemId,
     );
+    if (wasCommand || contribution.commands.length)
+      this.ranges.command(event, itemId, contribution.commands[0]);
     for (const command of contribution.commands)
       for (const target of [ordinal, 0])
         this.data.run(
@@ -266,30 +289,7 @@ export class Digests {
   read(thread: string, ordinal: number, since?: number): TurnDigest {
     const counters =
       since === undefined ? this.counts(thread, ordinal) : this.rangeCounts(thread, since);
-    const digest = emptyTurnDigest();
-    for (const kind of ToolKind.options)
-      if (counters[`tool:${kind}`])
-        Object.defineProperty(digest.toolCounts, kind, {
-          value: counters[`tool:${kind}`],
-          enumerable: true,
-        });
-    for (const key of [
-      "commandsRun",
-      "commandsFailed",
-      "approvalsAsked",
-      "approvalsAnswered",
-      "approvalsAutoReviewed",
-      "subagentsStarted",
-      "subagentsFinished",
-      "errors",
-    ] as const)
-      digest[key] = counters[key] ?? 0;
-    // Pending approvals describe the current state, including requests opened before the boundary.
-    digest.approvalsPending = this.counts(thread, ordinal).approvalsPending ?? 0;
-    if (this.counts(thread, ordinal).tokenSamples) {
-      digest.inputTokens = counters.inputTokens ?? 0;
-      digest.outputTokens = counters.outputTokens ?? 0;
-    }
+    const digest = this.summary(thread, ordinal, counters);
     const files = this.data
       .sql(
         "SELECT path,added,removed,unknown,refs FROM long_files WHERE thread_id=? AND ordinal=? AND last_seq>? ORDER BY last_seq,path LIMIT 65",
@@ -321,6 +321,49 @@ export class Digests {
       .slice(0, 64)
       .map((row) => Command.parse(JSON.parse(String(row.data))));
     digest.truncated = files.length > 64 || commands.length > 64;
+    return TurnDigest.parse(digest);
+  }
+  private summary(thread: string, ordinal: number, counters: Counters): TurnDigest {
+    const digest = digestFromCounters(counters);
+    const current = this.counts(thread, ordinal);
+    // Pending is current state, including requests opened before either cutoff.
+    digest.approvalsPending = current.approvalsPending ?? 0;
+    digest.inputTokens = current.tokenSamples ? Math.max(0, counters.inputTokens ?? 0) : null;
+    digest.outputTokens = current.tokenSamples ? Math.max(0, counters.outputTokens ?? 0) : null;
+    return digest;
+  }
+  readSinceTime(thread: string, time: number): TurnDigest {
+    const counters = this.ranges.after(thread, ["counters"], time).get("counters") ?? {};
+    const digest = this.summary(thread, 0, counters);
+    const files = this.data
+      .sql(
+        "SELECT t.path,COALESCE(f.refs,0) AS current_refs FROM long_time_files t LEFT JOIN long_files f ON f.thread_id=t.thread_id AND f.ordinal=0 AND f.path=t.path WHERE t.thread_id=? AND t.at>? ORDER BY t.at,t.path LIMIT 65",
+      )
+      .all(thread, time)
+      .map((row) => z.object({ path: z.string(), current_refs: z.number() }).parse(row));
+    const totals = this.ranges.fileCounters(
+      thread,
+      files.slice(0, 64).map((file) => file.path),
+      time,
+    );
+    digest.files = files.slice(0, 64).flatMap((file) => {
+      const value = totals.get(file.path) ?? {};
+      const effective =
+        file.current_refs > 0 ||
+        ["added", "removed", "unknown", "refs"].some((key) => (value[key] ?? 0) > 0);
+      return effective
+        ? [
+            {
+              path: file.path,
+              added: (value.unknown ?? 0) > 0 ? null : Math.max(0, value.added ?? 0),
+              removed: (value.unknown ?? 0) > 0 ? null : Math.max(0, value.removed ?? 0),
+            },
+          ]
+        : [];
+    });
+    const commands = this.ranges.commandsAfter(thread, time);
+    digest.commands = commands.commands;
+    digest.truncated = files.length > 64 || commands.truncated;
     return TurnDigest.parse(digest);
   }
   entity(

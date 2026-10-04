@@ -48,6 +48,16 @@ export class LongThreadDatabase {
       CREATE TABLE IF NOT EXISTS long_read_state(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,device_id TEXT NOT NULL,last_seen_seq INTEGER NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(thread_id,device_id));
       CREATE INDEX IF NOT EXISTS events_thread_time ON events(thread_id,at,seq);
       CREATE INDEX IF NOT EXISTS long_turns_settled ON long_turns(thread_id,settled_seq,ordinal);
+      CREATE TABLE IF NOT EXISTS long_range_nodes(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,owner TEXT NOT NULL,level INTEGER NOT NULL,bucket INTEGER NOT NULL,key TEXT NOT NULL,value INTEGER NOT NULL,PRIMARY KEY(thread_id,owner,level,bucket,key));
+      CREATE TABLE IF NOT EXISTS long_time_files(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,path TEXT NOT NULL,at INTEGER NOT NULL,seq INTEGER NOT NULL,PRIMARY KEY(thread_id,path));
+      CREATE INDEX IF NOT EXISTS long_time_files_recent ON long_time_files(thread_id,at,path);
+      CREATE TABLE IF NOT EXISTS long_time_commands(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,item_id TEXT NOT NULL,at INTEGER NOT NULL,seq INTEGER NOT NULL,data TEXT,PRIMARY KEY(thread_id,item_id));
+      CREATE INDEX IF NOT EXISTS long_time_commands_recent ON long_time_commands(thread_id,at,item_id);
+      CREATE TABLE IF NOT EXISTS long_time_command_nodes(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,item_id TEXT NOT NULL,level INTEGER NOT NULL,bucket INTEGER NOT NULL,seq INTEGER NOT NULL,data TEXT,PRIMARY KEY(thread_id,item_id,level,bucket));
+      CREATE TABLE IF NOT EXISTS long_completions(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,seq INTEGER NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(thread_id,ordinal));
+      CREATE TABLE IF NOT EXISTS long_range_migration(id INTEGER PRIMARY KEY,stage INTEGER NOT NULL,through INTEGER NOT NULL,thread TEXT NOT NULL,key TEXT NOT NULL,seq INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS long_range_file_members(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,item_id TEXT NOT NULL,path TEXT NOT NULL,PRIMARY KEY(thread_id,item_id,path));
+      INSERT OR IGNORE INTO long_range_migration SELECT 1,0,seq,'','',0 FROM long_meta WHERE id=1;
     `);
   }
   sql(text: string): StatementSync {
@@ -64,6 +74,11 @@ export class LongThreadDatabase {
   }
   indexedSeq(): number {
     return Number(this.sql("SELECT seq FROM long_meta WHERE id=1").get()?.seq);
+  }
+  digestIndexedSeq(): number {
+    return Number(this.sql("SELECT stage FROM long_range_migration WHERE id=1").get()?.stage) === 6
+      ? this.indexedSeq()
+      : 0;
   }
 }
 export const Counters = z.record(z.string(), z.number().int());

@@ -4,6 +4,7 @@ import type { Event, Thread, ThreadId } from "@ace/protocol";
 import { LongThreadDatabase } from "./database.ts";
 import { TurnWriter } from "./writer.ts";
 import { TurnReader } from "./reader.ts";
+import { RangeMigration } from "./range-migration.ts";
 
 interface Source {
   headSeq(): number;
@@ -24,6 +25,16 @@ export class LongThreadIndex {
     if (this.data.indexedSeq() === event.seq - 1) this.writer.record(event, thread);
   }
   async backfill(source: Source, signal: AbortSignal): Promise<void> {
+    const migration = new RangeMigration(this.data, (thread, ordinal) =>
+      this.writer.repairPreviews(thread, ordinal),
+    );
+    while (!signal.aborted && !migration.done()) {
+      source.atomic(() =>
+        migration.batch((afterSeq, limit) => source.readEvents({ afterSeq, limit })),
+      );
+      // Empty databases complete synchronously, before their first live append.
+      if (this.data.indexedSeq() > 0 && !migration.done()) await setImmediate();
+    }
     while (!signal.aborted) {
       const through = source.headSeq();
       if (this.data.indexedSeq() >= through) return;
