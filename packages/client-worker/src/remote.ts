@@ -1,11 +1,8 @@
 import {
-  pendingSend,
   matchesPendingThread,
   pendingSendsEqual,
   type PendingSend,
   deferredProjectsApi,
-  downloadFile,
-  uploadFile,
   type FileDownloadInput,
   type FileUploadInput,
 } from "@ace/client";
@@ -292,17 +289,20 @@ export class RemoteClient implements ClientApi {
     } finally {
       this.localSaving.delete(id);
     }
-    const { id: sent, intent } = trusted<{ id: string; intent: Intent | undefined }>(result);
+    const {
+      id: sent,
+      intent,
+      pending,
+    } = trusted<{ id: string; intent: Intent | undefined; pending: PendingSend | undefined }>(
+      result,
+    );
     const record = this.intents.get(sent);
     if (record) record.value = intent;
     else {
       this.intents.set(sent, { value: intent, watchers: 0 });
       this.forgetUnwatchedIntents();
     }
-    if (intent) {
-      const entry = pendingSend(intent);
-      if (entry) this.sends.set(sent, entry);
-    }
+    if (pending) this.sends.set(sent, pending);
     this.notifications.emit([`intent:${sent}`, "pendingSends"]);
     return sent;
   }
@@ -368,14 +368,19 @@ export class RemoteClient implements ClientApi {
     if (this.closed || this.current !== "ready") throw new ClientError("offline");
     this.post({ t: "send", message });
   }
-  downloadFile(input: FileDownloadInput, options: RequestOptions = {}): AsyncGenerator<Uint8Array> {
-    return downloadFile(this, input, options);
+  async *downloadFile(
+    input: FileDownloadInput,
+    options: RequestOptions = {},
+  ): AsyncGenerator<Uint8Array> {
+    const { downloadFile } = await import("@ace/client/files");
+    yield* downloadFile(this, input, options);
   }
-  uploadFile(
+  async uploadFile(
     input: FileUploadInput,
     source: AsyncIterable<Uint8Array>,
     options: RequestOptions = {},
   ): Promise<unknown> {
+    const { uploadFile } = await import("@ace/client/files");
     return uploadFile(this, input, source, options);
   }
   turnsPage(input: TurnsPageInput, options: RequestOptions = {}) {

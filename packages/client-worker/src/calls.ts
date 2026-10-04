@@ -1,5 +1,6 @@
 import {
   ClientError,
+  pendingSend,
   loadServiceWire,
   type Client,
   type RegistryQuery,
@@ -113,7 +114,8 @@ export async function callArgs(
     case "enqueue": {
       const [payload, id] = decode(schemas.enqueue, args);
       const sent = await client.enqueue(payload, id);
-      return { id: sent, intent: client.intent(sent).getSnapshot() };
+      const intent = client.intent(sent).getSnapshot();
+      return { id: sent, intent, pending: intent && pendingSend(intent) };
     }
     case "command": {
       const [payload, parsed, id] = decode(schemas.command, args);

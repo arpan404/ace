@@ -35,21 +35,7 @@ export function pendingSend(intent: Intent): PendingSend | undefined {
   };
 }
 export function pendingSendsEqual(a: readonly PendingSend[], b: readonly PendingSend[]): boolean {
-  return (
-    a.length === b.length &&
-    a.every((entry, i) => {
-      const next = b[i];
-      return (
-        next !== undefined &&
-        entry.commandId === next.commandId &&
-        entry.state === next.state &&
-        entry.threadId === next.threadId &&
-        entry.error === next.error &&
-        entry.waiting === next.waiting &&
-        entry.payload === next.payload
-      );
-    })
-  );
+  return a.length === b.length && a.every((entry, i) => entry === b[i]);
 }
 /** A create remains addressable by its provisional route after its receipt supplies a thread id. */
 export function matchesPendingThread(entry: PendingSend, threadId?: string): boolean {
