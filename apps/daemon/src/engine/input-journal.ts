@@ -87,7 +87,7 @@ export class InputJournal {
       );
   }
   correlate(thread: ThreadId, fact: Fact, root: string, generation?: number): Fact | undefined {
-    if (fact.agent !== root) return fact;
+    if (!("agent" in fact) || fact.agent !== root || fact.type === "item.delta") return fact;
     const alias = this.store.statement("SELECT item_key FROM engine_input_echoes WHERE thread_id=? AND native_key=?").get(thread, "item" in fact ? fact.item : "");
     if (fact.type === "item.delta") return alias && fact.field === "text" ? undefined : fact;
     if ((fact.type !== "item.upsert" && fact.type !== "item.reconciled") || fact.draft.type !== "message" || (fact.draft.role !== "user" && !alias)) return fact;

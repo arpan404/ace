@@ -1,3 +1,4 @@
+import { InteractionLedger } from "./interaction-ledger.ts";
 import { shapeProviderError, structuredError } from "./provider-errors.ts";
 import { provisionalTitle } from "./thread-title.ts";
 import { InputJournal, inputOrigin } from "./input-journal.ts";
@@ -31,6 +32,7 @@ export class EngineRepository {
   private capture: StatementSync;
   readonly queue: QueueStore;
   readonly inputs: InputJournal;
+  readonly interactions: InteractionLedger;
   readonly pending: IntentStore;
   observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
   private ids: IdSource;
@@ -72,6 +74,7 @@ export class EngineRepository {
     this.queue = new QueueStore(store);
     this.pending = new IntentStore(store, this.queue);
     this.inputs = new InputJournal(store);
+    this.interactions = new InteractionLedger(store);
     this.transitions = new TransitionState(store);
     this.readiness = store.atomic((_db) => new TransitionReadiness(_db));
     store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
@@ -205,6 +208,7 @@ export class EngineRepository {
         const batch = new FactBatch(state);
         let continuationStarted = false;
         const events = coalesceFacts(facts).flatMap((input) => {
+          if (this.interactions.obsolete(id, input)) return [];
           if (
             (input.type === "item.upsert" || input.type === "item.reconciled") &&
             input.agent === (state.rootKey ?? "root") &&
@@ -305,6 +309,7 @@ export class EngineRepository {
                   }
                 : {}),
             });
+            this.interactions.opened(state, fact, generation);
             if (fact.type === "turn.ended" && fact.error)
               for (const event of emitted)
                 if (event.type === "run.ended") {
@@ -328,6 +333,7 @@ export class EngineRepository {
           }
         });
         events.push(...batch.flush());
+        this.interactions.observe(id, events);
         for (const event of events)
           if (event.type === "agent.status" && event.status.state === "failed") {
             const error = structuredError(event.status.error, state.config.provider);
@@ -582,7 +588,7 @@ export class EngineRepository {
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
-    this.pending.add(command, id, resolutionId);
+    this.pending.add(command, id, resolutionId, resolutionId ? this.interactions.owner(id, resolutionId) : undefined);
   }
   reserve(id: ThreadId): boolean {
     return this.store.atomic((_db) => {

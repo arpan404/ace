@@ -266,6 +266,7 @@ export function engineHandler(
               const key = repo.nativeEntity(state.threadId, "interactions", p.interactionId);
               const interaction = key === undefined ? undefined : state.interactions[key];
               if (!interaction) return fail("already_resolved");
+              if (interaction.state === "expired") return fail("interaction_expired");
               if (interaction.state !== "pending" || repo.reserved(interaction.id))
                 return fail("already_resolved");
               if (!validResolution(interaction.request, p.resolution))

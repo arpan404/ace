@@ -15,6 +15,7 @@ const Header = z.object({
   ackTarget: z.number().int().positive().optional(),
   delivery: z.enum(["queue", "steer"]),
   acknowledged: z.boolean(),
+  resolutionGeneration: z.number().int().nonnegative().optional(),
   submittedGeneration: z.number().int().nonnegative().optional(),
   trigger: RunTrigger.optional(),
 });
@@ -23,7 +24,7 @@ export interface Intent extends IntentHeader {
   command: Command;
 }
 const columns =
-  "id,command_id,thread_id,kind,status,attempts,awaiting,ack_target,delivery,acknowledged,trigger,submitted_generation";
+  "id,command_id,thread_id,kind,status,attempts,awaiting,ack_target,delivery,acknowledged,trigger,submitted_generation,resolution_generation";
 const recoveryKinds = "'thread.resume','queue.resume','thread.limit'";
 const deliveryKinds = "'thread.create','thread.send','thread.fork','thread.switch','thread.merge'";
 function header(row: Record<string, unknown>): IntentHeader {
@@ -40,6 +41,7 @@ function header(row: Record<string, unknown>): IntentHeader {
     acknowledged: row.acknowledged === 1,
     trigger: row.trigger ?? undefined,
     submittedGeneration: row.submitted_generation ?? undefined,
+    resolutionGeneration: row.resolution_generation ?? undefined,
   });
 }
 /** Intent I/O: indexed headers for scheduling, payload decoding only at claim/startup. */
@@ -72,6 +74,7 @@ export class IntentStore {
         // Previously claimed input has unknown consumption. Never silently replay it.
         db.exec("UPDATE intents SET submitted_generation=0 WHERE status='running' OR awaiting=1");
       }
+      if (!fields.some((field) => field.name === "resolution_generation")) db.exec("ALTER TABLE intents ADD COLUMN resolution_generation INTEGER");
       db.exec(`CREATE INDEX IF NOT EXISTS intents_dispatch ON intents(thread_id,kind,position,id) WHERE status IN ('pending','queued');
         CREATE INDEX IF NOT EXISTS intents_running ON intents(thread_id) WHERE status='running';`);
     });
@@ -84,11 +87,11 @@ export class IntentStore {
     }
     return statement;
   }
-  add(command: Command, id: ThreadId, resolutionId?: string): void {
+  add(command: Command, id: ThreadId, resolutionId?: string, generation?: number): void {
     this.store.atomic(() => {
       const p = command.payload;
       const row = this.sql(`INSERT INTO intents
-        (command_id,thread_id,kind,payload,status,resolution_id,position,delivery,trigger) VALUES (?,?,?,?,'pending',?,?,?,?)`).run(
+        (command_id,thread_id,kind,payload,status,resolution_id,position,delivery,trigger,resolution_generation) VALUES (?,?,?,?,'pending',?,?,?,?,?)`).run(
         command.id,
         id,
         p.type,
@@ -97,6 +100,7 @@ export class IntentStore {
         this.queue.position(id),
         p.type === "thread.send" ? (p.delivery ?? "queue") : "queue",
         p.type === "thread.send" || p.type === "thread.create" ? (p.trigger ?? null) : null,
+        generation ?? null,
       );
       this.queue.track(Number(row.lastInsertRowid), id, command);
     });

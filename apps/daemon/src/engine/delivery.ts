@@ -6,6 +6,13 @@ import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { Sessions } from "./sessions.ts";
 
+export class InteractionUnavailable extends Error {
+  readonly code: "interaction_expired" | "interaction_unavailable";
+  constructor(code: "interaction_expired" | "interaction_unavailable") {
+    super(code === "interaction_expired" ? "This question expired because the provider disconnected" : "This question is no longer active");
+    this.code = code;
+  }
+}
 export class DeliveryDeferred extends Error {}
 export class DeliveryNotStarted extends Error {}
 
@@ -140,6 +147,14 @@ export async function executeIntent(
 
     return;
   }
+  if (p.type === "interaction.resolve") {
+    const state = repo.requireState(actor.id);
+    const key = repo.nativeEntity(actor.id, "interactions", p.interactionId);
+    const interaction = key ? state.interactions[key] : undefined;
+    if (interaction?.state === "expired" || (intent.resolutionGeneration !== undefined && intent.resolutionGeneration !== actor.generation))
+      throw new InteractionUnavailable("interaction_expired");
+    if (!actor.session || !interaction || interaction.state !== "pending") throw new InteractionUnavailable("interaction_unavailable");
+  }
   if (!actor.session) {
     if (
       p.type === "thread.interrupt" &&
@@ -197,7 +212,7 @@ export async function executeIntent(
     const entry = Object.entries(state.interactions).find(
       ([, item]) => item.id === p.interactionId,
     );
-    if (!entry || entry[1].state !== "pending") throw new Error("Interaction is no longer pending");
+    if (!entry || entry[1].state !== "pending") throw new InteractionUnavailable("interaction_unavailable");
     try {
       await actor.session.resolve(entry[0], p.resolution);
     } catch (error) {
@@ -211,7 +226,8 @@ export async function executeIntent(
         owner &&
         !current.agents[owner]?.activeRun
       )
-        actor.apply([{ type: "interaction.closed", interaction: entry[0], state: "cancelled" }]);
+        actor.apply([{ type: "interaction.closed", interaction: entry[0], state: "expired" }]);
+      if (interaction?.state === "expired" || !actor.session) throw new InteractionUnavailable("interaction_expired");
       throw error;
     }
     await actor.flush();
