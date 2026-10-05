@@ -72,7 +72,7 @@ test.each(
         expect(h.store.getThread(id)?.status.state).toBe("done");
         expect(
           Object.values(h.store.snapshotThread(id).items).some(
-            (item) => item.type === "notice" && item.text.includes("restricted"),
+            (item) => item.type === "notice" && item.detail?.includes("restricted"),
           ),
         ).toBe(true);
       }

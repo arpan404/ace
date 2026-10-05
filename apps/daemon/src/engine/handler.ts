@@ -1,3 +1,4 @@
+import { provisionalTitle } from "./thread-title.ts";
 import { providerCommandDisabled, permissionResolutionError } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
@@ -102,7 +103,24 @@ export function engineHandler(
           return { commandId: command.id, ok: false, error: "message_too_large" };
         }
       }
-      const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
+      const fail = (error: string): CommandResult => ({
+        commandId: command.id,
+        ok: false,
+        error,
+        ...(error === "interaction_expired"
+          ? {
+              code: error,
+              title: "Question expired",
+              detail: "The provider disconnected. This question can no longer be answered.",
+            }
+          : error === "interaction_unavailable"
+            ? {
+                code: error,
+                title: "Question unavailable",
+                detail: "This question is no longer active.",
+              }
+            : {}),
+      });
       if (
         ![
           "thread.create",
@@ -155,7 +173,14 @@ export function engineHandler(
             id: threadId,
             ...(p.permissionMode ? { permissionMode: p.permissionMode } : {}),
             workspaceId: p.workspaceId,
-            title: p.title ?? "New thread",
+            title:
+              p.title ?? (p.type === "thread.create" ? provisionalTitle(p.input) : "New thread"),
+            titleSource:
+              p.type === "thread.prepare" && p.titleSource === "agent"
+                ? "agent"
+                : p.title !== undefined
+                  ? "person"
+                  : "provisional",
             ...(acpIdentity ? { acpIdentity } : {}),
             capabilities: entry.capabilities,
             ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
@@ -202,16 +227,33 @@ export function engineHandler(
               },
             },
           });
+          if (handoff && p.handoffFrom) {
+            const source = repo.store.getThread(p.handoffFrom);
+            const previous = repo.transitions.get(threadId);
+            repo.transitions.set(threadId, {
+              ...previous,
+              context: [...previous.context, handoff.text],
+            });
+            repo.syntheticInput(
+              threadId,
+              `handoff:${command.id}`,
+              handoff.text,
+              {
+                kind: "handoff",
+                commandId: command.id,
+                threadIds: [p.handoffFrom],
+                lossy: true,
+                ...(source
+                  ? { from: { provider: source.provider, model: source.execution?.model } }
+                  : {}),
+                to: { provider: p.provider, model: p.model },
+              },
+              at,
+            );
+          }
           if (handoff && p.handoffFrom)
             repo.transitions.history.grant(threadId, p.handoffFrom, handoff.source.throughSeq);
           if (p.type === "thread.prepare") {
-            if (handoff) {
-              const previous = repo.transitions.get(threadId);
-              repo.transitions.set(threadId, {
-                ...previous,
-                context: [...previous.context, handoff.text],
-              });
-            }
             repo.release(threadId);
             return { commandId: command.id, ok: true, threadId };
           }
@@ -236,6 +278,17 @@ export function engineHandler(
             )
           )
             return fail("agent_not_found");
+          if (p.type === "thread.interrupt" && p.runId !== undefined) {
+            const state = repo.requireState(threadId);
+            const target =
+              p.agentId === undefined ? state.rootKey : state.indexes.agentKeysById[p.agentId];
+            if (
+              !target ||
+              state.agents[target]?.activeRun !== p.runId ||
+              state.runs[p.runId]?.state !== "active"
+            )
+              return fail("stale_interrupt");
+          }
           if (p.type === "thread.interrupt" && p.agentId !== undefined) {
             const state = repo.requireState(threadId);
             const entry = registry.get(state.config.provider, repo.backend(threadId));
@@ -255,7 +308,13 @@ export function engineHandler(
             if (p.type === "interaction.resolve") {
               const key = repo.nativeEntity(state.threadId, "interactions", p.interactionId);
               const interaction = key === undefined ? undefined : state.interactions[key];
-              if (!interaction) return fail("already_resolved");
+              if (!interaction)
+                return fail(
+                  repo.interactions.outcome(state.threadId, p.interactionId) === "expired"
+                    ? "interaction_expired"
+                    : "already_resolved",
+                );
+              if (interaction.state === "expired") return fail("interaction_expired");
               if (interaction.state !== "pending" || repo.reserved(interaction.id))
                 return fail("already_resolved");
               if (!validResolution(interaction.request, p.resolution))
@@ -293,7 +352,22 @@ export function engineHandler(
         const heldSend = p.type === "thread.send" && repo.queue.get(threadId).paused;
         if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");
         const released = p.type === "thread.interrupt" ? repo.cancelPending(threadId, now()) : [];
+        if (p.type === "thread.interrupt") {
+          const queue = repo.queue.get(threadId);
+          repo.queue.set(
+            threadId,
+            {
+              paused: true,
+              reason: "stopped",
+              resumeAt: null,
+              timerAction: null,
+              holdToken: queue.holdToken + 1,
+            },
+            now(),
+          );
+        }
         repo.add(admitted, threadId, resolutionId);
+        repo.admitInput(admitted, threadId, now());
         if (p.type === "thread.create" || p.type === "thread.send") {
           repo.queue.set(threadId, {}, now());
           recovery.sync(threadId);

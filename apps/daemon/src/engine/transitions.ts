@@ -202,6 +202,21 @@ export class ThreadTransitions {
               ? { handoff: previous.handoff }
               : {}),
         });
+        if (portable)
+          this.repo.syntheticInput(
+            actor.id,
+            `handoff:${intent.command.id}`,
+            renderHandoff(portable),
+            {
+              kind: "handoff",
+              commandId: intent.command.id,
+              from: { provider: current.provider, model: current.model },
+              to: { provider: selection.provider, model: selection.model },
+              lossy: true,
+              threadIds: [portable.sourceThreadId],
+            },
+            this.now(),
+          );
         this.repo.store.appendEvents(
           actor.id,
           [

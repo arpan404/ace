@@ -8,6 +8,7 @@ export async function startScreen({ config, options, resources, services }: Serv
     (config.screenHelper
       ? localScreenManager(config.screenHelper, join(config.dataDir, "screen-artifacts"), {
           manifest: config.screenHelperManifest,
+          inheritResponsibility: config.screenHelperInheritsResponsibility,
         })
       : undefined);
   if (manager) {
@@ -18,7 +19,9 @@ export async function startScreen({ config, options, resources, services }: Serv
 export function createScreenSession(context: SocketContext, simulators: Simulators): SocketService {
   let channel: ReturnType<typeof screenConnection> | undefined;
   return {
-    authenticated() {
+    authenticated(kind) {
+      // Screen state belongs on the main and screen channels; a devices channel can't parse it.
+      if (kind !== undefined && kind !== "screen") return;
       if (!context.options.screen || !context.authorize("admin")) return;
       channel = screenConnection(context.options.screen, simulators, context.sessionId, {
         send: context.send,

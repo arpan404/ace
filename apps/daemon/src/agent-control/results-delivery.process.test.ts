@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "vitest";
 import { setup, wakes } from "./test-support.ts";
 import { createAgentControlPort } from "./tools.ts";
@@ -46,7 +47,21 @@ test("asynchronous child results survive native user-role echoes as ace events",
     },
   });
   const page = restarted.store.readItemPage(parent.threadId, restarted.store.headSeq() + 1, 50);
-  expect(page.items.filter((item) => item.type === "message" && item.role === "user")).toEqual([]);
+  expect(
+    page.items.filter(
+      (item) =>
+        item.type === "message" &&
+        item.role === "user" &&
+        item.parts.some((part) => part.type === "text" && part.text === text),
+    ),
+  ).toEqual([]);
+  expect(page.items).toContainEqual(
+    expect.objectContaining({
+      type: "message",
+      origin: expect.objectContaining({ kind: "person" }),
+      parts: [expect.objectContaining({ type: "text", text: "plan" })],
+    }),
+  );
   const results = page.items.filter((item) => item.type === "delegation.settled");
   expect(results).toHaveLength(1);
   expect(results[0]).toMatchObject({
@@ -131,6 +146,18 @@ test("copying ace wake text through a user command remains user input across rep
   ).toContainEqual(
     expect.objectContaining({ parts: [expect.objectContaining({ type: "text", text })] }),
   );
+  const copies = page.items.filter(
+    (item) =>
+      item.type === "message" &&
+      item.role === "user" &&
+      item.parts.some((part) => part.type === "text" && part.text === text),
+  );
+  expect(copies).toHaveLength(1);
+  expect(copies[0]).toMatchObject({
+    id: "input:copied-by-user",
+    origin: { kind: "person", commandId: "copied-by-user" },
+    nativeId,
+  });
   expect(page.items.filter((item) => item.type === "delegation.settled")).toEqual(before);
   expect(restarted.errors).toEqual([]);
 });
@@ -187,4 +214,74 @@ test("cancelling a waiting call leaves child work running and delivers its event
   await h.engine.flush();
   expect(h.errors).toEqual([]);
   expect(wakes(h.events, parent.threadId)).toHaveLength(1);
+});
+
+// Recreate the persisted #116 identity fixture, then exercise native replay through the engine.
+test("delegation wakes from the previous identity journal remain ace events after upgrade", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "legacy-wake");
+  await h.engine.flush();
+  await h.complete(child.childId, "Legacy result");
+  h.clock.advance(1050);
+  await h.engine.flush();
+  const identity = h.inputMessages.get(parent.threadId)?.at(-1);
+  const text = h.inputs.get(parent.threadId)?.at(-1);
+  if (!identity || !text) throw new Error("Missing wake input");
+  await h.close();
+  const legacy = new DatabaseSync(h.dbPath);
+  try {
+    legacy.exec(`CREATE TABLE engine_input_messages (
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      native_id TEXT NOT NULL, command_id TEXT NOT NULL, origin TEXT NOT NULL,
+      PRIMARY KEY(thread_id,native_id));
+      DROP TABLE engine_input_identities;
+      DELETE FROM engine_inputs WHERE json_extract(origin,'$.kind')='subagent_result';`);
+    legacy
+      .prepare("INSERT INTO engine_input_messages VALUES (?,?,?,?)")
+      .run(parent.threadId, identity.nativeId, identity.commandId, "ace");
+  } finally {
+    legacy.close();
+  }
+  const restarted = setup({}, h.dbPath);
+  await restarted.engine.ready();
+  restarted.service.message(
+    restarted.caller(parent.threadId),
+    "upgrade-resume",
+    parent.threadId,
+    "Continue",
+    "queue",
+  );
+  await restarted.engine.flush();
+  await restarted.emit(parent.threadId, {
+    type: "item.reconciled",
+    agent: "root",
+    item: "legacy-native-echo",
+    draft: {
+      type: "message",
+      role: "user",
+      nativeId: identity.nativeId,
+      parts: [{ type: "text", text }],
+      complete: true,
+    },
+  });
+  const items = restarted.store.readItemPage(
+    parent.threadId,
+    restarted.store.headSeq() + 1,
+    50,
+  ).items;
+  expect(items.filter((item) => item.type === "delegation.settled")).toEqual([
+    expect.objectContaining({
+      results: [expect.objectContaining({ threadId: child.childId, result: "Legacy result" })],
+    }),
+  ]);
+  expect(
+    items.some(
+      (item) =>
+        item.type === "message" &&
+        item.role === "user" &&
+        item.parts.some((part) => part.type === "text" && part.text === text),
+    ),
+  ).toBe(false);
+  expect(restarted.errors).toEqual([]);
 });

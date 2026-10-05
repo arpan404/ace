@@ -18,12 +18,37 @@ test("cross-provider child preserves its selection and returns the whole thread 
     options: { effort: "high" },
   });
   expect(h.store.getThread(edge.childId)?.provider).toBe("claude");
+  expect(Object.values(h.store.snapshotThread(edge.childId).items)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: "message",
+        synthetic: true,
+        origin: expect.objectContaining({
+          kind: "spawn",
+          parentThreadId: parent.threadId,
+          role: "implementer",
+        }),
+      }),
+    ]),
+  );
+
   await h.complete(edge.childId, "implemented");
   expect(await waiting).toMatchObject({ outcome: "completed", result: "implemented" });
   h.clock.advance(1050);
   await h.engine.flush();
   expect(wakes(h.events, parent.threadId)).toHaveLength(0);
   const view = h.store.snapshotThread(parent.threadId);
+  expect(Object.values(view.items)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: "delegation.settled",
+        delivery: "tool",
+        origin: "ace",
+        results: [expect.objectContaining({ threadId: edge.childId, result: "implemented" })],
+      }),
+    ]),
+  );
+
   expect(Object.values(view.agents).some((agent) => agent.childThreadId === edge.childId)).toBe(
     true,
   );

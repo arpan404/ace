@@ -1,7 +1,7 @@
 import type { Question } from "@ace/protocol";
 import { questionOptions } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
-import { useId, useState } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import type { Answer } from "./answer.ts";
 
@@ -37,9 +37,43 @@ export function QuestionForm(props: {
         : [id];
       return { ...previous, [question.id]: next };
     });
+  /**
+   * 1–9 pick an option of the question being answered (the one holding focus, else the first
+   * still unanswered) and Enter answers, unless a text field has the keys.
+   */
+  const onKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (props.disabled || event.metaKey || event.ctrlKey || event.altKey) return;
+    const target = event.target as HTMLElement;
+    const text =
+      target.tagName === "TEXTAREA" ||
+      (target.tagName === "INPUT" &&
+        !["radio", "checkbox"].includes((target as HTMLInputElement).type));
+    if (event.key === "Enter" && !text && target.tagName !== "BUTTON") {
+      event.preventDefault();
+      if (complete) submit();
+      return;
+    }
+    const digit = Number.parseInt(event.key, 10);
+    if (text || Number.isNaN(digit) || digit < 1) return;
+    const focused = target.closest("fieldset")?.getAttribute("data-question");
+    const question =
+      props.questions.find((candidate) => candidate.id === focused) ??
+      props.questions.find((candidate) => !(picked[candidate.id] ?? []).length) ??
+      props.questions[0];
+    if (!question) return;
+    const ids = [
+      ...questionOptions(question).map((option) => option.id),
+      ...(question.allowOther ? [other] : []),
+    ];
+    const id = ids[digit - 1];
+    if (!id) return;
+    event.preventDefault();
+    toggle(question, id);
+  };
   return (
     <form
       className="mt-2 flex flex-col gap-4"
+      onKeyDown={onKeyDown}
       onSubmit={(event) => {
         event.preventDefault();
         if (complete) submit();
@@ -92,7 +126,11 @@ function QuestionField(props: {
       : []),
   ];
   return (
-    <fieldset aria-labelledby={legend} className="flex flex-col gap-1.5">
+    <fieldset
+      aria-labelledby={legend}
+      data-question={question.id}
+      className="flex flex-col gap-1.5"
+    >
       <legend id={legend} className="mb-1.5 text-md leading-[1.35] font-medium tracking-[-0.005em]">
         {question.header && (
           <span className="mb-0.5 block text-xs font-normal text-subtle-foreground">
@@ -101,7 +139,7 @@ function QuestionField(props: {
         )}
         {question.text}
       </legend>
-      {options.map((option) => {
+      {options.map((option, index) => {
         const checked = props.picked.includes(option.id);
         return (
           <label
@@ -120,6 +158,17 @@ function QuestionField(props: {
               className="accent-(--ring)"
             />
             <span>{option.label}</span>
+            {index < 9 && (
+              <kbd
+                aria-hidden
+                className={cn(
+                  "order-last pl-2 font-sans text-[11px] text-subtle-foreground",
+                  !option.recommended && "ml-auto",
+                )}
+              >
+                {index + 1}
+              </kbd>
+            )}
             {option.description && (
               <span className="text-subtle-foreground">· {option.description}</span>
             )}

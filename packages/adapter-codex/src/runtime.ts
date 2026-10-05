@@ -6,6 +6,7 @@ export type CodexRuntime = {
   stopGraceMs: number;
   now(): number;
   userMessageId(): string;
+  sessionId(): string;
   spawn: typeof spawnSupervised;
   discover: typeof discoverProviders;
   discoverProvider: typeof discoverProvider;
@@ -15,6 +16,7 @@ export const runtime: CodexRuntime = {
   stopGraceMs: 5000,
   now: () => performance.now(),
   userMessageId: randomUUID,
+  sessionId: randomUUID,
   spawn: spawnSupervised,
   discover: discoverProviders,
   discoverProvider,

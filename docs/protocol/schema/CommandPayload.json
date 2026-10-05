@@ -3,7 +3,114 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
-      "$ref": "https://ace.local/protocol/v1/ThreadPrepareCommand.json"
+      "properties": {
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "messageId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "queue.resend",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "messageId",
+        "expectedRevision"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "accountId": {
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+        },
+        "acpAgentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "baseBranch": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "deck": {
+          "$ref": "https://ace.local/protocol/v1/DeckOwnership.json"
+        },
+        "handoffFrom": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "installationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "local",
+            "worktree"
+          ],
+          "type": "string"
+        },
+        "model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "options": {
+          "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+        },
+        "permissionMode": {
+          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "title": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "titleSource": {
+          "enum": [
+            "person",
+            "agent"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "thread.prepare",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "workspaceId",
+        "title",
+        "provider"
+      ],
+      "type": "object"
     },
     {
       "$ref": "https://ace.local/protocol/v1/ThreadMarkReadCommand.json"
@@ -1368,6 +1475,9 @@
         "options": {
           "$ref": "https://ace.local/protocol/v1/ThreadCreateOptions.json"
         },
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
+        },
         "permissionMode": {
           "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
         },
@@ -1422,6 +1532,9 @@
         "options": {
           "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json"
         },
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -1448,6 +1561,9 @@
         "cascade": {
           "default": true,
           "type": "boolean"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
