@@ -75,8 +75,14 @@ export const DeferredCatchUpSlot = deferredComponent(() =>
   import("./long/catch-up-slot.tsx").then((module) => module.CatchUpSlot),
 );
 
+/** The Agents panel's follow-up composer; loads while idle, after the thread paints. */
+export const DeferredAgentComposer = deferredComponent(() =>
+  import("./composer/agent-composer.tsx").then((module) => module.AgentComposer),
+);
+
 export function preloadDeferred(): Promise<unknown> {
   return Promise.all([
+    DeferredAgentComposer.preload(),
     DeferredStepDetail.preload(),
     DeferredInteractionCard.preload(),
     DeferredReviewNote.preload(),
