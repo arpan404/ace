@@ -252,7 +252,15 @@ export async function executeIntent(
       throw error;
     }
     await actor.flush();
-    if (repo.requireState(actor.id).interactions[entry[0]]?.id !== p.interactionId) return;
+    const interaction = repo.requireState(actor.id).interactions[entry[0]];
+    if (
+      interaction?.state === "expired" ||
+      !actor.session ||
+      (intent.resolutionGeneration !== undefined &&
+        intent.resolutionGeneration !== actor.generation)
+    )
+      throw new InteractionUnavailable("interaction_expired");
+    if (interaction?.id !== p.interactionId) return;
     actor.apply([
       {
         type: "interaction.closed",

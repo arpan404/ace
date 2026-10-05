@@ -182,7 +182,7 @@ test("send failures publish readable correlated notices with operation names in 
       code: "delivery_failed",
       title: "Not sent",
       commandId: "failure-command",
-      detail: "thread.create: checkpoint failed",
+      detail: "checkpoint failed",
     }),
   ]);
   expect(h.engine.queue(receipt.threadId).messages).toEqual([

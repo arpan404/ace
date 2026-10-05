@@ -272,7 +272,7 @@ export class IntentDelivery {
               : intent.kind === "thread.send" || intent.kind === "thread.create"
                 ? "Not sent"
                 : "Action failed",
-        detail: `${intent.kind}: ${message}`.slice(0, 4096),
+        detail: message.slice(0, 4096),
         complete: true,
         raw: [
           {
