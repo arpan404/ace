@@ -292,3 +292,40 @@ test("after the daemon connection drops, a deck follows the conductor again", as
 
   expect(await screen.findByRole("button", { name: "Resume deck" })).toBeTruthy();
 });
+
+test("folding away the selected merged card keeps a way into the plan from the keyboard", async () => {
+  const app = harness();
+  const now = Date.now();
+  const [, mobile] = deckRuns(now);
+  if (!mobile) throw new Error("Seed deck missing");
+  // Two merged cards in one stage, one of them selected.
+  const cards = mobile.cards.map((c) =>
+    c.id === "lazy-fonts" || c.id === "hermes-bytecode"
+      ? { ...c, state: "merged" as const, question: null }
+      : c,
+  );
+  app.daemon.seedServices({ decks: [{ ...mobile, cards }] });
+  await app.open("/deck/mobile-cold-start?card=lazy-fonts");
+  await screen.findByRole("region", { name: escalation });
+  expect(card(/Lazy-load fonts and icons/).ariaPressed).toBe("true");
+
+  const fold = screen.getByRole("button", { name: "Collapse merged" });
+  await userEvent.click(fold);
+  expect(screen.queryByRole("button", { name: /^Lazy-load fonts and icons/ })).toBeNull();
+
+  await userEvent.tab();
+  expect(document.activeElement?.textContent).toMatch(/Startup trace baseline/);
+  await userEvent.keyboard("{ArrowRight}");
+  expect(document.activeElement?.textContent).toMatch(/Defer the first relay sync/);
+});
+
+test("a stage of only merged cards folds into a chip that is reachable and unfolds them", async () => {
+  await open("/deck/codex-app-server-048");
+  await screen.findByRole("button", { name: /^Bump the protocol bindings/ });
+  await userEvent.click(screen.getByRole("button", { name: "Collapse merged" }));
+
+  await userEvent.tab();
+  expect(document.activeElement?.textContent).toBe("2 merged");
+  await userEvent.keyboard("{Enter}");
+  expect(await screen.findByRole("button", { name: /^Bump the protocol bindings/ })).toBeTruthy();
+});

@@ -51,6 +51,8 @@ export function CardGraph(props: {
   onSelect(cardId: string): void;
   /** Fold each stage's merged cards into one "n merged" chip. */
   collapseMerged?: boolean;
+  /** A folded chip was picked: show the merged cards again. */
+  onShowMerged?(): void;
   /** Esc leaves the graph: focus goes back to its heading. */
   onEscape?(): void;
 }) {
@@ -71,7 +73,13 @@ export function CardGraph(props: {
     column.flatMap((slot) => ("card" in slot ? [slot.card.id] : [])),
   );
   // One card in the graph is a tab stop: the one last focused, else the selection.
-  const stop = focus && visible.includes(focus) ? focus : (selected ?? visible[0]);
+  // A folded-away selection is no tab stop; the first card shown takes its place.
+  const stop =
+    focus && visible.includes(focus)
+      ? focus
+      : selected && visible.includes(selected)
+        ? selected
+        : visible[0];
   const titles = new Map(cards.map((card) => [card.id, card.title]));
 
   useLayoutEffect(() => {
@@ -261,13 +269,17 @@ export function CardGraph(props: {
                 </div>
               ) : (
                 <div role="gridcell" key={`merged-${index}`}>
-                  <span
+                  {/* Shows the merged cards again; the graph's tab stop when nothing else is shown. */}
+                  <button
+                    type="button"
+                    tabIndex={visible.length ? -1 : 0}
                     data-card-id={slot.merged.map((card) => card.id).join(" ")}
-                    className="flex items-center gap-1.5 rounded-card bg-card px-3.5 py-2.5 text-sm text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]"
+                    onClick={props.onShowMerged}
+                    className="flex w-full items-center gap-1.5 rounded-card bg-card px-3.5 py-2.5 text-left text-sm text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] outline-none hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
                   >
                     <Icon icon={CheckIcon} size={14} />
                     {slot.merged.length} merged
-                  </span>
+                  </button>
                 </div>
               ),
             )}
@@ -283,7 +295,8 @@ export function CardGraph(props: {
             {overflow && (
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 -left-4 w-4 bg-linear-to-l from-background"
+                className="pointer-events-none absolute inset-y-0 -left-4 w-4"
+                style={{ background: "linear-gradient(to left, var(--background), transparent)" }}
               />
             )}
             <div role="rowheader">

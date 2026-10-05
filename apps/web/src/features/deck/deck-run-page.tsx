@@ -244,6 +244,7 @@ function RunScreen(props: {
                       run={run}
                       selected={selected?.id}
                       collapseMerged={collapse}
+                      onShowMerged={() => setCollapse(false)}
                       onSelect={select}
                       onEscape={() => cardsHeading.current?.focus()}
                     />
@@ -315,10 +316,14 @@ function GateArea(props: { run: DeckRun; onOpenCard(cardId: string): void }) {
       // A leaving gate is already answered: out of reach and out of the accessibility tree.
       aria-hidden={leaving || undefined}
       inert={leaving}
-      className={cn(
-        "grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-exit",
-        leaving ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]",
-      )}
+      className="grid"
+      // One-off motion values, kept out of the stylesheet: rows fold to nothing as it fades.
+      style={{
+        gridTemplateRows: leaving ? "0fr" : "1fr",
+        opacity: leaving ? 0 : 1,
+        transition:
+          "grid-template-rows var(--dur-3) var(--leave), opacity var(--dur-3) var(--leave)",
+      }}
     >
       <div className="min-h-0 overflow-hidden">
         <div className="pt-5">

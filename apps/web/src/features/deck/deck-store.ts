@@ -30,6 +30,8 @@ export interface DeckSnapshot {
   error: string | undefined;
   /** The daemon has older decks than the pages read so far. */
   more: boolean;
+  /** Runs read on their own (an old deck opened by link) that the daemon couldn't give. */
+  missing: ReadonlySet<string>;
 }
 
 export class DeckCommandError extends Error {
@@ -81,7 +83,13 @@ const intervals = (ms: number, run: () => void) => {
 export class DeckStore {
   private client: ClientApi;
   private conductor: ConductorClient;
-  private state: DeckSnapshot = { ready: false, entries: [], error: undefined, more: false };
+  private state: DeckSnapshot = {
+    ready: false,
+    entries: [],
+    error: undefined,
+    more: false,
+    missing: new Set(),
+  };
   private listeners = new Set<() => void>();
   /** Live watches by run id, with what unsubscribes from them. */
   private watches = new Map<string, { watch: ConductorWatch; stop(): void }>();
@@ -263,7 +271,10 @@ export class DeckStore {
       this.put(view);
       this.balance();
     } catch {
-      // A run that can't be read stays as the list described it.
+      // A run that can't be read stays as the list described it; one the list didn't have is
+      // reported missing, so its page stops loading and says so.
+      if (epoch === this.epoch && !this.find(runId))
+        this.emit({ missing: new Set([...this.state.missing, runId]) });
     }
   }
 }

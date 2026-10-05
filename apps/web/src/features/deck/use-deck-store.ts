@@ -4,7 +4,13 @@ import type { ConductorCommandPayload } from "@ace/protocol";
 import { useSyncExternalStore } from "react";
 import type { DeckSnapshot, DeckStore } from "./deck-store.ts";
 
-const empty: DeckSnapshot = { ready: false, entries: [], error: undefined, more: false };
+const empty: DeckSnapshot = {
+  ready: false,
+  entries: [],
+  error: undefined,
+  more: false,
+  missing: new Set(),
+};
 
 /**
  * The deck store, loaded after first paint: the sidebar counts Deck decisions on every screen,

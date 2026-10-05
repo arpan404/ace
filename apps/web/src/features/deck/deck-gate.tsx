@@ -543,7 +543,10 @@ function PlanReview(props: {
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       {/* WP-1: DialogContent size="lg" with a max height and a scrolling body. */}
-      <DialogContent className="flex max-h-[86vh] w-[min(640px,calc(100vw-2rem))] flex-col">
+      <DialogContent
+        className="flex flex-col"
+        style={{ maxHeight: "86vh", width: "min(640px, calc(100vw - 2rem))" }}
+      >
         <DialogHeader>
           <DialogTitle>The deck&apos;s plan</DialogTitle>
           <DialogDescription>

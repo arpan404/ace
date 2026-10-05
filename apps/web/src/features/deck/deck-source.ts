@@ -94,10 +94,12 @@ export function useDeckRun(id: string): { ready: boolean; run: DeckRun | undefin
   const entry = snapshot.entries.find((candidate) => candidate.summary.id === id);
   const ids = entry?.view?.delegations.map((delegation) => delegation.threadId) ?? noIds;
   const threads = useDelegatedThreads(ids);
-  const ready = snapshot.ready && settled;
+  const listed = snapshot.ready && settled;
+  // A deck the list didn't hold is still loading until its own read lands or fails.
+  const ready = listed && (!!entry || snapshot.missing.has(id));
   useEffect(() => {
-    if (ready) store.ensure(id);
-  }, [store, id, ready]);
+    if (listed) store.ensure(id);
+  }, [store, id, listed]);
   const run = entry?.view
     ? deckFromView(entry.view, accounts, threads)
     : entry && deckFromSummary(entry.summary);
