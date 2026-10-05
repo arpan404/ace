@@ -176,7 +176,8 @@ function withSubmitHint(children: ReactNode): ReactNode {
     children: (
       <>
         {last.props.children}
-        <Kbd variant="on-primary" resolve={false} keys="mod+enter" />
+        {/* A hint for the eye only: the button's name stays its label ("Commit"). */}
+        <Kbd aria-hidden variant="on-primary" resolve={false} keys="mod+enter" />
       </>
     ),
   });
