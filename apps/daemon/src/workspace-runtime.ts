@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { GitService, type GitOptions } from "@ace/git";
 import { TerminalManager, type Terminal, type TerminalManagerOptions } from "@ace/terminal";
 import {
+  gitStatusLimit,
   TerminalDescriptor,
   WorkspaceId,
   ThreadId,
@@ -181,6 +182,13 @@ export class WorkspaceRuntime {
       );
     if (op.op === "thread.details")
       return wrap({ kind: "details", details: await this.details(op.threadId) });
+    if (op.op === "git.status") {
+      const { files, truncated } = await this.git.changedFiles(
+        this.root(op.threadId),
+        gitStatusLimit,
+      );
+      return wrap({ kind: "gitStatus", truncated, files });
+    }
     return wrap({
       kind: "pr",
       status: await this.forge.status(op.threadId, this.root(op.threadId)),
@@ -218,6 +226,7 @@ export class WorkspaceRuntime {
             worktree: cwd,
             message: p.message,
             expectedHead: p.expectedHead,
+            paths: p.paths,
           }),
         };
       if (p.type === "git.push") {

@@ -29,6 +29,67 @@ test("commit stages changed files with the requested message and rejects stale H
   }
 });
 
+test("changed files list exactly what git status reports, and a commit can take only some of them", async () => {
+  const root = await repository();
+  const service = new GitService();
+  try {
+    await put(root, "tracked.txt", "changed\nand more\n");
+    await put(root, "staged.txt", "staged\n");
+    await git(root, "add", "staged.txt");
+    await put(root, "notes *.md", "scratch\n");
+    await put(root, ".gitignore", "ignored.log\n");
+    await put(root, "ignored.log", "noise\n");
+    const { files, truncated } = await service.changedFiles(root);
+    expect(truncated).toBe(false);
+    expect(files.map((file) => [file.path, file.status])).toEqual([
+      [".gitignore", "modified"],
+      ["notes *.md", "untracked"],
+      ["staged.txt", "added"],
+      ["tracked.txt", "modified"],
+    ]);
+    const porcelain = (await git(root, "status", "--porcelain", "-z"))
+      .toString()
+      .split("\0")
+      .filter(Boolean)
+      .map((line) => line.slice(3))
+      .toSorted();
+    expect(files.map((file) => file.path)).toEqual(porcelain);
+    expect(files.find((file) => file.path === "tracked.txt")).toMatchObject({
+      additions: 2,
+      deletions: 1,
+    });
+    expect((await service.changedFiles(root, 2)).truncated).toBe(true);
+
+    const before = await scalar(root, "rev-parse", "HEAD");
+    await service.commit({
+      worktree: root,
+      expectedHead: before,
+      message: "Only these",
+      paths: ["tracked.txt", "notes *.md"],
+    });
+    expect(await scalar(root, "show", "--name-only", "--format=", "HEAD")).toBe(
+      "notes *.md\ntracked.txt",
+    );
+    // What wasn't picked stays as it was: staged.txt still staged, .gitignore still modified.
+    expect(
+      (await service.changedFiles(root)).files.map((file) => [file.path, file.status]),
+    ).toEqual([
+      [".gitignore", "modified"],
+      ["staged.txt", "added"],
+    ]);
+    await expect(
+      service.commit({
+        worktree: root,
+        expectedHead: await scalar(root, "rev-parse", "HEAD"),
+        message: "Nothing",
+        paths: [],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+  } finally {
+    await service.close();
+  }
+});
+
 test("push updates an existing remote branch and refuses detached HEAD", async () => {
   const root = await repository();
   const remote = join(await scratch(), "remote.git");

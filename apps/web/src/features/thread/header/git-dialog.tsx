@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -10,17 +11,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { Switch } from "@/components/ui/switch.tsx";
 import type { Checkout } from "@ace/ui-core";
-import type { GitChange } from "../lib/use-git.ts";
+import { useChangedFiles, type GitChange } from "../lib/use-git.ts";
+import type { ThreadRef } from "../sources/index.ts";
+import { ChangedFiles, pathsOf, pickedByDefault } from "./changed-files.tsx";
 
 export type GitDialogKind = "commit" | "commit-push" | "pr" | "draft-pr";
-
-/** Every uncommitted file in the checkout, which can be more than one turn changed. */
-const uncommitted = (count: number) =>
-  `${count} uncommitted ${count === 1 ? "file" : "files"} in the checkout`;
 
 /**
  * What a commit or PR says, written by the person: the daemon commits and opens PRs exactly as
@@ -28,13 +25,15 @@ const uncommitted = (count: number) =>
  */
 export function GitDialog(props: {
   kind: GitDialogKind;
-  title: string;
+  thread: ThreadRef;
   checkout: Checkout;
   pending: boolean;
   onSubmit(change: GitChange): Promise<unknown>;
   onClose(): void;
+  /** Close the form and show the uncommitted changes (Changes). */
+  onViewDiff(): void;
 }) {
-  const [subject, setSubject] = useState(props.title);
+  const [subject, setSubject] = useState(props.thread.title);
   const [body, setBody] = useState("");
   const [error, setError] = useState<string>();
   const { kind, checkout } = props;
@@ -44,6 +43,12 @@ export function GitDialog(props: {
   const [draft, setDraft] = useState(kind === "draft-pr");
   const pushId = useId();
   const draftId = useId();
+  // What a commit takes: read fresh as the form opens, untracked files unticked until picked.
+  const status = useChangedFiles(props.thread, commit);
+  const files = status.data?.files;
+  const [picked, setPicked] = useState<ReadonlySet<string>>();
+  const chosen = picked ?? (files ? pickedByDefault(files) : new Set<string>());
+  const nothing = commit && chosen.size === 0;
   const text = commit
     ? { title: "Commit changes", submit: push ? "Commit & push" : "Commit" }
     : {
@@ -52,11 +57,11 @@ export function GitDialog(props: {
       };
   const submit = () => {
     const title = subject.trim();
-    if (!title || props.pending) return;
+    if (!title || props.pending || nothing || (commit && !files)) return;
     setError(undefined);
     const message = body.trim() ? `${title}\n\n${body.trim()}` : title;
     const change: GitChange = commit
-      ? { kind: "commit", message, push }
+      ? { kind: "commit", message, push, paths: pathsOf(files ?? [], chosen) }
       : { kind: "create-pr", title, summary: body.trim(), draft };
     props
       .onSubmit(change)
@@ -66,18 +71,12 @@ export function GitDialog(props: {
   };
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent>
+      <DialogContent size={commit ? "md" : "sm"}>
         <form
           className="contents"
           onSubmit={(event) => {
             event.preventDefault();
             submit();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              submit();
-            }
           }}
         >
           <DialogHeader>
@@ -85,7 +84,7 @@ export function GitDialog(props: {
             <DialogDescription>
               {commit ? (
                 <>
-                  {uncommitted(checkout.changed)} on{" "}
+                  The files you pick, on{" "}
                   <span className="font-mono whitespace-nowrap">{checkout.branch ?? "HEAD"}</span>
                   {push && ", then pushed to origin"}.
                 </>
@@ -100,65 +99,77 @@ export function GitDialog(props: {
               )}
             </DialogDescription>
           </DialogHeader>
-          <Input
-            aria-label={commit ? "Commit message" : "Pull request title"}
-            value={subject}
-            maxLength={commit ? 200 : 256}
-            autoFocus
-            onChange={(event) => setSubject(event.target.value)}
-          />
-          <Textarea
-            aria-label={commit ? "Commit details" : "Pull request description"}
-            placeholder={commit ? "Details (optional)" : "What changed and why (optional)"}
-            value={body}
-            maxLength={8000}
-            onChange={(event) => setBody(event.target.value)}
-          />
-          {commit ? (
-            <label
-              htmlFor={pushId}
-              className="flex items-center gap-2 text-sm text-muted-foreground"
-            >
-              <Checkbox
-                id={pushId}
-                checked={push}
-                disabled={!checkout.branch}
-                onCheckedChange={(checked) => setPush(checked)}
+          <DialogBody>
+            {commit && (
+              <ChangedFiles
+                files={files}
+                truncated={status.data?.truncated ?? false}
+                failed={status.isError}
+                picked={chosen}
+                onPick={setPicked}
+                onRetry={() => void status.refetch()}
+                onViewDiff={props.onViewDiff}
               />
-              Push after committing
-            </label>
-          ) : (
-            <label
-              htmlFor={draftId}
-              className="flex items-center gap-2 text-sm text-muted-foreground"
-            >
-              <Switch
-                id={draftId}
-                checked={draft}
-                onCheckedChange={(checked) => setDraft(checked)}
-              />
-              Draft
-              <span className="text-subtle-foreground">· reviewers aren't asked yet</span>
-            </label>
-          )}
+            )}
+            <Input
+              aria-label={commit ? "Commit message" : "Pull request title"}
+              value={subject}
+              maxLength={commit ? 200 : 256}
+              autoFocus
+              onChange={(event) => setSubject(event.target.value)}
+            />
+            <Textarea
+              aria-label={commit ? "Commit details" : "Pull request description"}
+              placeholder={commit ? "Details (optional)" : "What changed and why (optional)"}
+              value={body}
+              maxLength={8000}
+              onChange={(event) => setBody(event.target.value)}
+            />
+            {/* In a form, a one-off option is a checkbox; switches are for settings. */}
+            {commit ? (
+              <label
+                htmlFor={pushId}
+                className="flex items-center gap-2 text-sm text-muted-foreground"
+              >
+                <Checkbox
+                  id={pushId}
+                  checked={push}
+                  disabled={!checkout.branch}
+                  onCheckedChange={(checked) => setPush(checked)}
+                />
+                Push after committing
+              </label>
+            ) : (
+              <label
+                htmlFor={draftId}
+                className="flex items-center gap-2 text-sm text-muted-foreground"
+              >
+                <Checkbox
+                  id={draftId}
+                  checked={draft}
+                  onCheckedChange={(checked) => setDraft(checked)}
+                />
+                Draft
+                <span>· reviewers aren't asked yet</span>
+              </label>
+            )}
+          </DialogBody>
           {error && (
             <p role="alert" className="text-sm text-status-failed">
               {error}
             </p>
           )}
-          <DialogFooter>
+          <DialogFooter submitHint>
             <Button type="button" variant="ghost" onClick={props.onClose}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" disabled={!subject.trim() || props.pending}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!subject.trim() || props.pending || nothing || (commit && !files)}
+            >
               {props.pending && <Spinner />}
               {text.submit}
-              <Kbd
-                aria-hidden
-                keys="mod+enter"
-                variant="bare"
-                className="text-primary-foreground/60"
-              />
             </Button>
           </DialogFooter>
         </form>

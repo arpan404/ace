@@ -550,6 +550,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | message | yes | string | {"minLength":1,"maxLength":8192,"x-ace-constraint":"Must contain a non-whitespace commit message."} |
 | expectedHead | yes | union | {"anyOf":[{"type":"string","pattern":"^[a-f0-9]{40,64}$"},{"type":"null"}]} |
+| paths | no | array | {"minItems":1,"maxItems":500,"items":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."}} |
 
 Example:
 
@@ -574,6 +575,7 @@ Example:
 
 ```json
 {
+  "remote": "example",
   "threadId": "example",
   "type": "git.push"
 }
@@ -591,7 +593,7 @@ Example:
 
 ```json
 {
-  "name": "{~",
+  "name": "~z\"$z|||!",
   "path": "example",
   "type": "workspace.add"
 }
@@ -611,7 +613,8 @@ Example:
 
 ```json
 {
-  "name": "\"$z|||!.}",
+  "git": {},
+  "name": "}-,|zy)z",
   "parent": "example",
   "type": "workspace.create"
 }
@@ -630,7 +633,7 @@ Example:
 
 ```json
 {
-  "name": "zy)z%*,%#(",
+  "name": "#(\"",
   "parent": "example",
   "type": "workspace.clone",
   "url": "example"
@@ -649,7 +652,7 @@ Example:
 
 ```json
 {
-  "name": "$!{",
+  "name": ".$$!{~()\"",
   "type": "workspace.rename",
   "workspaceId": "example"
 }
@@ -667,6 +670,7 @@ Example:
 
 ```json
 {
+  "archiveThreads": false,
   "type": "workspace.remove",
   "workspaceId": "example"
 }
@@ -685,12 +689,12 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 8,
+      "number": 7,
       "repository": {
         "forge": "github",
-        "host": "hg1qC",
-        "name": "b",
-        "owner": "wTso9Wc/su6/DcXB5bSeU/p2Sc/koUky-WBGT/dGP/ox4Kq78QP.v/WIe/T/OXCWhixGqn"
+        "host": "LxUso",
+        "name": "4Kq78",
+        "owner": "Wc3ksu6ZDcX/bSeUrp2Sc0/oU/y-/BGTldGP.o"
       }
     },
     "threadId": "example"
@@ -723,10 +727,10 @@ Example:
     "title": "example"
   },
   "repository": {
-    "forge": "github",
-    "host": "C1zI3q",
-    "name": "s.vLfdYh4U",
-    "owner": "jGmDq.z/J0ry5LnIs-v/SY/JQkZzw42RsM/ic/lYEPTgcJU/ux.rYm7str/YsPxdb4HC5/2hAEl"
+    "forge": "gitlab",
+    "host": "wnXJfeT3PXC",
+    "name": "-vhS",
+    "owner": "hixGqnbbW/B0yI3p/jGmDq.z/.J0ry5LnI"
   },
   "threadId": "example",
   "type": "forge.pr.create"
@@ -746,12 +750,12 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 7,
+      "number": 2,
       "repository": {
-        "forge": "github",
-        "host": "dvX",
-        "name": "d-T4XpKhJO",
-        "owner": "jdJKv"
+        "forge": "gitlab",
+        "host": "QlZzw42",
+        "name": "ocuXB",
+        "owner": "sMjicVlY/TgcJU2ux/rYm7str3YsP/db4HC/y2hAEl5s.v/fdYh4UP"
       }
     },
     "threadId": "example"
@@ -774,15 +778,15 @@ Example:
 ```json
 {
   "body": "example",
-  "commentId": 10,
+  "commentId": 8,
   "link": {
     "pr": {
-      "number": 10,
+      "number": 2,
       "repository": {
         "forge": "github",
-        "host": "NL5",
-        "name": "i-huV",
-        "owner": "teE24NLuXZX/CSxv/2F/yvI9/GsNyF/nO/jR4MzMzVIoK/_OgUhS6p2o6/hUC"
+        "host": "Kvd3e-T",
+        "name": "O",
+        "owner": "XpKhJORCmM/6teE24NLuX/XVvCSxvk2/vyvI9w/sNyFin/.jR4MzM/VIoK6"
       }
     },
     "threadId": "example"
@@ -808,9 +812,9 @@ Example:
       "number": 4,
       "repository": {
         "forge": "github",
-        "host": "JN4-AIhCq1",
+        "host": "7p2p6oiU",
         "name": "ltcz",
-        "owner": "X/O1/ZCHIn7/u3WUFEwXqj/jqNHH1guiCJ/UEHCyU/UBvL/47NHa/Up"
+        "owner": "Ci-huV/t3IM4-AIgCp/dXVfO1EZCH/n71u3WU/EwXqj./qN/H1guiC/FUEHCyU/UBvL/47NHa/Up"
       }
     },
     "threadId": "example"

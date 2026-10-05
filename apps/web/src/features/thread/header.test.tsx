@@ -7,6 +7,9 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
+/** The commit form's primary button (its name also carries the ⌘↵ hint). */
+const commitButton = /^Commit(?! &)/;
+
 async function openThread(which: "replay" | "checkout" = "replay", through = "finding") {
   const app = harness();
   if (which === "replay") app.play(replayCursor()).runThrough(through);
@@ -136,7 +139,8 @@ test("the git control walks the branch from Commit to Push to Create PR to the P
   expect((message as HTMLInputElement).value).toBe("Fix flaky checkout test");
   await userEvent.clear(message);
   await userEvent.type(message, "Wait for the payment intent before asserting");
-  await userEvent.click(within(commit).getByRole("button", { name: "Commit" }));
+  await within(commit).findByRole("list", { name: "Files to commit" });
+  await userEvent.click(within(commit).getByRole("button", { name: commitButton }));
   expect(await screen.findByText("Committed")).toBeTruthy();
 
   await userEvent.click(await screen.findByRole("button", { name: "Push" }));
@@ -144,7 +148,7 @@ test("the git control walks the branch from Commit to Push to Create PR to the P
 
   await userEvent.click(await screen.findByRole("button", { name: "Create PR" }));
   const pr = await screen.findByRole("dialog", { name: "Open a pull request" });
-  await userEvent.click(within(pr).getByRole("button", { name: "Create PR" }));
+  await userEvent.click(within(pr).getByRole("button", { name: /^Create PR/ }));
   await userEvent.click(await screen.findByRole("button", { name: "PR #1" }));
   expect(opened).toHaveBeenCalledWith(
     "https://github.com/acme/billing-api/pull/1",
@@ -161,6 +165,70 @@ test("the git control walks the branch from Commit to Push to Create PR to the P
     linkedPr: { number: 1, state: "open" },
   });
   opened.mockRestore();
+});
+
+test("Commit lists exactly the files git reports, leaves untracked ones out until picked, and commits only what is ticked", async () => {
+  const app = await openThread("checkout");
+  app.daemon.workspace.setGitStatus("thread-checkout", [
+    { path: ".env.local", status: "untracked", additions: 2, deletions: 0, binary: false },
+    { path: "src/checkout.ts", status: "modified", additions: 12, deletions: 4, binary: false },
+    {
+      path: "src/payments/wait.ts",
+      from: "src/payments/poll.ts",
+      status: "renamed",
+      additions: 3,
+      deletions: 1,
+      binary: false,
+    },
+  ]);
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Commit" }).getAttribute("aria-disabled")).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  const list = await within(dialog).findByRole("list", { name: "Files to commit" });
+  const box = (path: string) => within(list).getByRole("checkbox", { name: path });
+  // In git's order, one row per file.
+  const rows = within(list).getAllByRole("checkbox");
+  expect(
+    rows.map((row) =>
+      [".env.local", "src/checkout.ts", "src/payments/wait.ts"].map(box).indexOf(row),
+    ),
+  ).toEqual([0, 1, 2]);
+  expect(box(".env.local").getAttribute("aria-checked")).toBe("false");
+  expect(box("src/checkout.ts").getAttribute("aria-checked")).toBe("true");
+  expect(box("src/payments/wait.ts").getAttribute("aria-checked")).toBe("true");
+  expect(within(dialog).getByText("· 2 picked")).toBeTruthy();
+
+  await userEvent.click(box("src/checkout.ts"));
+  await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
+  expect(await screen.findByText("Committed")).toBeTruthy();
+  // The rename went in with its old path; the unticked files stayed uncommitted.
+  expect(app.daemon.workspace.gitStatus("thread-checkout").map((file) => file.path)).toEqual([
+    ".env.local",
+    "src/checkout.ts",
+  ]);
+});
+
+test("Commit can't run with nothing picked, and View diff shows the changes instead", async () => {
+  const app = await openThread("checkout");
+  app.daemon.workspace.setGitStatus("thread-checkout", [
+    { path: "notes.md", status: "untracked", additions: 1, deletions: 0, binary: false },
+  ]);
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Commit" }).getAttribute("aria-disabled")).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  await within(dialog).findByRole("list", { name: "Files to commit" });
+  expect(within(dialog).getByRole("button", { name: commitButton }).hasAttribute("disabled")).toBe(
+    true,
+  );
+
+  await userEvent.click(within(dialog).getByRole("button", { name: "View diff" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Commit changes" })).toBeNull());
+  const panel = await screen.findByRole("region", { name: /panel$/i });
+  expect(within(panel).getByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
 });
 
 test("Create PR says why it can't run when the checkout has no GitHub or GitLab remote", async () => {
@@ -259,16 +327,18 @@ test("with a linked PR, the git menu opens it and says why a draft PR can't be c
   opened.mockRestore();
 });
 
-test("the commit dialog counts the checkout's uncommitted files and can push too, with ⌘↵", async () => {
+test("the commit dialog lists the checkout's uncommitted files and can push too, with ⌘↵", async () => {
   const app = await openThread("checkout");
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Commit" }).getAttribute("aria-disabled")).toBeNull(),
   );
   await userEvent.click(screen.getByRole("button", { name: "Commit" }));
   const commit = await screen.findByRole("dialog", { name: "Commit changes" });
-  expect(within(commit).getByText(/uncommitted files? in the checkout/)).toBeTruthy();
+  // The fake checkout reports 3 uncommitted files, all picked.
+  expect(await within(commit).findByRole("button", { name: "3 files" })).toBeTruthy();
+  expect(within(commit).getByText("· 3 picked")).toBeTruthy();
   await userEvent.click(within(commit).getByRole("checkbox", { name: "Push after committing" }));
-  expect(within(commit).getByRole("button", { name: "Commit & push" })).toBeTruthy();
+  expect(within(commit).getByRole("button", { name: /^Commit & push/ })).toBeTruthy();
   await userEvent.click(within(commit).getByRole("textbox", { name: "Commit details" }));
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   expect(await screen.findByText("Committed and pushed")).toBeTruthy();
@@ -282,7 +352,7 @@ test("the commit dialog counts the checkout's uncommitted files and can push too
   });
 });
 
-test("the PR dialog's Draft switch opens a draft pull request", async () => {
+test("the PR dialog's Draft option opens a draft pull request", async () => {
   const app = harness();
   app.play(flakyCheckout()).runThrough("explorer-spawned");
   await app.open("/t/thread-checkout");
@@ -292,12 +362,13 @@ test("the PR dialog's Draft switch opens a draft pull request", async () => {
   );
   await userEvent.click(screen.getByRole("button", { name: "Commit" }));
   const commit = await screen.findByRole("dialog", { name: "Commit changes" });
+  await within(commit).findByRole("list", { name: "Files to commit" });
   await userEvent.click(within(commit).getByRole("checkbox", { name: "Push after committing" }));
-  await userEvent.click(within(commit).getByRole("button", { name: "Commit & push" }));
+  await userEvent.click(within(commit).getByRole("button", { name: /^Commit & push/ }));
   await userEvent.click(await screen.findByRole("button", { name: "Create PR" }));
   const pr = await screen.findByRole("dialog", { name: "Open a pull request" });
-  await userEvent.click(within(pr).getByRole("switch", { name: /Draft/ }));
-  await userEvent.click(within(pr).getByRole("button", { name: "Create draft PR" }));
+  await userEvent.click(within(pr).getByRole("checkbox", { name: /Draft/ }));
+  await userEvent.click(within(pr).getByRole("button", { name: /^Create draft PR/ }));
   expect(await screen.findByText(/^Draft pull request #\d+ opened$/)).toBeTruthy();
 });
 

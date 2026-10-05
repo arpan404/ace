@@ -186,7 +186,7 @@ test("Changes says what is uncommitted in the checkout, and follows a commit", a
 
   await userEvent.click(screen.getByRole("button", { name: "Commit" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Commit" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   await waitFor(() =>
     expect(within(panel).getByRole("status", { name: "Working tree" }).textContent).toContain(
       "Working tree: Everything is committed on fix/cold-start-cap · 1 to push",

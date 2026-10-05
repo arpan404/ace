@@ -605,6 +605,17 @@
           "type": "string",
           "x-ace-constraint": "Must contain a non-whitespace commit message."
         },
+        "paths": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Repository-relative path without NUL bytes."
+          },
+          "maxItems": 500,
+          "minItems": 1,
+          "type": "array"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
