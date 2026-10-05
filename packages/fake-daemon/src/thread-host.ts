@@ -61,10 +61,29 @@ export class ThreadHost {
   }
   /** Fold one adapter fact through core. Scripts are our own code, so a rejected fact is a bug. */
   fold(fact: Fact, now: number): EventPayload[] {
+    if (
+      fact.type === "item.upsert" &&
+      fact.draft.type === "message" &&
+      fact.draft.origin?.kind === "interaction_answer" &&
+      fact.draft.origin.interactionId
+    ) {
+      const interaction = this.interaction(fact.draft.origin.interactionId);
+      if (interaction)
+        fact = {
+          ...fact,
+          draft: { ...fact.draft, origin: { ...fact.draft.origin, interactionId: interaction.id } },
+        };
+    }
     const events = apply(this.state, fact, {
       now,
-      ids: { next: (kind) => `${this.id}.${kind}.${++this.counter}` },
+      ids: {
+        next: (kind) =>
+          kind === "item" && fact.type === "item.upsert" && fact.item.startsWith("input:")
+            ? fact.item
+            : `${this.id}.${kind}.${++this.counter}`,
+      },
     });
+    this.attachInput(fact, events);
     for (const event of events)
       if (
         event.type === "item.created" &&
@@ -73,6 +92,22 @@ export class ThreadHost {
       )
         throw new Error(`Core rejected scripted fact ${fact.type}: ${event.item.text}`);
     return events;
+  }
+  /**
+   * Like the daemon, admission writes the person's item before its run exists (or while an
+   * earlier run is still going); the root run started for that command takes it as its own, so
+   * the transcript groups the ask with the turn answering it.
+   */
+  private attachInput(fact: Fact, events: EventPayload[]): void {
+    if (fact.type !== "turn.started" || fact.agent !== this.state.rootKey) return;
+    if (!fact.nativeTurnId?.startsWith("turn-")) return;
+    const key = `input:${fact.nativeTurnId.slice("turn-".length)}`;
+    const runId = this.state.agents[fact.agent]?.activeRun;
+    const item = Object.hasOwn(this.state.items, key) ? this.state.items[key] : undefined;
+    if (!runId || !item || item.runId === runId) return;
+    const updated = { ...item, runId };
+    this.state.items[key] = updated;
+    events.push({ type: "item.updated", item: updated });
   }
   record(event: DeliveryEvent): void {
     applyDelivery(this.view, {

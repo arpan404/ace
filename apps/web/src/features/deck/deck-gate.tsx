@@ -96,7 +96,7 @@ function GateMeta(props: { run: DeckRun; gate: Gate }) {
 }
 
 const gateFrame =
-  "mt-[22px] rounded-lg bg-[color-mix(in_oklab,var(--status-needs-you)_9%,transparent)] py-3.5 pr-4 pl-[18px] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--status-needs-you)_30%,transparent)]";
+  "mt-[22px] rounded-lg bg-status-needs-you/9 py-3.5 pr-4 pl-[18px] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--status-needs-you)_30%,transparent)]";
 
 /**
  * The gate above the plan: plan approval, merge approval, an escalation, or an agent's own

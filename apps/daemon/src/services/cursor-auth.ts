@@ -15,6 +15,7 @@ export function startCursorAuth(context: ServiceContext): void {
   const defaultInstance = daemonCursorInstance(context);
   const auth = new CursorAuthService({
     registry,
+    isChangingInstance: (instanceId) => services.accounts?.isChangingAccount(instanceId) ?? false,
     now,
     id,
     driver: cursorSdkLoginDriver(registry, {
@@ -66,8 +67,8 @@ export function createCursorAuthSession(context: SocketContext): SocketService {
       const result = CursorAuthRequest.safeParse(message);
       if (!result.success) return false;
       const request = result.data;
-      // Poll can disclose a one-time browser challenge, so it also requires operate scope.
-      const scope = request.type === "cursor.auth.status" ? "read" : "operate";
+      // Browser challenges and account changes require explicit accounts authority.
+      const scope = request.type === "cursor.auth.status" ? "read" : "accounts";
       if (!context.authorize(scope))
         context.send({
           type: "cursor.auth.error",

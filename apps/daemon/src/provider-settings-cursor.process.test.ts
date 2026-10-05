@@ -119,7 +119,10 @@ console.log(JSON.stringify({id:r.id,result}));});`,
   client.send({ type: "accounts.list", requestId: "accounts" });
   expect(
     await until(client, (message) => "requestId" in message && message.requestId === "accounts"),
-  ).toMatchObject({ accounts: [{ id: "cursor-sdk-default" }] });
+  ).toMatchObject({
+    // Implicit CLI-home accounts are listed too; the SDK home is admitted beside them.
+    accounts: expect.arrayContaining([expect.objectContaining({ id: "cursor-sdk-default" })]),
+  });
   // Repeated disable/enable must retain the owner/account and cached model generation.
   await daemon.settings?.set("providers.configuration", disabled, { kind: "global" });
   await daemon.settings?.set("providers.configuration", [{ provider: "cursor", enabled: true }], {

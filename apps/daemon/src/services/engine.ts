@@ -10,7 +10,7 @@ import { daemonClaudeAdapter } from "./claude.ts";
 import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
-import { bindCursorSdk } from "@ace/accounts";
+import { bindCursorSdk, createInstance } from "@ace/accounts";
 import { activateCursorProvider } from "./cursor-activation.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
@@ -83,6 +83,22 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       : {};
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
+  // Preserve the SDK adapter's original home when it first enters accounts ownership.
+  const registerCursorSdkHome = async () => {
+    if (
+      accounts &&
+      accountRegistry &&
+      registry.has("cursor") &&
+      registry.get("cursor").adapter.backend === "cursor-sdk" &&
+      !accountRegistry.get(defaultInstance.id) &&
+      !accountRegistry
+        .list()
+        .some(({ instance }) => instance.provider === "cursor" && !instance.implicit)
+    )
+      await accountRegistry.register(
+        createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor SDK" }),
+      );
+  };
   const bindProvider = (source: ProviderAdapter) => {
     const adapter = configuredAdapter(source, services.providerConfigurations);
     if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
@@ -102,8 +118,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           !accountRegistry.get(session.instanceId)
         )
           return adapter.openSession(session);
+        // Listing the normal CLI home must not enroll existing local sessions
+        // in registered-account scheduling. Explicit selection still binds it.
         return session.instanceId ||
-          accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+          accountRegistry.selectedProvider(adapter.provider) ||
+          accountRegistry
+            .list()
+            .some(({ instance }) => instance.provider === adapter.provider && !instance.implicit)
           ? bound.openSession(session)
           : adapter.openSession(session);
       },
@@ -113,6 +134,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       ? configuredAdapter(wrapped, services.providerConfigurations)
       : withDaemonMcp(context, wrapped);
   };
+  await registerCursorSdkHome();
   registry.bindSessions(bindProvider);
   await activateCursorProvider(context, registry);
   if (!engineOptions.registry) {
@@ -151,6 +173,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
               : undefined,
             registry,
           );
+          await registerCursorSdkHome();
           registry.bindSessions(bindProvider);
           await activateCursorProvider(context, registry);
         })
@@ -244,6 +267,20 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           ]),
         );
       }),
+    onSessionOpenFailure: (thread, details) => {
+      log.log(
+        "warn",
+        "Provider session opening failed",
+        logFields([
+          ["thread", thread],
+          ["provider", details.provider],
+          ["code", details.code],
+          ["title", details.title],
+          ["detail", details.detail],
+        ]),
+      );
+      return engineOptions.onSessionOpenFailure?.(thread, details);
+    },
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());

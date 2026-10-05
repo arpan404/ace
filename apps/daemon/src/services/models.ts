@@ -1,5 +1,5 @@
 import { discoverCursorSdk } from "@ace/adapter-cursor";
-import { daemonCursorInstance } from "./cursor-instance.ts";
+import { cursorSdkCatalogInstance, registerCursorSdkCatalog } from "./cursor-activation.ts";
 import { createInstance, instanceEnv } from "@ace/accounts";
 import { cursorHosts } from "./cursor-hosts.ts";
 import {
@@ -15,9 +15,6 @@ export async function startModels(context: ServiceContext): Promise<void> {
     config.dataDir,
     options.modelInstances ?? [],
     {
-      ...(options.engine?.cursor?.discovery
-        ? { cursorDiscovery: options.engine.cursor.discovery }
-        : {}),
       ...options.modelDiscovery,
       cursorSlots: cursorHosts(context),
       cursorEnv: options.engine?.cursor?.env ?? process.env,
@@ -56,8 +53,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
   if (stopConfiguration) resources.own(stopConfiguration);
   resources.own(() => models.close());
   services.models = models;
-  const selected = services.accountRegistry?.selectedCursorSdk();
-  const account = selected ? services.accountRegistry?.get(selected) : undefined;
+  const account = services.accountRegistry?.selectedCursorSdk();
   const sdk =
     context.services.providerConfigurations?.for("cursor").enabled === false ||
     account ||
@@ -67,19 +63,11 @@ export async function startModels(context: ServiceContext): Promise<void> {
   const privateSdkConfigured =
     options.engine?.cursor?.instance !== undefined || config.cursorSdkHome !== undefined;
   const sdkInstance =
-    account?.instance ??
-    (options.modelInstances === undefined && (sdk?.installed || privateSdkConfigured)
-      ? daemonCursorInstance(context)
-      : undefined);
-  if (sdkInstance)
-    models.registerInstance({
-      id: sdkInstance.id,
-      provider: "cursor",
-      backend: "cursor-sdk",
-      homeDir: sdkInstance.homeDir,
-      cwd: sdkInstance.homeDir,
-      loginRevision: "cursor-sdk-default-v1",
-    });
+    (account && services.accountRegistry?.get(account)) ||
+    (options.modelInstances === undefined && (sdk?.installed || privateSdkConfigured))
+      ? cursorSdkCatalogInstance(context)
+      : undefined;
+  if (sdkInstance) registerCursorSdkCatalog(context, sdkInstance);
   if (options.modelInstances === undefined) {
     registerConfiguredModelInstances(
       models,

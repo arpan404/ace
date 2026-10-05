@@ -7,7 +7,8 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 if (args[0] === "auth") {
-  console.log("[]");
+  // Credential-free `auth list` shape; tests opt in to connected upstreams.
+  console.log(process.env.ACE_TEST_OPENCODE_CONNECTIONS ?? "[]");
   process.exit(0);
 }
 if (args[0] === "models") {
@@ -38,6 +39,7 @@ const operations = [
   "event.subscribe",
   "session.create",
   "session.get",
+  "session.switchModel",
   "session.list",
   "session.active",
   "session.prompt",
@@ -301,6 +303,16 @@ const server = createServer(async (req, res) => {
   const match = /^\/api\/session\/([^/]+)(.*)$/.exec(path);
   if (match) {
     const [, id, suffix] = match;
+    if (suffix === "/model" && req.method === "POST") {
+      const info = sessions.get(id);
+      if (!info) {
+        res.writeHead(404).end();
+        return;
+      }
+      info.model = body.model;
+      empty();
+      return;
+    }
     if (!suffix) {
       const info = sessions.get(id);
       if (!info) {
@@ -338,11 +350,19 @@ const server = createServer(async (req, res) => {
         delivery: body.delivery,
       };
       inbox.set(id, [...(inbox.get(id) ?? []), item]);
+      requests[requests.length - 1].modelUsed = sessions.get(id)?.model;
       publish(
         "session.inbox.enqueued",
         { sessionID: id, inboxID: item.id },
         sessions.get(id)?.location.directory,
       );
+      if (process.env.ACE_TEST_COMPLETE_INPUT === "1") {
+        const directory = sessions.get(id)?.location.directory;
+        inbox.set(id, []);
+        publish("session.inbox.delivered", { sessionID: id, inboxID: item.id }, directory);
+        publish("session.execution.started", { sessionID: id }, directory);
+        publish("session.execution.succeeded", { sessionID: id }, directory);
+      }
       if (fault.holdPrompt) {
         fault.holdPrompt = false;
         heldPrompt = () => json({ data: item });

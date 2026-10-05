@@ -7,6 +7,7 @@ import {
   type AgentStatus,
   type InteractionState,
   type Item,
+  type RawPayload,
   type ThreadStatus,
   type ThreadView,
 } from "@ace/protocol";
@@ -26,6 +27,7 @@ export interface ReplayFinal {
   interactions: Record<InteractionState, number>;
 }
 export interface ReplayResult {
+  diagnostics: RawPayload[];
   timeline: TimelineEntry[];
   final: ReplayFinal;
 }
@@ -65,6 +67,7 @@ export function replayFixture(options: ReplayOptions): ReplayResult {
   let seq = 0;
   const ids = { next: (kind: string) => `${kind}-${++id}` };
   const timeline: TimelineEntry[] = [];
+  const diagnostics: RawPayload[] = [];
   const times = [...new Set([...fixture.frames.map((frame) => frame.t), ...checkpoints])].toSorted(
     (a, b) => a - b,
   );
@@ -87,6 +90,7 @@ export function replayFixture(options: ReplayOptions): ReplayResult {
     let frame = fixture.frames[frameIndex];
     while (frame?.t === t) {
       fold(translator.translate(structuredClone(frame), t), t);
+      diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
       frame = fixture.frames[++frameIndex];
     }
     fold(translator.tick(t), t);
@@ -123,6 +127,7 @@ export function replayFixture(options: ReplayOptions): ReplayResult {
   for (const interaction of Object.values(view.interactions)) interactions[interaction.state]++;
   return {
     timeline,
+    diagnostics,
     final: {
       view,
       thread: structuredClone(view.thread.status),

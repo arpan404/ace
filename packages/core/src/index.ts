@@ -26,3 +26,5 @@ export {
   type ProviderAdmissionFacts,
   type ProviderThread,
 } from "./provider-admission.ts";
+
+export { factRaw } from "./fact-raw.ts";

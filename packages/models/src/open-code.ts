@@ -28,9 +28,9 @@ export class OpenCodeParser {
     const native = OpenCodeModel.parse(JSON.parse(this.#json.join("\n")));
     if (this.#heading !== `${native.providerID}/${native.id}`)
       throw new Error("Model heading mismatch");
+    // Execution, including New thread, uses nativeModelId as the provider/model selector.
     const model = base(this.#instance, this.#heading, native.name, native);
     model.nativeProviderId = native.providerID;
-    model.nativeModelId = native.id;
     if (native.limit?.context !== undefined) model.contextWindow = native.limit.context;
     model.inputModalities = Object.entries(native.capabilities?.input ?? {})
       .filter(([, enabled]) => enabled)
@@ -72,9 +72,9 @@ export function normalizeOpenCodeV2(
     if (available.length > 512) throw new Error("Too many connected models");
   }
   return available.map((native) => {
+    // Keep the qualified execution selector supplied by base in nativeModelId.
     const model = base(instance, `${native.providerID}/${native.modelID}`, native.name, native);
     model.nativeProviderId = native.providerID;
-    model.nativeModelId = native.modelID;
     model.contextWindow = native.limit.context;
     model.inputModalities = Object.entries(native.capabilities.input)
       .filter(([, enabled]) => enabled)
