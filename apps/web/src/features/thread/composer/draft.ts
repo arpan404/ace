@@ -1,4 +1,29 @@
 import type { Mention } from "@ace/protocol";
+import type { LocalAttachment } from "@/components/attachment-format.ts";
+
+/** A message the composer hands over on Enter. */
+export interface Draft {
+  text: string;
+  mentions: Mention[];
+  /** Files the daemon already holds. */
+  attachments: { sha256: string }[];
+  /**
+   * Every file attached, handed over from the composer (`useAttachments().handOff()`): as the
+   * pending bubble shows them, the ones still uploading, and when they've all settled.
+   */
+  files: {
+    local: LocalAttachment[];
+    uploading: number;
+    settled: Promise<{ sha256: string; name: string }[]>;
+    /** Each file's own outcome, in `local`'s order. */
+    outcomes: Promise<({ sha256: string; name: string } | { error: string })[]>;
+    /** The files themselves, in `local`'s order, for an upload to be retried. */
+    files: (File | undefined)[];
+    release(): void;
+  };
+  /** ⌘↵ / Ctrl+↵: the opposite of the follow-up default (steer instead of queue, or back). */
+  opposite: boolean;
+}
 
 /** The `@file` or leading `/command` being typed at the caret, if any. Pure. */
 export interface Trigger {

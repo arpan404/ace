@@ -61,7 +61,7 @@ export function QueueNotice(props: {
             key={action.id}
             size="sm"
             variant="ghost"
-            disabled={props.queue.busy}
+            disabled={props.queue.acting}
             onClick={() => props.queue.act(action)}
           >
             {action.label}
@@ -71,7 +71,7 @@ export function QueueNotice(props: {
           <Button
             size="sm"
             variant="primary"
-            disabled={props.queue.busy}
+            disabled={props.queue.acting}
             onClick={() => props.queue.act(primary)}
           >
             {primary.label}

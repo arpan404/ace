@@ -1,7 +1,7 @@
 import { ClientHost, type PortLike } from "@ace/client-worker";
 import { webSocketTransport } from "@ace/client";
 import { createBrowserClient } from "./client.ts";
-import { idbOutbox } from "./idb-storage.ts";
+import { workerOutbox } from "./worker-outbox.ts";
 import { lockReleased } from "./web-locks.ts";
 import { WorkerTarget, outboxKey } from "./worker-target.ts";
 
@@ -22,7 +22,7 @@ const host = new ClientHost({
           deviceId: target.deviceId,
           transport: () => webSocketTransport(() => new WebSocket(target.url)),
           credential: async () => target.token,
-          storage: idbOutbox(outboxKey(target), target.seed),
+          storage: workerOutbox(target),
         }),
     };
   },

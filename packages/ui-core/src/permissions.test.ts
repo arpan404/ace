@@ -4,6 +4,8 @@ import {
   permissionChoices,
   permissionCoverage,
   permissionCoverageNote,
+  permissionChipText,
+  permissionPendingNote,
   threadPermissionSummary,
 } from "./permissions.ts";
 
@@ -85,27 +87,64 @@ test("full access is the mode that asks for attention and gates nothing", () => 
   ).toEqual(["full-access"]);
 });
 
-test("a chosen mode waiting for the turn to end shows as pending until it applies", () => {
+test("a chosen mode waiting for the next turn shows beside the one in effect until it applies", () => {
   const waiting = threadPermissionSummary(
-    { override: "read-only", effective: "auto-review", pending: true },
+    { override: "full-access", effective: "auto-review", pending: true },
     codexLike,
   );
-  expect(waiting).toMatchObject({ mode: "read-only", pending: true, inherited: false });
+  // The chip shows the mode the agent runs under now, and the one replacing it.
+  expect(waiting).toMatchObject({ mode: "auto-review", next: "full-access", inherited: false });
+  expect(waiting && permissionChipText(waiting.mode, waiting.next)).toBe(
+    "Auto-review → Full access",
+  );
   const applied = threadPermissionSummary(
-    { override: "read-only", effective: "read-only", pending: false },
+    { override: "full-access", effective: "full-access", pending: false },
     codexLike,
   );
-  expect(applied).toMatchObject({ mode: "read-only", pending: false });
+  expect(applied).toMatchObject({ mode: "full-access", next: undefined });
+  expect(applied && permissionChipText(applied.mode, applied.next)).toBe("Full access");
 });
 
-test("a thread without an override shows the inherited default", () => {
+test("a change made here shows at once, before the daemon reports it", () => {
+  const settled = { override: null, effective: "auto-review", pending: false } as const;
+  expect(threadPermissionSummary(settled, codexLike, { chosen: "read-only" })).toMatchObject({
+    mode: "auto-review",
+    next: "read-only",
+    inherited: false,
+  });
+  // Choosing the mode already in effect changes nothing to wait for.
+  expect(threadPermissionSummary(settled, codexLike, { chosen: "auto-review" })?.next).toBe(
+    undefined,
+  );
+});
+
+test("going back to the default waits for the default's mode, when that differs", () => {
+  const own = { override: "full-access", effective: "full-access", pending: false } as const;
+  expect(
+    threadPermissionSummary(own, codexLike, { chosen: null, defaultMode: "auto-review" }),
+  ).toMatchObject({ mode: "full-access", next: "auto-review", inherited: true });
   expect(
     threadPermissionSummary(
-      { override: null, effective: "auto-review", pending: false },
+      { override: null, effective: "full-access", pending: true },
       codexLike,
-    ),
-  ).toMatchObject({ mode: "auto-review", inherited: true, label: "Auto-review" });
+      { defaultMode: "full-access" },
+    )?.next,
+  ).toBe(undefined);
+});
+
+test("the default mode is named on the chip, not left to its icon", () => {
+  const summary = threadPermissionSummary(
+    { override: null, effective: "auto-review", pending: false },
+    codexLike,
+  );
+  expect(summary).toMatchObject({ mode: "auto-review", inherited: true, label: "Auto-review" });
+  expect(summary && permissionChipText(summary.mode, summary.next)).toBe("Auto-review");
   expect(threadPermissionSummary(undefined, codexLike)).toBeUndefined();
+});
+
+test("a pending change says when it applies: the next turn, or the running command's end", () => {
+  expect(permissionPendingNote()).toBe("Applies at the agent's next turn");
+  expect(permissionPendingNote("busy")).toBe("Applies when the running command finishes");
 });
 
 test("coverage is said once: what the mode in effect gates, or that the provider doesn't say", () => {

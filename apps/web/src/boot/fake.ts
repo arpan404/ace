@@ -18,19 +18,12 @@ const timer = {
   },
 };
 
-/** A thread the reader "left" partway through, so its transcript shows a New activity divider. */
-export interface SeenSeed {
-  threadId: string;
-  itemId: string;
-}
-
 /** `bun run --filter @ace/web dev:fake`: the whole app against scripted scenarios in-page. */
 export function bootFake(): {
   client: Client;
   daemon: FakeDaemon;
   /** The fake daemon's access routes and devices, for the connection context. */
   connection: DaemonConnection;
-  seen: SeenSeed[];
   /** The name the design's account disc shows ("AB"), used when this device has none yet. */
   profileName: string;
 } {
@@ -72,9 +65,9 @@ export function bootFake(): {
   // This device last read the five-day migration after checkpoint 20, so opening it shows
   // what happened since (the catch-up card).
   daemon.markReadThrough("thread-multi-day", "answer-20", "web-fake-device");
-  // The hero thread was last read before reconnect-audit's finding arrived.
-  const relay = daemon.itemId("thread-dedupe", "relay");
-  const seen = relay ? [{ threadId: "thread-dedupe", itemId: relay }] : [];
+  // The hero thread was last read before reconnect-audit's finding arrived ("New activity").
+  if (daemon.itemId("thread-dedupe", "relay"))
+    daemon.markReadThrough("thread-dedupe", "relay", "web-fake-device");
   // Exposed for poking at fault injection from the console, e.g. ace.daemon.disconnectAll().
   // In Electron `window.ace` is the read-only desktop bridge, so use `aceFake` there.
   Object.assign(globalThis, { ["ace" in globalThis ? "aceFake" : "ace"]: { daemon, client } });
@@ -82,7 +75,6 @@ export function bootFake(): {
     client,
     daemon,
     connection: fakeConnection(daemon),
-    seen,
     profileName: "Arpan Bhandari",
   };
 }
