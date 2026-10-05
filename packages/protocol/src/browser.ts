@@ -23,8 +23,24 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   z.object({ action: z.literal("evaluate"), expression: z.string().max(65_536) }),
   z.object({
     action: z.literal("wait_for"),
-    ref: short,
-    state: z.enum(["visible", "hidden"]),
+    ref: short
+      .optional()
+      .describe("Ref from the latest snapshot. Use only for element visibility waits."),
+    state: z.enum(["visible", "hidden"]).optional().describe("Required with ref."),
+    url: z
+      .string()
+      .min(1)
+      .max(8192)
+      .optional()
+      .describe(
+        "Exact destination URL. Also waits for DOMContentLoaded. Works before or after navigation commits.",
+      ),
+    text: z
+      .string()
+      .min(1)
+      .max(4096)
+      .optional()
+      .describe("Visible page text to wait for, matched as a substring."),
     timeout,
   }),
   z.object({ action: z.literal("logs") }),

@@ -39,6 +39,8 @@ export async function deckFixture(
     planApproval?: "auto" | "required";
     hostCapacity?: number;
     prOnly?: boolean;
+    /** Merge policy "ask": every reviewed card waits on a merge gate. */
+    mergeAsk?: boolean;
     wrongReviewRevision?: boolean;
     quotaLimit?: boolean;
     auth?: "logged_in" | "logged_out" | "unknown";
@@ -156,7 +158,11 @@ export async function deckFixture(
           },
           policies: {
             planApproval: options.planApproval ?? "auto",
-            merge: options.prOnly ? "PR-only" : "auto-after-verification",
+            merge: options.prOnly
+              ? "PR-only"
+              : options.mergeAsk
+                ? "ask"
+                : "auto-after-verification",
             maxFixRounds: 1,
             roles: { planner: [model], worker: models, reviewer: [model], integrator: [model] },
           },

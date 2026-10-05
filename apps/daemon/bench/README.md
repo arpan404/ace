@@ -67,3 +67,22 @@ bundle, worker and SQLite differences.
 ## Review revision: static verification only
 
 The owner prohibits executing tests, benchmarks, probes, mutation runs and CI during review. Historical numbers in [the investigation](perf-regression-report.md) describe the pre-review implementation; they do not validate this revision. Both blocker reproductions are written as public-API behaviour tests with real subprocesses or workers, but their failing and passing runs **need run at merge**. [Review coverage and mutation cases](review-coverage.md) records each designed assertion as **not executed (tests run at merge)**. No budget, workload or per-attempt timeout changes were made.
+
+## Idle import guard
+
+`check.ts` also runs `node apps/daemon/bench/idle-imports.ts`. The guard starts the
+source benchmark daemon in a temporary home with provider discovery disabled,
+observes actual module loads in the main isolate and startup workers, and includes
+background initialization before shutdown. It reports each forbidden dependency
+by name, including sharp, Cursor/Claude/OpenCode SDKs, browser/CDP clients, the ACP
+SDK and MCP SDKs. Source execution preserves names that a production bundle would
+otherwise hide. The separate bundled measurement still enforces the unchanged RSS,
+startup, thread, latency, throughput and shutdown limits.
+
+All scripted measurements isolate `HOME`, `USERPROFILE` and `ACE_HOME`, clear the
+executable search path and disable the Cursor SDK status probe. They never invoke
+installed provider CLIs, including version and authentication status probes.
+
+The release main entry uses ESM code splitting so a lazy import also avoids parsing
+SDK code at idle. Chunks sit beside `ace.mjs`; worker/helper entries remain independent
+bundles, and the release checksum/archive inventory includes every generated file.

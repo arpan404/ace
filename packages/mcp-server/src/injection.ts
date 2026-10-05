@@ -28,9 +28,9 @@ export function developerInstructions(provider: ProviderKind): string {
     cursor: "Use the ace MCP server for ace operations.",
     antigravity: "Use the ace MCP server for ace operations.",
     acp: "Use the ace MCP server for ace operations.",
-    pi: "Use ace_* extension tools for ace operations.",
+    pi: "Use ace_*, screen_* and device_* extension tools for ace operations.",
   };
-  return `${prefix[provider]} Inspect the thread and agent tree for live status. Use delegate_task to start independent child threads on any available provider. Choose wait to await the outcome or continue working; completed children wake you in a batched turn. Creation returns acceptance, not completion. Agents may answer questions but must never resolve approvals. Notify the user when their input is needed. Browser, preview, screen and device tools appear only when authorized. Inspect semantic trees before using coordinate input.`;
+  return `${prefix[provider]} Inspect the thread and agent tree for live status. Use delegate_task to start independent child threads on any available provider. Choose wait to await the outcome or continue working; completed children wake you in a batched turn. Creation returns acceptance, not completion. Agents may answer questions but must never resolve approvals. Notify the user when their input is needed. Browser, preview, screen and device tools appear only when authorized. Use ace_browser_open then ace_browser_snapshot for web pages; do not call cua_repl or provider browser tools for ace's thread browser. Use screen_ui_tree/screen_ui_find for the human-delegated app, or device_list/device_find for an approved simulator. Inspect semantic trees before using coordinate input. If delegation is missing or a human owns control, report the tool error and wait for the user.`;
 }
 export function codexInjection(input: AceMcpConnection) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
@@ -40,6 +40,8 @@ export function codexInjection(input: AceMcpConnection) {
       `mcp_servers.ace.url=${JSON.stringify(url)}`,
       "-c",
       'mcp_servers.ace.bearer_token_env_var="ACE_MCP_BEARER_TOKEN"',
+      "-c",
+      "mcp_servers.ace.tool_timeout_sec=300",
     ],
     env: { ACE_MCP_BEARER_TOKEN: bearer },
     developerInstructions: developerInstructions("codex"),
@@ -48,6 +50,7 @@ export function codexInjection(input: AceMcpConnection) {
 export function claudeInjection(input: AceMcpConnection) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   return {
+    env: { MCP_TOOL_TIMEOUT: "300000" },
     mcpServers: {
       ace: { type: "http" as const, url, headers: { Authorization: `Bearer ${bearer}` } },
     },
@@ -81,6 +84,7 @@ export function openCodeInjection(input: AceMcpConnection, previous?: string) {
             url,
             enabled: true,
             oauth: false,
+            timeout: { execution: 300_000 },
             headers: { Authorization: `Bearer ${bearer}` },
           },
         },

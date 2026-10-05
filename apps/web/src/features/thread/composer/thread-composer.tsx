@@ -17,6 +17,7 @@ import {
   DeferredQueuedPills,
   DeferredThreadControls,
 } from "./deferred-parts.tsx";
+import { DeferredAccountMeter, DeferredLimitWarning } from "./deferred-usage.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useQueue } from "./use-queue.ts";
 
@@ -117,6 +118,7 @@ export function ThreadComposer({
             status={props.status}
             queue={queue}
           />
+          <DeferredLimitWarning.Component threadId={props.thread.id} status={props.status} />
           {!!queue.page?.messages.length && <DeferredQueuedPills.Component queue={queue} />}
         </Suspense>
         <Composer
@@ -138,7 +140,14 @@ export function ThreadComposer({
               <DeferredThreadControls.Component thread={props.thread} busy={busy} next={next} />
             </Suspense>
           }
-          status={<ContextMeter threadId={props.thread.id} />}
+          status={
+            <>
+              <Suspense fallback={null}>
+                <DeferredAccountMeter.Component threadId={props.thread.id} />
+              </Suspense>
+              <ContextMeter threadId={props.thread.id} />
+            </>
+          }
         />
         <ContextBar thread={props.thread} />
       </div>

@@ -23,11 +23,20 @@ export function withDaemonMcp(
         id: context.id,
         capabilities: daemonMcpCapabilities(context.services),
         onEnd(threadId, agentId) {
-          const owner = JSON.stringify([threadId, agentId]);
-          context.services.devices?.disconnect(owner);
-          context.services.screen?.releaseController(owner);
+          releaseMcpControllers(context.services, threadId, agentId);
         },
       });
     },
   };
+}
+
+/** Shared by CLI leases and Cursor's independently owned SDK lease. */
+export function releaseMcpControllers(
+  services: ServiceContext["services"],
+  threadId: string,
+  agentId: string,
+): void {
+  const owner = JSON.stringify([threadId, agentId]);
+  services.devices?.disconnect(owner);
+  services.screen?.releaseController(owner);
 }

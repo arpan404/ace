@@ -2,10 +2,11 @@ import { cn } from "@/lib/cn.ts";
 
 /**
  * The only colour a list row carries: a 6px dot when a thread needs you or failed, a hollow
- * grey dot when unresponsive. Always paired with text for assistive tech (`label`).
+ * grey dot when unresponsive, a hollow amber one when held at a usage limit. Always paired with
+ * text for assistive tech (`label`).
  */
 function Dot(props: {
-  tone: "needs-you" | "failed" | "unresponsive" | "idle" | "done";
+  tone: "needs-you" | "failed" | "unresponsive" | "limited" | "idle" | "done";
   label?: string;
   className?: string;
 }) {
@@ -21,6 +22,7 @@ function Dot(props: {
         props.tone === "done" && "bg-status-done",
         props.tone === "idle" && "bg-subtle-foreground",
         props.tone === "unresponsive" && "shadow-[inset_0_0_0_1.5px_var(--subtle-foreground)]",
+        props.tone === "limited" && "shadow-[inset_0_0_0_1.5px_var(--status-needs-you)]",
         props.className,
       )}
     />

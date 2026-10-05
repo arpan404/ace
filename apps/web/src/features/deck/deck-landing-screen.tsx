@@ -5,6 +5,7 @@ import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Page, PageTitle, Screen } from "@/features/shell/index.ts";
 import { useDeckRetry, useDeckRuns } from "./deck-source.ts";
+import { DeckSkeleton } from "./deck-run-page.tsx";
 import { NewDeckForm } from "./new-deck-form.tsx";
 
 /** Deck opens on the deck that most needs a look; with none, it invites the first. */
@@ -19,7 +20,7 @@ export function DeckLandingScreen() {
         <EmptyState
           icon={CardsIcon}
           title="Decks unavailable"
-          description={error}
+          description="Couldn't reach the daemon's Deck service."
           action={
             <Button size="sm" onClick={retry}>
               Try again
@@ -30,7 +31,9 @@ export function DeckLandingScreen() {
     );
   return (
     <Screen title="Deck">
-      {ready && (
+      {!ready ? (
+        <DeckSkeleton />
+      ) : (
         <EmptyState
           icon={CardsIcon}
           heading

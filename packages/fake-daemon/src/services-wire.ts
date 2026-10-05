@@ -24,6 +24,8 @@ import type { FakeServiceContext } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends PlanningSeed {
+  /** Seed the small PNG fixture for scoped client attachment reads. */
+  attachmentImages?: { threadId: string; name?: string }[];
   plugins?: PluginSeed;
   /** Pull requests linked to existing threads, by thread id. */
   pullRequests?: Record<string, ForgePrStatus>;
@@ -75,6 +77,8 @@ export class FakeServicesWire {
     );
   }
   seed(seed: ServicesSeed): void {
+    for (const image of seed.attachmentImages ?? [])
+      this.context.seedImage(image.threadId, image.name);
     if (seed.settings) this.settings.seed(seed.settings);
     this.planning.seed(seed);
     if (seed.plugins) this.plugins.seed(seed.plugins);

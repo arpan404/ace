@@ -1,4 +1,11 @@
-import { ContextErrorCode, ContextResult, type ContextRequest } from "@ace/protocol";
+import { imageSize } from "image-size";
+import { fixtureImage } from "./attachment-fixture.ts";
+import {
+  ContextErrorCode,
+  ContextResult,
+  type ContextRequest,
+  type Attachment,
+} from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
 import { completePaths } from "./services/workspace-files.ts";
 
@@ -24,17 +31,33 @@ interface Upload {
   name: string;
   chunks: Uint8Array[];
   offset: number;
-  attachment?: { sha256: string; bytes: number; mimeType: string; name: string };
+  attachment?: Attachment;
 }
 export class FakeContextWire {
   private context: FakeServiceContext;
   private drafts = new Map<string, { device: string; workspaceId: string; adopted?: string }>();
   private uploads = new Map<string, Upload>();
-  private attachments = new Map<
-    string,
-    Map<string, { sha256: string; bytes: number; mimeType: string; name: string }>
-  >();
+  private attachments = new Map<string, Map<string, Attachment>>();
+  seedImage(threadId: string, name = fixtureImage.name): void {
+    if (!this.context.thread(threadId)) return;
+    const bytes = Uint8Array.from(atob(fixtureImage.data), (c) => c.charCodeAt(0));
+    this.blobs.set(fixtureImage.sha256, bytes);
+    this.references(threadId).set(fixtureImage.sha256, {
+      sha256: fixtureImage.sha256,
+      bytes: bytes.length,
+      name,
+      ...imageMetadata(bytes, name),
+    });
+  }
   private counter = 0;
+  private blobs = new Map<string, Uint8Array>();
+  messageAttachments(thread: string, hashes: readonly string[]): Attachment[] {
+    return hashes.map((hash) => {
+      const attachment = this.references(thread).get(hash);
+      if (!attachment) throw new Error("not_found");
+      return attachment;
+    });
+  }
   constructor(context: FakeServiceContext) {
     this.context = context;
   }
@@ -157,9 +180,11 @@ export class FakeContextWire {
           const attachment = {
             sha256: hash,
             bytes: bytes.length,
-            mimeType: mimeType(upload.name),
+            ...imageMetadata(bytes, upload.name),
             name: upload.name,
           };
+          if (!this.blobs.has(hash) && this.blobs.size >= 64) throw new Error("quota");
+          this.blobs.set(hash, bytes);
           refs.set(hash, attachment);
           upload.attachment = attachment;
           upload.chunks = [];
@@ -181,6 +206,25 @@ export class FakeContextWire {
             bytes: upload.size,
           };
         }
+      } else if (op.op === "attachment.read") {
+        check(op.threadId);
+        const attachment = this.references(op.threadId).get(op.sha256),
+          bytes = this.blobs.get(op.sha256);
+        if (!attachment || !bytes) throw new Error("not_found");
+        if (op.variant === "thumbnail" && !attachment.thumbnailAvailable)
+          throw new Error("unsupported");
+        if (op.offset > bytes.length) throw new Error("offset");
+        const chunk = bytes.subarray(op.offset, op.offset + op.limit);
+        result = {
+          kind: "attachment.data",
+          sha256: op.sha256,
+          variant: op.variant,
+          mimeType: attachment.mimeType,
+          bytes: bytes.length,
+          offset: op.offset,
+          data: btoa(String.fromCharCode(...chunk)),
+          eof: op.offset + chunk.length === bytes.length,
+        };
       } else if (op.op === "attachment.list") {
         check(op.threadId);
         result = { kind: "attachments", attachments: [...this.references(op.threadId).values()] };
@@ -213,7 +257,15 @@ export class FakeContextWire {
       const code = error instanceof Error ? error.message : "invalid_request";
       result = {
         kind: "error",
-        code: ["quota", "busy", "offset", "hash_mismatch", "not_found", "forbidden"].includes(code)
+        code: [
+          "quota",
+          "busy",
+          "offset",
+          "hash_mismatch",
+          "not_found",
+          "forbidden",
+          "unsupported",
+        ].includes(code)
           ? ContextErrorCode.parse(code)
           : "invalid_request",
         message: code,
@@ -221,4 +273,38 @@ export class FakeContextWire {
     }
     return ContextResult.parse({ type: "context.result", requestId: request.requestId, result });
   }
+}
+
+/** Fixture previews reuse small originals. Production generates bounded PNG previews. */
+function imageMetadata(
+  bytes: Uint8Array,
+  name: string,
+): { mimeType: string; width?: number; height?: number; thumbnailAvailable: boolean } {
+  const png =
+    bytes.length >= 24 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
+  const gif = bytes.length >= 10 && String.fromCharCode(...bytes.subarray(0, 3)) === "GIF";
+  const webp = bytes.length >= 12 && String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP";
+  const mime = gif
+    ? "image/gif"
+    : webp
+      ? "image/webp"
+      : png
+        ? "image/png"
+        : bytes[0] === 255 && bytes[1] === 216
+          ? "image/jpeg"
+          : mimeType(name);
+  let dimensions: { width: number; height: number } | undefined;
+  if (mime.startsWith("image/")) {
+    try {
+      const size = imageSize(bytes);
+      dimensions = { width: size.width, height: size.height };
+    } catch {
+      /* Opaque fixture data has no thumbnail. */
+    }
+  }
+  return {
+    mimeType: mime,
+    thumbnailAvailable: dimensions !== undefined && bytes.length <= 256 * 1024,
+    ...dimensions,
+  };
 }
