@@ -78,9 +78,9 @@ test("fire-and-forget and unknown extension updates retain raw data without bloc
   expect(h.state.status.state).toBe("working");
   h.recv(settled);
   expect(h.state.status.state).toBe("done");
-  const retained = Object.values(h.state.items)
-    .filter((item) => item.type === "notice")
-    .flatMap((item) => item.raw);
+  const notices = Object.values(h.state.items).filter((item) => item.type === "notice");
+  expect(notices.map((item) => item.text)).toEqual(["hello"]);
+  const retained = [...h.diagnostics, ...notices.flatMap((item) => item.raw)];
   expect(retained).toContainEqual({ type: notification.type, data: notification });
   expect(retained).toContainEqual({ type: unknown.type, data: unknown });
 });
@@ -200,4 +200,36 @@ test("reopened processes keep new runs and text separate from prior native count
       .filter((item) => item.type === "message")
       .map((item) => (item.type === "message" ? item.parts : [])),
   ).toEqual([[{ type: "text", text: "one" }], [{ type: "text", text: "two" }]]);
+});
+
+test("extension notifications and failed commands remain readable while routine UI updates stay diagnostic", () => {
+  const h = replay();
+  h.recv(start);
+  const status = {
+    type: "extension_ui_request",
+    id: "s",
+    method: "setStatus",
+    statusText: "status.event",
+  };
+  h.recv(status);
+  h.recv({
+    type: "extension_ui_request",
+    id: "n",
+    method: "notify",
+    message: "Build needs attention",
+    notifyType: "warning",
+  });
+  h.recv({
+    type: "response",
+    command: "compact",
+    success: false,
+    error: "Context could not be compacted",
+  });
+  expect(Object.values(h.state.items).filter((item) => item.type === "notice")).toMatchObject([
+    { text: "Build needs attention", level: "warning" },
+    { text: "Context could not be compacted", level: "error" },
+  ]);
+  expect(h.diagnostics).toContainEqual({ type: "extension_ui_request", data: status });
+  h.recv(settled);
+  expect(h.state.status.state).toBe("done");
 });

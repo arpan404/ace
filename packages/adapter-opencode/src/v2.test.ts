@@ -582,3 +582,20 @@ it("a synthetic shell result consumed in an active execution clears its completi
   expect(h.view.thread.status.state).toBe("done");
   expect(h.translator.isSettled()).toBe(true);
 });
+
+it("unknown projected content stays diagnostic and malformed live data reports uncertain execution", () => {
+  const h = setup();
+  const message = {
+    id: "future",
+    type: "assistant",
+    content: [{ type: "future_block", opaque: 42 }],
+  };
+  h.frame("snapshot.message", { sessionID: "s-root", message });
+  expect(Object.values(h.view.items).filter((item) => item.type === "notice")).toEqual([]);
+  expect(h.translator.takeDiagnostics()).toMatchObject([{ data: { message } }]);
+  h.frame("sse", { id: "bad", type: "session.execution.started", data: null });
+  expect(Object.values(h.view.items).filter((item) => item.type === "notice")).toMatchObject([
+    { text: "OpenCode data could not be translated; execution remains uncertain", level: "error" },
+  ]);
+  expect(h.view.thread.status.state).not.toBe("done");
+});

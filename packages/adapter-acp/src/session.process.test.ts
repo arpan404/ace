@@ -91,7 +91,12 @@ it("ACP fallback correlates ace input before the native prompt is logged", async
       command: process.execPath,
       args: [fake],
     }).createTranslator({ threadId: ThreadId.parse("session-test"), rootKey: "root" });
-    const facts = h.frames.flatMap((frame) => translator.translate(frame, frame.t));
+    const diagnostics: import("@ace/protocol").RawPayload[] = [];
+    const facts = h.frames.flatMap((frame) => {
+      const translated = translator.translate(frame, frame.t);
+      diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
+      return translated;
+    });
     expect(facts).toContainEqual(
       expect.objectContaining({
         type: "item.upsert",
@@ -101,15 +106,10 @@ it("ACP fallback correlates ace input before the native prompt is logged", async
     expect(
       facts.some((fact) => fact.type === "item.delta" && fact.append === "echoed context"),
     ).toBe(false);
-    expect(facts).toContainEqual(
-      expect.objectContaining({
-        type: "item.upsert",
-        draft: expect.objectContaining({
-          type: "notice",
-          text: "Delegated-agent context echoed by the provider.",
-        }),
-      }),
+    expect(facts.some((fact) => fact.type === "item.upsert" && fact.draft.type === "notice")).toBe(
+      false,
     );
+    expect(JSON.stringify(diagnostics)).toContain("echoed context");
     const after = h.frames.length;
     await h.session.send(input("user-echo"), "queue", "copied-user-command");
     const userFacts = h.frames

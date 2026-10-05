@@ -4,135 +4,117 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
-import { createCodexTranslator, codexCapabilities } from "@ace/adapter-codex";
+import { ProviderPayload } from "@ace/provider-kit/payload";
+import { codexCapabilities } from "@ace/adapter-codex";
+import { protocolNoiseCases } from "./protocol-noise-test-support.ts";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
 import { Command, DeviceId } from "@ace/protocol";
 import { Client } from "../socket-test-support.ts";
 import { until } from "./test-support.ts";
 
-// Mutation 4: replace prepared nested fields with plain objects or discard payloads.
-// Not executed (tests run at merge).
-test("unknown provider frames survive the daemon's bounded redacted debug file sink", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-provider-diagnostics-"));
-  const registry = new AdapterRegistry();
-  registry.register(
-    createScriptedAdapter({
-      provider: "codex",
-      capabilities: codexCapabilities({
-        installed: true,
-        auth: "logged_in",
-        version: "0.159.1",
-        loginHint: "unused",
+for (const corpus of protocolNoiseCases.filter((c) => c.provider !== "acp")) {
+  test(`${corpus.name} unknown frames survive the bounded redacted daemon sink without transcript rows`, async () => {
+    const home = await mkdtemp(join(tmpdir(), "ace-provider-diagnostics-"));
+    const registry = new AdapterRegistry();
+    registry.register(
+      createScriptedAdapter({
+        provider: corpus.provider,
+        capabilities: codexCapabilities({
+          installed: true,
+          auth: "logged_in",
+          version: "0.159.1",
+          loginHint: "unused",
+        }),
+        createTranslator: corpus.create,
+        steps: [
+          {
+            on: "send",
+            frames: [...corpus.setup, ...corpus.noise, ...corpus.after].map((frame, index) => {
+              const payload =
+                frame.channel === "sdk"
+                  ? new ProviderPayload(JSON.stringify(frame.data))
+                  : undefined;
+              return Object.assign(
+                {},
+                frame,
+                { seq: index + 1, t: index + 1 },
+                payload ? { data: payload.data, payload } : {},
+              );
+            }),
+          },
+        ],
       }),
-      createTranslator: createCodexTranslator,
-      steps: [
-        {
-          on: "send",
-          frames: [
-            {
-              seq: 1,
-              t: 1,
-              dir: "recv",
-              channel: "stdio",
-              data: { method: "thread/started", params: { thread: { id: "native", cwd: home } } },
-            },
-            {
-              seq: 2,
-              t: 2,
-              dir: "recv",
-              channel: "stdio",
-              data: {
-                method: "future/evidence",
-                params: {
-                  threadId: "native",
-                  detail: { message: "retained-evidence", api_key: "never-log-this" },
-                  large: "x".repeat(10000),
-                },
-              },
-            },
-            {
-              seq: 3,
-              t: 3,
-              dir: "recv",
-              channel: "stdio",
-              data: {
-                method: "turn/started",
-                params: { threadId: "native", turn: { id: "turn" } },
-              },
-            },
-            {
-              seq: 4,
-              t: 4,
-              dir: "recv",
-              channel: "stdio",
-              data: {
-                method: "turn/completed",
-                params: { threadId: "native", turn: { id: "turn", status: "completed" } },
-              },
-            },
-          ],
-        },
-      ],
-    }),
-    { installed: true, auth: "logged_in", loginHint: "unused" },
-  );
-  const daemon = await startDaemon({
-    config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "debug" }),
-    modelInstances: [],
-    engine: { registry },
-  });
-  const client = new Client(daemon.url);
-  try {
-    await once(client.socket, "open");
-    client.send({
-      type: "hello",
-      protocolVersion: 1,
-      deviceId: DeviceId.parse("device"),
-      token: await readFile(daemon.tokenPath, "utf8"),
+      { installed: true, auth: "logged_in", loginHint: "unused" },
+    );
+    const daemon = await startDaemon({
+      config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "debug" }),
+      modelInstances: [],
+      engine: { registry },
     });
-    await until(client, (m) => m.type === "welcome");
-    const done = Promise.withResolvers<void>();
-    const unsubscribe = daemon.store.subscribe((events) => {
-      if (
-        events.some(
-          (e) => e.payload.type === "thread.updated" && e.payload.status?.state === "done",
+    const client = new Client(daemon.url);
+    try {
+      await once(client.socket, "open");
+      client.send({
+        type: "hello",
+        protocolVersion: 1,
+        deviceId: DeviceId.parse("device"),
+        token: await readFile(daemon.tokenPath, "utf8"),
+      });
+      await until(client, (m) => m.type === "welcome");
+      const done = Promise.withResolvers<void>();
+      const notices: string[] = [];
+      const unsubscribe = daemon.store.subscribe((events) => {
+        for (const event of events)
+          if (event.payload.type === "item.created" && event.payload.item.type === "notice")
+            notices.push(event.payload.item.text);
+        if (
+          events.some(
+            (e) =>
+              (e.payload.type === "item.delta" && e.payload.append === "Still here") ||
+              (e.payload.type === "item.created" &&
+                e.payload.item.type === "message" &&
+                e.payload.item.parts.some(
+                  (part) => part.type === "text" && part.text === "Still here",
+                )),
+          )
         )
-      )
-        done.resolve();
-    });
-    const workspaceId = daemon.store.createWorkspace(home, "Workspace");
-    client.send({
-      type: "command",
-      command: Command.parse({
-        id: "send",
-        deviceId: "device",
-        payload: {
-          type: "thread.create",
-          workspaceId,
-          provider: "codex",
-          input: [{ type: "text", text: "fixture input" }],
-        },
-      }),
-    });
-    expect(
-      await until(client, (m) => m.type === "commandResult" && m.commandId === "send"),
-    ).toMatchObject({ ok: true });
-    await done.promise;
-    unsubscribe();
-    await client.close();
-    await daemon.close();
-    const logs = (await readFile(join(home, "logs", "ace.jsonl"), "utf8"))
-      .split("\n")
-      .filter((line) => line.includes('"message":"Provider diagnostic"'))
-      .join("\n");
-    expect(logs).toContain("future/evidence");
-    expect(logs).toContain("retained-evidence");
-    expect(logs).not.toContain("never-log-this");
-    expect(logs).not.toContain("x".repeat(10000));
-    expect(logs).not.toContain("<UNPREPARED OBJECT OMITTED>");
-  } finally {
-    await client.close();
-    await daemon.close();
-    await rm(home, { recursive: true, force: true });
-  }
-});
+          done.resolve();
+      });
+      const workspaceId = daemon.store.createWorkspace(home, "Workspace");
+      client.send({
+        type: "command",
+        command: Command.parse({
+          id: "send",
+          deviceId: "device",
+          payload: {
+            type: "thread.create",
+            workspaceId,
+            provider: corpus.provider,
+            input: [{ type: "text", text: "fixture input" }],
+          },
+        }),
+      });
+      expect(
+        await until(client, (m) => m.type === "commandResult" && m.commandId === "send"),
+      ).toMatchObject({ ok: true });
+      await done.promise;
+      unsubscribe();
+      expect(notices).toEqual([]);
+      await client.close();
+      await daemon.close();
+      const logs = (await readFile(join(home, "logs", "ace.jsonl"), "utf8"))
+        .split("\n")
+        .filter((line) => line.includes('"message":"Provider diagnostic"'))
+        .join("\n");
+      expect(logs).toContain("future/extension");
+      expect(logs).toContain("future evidence");
+      expect(logs).not.toContain("synthetic-secret");
+      expect(logs).not.toContain("x".repeat(10000));
+      expect(logs).not.toContain("<UNPREPARED OBJECT OMITTED>");
+    } finally {
+      await client.close();
+      await daemon.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+}

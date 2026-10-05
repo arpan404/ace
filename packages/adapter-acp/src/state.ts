@@ -65,6 +65,7 @@ export class TranslationState {
   threadId: string;
   cwd = "";
   readonly identity: TranslatorIdentity;
+  diagnostics: RawPayload[] = [];
   promptOpen = false;
   stopped = false;
   initialized = false;
@@ -219,7 +220,11 @@ export class TranslationState {
     });
     delete agent.stream;
   }
-  notice(facts: Fact[], data: unknown, type: string, text = "ACP frame", owner = this.root): void {
+  notice(facts: Fact[], data: unknown, type: string, text?: string, owner = this.root): void {
+    if (text === undefined) {
+      this.diagnostics.push(raw(data, type));
+      return;
+    }
     facts.push({
       type: "item.upsert",
       agent: owner.key,
