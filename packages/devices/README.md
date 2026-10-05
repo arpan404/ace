@@ -75,8 +75,19 @@ cost require live verification at merge. No emulator gRPC endpoint is assumed.
 
 iOS capture and semantic actions use the approved Simulator window through the
 macOS helper. Set `ACE_SCREEN_HELPER` and grant Screen Recording and Accessibility
-permissions. Open the selected Simulator window before starting capture. Its
-name must match uniquely, and no other booted Simulator may share that name. The screen manager currently owns one native capture,
+to **Ace Screen Helper** (the helper disclaims its launcher, so the grants belong
+to its stable `dev.ace.screen-helper` identity). A missing permission fails with
+`permission_denied` and a `permission` field naming it; `permissions` reads the
+helper's state from a fresh process and `permissions.request` (human only) shows
+macOS's prompt and opens the matching Privacy & Security pane on the daemon's
+Mac. Capture finds the device's Simulator window even on another Space, and opens
+Simulator in the background when the window is missing. Its name must match
+uniquely, and no other booted Simulator may share that name. A person starting a
+live view approves the Simulator window for capture; agents still need the
+device approved for their thread. Boot and shutdown re-read the inventory, and
+while a Devices view holds an `inventory.watch` lease the inventory is re-read every few seconds
+and pushed as `devices.inventory`, so a device booted elsewhere shows up. Enabling or disabling
+devices is pushed to every connection as `devices.enabled`. The screen manager currently owns one native capture,
 so another computer/Simulator capture may need to stop first. Timed gestures use
 the helper's target-point drag operation; direct platform calls without a window
 binding can use detected idb.

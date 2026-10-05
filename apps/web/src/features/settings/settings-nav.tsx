@@ -24,8 +24,7 @@ export function SettingsNav() {
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground",
-                    active &&
-                      "bg-[color-mix(in_oklab,var(--foreground)_9%,transparent)] font-medium text-foreground",
+                    active && "bg-foreground/10 font-medium text-foreground",
                   )}
                 >
                   <Icon icon={page.icon} active={active} />

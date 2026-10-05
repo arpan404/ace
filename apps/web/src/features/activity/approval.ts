@@ -1,4 +1,5 @@
-import type { ApprovalOption } from "@ace/protocol";
+import type { ApprovalOption, PermissionMode } from "@ace/protocol";
+import { offeredOptions } from "@ace/ui-core";
 
 /** The buttons an approval card shows, picked from whatever options the provider offered. */
 export interface ApprovalChoices {
@@ -24,6 +25,19 @@ export function approvalChoices(options: readonly ApprovalOption[]): ApprovalCho
     always: wider && wider !== approve ? wider : undefined,
     deny: first(options, ["deny", "cancel", "deny_always"]),
   };
+}
+
+/**
+ * The choices a card offers in the thread's effective mode (IR-13): outside full access the
+ * daemon refuses "for this session" and "always" grants, so they are not offered; `hidden`
+ * says some were left out, for the one-shot note.
+ */
+export function offeredChoices(
+  options: readonly ApprovalOption[],
+  mode: PermissionMode | undefined,
+): ApprovalChoices & { hidden: number } {
+  const offered = offeredOptions(options, mode);
+  return { ...approvalChoices(offered.options), hidden: offered.hidden };
 }
 
 /** Label for the "always" checkbox: the provider's own words, phrased as a grant. */

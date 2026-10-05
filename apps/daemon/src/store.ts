@@ -465,9 +465,13 @@ export class Store {
       provider: row.provider,
       ...(row.provider_metadata == null
         ? {}
-        : Thread.pick({ backend: true, capabilities: true, handoff: true, permission: true }).parse(
-            JSON.parse(String(row.provider_metadata)),
-          )),
+        : Thread.pick({
+            backend: true,
+            capabilities: true,
+            handoff: true,
+            permission: true,
+            titleSource: true,
+          }).parse(JSON.parse(String(row.provider_metadata)))),
       ...(row.acp == null ? {} : ThreadProviderMetadata.parse(JSON.parse(String(row.acp)))),
       status: JSON.parse(String(row.status)),
       createdAt: row.created_at,
@@ -568,6 +572,7 @@ export class Store {
               capabilities: thread.capabilities,
               handoff: thread.handoff,
               permission: thread.permission,
+              titleSource: thread.titleSource,
             }),
             thread.id,
           );
