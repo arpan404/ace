@@ -18,6 +18,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ace/automations": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/client-react": "workspace:*",
     "@ace/client-worker": "workspace:*",

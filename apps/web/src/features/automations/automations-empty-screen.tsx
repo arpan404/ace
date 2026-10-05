@@ -6,7 +6,10 @@ import { Screen } from "@/features/shell/index.ts";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useAutomations } from "./use-automations.ts";
 
-/** Automations opens on the first one in the list; with none yet, says how to make one. */
+/**
+ * Automations opens on the first one in the list; with none yet, the main pane alone says how
+ * to make one (the sidebar keeps one quiet line).
+ */
 export function AutomationsEmptyScreen() {
   const list = useAutomations();
   const first = list.data?.[0];
@@ -39,10 +42,14 @@ export function AutomationsEmptyScreen() {
     <Screen title="Automations">
       <EmptyState
         icon={ClockIcon}
-        title="No automation selected"
-        description="Automations run a prompt on a schedule or a repository event and report back in Activity."
+        heading
+        title="No automations yet"
+        description="Run a prompt on a schedule, on a GitHub event, or by hand. Results land in Activity."
         action={
-          <Link to="/automations/new" className={buttonVariants({ size: "sm" })}>
+          <Link
+            to="/automations/new"
+            className={buttonVariants({ variant: "primary", size: "sm" })}
+          >
             New automation
           </Link>
         }

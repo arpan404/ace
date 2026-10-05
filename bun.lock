@@ -118,6 +118,7 @@
     "apps/web": {
       "name": "@ace/web",
       "dependencies": {
+        "@ace/automations": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/client-react": "workspace:*",
         "@ace/client-worker": "workspace:*",

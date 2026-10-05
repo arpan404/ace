@@ -2,6 +2,16 @@ import { ProviderKind, type Automation } from "@ace/protocol";
 import { z } from "zod";
 import { presetToSchedule, scheduleToPreset, weekdays, type SchedulePreset } from "./schedule.ts";
 
+/** An IANA zone this browser can format in ("Europe/London"). */
+function isTimeZone(zone: string): boolean {
+  if (!zone) return false;
+  try {
+    return Intl.DateTimeFormat("en", { timeZone: zone }).resolvedOptions().timeZone !== "";
+  } catch {
+    return false;
+  }
+}
+
 /** Everything the create/edit form holds. Flat, so each control binds to one field. */
 export const AutomationForm = z
   .object({
@@ -10,19 +20,23 @@ export const AutomationForm = z
     workspace: z.string().min(1, "Choose a project."),
     provider: ProviderKind,
     model: z.string().trim().max(256),
-    trigger: z.enum(["schedule", "github", "manual"]),
+    trigger: z.enum(["schedule", "github", "file", "manual"]),
     cadence: z.enum(["daily", "weekdays", "weekly", "hourly", "custom"]),
-    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-hour time, like 09:30."),
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Enter a time, like 09:30."),
     day: z.enum(weekdays),
     every: z
-      .number()
-      .int("Whole hours only.")
-      .min(1, "At least 1 hour.")
-      .max(23, "At most 23 hours."),
+      .number("Enter whole hours from 1 to 23.")
+      .int("Enter whole hours from 1 to 23.")
+      .min(1, "Enter whole hours from 1 to 23.")
+      .max(23, "Enter whole hours from 1 to 23."),
+    timezone: z.string().refine(isTimeZone, "Choose a time zone from the list."),
     syntax: z.enum(["rrule", "cron"]),
     expression: z.string().trim(),
     repository: z.string().trim(),
     event: z.enum(["pr_changed", "ci_failed", "review_comment", "issue_labelled"]),
+    label: z.string().trim().max(256),
+    /** File trigger globs, one per line. */
+    paths: z.string(),
     worktree: z.boolean(),
     missedRun: z.enum(["skip", "run_once"]),
   })
@@ -49,10 +63,24 @@ export const AutomationForm = z
         path: ["repository"],
         message: "Use owner/name, like arpan404/ace.",
       });
+    if (form.trigger === "github" && form.event === "issue_labelled" && !form.label)
+      ctx.addIssue({ code: "custom", path: ["label"], message: "Name the label to watch for." });
+    if (form.trigger === "file" && !globs(form.paths).length)
+      ctx.addIssue({ code: "custom", path: ["paths"], message: "Add at least one path." });
   });
 export type AutomationForm = z.infer<typeof AutomationForm>;
 
-export function blankForm(workspace: string): AutomationForm {
+/** The file trigger's globs: one per line, blank lines dropped. */
+export const globs = (paths: string) =>
+  paths
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+/** Hour intervals offered for "Every few hours": each divides a day, so runs don't drift. */
+export const hourSteps = [1, 2, 3, 4, 6, 8, 12] as const;
+
+export function blankForm(workspace: string, timezone: string): AutomationForm {
   return {
     title: "",
     prompt: "",
@@ -64,18 +92,21 @@ export function blankForm(workspace: string): AutomationForm {
     time: "09:00",
     day: "MO",
     every: 6,
+    timezone,
     syntax: "rrule",
     expression: "",
     repository: "",
     event: "pr_changed",
+    label: "",
+    paths: "",
     worktree: true,
     missedRun: "run_once",
   };
 }
 
-export function formFromAutomation(automation: Automation): AutomationForm {
+export function formFromAutomation(automation: Automation, localZone: string): AutomationForm {
   const form: AutomationForm = {
-    ...blankForm(automation.workspace),
+    ...blankForm(automation.workspace, localZone),
     title: automation.title,
     prompt: automation.prompt,
     provider: automation.provider,
@@ -85,10 +116,22 @@ export function formFromAutomation(automation: Automation): AutomationForm {
   };
   const trigger = automation.trigger;
   if (trigger.kind === "github")
-    return { ...form, trigger: "github", repository: trigger.repository, event: trigger.event };
+    return {
+      ...form,
+      trigger: "github",
+      repository: trigger.repository,
+      event: trigger.event,
+      label: trigger.label ?? "",
+    };
+  if (trigger.kind === "file") return { ...form, trigger: "file", paths: trigger.paths.join("\n") };
   if (trigger.kind !== "schedule") return { ...form, trigger: "manual" };
   const preset = scheduleToPreset(trigger.schedule);
-  const scheduled = { ...form, trigger: "schedule" as const, cadence: preset.kind };
+  const scheduled = {
+    ...form,
+    trigger: "schedule" as const,
+    cadence: preset.kind,
+    timezone: trigger.schedule.timezone,
+  };
   switch (preset.kind) {
     case "custom":
       return { ...scheduled, syntax: preset.syntax, expression: preset.expression };
@@ -115,40 +158,53 @@ export function presetFromForm(form: AutomationForm): SchedulePreset {
   }
 }
 
+/** The trigger a submitted form describes, keeping what the form doesn't show. */
+function triggerFromForm(
+  form: AutomationForm,
+  now: number,
+  previous: Automation["trigger"] | undefined,
+): Automation["trigger"] {
+  switch (form.trigger) {
+    case "manual":
+      return { kind: "manual" };
+    case "file":
+      return { kind: "file", paths: globs(form.paths) };
+    case "github": {
+      const before = previous?.kind === "github" ? previous : undefined;
+      // The label only means something for "an issue is labelled".
+      const label = form.event === "issue_labelled" && form.label ? form.label : undefined;
+      return {
+        kind: "github",
+        repository: form.repository,
+        event: form.event,
+        ...(label ? { label } : {}),
+        ...(before?.pullRequest !== undefined ? { pullRequest: before.pullRequest } : {}),
+        pollIntervalMs: before?.pollIntervalMs ?? 300_000,
+      };
+    }
+    case "schedule":
+      return {
+        kind: "schedule",
+        schedule: presetToSchedule(
+          presetFromForm(form),
+          form.timezone,
+          previous?.kind === "schedule" ? previous.schedule.startAt : now,
+        ),
+      };
+  }
+}
+
 /**
  * The protocol definition for a submitted form. Editing keeps the original id, enabled state,
- * concurrency, jitter and file triggers the form doesn't show.
+ * concurrency, jitter and the trigger details the form doesn't show (a GitHub trigger's pull
+ * request and poll interval, a schedule's start).
  */
 export function automationFromForm(
   form: AutomationForm,
-  context: { id: string; now: number; timezone: string; previous?: Automation | undefined },
+  context: { id: string; now: number; previous?: Automation | undefined },
 ): Automation {
   const previous = context.previous;
-  const trigger: Automation["trigger"] =
-    form.trigger === "manual"
-      ? previous?.trigger.kind === "file"
-        ? previous.trigger
-        : { kind: "manual" }
-      : form.trigger === "github"
-        ? {
-            kind: "github",
-            repository: form.repository,
-            event: form.event,
-            pollIntervalMs:
-              previous?.trigger.kind === "github" ? previous.trigger.pollIntervalMs : 300_000,
-          }
-        : {
-            kind: "schedule",
-            schedule: presetToSchedule(
-              presetFromForm(form),
-              previous?.trigger.kind === "schedule"
-                ? previous.trigger.schedule.timezone
-                : context.timezone,
-              previous?.trigger.kind === "schedule"
-                ? previous.trigger.schedule.startAt
-                : context.now,
-            ),
-          };
+  const trigger = triggerFromForm(form, context.now, previous?.trigger);
   return {
     id: previous?.id ?? context.id,
     title: form.title,

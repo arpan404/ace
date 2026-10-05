@@ -2,29 +2,30 @@ import type { Automation, AutomationRun } from "@ace/protocol";
 import {
   ArrowsClockwiseIcon,
   CalendarBlankIcon,
-  CheckIcon,
   ClockIcon,
   FileIcon,
   GitPullRequestIcon,
   HandPointingIcon,
+  PauseIcon,
   PlusIcon,
   WarningIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { Link, useParams } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { cn } from "@/lib/cn.ts";
-import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { ViewSidebarError } from "@/components/ui/view-row.tsx";
+import {
+  ViewRowBody,
+  ViewSidebarError,
+  useViewListKeys,
+  viewRowClass,
+} from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-import { useNow } from "@/lib/time.ts";
-import { formatAge } from "@ace/ui-core";
-import { runNeedsAttention, runSummary } from "./labels.ts";
 import { describeTrigger } from "./schedule.ts";
 import { useAutomationRuns, useAutomations } from "./use-automations.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -47,14 +48,31 @@ function triggerIcon(trigger: Automation["trigger"]): PhosphorIcon {
   return weekly ? CalendarBlankIcon : ClockIcon;
 }
 
-/** Automations' list in the sidebar: every schedule and trigger, then the latest runs. */
+/** Each automation's latest run that failed, by automation id (runs come newest first). */
+function useLastFailed(): ReadonlySet<string> {
+  const runs = useAutomationRuns().data;
+  return useMemo(() => {
+    const latest = new Map<string, AutomationRun>();
+    for (const run of runs ?? [])
+      if (!latest.has(run.automationId)) latest.set(run.automationId, run);
+    return new Set(
+      [...latest.values()].filter((run) => run.status === "failed").map((run) => run.automationId),
+    );
+  }, [runs]);
+}
+
+/**
+ * Automations' list in the sidebar: every automation, how it fires and where. A paused one
+ * reads muted with a pause mark; one whose last run failed carries a warning. Runs themselves
+ * are Activity's (its Runs tab).
+ */
 export function AutomationsSidebar() {
   const list = useAutomations();
   const automations = list.data;
-  const runs = useAutomationRuns().data;
+  const failed = useLastFailed();
   const selected = useParams({ strict: false }).automationId;
-  const now = useNow();
   const projectName = useProjectName();
+  const keys = useViewListKeys<HTMLUListElement>();
   return (
     <ViewSidebar
       title="Automations"
@@ -75,102 +93,49 @@ export function AutomationsSidebar() {
       ) : !automations ? (
         <ListSkeleton label="automations" shape="tile" rows={4} />
       ) : !automations.length ? (
-        <EmptyState
-          icon={ClockIcon}
-          title="No automations"
-          description="Run a prompt on a schedule or when something happens in a repository."
-          className="h-auto pt-16"
-        />
+        <EmptyState variant="inline" title="No automations yet" />
       ) : (
-        <>
-          <Section label="Schedules">
-            {(automations ?? []).map(({ automation }) => (
-              <Row
-                key={automation.id}
-                to={automation.id}
-                selected={selected === automation.id}
-                icon={<Icon icon={triggerIcon(automation.trigger)} size={16} />}
-                title={automation.title}
-                description={`${describeTrigger(automation.trigger)} · ${projectName(automation.workspace)}`}
-                trailing={automation.enabled ? undefined : "off"}
-              />
-            ))}
-          </Section>
-          {!!runs?.length && (
-            <Section label="Recent runs">
-              {runs.slice(0, 6).map((run) => (
-                <Row
-                  key={run.id}
-                  to={run.automationId}
-                  selected={false}
-                  icon={runMark(run)}
-                  title={run.title}
-                  description={runSummary(run)}
-                  trailing={formatAge(run.finishedAt ?? run.startedAt, now)}
+        <ul {...keys} aria-label="Automations" className="flex flex-col gap-px">
+          {automations.map(({ automation }) => (
+            <li key={automation.id}>
+              <Link
+                to="/automations/$automationId"
+                params={{ automationId: automation.id }}
+                aria-current={selected === automation.id ? "page" : undefined}
+                className={viewRowClass}
+              >
+                <ViewRowBody
+                  icon={triggerIcon(automation.trigger)}
+                  title={
+                    automation.enabled ? (
+                      automation.title
+                    ) : (
+                      <span className="text-muted-foreground">{automation.title}</span>
+                    )
+                  }
+                  description={`${describeTrigger(automation.trigger)} · ${projectName(automation.workspace)}`}
+                  metaInline
+                  meta={
+                    <RowMarks paused={!automation.enabled} failed={failed.has(automation.id)} />
+                  }
                 />
-              ))}
-            </Section>
-          )}
-        </>
+              </Link>
+            </li>
+          ))}
+        </ul>
       )}
     </ViewSidebar>
   );
 }
 
-function runMark(run: AutomationRun): ReactNode {
-  if (run.status === "running") return <Spinner />;
-  return runNeedsAttention(run) ? (
-    <Icon icon={WarningIcon} size={16} label="Needs a look" />
-  ) : (
-    <Icon icon={CheckIcon} size={16} label="Finished" />
-  );
-}
-
-function Section(props: { label: string; children: ReactNode }) {
+function RowMarks(props: { paused: boolean; failed: boolean }) {
+  if (!props.paused && !props.failed) return null;
   return (
-    <section aria-label={props.label}>
-      <h3 className="px-2.5 pt-3 pb-1.5 text-[11.5px] font-medium tracking-[0.01em] text-subtle-foreground">
-        {props.label}
-      </h3>
-      <ul className="flex flex-col gap-px">{props.children}</ul>
-    </section>
-  );
-}
-
-function Row(props: {
-  to: string;
-  selected: boolean;
-  icon: ReactNode;
-  title: string;
-  description: string;
-  trailing: string | undefined;
-}) {
-  return (
-    <li>
-      <Link
-        to="/automations/$automationId"
-        params={{ automationId: props.to }}
-        aria-current={props.selected ? "page" : undefined}
-        className={cn(
-          "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 rounded-[10px] px-[11px] py-[9px] outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
-          props.selected && "bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
-        )}
-      >
-        <span className="mt-px grid size-[26px] place-items-center rounded-sm bg-secondary text-muted-foreground">
-          {props.icon}
-        </span>
-        <span className="min-w-0">
-          <span className="block text-ui leading-[1.3] font-medium text-foreground">
-            {props.title}
-          </span>
-          <span className="mt-0.5 line-clamp-2 text-[12px] leading-[1.35] text-subtle-foreground">
-            {props.description}
-          </span>
-        </span>
-        <span className="self-end text-xs text-subtle-foreground tabular-nums">
-          {props.trailing}
-        </span>
-      </Link>
-    </li>
+    <span className="inline-flex items-center gap-1">
+      {props.failed && (
+        <Icon icon={WarningIcon} size={12} label="Last run failed" className="text-status-failed" />
+      )}
+      {props.paused && <Icon icon={PauseIcon} size={12} label="Paused" />}
+    </span>
   );
 }

@@ -1,6 +1,12 @@
 import type { AutomationSchedule } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { describeSchedule, presetToSchedule, scheduleToPreset } from "./schedule.ts";
+import {
+  describeSchedule,
+  formatRunInZone,
+  presetToSchedule,
+  scheduleToPreset,
+  upcomingRuns,
+} from "./schedule.ts";
 
 // 2026-10-02T14:45:00Z: a start instant whose wall clock differs by zone.
 const startAt = Date.UTC(2026, 9, 2, 14, 45);
@@ -38,7 +44,9 @@ test("common cron shapes read as words and unusual ones stay as written", () => 
   expect(describeSchedule(cron("0 */4 * * *"))).toBe("Every 4 hours");
   expect(describeSchedule(cron("0 16 * * 5"))).toBe("Fridays at 16:00");
   expect(describeSchedule(cron("15 9 * * 0,6"))).toBe("Saturdays and Sundays at 09:15");
-  expect(describeSchedule(cron("0 9 1 * *"))).toBe("Cron 0 9 1 * *");
+  expect(describeSchedule(cron("0 9 1 * *"))).toBe("Day 1 of every month at 09:00");
+  expect(describeSchedule(cron("30 8 1 3 *"))).toBe("1 March every year at 08:30");
+  expect(describeSchedule(cron("0 9 1-7 * 1"))).toBe("Cron 0 9 1-7 * 1");
 });
 
 test("every form preset survives a round trip through its RRULE", () => {
@@ -50,4 +58,10 @@ test("every form preset survives a round trip through its RRULE", () => {
   ] as const;
   for (const preset of presets)
     expect(scheduleToPreset(presetToSchedule(preset, "Europe/Berlin", startAt))).toEqual(preset);
+});
+
+test("the next starts follow the daemon's rules, in the schedule's own zone", () => {
+  const schedule = rrule("FREQ=DAILY;BYHOUR=9;BYMINUTE=0", "Europe/London");
+  const runs = upcomingRuns(schedule, startAt).map((at) => formatRunInZone(at, "Europe/London"));
+  expect(runs).toEqual(["Sat 3 Oct 09:00", "Sun 4 Oct 09:00", "Mon 5 Oct 09:00"]);
 });
