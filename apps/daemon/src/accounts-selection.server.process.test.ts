@@ -116,7 +116,7 @@ test.each([false, true])(
             expect.objectContaining({
               type: "notice",
               level: "error",
-              text: expect.stringContaining("Managed home"),
+              detail: expect.stringContaining("Managed home"),
             }),
           ]),
         );
