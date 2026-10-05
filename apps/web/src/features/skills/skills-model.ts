@@ -35,6 +35,9 @@ export interface PluginPin {
   version: string;
   commit: string;
   acceptedAt: number;
+  /** Where it was installed from, when the daemon recorded it. */
+  repository?: string | undefined;
+  ref?: string | undefined;
 }
 
 export const pluginSkillId = (name: string) => `plugin~${name}`;
@@ -102,6 +105,13 @@ export function pinText(pin: PluginPin, now: number): string {
   return `Version ${pin.version} · pinned ${pin.commit.slice(0, 12)} · installed ${date}`;
 }
 
+/** "getsentry/sentry @ main": a repository as people type it, with its ref. */
+export function sourceText(repository: string, ref: string | undefined): string {
+  const short = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(repository)?.[1];
+  const where = short ?? repository;
+  return ref && ref !== "HEAD" ? `${where} @ ${ref}` : where;
+}
+
 /** Every component the catalog lists, then each installed plugin by name. */
 export function skillCatalog(
   installs: readonly PluginInstall[],
@@ -127,6 +137,8 @@ export function skillCatalog(
           version: install.version,
           commit: install.commit,
           acceptedAt: install.acceptedAt,
+          repository: install.repository,
+          ref: install.ref,
         },
       };
     });

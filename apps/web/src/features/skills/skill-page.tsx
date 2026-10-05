@@ -30,6 +30,7 @@ import {
   componentsOf,
   pinText,
   pluginSkillId,
+  sourceText,
   type Skill,
 } from "./skills-model.ts";
 import { useSetAvailability, useSkillSource, useSkills } from "./skills-source.ts";
@@ -255,7 +256,16 @@ function VersionRow(props: { skill: Skill }) {
   return (
     <SettingRow
       title="Version"
-      description={<span className="tabular-nums">{pinText(pin, now)}</span>}
+      description={
+        <>
+          <span className="tabular-nums">{pinText(pin, now)}</span>
+          {pin.repository && (
+            <span className="block font-mono text-sm">
+              From {sourceText(pin.repository, pin.ref)}
+            </span>
+          )}
+        </>
+      }
     />
   );
 }

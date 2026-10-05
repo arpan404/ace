@@ -17,6 +17,14 @@
     "name": {
       "$ref": "https://ace.local/protocol/v1/PluginName.json"
     },
+    "ref": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "repository": {
+      "maxLength": 8192,
+      "type": "string"
+    },
     "version": {
       "maxLength": 128,
       "type": "string"

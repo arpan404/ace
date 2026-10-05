@@ -162,3 +162,37 @@ test("a single large accepted execution remains completely readable after reopen
   });
   expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(384 * 1024);
 });
+
+test("a repository's marketplace lists its plugins at the default branch, staging nothing", async () => {
+  const f = await fixture();
+  cleanups.push(f.close);
+  const service = new PluginService(f.manager);
+  expect(await service.handle({ type: "plugins.marketplace", repository: f.repo })).toEqual({
+    type: "plugins.marketplace",
+    ref: "HEAD",
+    plugins: [{ name: "sample" }],
+  });
+  expect(await service.handle({ type: "plugins.list" })).toEqual({
+    type: "plugins.list",
+    installs: [],
+    reviews: [],
+  });
+
+  const review = await service.handle({
+    type: "plugins.prepare",
+    repository: f.repo,
+    ref: "HEAD",
+    name: "sample",
+  });
+  if (review.type !== "plugins.review") throw new Error("Expected review");
+  await service.handle({
+    type: "plugins.accept",
+    id: review.review.id,
+    commit: review.review.commit,
+    hash: review.review.hash,
+  });
+  // The install remembers where it came from, so Update and the plugin page can say.
+  expect(await service.handle({ type: "plugins.list" })).toMatchObject({
+    installs: [{ name: "sample", repository: f.repo, ref: "HEAD" }],
+  });
+});

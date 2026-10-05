@@ -58,9 +58,20 @@ export const PluginInstall = z.strictObject({
   commit: PluginCommit,
   hash: PluginHash,
   acceptedAt: z.number().int().nonnegative(),
+  /** Where it was installed from, as given to `plugins.prepare`; Update fetches it again. */
+  repository: text.optional(),
+  /** The branch, tag or commit it was installed at ("HEAD": the repository's default branch). */
+  ref: text.optional(),
 });
 export type PluginInstall = z.infer<typeof PluginInstall>;
 export const PluginReviewOffset = z.number().int().min(0).max(1024);
+/** A plugin a repository's marketplace offers, before anything is fetched for review. */
+export const PluginListing = z.strictObject({
+  name: PluginName,
+  description: text.optional(),
+  version: z.string().max(128).optional(),
+});
+export type PluginListing = z.infer<typeof PluginListing>;
 export const PluginAvailability = z.object({
   name: PluginName,
   enabled: z.boolean(),
@@ -105,6 +116,12 @@ export const PluginRequest = z.discriminatedUnion("type", [
   }),
 
   z.strictObject({ type: z.literal("plugins.update"), name: PluginName }),
+  /** What a repository's marketplace offers. `ref` defaults to the remote's HEAD. */
+  z.strictObject({
+    type: z.literal("plugins.marketplace"),
+    repository: text,
+    ref: text.optional(),
+  }),
   z.strictObject({ type: z.literal("plugins.cancel"), id: PluginReview.shape.id }),
   z.strictObject({
     type: z.literal("plugins.prepare"),
@@ -156,6 +173,11 @@ export const PluginResponse = z.discriminatedUnion("type", [
     availability: z.array(PluginAvailability).max(256).optional(),
   }),
   z.strictObject({ type: z.literal("plugins.removed"), name: PluginName }),
+  z.strictObject({
+    type: z.literal("plugins.marketplace"),
+    ref: text,
+    plugins: z.array(PluginListing).max(256),
+  }),
   z.strictObject({
     type: z.literal("plugins.reviewPage"),
     review: PluginReviewSummary,

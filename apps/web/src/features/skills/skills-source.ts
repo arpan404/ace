@@ -7,6 +7,7 @@ import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type {
   PluginComponent,
+  PluginListing,
   PluginRequest,
   PluginResponse,
   PluginReviewEntry,
@@ -220,6 +221,30 @@ export function usePreparePlugin() {
         signal,
       );
       return readReview(client, prepared.review, signal);
+    },
+  });
+}
+
+/** What a repository's marketplace offers, and the ref it read (the remote's HEAD by default). */
+export function useMarketplace() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: async (input: {
+      repository: string;
+      ref?: string | undefined;
+      signal?: AbortSignal;
+    }): Promise<{ ref: string; plugins: readonly PluginListing[] }> => {
+      const reply = await plugins(
+        client,
+        {
+          type: "plugins.marketplace",
+          repository: input.repository,
+          ...(input.ref ? { ref: input.ref } : {}),
+        },
+        "plugins.marketplace",
+        input.signal,
+      );
+      return { ref: reply.ref, plugins: reply.plugins };
     },
   });
 }

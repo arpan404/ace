@@ -210,6 +210,32 @@
     {
       "additionalProperties": false,
       "properties": {
+        "plugins": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PluginListing.json"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "ref": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "type": {
+          "const": "plugins.marketplace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ref",
+        "plugins"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "entries": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/PluginReviewEntry.json"

@@ -61,6 +61,8 @@ export class FakePluginsWire {
   private installs = new Map<string, PluginInstall>();
   private policies = new Map<string, PluginAvailability>();
   private marketplace = new Map<string, FakePlugin>();
+  /** Where each review's plugin was fetched from, kept on the install it becomes. */
+  private sources = new Map<string, { repository: string; ref: string }>();
   private counter = 0;
   private availability(name: string) {
     const policy = this.policies.get(name);
@@ -79,6 +81,8 @@ export class FakePluginsWire {
         commit: "b".repeat(40),
         hash: fingerprint(JSON.stringify(plugin.components)),
         acceptedAt: plugin.acceptedAt,
+        repository: `https://github.com/ace-fixtures/${plugin.name}.git`,
+        ref: "main",
       });
       this.installs.set(install.name, install);
       this.components.set(install.name, components);
@@ -123,31 +127,48 @@ export class FakePluginsWire {
         );
         this.reviews.set(review.id, review);
         this.prepared.set(review.id, components);
+        this.sources.set(review.id, { repository: request.repository, ref: request.ref });
         return reply({ type: "plugins.review", review });
       }
+      case "plugins.marketplace":
+        // Any repository offers the fake marketplace, at the remote's HEAD unless asked.
+        return reply({
+          type: "plugins.marketplace",
+          ref: request.ref ?? "HEAD",
+          plugins: [...this.marketplace.values()].map((plugin) => ({
+            name: plugin.name,
+            version: plugin.version,
+            description: shipped(plugin.components),
+          })),
+        });
       case "plugins.accept": {
         const review = this.reviews.get(request.id);
         if (!review || review.commit !== request.commit || review.hash !== request.hash)
           throw new Error("review_mismatch");
         if (!this.installs.has(review.name) && this.installs.size >= 256)
           throw new Error("install_limit");
+        const source = this.sources.get(review.id) ?? this.installs.get(review.name);
         const install = PluginInstall.parse({
           name: review.name,
           version: review.version,
           commit: review.commit,
           hash: review.hash,
           acceptedAt: 0,
+          ...(source?.repository ? { repository: source.repository } : {}),
+          ...(source?.ref ? { ref: source.ref } : {}),
         });
         this.installs.set(install.name, install);
         const components = this.prepared.get(review.id);
         if (components) this.components.set(install.name, components);
         this.prepared.delete(review.id);
         this.reviews.delete(review.id);
+        this.sources.delete(review.id);
         return reply({ type: "plugins.installed", install });
       }
       case "plugins.cancel":
         this.reviews.delete(request.id);
         this.prepared.delete(request.id);
+        this.sources.delete(request.id);
         return reply({ type: "plugins.cancelled", id: request.id });
       case "plugins.remove":
         this.installs.delete(request.name);
@@ -264,6 +285,14 @@ export class FakePluginsWire {
         throw new Error("Source fixture unavailable");
     }
   }
+}
+
+/** "2 skills, 1 command": what a marketplace plugin ships, for its listing. */
+function shipped(components: readonly FakePluginComponent[]): string {
+  const counts = new Map<string, number>();
+  for (const component of components)
+    counts.set(component.kind, (counts.get(component.kind) ?? 0) + 1);
+  return [...counts].map(([kind, count]) => `${count} ${kind}${count === 1 ? "" : "s"}`).join(", ");
 }
 
 function summary({ executions, unsupported, ...review }: PluginReview) {

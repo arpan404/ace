@@ -143,6 +143,28 @@
     {
       "additionalProperties": false,
       "properties": {
+        "ref": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "repository": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "type": {
+          "const": "plugins.marketplace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "repository"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "id": {
           "pattern": "^[a-zA-Z0-9-]{1,80}$",
           "type": "string"

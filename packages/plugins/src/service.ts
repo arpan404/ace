@@ -35,6 +35,11 @@ export class PluginService {
           type: "plugins.review",
           review: await this.manager.prepare(request),
         });
+      case "plugins.marketplace":
+        return PluginResponse.parse({
+          type: "plugins.marketplace",
+          ...(await this.manager.marketplace(request)),
+        });
       case "plugins.update":
         return PluginResponse.parse({
           type: "plugins.review",

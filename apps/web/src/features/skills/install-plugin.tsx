@@ -12,8 +12,10 @@ import {
   type ReactNode,
 } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import type { PluginListing } from "@ace/protocol";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -30,11 +32,13 @@ import {
   PluginRef,
   PluginRepository,
   pluginSkillId,
+  sourceText,
   suggestedPluginName,
   type PluginPin,
 } from "./skills-model.ts";
 import {
   useCancelReview,
+  useMarketplace,
   usePreparePlugin,
   useUpdatePlugin,
   type PreparedPlugin,
@@ -45,10 +49,15 @@ const failure = (error: unknown, fallback: string) =>
 
 interface SourceForm {
   repository: string;
+  /** Empty: the repository's default branch. */
   ref: string;
+  /** The plugin picked from the listing, or typed when the listing isn't available. */
   name: string;
+  listing?: { ref: string; plugins: readonly PluginListing[] } | undefined;
+  /** The daemon couldn't list the marketplace; the name is typed. */
+  manual?: boolean;
 }
-const emptyForm: SourceForm = { repository: "", ref: "main", name: "" };
+const emptyForm: SourceForm = { repository: "", ref: "", name: "" };
 
 /** What the dialog shows: the source form, an update being fetched, or a review. */
 type Step =
@@ -140,7 +149,14 @@ export function InstallDialogProvider(props: { children: ReactNode }) {
                 setOpen(false);
               }}
               onPrepared={(prepared) =>
-                setStep({ kind: "review", prepared, from: undefined, back: "close" })
+                setStep({
+                  kind: "review",
+                  prepared,
+                  from: step.pin?.repository
+                    ? sourceText(step.pin.repository, step.pin.ref)
+                    : undefined,
+                  back: "close",
+                })
               }
             />
           ) : (
@@ -194,7 +210,11 @@ function Field(props: {
   );
 }
 
-/** Where the plugin comes from: the form keeps its values when a review goes Back. */
+/**
+ * Where the plugin comes from. Find plugins reads the repository's marketplace and lists what
+ * it offers to pick from; a daemon that can't list it takes the plugin's name typed instead.
+ * The form keeps its values when a review goes Back.
+ */
 function SourceStep(props: {
   form: SourceForm;
   onChange(form: SourceForm): void;
@@ -204,63 +224,144 @@ function SourceStep(props: {
   const { form } = props;
   const [error, setError] = useState<string>();
   const prepare = usePreparePlugin();
+  const marketplace = useMarketplace();
   const abort = useRef<AbortController>(null);
   // Leaving the step (closing the dialog) stops a fetch still in flight.
   useEffect(() => () => abort.current?.abort(), []);
+  const listed = form.listing;
   const set = (patch: Partial<SourceForm>) => props.onChange({ ...form, ...patch });
-  const submit = async () => {
-    const source = PluginRepository.safeParse(form.repository);
-    const pin = PluginRef.safeParse(form.ref);
-    const plugin = PluginNameInput.safeParse(form.name || suggestedPluginName(form.repository));
-    if (!source.success || !pin.success || !plugin.success) {
-      setError((source.error ?? pin.error ?? plugin.error)?.issues[0]?.message);
-      return;
+  // A new repository or ref is a new listing.
+  const setSource = (patch: Partial<SourceForm>) =>
+    props.onChange({ ...form, ...patch, listing: undefined, name: "", manual: false });
+  const source = () => {
+    const repository = PluginRepository.safeParse(form.repository);
+    const ref = form.ref.trim() ? PluginRef.safeParse(form.ref) : undefined;
+    if (!repository.success || (ref && !ref.success)) {
+      setError((repository.error ?? ref?.error)?.issues[0]?.message);
+      return undefined;
     }
+    return { repository: repository.data, ref: ref?.data };
+  };
+  const run = async <T,>(work: (signal: AbortSignal) => Promise<T>): Promise<T | undefined> => {
     setError(undefined);
     const controller = new AbortController();
     abort.current = controller;
     try {
-      const prepared = await prepare.mutateAsync({
-        repository: source.data,
-        ref: pin.data,
-        name: plugin.data,
-        signal: controller.signal,
-      });
-      props.onPrepared(prepared, `${form.repository.trim()} @ ${pin.data}`);
+      return await work(controller.signal);
     } catch (reason) {
-      if (!controller.signal.aborted)
-        setError(failure(reason, "The daemon couldn't fetch that plugin."));
+      if (!controller.signal.aborted) throw reason;
+      return undefined;
+    }
+  };
+  const find = async () => {
+    const where = source();
+    if (!where) return;
+    try {
+      const found = await run((signal) => marketplace.mutateAsync({ ...where, signal }));
+      if (!found) return;
+      const only = found.plugins.length === 1 ? found.plugins[0]?.name : undefined;
+      props.onChange({ ...form, listing: found, name: only ?? "", manual: false });
+      if (!found.plugins.length) setError("This repository's marketplace lists no plugins.");
+    } catch (reason) {
+      // An older daemon can't list a marketplace: the plugin's name can still be typed.
+      setError(failure(reason, "The daemon couldn't read that repository's marketplace."));
+      set({ manual: true, name: form.name || suggestedPluginName(form.repository) });
+    }
+  };
+  const review = async () => {
+    const where = source();
+    const plugin = PluginNameInput.safeParse(form.name);
+    if (!where) return;
+    if (!plugin.success) {
+      setError(plugin.error.issues[0]?.message);
+      return;
+    }
+    const ref = listed?.ref ?? where.ref ?? "HEAD";
+    try {
+      const prepared = await run((signal) =>
+        prepare.mutateAsync({ repository: where.repository, ref, name: plugin.data, signal }),
+      );
+      if (prepared) props.onPrepared(prepared, sourceText(form.repository.trim(), ref));
+    } catch (reason) {
+      setError(failure(reason, "The daemon couldn't fetch that plugin."));
     }
   };
   const stop = () => {
     abort.current?.abort();
     prepare.reset();
+    marketplace.reset();
   };
-  const fetching = prepare.isPending;
+  const fetching = prepare.isPending || marketplace.isPending;
+  const choosing = listed !== undefined || form.manual;
   return (
     <form
       noValidate
-      className="grid gap-4"
+      className="flex min-h-0 flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!fetching) void submit();
+        if (fetching) return;
+        void (choosing ? review() : find());
       }}
     >
       <DialogHeader>
         <DialogTitle>Install a plugin</DialogTitle>
         <DialogDescription>
-          ace fetches the repository, finds the plugin in its marketplace and shows you what it
-          runs. Nothing is enabled until you accept.
+          ace reads the repository's marketplace, and shows you what a plugin runs before anything
+          is enabled.
         </DialogDescription>
       </DialogHeader>
-      <Field
-        label="Repository"
-        value={form.repository}
-        placeholder="getsentry/sentry-mcp"
-        readOnly={fetching}
-        onChange={(repository) => set({ repository })}
-      />
-      <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+      <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-3 max-sm:grid-cols-1">
+        <Field
+          label="Repository"
+          value={form.repository}
+          placeholder="getsentry/sentry-mcp"
+          readOnly={fetching}
+          onChange={(repository) => setSource({ repository })}
+        />
+        <Field
+          label="Branch or tag"
+          value={form.ref}
+          placeholder="Default branch"
+          readOnly={fetching}
+          onChange={(ref) => setSource({ ref })}
+        />
+      </div>
+      {listed && listed.plugins.length > 0 && (
+        <DialogBody>
+          <div role="radiogroup" aria-label="Plugins in this marketplace" className="grid gap-1">
+            {listed.plugins.map((plugin) => (
+              <label
+                key={plugin.name}
+                className="flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 hover:bg-accent has-checked:bg-accent"
+              >
+                <input
+                  type="radio"
+                  name="plugin"
+                  value={plugin.name}
+                  checked={form.name === plugin.name}
+                  disabled={fetching}
+                  onChange={() => set({ name: plugin.name })}
+                  className="mt-1 accent-(--ring)"
+                />
+                <span className="min-w-0">
+                  <span className="block font-mono text-sm text-foreground">
+                    {plugin.name}
+                    {plugin.version && (
+                      <span className="ml-1.5 text-muted-foreground">{plugin.version}</span>
+                    )}
+                  </span>
+                  {plugin.description && (
+                    <span className="block text-sm text-muted-foreground">
+                      {plugin.description}
+                    </span>
+                  )}
+                </span>
+              </label>
+            ))}
+          </div>
+        </DialogBody>
+      )}
+      {form.manual && (
         <Field
           label="Plugin"
           value={form.name}
@@ -268,14 +369,7 @@ function SourceStep(props: {
           readOnly={fetching}
           onChange={(name) => set({ name })}
         />
-        <Field
-          label="Branch or tag"
-          value={form.ref}
-          placeholder="main"
-          readOnly={fetching}
-          onChange={(ref) => set({ ref })}
-        />
-      </div>
+      )}
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -291,8 +385,12 @@ function SourceStep(props: {
             Cancel
           </Button>
         )}
-        <Button type="submit" variant="primary" disabled={fetching}>
-          {fetching ? "Fetching…" : "Review"}
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={fetching || (listed !== undefined && !form.name)}
+        >
+          {fetching ? "Fetching…" : choosing ? "Review" : "Find plugins"}
         </Button>
       </DialogFooter>
     </form>

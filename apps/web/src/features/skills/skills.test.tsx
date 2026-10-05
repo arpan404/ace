@@ -123,22 +123,29 @@ test("ticking providers is one change and one toast, sent when the menu closes",
   expect(await installed(app)).toContain("release");
 });
 
-test("installing shows what it runs, keeps the form on Back, and accepting installs it", async () => {
+test("installing lists the marketplace, shows what a plugin runs, and Back keeps the form", async () => {
   await open("/skills");
   await screen.findByRole("heading", { level: 1, name: "code-review" });
 
   await userEvent.click(screen.getByRole("button", { name: "Install plugin" }));
   const dialog = await screen.findByRole("dialog", { name: "Install a plugin" });
   await userEvent.type(within(dialog).getByLabelText("Repository"), "not a repo");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Review" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Find plugins" }));
   expect(within(dialog).getByRole("alert").textContent).toContain("owner/name");
 
   await userEvent.clear(within(dialog).getByLabelText("Repository"));
   await userEvent.type(within(dialog).getByLabelText("Repository"), "getsentry/sentry");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Find plugins" }));
+  const listing = await within(dialog).findByRole("radiogroup", {
+    name: "Plugins in this marketplace",
+  });
+  // The only plugin on offer is picked already.
+  expect(within(listing).getByRole("radio", { name: /sentry/ })).toHaveProperty("checked", true);
+  expect(within(listing).getByText("1 skill")).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Review" }));
 
   let review = await screen.findByRole("dialog", { name: "Review sentry 0.9.0" });
-  expect(within(review).getByText(/From getsentry\/sentry @ main, pinned/)).toBeTruthy();
+  expect(within(review).getByText(/From getsentry\/sentry, pinned/)).toBeTruthy();
   await waitFor(() =>
     expect(document.activeElement).toBe(within(review).getByRole("button", { name: "Install" })),
   );
@@ -147,6 +154,7 @@ test("installing shows what it runs, keeps the form on Back, and accepting insta
   expect(within(again).getByLabelText<HTMLInputElement>("Repository").value).toBe(
     "getsentry/sentry",
   );
+  expect(within(again).getByRole("radio", { name: /sentry/ })).toHaveProperty("checked", true);
   await userEvent.click(within(again).getByRole("button", { name: "Review" }));
 
   review = await screen.findByRole("dialog", { name: "Review sentry 0.9.0" });
@@ -156,6 +164,7 @@ test("installing shows what it runs, keeps the form on Back, and accepting insta
   await userEvent.click(within(review).getByRole("button", { name: "Install" }));
 
   expect(await screen.findByRole("heading", { level: 1, name: "sentry" })).toBeTruthy();
+  expect(await screen.findByText("From getsentry/sentry")).toBeTruthy();
   const plugins = within(catalog()).getByRole("region", { name: "Plugins" });
   expect(await within(plugins).findByText("sentry")).toBeTruthy();
   expect(within(catalog()).getByText("triage-issue")).toBeTruthy();
@@ -172,7 +181,8 @@ test("the install form can be cancelled, and closing a review installs nothing",
   await userEvent.click(screen.getByRole("button", { name: "Install plugin" }));
   dialog = await screen.findByRole("dialog", { name: "Install a plugin" });
   await userEvent.type(within(dialog).getByLabelText("Repository"), "getsentry/sentry");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Review" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Find plugins" }));
+  await userEvent.click(await within(dialog).findByRole("button", { name: "Review" }));
   const review = await screen.findByRole("dialog", { name: "Review sentry 0.9.0" });
   await userEvent.click(within(review).getByRole("button", { name: "Close" }));
 
