@@ -11,8 +11,8 @@ export type IconGlyph = PhosphorIcon;
  */
 export function Icon(props: {
   icon: IconGlyph;
-  /** 14 dense rows · 16 default · 20 sidebar icons · 36/40 empty states. */
-  size?: 12 | 13 | 14 | 16 | 20 | 36 | 40;
+  /** 14 dense rows · 16 default · 18 rail · 36/40 empty states. */
+  size?: 12 | 13 | 14 | 16 | 18 | 20 | 36 | 40;
   active?: boolean | undefined;
   empty?: boolean | undefined;
   weight?: UsedIconWeight | undefined;

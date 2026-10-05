@@ -3,10 +3,22 @@ import { arrayEqual, useSidebar, type SidebarKey } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { useCallback } from "react";
 import { useNow } from "@/lib/time.ts";
-import { arrange, projectCounts, type Arrangement, type ProjectCount } from "@ace/ui-core";
+import {
+  arrange,
+  groupHome,
+  homeGroupsEqual,
+  projectCounts,
+  type HomeGroups,
+  type ProjectCount,
+} from "@ace/ui-core";
 import { useOrganizerState } from "@/features/organize/index.ts";
 
-const empty: Arrangement = { active: [], settled: [] };
+/** Home's threads: pinned and by project folder, and Settled apart, each in Home order. */
+export interface HomeList {
+  groups: HomeGroups;
+  settled: string[];
+}
+const empty: HomeList = { groups: { pinned: [], projects: [] }, settled: [] };
 const noProjects: ProjectCount[] = [];
 
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
@@ -22,22 +34,48 @@ function useEveryEntryKey(): readonly SidebarKey[] {
   return everyEntry;
 }
 
-const arrangementEqual = (a: Arrangement, b: Arrangement) =>
-  arrayEqual(a.active, b.active) && arrayEqual(a.settled, b.settled);
+const listEqual = (a: HomeList, b: HomeList) =>
+  homeGroupsEqual(a.groups, b.groups) && arrayEqual(a.settled, b.settled);
 
 /**
- * Home order (needs you, moving, trouble, the rest; settled apart). Only ids are selected,
- * so a status change re-renders its own row and moves rows only when the order changes.
+ * Home order (needs you, moving, trouble, the rest; settled apart), pinned threads first and
+ * the rest by project. Only ids are selected, so a status change re-renders its own row and
+ * moves rows only when the order changes.
  */
-export function useHomeArrangement(): Arrangement {
+export function useHomeList(): HomeList {
   const keys = useEveryEntryKey();
   const state = useOrganizerState();
   const now = useNow();
   const select = useCallback(
-    (reader: SidebarReader) => arrange(entriesOf(reader), state, now),
+    (reader: SidebarReader): HomeList => {
+      const entries = entriesOf(reader);
+      const { active, settled } = arrange(entries, state, now);
+      const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
+      const groups = groupHome(
+        active.flatMap((id) => {
+          const entry = byId.get(id);
+          return entry
+            ? [
+                {
+                  id,
+                  project: entry.workspaceId,
+                  pinned: entry.pinned === true,
+                  needsYou: entry.status.state === "needs_you",
+                },
+              ]
+            : [];
+        }),
+      );
+      return { groups, settled };
+    },
     [state, now],
   );
-  return useSidebar(keys, select, arrangementEqual) ?? empty;
+  return useSidebar(keys, select, listEqual) ?? empty;
+}
+
+/** The top of the Home list: the first pinned thread, else the first thread in Home order. */
+export function topThread(list: HomeList): string | undefined {
+  return list.groups.pinned[0] ?? list.groups.projects[0]?.ids[0];
 }
 
 const countsEqual = (a: ProjectCount[], b: ProjectCount[]) =>
