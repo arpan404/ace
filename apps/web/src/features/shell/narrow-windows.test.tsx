@@ -67,7 +67,7 @@ test("on a narrow window the rail and sidebar are a sheet from the header, closi
   await openThread();
   expect(screen.queryByRole("navigation", { name: "Views" })).toBeNull();
 
-  await userEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   expect(within(sheet).getByRole("navigation", { name: "Views" })).toBeTruthy();
   expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
@@ -77,7 +77,7 @@ test("on a narrow window the rail and sidebar are a sheet from the header, closi
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 
   // It covers the header's toggle, so it carries its own.
-  await userEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const again = await screen.findByRole("dialog", { name: "Sidebar" });
   expect(within(again).getByRole("complementary", { name: "Automations" })).toBeTruthy();
   await userEvent.click(within(again).getByRole("button", { name: "Hide sidebar" }));
@@ -112,7 +112,7 @@ test("on a phone the header keeps one ⋯ for the actions and the thread menu, a
   expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeTruthy();
 });
 
-test("on a phone the header is the sidebar toggle, the title, its status and one ⋯; the tools are in the ⋯", async () => {
+test("on a phone the header is a back caret to the list, the title, its status and one ⋯; the tools are in the ⋯", async () => {
   windowWidth(390);
   await openThread();
   const header = screen.getByRole("banner");
@@ -120,7 +120,7 @@ test("on a phone the header is the sidebar toggle, the title, its status and one
     within(header)
       .getAllByRole("button")
       .map((button) => button.ariaLabel),
-  ).toEqual(["Show sidebar", "More actions"]);
+  ).toEqual(["Back to threads", "More actions"]);
   // The agent is still at work on this thread.
   expect(within(header).getByRole("img", { name: "Working" })).toBeTruthy();
 

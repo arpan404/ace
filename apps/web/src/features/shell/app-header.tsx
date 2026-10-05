@@ -32,7 +32,7 @@ export interface HeaderProps {
 /**
  * The sidebar toggle, then history back and forward: always the first controls of the window's
  * top row, in the same place whether the sidebar shows or not (and in full view, where the
- * side panel's strip carries them).
+ * side panel's strip carries them). On a phone it is one back caret to the list (CMP-7).
  */
 export function HeaderNav() {
   const frame = useViewFrame();
@@ -45,14 +45,23 @@ export function HeaderNav() {
       data-slot="header-nav"
       className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
     >
-      {frame.hasSidebar && (
-        <IconButton
-          icon={SidebarSimpleIcon}
-          label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
-          shortcut="toggleSidebar"
-          onClick={frame.sidebarShown ? frame.hideSidebar : frame.showSidebar}
-        />
-      )}
+      {frame.hasSidebar &&
+        (phone && !frame.sidebarShown ? (
+          // A phone's list is the sidebar sheet: going back to it is the header's first control.
+          <IconButton
+            icon={CaretLeftIcon}
+            label="Back to threads"
+            shortcut="toggleSidebar"
+            onClick={frame.showSidebar}
+          />
+        ) : (
+          <IconButton
+            icon={SidebarSimpleIcon}
+            label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
+            shortcut="toggleSidebar"
+            onClick={frame.sidebarShown ? frame.hideSidebar : frame.showSidebar}
+          />
+        ))}
       {!phone && (
         <>
           <IconButton
