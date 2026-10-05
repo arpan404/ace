@@ -74,3 +74,16 @@ instead of adding a user message. Ordinary person inputs retain their admitted I
 Provider failures pass through one daemon normalizer. Known native codes produce
 readable text, notice/error `code`, `title` and `detail`, and provider `details`;
 raw evidence and unknown codes remain available. Assistant prose is unchanged.
+
+## Client pending sends
+
+ADR 0066 owns the client half of admission. A client shows a send at once under
+`input:<commandId>`, and a create keeps its `pending:<commandId>` route after the
+receipt; the admitted item then takes over that row. A refusal, or a
+delivery-failure notice whose `commandId` names the send and whose code is not
+`delivery_uncertain`, leaves the input known-not-sent: the client keeps it as a
+failed draft the person can edit or send again under a new command ID.
+
+A `delivery_uncertain` notice is not a failed draft. The input may have run, so
+the client offers no plain resend for it; recovery goes through `queue.resend`
+as above, after the client explains possible duplicate execution.

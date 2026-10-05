@@ -1,4 +1,5 @@
 import type { Capabilities, ProviderKind } from "@ace/protocol";
+import { modelLine } from "./model-label.ts";
 import { effortLabel, type ModelChoice } from "./models.ts";
 import type { ProviderState } from "./provider-status.ts";
 import { providerNames } from "./providers.ts";
@@ -194,11 +195,14 @@ export function nextOptions(
 }
 
 /**
- * What the model chip says to assistive tech and in its tooltip: "Opus 4.1, personal, High
- * effort". An effort ace assumes rather than one the daemon reported says so.
+ * What the model chip says to assistive tech, "Opus 4.1, personal, High effort", and with
+ * `provider` in its tooltip, "Claude Code · Opus 4.1, personal, High effort". An effort ace
+ * assumes rather than one the daemon reported says so.
  */
 export function modelControlName(input: {
   model: string;
+  /** Name the provider first (`modelLine`), where nothing beside the name shows it. */
+  provider?: ProviderKind | undefined;
   account?: string | undefined;
   effort: string | undefined;
   /** `effort` is the default as far as ace knows, not what the daemon reported. */
@@ -211,9 +215,8 @@ export function modelControlName(input: {
     : input.hasEfforts
       ? "provider default effort"
       : undefined;
-  return [input.model, input.account, effort, input.fast ? "fast" : undefined]
-    .filter(Boolean)
-    .join(", ");
+  const model = input.provider ? modelLine(input.provider, input.model) : input.model;
+  return [model, input.account, effort, input.fast ? "fast" : undefined].filter(Boolean).join(", ");
 }
 
 /**

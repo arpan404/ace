@@ -5,8 +5,8 @@ import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
 /*
  * How this device shows the Home list. Settle, snooze, pin, read state, titles and deletion
  * belong to the daemon (ADR 0057) and arrive on each thread list entry; what stays here is
- * view state: the unread baseline of a first launch, the project filter, whether Settled is
- * open, and threads hidden while their archive or delete waits out its undo window.
+ * view state: the unread baseline of a first launch, the project filter and whether Settled
+ * is open.
  */
 
 /** The daemon's auto-settle window (`threads.autoSettleAfter`). */
@@ -22,10 +22,7 @@ const Stored = z.object({
 });
 type Stored = z.infer<typeof Stored>;
 
-export interface OrganizerState extends Stored {
-  /** Threads hidden while their archive or delete waits out its undo window. Not persisted. */
-  hiding: ReadonlySet<string>;
-}
+export type OrganizerState = Stored;
 
 const storageKey = "ace.home.organizer";
 
@@ -43,7 +40,7 @@ export class Organizer {
       settledOpen: false,
     };
     const stored = readJson(storage, storageKey, Stored, fresh);
-    this.state = { ...stored, hiding: new Set() };
+    this.state = stored;
     if (stored === fresh) this.persist();
   }
   getState = (): OrganizerState => this.state;
@@ -56,13 +53,6 @@ export class Organizer {
   }
   setSettledOpen(settledOpen: boolean): void {
     this.set({ settledOpen });
-  }
-  setHiding(threadId: string, hidden: boolean): void {
-    const hiding = new Set(this.state.hiding);
-    if (hidden) hiding.add(threadId);
-    else hiding.delete(threadId);
-    this.state = { ...this.state, hiding };
-    this.emit();
   }
   private set(patch: Partial<Stored>): void {
     this.state = { ...this.state, ...patch };

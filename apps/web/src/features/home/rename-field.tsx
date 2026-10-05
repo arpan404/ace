@@ -1,10 +1,14 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import { useEffect, useRef } from "react";
-import { useThreadActions } from "@/features/organize/index.ts";
+import { useOrganizeOverlay, useThreadActions } from "@/features/organize/index.ts";
 
-/** Inline rename in place of the title. Enter or leaving the field saves; Escape cancels. */
+/**
+ * Inline rename in place of the title. Enter or leaving the field saves; Escape cancels. The new
+ * title shows at once; should the daemon refuse it, the field opens again with what was typed.
+ */
 export function RenameField(props: { entry: ThreadListEntry; title: string; onDone(): void }) {
   const actions = useThreadActions();
+  const overlay = useOrganizeOverlay();
   const input = useRef<HTMLInputElement>(null);
   const finished = useRef(false);
   useEffect(() => {
@@ -18,6 +22,7 @@ export function RenameField(props: { entry: ThreadListEntry; title: string; onDo
   const finish = (save: boolean) => {
     if (finished.current) return;
     finished.current = true;
+    overlay.takeRefusedTitle(props.entry.id);
     if (save && input.current) actions.rename(props.entry, input.current.value);
     props.onDone();
   };

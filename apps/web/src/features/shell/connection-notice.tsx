@@ -1,7 +1,15 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { ClientError } from "@ace/client";
 import { Link } from "@tanstack/react-router";
+import { Suspense } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+
+/** What still works offline and what waits; it loads when the connection first drops. */
+const DeferredOfflineNotice = deferredComponent(() =>
+  import("./offline-notice.tsx").then((module) => module.OfflineNotice),
+);
+const offlineWords = "Offline · messages, answers and Stop will send when the daemon is back";
 
 const fatalReasons: Partial<Record<ClientError["code"], string>> = {
   auth: "the daemon didn't accept this token",
@@ -17,6 +25,20 @@ export function ConnectionNotice() {
   const state = useConnectionState();
   const client = useClient();
   if (state === "ready" || state === "connecting") return null;
+  if (state === "offline")
+    return (
+      <Suspense
+        fallback={
+          <div className="fx-view-in shrink-0 border-b text-sm text-muted-foreground">
+            <div role="status" className="flex h-8 items-center justify-center gap-2">
+              {offlineWords}
+            </div>
+          </div>
+        }
+      >
+        <DeferredOfflineNotice.Component words={offlineWords} />
+      </Suspense>
+    );
   return (
     <div
       role="status"
@@ -28,7 +50,6 @@ export function ConnectionNotice() {
           Reconnecting to the daemon…
         </>
       )}
-      {state === "offline" && "Offline. Anything you send goes out when the connection returns."}
       {state === "fatal" && (
         <>
           Can't connect:{" "}

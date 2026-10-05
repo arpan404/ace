@@ -86,7 +86,11 @@ export interface ThreadCard {
   /** "tomorrow 9:00 AM" while snoozed. */
   wake: string | undefined;
   machine: string | undefined;
-  branch: { name: string; pr: number | undefined; worktree: boolean } | undefined;
+  /**
+   * The branch, only when it says something: not the project's default branch. `label` is the
+   * name cut in the middle to fit a row; `name` is whole, for the tooltip.
+   */
+  branch: { name: string; label: string; pr: number | undefined; worktree: boolean } | undefined;
   status: { label: string; tone: Tone; mark: ThreadMarkKind };
   provider: ProviderKind;
   /** The ACP registry agent behind an `acp` thread, which picks its mark and name. */
@@ -108,6 +112,30 @@ export interface ThreadCardInput {
   locale?: string;
   /** The project's name; its id when the name isn't known. */
   projectName?: string | undefined;
+}
+
+/**
+ * The branch a project's own checkout sits on, which a row doesn't need to name. The thread
+ * list doesn't carry each project's default branch, so the usual names stand in for it.
+ */
+export function isDefaultBranch(branch: string): boolean {
+  return branch === "main" || branch === "master";
+}
+
+/** How many characters of a branch name a Home task row's last line shows beside its marks. */
+export const branchLabelLength = 24;
+
+/**
+ * `text` cut to at most `max` characters by taking out its middle, so both the prefix and the
+ * distinctive end stay: "deck/re…treams".
+ */
+export function middleTruncateText(text: string, max: number): string {
+  const chars = Array.from(text);
+  if (chars.length <= max) return text;
+  if (max < 3) return chars.slice(0, max).join("");
+  const tail = Math.floor((max - 1) / 2);
+  const head = max - 1 - tail;
+  return `${chars.slice(0, head).join("")}…${chars.slice(-tail).join("")}`;
 }
 
 /** The view model of one thread in the Home list. Pure: the caller passes the clock. */
@@ -138,9 +166,15 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
         ? describeWake(entry.snoozedUntil, now, input.locale)
         : undefined,
     machine: details?.machine,
-    branch: details?.branch
-      ? { name: details.branch, pr: details.pr, worktree: details.worktree === true }
-      : undefined,
+    branch:
+      details?.branch && !isDefaultBranch(details.branch)
+        ? {
+            name: details.branch,
+            label: middleTruncateText(details.branch, branchLabelLength),
+            pr: details.pr,
+            worktree: details.worktree === true,
+          }
+        : undefined,
     status: { label, tone, mark: threadStatusMark(entry.status) },
     provider: entry.provider,
     subagents,
