@@ -35,9 +35,12 @@ export function FeedRow(props: {
         className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-[10px] px-[11px] pt-[9px] pb-2 pr-12 text-left outline-none focus-visible:shadow-[inset_0_0_0_2px_color-mix(in_oklab,var(--ring)_45%,transparent)]"
       >
         <span
+          data-tone={props.mark === "needs-you" ? "needs-you" : undefined}
           className={cn(
-            "mt-px grid size-[26px] place-items-center rounded-sm bg-secondary",
-            props.mark ? "text-foreground" : "text-muted-foreground",
+            "mt-px grid size-[26px] place-items-center rounded-sm",
+            props.mark === "needs-you" ? "bg-(--tone)/13 text-(--tone)" : "bg-secondary",
+            props.mark === "unread" && "text-foreground",
+            !props.mark && "text-muted-foreground",
           )}
         >
           {props.icon}
