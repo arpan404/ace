@@ -4,7 +4,10 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./resolve": "./src/resolve.ts",
+    "./preferences": "./src/preferences.ts",
+    "./display-name": "./src/display-name.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -18,5 +21,8 @@
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/settings": "workspace:*"
   }
 }

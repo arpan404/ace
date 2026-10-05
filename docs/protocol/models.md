@@ -34,6 +34,11 @@ Semantic rule: The parsed model with defaults filled and unknown fields stripped
 | inputModalities | yes | array | {"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":256}} |
 | isDefault | yes | boolean |  |
 | hidden | yes | boolean |  |
+| favourite | no | boolean |  |
+| custom | no | boolean |  |
+| providerEnabled | no | boolean |  |
+| visibilityReason | no | ["provider_disabled","group_hidden","model_hidden","deprecated","not_favourite","provider_hidden"] |  |
+| legacy | no | boolean |  |
 | deprecated | yes | boolean |  |
 | isNew | no | boolean |  |
 | raw | yes | object | {"properties":{"json":{"type":"string","maxLength":2048,"x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."},"truncated":{"type":"boolean"}},"required":["json","truncated"]} |
@@ -43,20 +48,21 @@ Example:
 ```json
 {
   "defaultTier": "example",
-  "deprecated": true,
+  "deprecated": false,
   "displayName": "example",
+  "favourite": true,
   "hidden": true,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
   "isDefault": true,
-  "isNew": false,
+  "legacy": true,
   "nativeModelId": "example",
   "nativeProviderId": "example",
   "provider": "antigravity",
   "raw": {
     "json": "example",
-    "truncated": false
+    "truncated": true
   },
   "reasoningEfforts": [],
   "serviceTiers": []
@@ -79,7 +85,8 @@ Example:
 
 ```json
 {
-  "installationId": "example"
+  "installationId": "example",
+  "instance": "example"
 }
 ```
 
@@ -95,6 +102,8 @@ Example:
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | yes | string | {"minLength":1,"maxLength":256} |
 | refreshedAt | no | number | {"minimum":0} |
+| lastRefreshedAt | no | number | {"minimum":0} |
+| enabled | no | boolean |  |
 | stale | yes | boolean |  |
 | refreshing | yes | boolean |  |
 | error | no | ["discovery_failed","timeout","persistence_failed"] |  |
@@ -103,13 +112,13 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "error": "discovery_failed",
+  "installationId": "example",
   "instance": "example",
   "instanceId": "example",
   "provider": "pi",
-  "refreshing": false,
-  "stale": true
+  "refreshedAt": 1,
+  "refreshing": true,
+  "stale": false
 }
 ```
 
@@ -124,16 +133,14 @@ Example:
 | instanceId | no | string | {"minLength":1,"maxLength":256} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | no | string | {"minLength":1,"maxLength":256} |
-| offset | no | integer | {"default":0,"minimum":0,"maximum":32768} |
+| offset | no | integer | {"default":0,"minimum":0,"maximum":40960} |
 | limit | no | integer | {"default":100,"minimum":1,"maximum":100} |
 
 Example:
 
 ```json
 {
-  "installationId": "example",
-  "instanceId": "example",
-  "limit": 7
+  "instance": "example"
 }
 ```
 
@@ -175,31 +182,32 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "model": {
-    "defaultEffort": "example",
-    "deprecated": true,
+    "defaultTier": "example",
+    "deprecated": false,
     "displayName": "example",
-    "hidden": false,
+    "favourite": false,
+    "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
     "instanceId": "example",
     "isDefault": true,
     "isNew": false,
+    "legacy": true,
     "nativeModelId": "example",
-    "provider": "acp",
+    "provider": "opencode",
     "raw": {
       "json": "example",
       "truncated": false
     },
     "reasoningEfforts": [],
-    "selectorMethod": "session/set_model",
+    "selectorMethod": "session/set_config_option",
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": false,
+  "stale": true,
   "tier": {
     "id": "example",
     "name": "example",
@@ -247,11 +255,13 @@ Example:
 
 ```json
 {
-  "imageInput": true,
-  "model": "example",
-  "provider": "codex",
-  "role": "example",
-  "tier": "example"
+  "effort": "example",
+  "imageInput": false,
+  "installationId": "example",
+  "instanceId": "example",
+  "preferenceOrder": [],
+  "provider": "pi",
+  "role": "example"
 }
 ```
 
@@ -309,12 +319,8 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "acpAgentId": "example",
     "effort": "example",
     "imageInput": false,
-    "installationId": "example",
-    "instanceId": "example",
-    "preferenceOrder": [],
     "role": "example"
   },
   "type": "models.resolve"
@@ -360,6 +366,7 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "speed": "fast"
 }
 ```

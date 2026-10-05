@@ -1,0 +1,20 @@
+{
+  "fps": 9.956985821252191,
+  "mbps": 2.9266961924486217,
+  "captureToDisplayMs": {
+    "p50": 27,
+    "p95": 33,
+    "samples": 125
+  },
+  "inputToPixelMs": {
+    "p50": 202,
+    "p95": 250,
+    "samples": 16
+  },
+  "cpuPercent": {
+    "helper": 4.779353194201051,
+    "daemon": 1.7043173490520949,
+    "renderer": 4.3402102915405445
+  },
+  "errors": []
+}

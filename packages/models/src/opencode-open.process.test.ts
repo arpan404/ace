@@ -89,24 +89,35 @@ test("a persisted OpenCode choice from before the fix opens after restart withou
     executable,
   );
   await chmod(executable, 0o700);
-  const config = { ...instance("opencode"), executable, cwd: work.path, env: { HOME: work.path } };
-  const rows = await createModelDiscovery()(config, new AbortController().signal);
-  const row = rows[0];
-  if (!row) throw new Error("Missing discovered model");
+  const config = {
+    ...instance("opencode"),
+    executable,
+    cwd: work.path,
+    env: { HOME: work.path },
+  };
   const path = join(work.path, "models.sqlite");
-  // Seed the actual legacy bytes: storage.replace already runs the repairing schema.
+  const first = new ModelCatalog({
+    storage: openModelStorage(path),
+    instances: [config],
+    now: () => 0,
+    deadline: new Clock().deadline,
+    discover: createModelDiscovery(),
+  });
+  await first.refresh();
+  await first.close();
+  // Rewrite the persisted bytes to the bare model component stored before the fix.
+  // storage.replace already runs the repairing schema, so edit the row directly.
   const legacy = new DatabaseSync(path);
-  legacy.exec("CREATE TABLE model_catalog (instance TEXT PRIMARY KEY, payload TEXT NOT NULL)");
-  legacy.prepare("INSERT INTO model_catalog(instance, payload) VALUES (?, ?)").run(
-    config.id,
-    JSON.stringify({
-      instance: config.id,
-      provider: "opencode",
-      revision: config.loginRevision,
-      refreshedAt: 0,
-      models: [{ ...row, nativeModelId: "muse-spark-1.3-contributor" }],
-    }),
-  );
+  const stored = legacy
+    .prepare("SELECT payload FROM model_catalog WHERE instance = ?")
+    .get(config.id) as { payload: string } | undefined;
+  if (!stored) throw new Error("Missing persisted catalog");
+  const entry = JSON.parse(stored.payload) as { models: { nativeModelId: string }[] };
+  if (!entry.models[0]) throw new Error("Missing discovered model");
+  entry.models[0].nativeModelId = "muse-spark-1.3-contributor";
+  legacy
+    .prepare("UPDATE model_catalog SET payload = ? WHERE instance = ?")
+    .run(JSON.stringify(entry), config.id);
   legacy.close();
   const clock = new Clock();
   const catalog = new ModelCatalog({

@@ -27,6 +27,9 @@
       "minimum": 0,
       "type": "number"
     },
+    "enabled": {
+      "type": "boolean"
+    },
     "error": {
       "maxLength": 1024,
       "type": "string"

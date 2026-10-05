@@ -29,6 +29,7 @@ async function fixture(
     accessibility?: boolean;
     frontmost?: boolean;
     pollMs?: number;
+    runtime?: Pick<DeviceRuntime, "now" | "after">;
     after?: DeviceRuntime["after"];
   } = {},
 ) {
@@ -96,15 +97,15 @@ async function fixture(
     platform,
     screen,
     runtime: {
-      now: Date.now,
+      now: options.runtime?.now ?? Date.now,
       id: () => `device-${++id}`,
       spawn: spawnRawSupervised,
-      after:
-        options.after ??
-        ((ms, run) => {
-          const timer = setTimeout(run, ms);
-          return () => clearTimeout(timer);
-        }),
+      after(ms, run) {
+        if (options.runtime) return options.runtime.after(ms, run);
+        if (options.after) return options.after(ms, run);
+        const timer = setTimeout(run, ms);
+        return () => clearTimeout(timer);
+      },
     },
     env,
     recordingDirectory: home,
@@ -159,6 +160,9 @@ function connect(service: DevicesService, owner = "browser-1") {
         async send(message) {
           sent.push(message);
           events.message(JSON.parse(JSON.stringify(message)));
+        },
+        async image(packet) {
+          events.message(new Uint8Array(packet));
         },
         async frame(packet) {
           events.message(new Uint8Array(packet));
@@ -316,6 +320,8 @@ it("without an open Devices view no scheduled inventory ticks read device state"
   // Acknowledged unsubscription prevents both future ticks and reads after the view closes.
   await view.client.request({ op: "inventory.watch", watching: false });
   view.client.disconnect();
+  // A read already dispatched before disconnect can finish on a loaded host.
+  await f.service.settleInventory();
   const closed = await f.readCount();
   tick();
   tick();
@@ -464,4 +470,43 @@ it("typing while Simulator is behind another app says how to type instead of dro
     { input: { kind: "pointer.click", x: 10, y: 20, button: "left" } },
     { button: "Home" },
   ]);
+});
+
+it("lease expiry posts mouse-up at the native boundary without another client command", async () => {
+  let now = 0;
+  const timers = new Set<{ at: number; run(): void }>();
+  const f = await fixture({
+    runtime: {
+      now: () => now,
+      after(ms, run) {
+        const timer = { at: now + ms, run };
+        timers.add(timer);
+        return () => {
+          timers.delete(timer);
+        };
+      },
+    },
+  });
+  await writeFile(f.state, "booted");
+  const { client } = connect(f.service);
+  await vi.waitFor(() => expect(client.getSnapshot().connected).toBe(true));
+  await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "start", deviceId, fps: 60 });
+  await client.request({ op: "controller", deviceId, controller: "human" });
+  await client.request({
+    op: "input",
+    deviceId,
+    input: { kind: "pointer", phase: "down", x: 20, y: 20 },
+  });
+  now = 30000;
+  for (const timer of timers)
+    if (timer.at <= now) {
+      timers.delete(timer);
+      timer.run();
+    }
+  await f.screen.targets();
+  expect(await f.helperJournal()).toContainEqual({
+    nativeMouseUp: { windowId: 42, button: "left" },
+  });
+  expect(deviceState(client)?.controller).toBe("none");
 });

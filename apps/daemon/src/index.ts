@@ -196,6 +196,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "screen",
       "accounts",
       "cursorAuth",
+      "providerActivation",
       "commands",
       "files",
       "threadFiles",

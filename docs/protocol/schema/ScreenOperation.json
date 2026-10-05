@@ -78,7 +78,7 @@
       "properties": {
         "fps": {
           "default": 10,
-          "maximum": 30,
+          "maximum": 60,
           "minimum": 1,
           "type": "integer"
         },

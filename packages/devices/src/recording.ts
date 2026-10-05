@@ -1,3 +1,4 @@
+import { type DeviceStreamControl } from "./stream-control.ts";
 import { Recording } from "@ace/screen";
 import { DeviceError } from "./sdk.ts";
 import type { DeviceSession } from "./session.ts";
@@ -6,6 +7,7 @@ import type { LifecycleOwner, LifecycleOptions } from "./lifecycle.ts";
 export async function recordDevice(
   session: DeviceSession,
   options: LifecycleOptions,
+  streams: DeviceStreamControl,
 ): Promise<void> {
   if (!session.threadId)
     throw new DeviceError(
@@ -29,7 +31,17 @@ export async function recordDevice(
   const threadId = session.threadId;
   const epoch = session.approvalEpoch;
   let recording: Recording | undefined;
+  let image: ReturnType<DeviceStreamControl["acquireImage"]> | undefined;
+  let released: Promise<void> | undefined;
+  const release = () => {
+    released ??= image?.release() ?? Promise.resolve();
+    session.recordingRelease = released;
+    void released.catch(() => {});
+    return released;
+  };
   try {
+    image = streams.acquireImage();
+    await image.ready;
     const opening = Recording.open(
       options.recordingDirectory,
       options.runtime.id(),
@@ -48,6 +60,7 @@ export async function recordDevice(
           delete session.recording;
           session.completed = recording;
         }
+        void release();
       },
     );
     session.recordingOpening = opening;
@@ -57,7 +70,10 @@ export async function recordDevice(
       throw new DeviceError("busy", "Capture stopped during recording startup", "Restart capture.");
     }
     session.recording = recording;
-    if (session.latest) recording.push(session.latest);
+    if (session.latest?.header.codec === "jpeg") recording.push(session.latest);
+  } catch (error) {
+    await release();
+    throw error;
   } finally {
     delete session.recordingOpening;
     session.recordingStarting = false;
@@ -78,6 +94,7 @@ export async function stopDeviceRecording(
   let artifact;
   try {
     artifact = await closing;
+    await session.recordingRelease;
   } finally {
     if (session.recordingClosing === closing) delete session.recordingClosing;
   }
