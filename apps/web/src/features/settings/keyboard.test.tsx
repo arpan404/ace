@@ -19,8 +19,8 @@ test("a shortcut can be rebound by pressing the new keys, and reset to its defau
 
   await userEvent.click(palette);
   expect(palette.textContent).toBe("Press keys…");
-  press(palette, { key: "p", code: "KeyP", ctrlKey: true, shiftKey: true });
-  expect(palette.textContent).toBe("Shift+Ctrl+P");
+  press(palette, { key: "y", code: "KeyY", ctrlKey: true, shiftKey: true });
+  expect(palette.textContent).toBe("Shift+Ctrl+Y");
 
   await userEvent.click(await screen.findByRole("button", { name: "Reset Command palette" }));
   expect((await shortcut("Command palette")).textContent).toBe("Ctrl+K");

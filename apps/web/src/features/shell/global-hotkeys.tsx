@@ -1,11 +1,16 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useHotkey } from "@/lib/hotkeys.ts";
+import { useKeybindingsSync } from "@/lib/keybindings.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
 
-/** App-wide shortcuts. Panel tab shortcuts are bound by the screens that have those panels. */
+/**
+ * App-wide shortcuts. Panel tab shortcuts are bound by the screens that have those panels.
+ * Also keeps every binding in step with the user's rebindings (Settings › Keyboard).
+ */
 export function GlobalHotkeys() {
+  useKeybindingsSync();
   const navigate = useNavigate();
   const nav = useHistoryNav();
   const layout = useLayout();
