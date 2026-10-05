@@ -18,6 +18,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command.tsx";
+import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { usePaletteGroups, type PaletteCommand, type PaletteGroup } from "./commands.ts";
 
@@ -35,6 +36,7 @@ const icons = {
 /** Mounted only while open, so its list subscriptions end when the palette closes. */
 export default function PaletteBody(props: { close(): void }) {
   const groups = usePaletteGroups(props.close);
+  const keymap = useResolvedKeymap();
   return (
     <Command items={groups} itemToStringValue={label}>
       <CommandInput
@@ -61,7 +63,11 @@ export default function PaletteBody(props: { close(): void }) {
                         )}
                       </span>
                     )}
-                    {item.keys && <CommandShortcut>{formatKeys(item.keys)}</CommandShortcut>}
+                    {item.keys && (
+                      <CommandShortcut>
+                        {formatKeys(resolveKeys(item.keys, keymap))}
+                      </CommandShortcut>
+                    )}
                   </CommandItem>
                 );
               }}
