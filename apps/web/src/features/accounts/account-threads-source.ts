@@ -56,6 +56,13 @@ export interface MoveResult {
   to: AccountView;
 }
 
+/** "Moved 3 threads to Codex · Personal; 1 couldn't move": a move's outcome as a toast says it. */
+export function describeMove(result: MoveResult): string {
+  const threads = `${result.moved} ${result.moved === 1 ? "thread" : "threads"}`;
+  const failed = result.failed ? `; ${result.failed} couldn't move` : "";
+  return `Moved ${threads} to ${result.to.providerLabel} · ${result.to.label}${failed}`;
+}
+
 /**
  * Moves each limited thread to the same provider's account with most headroom. Every thread is
  * its own `thread.limit` command against its current queue revision, so one refusal doesn't stop

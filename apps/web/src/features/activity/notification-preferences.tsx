@@ -27,6 +27,12 @@ const rows: { key: keyof NotificationPrefs; title: string; description: string }
     title: "When an automation finishes",
     description: "A scheduled or triggered run reports its result.",
   },
+  {
+    key: "limits",
+    title: "When an account nears its usage limit",
+    description:
+      "Before a usage window runs out, when it does, and when the account can work again.",
+  },
 ];
 
 /** Which live changes show an in-app toast. Also embeddable in Settings › Notifications. */

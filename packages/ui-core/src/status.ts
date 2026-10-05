@@ -46,10 +46,17 @@ export function agentStatusLabel(status: AgentStatus): { label: string; tone: To
 }
 
 /**
- * The only mark a thread row shows: a dot for needs you, failed and unresponsive, a spinner
- * while it works, nothing for waiting, done and new.
+ * The only mark a thread row shows: a dot for needs you, failed and unresponsive, a hollow one
+ * for a thread held at its account's usage limit, a spinner while it works, nothing for waiting,
+ * done and new.
  */
-export type ThreadMarkKind = "needs-you" | "failed" | "unresponsive" | "working" | "none";
+export type ThreadMarkKind =
+  | "needs-you"
+  | "failed"
+  | "unresponsive"
+  | "limited"
+  | "working"
+  | "none";
 export function threadStatusMark(status: ThreadStatus): ThreadMarkKind {
   switch (status.state) {
     case "needs_you":
@@ -58,6 +65,8 @@ export function threadStatusMark(status: ThreadStatus): ThreadMarkKind {
       return "failed";
     case "unresponsive":
       return "unresponsive";
+    case "limited":
+      return "limited";
     case "working":
       return "working";
     default:
