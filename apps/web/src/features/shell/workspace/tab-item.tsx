@@ -9,7 +9,6 @@ import {
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Tip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
-import { keymap } from "@/lib/keymap.ts";
 import type {
   Dock,
   WorkspaceActions,
@@ -255,7 +254,7 @@ export function TabItem(props: {
       <ContextMenuContent>
         {props.dock === "right" && (
           <MenuItem
-            keys={keymap.fullView.keys}
+            shortcut="fullView"
             onClick={() => {
               actions.activate(tab.key);
               actions.setExpanded(true);
@@ -293,13 +292,13 @@ export function TabItem(props: {
           Move right
         </MenuItem>
         <MenuSeparator />
-        <MenuItem keys={keymap.closeTab.keys} onClick={() => void actions.close(tab.key)}>
+        <MenuItem shortcut="closeTab" onClick={() => void actions.close(tab.key)}>
           {kind?.closeLabel ?? "Close tab"}
         </MenuItem>
         <MenuItem disabled={props.count < 2} onClick={() => void actions.closeOthers(tab.key)}>
           Close other tabs
         </MenuItem>
-        <MenuItem keys={keymap.reopenTab.keys} onClick={() => actions.reopen()}>
+        <MenuItem shortcut="reopenTab" onClick={() => actions.reopen()}>
           Reopen closed tab
         </MenuItem>
       </ContextMenuContent>
