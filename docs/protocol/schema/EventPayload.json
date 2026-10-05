@@ -86,6 +86,15 @@
         "title": {
           "type": "string"
         },
+        "titleSource": {
+          "enum": [
+            "provisional",
+            "provider",
+            "person",
+            "agent"
+          ],
+          "type": "string"
+        },
         "type": {
           "const": "thread.updated",
           "type": "string"
