@@ -14,9 +14,10 @@ import type {
   ProviderKind,
 } from "@ace/protocol";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useSyncExternalStore } from "react";
 import type { z } from "zod";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { skillCatalog, type Skill } from "./skills-model.ts";
+import { skillCatalog, withAvailability, type Skill } from "./skills-model.ts";
 
 type Request = z.input<typeof PluginRequest>;
 type Response<T extends PluginResponse["type"]> = Extract<PluginResponse, { type: T }>;
@@ -62,8 +63,36 @@ async function readCatalog(client: ClientApi, signal: AbortSignal): Promise<Skil
 
 const key = ["skills"] as const;
 
+/*
+ * Plugins removed in this window but still inside their Undo window: the catalog leaves them
+ * out at once, and the daemon only hears of the removal once Undo has gone (remove-plugin.tsx).
+ */
+let hidden: ReadonlySet<string> = new Set();
+const hiddenListeners = new Set<() => void>();
+const subscribeHidden = (listener: () => void) => {
+  hiddenListeners.add(listener);
+  return () => void hiddenListeners.delete(listener);
+};
+const getHidden = () => hidden;
+
+/** Leave `plugin` and what it ships out of the catalog (true), or bring it back (false). */
+export function setPluginHidden(plugin: string, hide: boolean): void {
+  if (hidden.has(plugin) === hide) return;
+  const next = new Set(hidden);
+  if (hide) next.add(plugin);
+  else next.delete(plugin);
+  hidden = next;
+  for (const listener of hiddenListeners) listener();
+}
+
 export function useSkills() {
-  return useDaemonQuery({ queryKey: key, read: readCatalog });
+  const hiddenNow = useSyncExternalStore(subscribeHidden, getHidden, getHidden);
+  const select = useCallback(
+    (skills: Skill[]) =>
+      hiddenNow.size ? skills.filter((skill) => !hiddenNow.has(skill.plugin)) : skills,
+    [hiddenNow],
+  );
+  return useDaemonQuery({ queryKey: key, read: readCatalog, select });
 }
 
 /** The first page (64 KiB) of a component's source, as accepted at install. */
@@ -93,10 +122,15 @@ function usePluginMutation<T, R>(run: (client: ClientApi, input: T) => Promise<R
   });
 }
 
-/** Turn a plugin on or off, and choose which providers may load it. */
+/**
+ * Turn a plugin on or off, and choose which providers may load it. The catalog shows the change
+ * at once and goes back if the daemon refuses it.
+ */
 export function useSetAvailability() {
-  return usePluginMutation(
-    (client, input: { plugin: string; enabled: boolean; providers: readonly ProviderKind[] }) =>
+  const client = useClient();
+  const queries = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { plugin: string; enabled: boolean; providers: readonly ProviderKind[] }) =>
       plugins(
         client,
         {
@@ -107,12 +141,32 @@ export function useSetAvailability() {
         },
         "plugins.availability",
       ),
-  );
+    onMutate: async (input) => {
+      await queries.cancelQueries({ queryKey: key, exact: true });
+      const before = queries.getQueryData<Skill[]>(key);
+      if (before) queries.setQueryData(key, withAvailability(before, input.plugin, input));
+      return { before };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.before) queries.setQueryData(key, context.before);
+    },
+    onSettled: () => void queries.invalidateQueries({ queryKey: key }),
+  });
 }
 
-export function useRemovePlugin() {
-  return usePluginMutation((client, name: string) =>
-    plugins(client, { type: "plugins.remove", name }, "plugins.removed"),
+/**
+ * Remove a plugin on the daemon, then read the catalog again. A plain function, not a mutation
+ * hook: it runs once Undo has gone, usually after the page that asked has closed.
+ */
+export function useRemovePluginNow(): (name: string) => Promise<void> {
+  const client = useClient();
+  const queries = useQueryClient();
+  return useCallback(
+    async (name: string) => {
+      await plugins(client, { type: "plugins.remove", name }, "plugins.removed");
+      await queries.invalidateQueries({ queryKey: key });
+    },
+    [client, queries],
   );
 }
 
@@ -122,31 +176,66 @@ export interface PreparedPlugin {
   entries: readonly PluginReviewEntry[];
 }
 
-/** Fetch a plugin from its repository and pin it for review; nothing runs until accepted. */
+/** Every page of a review: what the plugin runs (the daemon caps one review at 1,024 entries). */
+async function readReview(
+  client: ClientApi,
+  first: Response<"plugins.review">["review"],
+  signal?: AbortSignal,
+): Promise<PreparedPlugin> {
+  const entries: PluginReviewEntry[] = [];
+  let offset: number | undefined = 0;
+  let review: PluginReviewSummary | undefined;
+  while (offset !== undefined) {
+    const page: Response<"plugins.reviewPage"> = await plugins(
+      client,
+      { type: "plugins.readReview", id: first.id, offset },
+      "plugins.reviewPage",
+      signal,
+    );
+    review = page.review;
+    entries.push(...page.entries);
+    offset = page.nextOffset;
+  }
+  return { review: review ?? summary(first), entries };
+}
+
+/**
+ * Fetch a plugin from its repository and pin it for review; nothing runs until accepted.
+ * `signal` stops the wait (Stop in the dialog); a pin the daemon made meanwhile is cancelled.
+ */
 export function usePreparePlugin() {
   const client = useClient();
   return useMutation({
-    mutationFn: async (input: { repository: string; ref: string; name: string }) => {
+    mutationFn: async (input: {
+      repository: string;
+      ref: string;
+      name: string;
+      signal?: AbortSignal;
+    }) => {
+      const { signal, ...request } = input;
       const prepared = await plugins(
         client,
-        { type: "plugins.prepare", ...input },
+        { type: "plugins.prepare", ...request },
         "plugins.review",
+        signal,
       );
-      const entries: PluginReviewEntry[] = [];
-      let offset: number | undefined = 0;
-      let review: PluginReviewSummary | undefined;
-      // A review pages its executions; read them all (the daemon caps one review at 1,024).
-      while (offset !== undefined) {
-        const page: Response<"plugins.reviewPage"> = await plugins(
-          client,
-          { type: "plugins.readReview", id: prepared.review.id, offset },
-          "plugins.reviewPage",
-        );
-        review = page.review;
-        entries.push(...page.entries);
-        offset = page.nextOffset;
-      }
-      return { review: review ?? summary(prepared.review), entries } satisfies PreparedPlugin;
+      return readReview(client, prepared.review, signal);
+    },
+  });
+}
+
+/** Fetch the plugin's repository again at its ref and pin what's there now, for review. */
+export function useUpdatePlugin() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: async (input: { plugin: string; signal?: AbortSignal }) => {
+      const prepared = await plugins(
+        client,
+        { type: "plugins.update", name: input.plugin },
+        "plugins.review",
+        input.signal,
+      );
+      return readReview(client, prepared.review, input.signal);
     },
   });
 }

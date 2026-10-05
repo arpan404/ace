@@ -26,6 +26,15 @@ export interface Skill {
   path: string | undefined;
   enabled: boolean;
   providers: readonly ProviderKind[];
+  /** A plugin's pin: what was reviewed and accepted. Undefined for a component. */
+  install?: PluginPin | undefined;
+}
+
+/** The exact version of a plugin that was reviewed and installed. */
+export interface PluginPin {
+  version: string;
+  commit: string;
+  acceptedAt: number;
 }
 
 export const pluginSkillId = (name: string) => `plugin~${name}`;
@@ -40,13 +49,57 @@ const kindNames: Record<PluginComponent["kind"], [string, string]> = {
   rule: ["rule", "rules"],
 };
 
-/** "Version 2.3.0 · 3 skills, 1 command". */
-function pluginDescription(install: PluginInstall, components: readonly PluginComponent[]) {
-  const counts = (Object.keys(kindNames) as PluginComponent["kind"][]).flatMap((kind) => {
+function shippedCounts(components: readonly { kind: SkillKind }[]): string[] {
+  return (Object.keys(kindNames) as PluginComponent["kind"][]).flatMap((kind) => {
     const count = components.filter((component) => component.kind === kind).length;
     return count ? [plural(count, ...kindNames[kind])] : [];
   });
-  return [`Version ${install.version}`, counts.join(", ")].filter(Boolean).join(" · ");
+}
+
+/** "Version 2.3.0 · 3 skills, 1 command". */
+function pluginDescription(install: PluginInstall, components: readonly PluginComponent[]) {
+  return [`Version ${install.version}`, shippedCounts(components).join(", ")]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** "3 skills, 1 command and 1 agent", or undefined when it ships nothing. */
+export function shippedText(components: readonly { kind: SkillKind }[]) {
+  const counts = shippedCounts(components);
+  if (!counts.length) return undefined;
+  return counts.length === 1 ? counts[0] : `${counts.slice(0, -1).join(", ")} and ${counts.at(-1)}`;
+}
+
+/** The components `plugin` ships, in catalog order. */
+export function componentsOf(skills: readonly Skill[], plugin: string): Skill[] {
+  return skills.filter((skill) => skill.plugin === plugin && skill.kind !== "plugin");
+}
+
+/**
+ * The catalog as it reads once `plugin` has this availability: the plugin and everything it
+ * ships follow it. Used to show a change at once, before the daemon confirms it.
+ */
+export function withAvailability(
+  skills: readonly Skill[],
+  plugin: string,
+  next: { enabled: boolean; providers: readonly ProviderKind[] },
+): Skill[] {
+  const enabled = next.enabled && next.providers.length > 0;
+  return skills.map((skill) =>
+    skill.plugin === plugin ? { ...skill, enabled, providers: next.providers } : skill,
+  );
+}
+
+/** "Version 2.3.0 · pinned b1c2d3e4f5a6 · installed 12 Sep". */
+export function pinText(pin: PluginPin, now: number): string {
+  const accepted = new Date(pin.acceptedAt);
+  const sameYear = accepted.getFullYear() === new Date(now).getFullYear();
+  const date = accepted.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  return `Version ${pin.version} · pinned ${pin.commit.slice(0, 12)} · installed ${date}`;
 }
 
 /** Every component the catalog lists, then each installed plugin by name. */
@@ -70,6 +123,11 @@ export function skillCatalog(
         path: undefined,
         enabled: (entry?.enabled ?? true) && (entry?.providers.length ?? 1) > 0,
         providers: entry?.providers ?? ProviderKind.options,
+        install: {
+          version: install.version,
+          commit: install.commit,
+          acceptedAt: install.acceptedAt,
+        },
       };
     });
   const shipped = components.map((component): Skill => ({

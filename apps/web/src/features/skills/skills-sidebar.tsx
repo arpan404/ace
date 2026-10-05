@@ -1,27 +1,21 @@
-import {
-  CommandIcon,
-  CubeIcon,
-  MagnifyingGlassIcon,
-  PlugIcon,
-  RobotIcon,
-  ScrollIcon,
-  SparkleIcon,
-} from "@phosphor-icons/react";
+import { CommandIcon, PlugIcon, RobotIcon, ScrollIcon, SparkleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
-import { Icon } from "@/components/icon.tsx";
+import { SearchField } from "@/components/search-field.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import {
+  useViewListKeys,
   ViewRowBody,
   ViewRowSection,
   viewRowClass,
   ViewSidebarError,
 } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-import { InstallPlugin } from "./install-plugin.tsx";
+import { InstallPluginButton } from "./install-plugin.tsx";
 import type { Skill, SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
 
@@ -33,12 +27,19 @@ export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }
   { kind: "plugin", label: "Plugins", icon: PlugIcon },
 ];
 
+/** The catalog as the sidebar draws it: grouped by kind, in catalog order within a kind. */
+export function catalogOrder(skills: readonly Skill[]): Skill[] {
+  return kinds.flatMap((group) => skills.filter((skill) => skill.kind === group.kind));
+}
+
+/** Name, description or the plugin it ships with: "engineering" finds all it ships. */
 function matches(skill: Skill, query: string): boolean {
   const text = query.trim().toLowerCase();
   return (
     !text ||
     skill.name.toLowerCase().includes(text) ||
-    skill.description.toLowerCase().includes(text)
+    skill.description.toLowerCase().includes(text) ||
+    skill.plugin.toLowerCase().includes(text)
   );
 }
 
@@ -47,10 +48,14 @@ export function SkillsSidebar() {
   const skills = useSkills();
   const [query, setQuery] = useState("");
   const [plugin, setPlugin] = useState("all");
+  const listKeys = useViewListKeys<HTMLElement>();
   const plugins = (skills.data ?? []).filter((skill) => skill.kind === "plugin");
   const shown = (skills.data ?? []).filter(
     (skill) => (plugin === "all" || skill.plugin === plugin) && matches(skill, query),
   );
+  const groups = kinds
+    .map((group) => ({ group, members: shown.filter((skill) => skill.kind === group.kind) }))
+    .filter((group) => group.members.length);
   return (
     <ViewSidebar
       title="Skills"
@@ -65,22 +70,18 @@ export function SkillsSidebar() {
             ]}
             onValueChange={setPlugin}
           />
-          <InstallPlugin />
+          <InstallPluginButton />
         </>
       }
       toolbar={
         <div className="shrink-0 pr-2.5 pb-2 pl-3">
-          <label className="flex h-8 w-full items-center gap-2 rounded-md bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground focus-within:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]">
-            <Icon icon={MagnifyingGlassIcon} />
-            <input
-              type="search"
-              aria-label="Search skills"
-              placeholder="Search skills"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-subtle-foreground"
-            />
-          </label>
+          <SearchField
+            label="Search skills"
+            placeholder="Search skills"
+            value={query}
+            onValueChange={setQuery}
+            className="bg-sidebar-accent"
+          />
         </div>
       }
     >
@@ -88,36 +89,53 @@ export function SkillsSidebar() {
         <ViewSidebarError onRetry={() => void skills.refetch()} />
       ) : !skills.data ? (
         <ListSkeleton label="skills" shape="tile" rows={5} />
+      ) : !skills.data.length ? (
+        <EmptyState variant="inline" title="No plugins installed" />
       ) : !shown.length ? (
         <EmptyState
-          icon={CubeIcon}
-          title={skills.data.length ? "No matching skills" : "No plugins yet"}
-          description="Skills, commands, agents and rules from installed plugins appear here."
+          variant="inline"
+          title="No matching skills"
+          description={query.trim() ? `Nothing matches "${query.trim()}".` : undefined}
+          action={
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setQuery("");
+                setPlugin("all");
+              }}
+            >
+              Clear search
+            </Button>
+          }
         />
       ) : (
-        <nav aria-label="Skills catalog">
-          {kinds.map((group) => {
-            const members = shown.filter((skill) => skill.kind === group.kind);
-            return members.length ? (
+        <nav aria-label="Skills catalog" {...listKeys}>
+          {groups.map(({ group, members }) => {
+            const rows = members.map((skill) => (
+              <li key={skill.id}>
+                <Link to="/skills/$skillId" params={{ skillId: skill.id }} className={viewRowClass}>
+                  <ViewRowBody
+                    icon={group.icon}
+                    title={skill.name}
+                    description={skill.description}
+                    mono={skill.kind === "skill" || skill.kind === "command"}
+                    meta={skill.enabled ? undefined : "Off"}
+                    metaInline
+                  />
+                </Link>
+              </li>
+            ));
+            // One kind needs no label: the view's title already names the list.
+            return groups.length > 1 ? (
               <ViewRowSection key={group.kind} label={group.label}>
-                {members.map((skill) => (
-                  <li key={skill.id}>
-                    <Link
-                      to="/skills/$skillId"
-                      params={{ skillId: skill.id }}
-                      className={viewRowClass}
-                    >
-                      <ViewRowBody
-                        icon={group.icon}
-                        title={skill.name}
-                        description={skill.description}
-                        meta={skill.enabled ? undefined : "off"}
-                      />
-                    </Link>
-                  </li>
-                ))}
+                {rows}
               </ViewRowSection>
-            ) : null;
+            ) : (
+              <ul key={group.kind} className="mt-1 flex flex-col gap-px">
+                {rows}
+              </ul>
+            );
           })}
         </nav>
       )}
