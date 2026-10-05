@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { copyFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
 import { ThreadId } from "@ace/protocol";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
@@ -9,6 +8,8 @@ import { createModelDiscovery, ModelCatalog, openModelStorage } from "./index.ts
 import { Clock, instance, workspace } from "./testing/support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
+// Discovery lists only upstreams OpenCode reports as connected.
+const connected = JSON.stringify([{ id: "opencode-go", connections: [{ type: "credential" }] }]);
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
@@ -25,7 +26,11 @@ for (const empty of [false, true])
         executable,
       );
       await chmod(executable, 0o700);
-      const env = { HOME: work.path, ACE_TEST_EMPTY_MODELS: String(empty) };
+      const env = {
+        HOME: work.path,
+        ACE_TEST_EMPTY_MODELS: String(empty),
+        ACE_TEST_OPENCODE_CONNECTIONS: connected,
+      };
       const rows = await createModelDiscovery()(
         { ...instance("opencode"), executable, cwd: work.path, env },
         new AbortController().signal,
@@ -90,36 +95,37 @@ test("a persisted OpenCode choice from before the fix opens after restart withou
     executable,
   );
   await chmod(executable, 0o700);
-  const config = { ...instance("opencode"), executable, cwd: work.path, env: { HOME: work.path } };
-  const rows = await createModelDiscovery()(config, new AbortController().signal);
-  const row = rows[0];
-  if (!row) throw new Error("Missing discovered model");
+  const config = {
+    ...instance("opencode"),
+    executable,
+    cwd: work.path,
+    env: { HOME: work.path, ACE_TEST_OPENCODE_CONNECTIONS: connected },
+  };
   const path = join(work.path, "models.sqlite");
-  const clock = new Clock();
-  // A current catalog writes the cache, so its revision is one this build accepts
-  // (connected-provider caches); only the model bytes predate the execution-ID fix.
-  const writer = new ModelCatalog({
+  const first = new ModelCatalog({
     storage: openModelStorage(path),
     instances: [config],
     now: () => 0,
-    deadline: clock.deadline,
-    discover: async () => rows,
+    deadline: new Clock().deadline,
+    discover: createModelDiscovery(),
   });
-  await writer.refresh();
-  await writer.close();
-  // Seed the actual legacy bytes: storage.replace already runs the repairing schema.
+  await first.refresh();
+  await first.close();
+  // Rewrite the persisted bytes to the bare model component stored before the fix.
+  // storage.replace already runs the repairing schema, so edit the row directly.
   const legacy = new DatabaseSync(path);
-  const stored = z
-    .object({ payload: z.string() })
-    .parse(legacy.prepare("SELECT payload FROM model_catalog WHERE instance=?").get(config.id));
-  legacy.prepare("UPDATE model_catalog SET payload=? WHERE instance=?").run(
-    JSON.stringify({
-      ...z.record(z.string(), z.unknown()).parse(JSON.parse(stored.payload)),
-      models: [{ ...row, nativeModelId: "muse-spark-1.3-contributor" }],
-    }),
-    config.id,
-  );
+  const stored = legacy
+    .prepare("SELECT payload FROM model_catalog WHERE instance = ?")
+    .get(config.id) as { payload: string } | undefined;
+  if (!stored) throw new Error("Missing persisted catalog");
+  const entry = JSON.parse(stored.payload) as { models: { nativeModelId: string }[] };
+  if (!entry.models[0]) throw new Error("Missing discovered model");
+  entry.models[0].nativeModelId = "muse-spark-1.3-contributor";
+  legacy
+    .prepare("UPDATE model_catalog SET payload = ? WHERE instance = ?")
+    .run(JSON.stringify(entry), config.id);
   legacy.close();
+  const clock = new Clock();
   const catalog = new ModelCatalog({
     storage: openModelStorage(path),
     instances: [config],

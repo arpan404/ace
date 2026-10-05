@@ -1,9 +1,8 @@
 import { configuredModels, providerConfiguration } from "@ace/models/preferences";
-import { ProviderConfigurations } from "@ace/protocol";
-import { z } from "zod";
-import { ProviderKind } from "@ace/protocol";
-const zGroup = z.tuple([ProviderKind, z.string()]);
+import { ProviderConfigurations, ProviderKind } from "@ace/protocol";
 import { AccountManagementRequest } from "@ace/protocol/accounts";
+import { z } from "zod";
+const zGroup = z.tuple([ProviderKind, z.string()]);
 import type { AccountSummary as Summary } from "@ace/protocol/accounts";
 import type { CatalogModel, ClientMessage, PaletteCommand, ServerMessage } from "@ace/protocol";
 import { FakeUsage } from "../catalog/usage.ts";

@@ -1,7 +1,7 @@
+import { automaticTarget } from "@ace/accounts/availability";
 import { providerCommandDisabled } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { ProviderConfigurations } from "@ace/protocol";
-import { automaticTarget } from "@ace/accounts/availability";
 import {
   resolvePermissionMode,
   limitPermissionMode,

@@ -56,7 +56,6 @@ export async function openCodexSession(
       (options.runtime?.discover
         ? (await io.discover(discovery)).codex
         : await io.discoverProvider("codex", discovery)));
-
   if (!cli.installed || !cli.path)
     throw new Error("Codex is not installed. Install it or configure its path.");
   if (!codexCapabilities(cli).steer)

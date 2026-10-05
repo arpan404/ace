@@ -7,8 +7,8 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 if (args[0] === "auth") {
-  // Connection status only names the connection type; the double holds no credential.
-  console.log(JSON.stringify([{ id: "opencode-go", connections: [{ type: "credential" }] }]));
+  // Credential-free `auth list` shape; tests opt in to connected upstreams.
+  console.log(process.env.ACE_TEST_OPENCODE_CONNECTIONS ?? "[]");
   process.exit(0);
 }
 if (args[0] === "models") {

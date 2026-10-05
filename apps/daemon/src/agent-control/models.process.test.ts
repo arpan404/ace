@@ -18,7 +18,13 @@ test("delegation carries the discovered OpenCode model to child launch without a
     executable,
   );
   await chmod(executable, 0o700);
-  const env = { HOME: initial.home };
+  // The double reports opencode-go as connected; discovery lists only connected upstreams.
+  const env = {
+    HOME: initial.home,
+    ACE_TEST_OPENCODE_CONNECTIONS: JSON.stringify([
+      { id: "opencode-go", connections: [{ type: "credential" }] },
+    ]),
+  };
   const catalog = new ModelCatalog({
     storage: openModelStorage(join(initial.home, "models.sqlite")),
     instances: [
