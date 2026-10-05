@@ -1,7 +1,8 @@
 import { expect, type Page } from "@playwright/test";
-import { retryTiming, TimingFailure } from "@ace/perf-kit";
+import { retryTiming, checkBudgets } from "@ace/perf-kit";
 import { budgets } from "./budgets.ts";
 import { observe, pageMemory, readRecord, report, resetRecord } from "./measure.ts";
+import { selectTurn, scrollTranscript, stepTurn } from "./navigation.ts";
 import { open, withPerfApp } from "./perf-app.ts";
 
 /*
@@ -28,27 +29,6 @@ const queries = [
   "verified migration",
   "examined dependency",
 ];
-const turnCount = 2_000;
-
-/** Moves the timeline's selection to `target` from whichever end is nearer, as keys. */
-async function selectTurn(page: Page, target: number): Promise<void> {
-  await page.keyboard.press(target > turnCount / 2 ? "End" : "Home");
-  // The live turn may have joined the list: read where the selection landed.
-  const list = page.getByRole("listbox", { name: "Turns of this thread" });
-  let at = Number((await list.getAttribute("aria-activedescendant"))?.replace("turn-option-", ""));
-  while (Math.abs(target - at) >= 10) {
-    await page.keyboard.press(target > at ? "PageDown" : "PageUp");
-    at += target > at ? 10 : -10;
-  }
-  while (at !== target) {
-    await page.keyboard.press(target > at ? "ArrowDown" : "ArrowUp");
-    at += target > at ? 1 : -1;
-  }
-  // Key dispatch is not a committed selection. A person sees the selected turn
-  // before pressing Enter; assert that same boundary before measuring its jump.
-  await expect(list).toHaveAttribute("aria-activedescendant", `turn-option-${target}`);
-}
-
 const median = (values: number[]) =>
   values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
 
@@ -95,17 +75,13 @@ async function measureLongThread(): Promise<void> {
       // Read on toward the present: the window slides, never grows.
       await feed.hover();
       for (let step = 0; step < 8; step++) {
-        await page.mouse.wheel(0, 900);
-        await page.waitForTimeout(120);
+        await scrollTranscript(page, 900, 120);
       }
       for (let step = 0; step < 4; step++) {
-        await page.mouse.wheel(0, -700);
-        await page.waitForTimeout(120);
+        await scrollTranscript(page, -700, 120);
       }
-      await page.keyboard.press(`Alt+${mod}+ArrowDown`);
-      await page.waitForTimeout(150);
-      await page.keyboard.press(`Alt+${mod}+ArrowUp`);
-      await page.waitForTimeout(150);
+      await stepTurn(page, `Alt+${mod}+ArrowDown`);
+      await stepTurn(page, `Alt+${mod}+ArrowUp`);
       nodes.push((await pageMemory(cdp)).nodes);
       // Search the thread and step through what it finds.
       await page.keyboard.press(`${mod}+f`);
@@ -119,9 +95,20 @@ async function measureLongThread(): Promise<void> {
       for (let hit = 0; hit < 3; hit++) {
         await page.keyboard.press("Enter");
         await page.waitForTimeout(250);
+        await expect(bar.locator("[aria-live]")).toHaveText(new RegExp(`^${hit + 1} of `));
+        await expect(feed).toHaveAttribute("aria-busy", "false");
+        await expect(feed.locator("[data-hit]").first()).toBeVisible();
       }
       await bar.getByRole("button", { name: "Errors" }).click();
       await page.waitForTimeout(300);
+      await expect(bar.getByRole("button", { name: "Errors" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await expect(bar.locator("[aria-live]")).not.toHaveText(/^\d+ of /);
+      await bar.getByRole("listbox", { name: "Results" }).waitFor();
+      await expect(bar.getByRole("button", { name: "Searching…", exact: true })).toBeHidden();
+      await expect(bar.getByRole("alert")).toBeHidden();
       nodes.push((await pageMemory(cdp)).nodes);
       await page.keyboard.press("Escape");
       // Back to the live end, then a look at the live tail.
@@ -131,10 +118,8 @@ async function measureLongThread(): Promise<void> {
         .click();
       await page.getByRole("status", { name: "Jumped" }).waitFor({ state: "detached" });
       await feed.hover();
-      await page.mouse.wheel(0, -1_200);
-      await page.waitForTimeout(200);
-      await page.mouse.wheel(0, 1_200);
-      await page.waitForTimeout(400);
+      await scrollTranscript(page, -1_200, 200);
+      await scrollTranscript(page, 1_200, 400);
       nodes.push((await pageMemory(cdp)).nodes);
       if (round === 0) {
         // Retained heap is measured from a warm state: caches and the JIT have settled once.
@@ -190,8 +175,10 @@ async function measureLongThread(): Promise<void> {
     if (timing.includes(false)) timingFailed = true;
     if (resources.includes(false)) resourcesFailed = true;
   });
-  if (resourcesFailed) throw new Error("long-thread resource budgets exceeded");
-  if (timingFailed) throw new TimingFailure("long-thread timing budgets exceeded");
+  checkBudgets(
+    resourcesFailed ? ["long-thread resource budgets exceeded"] : [],
+    timingFailed ? ["long-thread timing budgets exceeded"] : [],
+  );
 }
 await retryTiming(measureLongThread, (error) => {
   process.stderr.write(`${error.message}; repeating all six rounds once with unchanged budgets\n`);

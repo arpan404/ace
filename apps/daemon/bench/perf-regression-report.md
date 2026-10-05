@@ -75,7 +75,7 @@ A final complete gate was started after host load dropped. Its daemon stage pass
 
 The **complete `bun run check:perf` passed with exit code 0**, including all web gates. Its final long-thread journey reported **0 ms longest task**, **88 ms p95**, **1,064 DOM nodes** and **1.93 MB retained growth**. No stage needed a retry in this passing run. All original budgets, per-attempt deadlines and workloads remain unchanged.
 
-Formatting, lint, typecheck, file size, dependency boundaries and seven targeted tests passed. The tests cover one timing outlier, a persistent slowdown, correctness/resource fail-fast, nested worker liveness, missing telemetry and retirement of a real worker.
+Historical validation before the review-only rule: formatting, lint, typecheck, file size, dependency boundaries and seven targeted tests passed. The tests cover one timing outlier, a persistent slowdown, correctness/resource fail-fast, nested worker liveness, missing telemetry and retirement of a real worker.
 
 ## Reproduction
 
@@ -90,3 +90,13 @@ bun run --filter @ace/web-perf long-thread
 ```
 
 For CPU profiles, pass a Node wrapper through `measure.ts --node=PATH` that invokes `node --cpu-prof --cpu-prof-dir=OUTPUT "$@"`; the flags then also reach the daemon and worker isolates. Profiling overhead makes those runs diagnostic. Chromium's `Tracing.start` with `toplevel,devtools.timeline,v8` records wall and thread durations for comparison. Keep uninstrumented repeats beside the traced observations.
+
+## PR #125 review revision
+
+The review starts from `466ab53c` with `origin/main` at `8dd7f00a`. Fetching and merging `origin/main` reported already up to date; no rebase was performed in this review run. There was one PR review comment and no “Integration rehearsal: findings for this PR” comment when inspected.
+
+Correctness errors now synchronously publish a measurement failure marker before awaited cleanup, and the subprocess boundary excludes either measurement or acceptance markers from timing retries. Real subprocess tests specify schema/shutdown failure followed by cleanup past its deadline, output overflow, a completed timing outlier, mixed resource/timing violations and incomplete repeat output. Worker telemetry acknowledges first publication, verifies lifecycle generations during live-tree collection and prunes retired subtrees after parent publication. Stable missing, malformed, duplicate and cyclic telemetry remains fatal. A real-worker test delays initialization and forces retirement between parent and child reads, then checks that churn leaves only the root file.
+
+The browser benchmark acknowledges initial Home/End and subsequent movement keys. Reading and search steps now assert visible completion while retaining their original inputs and pauses. Preview teardown waits for the directly spawned Vite process to exit. Real browser tests specify buffered old tasks and interactions arriving after reset, a new blocking task, delayed navigation commits and actual scrolling; a real HTTP subprocess test specifies port release before preview cleanup returns.
+
+The owner’s final rule forbids runtime verification in this review round. No tests, benchmarks, probes, mutation runs, flakiness runs or CI were executed. Every new behaviour reproduction and updated throughput/long-task/churn measurement **needs run at merge**. All performance values above are historical observations from the pre-review implementation, not measurements of this revision. The original 300 events/s floor, web budgets, workloads and per-attempt timeouts are unchanged. [The mutation coverage table](review-coverage.md) labels all cases **not executed (tests run at merge)**.

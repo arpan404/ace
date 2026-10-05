@@ -1,47 +1,21 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
-import { retryTiming, TimingFailure } from "@ace/perf-kit";
+import {
+  retryTiming,
+  runTimed as runSubprocess,
+  readFreshMeasurement,
+  checkBudgets,
+} from "@ace/perf-kit";
 
 const run = promisify(execFile);
-const TimedOut = z.object({
-  killed: z.literal(true),
-  // maxBuffer failures also kill with SIGTERM, but carry a string error code.
-  code: z.number().int().nullable(),
-  // measure.ts handles SIGTERM and exits itself: killed stays true, signal is null.
-  signal: z.literal("SIGTERM").nullable(),
-  stdout: z.string().optional(),
-  stderr: z.string().optional(),
-});
-const AcceptanceFailed = z.object({ type: z.literal("acceptance.failed") });
-async function runTimed(
-  args: string[],
-  options: { cwd: string; timeout: number; maxBuffer?: number },
-) {
-  try {
-    return await run(process.execPath, args, options);
-  } catch (error) {
-    const timeout = TimedOut.safeParse(error);
-    if (!timeout.success) throw error;
-    if (timeout.data.stdout) process.stdout.write(timeout.data.stdout);
-    // A failed assertion can be followed by slow cleanup. Its deadline must not
-    // turn that correctness failure into a retryable timing sample.
-    const failed = (timeout.data.stderr ?? "").split("\n").some((line) => {
-      try {
-        return AcceptanceFailed.safeParse(JSON.parse(line)).success;
-      } catch {
-        return false;
-      }
-    });
-    if (failed) throw error;
-    throw new TimingFailure(`subprocess exceeded its ${options.timeout} ms deadline`, {
-      cause: error,
-    });
-  }
-}
+const runTimed = (args: string[], options: { cwd: string; timeout: number; maxBuffer?: number }) =>
+  runSubprocess(run, process.execPath, args, options, (stdout) => {
+    process.stdout.write(stdout);
+  });
 function phase<T>(name: string, measure: () => Promise<T>): Promise<T> {
   return retryTiming(measure, (error) => {
     process.stderr.write(`${name}: ${error.message}; repeating the unchanged workload once\n`);
@@ -100,10 +74,8 @@ try {
   process.stdout.write(acceptance.stdout);
   await phase("daemon measurement", async () => {
     const output = join(directory, "measurement.json");
-    await rm(output, { force: true });
-    let deadlineFailure: TimingFailure | undefined;
-    try {
-      await runTimed(
+    const { raw, deadline: deadlineFailure } = await readFreshMeasurement(output, () =>
+      runTimed(
         [
           join(import.meta.dirname, "measure.ts"),
           `--entry=${entry}`,
@@ -117,18 +89,8 @@ try {
           `--output=${output}`,
         ],
         { cwd: root, timeout: long ? 360000 : 35000, maxBuffer: 4 * 1024 * 1024 },
-      );
-    } catch (error) {
-      if (!(error instanceof TimingFailure)) throw error;
-      deadlineFailure = error;
-    }
-    // A completed sample followed by slow cleanup still has resource results.
-    // Validate those before deciding whether its deadline qualifies for a repeat.
-    const raw = await readFile(output, "utf8").catch((error: unknown) => {
-      if (deadlineFailure && z.object({ code: z.literal("ENOENT") }).safeParse(error).success)
-        throw deadlineFailure;
-      throw error;
-    });
+      ),
+    );
     const data = Measurement.parse(JSON.parse(raw));
     const violations: string[] = [];
     const timing: string[] = [];
@@ -175,9 +137,7 @@ try {
         2,
       ) + "\n",
     );
-    if (violations.length) throw new Error(violations.join("\n"));
-    if (deadlineFailure) throw deadlineFailure;
-    if (timing.length) throw new TimingFailure(timing.join("\n"));
+    checkBudgets(violations, timing, deadlineFailure);
   });
 } finally {
   await rm(directory, { recursive: true, force: true, maxRetries: 3 });

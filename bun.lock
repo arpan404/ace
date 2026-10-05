@@ -694,6 +694,9 @@
     },
     "tools/perf-kit": {
       "name": "@ace/perf-kit",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
     },
     "tools/protocol-docs": {
       "name": "@ace/protocol-docs",

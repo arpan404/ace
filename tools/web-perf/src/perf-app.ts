@@ -2,7 +2,9 @@ import { chromium, type Browser } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
+import { stopProcess } from "@ace/perf-kit";
 
 /*
  * The production build in `--mode perf` (ADR 0056), served by `vite preview` and opened in
@@ -11,6 +13,8 @@ import { join } from "node:path";
  */
 
 const web = new URL("../../../apps/web/", import.meta.url).pathname;
+const requireWeb = createRequire(new URL("../../../apps/web/package.json", import.meta.url));
+const vite = join(dirname(requireWeb.resolve("vite/package.json")), "bin/vite.js");
 
 export async function withPerfApp<T>(
   port: number,
@@ -25,9 +29,9 @@ export async function withPerfApp<T>(
       stdio: ["ignore", "ignore", "inherit"],
     });
     server = spawn(
-      "bunx",
+      process.execPath,
       [
-        "vite",
+        vite,
         "preview",
         "--outDir",
         out,
@@ -46,7 +50,7 @@ export async function withPerfApp<T>(
       await browser.close();
     }
   } finally {
-    server?.kill();
+    if (server) await stopProcess(server);
     rmSync(out, { recursive: true, force: true });
   }
 }

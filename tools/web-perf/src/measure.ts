@@ -1,4 +1,5 @@
 import type { CDPSession, Page } from "@playwright/test";
+import { z } from "zod";
 
 /*
  * Main-thread measurements shared by the browser runs: long tasks and Event Timing entries from
@@ -8,7 +9,13 @@ import type { CDPSession, Page } from "@playwright/test";
 /** Init script: records long tasks and, per interaction, its longest event duration. */
 export const observe = () => {
   const record = { longTasks: [] as number[], events: new Map<number, number>(), start: 0 };
-  Object.assign(globalThis, { acePerfRecord: record });
+  const reset = () => {
+    record.longTasks.length = 0;
+    record.events.clear();
+    record.start = performance.now();
+    return record.start;
+  };
+  Object.assign(globalThis, { acePerfRecord: Object.assign(record, { reset }) });
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {
       if (entry.startTime >= record.start) record.longTasks.push(entry.duration);
@@ -28,14 +35,11 @@ export const observe = () => {
 };
 
 /** Forget what was recorded so far; returns when the window starts. */
-export function resetRecord(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const record = Reflect.get(globalThis, "acePerfRecord");
-    record.longTasks.length = 0;
-    record.events.clear();
-    record.start = performance.now();
-    return record.start;
-  });
+export async function resetRecord(page: Page): Promise<number> {
+  return z
+    .number()
+    .nonnegative()
+    .parse(await page.evaluate(() => Reflect.get(globalThis, "acePerfRecord").reset()));
 }
 
 export interface MainThread {
@@ -49,8 +53,8 @@ export interface MainThread {
 }
 
 /** Input-to-paint percentiles and long tasks since `start`. */
-export function readRecord(page: Page, start: number): Promise<MainThread> {
-  return page.evaluate((from) => {
+export async function readRecord(page: Page, start: number): Promise<MainThread> {
+  const sample = await page.evaluate((from) => {
     const record = Reflect.get(globalThis, "acePerfRecord");
     const elapsed = (performance.now() - from) / 1000;
     const durations = [...record.events.values()].toSorted((a: number, b: number) => a - b);
@@ -67,7 +71,18 @@ export function readRecord(page: Page, start: number): Promise<MainThread> {
       seconds: elapsed,
     };
   }, start);
+  return MainThreadSample.parse(sample);
 }
+
+const MainThreadSample = z.object({
+  interactions: z.number().int().nonnegative(),
+  p75: z.number().nonnegative(),
+  p95: z.number().nonnegative(),
+  longest: z.number().nonnegative(),
+  longShare: z.number().nonnegative(),
+  longCount: z.number().int().nonnegative(),
+  seconds: z.number().nonnegative(),
+});
 
 /** The page's retained heap in MB after forced collection, and its DOM size. */
 export async function pageMemory(cdp: CDPSession): Promise<{ heapMb: number; nodes: number }> {

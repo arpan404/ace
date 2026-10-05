@@ -18,7 +18,7 @@ This keeps queued observations from before the interaction window out of its max
 percentiles. The browser gate verifies a deliberate 120 ms task through `readRecord` after
 reset, then clears that probe before the actual workload. Natural GC and rendering tasks
 within the window still count. Before pressing Enter in the timeline, the journey asserts
-that the requested turn is visibly selected. Key dispatch alone can precede React’s committed
+that Home/End has visibly committed before reading its starting ordinal, then acknowledges every movement key before advancing. End uses the displayed current turn count, including any new live turn. The requested turn must be visibly selected. Key dispatch alone can precede React’s committed
 selection under load; all keyboard inputs, rendering assertions and six rounds still run.
 
 The main/#94 comparison and trace evidence are in
@@ -26,3 +26,7 @@ The main/#94 comparison and trace evidence are in
 The reproduced 313 ms animation-frame task used 5.49 ms of renderer thread time.
 Later unchanged runs reported 51 ms and no long tasks. One repeat handles that isolated
 scheduling interruption while leaving sustained slow work red.
+
+The journey retains its reading pauses and all wheel/key/search inputs. It also asserts scroll or window movement, completion of turn steps, selected search-hit counters and transcript highlights, and completion of filtered search results (including valid empty results). Preview runs spawn Vite directly and await its exit before deleting served files or repeating the workload.
+
+Review verification is static only by owner instruction. The new real-browser tests cover queued pre-reset task and event records, a post-reset blocker, delayed Home/End commits and transcript movement. They are written but **not executed (tests run at merge)**; updated performance numbers and preview overlap verification **need run at merge**. No product UI files were edited.

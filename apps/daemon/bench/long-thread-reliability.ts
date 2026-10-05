@@ -1,3 +1,4 @@
+import { writeSync } from "node:fs";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { statSync } from "node:fs";
@@ -358,7 +359,7 @@ try {
   subscription.release();
 } catch (error) {
   // Publish failure before cleanup so a later subprocess deadline cannot hide it.
-  console.error(JSON.stringify({ type: "acceptance.failed", error: String(error) }));
+  writeSync(2, JSON.stringify({ type: "acceptance.failed", error: String(error) }) + "\n");
   throw error;
 } finally {
   await client.close();
