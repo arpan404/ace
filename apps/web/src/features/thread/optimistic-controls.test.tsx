@@ -31,11 +31,11 @@ const thread = (app: ReturnType<typeof harness>) => {
 };
 async function offline(app: ReturnType<typeof harness>) {
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline\./);
+  await screen.findByText(/^Offline ·/);
 }
 async function online(app: ReturnType<typeof harness>) {
   act(() => app.client.networkOnline(true));
-  await waitFor(() => expect(screen.queryByText(/^Offline\./)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/^Offline ·/)).toBeNull());
 }
 async function chooseApprovals(from: string, mode: string) {
   await userEvent.click(await screen.findByRole("button", { name: `Approvals: ${from}` }));

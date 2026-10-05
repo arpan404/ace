@@ -244,7 +244,7 @@ test("offline, the model chip keeps the thread's last-known model and says chang
   const { app } = await open("busy");
   await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ });
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline\./);
+  await screen.findByText(/^Offline ·/);
   const chip = screen.getByRole("button", { name: /^Model: Opus 4\.1/ });
   await userEvent.click(chip);
   expect(await screen.findByText("Offline: changes apply when the daemon is back")).toBeTruthy();
@@ -266,11 +266,11 @@ test("a switch queued to a provider with no catalog models keeps showing it acro
   expect(await screen.findByRole("button", { name: /^Model: Pi · Default/ })).toBeTruthy();
 
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline\./);
+  await screen.findByText(/^Offline ·/);
   expect(screen.getByRole("button", { name: /^Model: Pi · Default/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Model: Opus/ })).toBeNull();
 
   act(() => app.client.networkOnline(true));
-  await waitFor(() => expect(screen.queryByText(/^Offline\./)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/^Offline ·/)).toBeNull());
   expect(screen.getByRole("button", { name: /^Model: Pi · Default/ })).toBeTruthy();
 });
