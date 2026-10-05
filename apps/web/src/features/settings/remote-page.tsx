@@ -18,6 +18,9 @@ import { formatAge } from "@ace/ui-core";
 import type { Machine } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 import { PairDevice } from "./pair-device.tsx";
+import { settingRow } from "./settings-index.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { UnavailableError } from "@/boot/fake-backend.ts";
 
 const platformNames: Record<Machine["platform"], string> = {
   macos: "macOS",
@@ -42,14 +45,26 @@ export function RemoteDevices() {
   );
 }
 
+/**
+ * Machines running the daemon. A daemon that can't list them yet shows the one this window
+ * talks to, from the connection, with no error: nothing is wrong.
+ */
 function Machines() {
   const backend = useSettingsBackend();
   const machines = useQuery(settingsQueries.machines(backend));
+  const connection = useDaemonConnection();
   const now = useNow();
+  const unlisted = machines.error instanceof UnavailableError;
   return (
-    <SettingSection label="Machines">
+    <SettingSection label="Machines" card>
       {machines.isPending && <ListSkeleton label="machines" shape="row" rows={2} />}
-      {machines.isError && <LoadError error={machines.error} />}
+      {unlisted && (
+        <SettingRow
+          title={hostOf(connection.url)}
+          description="This machine · Other machines appear here once the daemon can list them."
+        />
+      )}
+      {machines.isError && !unlisted && <LoadError error={machines.error} />}
       {machines.data?.map((machine) => (
         <SettingRow
           key={machine.id}
@@ -70,9 +85,17 @@ function Machines() {
   );
 }
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "This machine";
+  }
+}
+
 function LoadError(props: { error: Error }) {
   return (
-    <p role="alert" className="border-t py-3.5 text-sm text-muted-foreground">
+    <p role="alert" className="py-3.5 text-sm text-muted-foreground">
       {props.error.message}
     </p>
   );
@@ -84,11 +107,11 @@ function PairedDevices() {
   const now = useNow();
   const [revoking, setRevoking] = useState<Device | undefined>();
   return (
-    <SettingSection label="Paired devices">
+    <SettingSection label="Paired devices" card>
       {devices.isPending && <ListSkeleton label="paired devices" shape="row" rows={2} />}
       {devices.isError && <LoadError error={devices.error} />}
       {devices.data?.length === 0 && (
-        <p className="border-t py-3.5 text-sm text-muted-foreground">
+        <p className="py-3.5 text-sm text-muted-foreground">
           No phones or browsers are paired with this daemon.
         </p>
       )}
@@ -113,8 +136,9 @@ function PairedDevices() {
         </SettingRow>
       ))}
       <SettingRow
-        title="Pair a device"
+        {...settingRow("remote.pair")}
         description="Scan a code with the ace app on your phone, or open the link on another computer."
+        inline
       >
         <PairDevice />
       </SettingRow>
