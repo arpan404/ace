@@ -1,5 +1,6 @@
 import { Item, type ToolCall } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { stepLabels } from "./tool-labels.ts";
 import { describeStep, summarizeWork, workCounts, workLogHeadline } from "./work-log.ts";
 
 let ids = 0;
@@ -188,7 +189,7 @@ test("a failed step says why: the exit code for commands, the error otherwise", 
     1,
   );
   if (item.type === "tool_call") item.call.error = "Navigation blocked by the permission mode";
-  expect(describeStep(item)).toMatchObject({
+  expect(describeStep(item, { labels: stepLabels })).toMatchObject({
     verb: "Opened",
     target: "youtube.com",
     note: "Navigation blocked by the permission mode",
@@ -205,15 +206,20 @@ test("a step behind an approval carries the approval's outcome on its row", () =
       { id: "deny", label: "Deny", kind: "deny" as const },
     ],
   };
-  const waiting = describeStep(item, { interaction: { state: "pending", request } });
+  const waiting = describeStep(item, {
+    interaction: { state: "pending", request },
+    labels: stepLabels,
+  });
   expect(waiting).toMatchObject({ verb: "Run", note: "Waiting for your approval", needsYou: true });
   const approved = describeStep(item, {
     interaction: { state: "resolved", request, resolution: { kind: "approval", optionId: "once" } },
+    labels: stepLabels,
   });
   expect(approved).toMatchObject({ verb: "Running", note: "Approved by you", needsYou: false });
   const clicked = describeStep(item, {
     interaction: { state: "pending", request },
     answering: "deny",
+    labels: stepLabels,
   });
   expect(clicked).toMatchObject({ note: "Denied by you", failed: true });
 });
@@ -295,4 +301,19 @@ test("reading other lines of a file doesn't retry a failed read", () => {
     retried: 0,
     firstFailed: failed.id,
   });
+});
+
+test("before the tool wording loads (idle, after first paint), a step reads plainly", () => {
+  const mcp = call(
+    { kind: "mcp", server: "ace", tool: "ace_browser_open", arguments: { url: "https://x.dev" } },
+    "running",
+    0,
+  );
+  expect(describeStep(mcp)).toMatchObject({ verb: "Calling", target: "ace › ace_browser_open" });
+  const failed = call({ kind: "custom" }, "failed", 0, 1);
+  expect(describeStep(failed)).toMatchObject({ note: "Failed", failed: true });
+  // Commands unwrap without it: the live line never shows the login shell.
+  expect(
+    describeStep(call({ kind: "shell", command: "/bin/zsh -lc 'pwd'" }, "running", 0)).target,
+  ).toBe("pwd");
 });

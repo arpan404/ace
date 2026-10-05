@@ -41,6 +41,7 @@ import { ErrorRow } from "./error-row.tsx";
 import { ModelFacing } from "./model-facing.tsx";
 import { ReviewNote } from "./review-note.tsx";
 import { TaskCard } from "./task-card.tsx";
+import { UserMessage } from "./user-message.tsx";
 
 const icons: Record<EventIcon, PhosphorIcon> = {
   restart: ArrowClockwiseIcon,
@@ -161,6 +162,9 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   const repeated = useRepeats(props.threadId, props.itemId, input?.kind ?? noticeInput(item));
   const echoed = useEchoedCode(props.threadId, item);
   if (!item || repeated || echoed) return null;
+  // A candidate the exact check rejects is the person's own message.
+  if (!input && item.type === "message" && item.role === "user" && !item.synthetic)
+    return <UserMessage threadId={props.threadId} itemId={props.itemId} />;
   if (input) {
     switch (input.kind) {
       // The question block above already shows the answer with its question.

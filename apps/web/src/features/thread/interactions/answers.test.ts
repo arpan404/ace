@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { answerStorageKey, createAnswerStore } from "./answers.ts";
+import { pendingAnswers } from "./pending-answers.ts";
 
 function memory(initial?: string) {
   const values = new Map<string, string>();
@@ -17,8 +18,7 @@ const answer = { kind: "question" as const, answers: { recovery: ["persist"] } }
 test("an accepted answer is remembered across reloads with the request it answered", () => {
   const storage = memory();
   const store = createAnswerStore({ storage, now: () => 42 });
-  store.sending("ask-1", answer, "call-1:hash");
-  store.sent("ask-1");
+  store.remember("ask-1", answer, "call-1:hash");
   const reloaded = createAnswerStore({ storage, now: () => 0 });
   expect(reloaded.get("ask-1")).toEqual({
     resolution: answer,
@@ -28,14 +28,22 @@ test("an accepted answer is remembered across reloads with the request it answer
   });
 });
 
-test("an answer the daemon refused is forgotten, and nothing unsent is stored", () => {
+test("an answer still on its way is never stored, and leaves when it settles", () => {
+  const storage = memory();
+  createAnswerStore({ storage, now: () => 1 });
+  pendingAnswers.set("ask-1", answer);
+  expect(pendingAnswers.get("ask-1")).toEqual(answer);
+  expect(storage.values.has(answerStorageKey)).toBe(false);
+  pendingAnswers.clear("ask-1");
+  expect(pendingAnswers.get("ask-1")).toBeUndefined();
+});
+
+test("forgetting an answer lets the request be answered again, across reloads", () => {
   const storage = memory();
   const store = createAnswerStore({ storage, now: () => 1 });
-  store.sending("ask-1", answer);
-  expect(store.get("ask-1")?.state).toBe("sending");
-  store.failed("ask-1");
-  expect(store.get("ask-1")).toBeUndefined();
-  expect(storage.values.has(answerStorageKey)).toBe(false);
+  store.remember("ask-1", answer, "call-1:hash");
+  store.forget("ask-1");
+  expect(createAnswerStore({ storage, now: () => 1 }).get("ask-1")).toBeUndefined();
 });
 
 test("corrupt or foreign stored answers are dropped instead of reaching the UI", () => {
@@ -62,7 +70,6 @@ test("storage that throws leaves answers in memory for the session", () => {
     },
   };
   const store = createAnswerStore({ storage: broken, now: () => 1 });
-  store.sending("ask-1", answer);
-  store.sent("ask-1");
+  store.remember("ask-1", answer);
   expect(store.get("ask-1")?.state).toBe("sent");
 });

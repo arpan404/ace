@@ -23,7 +23,7 @@ import { Dot } from "@/components/ui/dot.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { DeferredReviewSummary } from "../items/deferred-review.ts";
 import { AnsweredQuestionCard, closedMeta } from "./answered-question.tsx";
-import { answerStore, useLocalAnswer, type LocalAnswer } from "./answers.ts";
+import { answerStore, pendingAnswers, useLocalAnswer, type LocalAnswer } from "./answers.ts";
 import { QuestionForm } from "./question-form.tsx";
 import { PlanReview } from "./plan-review.tsx";
 import type { Answer } from "./answer.ts";
@@ -52,14 +52,15 @@ function useAnswerSender(interactionId: string, identity: string | undefined) {
   const { send, intent, error } = useIntentSender();
   const state = intent?.state;
   useEffect(() => {
-    if (state === "acked") answerStore.sent(interactionId);
-    else if (state === "failed") answerStore.failed(interactionId);
-  }, [state, interactionId]);
+    const pick = pendingAnswers.get(interactionId);
+    if (state === "acked" && pick) answerStore.remember(interactionId, pick, identity);
+    if (state === "acked" || state === "failed") pendingAnswers.clear(interactionId);
+  }, [state, interactionId, identity]);
   useEffect(() => {
-    if (error) answerStore.failed(interactionId);
+    if (error) pendingAnswers.clear(interactionId);
   }, [error, interactionId]);
   const answer: Answer = (resolution) => {
-    answerStore.sending(interactionId, resolution, identity);
+    pendingAnswers.set(interactionId, resolution);
     void send({
       type: "interaction.resolve",
       interactionId: interactionId as Interaction["id"],

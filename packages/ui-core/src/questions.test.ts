@@ -1,11 +1,7 @@
 import { Question } from "@ace/protocol";
 import { expect, test } from "vitest";
-import {
-  answeredQuestions,
-  questionOptions,
-  questionOutcome,
-  requestIdentity,
-} from "./questions.ts";
+import { answeredQuestions, questionOutcome, requestIdentity } from "./answered-questions.ts";
+import { questionOptions } from "./questions.ts";
 
 test("the suggested answer loses its (Recommended) suffix and is flagged instead", () => {
   const question = Question.parse({

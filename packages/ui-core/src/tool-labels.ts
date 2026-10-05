@@ -1,9 +1,70 @@
-import { humanize, middleTruncate } from "./step-display.ts";
+import type { Interaction } from "@ace/protocol";
+import { approvalOutcome, type ApprovalOutcome } from "./approvals.ts";
+import { middleTruncate } from "./step-display.ts";
 
 /*
  * Tool steps named for what they did (A4): ace's own tools by their action and key argument,
  * computer use as "the computer", other MCP servers as "server › tool". Pure.
  */
+
+/** "browser_open" → "browser open". */
+export function humanize(name: string): string {
+  return name
+    .replace(/^mcp__/, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_\-.]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * A failure's one-line reason for a row's note (A4): its first line, without a provider tag's
+ * JSON payload ("[claude-code:unrecognized_model] {…}" reads "unrecognized model"). The whole
+ * error, in words, is in the step's detail.
+ */
+export function errorNote(error: string | undefined, max = 60): string | undefined {
+  const line = error
+    ?.split("\n")
+    .map((part) => part.trim())
+    .find(Boolean);
+  if (!line) return undefined;
+  const tagged = /^\[[\w-]+:([\w.-]+)\]\s*(.*)$/.exec(line);
+  const text = tagged ? tagged[2]!.replace(/^[{[].*$/, "").trim() || humanize(tagged[1]!) : line;
+  const note = text[0]!.toUpperCase() + text.slice(1);
+  return note.length > max ? `${note.slice(0, max - 1)}…` : note;
+}
+
+const approvalTools: Record<string, string> = {
+  shell: "Command",
+  bash: "Command",
+  "item/commandexecution/requestapproval": "Command",
+  execcommandapproval: "Command",
+  "item/filechange/requestapproval": "File change",
+  applypatchapproval: "File change",
+  edit: "File change",
+  write: "File change",
+  multiedit: "File change",
+  notebookedit: "File change",
+  "codex-permissions-escalation": "Permission escalation",
+  read: "Read file",
+  webfetch: "Web request",
+  websearch: "Web search",
+};
+
+/**
+ * The name of the tool an approval is for (IR-2). Never a raw JSON-RPC method or
+ * "Unknown tool": MCP tools read "server · tool", anything unknown reads "Action".
+ */
+export function toolDisplayName(tool: string | undefined): string {
+  if (!tool) return "Action";
+  const known = approvalTools[tool.toLowerCase()];
+  if (known) return known;
+  const mcp = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(tool);
+  if (mcp) return `${humanize(mcp[1]!)} · ${humanize(mcp[2]!)}`;
+  if (tool.includes("/")) return "Action";
+  const words = humanize(tool);
+  return words ? words[0]!.toUpperCase() + words.slice(1) : "Action";
+}
 
 /** A tool step as a row reads it: "Opened `youtube.com`", "Called docs › search `TypeScript`". */
 export interface ToolLabel {
@@ -267,3 +328,27 @@ export function namedToolLabel(kind: string, title: string): ToolLabel {
     return label("tool", "Used the computer", "Using the computer", "Use the computer");
   return label("tool", "Used", "Using", "Use", clean);
 }
+
+/**
+ * How tools and approvals read, injected into `describeStep`'s context so a row's first paint
+ * doesn't carry their tables. Without them a step reads plainly ("Called docs › search", the
+ * provider's title, "Awaiting approval") until they arrive.
+ */
+export interface StepLabels {
+  mcp(server: string, tool: string, args?: unknown): ToolLabel;
+  named(kind: string, title: string): ToolLabel;
+  approval(
+    interaction: Pick<Interaction, "state" | "request" | "resolution" | "review" | "autoReviewed">,
+    answering?: string,
+  ): ApprovalOutcome;
+  /** A failure's reason, short enough for the row's note. */
+  error(text: string | undefined): string | undefined;
+}
+
+/** Tool and approval wording for `describeStep`'s context (loaded after first paint). */
+export const stepLabels: StepLabels = {
+  mcp: mcpToolLabel,
+  named: namedToolLabel,
+  approval: approvalOutcome,
+  error: errorNote,
+};

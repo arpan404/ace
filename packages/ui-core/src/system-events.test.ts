@@ -2,11 +2,13 @@ import { Item } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   inputLine,
+  noticeInput,
   parseDelegationResults,
   repeatsEarlierEvent,
+  systemInput,
   taskPrompt,
 } from "./system-events.ts";
-import { noticeInput, systemInput } from "./system-input.ts";
+import { mayBeSystemInput } from "./system-input.ts";
 
 let ids = 0;
 const message = (text: string, extra: Record<string, unknown> = {}): Item =>
@@ -159,4 +161,13 @@ test("a stamped origin (C-A, attached as the projection carries it) decides over
     }),
   );
   expect(inputLine(model!)?.text).toBe("Model: Opus 4.1 → Sonnet 4.5");
+});
+
+test("the first-paint check lets through only what may be ace's input", () => {
+  expect(mayBeSystemInput(message("Fix the login redirect loop"))).toBe(false);
+  expect(mayBeSystemInput(message(restart))).toBe(true);
+  // A candidate is only a candidate: the exact check still keeps it the person's.
+  const lookalike = message("ace restarted. Please diagnose this bug");
+  expect(mayBeSystemInput(lookalike)).toBe(true);
+  expect(systemInput(lookalike)).toBeUndefined();
 });

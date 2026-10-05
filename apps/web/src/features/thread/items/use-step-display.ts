@@ -1,8 +1,9 @@
 import { useAgent, useItem } from "@ace/client-react";
 import type { Item } from "@ace/protocol";
-import { describeStep, requestIdentity, type StepText } from "@ace/ui-core";
+import { describeStep, type StepText } from "@ace/ui-core";
 import { useChangesStat } from "@/lib/diffs/use-file-diffs.ts";
-import { useLocalAnswer } from "../interactions/answers.ts";
+import { usePendingAnswer } from "../interactions/pending-answers.ts";
+import { useStepLabels } from "./step-labels.ts";
 import { useItemInteraction } from "../interactions/use-item-interaction.ts";
 
 /**
@@ -17,17 +18,16 @@ export function useStepDisplay(
   const item = useItem(threadId, itemId);
   const agent = useAgent(threadId, item?.agentId ?? "");
   const interaction = useItemInteraction(threadId, item?.type === "tool_call" ? itemId : "");
-  const local = useLocalAnswer(interaction?.id, interaction && requestIdentity(interaction));
-  const answering =
-    local?.state === "sending" && local.resolution.kind === "approval"
-      ? local.resolution.optionId
-      : undefined;
+  const pending = usePendingAnswer(interaction?.id);
+  const labels = useStepLabels();
+  const answering = pending?.kind === "approval" ? pending.optionId : undefined;
   const described =
     item &&
     describeStep(item, {
       cwd: agent?.cwd,
       interaction: interaction?.request.kind === "approval" ? interaction : undefined,
       answering,
+      labels,
     });
   // A full-text edit's stat is a text diff, counted in the diff worker rather than here.
   const counted = useChangesStat(described?.diffFor);

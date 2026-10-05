@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { displayCommand, stepPath, toolDisplayName, unwrapShellCommand } from "./step-display.ts";
-import { mcpToolLabel, namedToolLabel } from "./tool-labels.ts";
+import { displayCommand, stepPath, unwrapShellCommand } from "./step-display.ts";
+import { mcpToolLabel, namedToolLabel, toolDisplayName } from "./tool-labels.ts";
 
 const cwd = "/Users/ada/.ace-next/worktrees/33594883e2b3ea4fc70aeea5/repo";
 

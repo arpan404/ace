@@ -190,7 +190,7 @@ test("number keys pick an option and Enter answers", async () => {
       answers: { recovery: ["reset"] },
     }),
   );
-});
+}, 15_000);
 
 const recovery = {
   kind: "question" as const,
@@ -267,13 +267,9 @@ async function answerThenReplay(scenario: Scenario) {
   player.runUntilBlocked();
   await app.open(`/t/${scenario.thread.id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const card = await within(feed).findByRole(
-    "article",
-    {
-      name: "How should the sheet recover after rotate?",
-    },
-    15_000,
-  );
+  const card = await within(feed).findByRole("article", {
+    name: "How should the sheet recover after rotate?",
+  });
   await userEvent.click(within(card).getByRole("radio", { name: /Block rotation/ }));
   await userEvent.click(within(card).getByRole("button", { name: "Answer" }));
   await waitFor(() => expect(app.daemon.isPending(scenario.thread.id, "ask-1")).toBe(false));

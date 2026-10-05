@@ -1,11 +1,14 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
-import { CheckIcon, CopyIcon, GitForkIcon } from "@phosphor-icons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { GitForkIcon } from "@phosphor-icons/react";
+import { Suspense, useCallback } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
+import { DeferredCopyAnswer } from "./deferred-review.ts";
 import { forkPointOf } from "../transitions/fork-point.ts";
 import { useForkOpener } from "../transitions/fork-opener.ts";
+
+const CopyAnswer = DeferredCopyAnswer.Component;
 
 /** Agent prose. A subagent's message carries its name, as the design's "reconnect-audit found…". */
 export function AssistantMessage(props: { threadId: string; itemId: string }) {
@@ -27,35 +30,13 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
       )}
       {item.complete && (
         <div className="mt-1 flex opacity-0 transition-opacity duration-(--dur-1) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
-          <CopyAnswer text={text} />
+          <Suspense fallback={null}>
+            <CopyAnswer text={text} />
+          </Suspense>
           {!name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
         </div>
       )}
     </div>
-  );
-}
-
-/** Copies the answer's markdown, as written, with a moment of "Copied". */
-function CopyAnswer(props: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const reset = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(reset.current), []);
-  const copy = () =>
-    void navigator.clipboard?.writeText(props.text).then(
-      () => {
-        setCopied(true);
-        clearTimeout(reset.current);
-        reset.current = setTimeout(() => setCopied(false), 1500);
-      },
-      () => setCopied(false),
-    );
-  return (
-    <IconButton
-      icon={copied ? CheckIcon : CopyIcon}
-      label={copied ? "Copied" : "Copy answer"}
-      size="sm"
-      onClick={copy}
-    />
   );
 }
 

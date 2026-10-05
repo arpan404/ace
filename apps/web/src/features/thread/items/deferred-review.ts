@@ -1,4 +1,5 @@
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { preloadStepLabels } from "./step-labels.ts";
 
 /*
  * Events, errors and ace's permission reviews, loaded after first paint (warmed with the
@@ -10,11 +11,18 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 export const DeferredEvent = deferredComponent(() =>
   import("./event-divider.tsx").then((module) => module.EventBlock),
 );
+/** Copy on a finished answer (IR-14): shown on hover, so it loads after first paint. */
+export const DeferredCopyAnswer = deferredComponent(() =>
+  import("./copy-answer.tsx").then((module) => module.CopyAnswer),
+);
 /** Warming the review note warms the events too: they share the thread's idle preload. */
 export const DeferredReviewNote = deferredComponent(() =>
-  Promise.all([import("./review-note.tsx"), DeferredEvent.preload()]).then(
-    ([module]) => module.ReviewNote,
-  ),
+  Promise.all([
+    import("./review-note.tsx"),
+    DeferredEvent.preload(),
+    DeferredCopyAnswer.preload(),
+    preloadStepLabels(),
+  ]).then(([module]) => module.ReviewNote),
 );
 export const DeferredReviewSummary = deferredComponent(() =>
   import("@/components/permission-review.tsx").then((module) => module.PermissionReviewSummary),

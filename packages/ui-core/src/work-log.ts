@@ -1,8 +1,7 @@
 import type { FileChange, Interaction, Item, ToolCall } from "@ace/protocol";
 import { quickStat } from "./file-changes.ts";
-import { approvalOutcome } from "./approvals.ts";
-import { displayCommand, stepPath, errorNote, type PathContext } from "./step-display.ts";
-import { mcpToolLabel, namedToolLabel } from "./tool-labels.ts";
+import { displayCommand, stepPath, type PathContext } from "./step-display.ts";
+import type { StepLabels } from "./tool-labels.ts";
 import { formatElapsed } from "./time.ts";
 
 export type StepIcon = "read" | "search" | "shell" | "edit" | "web" | "tool" | "think" | "note";
@@ -38,6 +37,7 @@ export interface StepContext extends PathContext {
     | undefined;
   /** The option the person just picked on this device, before the daemon confirms it. */
   answering?: string | undefined;
+  labels?: StepLabels | undefined;
 }
 
 const unsettled = new Set<ToolCall["status"]>(["pending", "running", "awaiting_approval"]);
@@ -157,7 +157,9 @@ function callText(call: ToolCall, context: StepContext): CallText {
       return { icon: "edit", verb, target, title, added, removed };
     }
     case "mcp": {
-      const label = mcpToolLabel(detail.server, detail.tool, detail.arguments);
+      if (!context.labels)
+        return { icon: "tool", verb: "Called", target: `${detail.server} › ${detail.tool}` };
+      const label = context.labels.mcp(detail.server, detail.tool, detail.arguments);
       return {
         icon: label.icon === "agent" ? "tool" : label.icon === "shell" ? "shell" : label.icon,
         verb: label.verb,
@@ -173,7 +175,9 @@ function callText(call: ToolCall, context: StepContext): CallText {
     case "agent.message":
       return { icon: "tool", verb: "Messaged a subagent", target: detail.message };
     default: {
-      const label = namedToolLabel(detail.kind, call.title);
+      if (!context.labels)
+        return { icon: detail.kind === "browser" ? "web" : "tool", verb: call.title };
+      const label = context.labels.named(detail.kind, call.title);
       return {
         icon: label.icon === "web" ? "web" : "tool",
         verb: label.verb,
@@ -188,11 +192,11 @@ function callText(call: ToolCall, context: StepContext): CallText {
 function noteFor(call: ToolCall, text: CallText, context: StepContext) {
   if (call.status === "failed") {
     const exit = call.detail.kind === "shell" ? text.note : undefined;
-    return { note: exit ?? errorNote(call.error) ?? "Failed" };
+    return { note: exit ?? context.labels?.error(call.error) ?? "Failed" };
   }
   // The approval reads on its step, settled or not: "Approved by you", "Denied by ace".
-  if (context.interaction?.request.kind === "approval") {
-    const outcome = approvalOutcome(context.interaction, context.answering);
+  if (context.labels && context.interaction?.request.kind === "approval") {
+    const outcome = context.labels.approval(context.interaction, context.answering);
     return { note: outcome.text, needsYou: outcome.state === "pending", outcome };
   }
   return { note: statusNote(call) ?? text.note };

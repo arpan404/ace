@@ -1,5 +1,5 @@
 import { useItem } from "@ace/client-react";
-import { systemInput } from "@ace/ui-core";
+import { mayBeSystemInput } from "@ace/ui-core";
 import { memo, Suspense } from "react";
 import { DeferredEvent } from "./deferred-review.ts";
 import type { Block } from "../transcript/blocks.ts";
@@ -58,10 +58,11 @@ function Event(props: { threadId: string; itemId: string }) {
 
 /**
  * A user message: the person's bubble, unless ace sent it on their behalf (a resume, a
- * delegation result, an answer, a handoff), which reads as an event instead (A3).
+ * delegation result, an answer, a handoff), which reads as an event instead (A3). Only a
+ * candidate goes to the event view, which decides exactly and shows the bubble otherwise.
  */
 function PersonMessage(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
-  if (systemInput(item)) return <Event threadId={props.threadId} itemId={props.itemId} />;
+  if (mayBeSystemInput(item)) return <Event threadId={props.threadId} itemId={props.itemId} />;
   return <UserMessage threadId={props.threadId} itemId={props.itemId} />;
 }

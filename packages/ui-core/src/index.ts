@@ -36,6 +36,7 @@ export type { BrandArt, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";
 export * from "./provider-status.ts";
 export * from "./questions.ts";
+export * from "./answered-questions.ts";
 export * from "./queue.ts";
 export * from "./snooze.ts";
 export * from "./status.ts";
