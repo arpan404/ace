@@ -165,6 +165,11 @@ export function createTextRedactor(ctx: RedactionContext): (text: string) => str
 export function createRedactor(
   ctx: RedactionContext,
   literalTextFields: readonly string[] = [],
+  redactText?: (
+    text: string,
+    scrubPlain: (text: string) => string,
+    scrubRecord: (record: string) => string,
+  ) => string,
 ): (line: string) => string {
   const literalFields = new Set(literalTextFields);
   const scrub = createLexicalRedactor(ctx);
@@ -186,7 +191,11 @@ export function createRedactor(
             return "<INVALID STRUCTURED DATA OMITTED>";
           }
         }
-        return scrub(value);
+        return redactText
+          ? redactText(value, scrub, (record) =>
+              JSON.stringify(clean(JSON.parse(record), depth + 1)),
+            )
+          : scrub(value);
       }
       if (Array.isArray(value))
         return value.slice(0, remaining).map((item) => clean(item, depth + 1));

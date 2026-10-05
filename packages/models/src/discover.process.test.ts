@@ -115,7 +115,7 @@ test("OpenCode v2 metadata keeps provider/model IDs and image capability", async
   expect(rows[0]).toMatchObject({
     id: "local/some/model",
     nativeProviderId: "local",
-    nativeModelId: "some/model",
+    nativeModelId: "local/some/model",
     contextWindow: 131072,
     inputModalities: ["text", "image"],
     reasoningEfforts: ["high"],
@@ -152,7 +152,7 @@ test("shared discovery keeps OpenCode metadata without starting an unprofiled AC
     expect.objectContaining({
       id: "local/merged-model",
       nativeProviderId: "local",
-      nativeModelId: "merged-model",
+      nativeModelId: "local/merged-model",
       contextWindow: 131072,
       reasoningEfforts: ["high"],
     }),
