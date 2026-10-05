@@ -441,6 +441,7 @@
     "packages/fake-daemon": {
       "name": "@ace/fake-daemon",
       "dependencies": {
+        "@ace/accounts": "workspace:*",
         "@ace/automations": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -671,6 +672,7 @@
     "packages/ui-core": {
       "name": "@ace/ui-core",
       "dependencies": {
+        "@ace/accounts": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.6.5",

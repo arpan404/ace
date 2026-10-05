@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, cp, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import { checked, runProcess } from "@ace/service";
 import { spawn, execFile } from "node:child_process";
@@ -245,5 +246,53 @@ try {
         await exit;
       }
     }
+  },
+);
+
+test(
+  "the packaged MCP listener serves its first tool call and persists its effect without a checkout",
+  { timeout: 60_000 },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-lazy-mcp-bundle-"));
+    roots.push(root);
+    const resolveDaemon = createRequire(createRequire(import.meta.url).resolve("@ace/daemon"));
+    const mcp = resolveDaemon.resolve("@ace/mcp-server");
+    const client = createRequire(mcp)
+      .resolve("@modelcontextprotocol/client")
+      .replace(/\.cjs$/, ".mjs");
+    const zod = resolveDaemon.resolve("zod");
+    const entry = join(root, "fixture.ts");
+    await writeFile(
+      entry,
+      `
+import { writeFileSync } from "node:fs";
+import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from ${JSON.stringify(mcp)};
+import { z } from ${JSON.stringify(zod)};
+const registry = new ToolRegistry({scheduler:nodeScheduler});
+registry.register({name:"ace_echo",description:"Echo",input:z.object({value:z.string()}),output:z.object({value:z.string()}),capability:null,timeoutMs:1000,async run(value){writeFileSync("effect.json",JSON.stringify(value));return value;}});
+const credentials = new CredentialRegistry(() => "a".repeat(64));
+const server = await startMcpServer({registry,credentials});
+const lease = credentials.issue({sessionId:"test",threadId:"thread",agentId:"agent",capabilities:[]},new AbortController().signal);
+const { Client, StreamableHTTPClientTransport } = await import(${JSON.stringify(client)});
+const client = new Client({name:"test",version:"1"},{versionNegotiation:{mode:{pin:"2026-07-28"}}});
+try {
+ await client.connect(new StreamableHTTPClientTransport(new URL(server.url),{requestInit:{headers:{Authorization:"Bearer "+lease.bearer}}}));
+ const result = await client.callTool({name:"ace_echo",arguments:{value:"cold import"}});
+ console.log(JSON.stringify(result.structuredContent));
+} finally {await client.close();lease.end();await server.close();}
+`,
+    );
+    await bundleDaemon(resolve(import.meta.dirname, "../../.."), root, "", undefined, entry);
+    await rm(entry);
+    const result = await promisify(execFile)(process.execPath, [join(root, "ace.mjs")], {
+      cwd: root,
+      env: { HOME: root, PATH: "" },
+      timeout: 15_000,
+      maxBuffer: 65536,
+    });
+    expect(JSON.parse(result.stdout)).toEqual({ value: "cold import" });
+    expect(JSON.parse(await readFile(join(root, "effect.json"), "utf8"))).toEqual({
+      value: "cold import",
+    });
   },
 );

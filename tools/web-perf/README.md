@@ -20,6 +20,19 @@ This increases the workload; it does not lower the acceptance threshold. Detecto
 correctness failures remain fatal. `browser-budgets.test.ts` verifies that a small shortfall
 retries, a repeated shortfall fails, and the exact 5,000 boundary passes.
 
+The perf worker counts decoded transcript event deliveries, excluding snapshots and duplicate
+sidebar deliveries, and publishes the count after the client has processed each frame.
+`acePerf.events` is this delivered count, rather than the soak daemon's generated sequence.
+Reset captures the count and `performance.now()` together in one page task; reading captures
+both endpoints together again. The rate uses that count delta and the same `seconds` as the
+interaction report. Queued deliveries after the read belong to the next window. A stale start
+from before another reset is rejected. The measurement behaviour test injects a clock and
+counters to verify that pre-window and post-window deliveries cannot enter the rate.
+
+The literal 4,997.42 also appears in expected-failure budget tests. Those tests previously
+printed rejected samples while asserting that the gate rejects them. They now silence their
+sample reports so expected rejections cannot look like real browser benchmark failures.
+
 PerformanceObserver delivery is asynchronous. Resetting a measurement clears its values and
 sets its start timestamp; entries delivered afterward are filtered by `entry.startTime`.
 This keeps queued observations from before the interaction window out of its maximum and

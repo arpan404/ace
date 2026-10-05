@@ -1,7 +1,6 @@
 import { PermissionMode } from "@ace/protocol";
 import { registerPiContextSamples } from "./context-usage.ts";
 import { registerPiToolGate } from "./tool-approval.ts";
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { AceMcpConnectionSchema } from "@ace/mcp-server";
 import { obj, str } from "./native.ts";
@@ -127,6 +126,7 @@ export default async function aceExtension(
     url: env.ACE_PI_MCP_URL,
     bearer: env.ACE_PI_MCP_BEARER,
   });
+  const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
   const client = new Client(
     { name: "ace-pi", version: "0.1.0" },
     { versionNegotiation: { mode: { pin: "2026-07-28" } } },
