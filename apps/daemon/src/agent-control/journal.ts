@@ -317,6 +317,9 @@ export class DelegationJournal {
       .all(parent)
       .map((row) => this.decode(row.record));
   }
+  consumeChild(child: ThreadId) {
+    this.sql("UPDATE delegated_threads SET result_pending=0 WHERE child_id=?").run(child);
+  }
   consume(parent: ThreadId) {
     this.sql(
       "UPDATE delegated_threads SET result_pending=0 WHERE parent_id=? AND result_pending=1",

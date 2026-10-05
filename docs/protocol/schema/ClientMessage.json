@@ -18,6 +18,9 @@
       "$ref": "https://ace.local/protocol/v1/ThreadReadStateRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/HostIdentityRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MachinesRequest.json"
     },
     {
@@ -620,6 +623,80 @@
         "type",
         "requestId",
         "options"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.origins.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/BrowserOrigin.json"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.origins.grant",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "origin"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/BrowserOrigin.json"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.origins.revoke",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "origin"
       ],
       "type": "object"
     },

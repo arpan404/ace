@@ -1,5 +1,10 @@
 import type { Fact, Key } from "@ace/core";
-import type { InteractionRequest, RawPayload, RunTrigger } from "@ace/protocol";
+import type {
+  InteractionRequest,
+  RawPayload,
+  RunTrigger,
+  ProviderErrorDetails,
+} from "@ace/protocol";
 import { MissingEdges } from "./missing-edges.ts";
 import type { ChildUsage } from "./usage.ts";
 import { object, raw, string, type Data } from "./native.ts";
@@ -22,7 +27,14 @@ export class ClaudeState {
   sessionState: string | undefined;
   retryOn: "rate_limit" | "network" | "upstream" | undefined;
   rateBlocks = new Set<string>();
-  errors = new Map<Key, { kind: "provider" | "auth" | "quota" | "network"; message: string }>();
+  errors = new Map<
+    Key,
+    {
+      kind: "provider" | "auth" | "quota" | "network";
+      message: string;
+      details?: ProviderErrorDetails;
+    }
+  >();
   runTrigger: RunTrigger = "unknown";
   wakeUntil: number | undefined;
   active = new Set<Key>();

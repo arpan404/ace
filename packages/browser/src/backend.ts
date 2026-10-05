@@ -15,7 +15,9 @@ export interface BackendOpen {
   options: BrowserOpen;
   profileDir: string;
   signal: AbortSignal;
-  allowed(url: string): Promise<boolean>;
+  allowed(url: string, context?: { navigation?: boolean; human?: boolean }): Promise<boolean>;
+  /** Initiating actor of active work, otherwise the current lease owner. */
+  initiator?(): boolean;
   navigation(): void;
   log(entry: BackendLog): void;
   lost(reason: string): void;
@@ -26,7 +28,7 @@ export interface BackendOpen {
 export interface BrowserBackendSession {
   readonly cdp: BrowserCdp;
   url(): string;
-  navigate(url: string, timeout: number): Promise<void>;
+  navigate(url: string, timeout: number, signal?: AbortSignal): Promise<void>;
   click(x: number, y: number): Promise<void>;
   insertText(text: string): Promise<void>;
   press(key: string): Promise<void>;

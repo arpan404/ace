@@ -175,6 +175,11 @@ export class Sessions {
             ...(parsed.nativeSessionId ? { nativeSessionId: parsed.nativeSessionId } : {}),
           });
         },
+        onInputMessage: (messageIdentity) => {
+          if (generation !== actor.generation || lifetime.signal.aborted)
+            throw new Error("Provider input identity arrived after host admission was fenced");
+          this.dependencies.repo.aceInputs.correlate(actor.id, messageIdentity);
+        },
         onFrame: (frame) => {
           const accepted = actor.frame(frame, generation);
           const committed = accepted.then(() => {

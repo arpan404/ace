@@ -95,7 +95,9 @@ export function createAgentControlPort(
       switch (operation.op) {
         case "delegate_task": {
           const { op: _op, ...request } = operation;
-          const child = service.delegate(caller, request);
+          const configured = await service.prepareModels(caller, request);
+          signal.throwIfAborted();
+          const child = service.delegate(caller, request, configured);
           const outcome = operation.wait
             ? await service.wait(caller, child.childId, signal)
             : undefined;
@@ -103,13 +105,16 @@ export function createAgentControlPort(
         }
         case "thread.create": {
           const { op: _op, title: _title, ...selection } = operation;
-          const child = service.prepare(caller, {
+          const request = {
             ...selection,
             task: "Await launch",
             role: operation.title,
             wait: false,
             estimatedLoad: 0,
-          });
+          };
+          const configured = await service.prepareModels(caller, request);
+          signal.throwIfAborted();
+          const child = service.prepare(caller, request, configured);
           return { ok: true, data: { threadId: child.childId } };
         }
         case "thread.launch": {

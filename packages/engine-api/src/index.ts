@@ -95,6 +95,11 @@ export interface SessionContext {
     instanceId: string;
     nativeSessionId?: string;
   }): void;
+  /** Persist host command/native message correlation before input can be echoed or replayed.
+   * Report every command, including ordinary user input; text never establishes ace origin.
+   * The native ID must match the projected user message's draft.nativeId.
+   */
+  onInputMessage?(identity: { commandId: string; nativeId: string }): void;
   /** Ephemeral ace capability, revoked with this session. Never persisted. */
   aceMcp?: { url: string; bearer: string; signal?: AbortSignal; end?(): void };
   acpIdentity?: AcpIdentity;
@@ -138,7 +143,12 @@ export interface ProviderSession {
   setModel?(model: string): Promise<void>;
   setMode?(mode: string): Promise<void>;
   /** Optional engine command correlation for providers with durable admission. */
-  send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void>;
+  send(
+    input: ContentPart[],
+    delivery: "steer" | "queue",
+    commandId?: string,
+    origin?: "ace",
+  ): Promise<void>;
   interrupt(target: { agent?: Key; cascade: boolean }): Promise<void>;
   resolve(interaction: Key, resolution: InteractionResolution): Promise<void>;
   stopTask(task: Key): Promise<void>;
