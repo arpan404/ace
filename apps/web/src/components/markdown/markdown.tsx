@@ -1,6 +1,7 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import type { MarkedToken, Token } from "marked";
 import { memo, type ReactNode } from "react";
+import { MarkdownImage } from "@/components/attachment-markdown.tsx";
 import { codeSpanClass } from "@/components/inline-markdown.tsx";
 import type { MarkdownBlock } from "./blocks.ts";
 import { CodeBlock } from "./code-block.tsx";
@@ -9,6 +10,7 @@ import { useMarkdown } from "./use-markdown.ts";
 /*
  * Agent prose rendered from marked's lexer tokens into React elements. No HTML string is ever
  * injected: raw HTML in a message shows as text, and only http(s) and mailto links are live.
+ * Images draw only bytes already on the page (`MarkdownImage`).
  */
 
 const known = new Set<string>([
@@ -79,16 +81,8 @@ function Inline(props: { token: Token }): ReactNode {
         </a>
       );
     }
-    case "image": {
-      const href = safeHref(token.href);
-      return href ? (
-        <a href={href} target="_blank" rel="noreferrer noopener" className="underline">
-          {token.text || href}
-        </a>
-      ) : (
-        token.text
-      );
-    }
+    case "image":
+      return <MarkdownImage src={token.href} alt={token.text} />;
     case "text":
       return token.tokens ? inline(token.tokens) : token.text;
     case "escape":

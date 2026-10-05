@@ -1,7 +1,8 @@
 import { useItem } from "@ace/client-react";
-import { ArchiveIcon, InfoIcon, WarningIcon } from "@phosphor-icons/react";
+import { InfoIcon, WarningIcon } from "@phosphor-icons/react";
 import { memo, Suspense } from "react";
 import { DeferredReviewNote } from "./deferred-review.ts";
+import { ArtifactLine } from "@/components/attachment-artifact.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { DeferredInteractionCard } from "../interactions/deferred-card.ts";
 import type { Block } from "../transcript/blocks.ts";
@@ -96,12 +97,7 @@ function QuietItem(props: { threadId: string; itemId: string }) {
         </Marker>
       );
     case "artifact":
-      return (
-        <p className="flex items-center gap-2 text-ui text-muted-foreground">
-          <ArchiveIcon aria-hidden size={16} className="text-subtle-foreground" />
-          Saved <code className="font-mono text-[12.5px] text-foreground">{item.path}</code>
-        </p>
-      );
+      return <ArtifactLine threadId={props.threadId} path={item.path} mimeType={item.mimeType} />;
     case "message":
       return (
         <p className="text-ui whitespace-pre-wrap text-muted-foreground">

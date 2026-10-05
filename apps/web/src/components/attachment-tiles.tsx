@@ -187,3 +187,28 @@ export function FileChip(props: { file: ShownFile }) {
     </Tip>
   );
 }
+
+/** An inline image of agent prose: a thumbnail that opens the lightbox. */
+export function InlineImage(props: { src: string; alt: string }) {
+  const images: ShownImage[] = [
+    {
+      key: props.src,
+      name: props.alt || "Image",
+      source: { kind: "url", url: props.src },
+    },
+  ];
+  const { show, lightbox } = useLightbox(images);
+  const [image] = images;
+  if (!image) return null;
+  return (
+    <span className="my-1 inline-block align-middle">
+      <ImageTile
+        image={image}
+        size={tileSize(image, 1)}
+        fit="contain"
+        onOpen={(element) => show(0, element)}
+      />
+      {lightbox}
+    </span>
+  );
+}

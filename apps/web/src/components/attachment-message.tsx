@@ -21,8 +21,25 @@ const Tiles = deferredComponent(() =>
   import("./attachment-tiles.tsx").then((module) => module.AttachmentTiles),
 );
 
+const Unavailable = deferredComponent(() =>
+  import("./attachment-unavailable.tsx").then((module) => module.UnavailableTile),
+);
+
 /** Warm the thumbnails' code while the browser is idle. */
-export const preloadAttachments = Tiles.preload;
+export function preloadAttachments(): Promise<unknown> {
+  return Promise.all([Tiles.preload(), Unavailable.preload()]);
+}
+
+/** The neutral tile for an image this device can't show, with its name. */
+export function UnavailableImage(props: { name: string }) {
+  return (
+    <Suspense
+      fallback={<Skeleton className="rounded-[10px]" style={{ width: 240, height: 120 }} />}
+    >
+      <Unavailable.Component name={props.name} />
+    </Suspense>
+  );
+}
 
 export type { LocalAttachment };
 

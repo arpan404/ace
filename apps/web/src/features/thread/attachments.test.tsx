@@ -6,9 +6,9 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 /*
- * Attachments in the transcript (AT-1, AT-2): thumbnails from the daemon's attachment bytes,
- * file chips by name and size, and the lightbox. jsdom has no object URLs, so they are stubbed
- * at that boundary and remember the blob each one stands for.
+ * Attachments in the transcript (AT-1, AT-2, AT-3): thumbnails from the daemon's attachment
+ * bytes, file chips by name and size, the lightbox, and files the agent saved. jsdom has no
+ * object URLs, so they are stubbed at that boundary and remember the blob each one stands for.
  */
 
 const objectUrls = new Map<string, Blob>();
@@ -153,4 +153,31 @@ test("the lightbox steps through the message's images and gives focus back on Es
   await user.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(document.activeElement).toBe(thumbnail);
+});
+
+test("a file the agent saved is named relative to the project, and its image reads as unavailable", async () => {
+  const { feed } = await openMessage({}, [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "shot",
+      draft: {
+        type: "artifact",
+        source: "browser",
+        path: "/work/shop/.ace/screens/checkout.png",
+        mimeType: "image/png",
+        bytes: 4096,
+        complete: true,
+      },
+    },
+  ]);
+  expect(
+    await within(feed).findByRole("img", {
+      name: ".ace/screens/checkout.png: image unavailable on this device",
+    }),
+  ).toBeTruthy();
+  expect(within(feed).getByText("Saved").parentElement?.textContent).toBe(
+    "Saved.ace/screens/checkout.png",
+  );
+  expect(feed.textContent).not.toContain("/work/shop");
 });

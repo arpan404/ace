@@ -147,3 +147,17 @@ export function tileSize(
     height: Math.max(36, Math.round(height * scale)),
   };
 }
+
+/**
+ * A saved file's name as the project knows it: relative to the first root that holds it (the
+ * checkout, then the project), else just its name. Never the absolute path.
+ */
+export function projectRelative(path: string, roots: readonly (string | undefined)[]): string {
+  const normal = path.replaceAll("\\", "/");
+  for (const root of roots) {
+    if (!root) continue;
+    const base = root.replaceAll("\\", "/").replace(/\/+$/, "");
+    if (base && normal.startsWith(`${base}/`)) return normal.slice(base.length + 1);
+  }
+  return normal.startsWith("/") || /^[a-z]:\//i.test(normal) ? displayName(normal, "file") : normal;
+}
