@@ -1,7 +1,7 @@
 import type { RunTrigger, InteractionResolution } from "@ace/protocol";
 import type { Fact, Key } from "@ace/core";
 import type { Data } from "./data.ts";
-import { object, raw, string, number } from "./data.ts";
+import { object, string, number } from "./data.ts";
 import { RecentMap, RecentSet } from "./cache.ts";
 import { qualifiedModel } from "./usage.ts";
 export type Tool = {
@@ -50,7 +50,6 @@ export class NativeState {
   lostLocations = new Set<string>();
   private locations = new Map<string, number>();
   private childDispatchCount = 0;
-  unknown = 0;
   constructor(rootKey: Key) {
     this.rootKey = rootKey;
   }
@@ -78,16 +77,6 @@ export class NativeState {
   }
   key(id: string): string {
     return id === this.rootNative ? this.rootKey : id;
-  }
-  note(data: unknown, name: string): Fact[] {
-    return [
-      {
-        type: "item.upsert",
-        agent: this.rootKey,
-        item: `native-notice:${++this.unknown % 128}`,
-        draft: { type: "notice", level: "info", text: name, raw: raw(name, data) },
-      },
-    ];
   }
   seen(p: Data): Fact[] {
     const id = string(p.id, string(p.sessionID)),

@@ -13,6 +13,7 @@ export function replay(limits: { maxPendingBytes?: number } = {}) {
   });
   const state = createThreadState({ threadId, config: { provider: "cursor", silenceMs: 90000 } });
   const events: EventPayload[] = [];
+  const diagnostics: import("@ace/protocol").RawPayload[] = [];
   const frame = (
     kind: CursorEnvelope["kind"],
     body: unknown,
@@ -37,6 +38,7 @@ export function replay(limits: { maxPendingBytes?: number } = {}) {
       events.push(
         ...apply(state, fact, { now: seq, ids: { next: (entityKind) => `${entityKind}-${++id}` } }),
       );
+    diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
     return input;
   };
   const repeat = (input: Frame) => {
@@ -44,10 +46,11 @@ export function replay(limits: { maxPendingBytes?: number } = {}) {
       events.push(
         ...apply(state, fact, { now: seq, ids: { next: (entityKind) => `${entityKind}-${++id}` } }),
       );
+    diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
   };
   frame("open", { cwd: "/fixture", deltaSource: true });
   frame("send", { input: [{ type: "text", text: "synthetic input" }] });
-  return { state, events, frame, repeat };
+  return { state, events, diagnostics, frame, repeat };
 }
 export function texts(state: ReturnType<typeof replay>["state"]) {
   return Object.values(state.items).flatMap((item) =>

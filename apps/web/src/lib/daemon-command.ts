@@ -1,5 +1,8 @@
 import type { ClientApi } from "@ace/client";
+import { useConnectionState } from "@ace/client-react";
 import type { CommandPayload, CommandResult } from "@ace/protocol";
+import { useMemo } from "react";
+import { useToast } from "@/components/ui/toast.tsx";
 
 /** A command the daemon refused, with its error code and a sentence a person can act on. */
 export class CommandRefused extends Error {
@@ -109,4 +112,35 @@ export function daemonErrorCode(error: unknown): string {
 /** Why a read failed, as a sentence for an error state: never the raw code. */
 export function describeDaemonError(code: string): string {
   return loadFailures[code] ?? "Something went wrong reading this from the daemon. Try again.";
+}
+
+/** What a control that needs the daemon right now says while the connection is away. */
+export const needsDaemonMessage = "Reconnect to the daemon to do this";
+
+/**
+ * One rule for controls backed by a one-off request (`Client.request`, `runCommand`), which is
+ * never queued while offline (OF-5). While the daemon is away such a control stays focusable
+ * but `aria-disabled`, its tooltip says `reason`, and activating it says the same in a toast
+ * instead of firing a request that can only fail. Durable intents queue and stay enabled.
+ */
+export function useDaemonReady() {
+  const ready = useConnectionState() === "ready";
+  const toast = useToast();
+  return useMemo(
+    () => ({
+      ready,
+      /** For the control's tooltip; undefined while connected. */
+      reason: ready ? undefined : needsDaemonMessage,
+      /** Spread on the control. */
+      props: ready ? {} : { "aria-disabled": true as const },
+      /** Wrap the control's action: it runs only while connected. */
+      guard<A extends unknown[]>(action: (...args: A) => void) {
+        return (...args: A) => {
+          if (ready) action(...args);
+          else toast.add({ title: needsDaemonMessage });
+        };
+      },
+    }),
+    [ready, toast],
+  );
 }

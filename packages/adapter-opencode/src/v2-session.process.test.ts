@@ -61,6 +61,7 @@ it.each([
   { env: { ACE_TEST_SERVER_VERSION: "2.0.23" } },
   { env: { ACE_TEST_HTML: "1" } },
   { env: { ACE_TEST_MISSING_OPERATION: "session.prompt" } },
+  { env: { ACE_TEST_MISSING_OPERATION: "session.switchModel" } },
 ])(
   "unsupported versions, HTML or missing operations prevent session creation: %j",
   async ({ env }) => {

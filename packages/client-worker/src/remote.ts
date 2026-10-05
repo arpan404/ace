@@ -4,8 +4,8 @@ import {
   pendingSendsEqual,
   type PendingSend,
   deferredProjectsApi,
-  type FileDownloadInput,
   type AttachmentInput,
+  type FileDownloadInput,
   type FileUploadInput,
 } from "@ace/client";
 import {
@@ -405,7 +405,7 @@ export class RemoteClient implements ClientApi {
     this.post({ t: "send", message });
   }
   attachmentBytes(input: AttachmentInput, options: RequestOptions = {}) {
-    // The subpath, not the barrel: a dynamic import of the barrel keeps the whole client.
+    // A subpath keeps the validating reader (and zod) out of the page's first paint.
     return import("@ace/client/attachments").then(({ attachmentBytes }) =>
       attachmentBytes(this, input, options),
     );

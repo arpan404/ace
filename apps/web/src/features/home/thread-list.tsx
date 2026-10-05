@@ -2,11 +2,9 @@ import { CaretDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
 import { useParams } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
 import { homeRowKey, homeRowThread, homeRows, type HomeRow } from "@ace/ui-core";
-import { FolderRow, PinnedLabel, ShowMore } from "./folder-rows.tsx";
-import { useFolders } from "./folders.ts";
 import { SettledRow } from "./settled-row.tsx";
 import { HomeMachine, useHomeMachine } from "./thread-details.ts";
 import { ThreadRow } from "./thread-row.tsx";
@@ -16,39 +14,31 @@ import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 
 const estimates: Record<HomeRow["kind"], number> = {
-  "pinned-label": 36,
-  pinned: 31,
-  folder: 31,
-  thread: 31,
-  more: 37,
+  thread: 69,
   "settled-header": 40,
   settled: 31,
 };
 
+/** Keys that move focus between rows: arrows, and j/k as in other lists. */
+const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, j: 1, k: -1 };
+
 /**
- * The Home list, virtualized: Pinned, then a folder per project (its first threads, then Show
- * more), then the collapsible Settled section (when threads settle is a setting, in Settings ›
- * General). Only visible rows mount.
+ * The Home list, virtualized: one task row per thread across projects, pinned first, then the
+ * collapsible Settled section (when threads settle is a setting, in Settings › General). Only
+ * visible rows mount. Up and Down (or j and k) move between rows; Tab still walks each row's
+ * actions.
  * Rows that arrive (a new thread, an unsnooze) rise in, rows that go (settle, snooze, archive)
  * fade where they were, and the rest slide to their new places. While the person points at the
  * list or moves through it by keyboard, rows keep their places (`useHeldRows`).
  */
 export function ThreadList(props: { list: HomeList }) {
-  const { groups, settled } = props.list;
+  const { active, settled } = props.list;
   const { settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
-  const folders = useFolders();
-  const open = useParams({ strict: false, select: (params) => params.threadId });
   const home = useHomeMachine();
   const rows = useMemo(
-    () =>
-      homeRows(groups, settled, {
-        closed: folders.state.closed,
-        showingAll: folders.state.showingAll,
-        open,
-        settledOpen,
-      }),
-    [groups, settled, folders.state, open, settledOpen],
+    () => homeRows(active, settled, { settledOpen }),
+    [active, settled, settledOpen],
   );
   const hold = useListHold();
   const held = useHeldRows(rows, hold.state, props.list.needsYou);
@@ -64,6 +54,31 @@ export function ThreadList(props: { list: HomeList }) {
   });
   useForgetGoneRows(virtualizer, drawn.length, (index) => drawn[index]?.key ?? index);
   useRevealOpenThread(drawn, virtualizer.scrollToIndex);
+  /** Focus the row at `index` (or the next one that isn't leaving), mounting it first if needed. */
+  const focusRow = (from: number, step: number) => {
+    let index = from + step;
+    while (drawn[index]?.phase === "exit") index += step;
+    if (index < 0 || index >= drawn.length) return;
+    const target = () =>
+      viewport.current?.querySelector<HTMLElement>(
+        `[data-index="${index}"] [data-row-focus], [data-index="${index}"] [data-settled-toggle]`,
+      );
+    virtualizer.scrollToIndex(index, { align: "auto" });
+    const now = target();
+    if (now) now.focus();
+    else requestAnimationFrame(() => target()?.focus());
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = steps[event.key];
+    if (!step || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    if (!(event.target instanceof HTMLElement)) return;
+    // Only from a row itself: never while renaming, or inside a menu or the hover actions.
+    if (!event.target.matches("[data-row-focus], [data-settled-toggle]")) return;
+    const from = event.target.closest<HTMLElement>("[data-index]");
+    if (!from) return;
+    event.preventDefault();
+    focusRow(Number(from.dataset.index), step);
+  };
   return (
     <HomeMachine value={home}>
       <div
@@ -74,6 +89,7 @@ export function ThreadList(props: { list: HomeList }) {
       >
         <div
           role="list"
+          onKeyDown={onKeyDown}
           className={cn("relative w-full", moving && "fx-list-moving")}
           style={{ height: virtualizer.getTotalSize() }}
         >
@@ -91,7 +107,7 @@ export function ThreadList(props: { list: HomeList }) {
                 ref={virtualizer.measureElement}
                 data-index={item.index}
                 className={cn(
-                  "absolute inset-x-0 top-0 pb-px",
+                  "absolute inset-x-0 top-0 pb-0.5",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
                   moving && "bg-[rgb(var(--sidebar-rgb))]",
@@ -100,29 +116,13 @@ export function ThreadList(props: { list: HomeList }) {
                 style={{ transform: `translateY(${item.start}px)` }}
               >
                 <div className={rowMotion(entry.phase)}>
-                  {row.kind === "pinned-label" && <PinnedLabel />}
-                  {row.kind === "pinned" && <ThreadRow threadId={row.id} pinned />}
-                  {row.kind === "folder" && (
-                    <FolderRow
-                      project={row.project}
-                      open={row.open}
-                      needsYou={row.needsYou}
-                      onToggle={() => folders.folders.toggleOpen(row.project)}
-                    />
-                  )}
                   {row.kind === "thread" && <ThreadRow threadId={row.id} />}
-                  {row.kind === "more" && (
-                    <ShowMore
-                      project={row.project}
-                      showingAll={row.showingAll}
-                      onToggle={() => folders.folders.toggleShowingAll(row.project)}
-                    />
-                  )}
                   {row.kind === "settled" && <SettledRow threadId={row.id} />}
                   {row.kind === "settled-header" && (
                     <button
                       type="button"
                       aria-expanded={settledOpen}
+                      data-settled-toggle=""
                       onClick={() => organizer.setSettledOpen(!settledOpen)}
                       className="mt-3 mb-0.5 flex w-full items-center gap-2 rounded-sm px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1) after:h-px after:flex-1 after:bg-sidebar-border hover:text-muted-foreground"
                     >

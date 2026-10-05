@@ -1,7 +1,14 @@
 export { createInstance, instanceEnv, discoverHomes, loginStatus, loginArgs } from "./instances.ts";
 export { addAccount } from "./login.ts";
 export { AccountRegistry, openRegistry, openRegistryIndex } from "./registry.ts";
-export { initialQuota, ingestQuota, availability, type QuotaFact } from "./quota.ts";
+export { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
+export {
+  availability,
+  blockedUntil,
+  automaticTarget,
+  nearLimitPercent,
+  type Availability,
+} from "./availability.ts";
 export { parseLimitReset } from "./reset-time.ts";
 export { pickInstance, speedHint, type Candidate, type RolePolicy } from "./scheduler.ts";
 export { migrateSession, type MigrationSafety, type MigrationRequest } from "./migration.ts";
@@ -17,3 +24,5 @@ export { createAcpInstance, acpIsolation } from "./acp-instances.ts";
 export { loginAcpAccount, AcpLoginPlan, type AcpLoginResolver } from "./acp-login.ts";
 
 export { cursorDaemonDriver, type CursorCliAuth } from "./cursor-cli-auth.ts";
+
+export { assertManagedHome } from "./managed-home.ts";

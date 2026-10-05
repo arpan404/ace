@@ -108,7 +108,6 @@ export class InputJournal {
       }
       db.exec(`CREATE INDEX IF NOT EXISTS engine_inputs_run ON engine_inputs(thread_id,run_id);
         CREATE INDEX IF NOT EXISTS engine_inputs_delivery ON engine_inputs(thread_id,generation,signature,sent,matched,ordinal);
-        CREATE INDEX IF NOT EXISTS engine_inputs_unmatched ON engine_inputs(thread_id,signature,ordinal) WHERE sent=1 AND matched=0;
         DELETE FROM engine_input_echoes WHERE thread_id NOT IN (SELECT id FROM threads);
         DELETE FROM engine_inputs WHERE thread_id NOT IN (SELECT id FROM threads);
         CREATE TRIGGER IF NOT EXISTS engine_inputs_delete AFTER DELETE ON threads BEGIN
@@ -217,22 +216,13 @@ export class InputJournal {
     )
       return fact;
     if (!alias && !fact.draft.parts) return fact;
-    // Live frames match only their own delivery generation. Opening replays history, where an
-    // echo of an input sent before a crash has no alias yet: it matches that unmatched input
-    // from any generation, so a resume never adds a second bubble.
     const row =
       alias ??
-      (generation === undefined
-        ? this.store
-            .statement(
-              "SELECT item_key,origin FROM engine_inputs WHERE thread_id=? AND signature=? AND sent=1 AND matched=0 ORDER BY ordinal LIMIT 1",
-            )
-            .get(thread, signature(fact.draft.parts ?? []))
-        : this.store
-            .statement(
-              "SELECT item_key,origin FROM engine_inputs WHERE thread_id=? AND signature=? AND generation=? AND sent=1 AND matched=0 ORDER BY ordinal LIMIT 1",
-            )
-            .get(thread, signature(fact.draft.parts ?? []), generation));
+      this.store
+        .statement(
+          "SELECT item_key,origin FROM engine_inputs WHERE thread_id=? AND signature=? AND generation=? AND sent=1 AND matched=0 ORDER BY ordinal LIMIT 1",
+        )
+        .get(thread, signature(fact.draft.parts ?? []), generation ?? null);
     if (!row) return fact;
     const key = z.string().parse(row.item_key);
     if (key === fact.item && !alias) return fact;

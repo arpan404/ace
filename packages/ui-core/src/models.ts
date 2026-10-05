@@ -1,5 +1,6 @@
 import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
-import { blockingReset, tightestWindow, type AccountView } from "./accounts.ts";
+import { tightestWindow, type AccountView } from "./accounts.ts";
+import { accountLimit } from "./limits.ts";
 import type { ProviderStatus } from "./provider-status.ts";
 import { modelLine, modelName } from "./model-label.ts";
 import { modelLabel, providerNames } from "./providers.ts";
@@ -125,11 +126,13 @@ function note(model: CatalogModel, account: AccountView | undefined): string {
 
 /**
  * `models.list` joined with `accounts.list`: each visible model under the account (instance)
- * that serves it, grouped by provider in catalog order, signed-out accounts left out.
+ * that serves it, grouped by provider in catalog order, signed-out accounts left out, each
+ * account's limit as it stands at `now`.
  */
 export function modelChoices(
   models: readonly CatalogModel[],
   accounts: readonly AccountView[],
+  now: number,
 ): ModelChoice[] {
   const byId = new Map(accounts.map((account) => [account.id, account]));
   const providers = [...new Set(models.map((model) => model.provider))];
@@ -140,7 +143,8 @@ export function modelChoices(
         const account = byId.get(model.instance);
         if (account && !account.signedIn) return [];
         const window = account && tightestWindow(account);
-        const exhausted = account?.availability === "exhausted";
+        const limit = account && accountLimit(account, now);
+        const exhausted = limit?.level === "reached";
         return [
           {
             id: model.id,
@@ -152,7 +156,7 @@ export function modelChoices(
             note: note(model, account),
             used: window ? window.usedPercent / 100 : undefined,
             exhausted,
-            resetsAt: exhausted && account ? blockingReset(account) : undefined,
+            resetsAt: limit?.resetsAt,
             isDefault: model.isDefault,
             efforts: model.reasoningEfforts,
             defaultEffort: model.defaultEffort,

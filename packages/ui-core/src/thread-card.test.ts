@@ -58,6 +58,15 @@ test("a thread that needs you is emphasised without a second unread announcement
   expect(card.status).toEqual({ label: "Needs you", tone: "needs-you", mark: "needs-you" });
 });
 
+test("a thread held at its account's usage limit is marked in the list, unlike a waiting one", () => {
+  const limited = threadCard(input({ entry: entry("t", { state: "limited" }, now) }));
+  expect(limited.status).toEqual({ label: "Limited", tone: "waiting", mark: "limited" });
+  const waiting = threadCard(
+    input({ entry: entry("t", { state: "waiting", on: "background_task" }, now) }),
+  );
+  expect(waiting.status.mark).toBe("none");
+});
+
 test("a working thread counts the subagents beside its main agent", () => {
   const card = threadCard(input({ entry: entry("t", { state: "working", agents: 3 }, now) }));
   expect(card.subagents).toBe(2);
@@ -116,7 +125,7 @@ test("a long branch is cut in the middle for the row and kept whole for the tool
   });
   const branch = threadCard(input({ entry: long, details: cardDetails(long, undefined) })).branch;
   expect(branch?.name).toBe("ace/33594883e2b3ea4fc70aeea5");
-  expect(branch?.label).toBe("ace/335…0aeea5");
+  expect(branch?.label).toBe("ace/33594883…a4fc70aeea5");
 });
 
 test("middle truncation keeps short text and both ends of long text", () => {
@@ -125,4 +134,68 @@ test("middle truncation keeps short text and both ends of long text", () => {
   expect(middleTruncateText("abcdef", 2)).toBe("ab");
   // Characters, not UTF-16 units: an emoji in a branch name is never split in half.
   expect(middleTruncateText("🚀".repeat(12), 5)).toBe("🚀🚀…🚀🚀");
+});
+
+test("a working thread's pill counts from when it started working", () => {
+  const card = threadCard(
+    input({
+      entry: entry("t", { state: "working", agents: 1 }, now, { activityAt: now - 18_000 }),
+    }),
+  );
+  expect(card.pill).toEqual({
+    label: "Working",
+    tone: "working",
+    icon: "working",
+    since: now - 18_000,
+  });
+});
+
+test("finished work shows Done until it is read, then its age, quietly", () => {
+  const unread = threadCard(input({ entry: entry("t", { state: "done" }, now - 1000) }));
+  expect(unread.pill?.label).toBe("Done");
+  expect(unread.dimmed).toBe(false);
+  const read = threadCard(
+    input({ entry: entry("t", { state: "done" }, now - 1000, { readAt: now, unread: false }) }),
+  );
+  expect(read.pill).toBeUndefined();
+  expect(read.dimmed).toBe(true);
+});
+
+test("trouble and requests keep their pill whether read or not", () => {
+  const read = { readAt: now, unread: false };
+  for (const [status, label] of [
+    [{ state: "needs_you", interactions: 1 }, "Needs you"],
+    [{ state: "failed" }, "Failed"],
+    [{ state: "limited" }, "Limited"],
+    [{ state: "waiting", on: "rate_limit" }, "Waiting"],
+  ] as const) {
+    const card = threadCard(input({ entry: entry("t", status, now - 1000, read) }));
+    expect(card.pill?.label).toBe(label);
+    expect(card.dimmed).toBe(false);
+  }
+});
+
+test("a settled row is quiet and shows no pill", () => {
+  const card = threadCard(
+    input({ entry: entry("t", { state: "done" }, now - 1000), settled: true }),
+  );
+  expect(card.pill).toBeUndefined();
+  expect(card.dimmed).toBe(true);
+});
+
+test("diff stats show only when the checkout changed", () => {
+  const changed = threadCard(
+    input({
+      entry: entry("t", { state: "done" }, now),
+      details: { diff: { added: 126, removed: 4 } },
+    }),
+  );
+  expect(changed.diff).toEqual({ added: 126, removed: 4 });
+  const clean = threadCard(
+    input({
+      entry: entry("t", { state: "done" }, now),
+      details: { diff: { added: 0, removed: 0 } },
+    }),
+  );
+  expect(clean.diff).toBeUndefined();
 });

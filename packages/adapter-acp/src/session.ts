@@ -1,5 +1,5 @@
+import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { appendAcpMcp } from "@ace/mcp-server";
-import { AGENT_METHODS, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { AcpConfiguration } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
 import { clientMeta } from "./bridge-negotiation.ts";
@@ -58,16 +58,25 @@ export async function openAcpSession(
     });
   } catch (error) {
     ctx.mcp?.end();
-    throw sanitizedError(error, ctx);
+    throw openingError(error, ctx, launch);
   }
   const session = new AcpSession(ctx, quirks, proc, runtime, launch);
   try {
     await session.initialize();
     return session;
   } catch (error) {
-    await session.close("shutdown");
-    throw sanitizedError(error, ctx);
+    const failure = openingError(error, ctx, launch);
+    await session.close("shutdown").catch(() => {});
+    throw failure;
   }
+}
+function openingError(error: unknown, ctx: SessionContext, launch: LaunchOptions): Error {
+  return new SessionOpenError(
+    "ACP session opening failed",
+    error,
+    { env: launch.env ?? ctx.env, workspace: ctx.cwd },
+    (value) => redactLease(value, ctx.mcp?.secrets ?? []),
+  );
 }
 function sanitizedError(error: unknown, ctx: SessionContext): Error {
   return new Error(
@@ -211,6 +220,7 @@ class AcpSession implements ProviderSession {
     });
   }
   async initialize(): Promise<void> {
+    const { AGENT_METHODS, PROTOCOL_VERSION } = await import("@agentclientprotocol/sdk");
     const result = object(
       await this.rpc.request(
         AGENT_METHODS.initialize,

@@ -17,10 +17,16 @@ const keys = {
   accounts: ["accounts", "list"] as const,
 };
 
-/** Every account the daemon's CLIs are signed in to, as view models. */
-export function useAccountViews() {
+/**
+ * Every account the daemon's CLIs are signed in to, as view models. Quota only changes when it is
+ * read again (the daemon pushes no quota updates), so meters that stay on screen read it every
+ * `refreshMs` while the page is visible; every reader shares one request.
+ */
+export function useAccountViews(options: { enabled?: boolean; refreshMs?: number } = {}) {
   return useDaemonQuery({
     queryKey: keys.accounts,
+    enabled: options.enabled ?? true,
+    ...(options.refreshMs ? { refetchInterval: options.refreshMs } : {}),
     read: async (client, signal): Promise<AccountView[]> => {
       const reply = await client.request({ type: "accounts.list" }, { signal });
       return reply.accounts.map(accountView);

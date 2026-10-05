@@ -8,11 +8,17 @@ import { z } from "zod";
 
 /** Init script: records long tasks and, per interaction, its longest event duration. */
 export const observe = () => {
-  const record = { longTasks: [] as number[], events: new Map<number, number>(), start: 0 };
+  const record = {
+    longTasks: [] as number[],
+    events: new Map<number, number>(),
+    start: 0,
+    startEvents: 0,
+  };
   const reset = () => {
     record.longTasks.length = 0;
     record.events.clear();
     record.start = performance.now();
+    record.startEvents = Reflect.get(globalThis, "acePerf")?.events ?? 0;
     return record.start;
   };
   Object.assign(globalThis, { acePerfRecord: Object.assign(record, { reset }) });
@@ -53,10 +59,15 @@ export interface MainThread {
 }
 
 /** Input-to-paint percentiles and long tasks since `start`. */
-export async function readRecord(page: Page, start: number): Promise<MainThread> {
+export async function readRecord(
+  page: Page,
+  start: number,
+): Promise<MainThread & { streamedEvents: number }> {
   const sample = await page.evaluate((from) => {
     const record = Reflect.get(globalThis, "acePerfRecord");
+    if (from !== record.start) throw new Error("Measurement window was reset before reading");
     const elapsed = (performance.now() - from) / 1000;
+    const streamedEvents = (Reflect.get(globalThis, "acePerf")?.events ?? 0) - record.startEvents;
     const durations = [...record.events.values()].toSorted((a: number, b: number) => a - b);
     const at = (q: number) =>
       durations[Math.min(durations.length - 1, Math.floor(q * durations.length))] ?? 0;
@@ -69,6 +80,7 @@ export async function readRecord(page: Page, start: number): Promise<MainThread>
       longShare: longTasks.reduce((sum, value) => sum + value, 0) / (elapsed * 1000),
       longCount: longTasks.length,
       seconds: elapsed,
+      streamedEvents,
     };
   }, start);
   return MainThreadSample.parse(sample);
@@ -82,7 +94,13 @@ const MainThreadSample = z.object({
   longShare: z.number().nonnegative(),
   longCount: z.number().int().nonnegative(),
   seconds: z.number().nonnegative(),
+  streamedEvents: z.number().int().nonnegative(),
 });
+
+/** Delivered events and elapsed time must come from the same reset/read window. */
+export function streamedRate(sample: { streamedEvents: number; seconds: number }): number {
+  return sample.streamedEvents / sample.seconds;
+}
 
 /** The page's retained heap in MB after forced collection, and its DOM size. */
 export async function pageMemory(cdp: CDPSession): Promise<{ heapMb: number; nodes: number }> {

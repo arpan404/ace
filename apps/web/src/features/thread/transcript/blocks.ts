@@ -434,6 +434,21 @@ export function sameBlock(a: Block, b: Block): boolean {
   return true;
 }
 
+/**
+ * The daemon admits a queued message into the transcript as `input:<commandId>` when it accepts
+ * it (ADR 0065); while it waits in the queue its pill shows it, so its bubble stays out of the
+ * feed until it leaves the queue. Returns `blocks` itself when nothing is hidden. Pure.
+ */
+export function withoutQueued(
+  blocks: readonly Block[],
+  queued: readonly { id: string }[] | undefined,
+): readonly Block[] {
+  if (!queued?.length) return blocks;
+  const keys = new Set(queued.map((message) => `input:${message.id}`));
+  const hidden = (block: Block) => block.kind === "user" && keys.has(block.itemId);
+  return blocks.some(hidden) ? blocks.filter((block) => !hidden(block)) : blocks;
+}
+
 export function blocksEqual(a: readonly Block[], b: readonly Block[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;

@@ -77,7 +77,7 @@ test("admission preserves the original input under its command id and retries ne
       workspaceId: "relay",
       provider: "claude",
       input: [
-        { type: "text", text: "A title the fake must not invent" },
+        { type: "text", text: "Keep the original attachment\nwith its details" },
         { type: "image", mimeType: "image/png", url: "data:image/png;base64,AA==" },
       ],
     },
@@ -85,8 +85,11 @@ test("admission preserves the original input under its command id and retries ne
   const created = daemon.command(create);
   expect(daemon.command(create)).toEqual(created);
   const view = thread(daemon, "thread-create-input");
-  expect(view.thread.title).toBe("New thread");
-  expect(Object.values(view.items)).toMatchObject([
+  // Like the daemon, the provisional title is the request's first line.
+  expect(view.thread.title).toBe("Keep the original attachment");
+  expect(
+    Object.values(view.items).filter((item) => item.type === "message" && item.role === "user"),
+  ).toMatchObject([
     {
       id: "input:create-input",
       type: "message",
@@ -106,9 +109,17 @@ test("admission preserves the original input under its command id and retries ne
   });
   expect(daemon.command(send)).toMatchObject({ ok: true });
   expect(daemon.command(send)).toMatchObject({ ok: true });
-  expect(
+  const queued = () =>
     Object.values(thread(daemon, "thread-create-input").items).filter(
       (item) => item.id === "input:queued-input",
-    ),
-  ).toHaveLength(1);
+    );
+  // Admitted at once, like the daemon; the run that later delivers it takes it as its own.
+  expect(queued()).toMatchObject([{ origin: { kind: "person", commandId: "queued-input" } }]);
+  const firstRun = queued()[0]?.runId;
+  daemon.apply("thread-create-input", [
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+  ]);
+  expect(queued()).toHaveLength(1);
+  expect(queued()[0]?.runId).toEqual(expect.any(String));
+  expect(queued()[0]?.runId).not.toBe(firstRun);
 });

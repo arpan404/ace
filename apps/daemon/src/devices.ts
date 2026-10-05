@@ -9,7 +9,9 @@ export const hash = (value: string) => createHash("sha256").update(value).digest
 export const allows = (device: Pick<Device, "scopes"> | undefined, scope: Scope) =>
   device !== undefined &&
   (device.scopes.includes(scope) ||
-    (scope === "projects" ? device.scopes.includes("desktop") : device.scopes.includes("admin")));
+    (scope === "projects" || scope === "accounts"
+      ? device.scopes.includes("desktop")
+      : device.scopes.includes("admin")));
 
 function decode(row: Record<string, SQLOutputValue>): Device {
   return Device.parse({

@@ -19,7 +19,7 @@ const names = ["Oldest", "Middle", "Newest"];
 const order = () =>
   within(threads())
     .getAllByRole("link")
-    .map((link) => names.find((name) => link.textContent?.startsWith(name)));
+    .map((link) => names.find((name) => link.textContent?.includes(name)));
 const row = (name: RegExp) => within(threads()).queryByRole("link", { name });
 
 const working: Facts = [facts.rootAgent("codex"), facts.turn("root")];

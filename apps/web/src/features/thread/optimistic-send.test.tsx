@@ -198,7 +198,8 @@ test("Stop reads Stopping… on the button and the live line until the turn ends
 test("typing on the page writes into the composer", async () => {
   const { message } = await open("idle");
   message.blur();
-  expect(document.activeElement).toBe(document.body);
+  // Focus is on the page (or the title it moves to on navigation), not in a field.
+  expect(document.activeElement?.closest("textarea, input")).toBeNull();
   await userEvent.keyboard("hello");
   expect(document.activeElement).toBe(message);
   expect(message.value).toBe("hello");

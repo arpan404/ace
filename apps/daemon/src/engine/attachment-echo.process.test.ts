@@ -221,9 +221,13 @@ for (const provider of ["claude", "pi"] as const) {
     const h = await fixture(provider, true);
     try {
       const page = h.store.readItemPage(h.threadId, Number.MAX_SAFE_INTEGER, 20);
-      expect(
-        page.items.find((item) => item.type === "message" && item.role === "user"),
-      ).toMatchObject({ parts: [], attachments: [h.attachment] });
+      const users = page.items.filter((item) => item.type === "message" && item.role === "user");
+      // The admitted bubble owns the metadata even when the image-only echo cannot match its text.
+      expect(users.find((item) => item.id.startsWith("input:"))).toMatchObject({
+        parts: [{ type: "text", text: "look" }],
+        attachments: [h.attachment],
+      });
+      for (const item of users) expect(item).toMatchObject({ attachments: [h.attachment] });
       expect(JSON.stringify(page.items)).not.toContain(h.bytes.toString("base64"));
     } finally {
       await h.close();
@@ -289,9 +293,12 @@ test("a resumed native echo resolves attachments even when the daemon stopped be
     expect(resumed).toMatchObject({ ok: true });
     await restarted.flush();
     const page = h.store.readItemPage(h.threadId, Number.MAX_SAFE_INTEGER, 20);
-    const message = page.items.find((item) => item.type === "message" && item.role === "user");
-    expect(message).toMatchObject({ attachments: [h.attachment] });
-    expect(JSON.stringify(message)).not.toContain("/private/context");
+    const users = page.items.filter(
+      (item) => item.type === "message" && item.role === "user" && item.id !== "input:resume",
+    );
+    expect(users.length).toBeGreaterThan(0);
+    for (const item of users) expect(item).toMatchObject({ attachments: [h.attachment] });
+    expect(JSON.stringify(users)).not.toContain("/private/context");
     expect(h.errors).toEqual([]);
   } finally {
     await restarted?.close();

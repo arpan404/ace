@@ -18,6 +18,7 @@ import {
   DeferredQueueArea,
   DeferredThreadControls,
 } from "./deferred-parts.tsx";
+import { DeferredAccountMeter, DeferredLimitWarning } from "./deferred-usage.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
 
@@ -177,6 +178,7 @@ export function ThreadComposer({
         <Suspense fallback={null}>
           <DeferredPlanChip.Component threadId={props.thread.id} />
           <DeferredQueueArea.Component threadId={props.thread.id} status={props.status} />
+          <DeferredLimitWarning.Component threadId={props.thread.id} status={props.status} />
         </Suspense>
         <Composer
           ref={composer}
@@ -211,7 +213,14 @@ export function ThreadComposer({
               <DeferredThreadControls.Component thread={props.thread} busy={busy} next={next} />
             </Suspense>
           }
-          status={<ContextMeter threadId={props.thread.id} />}
+          status={
+            <>
+              <Suspense fallback={null}>
+                <DeferredAccountMeter.Component threadId={props.thread.id} />
+              </Suspense>
+              <ContextMeter threadId={props.thread.id} />
+            </>
+          }
         />
         <ContextBar thread={props.thread} />
       </div>

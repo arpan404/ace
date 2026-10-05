@@ -1,3 +1,4 @@
+import { automaticTarget } from "@ace/accounts/availability";
 import {
   resolvePermissionMode,
   limitPermissionMode,
@@ -510,6 +511,48 @@ export class FakeDaemon implements Host {
     this.servicesWire.workspace.setScripts(workspaceId, names);
   }
   service(message: ClientMessage, connection: Connection): boolean {
+    if (message.type === "terminal.request" && "terminalId" in message.operation) {
+      const op = message.operation;
+      const flow = this.services.authTerminals.get(op.terminalId);
+      if (flow) {
+        const scopes = this.options.deviceScopes?.[connection.deviceId];
+        const allowed =
+          !this.options.deviceScopes ||
+          scopes?.some((scope) => scope === "accounts" || scope === "desktop");
+        if (!allowed || flow.owner !== connection.push) {
+          connection.push({
+            type: "terminal.result",
+            requestId: message.requestId,
+            ok: false,
+            error: "forbidden",
+          });
+          return true;
+        }
+        connection.push({ type: "terminal.result", requestId: message.requestId, ok: true });
+        if (op.op === "subscribe") {
+          const data = "Complete the provider's own sign-in flow.\r\n";
+          connection.push({
+            type: "terminal.output",
+            subscriptionId: op.subscriptionId,
+            event: {
+              type: "data",
+              offset: 0,
+              endOffset: data.length,
+              data,
+              truncatedBefore: false,
+            },
+          });
+          this.services.completeAuthTerminal(op.terminalId);
+          connection.push({
+            type: "terminal.output",
+            subscriptionId: op.subscriptionId,
+            event: { type: "exit", status: { code: 0, signal: null }, nextOffset: data.length },
+          });
+        }
+        if (op.op === "close") this.services.authTerminals.delete(op.terminalId);
+        return true;
+      }
+    }
     if (this.longThreads.handle(message, connection.deviceId, connection.push)) return true;
     if (message.type === "queue.get") {
       const host = this.threads.get(message.threadId);
@@ -523,6 +566,30 @@ export class FakeDaemon implements Host {
           : { type: "queue.result", requestId: message.requestId, queue: page },
       );
       return true;
+    }
+    if (
+      [
+        "accounts.add",
+        "accounts.rename",
+        "accounts.remove",
+        "accounts.setDefault",
+        "accounts.login",
+        "accounts.logout",
+      ].includes(message.type)
+    ) {
+      const scopes = this.options.deviceScopes?.[connection.deviceId];
+      if (
+        this.options.deviceScopes &&
+        !scopes?.some((scope) => scope === "accounts" || scope === "desktop")
+      ) {
+        connection.push({
+          type: "error",
+          code: "forbidden",
+          message: "accounts scope required",
+          ...("requestId" in message ? { requestId: message.requestId } : {}),
+        });
+        return true;
+      }
     }
     return this.services.handle(message, connection.push);
   }
@@ -649,11 +716,11 @@ export class FakeDaemon implements Host {
     const thread = host.view.thread;
     const current = thread.live?.account ?? thread.execution?.instanceId;
     const from = this.services.accounts.find((account) => account.id === current);
-    return this.services.accounts.find(
-      (account) =>
-        account.id !== current &&
-        account.provider === (from?.provider ?? thread.provider) &&
-        account.availability !== "exhausted",
+    // The daemon's own pick, so a fake move lands where a real one would.
+    return automaticTarget(
+      this.services.accounts,
+      { id: current ?? "", provider: from?.provider ?? thread.provider },
+      Date.now(),
     )?.id;
   }
   private execute(command: Command): CommandResult {

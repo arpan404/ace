@@ -43,7 +43,9 @@ export async function executeIntent(
     try {
       await sessions.open(actor);
     } catch (error) {
-      throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error));
+      throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error), {
+        cause: error,
+      });
     }
     await repo.store.writable();
     if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
@@ -86,7 +88,24 @@ export async function executeIntent(
       throw new DeliveryDeferred("Delivery was superseded before provider consumption");
     }
     // Commit before any send/admission frame; resume can resolve echoes even if no item survived.
-    if (prepared?.attachments) repo.attachments.remember(actor.id, intent.id, prepared.attachments);
+    // The admitted input is the person's bubble (ADR 0065); its metadata must not depend on echo matching.
+    const attachments = prepared?.attachments;
+    if (attachments)
+      repo.store.atomic(() => {
+        repo.attachments.remember(actor.id, intent.id, attachments);
+        const current = repo.requireState(actor.id);
+        const key = `input:${intent.command.id}`;
+        const admitted = current.items[key];
+        if (attachments.length && admitted?.type === "message" && admitted.role === "user")
+          actor.apply([
+            {
+              type: "item.upsert",
+              agent: current.rootKey ?? "root",
+              item: key,
+              draft: { type: "message", role: "user", attachments },
+            },
+          ]);
+      });
     if (prepared)
       actor.retainInput(
         intent.id,

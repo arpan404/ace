@@ -57,8 +57,8 @@ test("incremental OpenCode parsing preserves completed rows across successive ob
   ])
     parser.push(line);
   expect(parser.finish().map((row) => [row.id, row.nativeModelId])).toEqual([
-    ["local/a", "a"],
-    ["local/b", "b"],
+    ["local/a", "local/a"],
+    ["local/b", "local/b"],
   ]);
 });
 

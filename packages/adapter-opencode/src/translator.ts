@@ -3,30 +3,50 @@ import type { ThreadId } from "@ace/protocol";
 import { InteractionResolution } from "@ace/protocol";
 import type { Frame, Translator } from "@ace/engine-api";
 import { NativeEvent, eventSession } from "./boundaries.ts";
-import { object, array, string, number, retryReason } from "./data.ts";
+import { object, array, string, number, retryReason, raw, type Data } from "./data.ts";
 import { NativeState } from "./native-state.ts";
 import { tool, text, projected } from "./native-content.ts";
 import { interaction } from "./interactions.ts";
 import { sessionUsage, stepContext, selectModel } from "./usage.ts";
 export class OpenCodeTranslator implements Translator {
   private state: NativeState;
+  private diagnostics: import("@ace/protocol").RawPayload[] = [];
   constructor(init: { threadId: ThreadId; rootKey: Key }) {
     this.state = new NativeState(init.rootKey);
   }
+  takeDiagnostics() {
+    const pending = this.diagnostics;
+    this.diagnostics = [];
+    return pending;
+  }
   translate(frame: Frame, now: number): Fact[] {
+    const data = object(frame.data);
+    // Retain the native receipt by reference, as Codex/Cursor do. The diagnostic
+    // sink bounds and redacts it; only canonical transcript evidence needs raw().
+    this.diagnostics = [{ type: string(data.type, frame.channel), data: frame.data }];
     try {
-      return this.frame(frame, now);
+      return this.frame(frame, data, now);
     } catch {
       this.state.disconnected = true;
       return [
         { type: "agent.disconnected", agent: this.state.rootKey },
-        ...this.state.note(frame.data, "Malformed or over-limit OpenCode frame"),
+        {
+          type: "item.upsert",
+          agent: this.state.rootKey,
+          item: "opencode:translation-error",
+          draft: {
+            type: "notice",
+            complete: true,
+            level: "error",
+            text: "OpenCode data could not be translated; execution remains uncertain",
+            raw: raw(string(data.type, frame.channel), frame.data),
+          },
+        },
       ];
     }
   }
-  private frame(frame: Frame, now: number): Fact[] {
-    const data = object(frame.data),
-      state = this.state;
+  private frame(frame: Frame, data: Data, now: number): Fact[] {
+    const state = this.state;
     if (frame.channel === "clock") return [];
     if (frame.channel === "interaction.resolving" || frame.channel === "interaction.rejected") {
       const pending = state.pending.get(string(data.key));
@@ -348,7 +368,7 @@ export class OpenCodeTranslator implements Translator {
     if (type === "session.usage.updated") return sessionUsage(state, id, p);
     if (type === "session.step.ended") return stepContext(state, id, p);
     if (type.startsWith("session.step.")) return [];
-    return state.note(e, type);
+    return [];
   }
   isSettled(): boolean {
     return this.state.settled();

@@ -3,7 +3,15 @@ import { useThreadMeta } from "@ace/client-react";
 import type { Agent, Run } from "@ace/protocol";
 import { ledgerOf, limitHoldShown, rootRunOf } from "@ace/ui-core";
 import { useMemo, useState } from "react";
-import { buildBlocks, blocksEqual, sameBlock, type Block, type RunFacts } from "./blocks.ts";
+import { useServerQueue } from "@/lib/server-queue.ts";
+import {
+  buildBlocks,
+  blocksEqual,
+  sameBlock,
+  withoutQueued,
+  type Block,
+  type RunFacts,
+} from "./blocks.ts";
 import { useWatched, type Watched } from "./use-watched.ts";
 
 const none: readonly Block[] = [];
@@ -155,7 +163,9 @@ function useBlockKeys(threadId: string, agentId?: string): readonly ThreadKey[] 
  */
 export function useBlocks(threadId: string): readonly Block[] {
   const [read] = useState(() => createBlockReader());
-  return useWatched(threadId, useBlockKeys(threadId), read, blocksEqual) ?? none;
+  const blocks = useWatched(threadId, useBlockKeys(threadId), read, blocksEqual) ?? none;
+  const queued = useServerQueue(threadId).page?.messages;
+  return useMemo(() => withoutQueued(blocks, queued), [blocks, queued]);
 }
 
 /** One agent's own blocks in the loaded window (a subagent's work, without its parent's). */

@@ -65,8 +65,9 @@ function StartedRow(props: { send: PendingSend }) {
         to="/t/$threadId"
         params={{ threadId: realId(send) ?? `pending:${send.commandId}` }}
         className={cn(
-          "flex h-[30px] w-full items-center gap-2 rounded-md pr-2 pl-[11px] text-base text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) hover:bg-sidebar-accent focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
-          "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+          // The task rows' card shape, so the row doesn't jump when the daemon's row replaces it.
+          "flex w-full items-center gap-2 rounded-lg px-2.5 pt-[7px] pb-2 text-base text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) hover:bg-sidebar-accent focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
+          "data-[status=active]:bg-foreground/8",
           !accepted && "opacity-60",
         )}
       >

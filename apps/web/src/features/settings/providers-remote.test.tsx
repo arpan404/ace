@@ -6,8 +6,8 @@ import { harness } from "@/test/harness.tsx";
 test("providers show what discovery found, with the account at its limit flagged", async () => {
   await harness().open("/settings/providers");
   const providers = await screen.findByRole("region", { name: "Providers" });
-  expect(within(providers).getByText("claude 2.1.4 · 2 accounts")).toBeTruthy();
-  expect(within(providers).getByText("codex 0.48 · 2 accounts · 1 at limit")).toBeTruthy();
+  expect(within(providers).getByText("claude 2.1.4 · 3 accounts")).toBeTruthy();
+  expect(within(providers).getByText("codex 0.48 · 3 accounts · 1 at limit")).toBeTruthy();
   expect(within(providers).getByText("opencode 1.4 · signed in")).toBeTruthy();
   expect(within(providers).getByText("via ACP · 1 account")).toBeTruthy();
   expect(
@@ -92,6 +92,9 @@ test("pairing shows a one-time QR code, its code and a link that can be copied",
 test("a CLI with no ace account says how that CLI signs in, outside ace", async () => {
   const app = harness();
   app.daemon.services.installed.add("pi");
+  // Explicitly model discovery before the normal CLI account is registered.
+  const normal = app.daemon.services.accounts.findIndex((account) => account.provider === "pi");
+  if (normal >= 0) app.daemon.services.accounts.splice(normal, 1);
   await app.open("/settings/providers");
   await userEvent.click(await screen.findByRole("button", { name: "Manage Pi" }));
   const detail = screen.getByRole("region", { name: "Pi details" });

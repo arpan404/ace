@@ -35,7 +35,7 @@ export function admissionFacts(
   host: ThreadHost,
   key: string,
   input: readonly ContentPart[],
-  attachments: import("@ace/protocol").Attachment[] = [],
+  attachments: readonly import("@ace/protocol").Attachment[] = [],
 ): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined) return [];
@@ -50,8 +50,9 @@ export function admissionFacts(
         complete: true,
         synthetic: false,
         parts: [...input],
-        ...(attachments.length ? { attachments } : {}),
         origin: { kind: "person", commandId: CommandId.parse(key) },
+        // The admitted bubble owns attachment metadata, as in the daemon (ADR 0065).
+        ...(attachments.length ? { attachments: [...attachments] } : {}),
       },
     },
   ];
