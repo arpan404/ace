@@ -5,6 +5,8 @@ import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 const coldStart = "Cap cold-start replay at 200 events";
+/** The Preview tab, titled by the dev server it shows (the thread's web server on 5173). */
+const web = "web · :5173";
 
 async function openColdStart(storage = memoryKeyValue()) {
   const app = harness({ storage });
@@ -41,15 +43,15 @@ test("the side panel starts on Changes and Agents, and + opens a new tab that be
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   expect(selected(panel).textContent).toBe("New tab");
   await launch(panel, "Preview");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "New tab", "Preview"]);
-  expect(selected(panel).textContent).toBe("Preview");
+  await waitFor(() => expect(selected(panel).textContent).toBe(web));
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", "New tab", web]);
 });
 
 test("a thread's tabs stay with it: another thread doesn't inherit them, and they come back on return", async () => {
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   const panel = await sidePanel();
-  expect(selected(panel).textContent).toBe("Preview");
+  await waitFor(() => expect(selected(panel).textContent).toBe(web));
 
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
@@ -58,7 +60,7 @@ test("a thread's tabs stay with it: another thread doesn't inherit them, and the
 
   await userEvent.click(screen.getByRole("button", { name: "Back" }));
   await screen.findByRole("heading", { level: 1, name: coldStart });
-  expect(selected(await sidePanel()).textContent).toBe("Preview");
+  expect(selected(await sidePanel()).textContent).toBe(web);
 });
 
 test("tabs survive a reload with the one that was showing", async () => {
@@ -77,17 +79,18 @@ test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Del
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   const panel = await sidePanel();
+  await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Preview", "Devices"]);
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", web, "Devices"]);
 
   within(panel).getByRole("tab", { name: "Devices" }).focus();
   await userEvent.keyboard("{ArrowLeft}");
-  expect(selected(panel).textContent).toBe("Preview");
-  expect(document.activeElement?.textContent).toBe("Preview");
+  expect(selected(panel).textContent).toBe(web);
+  expect(document.activeElement?.textContent).toBe(web);
 
   await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Devices", "Preview"]);
-  expect(screen.getByText("Preview moved to position 4 of 4")).toBeTruthy();
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Devices", web]);
+  expect(screen.getByText(`${web} moved to position 4 of 4`)).toBeTruthy();
 
   await userEvent.keyboard("{Delete}");
   expect(tabNames(panel)).toEqual(["Changes", "Agents", "Devices"]);
@@ -103,6 +106,7 @@ test("dragging a tab onto another puts it beside that one", async () => {
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   const panel = await sidePanel();
+  await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");
   const data = new Map<string, string>();
   const dataTransfer = {
@@ -115,10 +119,10 @@ test("dragging a tab onto another puts it beside that one", async () => {
     dropEffect: "none",
   };
   const tab = (name: string) => within(panel).getByRole("tab", { name }).parentElement!;
-  fireEvent.dragStart(tab("Preview"), { dataTransfer });
+  fireEvent.dragStart(tab(web), { dataTransfer });
   fireEvent.dragOver(tab("Devices"), { dataTransfer, clientX: 10 });
   fireEvent.drop(tab("Devices"), { dataTransfer });
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Devices", "Preview"]);
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Devices", web]);
   // Reordering doesn't change which tab shows.
   expect(selected(panel).textContent).toBe("Devices");
 });
@@ -138,17 +142,18 @@ test("a tool's shortcut shows it, and pressed again hides the panel", async () =
 test("hidden, the side panel's tabs are counted in the header and listed there", async () => {
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
-  await sidePanel();
+  const panel = await sidePanel();
+  await waitFor(() => expect(selected(panel).textContent).toBe(web));
   // Off Apple platforms the side panel is Ctrl+Alt+B (Ctrl+Shift+B is the Browser there).
   await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 
   // The count is what you opened (Preview), not the tools every thread has; the name lists all.
-  const count = screen.getByRole("button", { name: "Open tabs: Changes, Agents, Preview" });
+  const count = screen.getByRole("button", { name: `Open tabs: Changes, Agents, ${web}` });
   expect(count.textContent).toBe("1");
   await userEvent.click(count);
   const list = await screen.findByRole("list", { name: "Open tabs" });
-  expect(within(list).getByRole("button", { name: /^Preview\s*Showing$/ })).toBeTruthy();
+  expect(within(list).getByRole("button", { name: `${web}Showing` })).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: "Agents" }));
   expect(selected(await sidePanel()).textContent).toBe("Agents");
 });
@@ -180,15 +185,16 @@ test("a closed tab comes back where it was with Reopen closed tab", async () => 
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   const panel = await sidePanel();
+  await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Preview", "Devices"]);
-  within(panel).getByRole("tab", { name: "Preview" }).focus();
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", web, "Devices"]);
+  within(panel).getByRole("tab", { name: web }).focus();
   await userEvent.keyboard("{Delete}");
   expect(tabNames(panel)).toEqual(["Changes", "Agents", "Devices"]);
 
   await userEvent.keyboard("{Control>}{Alt>}{Shift>}t{/Shift}{/Alt}{/Control}");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Preview", "Devices"]);
-  expect(selected(panel).textContent).toBe("Preview");
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", web, "Devices"]);
+  expect(selected(panel).textContent).toBe(web);
 });
 
 test("full view gives the panel the work area; the way back restores the conversation", async () => {

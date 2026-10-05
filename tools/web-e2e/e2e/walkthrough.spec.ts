@@ -234,7 +234,7 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
 
   // Reorder: Preview moves before Agents.
   await panel
-    .getByRole("tab", { name: "Preview" })
+    .getByRole("tab", { name: /^(Preview|web · :\d+)/ })
     .dragTo(panel.getByRole("tab", { name: "Agents" }), { targetPosition: { x: 4, y: 8 } });
   await beat();
 

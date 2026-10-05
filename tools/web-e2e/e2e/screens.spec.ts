@@ -198,7 +198,7 @@ const screens: Record<string, Setup> = {
     await expect(page.getByRole("region", { name: "Thread panel" })).toHaveCount(0);
     // The header's actions unfold into the room the panel left; let that settle first.
     await page.waitForTimeout(400);
-    await page.getByRole("button", { name: /^\d+ open tabs?$/ }).hover();
+    await page.getByRole("button", { name: /^Open tabs:/ }).hover();
     await page.getByRole("list", { name: "Open tabs" }).waitFor();
   },
   // Full view: the side panel fills the work area, with a way back to the conversation.
