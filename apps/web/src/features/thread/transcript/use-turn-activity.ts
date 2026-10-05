@@ -2,6 +2,7 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThread, useThreadMeta } from "@ace/client-react";
 import { sameActivity, turnActivity, type TurnActivity } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
+import { useStopping } from "../composer/stop-state.ts";
 
 const off: readonly ThreadKey[] = [];
 
@@ -20,10 +21,12 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
         : off,
     [enabled, rootId],
   );
+  // A Stop on its way reads "Stopping…" until the turn ends (SY-8, the composer's Stop).
+  const stopping = useStopping(enabled ? threadId : undefined);
   const read = useCallback(
     (reader: ThreadReader) =>
-      enabled ? turnActivity(reader, rootId, { threadStatus: status }) : undefined,
-    [enabled, rootId, status],
+      enabled ? turnActivity(reader, rootId, { threadStatus: status, stopping }) : undefined,
+    [enabled, rootId, status, stopping],
   );
   return useThread(threadId, keys, read, sameActivity);
 }

@@ -1,4 +1,5 @@
 import { ArrowUpIcon, ClockIcon, StopIcon } from "@phosphor-icons/react";
+import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatKeys } from "@/lib/keymap.ts";
@@ -12,11 +13,17 @@ const labels: Record<Exclude<PrimaryMode, "stop">, string> = {
   steer: "Steer message",
 };
 
-/** What Enter does now, and what ⌘↵ does instead while the agent works. */
-function hint(mode: Exclude<PrimaryMode, "stop">): string {
+/**
+ * What Enter does now, and what ⌘↵ does instead while the agent works. A provider that can't
+ * steer only queues, so ⌘↵ isn't offered (UX audit SY-14).
+ */
+function hint(mode: Exclude<PrimaryMode, "stop">, canSteer: boolean): string {
   const mod = formatKeys("mod+enter");
   if (mode === "steer") return `Steer into the running turn · ${mod} queues it instead`;
-  if (mode === "queue") return `Queue · sends when the agent is free · ${mod} steers it in now`;
+  if (mode === "queue")
+    return canSteer
+      ? `Queue · sends when the agent is free · ${mod} steers it in now`
+      : "Queue · sends when the agent is free";
   return "Send";
 }
 
@@ -34,11 +41,26 @@ export function PrimaryAction(props: {
   off?: boolean | undefined;
   /** The element that says why, while `off`. */
   describedBy?: string | undefined;
+  /** The provider can steer a running turn; otherwise follow-ups only queue. */
+  canSteer?: boolean | undefined;
+  /** A Stop is on its way: "Stopping…" until the turn ends. */
+  stopping?: boolean | undefined;
   onSend(): void;
   onStop(): void;
 }) {
   if (props.mode === "stop")
-    return (
+    return props.stopping ? (
+      <Tip label="Stopping… the agent stops at its next safe point" side="top">
+        <button
+          type="button"
+          aria-label="Stopping…"
+          aria-disabled
+          className={cn(iconControl, "cursor-default bg-secondary text-muted-foreground")}
+        >
+          <Spinner />
+        </button>
+      </Tip>
+    ) : (
       <Tip label="Stop the agent and its subagents" side="top">
         <button
           type="button"
@@ -53,7 +75,11 @@ export function PrimaryAction(props: {
   const mode = props.mode;
   const blocked = props.blocked;
   return (
-    <Tip label={blocked ?? hint(mode)} {...(blocked ? {} : { keys: "enter" })} side="top">
+    <Tip
+      label={blocked ?? hint(mode, props.canSteer !== false)}
+      {...(blocked ? {} : { keys: "enter" })}
+      side="top"
+    >
       <button
         type="button"
         aria-label={labels[mode]}
