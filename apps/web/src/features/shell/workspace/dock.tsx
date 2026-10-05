@@ -25,14 +25,6 @@ import { TabContent } from "./tab-content.tsx";
 export { CloseConfirm } from "./close-confirm.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 
-/**
- * The top row's right padding (10px) plus, on Windows, the room the window's own min/max/close
- * buttons take (`titleBarOverlay`); elsewhere the env() values make it 10px.
- */
-const titleBarRoom = {
-  paddingRight: "calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 10px)",
-};
-
 /** The floating dock's scrim and leading-edge shadow (inline: one-off values, ADR 0056 CSS budget). */
 const scrim = { background: "color-mix(in oklab, black 40%, transparent)" };
 const edgeShadow = {
@@ -174,7 +166,6 @@ export function WorkspaceDock(props: {
           />
         )}
         <div
-          style={topRow ? titleBarRoom : undefined}
           className={cn(
             // A box-shadow hairline, not a border: the strip's controls sit on its exact centre line.
             "flex shrink-0 items-center gap-1 shadow-[inset_0_-1px_0_var(--border)]",
@@ -182,6 +173,10 @@ export function WorkspaceDock(props: {
             topRow && "[-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
             // The side panel's strip is the header row above it: same height, same centre line.
             right ? "h-(--header-h) pr-2.5 pl-2" : "h-10 pr-1.5 pl-2",
+            // The top row's 10px plus, on Windows, the room the window's own min/max/close
+            // buttons take (`titleBarOverlay`); elsewhere the env() values make it 10px.
+            topRow &&
+              "pr-[calc(100vw_-_env(titlebar-area-x,0px)_-_env(titlebar-area-width,100vw)_+_10px)]",
             layout.sheet && "h-12 pr-1.5",
           )}
         >
