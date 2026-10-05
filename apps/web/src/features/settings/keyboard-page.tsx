@@ -1,107 +1,353 @@
-import { useState, type KeyboardEvent } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
+import { SearchField } from "@/components/search-field.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { formatKeys, keymap, type KeymapId } from "@/lib/keymap.ts";
+import {
+  conflictFor,
+  defaultKeys,
+  isRebindable,
+  keyboardEnv,
+  normalizeKeys,
+  recordChord,
+  resolveKeymap,
+  scopeOf,
+  setKeybindingOverrides,
+  useKeybindingOverrides,
+  useResolvedKeymap,
+  type Keybindings,
+} from "@/lib/keybindings.ts";
+import {
+  describeKeys,
+  formatKeys,
+  keymap,
+  keymapIds,
+  parseChord,
+  type KeymapId,
+  type KeyScope,
+} from "@/lib/keymap.ts";
 import { settingKeys } from "./data/setting-keys.ts";
-import { useSetting } from "./data/use-settings.ts";
-import { conflictFor, recordChord, resolveKeymap } from "./keybindings.ts";
+import { useSetting, useSettingWrite } from "./data/use-settings.ts";
 
-const isApple = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent ?? "Mac");
-const ids = Object.keys(keymap) as KeymapId[];
+/** The page's sections, in order; an id not listed lands in "Other". */
+const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
+  {
+    label: "General",
+    ids: [
+      "palette",
+      "newThread",
+      "newDeck",
+      "addProject",
+      "settings",
+      "back",
+      "forward",
+      "toggleSidebar",
+      "focusToasts",
+    ],
+  },
+  { label: "Go to", ids: ["goHome", "goActivity", "goDeck", "goAutomations", "goSkills"] },
+  {
+    label: "Thread",
+    ids: [
+      "send",
+      "findInThread",
+      "turns",
+      "previousTurn",
+      "nextTurn",
+      "renameThread",
+      "pinThread",
+      "archiveThread",
+      "summary",
+      "sideChat",
+    ],
+  },
+  {
+    label: "Panels & tabs",
+    ids: [
+      "rightPanel",
+      "bottomPanel",
+      "fullView",
+      "newTab",
+      "closeTab",
+      "reopenTab",
+      "nextTab",
+      "previousTab",
+    ],
+  },
+  { label: "Tools", ids: ["changes", "agents", "files", "preview", "devices", "logs"] },
+  {
+    label: "Terminal & browser",
+    ids: ["terminal", "newTerminal", "findInTerminal", "browser", "takeControl"],
+  },
+  {
+    label: "Activity",
+    ids: [
+      "activity.next",
+      "activity.prev",
+      "activity.open",
+      "activity.approve",
+      "activity.deny",
+      "activity.read",
+      "activity.unread",
+    ],
+  },
+  { label: "Deck", ids: ["deckPlan", "deckLanes", "deckApprove", "deckNextCard", "deckPrevCard"] },
+];
+const listed = new Set(groups.flatMap((group) => group.ids));
+const sections = [
+  ...groups,
+  { label: "Other", ids: keymapIds.filter((id) => !listed.has(id)) },
+].filter((group) => group.ids.length);
 
-/** Every global shortcut, with rebinding. Rebindings live in the daemon's client settings. */
+const scopeChips: Record<Exclude<KeyScope, "global">, string> = {
+  thread: "In a thread",
+  composer: "In the composer",
+  terminal: "In a terminal",
+  activity: "In Activity",
+  deck: "In a deck",
+  notifications: "In notifications",
+};
+
+/** Chords the browser (or the system, in the app) keeps for itself; a page never sees them. */
+const reserved = ["mod+w", "mod+q", "mod+t", "mod+l", "mod+r", "shift+mod+w", "shift+mod+t"];
+
+/** Why a shortcut can't be recorded here, or undefined when it can. */
+function readOnlyReason(id: KeymapId): string | undefined {
+  if (!isRebindable(id)) return "Fixed";
+  const keys = keymap[id].keys;
+  if (keys.includes(" ")) return "Sequence";
+  const chord = parseChord(keys);
+  if (!chord.mod && !chord.ctrl && !chord.alt && !/^f\d+$/.test(chord.key)) return "Single key";
+  return undefined;
+}
+
+type Problem =
+  | { id: KeymapId; text: string }
+  | { id: KeymapId; text: string; swap: { keys: string; with: KeymapId } };
+
+/**
+ * Every shortcut, grouped, with rebinding. Rebindings live in the daemon's client settings and
+ * apply at once everywhere (`lib/keybindings.ts`): hotkeys, tooltips, menus and the palette.
+ */
 export function KeyboardShortcuts() {
-  const [overrides, setOverrides] = useSetting(settingKeys.keybindings);
+  const [, store] = useSetting(settingKeys.keybindings);
+  const overrides = useKeybindingOverrides();
+  const bindings = useResolvedKeymap();
+  const write = useSettingWrite("Keyboard shortcuts");
   const [recording, setRecording] = useState<KeymapId | undefined>();
-  const [problem, setProblem] = useState<{ id: KeymapId; text: string } | undefined>();
-  const bindings = resolveKeymap(overrides);
-  const rebound = Object.keys(overrides).filter((id) => id in keymap);
+  const [problem, setProblem] = useState<Problem | undefined>();
+  const [query, setQuery] = useState("");
+  const env = keyboardEnv();
+  const rebound = Object.keys(overrides).length > 0;
 
-  const stop = () => setRecording(undefined);
-  const save = (id: KeymapId, keys: string) => {
-    const next = { ...overrides };
-    if (keys === keymap[id].keys) delete next[id];
-    else next[id] = keys;
-    void setOverrides(next);
+  /** Store the rebindings: shown at once, back again (with a toast) if the daemon refuses. */
+  const save = (next: Keybindings) => {
+    const clean: Record<string, string> = {};
+    for (const [id, keys] of Object.entries(next))
+      if (normalizeKeys(keys) !== normalizeKeys(defaultKeys(id as KeymapId))) clean[id] = keys;
+    const before = overrides;
+    setKeybindingOverrides(clean);
+    write.run(() =>
+      store(clean).catch((error: unknown) => {
+        setKeybindingOverrides(before);
+        throw error;
+      }),
+    );
   };
+  const bind = (id: KeymapId, keys: string) => save({ ...overrides, [id]: keys });
+  const stop = () => setRecording(undefined);
+
   const onKeyDown = (id: KeymapId, event: KeyboardEvent) => {
     if (recording !== id || event.key === "Tab") return;
     event.preventDefault();
     event.stopPropagation();
-    const result = recordChord(event.nativeEvent, isApple);
+    const result = recordChord(event.nativeEvent, env.apple);
     if (result.kind === "incomplete") return;
     if (result.kind === "cancel") return stop();
     if (result.kind === "needs-modifier") {
-      setProblem({ id, text: `Add ${isApple ? "⌘, ⌃ or ⌥" : "Ctrl or Alt"} to the key.` });
+      setProblem({ id, text: `Add ${env.apple ? "⌘, ⌃ or ⌥" : "Ctrl or Alt"} to the key.` });
       return;
     }
-    const taken = conflictFor(result.keys, id, bindings);
-    if (taken) {
+    const keys = result.keys;
+    if (reserved.some((chord) => normalizeKeys(chord) === normalizeKeys(keys))) {
       setProblem({
         id,
-        text: `${formatKeys(result.keys)} is already ${keymap[taken].label}.`,
+        text: `${formatKeys(keys)} is used by ${env.web ? "the browser" : "the system"}.`,
+      });
+      return;
+    }
+    const taken = conflictFor(keys, id, bindings);
+    if (taken) {
+      // Swapping hands the other shortcut these keys' old binding, if that fits where it works.
+      const swapped = resolveKeymap({ ...overrides, [id]: keys, [taken]: bindings[id] });
+      const fits = isRebindable(taken) && !conflictFor(bindings[id], taken, swapped);
+      setProblem({
+        id,
+        text: `${formatKeys(keys)} is already ${keymap[taken].label}.`,
+        ...(fits ? { swap: { keys, with: taken } } : {}),
       });
       return;
     }
     setProblem(undefined);
-    save(id, result.keys);
+    bind(id, keys);
     stop();
   };
 
+  const text = query.trim().toLowerCase();
+  const shown = (id: KeymapId) =>
+    !text ||
+    keymap[id].label.toLowerCase().includes(text) ||
+    formatKeys(bindings[id]).toLowerCase().includes(text) ||
+    describeKeys(bindings[id]).toLowerCase().includes(text);
+  const visible = sections
+    .map((section) => ({ section, ids: section.ids.filter(shown) }))
+    .filter((entry) => entry.ids.length);
+
   return (
-    <SettingSection label="Shortcuts">
-      {ids.map((id) => {
-        const active = recording === id;
-        const changed = id in overrides;
-        return (
-          <SettingRow
-            key={id}
-            title={keymap[id].label}
-            description={
-              problem?.id === id && active ? (
-                <span role="alert">{problem.text}</span>
-              ) : active ? (
-                "Press the new shortcut. Esc cancels."
-              ) : undefined
-            }
-          >
-            {changed && !active && (
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-label={`Reset ${keymap[id].label}`}
-                onClick={() => save(id, keymap[id].keys)}
-              >
-                Reset
-              </Button>
-            )}
-            <button
-              type="button"
-              aria-label={`${keymap[id].label} shortcut`}
-              aria-pressed={active}
-              onClick={() => {
+    <div id="keyboard.shortcuts">
+      <div className="mt-6 flex items-center gap-3">
+        <SearchField
+          label="Filter shortcuts"
+          placeholder="Filter by name or keys"
+          value={query}
+          onValueChange={setQuery}
+          className="max-w-80"
+        />
+        {rebound && (
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => save({})}>
+            Reset all shortcuts
+          </Button>
+        )}
+      </div>
+      {!visible.length && (
+        <EmptyState
+          variant="inline"
+          className="px-0"
+          title={`No shortcut matches "${query.trim()}".`}
+        />
+      )}
+      {visible.map(({ section, ids }) => (
+        <SettingSection key={section.label} label={section.label} card scope="daemon">
+          {ids.map((id) => (
+            <ShortcutRow
+              key={id}
+              id={id}
+              keys={bindings[id]}
+              changed={id in overrides}
+              recording={recording === id}
+              problem={problem?.id === id ? problem : undefined}
+              onRecord={(on) => {
                 setProblem(undefined);
-                setRecording(active ? undefined : id);
+                setRecording(on ? id : undefined);
               }}
               onKeyDown={(event) => onKeyDown(id, event)}
-              onBlur={() => active && stop()}
-              className="rounded-sm px-1 py-0.5 outline-none transition-shadow duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)] aria-pressed:shadow-[0_0_0_2px_var(--ring)]"
-            >
-              {active ? (
-                <Kbd className="h-5 px-2 text-[12px]">Press keys…</Kbd>
-              ) : (
-                <Kbd keys={bindings[id]} className="h-5 px-2 text-[12px]" />
-              )}
-            </button>
-          </SettingRow>
-        );
-      })}
-      {rebound.length > 0 && (
-        <Button size="sm" variant="ghost" className="mt-3" onClick={() => void setOverrides({})}>
-          Reset all shortcuts
+              onBlur={() => recording === id && stop()}
+              onReset={() => {
+                const next = { ...overrides };
+                delete next[id];
+                save(next);
+              }}
+              onSwap={(swap) => {
+                save({ ...overrides, [id]: swap.keys, [swap.with]: bindings[id] });
+                setProblem(undefined);
+                stop();
+              }}
+            />
+          ))}
+        </SettingSection>
+      ))}
+    </div>
+  );
+}
+
+function ShortcutRow(props: {
+  id: KeymapId;
+  keys: string;
+  changed: boolean;
+  recording: boolean;
+  problem: Problem | undefined;
+  onRecord(on: boolean): void;
+  onKeyDown(event: KeyboardEvent): void;
+  onBlur(): void;
+  onReset(): void;
+  onSwap(swap: { keys: string; with: KeymapId }): void;
+}) {
+  const { id, keys, recording, problem } = props;
+  const label = keymap[id].label;
+  const described = useId();
+  const scope = scopeOf(id);
+  const readOnly = readOnlyReason(id);
+  const swap = problem && "swap" in problem ? problem.swap : undefined;
+  return (
+    <SettingRow
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          {label}
+          {props.changed && (
+            <span
+              role="img"
+              aria-label="Changed"
+              className="inline-block size-1.5 rounded-full bg-ring"
+            />
+          )}
+        </span>
+      }
+      description={
+        problem && recording ? (
+          <span role="alert">{problem.text}</span>
+        ) : recording ? (
+          "Press the new shortcut. Esc cancels."
+        ) : scope !== "global" ? (
+          scopeChips[scope]
+        ) : undefined
+      }
+      inline
+    >
+      {swap && recording && (
+        // Mouse down so the recorder doesn't blur (and stop) first.
+        <Button
+          size="sm"
+          variant="ghost"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => props.onSwap(swap)}
+        >
+          Use anyway
         </Button>
       )}
-    </SettingSection>
+      {props.changed && !recording && (
+        <Button size="sm" variant="ghost" aria-label={`Reset ${label}`} onClick={props.onReset}>
+          Reset
+        </Button>
+      )}
+      {readOnly ? (
+        <span className="inline-flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{readOnly}</span>
+          <Kbd keys={keys} resolve={false} className="h-5 px-2 text-sm" />
+        </span>
+      ) : (
+        <span id={described} hidden>
+          {`${describeKeys(keys)}. Press to change.`}
+        </span>
+      )}
+      {!readOnly && (
+        <button
+          type="button"
+          aria-label={`${label} shortcut`}
+          aria-describedby={described}
+          aria-pressed={recording}
+          onClick={() => props.onRecord(!recording)}
+          onKeyDown={props.onKeyDown}
+          onBlur={props.onBlur}
+          className="rounded-sm px-1 py-0.5 transition-shadow duration-(--dur-1) hover:bg-accent focus-ring aria-pressed:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]"
+        >
+          {recording ? (
+            <Kbd className="h-5 px-2 text-sm">Press keys…</Kbd>
+          ) : (
+            <Kbd keys={keys} resolve={false} className="h-5 px-2 text-sm" />
+          )}
+        </button>
+      )}
+    </SettingRow>
   );
 }
