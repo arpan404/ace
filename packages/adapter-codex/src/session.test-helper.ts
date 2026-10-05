@@ -12,6 +12,7 @@ export async function sessionHarness(
   options?: SessionContext["options"],
   aceMcp?: SessionContext["aceMcp"],
   permissionMode?: SessionContext["permissionMode"],
+  onInputMessage?: SessionContext["onInputMessage"],
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ace-codex-session-"));
   const binary = join(directory, "codex.mjs");
@@ -34,7 +35,10 @@ export async function sessionHarness(
         };
       },
     },
-    discovery: { overrides: { codex: binary }, env: { ACE_FAKE_RESUME: mode, PATH: directory } },
+    discovery: {
+      overrides: { codex: binary },
+      env: { ACE_FAKE_RESUME: mode, PATH: directory, HOME: directory },
+    },
   });
   const controller = new AbortController();
   const replay = replayHarness();
@@ -52,6 +56,7 @@ export async function sessionHarness(
     ...(aceMcp ? { aceMcp } : {}),
     ...(resume ? { resume: { nativeSessionId: "native" } } : {}),
     signal: controller.signal,
+    ...(onInputMessage ? { onInputMessage } : {}),
     onFrame(frame) {
       frames.push(frame);
       replay.feed(frame);

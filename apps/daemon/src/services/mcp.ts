@@ -28,14 +28,17 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       signal.throwIfAborted();
       const parent = store.getThread(intent.threadId);
       if (!services.agentControl || !parent) throw new Error("Delegation unavailable");
-      const record = services.agentControl.delegations.delegate(intent, {
+      const request = {
         requestId: context.id(),
         provider: intent.input.provider ?? parent.provider,
         role: intent.input.name ?? "delegate",
         task: intent.input.task,
         wait: false,
         estimatedLoad: 0,
-      });
+      };
+      const model = await services.agentControl.delegations.prepareModels(intent, request);
+      signal.throwIfAborted();
+      const record = services.agentControl.delegations.delegate(intent, request, model);
       return { intentId: record.childId };
     },
   );

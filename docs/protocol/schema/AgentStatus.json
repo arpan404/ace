@@ -98,6 +98,9 @@
       "properties": {
         "error": {
           "properties": {
+            "details": {
+              "$ref": "https://ace.local/protocol/v1/ProviderErrorDetails.json"
+            },
             "kind": {
               "enum": [
                 "provider",

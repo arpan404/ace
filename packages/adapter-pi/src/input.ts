@@ -20,7 +20,7 @@ export function piInput(input: ContentPart[]) {
     }
   }
   const message = text.join("\n");
-  if (message.trimStart().startsWith("/ace-rollback"))
+  if (/^\/ace-(?:rollback|context)(?:\s|$)/.test(message.trimStart()))
     throw new Error("Reserved Pi control command");
   return { message, ...(images.length ? { images } : {}) };
 }

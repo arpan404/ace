@@ -27,6 +27,7 @@ export function transitionHarness(
     io?: TransitionIO;
     recovery?: EngineOptions["recovery"];
     preferences?: EngineOptions["preferences"];
+    onProviderDiagnostic?: EngineOptions["onProviderDiagnostic"];
     configure?: boolean;
     closeFails?: boolean;
     configureFails?: boolean;
@@ -211,6 +212,7 @@ export function transitionHarness(
     registry,
     clock,
     onError: (error: unknown) => errors.push(error),
+    ...(options.onProviderDiagnostic ? { onProviderDiagnostic: options.onProviderDiagnostic } : {}),
     ...(options.maxActiveThreads ? { limits: { maxActiveThreads: options.maxActiveThreads } } : {}),
     ...(options.io ? { transitions: options.io } : {}),
     ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),

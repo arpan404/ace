@@ -1,7 +1,11 @@
+import { ProviderErrorDetails } from "./provider-error-details.ts";
+import { ThreadStatus } from "./thread-status.ts";
+import { ThreadId } from "./ids.ts";
+import { DelegationOutcome } from "./agent-control.ts";
 import { MergedForkContext, ExecutionSource } from "./thread-transitions.ts";
 import { z } from "zod";
 import { AgentId, ItemId, RunId, Timestamp } from "./ids.ts";
-import { RawPayload } from "./provider.ts";
+import { ProviderKind, RawPayload } from "./provider.ts";
 import { ToolCall } from "./tools.ts";
 
 export const TextSource = z.object({
@@ -42,6 +46,29 @@ export const AgentItem = z.discriminatedUnion("type", [
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({
+    type: z.literal("delegation.started"),
+    origin: z.literal("ace"),
+    childThreadId: ThreadId,
+    provider: ProviderKind,
+    model: z.string().min(1).max(256).optional(),
+    accountId: z.string().min(1).max(256).optional(),
+    title: z.string().max(256),
+    role: z.string().max(1024),
+    phase: z.enum(["created", "running", "cancelling", "settled"]),
+    status: ThreadStatus,
+    updatedAt: Timestamp,
+    generation: z.number().int().nonnegative(),
+    outcome: DelegationOutcome.nullable().default(null),
+    raw: z.array(RawPayload).default([]),
+  }),
+  ItemBase.extend({
+    type: z.literal("delegation.settled"),
+    origin: z.literal("ace"),
+    results: z.array(DelegationOutcome).min(1).max(64),
+    delivery: z.enum(["tool", "ace-input"]),
+    raw: z.array(RawPayload).default([]),
+  }),
+  ItemBase.extend({
     type: z.literal("reasoning"),
     text: z.string(),
     source: TextSource.optional(),
@@ -53,6 +80,7 @@ export const AgentItem = z.discriminatedUnion("type", [
   ItemBase.extend({
     type: z.literal("notice"),
     level: z.enum(["info", "warning", "error"]),
+    details: ProviderErrorDetails.optional(),
     /** Native history output linked to its canonical call. */
     toolCallId: ItemId.optional(),
     text: z.string(),

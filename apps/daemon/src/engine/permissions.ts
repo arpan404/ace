@@ -163,7 +163,13 @@ export class Permissions {
       const key = this.repo.nativeEntity(state.threadId, "interactions", interaction.id);
       if (key === undefined || state.interactions[key]?.state !== "pending") continue;
       const mode = this.effective(state.threadId);
-      if (mode === "full-access" || mode === "ask") continue;
+      if (
+        mode === "full-access" ||
+        (mode === "ask" &&
+          (interaction.request.kind !== "approval" ||
+            interaction.request.target?.riskClass !== "read-only"))
+      )
+        continue;
       if (this.repo.reserved(interaction.id)) continue;
       const previous = this.repo.store.atomic((db) =>
         db

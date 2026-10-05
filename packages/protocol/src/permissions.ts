@@ -6,6 +6,9 @@ export type PermissionMode = z.infer<typeof PermissionMode>;
 /** Exact provider input, not a display title or a permission glob. */
 export const ApprovalTarget = z.object({
   tool: z.string().min(1).max(256),
+  origin: z.literal("ace").optional(),
+  description: z.string().max(2048).optional(),
+  riskClass: z.enum(["read-only", "thread-write", "agent-execution", "external-effect"]).optional(),
   command: z.string().max(32768).optional(),
   cwd: z.string().max(4096).optional(),
   paths: z.array(z.string().min(1).max(4096)).max(128).optional(),

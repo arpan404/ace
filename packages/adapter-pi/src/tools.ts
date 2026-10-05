@@ -17,7 +17,8 @@ export function toolDetail(name: string, args: unknown): ToolDetailDraft {
     };
   if (["grep", "find", "ls"].includes(name))
     return { kind: "search", query: str(a.pattern), path: str(a.path) };
-  if (name.startsWith("ace_")) return { kind: "mcp", server: "ace", tool: name, arguments: args };
+  if (name === "delegate_task" || name.startsWith("ace_"))
+    return { kind: "mcp", server: "ace", tool: name, arguments: args };
   return { kind: "custom" };
 }
 export function resultText(value: unknown): string {

@@ -1,3 +1,4 @@
+import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadLineage } from "./thread-transitions.ts";
 import { z } from "zod";
 import { AgentId, ItemId, ThreadId, Timestamp } from "./ids.ts";
@@ -59,6 +60,7 @@ export const AgentStatus = z.discriminatedUnion("state", [
     error: z.object({
       kind: z.enum(["provider", "auth", "quota", "network", "process_exit", "unknown"]),
       message: z.string(),
+      details: ProviderErrorDetails.optional(),
     }),
   }),
   z.object({
