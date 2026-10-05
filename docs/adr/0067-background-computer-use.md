@@ -1,0 +1,37 @@
+# 0067: Background computer use
+
+Date: 2026-10-05. Status: accepted, live compatibility verification pending.
+
+## Context
+
+A person must be able to keep working while agents operate approved applications. ADR 0011's single target competes with Simulator sessions and its focus clicks can disturb that person. The public [OpenAI workspace controls](https://help.openai.com/en/articles/20001510-manage-browser-and-computer-use-in-your-enterprise-workspace), [release notes](https://help.openai.com/en/articles/6825453-chatgpt-release-notes) and the supplied `/tmp/codex-ref/cua/CAPABILITIES.md` describe application identities, scoped grants, background launch and accessibility actions. They are interface references only. No third-party bundles or implementation code were read.
+
+## Decision
+
+One retained macOS helper owns at most eight sessions. Each session has its own capture, accessibility refs, pixel leases, action queue and controller. App identity is an exact bundle id resolved to a live process by macOS. An application has one session lease, including across different windows, because keyboard focus and application state are shared. Competing acquisition returns `target_busy` with the holding session and controller. Display captures remain view-only. Simulator is an ordinary window target.
+
+Every session starts in `background` mode. Use AXPress, advertised named actions, AXValue, AXSelectedText and AXSelectedTextRange before synthesized events. AXRaise and app activation require foreground approval. Public [CGEvent.postToPid](https://developer.apple.com/documentation/coregraphics/cgevent/posttopid(_:)) targets keyboard and window-relative pointer events. Background actions never post to the HID tap, activate an app or warp the cursor. A guard snapshots frontmost process and cursor before an action, checks after settling and reports `focus_changed` while attempting restoration. Restoration is an exception following an already observed violation, never an input fallback. A person moving focus during that bounded interval can also trip the guard; restoration is best effort.
+
+Posted events have no delivery acknowledgement. When synthesized input produces no observable AX change, return `foreground_required`; this conservative result can also mean an action was a no-op. Never repeat it through foreground input automatically. Apps with incomplete accessibility need the owner's live check. Clipboard paste snapshots every pasteboard representation, posts paste to the approved process, waits at most 500 ms and restores the saved representations only if no other writer has changed the pasteboard. Interfering clipboard changes are reported instead of overwritten.
+
+Capture uses ScreenCaptureKit's [desktop-independent window filter](https://developer.apple.com/documentation/screencapturekit/sccontentfilter/init(desktopindependentwindow:)). Occlusion does not require bringing a window forward. App sessions select an application window rather than capturing display pixels. Minimized and geometrically off-display windows return `window_minimized` and `window_offscreen`; another Space alone is not offscreen. Background launch uses NSWorkspace.openApplication with [activates=false](https://developer.apple.com/documentation/appkit/nsworkspace/openconfiguration/activates) and hides newly launched apps where supported.
+
+Observations wait inside the helper for AX notifications and a bounded quiet interval, invalidate the tree cache, then return a compact fresh snapshot. There is no idle polling timer. Background operation while locked is permitted only as far as public AX and ScreenCaptureKit continue working; failed capture or missing target returns an error. No lock-screen bypass or locked-Mac parity claim is made without the owner's live check.
+
+## Approval and safety model
+
+SQLite stores screen enablement and exact app grants. Grants have `turn`, `thread` or `always` scope. Turn grants bind to the engine's current turn identity and expire on a new turn or daemon restart. Thread and always grants survive restart; controller leases and foreground/secure-input permission never do. Revocation invalidates queued work and stops affected sessions before acknowledging. Disabled screen access cannot be enabled by an agent request.
+
+`screen_request_app` opens a blocking host interaction through the engine's existing approval machinery with Allow once, Allow for this thread, Always and Deny. Sensitive applications always ask, even with a saved grant, and cannot be auto-reviewed: password managers, System Settings, Keychain Access, Terminal, iTerm and ace. Sensitive application matching is conservative and cannot enumerate every third-party password manager. Unknown apps still require exact human approval. Foreground escalation is per session, opens a separate blocking host approval and enables activation and HID input only after resolution. Secure text refuses all agent text/key/paste paths until the human explicitly enables secure input for that session. Snapshots and audit records never contain secure text values.
+
+Human takeover replaces only the selected controller and invalidates its queued actions. `stop.all` first releases every agent lease and then stops all sessions. State broadcasts list session mode, target, controller, holder and capture indicator so the UI can show every controlled app even without pixel subscribers. Compact step items record session, action kind, mode and outcome, never typed text or key contents. A helper failure fails every session; stopping a healthy session does not terminate other sessions.
+
+## Platform scope and follow-up
+
+Windows already has UIA Invoke/Value/Scroll patterns and Linux has AT-SPI semantic actions. Their current capture/input helpers retain the single-target contract. Background mode refuses agent input there until background delivery and multi-session routing are implemented and exercised. Follow-up: Windows per-session UIA roots and capture, verified HWND PostMessage delivery subject to UIPI, Linux per-session AT-SPI targets and compositor capture. Never use SendInput or XTest as an implicit background fallback. Platform foreground escalation uses the same approval contract.
+
+## Compatibility and validation
+
+TextEdit/Calculator AX controls are expected to work without activation but require a disposable-window live check. Simulator pointer and AX hardware buttons use process/window routing; its keyboard events may be ignored in the background. Electron apps, games and canvas-only applications may ignore process-posted events or expose no useful AX tree, and then return `foreground_required`. These are expectations and known API limitations, not a verified app matrix.
+
+Behavior tests use a real fake-helper process and temporary SQLite, injected ids and clocks. Native unit tests exercise focus guard decisions and clipboard restoration rules without operating desktop apps. Static checks, helper build and the daemon startup module-load/memory bench gate delivery. Native app interaction and locked-Mac capture remain owner checks; automated validation must not touch user documents or provider CLIs.
