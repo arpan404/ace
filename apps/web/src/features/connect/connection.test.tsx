@@ -40,40 +40,90 @@ function boot(options: { fragment?: string; onDemand?: boolean; rememberedToken?
       </ConnectionGate>
     </AppFrame>,
   );
-  return { local, session };
+  return { local, session, daemon };
 }
 
-async function connectWith(value: string, remember = false) {
+async function connectWith(value: string, options: { url?: string; flipRemember?: boolean } = {}) {
+  if (options.url) {
+    const address = await screen.findByLabelText("Daemon address");
+    await userEvent.clear(address);
+    await userEvent.type(address, options.url);
+  }
   await userEvent.type(await screen.findByLabelText("Token"), value);
-  if (remember) await userEvent.click(screen.getByRole("switch"));
+  if (options.flipRemember) await userEvent.click(screen.getByRole("switch"));
   await userEvent.click(screen.getByRole("button", { name: "Connect" }));
 }
 
-test("without a token the app asks for one and explains where it lives", async () => {
+test("without a token the app asks for one and says how to get it", async () => {
   boot();
   await screen.findByRole("heading", { name: "Connect to your daemon" });
-  expect(screen.getByText(/cat ~\/\.ace\/daemon-token/)).toBeTruthy();
+  expect(screen.getByLabelText("Token").getAttribute("aria-describedby")).toBeTruthy();
+  const hint = document.getElementById(
+    screen.getByLabelText("Token").getAttribute("aria-describedby") ?? "",
+  );
+  expect(hint?.textContent).toMatch(/run ace token and paste the result/);
   expect(screen.getByLabelText<HTMLInputElement>("Daemon address").value).toBe(url);
 
   await connectWith("not-a-token");
   expect((await screen.findByRole("alert")).textContent).toMatch(/64 hexadecimal characters/);
+  expect(screen.getByLabelText("Token").getAttribute("aria-invalid")).toBe("true");
 });
 
-test("a valid token connects and the token stays in this session unless remembered", async () => {
+test("the token can be shown to check it, and the command copied", async () => {
+  const user = userEvent.setup();
+  boot();
+  const field = await screen.findByLabelText<HTMLInputElement>("Token");
+  expect(field.type).toBe("password");
+  await user.click(screen.getByRole("button", { name: "Show token" }));
+  expect(field.type).toBe("text");
+
+  const hint = document.getElementById(field.getAttribute("aria-describedby") ?? "");
+  if (!hint) throw new Error("The token has no hint");
+  await user.click(within(hint).getByRole("button", { name: "Copy command" }));
+  expect(await navigator.clipboard.readText()).toBe("ace token");
+});
+
+test("a token for this computer's daemon is remembered by default", async () => {
   const { local, session } = boot();
+  await screen.findByText("Stays until you disconnect.");
   await connectWith(token);
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
-  expect(await screen.findByRole("status", { name: "Daemon: Connected" })).toBeTruthy();
-  expect(session.getItem("ace.daemon.token")).toBe(token);
-  expect(local.getItem("ace.daemon.token")).toBeNull();
+  expect(await screen.findByRole("button", { name: "Account and connection" })).toBeTruthy();
+  expect(local.getItem("ace.daemon.token")).toBe(token);
+  expect(session.getItem("ace.daemon.token")).toBeNull();
   expect(local.getItem("ace.daemon.url")).toBe(url);
 });
 
-test("a token the daemon rejects says so calmly and links to the connection settings", async () => {
+test("a daemon on another machine is forgotten when the window closes unless asked", async () => {
+  const { local, session } = boot();
+  await connectWith(token, { url: "ws://192.168.1.5:4242/" });
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  expect(session.getItem("ace.daemon.token")).toBe(token);
+  expect(local.getItem("ace.daemon.token")).toBeNull();
+});
+
+test("pasting the link `ace start` opens fills in the token and the address", async () => {
+  const user = userEvent.setup();
   boot();
-  await connectWith("cd".repeat(32), true);
-  const notice = await screen.findByText(/Can't connect: the daemon didn't accept this token/);
-  expect(within(notice).getByRole("link", { name: "Connection settings" })).toBeTruthy();
+  const field = await screen.findByLabelText<HTMLInputElement>("Token");
+  await user.click(field);
+  await user.paste(`http://127.0.0.1:4242/#token=${token}&daemon=ws://127.0.0.1:5151/`);
+  expect(field.value).toBe(token);
+  expect(screen.getByLabelText<HTMLInputElement>("Daemon address").value).toBe(
+    "ws://127.0.0.1:5151/",
+  );
+});
+
+test("a token the daemon rejects returns to the form, says why and selects the token", async () => {
+  boot();
+  await connectWith("cd".repeat(32));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toMatch(/didn't accept this token/);
+  const field = screen.getByLabelText<HTMLInputElement>("Token");
+  expect(document.activeElement).toBe(field);
+  expect(field.value).toBe("cd".repeat(32));
+  // Never the shell: nothing was ever connected.
+  expect(screen.queryByRole("link", { name: /Fix flaky checkout test/ })).toBeNull();
 });
 
 test("the daemon's #token= hand-off connects straight away", async () => {
@@ -90,12 +140,15 @@ test("a link to a daemon on another machine asks first, and declining keeps the 
   });
   await screen.findByRole("heading", { name: "Connect to this daemon?" });
   expect(screen.getByText("wss://evil.example/")).toBeTruthy();
+  // The safe answer is the default, and says what it keeps.
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Don't connect" }));
+  expect(screen.getByText("Keeps your current connection")).toBeTruthy();
   // Nothing is saved or forgotten while the question is open.
   expect(local.getItem("ace.daemon.url")).toBe(url);
   expect(local.getItem("ace.daemon.token")).toBe(token);
   expect(session.getItem("ace.daemon.token")).toBeNull();
 
-  await userEvent.click(screen.getByRole("button", { name: "Don't connect" }));
+  await userEvent.keyboard("{Escape}");
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
   expect(local.getItem("ace.daemon.url")).toBe(url);
   expect(local.getItem("ace.daemon.token")).toBe(token);
@@ -118,9 +171,11 @@ test("a link for this computer never silently replaces the remembered token", as
 
 test("disconnecting forgets the token and returns to the connection screen", async () => {
   const { local, session } = boot();
-  await connectWith(token, true);
+  await connectWith(token);
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
   expect(local.getItem("ace.daemon.token")).toBe(token);
-  await userEvent.click(await screen.findByRole("button", { name: "Account and connection" }));
+  // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
+  await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
   await screen.findByRole("heading", { name: "Connect to your daemon" });
   expect(local.getItem("ace.daemon.token")).toBeNull();
@@ -129,11 +184,24 @@ test("disconnecting forgets the token and returns to the connection screen", asy
 
 test("a client that loads on demand connects once it arrives, and disconnecting still works", async () => {
   const { local } = boot({ onDemand: true });
-  await connectWith(token, true);
+  await connectWith(token);
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
-  expect(await screen.findByRole("status", { name: "Daemon: Connected" })).toBeTruthy();
-  await userEvent.click(await screen.findByRole("button", { name: "Account and connection" }));
+  expect(await screen.findByRole("button", { name: "Account and connection" })).toBeTruthy();
+  // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
+  await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
   await screen.findByRole("heading", { name: "Connect to your daemon" });
   expect(local.getItem("ace.daemon.token")).toBeNull();
+});
+
+test("a daemon that later rejects the token sends the window back to the form with the address", async () => {
+  const { daemon } = boot({ rememberedToken: token });
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  // 4001: the daemon no longer accepts this token (its home was reset).
+  daemon.disconnectAll(4001);
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toMatch(/didn't accept this token/);
+  expect(screen.getByLabelText<HTMLInputElement>("Daemon address").value).toBe(url);
+  expect(screen.queryByRole("link", { name: /Fix flaky checkout test/ })).toBeNull();
+  within(alert).getByText(/copy it again/);
 });

@@ -31,7 +31,13 @@ export function createWorkerClient(target: DaemonTarget, deviceId: string): Clie
       },
     },
     // The worker now owns the outbox; the copy an older build kept here is spent.
-    attached: () => localStorage.removeItem(key),
+    attached: () => {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        /* Storage is denied: there is no old copy to clear. */
+      }
+    },
   });
 }
 

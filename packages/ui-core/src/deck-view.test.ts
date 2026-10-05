@@ -1,8 +1,15 @@
 import { ConductorRunView } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { cardStatus, deckRunSummary, deckStepper } from "./deck.ts";
+import {
+  cardStatus,
+  deckGroup,
+  deckMerge,
+  deckRunSummary,
+  deckStepper,
+  laneGroups,
+} from "./deck.ts";
 import type { DeckAccounts, DeckThreads } from "./deck-agents.ts";
-import { deckErrorText, deckTitle } from "./deck-gate.ts";
+import { deckErrorText, deckTitle, raisedBudget } from "./deck-gate.ts";
 import { deckBrief, deckFromSummary, deckFromView } from "./deck-view.ts";
 
 const accounts: DeckAccounts = (id) =>
@@ -95,9 +102,9 @@ test("node states read as card states, and fix rounds become review rounds", () 
   const [seq, ack, cursor, docs] = run.cards;
   expect(seq?.note).toBe("Merged at abcdef1.");
   expect(ack && cardStatus(ack, run).label).toBe("Fixing, round 2");
-  expect(ack?.lane?.rounds).toEqual([
-    { label: "Round 1", verdict: "Changes required" },
-    { label: "Round 2", verdict: "Fixing" },
+  expect(ack?.lane?.rounds.map((round) => [round.label, round.verdict])).toEqual([
+    ["Round 1", "Changes required"],
+    ["Round 2", "Fixing"],
   ]);
   expect(ack?.lane?.worker).toEqual({
     account: "Codex · Personal",
@@ -108,7 +115,7 @@ test("node states read as card states, and fix rounds become review rounds", () 
   expect(ack?.lane?.reviewer?.account).toBe("Account removed");
   expect(cursor && cardStatus(cursor, run).label).toBe("In review");
   expect(docs?.note).toBe("Starts after ack, cursor.");
-  expect(deckRunSummary(run)).toBe("Dealing · 2 lanes active");
+  expect(deckRunSummary(run)).toBe("1/4 merged · 2 lanes working");
 });
 
 test("a lane on the installed CLI's own login reads as that provider's default login", () => {
@@ -247,11 +254,11 @@ test("a card stopped on a person comes first: escalations, an agent's question, 
     }),
     accounts,
   );
-  expect(run.gates.map((entry) => [entry.id, entry.kind])).toEqual([
-    ["esc-1", "escalation"],
-    ["ask-1", "provider"],
-    ["budget-1", "escalation"],
-    ["merge-1", "merge"],
+  expect(run.gates.map((entry) => [entry.id, entry.kind, entry.ask])).toEqual([
+    ["esc-1", "escalation", "escalation"],
+    ["ask-1", "provider", "provider"],
+    ["budget-1", "escalation", "budget"],
+    ["merge-1", "merge", "merge"],
   ]);
   expect(run.gate?.title).toBe("Escalated: Client ack");
   const ask = run.gates[1];
@@ -267,7 +274,7 @@ test("a card stopped on a person comes first: escalations, an agent's question, 
   const [ack, seq] = run.cards;
   expect(seq && cardStatus(seq, run).label).toBe("Waiting for you");
   expect(ack && cardStatus(ack, run).label).toBe("Waiting for you");
-  expect(deckRunSummary(run)).toBe("Escalation needs you · 0 of 2 merged");
+  expect(deckRunSummary(run)).toBe("0/2 merged · Needs your decision");
 });
 
 test("two open decisions of one kind are taken oldest first", () => {
@@ -281,7 +288,7 @@ test("two open decisions of one kind are taken oldest first", () => {
     accounts,
   );
   expect(run.gate?.id).toBe("early");
-  expect(deckRunSummary(run)).toBe("An agent needs your answer · 0 of 0 merged");
+  expect(deckRunSummary(run)).toBe("An agent asked you");
 });
 
 test("the run carries the daemon's start and update times; an older daemon's view reads as 0", () => {
@@ -308,7 +315,7 @@ test("a deck that is still stopping its lanes says so and holds its stepper", ()
     view({ phase: "cancelling", dag: [node("a", { state: "working" })] }),
     accounts,
   );
-  expect(deckRunSummary(run)).toBe("Stopping its lanes");
+  expect(deckRunSummary(run)).toBe("0/1 merged · Stopping");
   const stepper = deckStepper(run);
   expect(stepper.paused).toBe(true);
   expect(stepper.steps.at(-1)).toEqual({ label: "Stopping", state: "current" });
@@ -335,4 +342,159 @@ test("a deck known only from the list is partial until its view arrives", () => 
   expect(run.partial).toBe(true);
   expect(run.cards).toEqual([]);
   expect(deckRunSummary(run)).toBe("Drafting the plan");
+});
+
+test("a budget gate is its own decision, saying how much was used and what raising it offers", () => {
+  const run = deckFromView(
+    view({
+      spent: 50,
+      budget: 50,
+      needsUser: [gate({ id: "b", kind: "budget", message: "Reserved cost 51 exceeds budget 50" })],
+    }),
+    accounts,
+  );
+  expect(run.gate).toMatchObject({
+    ask: "budget",
+    title: "The deck used its budget",
+    body: "50 of 50 lane starts used. Raise the budget to keep going.",
+    detail: "Reserved cost 51 exceeds budget 50",
+  });
+  expect(raisedBudget(50)).toBe(75);
+  expect(raisedBudget(8)).toBe(18);
+  const deadline = deckFromView(view({ needsUser: [gate({ kind: "deadline" })] }), accounts);
+  expect(deadline.gate?.ask).toBe("deadline");
+  expect(deckRunSummary(deadline)).toBe("Deadline passed");
+});
+
+/** The gate a card escalated with `message`, its reviewer lane `w` named when given. */
+const escalated = (message: string, laneId: string | null = "w") =>
+  deckFromView(
+    view({
+      dag: [node("ack", { title: "Client ack", state: "escalated" })],
+      lanes: [lane({ id: "w", workstream: "ack", role: "reviewer" })],
+      needsUser: [gate({ kind: "escalation", workstream: "ack", lane: laneId, message })],
+    }),
+    accounts,
+  ).gate;
+
+test("an escalation's machine line reads as what happened to the card's lane", () => {
+  expect(escalated("Lane w is unresponsive")).toMatchObject({
+    body: "Client ack's reviewer stopped responding.",
+    detail: "Lane w is unresponsive",
+  });
+  expect(escalated("Lane w is limited")?.body).toBe(
+    "Client ack's reviewer hit its account's limit.",
+  );
+  expect(escalated("Review retention limit reached; start a new run", null)?.body).toBe(
+    "This card has had too many review rounds. Start a new deck for it.",
+  );
+  // A reviewer's own words stay the body.
+  expect(escalated("The inbox stays empty for 3s.", null)).toMatchObject({
+    body: "The inbox stays empty for 3s.",
+    detail: undefined,
+  });
+});
+
+test("waiting for an account is not a stop; other execution errors are, in their own group", () => {
+  const waiting = deckFromView(view({ executionError: "deck_capacity_wait" }), accounts);
+  expect(waiting.phase).toBe("waiting");
+  expect(deckGroup(waiting)).toBe("active");
+  expect(deckRunSummary(waiting)).toBe("Waiting for an account");
+  const stopped = deckFromView(view({ executionError: "deck_workspace_not_found" }), accounts);
+  expect(stopped.phase).toBe("failed");
+  expect(deckGroup(stopped)).toBe("stopped");
+});
+
+test("a declined card ends the deck without merging, and the cards after it won't start", () => {
+  const run = deckFromView(
+    view({
+      phase: "done",
+      baseBranch: "main",
+      branch: "deck/relay",
+      dag: [
+        node("a", { title: "Card A", state: "declined" }),
+        node("b", { title: "Card B", state: "pending", dependencies: ["a"] }),
+        node("c", { title: "Card C", state: "integrated", revision: "abcdef1234" }),
+      ],
+    }),
+    accounts,
+  );
+  const [a, b, c] = run.cards;
+  expect(run.phase).toBe("finished");
+  expect(a && cardStatus(a, run).label).toBe("Declined");
+  expect(b && cardStatus(b, run).label).toBe("Won't start");
+  expect(b?.note).toBe("Won't start: you declined Card A.");
+  expect(c?.note).toBe("Merged at abcdef1 into deck/relay.");
+  // Cards land on the Deck's own branch, never on the base it started from.
+  expect(deckMerge(run).detail).toBe("Merged 1 of 3 into deck/relay");
+  expect(deckRunSummary(run)).toBe("1/3 merged · Finished");
+  expect(laneGroups(run).map((group) => group.label)).toEqual(["Planned", "Merged", "Declined"]);
+});
+
+test("review rounds carry the reviewer's verdicts and summaries from the daemon", () => {
+  const run = deckFromView(
+    view({
+      dag: [
+        node("ack", {
+          state: "approved",
+          fixRounds: 1,
+          reviews: [
+            { verdict: "changes_required", summary: "Buffer clears too early." },
+            { verdict: "pass", summary: "All checks pass." },
+          ],
+        }),
+      ],
+      lanes: [lane({ workstream: "ack" })],
+    }),
+    accounts,
+  );
+  expect(run.cards[0]?.lane?.rounds).toEqual([
+    {
+      label: "Round 1",
+      verdict: "Changes required",
+      summary: "Buffer clears too early.",
+      tone: "needs-you",
+    },
+    { label: "Round 2", verdict: "Approved", summary: "All checks pass.", tone: "done" },
+  ]);
+});
+
+test("ended decks label their merge and their agents for what happened", () => {
+  const cancelled = deckFromView(
+    view({
+      phase: "cancelled",
+      dag: [node("a", { state: "working" })],
+      delegations: [delegation({ laneId: "w", workstream: "a", phase: "settled" })],
+    }),
+    accounts,
+    threads,
+  );
+  expect(deckMerge(cancelled).detail).toBe("Won't merge");
+  expect(cancelled.cards[0]?.lane?.worker?.detail).toBe("Cancelled");
+  const failed = deckFromView(view({ executionError: "conductor_execution_failed" }), accounts);
+  expect(deckMerge(failed).detail).toBe("On hold");
+  const auto = deckFromView(view({ planApproval: "auto" }), accounts);
+  expect(deckStepper(auto).steps[1]?.label).toBe("Plan auto-approved");
+});
+
+/** A finished one-card deck on `merge` policy. */
+const done = (merge: string) =>
+  deckFromView(
+    view({
+      phase: "done",
+      merge,
+      branch: "deck/relay",
+      baseBranch: "main",
+      dag: [node("a", { state: "integrated", revision: "abcdef1234" })],
+    }),
+    accounts,
+  );
+
+test("a merged deck names the Deck branch, and a PR-only deck says its pull request is open", () => {
+  expect(deckMerge(done("ask")).detail).toBe("Merged into deck/relay");
+  expect(deckStepper(done("ask")).steps.at(-1)?.label).toBe("Merged");
+  const pr = done("PR-only");
+  expect(deckMerge(pr).detail).toBe("PR open from deck/relay");
+  expect(deckStepper(pr).steps.at(-1)?.label).toBe("PR open");
+  expect(deckRunSummary(pr)).toBe("1/1 merged · PR open");
 });

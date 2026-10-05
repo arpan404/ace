@@ -19,7 +19,9 @@ async function connect(page: Page, path: string) {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   const daemon = encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`);
   await page.goto(`${path}#token=${token}&daemon=${daemon}`);
-  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Account and connection", exact: true }),
+  ).toBeAttached();
 }
 
 /**
@@ -34,7 +36,9 @@ async function shoot(page: Page, name: string, ready: (page: Page) => Promise<vo
       theme,
     );
     await page.reload();
-    await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+    await expect(
+      page.getByRole("button", { name: "Account and connection", exact: true }),
+    ).toBeAttached();
     await ready(page);
     await page.waitForTimeout(600);
     await page.screenshot({ path: `${shots}/real-${name}-${theme}.png` });
@@ -78,7 +82,7 @@ test("a deck starts on the real daemon, waits on its plan and a worker's questio
     ).toBeVisible(),
   );
   await page
-    .getByRole("navigation", { name: "Views" })
+    .getByRole("navigation", { name: "App" })
     .getByRole("link", { name: /^Activity/ })
     .click();
   const card = page.getByRole("article", { name: deckQuestion });
@@ -89,7 +93,9 @@ test("a deck starts on the real daemon, waits on its plan and a worker's questio
 
   // Back on the deck: the cards work, pass review and merge, and the deck finishes.
   await page.goto(deck);
-  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Account and connection", exact: true }),
+  ).toBeAttached();
   await expect(asking).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Health note/ }).first()).toContainText(
     /Working|In review|Merging|Merged/,

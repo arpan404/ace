@@ -1,4 +1,5 @@
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { preloadAttachmentChips } from "./attachments.tsx";
 import { preloadComposerMenus } from "./deferred-menus.tsx";
 
 /*
@@ -10,14 +11,24 @@ import { preloadComposerMenus } from "./deferred-menus.tsx";
 export const DeferredThreadControls = deferredComponent(() =>
   import("./thread-controls.tsx").then((module) => module.ThreadControls),
 );
-export const DeferredQueuedPills = deferredComponent(() =>
-  import("./queued.tsx").then((module) => module.QueuedPills),
+export const DeferredQueueArea = deferredComponent(() =>
+  import("./queue-area.tsx").then((module) => module.QueueArea),
 );
-export const DeferredQueueNotice = deferredComponent(() =>
-  import("./queue-notice.tsx").then((module) => module.QueueNotice),
+/** "Plan 3/7" beside the queue: the main agent's latest todo list (CMP-6). */
+export const DeferredPlanChip = deferredComponent(() =>
+  import("./plan-chip.tsx").then((module) => module.PlanChip),
 );
 export const DeferredSuggestionList = deferredComponent(() =>
   import("./suggestion-list.tsx").then((module) => module.SuggestionList),
+);
+
+/** How a message on its way is doing, under its bubble: Sending…, Not sent with Retry and Edit. */
+export const DeferredSendStatus = deferredComponent(() =>
+  import("../items/send-status.tsx").then((module) => module.SendStatus),
+);
+/** This window's messages on their way, for the transcript (see `LocalSendsView`). */
+export const DeferredLocalSends = deferredComponent(() =>
+  import("../items/local-sends.tsx").then((module) => module.LocalSends),
 );
 
 /** The thread's tokens and cost in the context meter's tooltip, read when the tooltip opens. */
@@ -31,10 +42,14 @@ export function preloadComposerParts(): Promise<unknown> {
     // The model chip's popover, through the controls' own chunk so the route never holds it.
     import("@/features/models/index.ts").then((models) => models.preloadModelControl()),
     DeferredThreadControls.preload(),
-    DeferredQueuedPills.preload(),
-    DeferredQueueNotice.preload(),
+    DeferredQueueArea.preload(),
+    DeferredPlanChip.preload(),
     DeferredSuggestionList.preload(),
     DeferredThreadUsage.preload(),
+    DeferredSendStatus.preload(),
+    DeferredLocalSends.preload(),
+    preloadAttachmentChips(),
+    import("./send-message.ts"),
   ]);
 }
 

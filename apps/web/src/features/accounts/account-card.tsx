@@ -4,27 +4,24 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
-import { blockingReset } from "@ace/ui-core";
-import { useMoveThreads } from "./account-threads-source.ts";
+import { accountLimit, nearLimitPercent } from "@ace/ui-core";
+import { describeMove, useMoveThreads } from "./account-threads-source.ts";
 import type { Account, QuotaWindow } from "./accounts-source.ts";
-import { formatClock, formatResets } from "./format.ts";
+import { formatClock, formatResetCountdown, resetParts } from "./format.ts";
 
 const radius = 18;
 const circumference = 2 * Math.PI * radius;
 
-/** One quota window as a ring: ink normally, amber from 85%, red when exhausted. */
+/** One quota window as a ring: ink normally, amber from `nearLimitPercent`, red when full. */
 export function UsageRing(props: { window: QuotaWindow; now: number }) {
   const used = Math.min(100, Math.max(0, props.window.usedPercent));
   const tone =
     used >= 100
       ? "stroke-status-failed"
-      : used >= 85
+      : used >= nearLimitPercent
         ? "stroke-status-needs-you"
         : "stroke-foreground";
-  const resets =
-    props.window.resetsAt === null
-      ? "Reset time not reported"
-      : formatResets(props.window.resetsAt, props.now);
+  const resets = formatResetCountdown(props.window.resetsAt, props.now);
   return (
     <div className="flex items-center gap-2.5">
       <span
@@ -64,7 +61,12 @@ export function UsageRing(props: { window: QuotaWindow; now: number }) {
       </span>
       <span className="text-sm font-medium">
         {props.window.label}
-        <small className="mt-px block text-xs font-normal text-subtle-foreground">{resets}</small>
+        {/* "Resets 15:20" over "in 1h 27m", so two rings still sit side by side. */}
+        {resetParts(props.window.resetsAt, props.now).map((line) => (
+          <small key={line} className="mt-px block text-xs font-normal text-subtle-foreground">
+            {line}
+          </small>
+        ))}
       </span>
     </div>
   );
@@ -81,8 +83,9 @@ export function AccountCard(props: { account: Account; accounts: readonly Accoun
   const now = useNow();
   const move = useMoveThreads();
   const toast = useToast();
-  const exhausted = account.availability === "exhausted";
-  const resetsAt = blockingReset(account);
+  const limit = accountLimit(account, now);
+  const exhausted = limit.level === "reached";
+  const resetsAt = limit.resetsAt;
   const limited = account.threads?.limitedIds ?? [];
   const waiting = limited.length;
   return (
@@ -131,10 +134,7 @@ export function AccountCard(props: { account: Account; accounts: readonly Accoun
               move.mutate(
                 { accounts: props.accounts, from: account.id, threadIds: limited },
                 {
-                  onSuccess: (result) =>
-                    toast.add({
-                      title: `Moved ${result.moved} ${result.moved === 1 ? "thread" : "threads"} to ${result.to.providerLabel} · ${result.to.label}${result.failed ? `; ${result.failed} couldn't move` : ""}`,
-                    }),
+                  onSuccess: (result) => toast.add({ title: describeMove(result) }),
                   onError: (error) => toast.add({ title: error.message }),
                 },
               )

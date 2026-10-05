@@ -50,6 +50,7 @@ export function Screen(
       menu={props.menu}
       summary={props.summary}
       actions={props.actions}
+      status={props.status}
       scrolled={scrolled}
       trailing={trailing}
     />

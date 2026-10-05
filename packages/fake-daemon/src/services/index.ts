@@ -61,7 +61,9 @@ export class FakeServices {
   constructor(host: ServiceHost) {
     this.host = host;
     const now = host.clock();
-    this.accounts = accountSummaries(now);
+    // Quota resets are wall-clock facts the client compares with its own clock, as a real
+    // daemon's are; the injected clock may be a counter.
+    this.accounts = accountSummaries(Date.now());
     this.models = modelCatalog();
     this.providerStatuses = (
       ["claude", "codex", "opencode", "cursor", "pi", "antigravity"] as const

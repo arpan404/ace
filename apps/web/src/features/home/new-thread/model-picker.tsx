@@ -2,12 +2,15 @@ import {
   accountTag,
   modelControlName,
   pickerProviders,
-  providerNames,
   speedControl,
   speedOffTier,
   type PickerModel,
 } from "@ace/ui-core";
-import { ModelControl, type ModelControlView } from "@/features/models/index.ts";
+import {
+  ModelControl,
+  useModelCatalogState,
+  type ModelControlView,
+} from "@/features/models/index.ts";
 import { composerChip, useComposerCompact } from "@/features/thread/index.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import type { NewThreadOptions, Resolved } from "./choices.ts";
@@ -29,6 +32,7 @@ export function ModelPicker(props: {
   const { model, account, effort, fast } = props.resolved;
   const compact = useComposerCompact();
   const statuses = useProviderStatuses();
+  const catalog = useModelCatalogState();
   // Discovery found no provider CLI: say so rather than waiting for models that won't come.
   const none = props.options !== undefined && props.options.models.length === 0;
   const empty = none ? "No provider CLI installed" : "Loading models…";
@@ -43,15 +47,14 @@ export function ModelPicker(props: {
     },
     current: fast ? model?.fastTier : speedOffTier(model),
   });
-  const name = model
-    ? modelControlName({
-        model: model.label,
-        account: tag,
-        effort,
-        hasEfforts: efforts.length > 0,
-        fast: speed.on,
-      })
-    : undefined;
+  const details = model && {
+    model: model.label,
+    account: tag,
+    effort,
+    hasEfforts: efforts.length > 0,
+    fast: speed.on,
+  };
+  const name = details && modelControlName(details);
   const models: PickerModel[] = (props.options?.models ?? []).map((option) => ({
     key: option.key,
     provider: option.provider,
@@ -64,7 +67,7 @@ export function ModelPicker(props: {
     label: model?.label,
     placeholder: empty,
     ariaLabel: `Model: ${name ?? (none ? "no provider installed" : "loading")}`,
-    tip: model ? [providerNames[model.provider], name].join(" · ") : empty,
+    tip: details ? modelControlName({ ...details, provider: model.provider }) : empty,
     disabled: !model,
     modelKey: model?.key,
     efforts,
@@ -81,6 +84,8 @@ export function ModelPicker(props: {
     account: account?.id,
     models,
     providers: pickerProviders(models, statuses.data ?? []),
+    // New thread waits for the catalog before the chip opens; the accounts and providers too.
+    catalog: props.options ? catalog : "loading",
   };
   return (
     <ModelControl

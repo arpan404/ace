@@ -8,21 +8,28 @@ const PopoverClose = PopoverPrimitive.Close;
 const PopoverTitle = PopoverPrimitive.Title;
 const PopoverDescription = PopoverPrimitive.Description;
 
-/** Glass popover, 12px radius, fade + 4px rise on the spring curve. */
+/**
+ * Glass popover, 12px radius, fade + 4px rise on the spring curve. `keepMounted` keeps its
+ * content mounted (hidden) while closed, for controls whose shortcuts must stay bound.
+ */
 function PopoverContent({
   className,
   side = "bottom",
   align = "start",
   sideOffset = 6,
+  anchor,
+  keepMounted,
   ...props
 }: PopoverPrimitive.Popup.Props &
-  Pick<PopoverPrimitive.Positioner.Props, "side" | "align" | "sideOffset">) {
+  Pick<PopoverPrimitive.Positioner.Props, "side" | "align" | "sideOffset" | "anchor"> &
+  Pick<PopoverPrimitive.Portal.Props, "keepMounted">) {
   return (
-    <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Portal keepMounted={keepMounted}>
       <PopoverPrimitive.Positioner
         side={side}
         align={align}
         sideOffset={sideOffset}
+        anchor={anchor}
         className="isolate z-[60]"
       >
         <PopoverPrimitive.Popup

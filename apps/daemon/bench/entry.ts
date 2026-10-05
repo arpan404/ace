@@ -14,6 +14,10 @@ const daemon = await startDaemon({
   history: { instances: [] },
   notificationChannels: {},
   toolkits: [],
+  providerStatus: {
+    env: { PATH: "" },
+    cursorSdk: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
+  },
 });
 const provider = scriptedProvider();
 const registry = new AdapterRegistry();

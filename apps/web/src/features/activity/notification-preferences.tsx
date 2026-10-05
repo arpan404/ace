@@ -33,6 +33,12 @@ const rows: {
     title: "Automation finished",
     description: "A scheduled or triggered run reports its result.",
   },
+  {
+    key: "limits",
+    title: "When an account nears its usage limit",
+    description:
+      "Before a usage window runs out, when it does, and when the account can work again.",
+  },
 ];
 
 /**

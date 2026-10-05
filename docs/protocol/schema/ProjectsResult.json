@@ -45,6 +45,137 @@
         },
         {
           "properties": {
+            "entries": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ProjectFolderMatch.json"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "indexing": {
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "search",
+              "type": "string"
+            },
+            "query": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "query",
+            "indexing",
+            "entries",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "candidates": {
+              "items": {
+                "properties": {
+                  "completion": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "isGitRepo": {
+                    "type": "boolean"
+                  },
+                  "isProject": {
+                    "type": "boolean"
+                  },
+                  "lastOpened": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "name": {
+                    "$ref": "https://ace.local/protocol/v1/ProjectDirectoryName.json"
+                  },
+                  "path": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "recentScore": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "score": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "name",
+                  "path",
+                  "isGitRepo",
+                  "isProject",
+                  "recentScore",
+                  "score",
+                  "completion"
+                ],
+                "type": "object"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "commonPrefix": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "kind": {
+              "const": "completion",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "candidates",
+            "commonPrefix",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "cloneUrl",
+              "type": "string"
+            },
+            "name": {
+              "$ref": "https://ace.local/protocol/v1/ProjectDirectoryName.json"
+            },
+            "url": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "canonicalPath": {
               "maxLength": 4096,
               "minLength": 1,

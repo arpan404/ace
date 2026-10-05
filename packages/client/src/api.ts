@@ -30,7 +30,7 @@ import type { OneWayMessage } from "./one-way.ts";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import type { ChangeTap, Selection } from "./observable.ts";
 import type { SidebarKey, SidebarReader, ThreadKey, ThreadReader } from "./readers.ts";
-import type { ClientError, ConnectionState, RequestOptions } from "./types.ts";
+import type { ClientError, ConnectionInfo, ConnectionState, RequestOptions } from "./types.ts";
 
 /*
  * The surface UI code depends on. `Client` implements it in-process; a client running in a
@@ -70,6 +70,11 @@ type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type RegistryQuery = WithoutRequestId<RegistryRequest>;
 
 export interface ClientApi {
+  /** Resolve a content id on this connection. Never use a global daemon URL. */
+  attachmentBytes(
+    input: import("./attachments.ts").AttachmentInput,
+    options?: RequestOptions,
+  ): Promise<{ bytes: Uint8Array; mimeType: string }>;
   readonly projects: ProjectsApi;
   readonly state: ConnectionState;
   readonly error: ClientError | undefined;
@@ -131,6 +136,16 @@ export interface ClientApi {
     payload: { streamId: string; offset: number; limit: number },
     options?: RequestOptions,
   ): AsyncGenerator<Uint8Array>;
+}
+
+/**
+ * Retry on demand and report the retry schedule. The in-process `Client` has it; the
+ * worker-backed client gains it once its relay forwards both calls.
+ */
+export interface ConnectionControl {
+  /** Run a waiting reconnect now instead of after its backoff. A no-op unless one is waiting. */
+  reconnectNow(): void;
+  connectionInfo(): Selection<ConnectionInfo>;
 }
 
 /** Everything a thread store holds, for copying it to another realm in one message. */

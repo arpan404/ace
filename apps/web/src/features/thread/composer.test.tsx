@@ -106,7 +106,7 @@ test("attached files upload before sending and can be removed", async () => {
     new File(["x"], "trace.txt", { type: "text/plain" }),
   ]);
   const chips = screen.getByRole("list", { name: "Attachments" });
-  await waitFor(() => expect(within(chips).queryByRole("status")).toBeNull());
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   expect(send.getAttribute("aria-disabled")).toBeNull();
 
   await userEvent.click(within(chips).getByRole("button", { name: "Remove trace.txt" }));

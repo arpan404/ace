@@ -1,3 +1,4 @@
+import { automaticTarget } from "@ace/accounts/availability";
 import {
   resolvePermissionMode,
   limitPermissionMode,
@@ -723,11 +724,11 @@ export class FakeDaemon implements Host {
     const thread = host.view.thread;
     const current = thread.live?.account ?? thread.execution?.instanceId;
     const from = this.services.accounts.find((account) => account.id === current);
-    return this.services.accounts.find(
-      (account) =>
-        account.id !== current &&
-        account.provider === (from?.provider ?? thread.provider) &&
-        account.availability !== "exhausted",
+    // The daemon's own pick, so a fake move lands where a real one would.
+    return automaticTarget(
+      this.services.accounts,
+      { id: current ?? "", provider: from?.provider ?? thread.provider },
+      Date.now(),
     )?.id;
   }
   private execute(command: Command): CommandResult {
@@ -995,6 +996,18 @@ export class FakeDaemon implements Host {
         });
         if (payload.context?.draftId)
           this.servicesWire.context.adopt(command.deviceId, payload.context.draftId, id);
+        const attachments = this.servicesWire.context.messageAttachments(
+          id,
+          payload.context?.attachments.map((a) => a.sha256) ?? [],
+        );
+        for (const fact of started.facts)
+          if (
+            fact.type === "item.upsert" &&
+            fact.draft.type === "message" &&
+            fact.draft.role === "user" &&
+            attachments.length
+          )
+            fact.draft.attachments = attachments;
         this.apply(id, started.facts);
         return { commandId, ok: true, threadId: ThreadId.parse(id) };
       }
@@ -1002,6 +1015,10 @@ export class FakeDaemon implements Host {
         return this.run(commandId, payload.threadId, (host) =>
           sendFacts(host, commandId, {
             ...payload,
+            attachments: this.servicesWire.context.messageAttachments(
+              payload.threadId,
+              payload.context?.attachments.map((a) => a.sha256) ?? [],
+            ),
             // An omitted delivery resolves the person's follow-up setting, as the daemon does.
             delivery:
               payload.delivery ??

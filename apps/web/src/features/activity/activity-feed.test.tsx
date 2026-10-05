@@ -1,4 +1,4 @@
-import { workbench, workbenchServices } from "@ace/fake-daemon";
+import { deckRuns, workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -115,16 +115,18 @@ test("Mark all read quiets every feed row and then has nothing left to do", asyn
   expect(row("Allow a force push to fix/restart-retry?").getByText("Needs you")).toBeTruthy();
 });
 
-test("approving a deck's escalation clears it from Needs you", async () => {
+test("retrying a deck's escalated card clears it from Needs you", async () => {
   const { feed } = await openActivity();
   const name = "Escalated: Defer the first relay sync";
   const escalation = await screen.findByRole("article", { name });
   expect(within(escalation).getByText(/leaves the inbox empty/)).toBeTruthy();
 
-  await userEvent.click(within(escalation).getByRole("button", { name: /^Approve/ }));
+  await userEvent.click(within(escalation).getByRole("button", { name: /^Retry card/ }));
 
   await waitFor(() => expect(screen.queryByRole("article", { name })).toBeNull());
-  expect(await screen.findByText("Approve · the deck carries on")).toBeTruthy();
+  expect(
+    await screen.findByText("Retrying Defer the first relay sync: a new round starts"),
+  ).toBeTruthy();
   expect(screen.getByText("5 need you")).toBeTruthy();
   // The deck has moved on: nothing about the decision is left to answer.
   expect(within(feed).queryByText(name)).toBeNull();
@@ -164,4 +166,46 @@ test("the project filter narrows both the feed and the cards", async () => {
   expect(within(feed).getByText("Checks failed on #74")).toBeTruthy();
   expect(within(feed).queryByText("PR #212 merged")).toBeNull();
   expect(screen.getByRole("button", { name: "Filter: billing-api" })).toBeTruthy();
+});
+
+test("declining a deck's card from Activity asks first and says the deck carries on", async () => {
+  await openActivity();
+  const name = "Merge needs your approval: Server-side replay cursor";
+  const merge = (await screen.findAllByRole("article")).find(
+    (entry) => entry.getAttribute("aria-label") === name,
+  );
+  if (!merge) throw new Error("Merge decision missing");
+
+  await userEvent.click(within(merge).getByRole("button", { name: "Decline card…" }));
+  const confirm = await screen.findByRole("dialog", { name: "Decline Server-side replay cursor?" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Decline card" }));
+
+  expect(
+    await screen.findByText("Declined Server-side replay cursor · the deck carries on"),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(
+      screen.queryAllByRole("article").some((entry) => entry.getAttribute("aria-label") === name),
+    ).toBe(false),
+  );
+});
+
+test("a used-up budget isn't approved blind from Activity: it opens the deck, and stopping asks first", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const now = Date.now();
+  app.daemon.seedServices({ ...workbenchServices(now), decks: deckRuns(now, ["budget"]) });
+  await app.open("/activity");
+  const sidebar = await screen.findByRole("complementary", { name: "Activity" });
+  await userEvent.click(await within(sidebar).findByText("The deck used its budget"));
+  const budget = await screen.findByRole("article", { name: "The deck used its budget" });
+
+  expect(within(budget).queryByRole("button", { name: /^Approve/ })).toBeNull();
+  await userEvent.click(within(budget).getByRole("button", { name: "Stop the deck…" }));
+  const confirm = await screen.findByRole("dialog", { name: "Reject and cancel this deck?" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Keep it running" }));
+  expect(screen.getByRole("article", { name: "The deck used its budget" })).toBeTruthy();
+
+  await userEvent.click(within(budget).getByRole("button", { name: /^Open deck/ }));
+  expect(await screen.findByRole("region", { name: "The deck used its budget" })).toBeTruthy();
 });

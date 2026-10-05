@@ -10,15 +10,18 @@ import { Page, PageTitle } from "@/features/shell/index.ts";
 import { useActivityState } from "./activity-state.tsx";
 import { EscalationCard } from "./escalation-card.tsx";
 import { InteractionCard } from "./interaction-card.tsx";
+import { LimitedThreads, useLimitedThreads } from "./limited-threads.tsx";
 import { useNeedsYou } from "./use-needs-you.ts";
 
 /**
  * Everything waiting on a person, as answerable cards, oldest first: approvals, questions and
- * plans from every thread (live from the daemon) and Deck decisions. J/K (or ↓/↑) move focus
- * between cards; the focused card takes A, D, 1–3, O, H and X.
+ * plans from every thread (live from the daemon) and Deck decisions, then threads paused at a
+ * usage limit. J/K (or ↓/↑) move focus between cards; the focused card takes A, D, 1–3, O, H
+ * and X.
  */
 export function NeedsYouPage() {
   const needs = useNeedsYou();
+  const limited = useLimitedThreads();
   const loaded = useSidebarLoaded();
   const { focused, focusCard } = useActivityState();
   const empty = !needs.entries.length;
@@ -45,7 +48,7 @@ export function NeedsYouPage() {
         <ListSkeleton label="requests" shape="card" rows={3} className="mt-5" />
       </Page>
     );
-  if (empty)
+  if (empty && !limited.length)
     return (
       <EmptyState
         icon={BellIcon}
@@ -68,7 +71,8 @@ export function NeedsYouPage() {
           ),
         )}
       </div>
-      <KeyLegend />
+      {!empty && <KeyLegend />}
+      <LimitedThreads threads={limited} />
     </Page>
   );
 }

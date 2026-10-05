@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { StepSlider } from "@/components/ui/step-slider.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { titleWhenClipped } from "@/lib/clipped-title.ts";
+import { cn } from "@/lib/cn.ts";
 import type { AccountRow, ModelControlActions, ModelControlView } from "./control-view.ts";
 import { ModelPickerPanel } from "./model-picker-panel.tsx";
 
@@ -26,26 +28,34 @@ export function ModelPopover(props: {
   const { view, actions } = props;
   // Without a model there is nothing to tune yet: start at the picker.
   const [pane, setPane] = useState<"effort" | "picker">(view.label ? "effort" : "picker");
-  if (view.offline)
-    return (
-      <p role="status" className="max-w-64 px-3 py-2.5 text-xs leading-4 text-muted-foreground">
-        {view.offline}
-      </p>
-    );
-  if (pane === "picker")
-    return (
-      <ModelPickerPanel
-        models={view.models}
-        providers={view.providers}
-        current={view.modelKey}
-        currentProvider={view.provider}
-        onPick={(key) => {
-          if (key !== view.modelKey && !actions.onModel(key)) props.onClose();
-          else setPane("effort");
-        }}
-      />
-    );
-  return <EffortPanel view={view} actions={actions} onModels={() => setPane("picker")} />;
+  // Offline, changes still go (effort and speed with the next message, a switch from the
+  // outbox): say when they apply above whatever the popover shows.
+  const offline = view.offline && (
+    <p role="status" className="px-3 pt-2.5 text-center text-xs leading-4 text-muted-foreground">
+      {view.offline}
+    </p>
+  );
+  // Each pane fades in on its own as the popover resizes to it, as quick as a hover.
+  return (
+    <div key={pane} className="fx-view-in [animation-duration:var(--dur-1)]">
+      {offline}
+      {pane === "picker" ? (
+        <ModelPickerPanel
+          models={view.models}
+          providers={view.providers}
+          current={view.modelKey}
+          currentProvider={view.provider}
+          catalog={view.catalog}
+          onPick={(key) => {
+            if (key !== view.modelKey && !actions.onModel(key)) props.onClose();
+            else setPane("effort");
+          }}
+        />
+      ) : (
+        <EffortPanel view={view} actions={actions} onModels={() => setPane("picker")} />
+      )}
+    </div>
+  );
 }
 
 function EffortPanel(props: {
@@ -59,8 +69,8 @@ function EffortPanel(props: {
   const index = steps.indexOf(view.effort ?? defaultStep);
   const title = view.effort ? effortLabel(view.effort) : "Default effort";
   return (
-    <div className="flex w-[280px] flex-col gap-3 p-3">
-      <div className="flex items-start gap-1">
+    <div className="flex w-70 flex-col gap-3 p-3">
+      <div className="grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-start gap-1">
         <Tip label={view.fastReason ?? (view.fast ? "Fast: on" : "Fast: off")} side="top">
           <button
             type="button"
@@ -76,8 +86,15 @@ function EffortPanel(props: {
             <LightningIcon aria-hidden size={16} weight={view.fast ? "fill" : "regular"} />
           </button>
         </Tip>
-        <div className="flex min-w-0 flex-1 flex-col items-center pt-0.5">
-          <span className="text-md font-medium text-foreground">
+        <div className="flex min-w-0 flex-col items-center pt-1.5">
+          {/* The effort in effect, in the accent when one is set; it changes as the slider moves. */}
+          <span
+            aria-live="polite"
+            className={cn(
+              "text-md leading-5 font-semibold",
+              view.effort ? "text-ring" : "text-foreground",
+            )}
+          >
             {title}
             {view.effort && view.effortDefault && (
               <span className="font-normal text-subtle-foreground"> · default</span>
@@ -87,11 +104,13 @@ function EffortPanel(props: {
             type="button"
             aria-label={`Change model: ${view.label ?? ""}`}
             onClick={props.onModels}
-            className="inline-flex max-w-full items-center gap-1 rounded-full px-2 text-ui text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+            className="inline-flex h-6 max-w-full items-center gap-1 rounded-full px-2 text-ui text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
           >
             {view.provider && <ProviderIcon provider={view.provider} size={12} decorative />}
-            <span className="truncate">{view.label}</span>
-            <CaretRightIcon aria-hidden size={12} className="shrink-0" />
+            <span className="truncate" onPointerEnter={titleWhenClipped(view.label ?? "")}>
+              {view.label}
+            </span>
+            <CaretRightIcon aria-hidden size={10} weight="bold" className="shrink-0" />
           </button>
         </div>
         <Tip label="Back to the model's defaults" side="top">
@@ -154,7 +173,7 @@ function Accounts(props: {
             onClick={() => {
               if (!account.disabled && account.id !== props.value) props.onChange(account.id);
             }}
-            className="h-[26px] rounded-full px-2.5 text-[12px] font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-pressed:bg-accent aria-pressed:text-foreground data-disabled:opacity-40"
+            className="h-6 max-w-32 truncate rounded-full px-2.5 text-xs font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] hover:bg-accent aria-pressed:bg-secondary aria-pressed:text-foreground data-disabled:opacity-40"
           >
             {account.label}
           </button>

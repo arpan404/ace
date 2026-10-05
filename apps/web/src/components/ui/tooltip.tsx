@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn.ts";
 import type { ReactElement, ReactNode } from "react";
 import type { KeymapId } from "@/lib/keymap.ts";
 import { Kbd } from "./kbd.tsx";
+import { layers } from "./menu-styles.ts";
 
 function TooltipProvider({ delay = 500, ...props }: TooltipPrimitive.Provider.Props) {
   return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />;
@@ -17,12 +18,16 @@ function TooltipContent({
 }: TooltipPrimitive.Popup.Props & Pick<TooltipPrimitive.Positioner.Props, "side" | "sideOffset">) {
   return (
     <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner side={side} sideOffset={sideOffset} className="isolate z-[120]">
+      <TooltipPrimitive.Positioner
+        side={side}
+        sideOffset={sideOffset}
+        className={cn(layers.tooltip, "isolate [-webkit-app-region:no-drag]")}
+      >
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
           role="tooltip"
           className={cn(
-            "flex items-center gap-2 rounded-sm bg-primary px-2 py-[5px] text-[12px] leading-4 font-medium whitespace-nowrap text-primary-foreground",
+            "flex items-center gap-2 rounded-sm bg-primary px-2 py-[5px] text-sm leading-4 font-medium whitespace-nowrap text-primary-foreground",
             "origin-(--transform-origin) transition-[opacity,transform] duration-(--dur-1) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-100 data-instant:duration-0 data-starting-style:opacity-0 data-[side=bottom]:data-starting-style:-translate-y-0.5 data-[side=top]:data-starting-style:translate-y-0.5",
             className,
           )}

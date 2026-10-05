@@ -1,5 +1,5 @@
 import type { UsageRow, UsageTotals } from "@ace/protocol";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
@@ -12,6 +12,7 @@ import {
   usageCost,
   usageDay,
 } from "@ace/ui-core";
+import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { ProviderKind } from "@ace/protocol";
@@ -21,7 +22,10 @@ import {
   useReportedCosts,
   type ReportedCosts,
   type UsageRange,
+  useAccountUsage,
 } from "./usage-source.ts";
+import { useAccountViews } from "./accounts-source.ts";
+import { Headroom } from "./headroom.tsx";
 
 type Range = "7" | "14" | "30";
 const ranges = [
@@ -33,6 +37,7 @@ const ranges = [
 const tokens = (totals: UsageTotals) => totals.inputTokens + totals.outputTokens;
 
 interface ModelRow {
+  /** The model, or the account when grouped by account. */
   model: string;
   provider: string;
   tokens: string;
@@ -40,13 +45,19 @@ interface ModelRow {
   reported: string;
   apiPrice: string;
 }
-const columns: DataColumns<ModelRow> = [
-  { accessorKey: "model", header: "Model" },
+type Group = "model" | "account";
+const groups = [
+  { value: "model", label: "By model" },
+  { value: "account", label: "By account" },
+] as const satisfies readonly { value: Group; label: string }[];
+const columnsFor = (group: Group): DataColumns<ModelRow> => [
+  { accessorKey: "model", header: group === "model" ? "Model" : "Account" },
   { accessorKey: "provider", header: "Provider" },
   { accessorKey: "tokens", header: "Tokens" },
   { accessorKey: "reported", header: "Reported" },
   { accessorKey: "apiPrice", header: "At API prices" },
 ];
+const columns = { model: columnsFor("model"), account: columnsFor("account") };
 
 const providerLabel = (id: string | null | undefined) => {
   const parsed = ProviderKind.safeParse(id);
@@ -105,39 +116,45 @@ export function UsageSection() {
     timeZone: zone.timeZone,
     ready: zone.ready,
   };
+  const [group, setGroup] = useState<Group>("model");
   const daily = useDailyUsage(span);
   const byModel = useModelUsage(span);
+  const byAccount = useAccountUsage(span, group === "account");
+  const accounts = useAccountViews();
   const reported = useReportedCosts(span);
   const sessionCosts = reported.data?.sessions.byProvider;
-  const models = useMemo<ModelRow[]>(
-    () =>
-      (byModel.data?.rows ?? []).map((row) => {
-        const cost = usageCost([row]);
-        const provider = row.dimensions.provider ?? null;
-        return {
-          model: row.dimensions.model ?? "Not reported",
-          provider: providerLabel(provider),
-          tokens: formatTokens(cost.tokens),
-          reported:
-            cost.perStep > 0
-              ? formatUsd(cost.perStep)
-              : sessionCosts?.get(provider)?.count
-                ? "Per session"
-                : "–",
-          apiPrice: formatApiPrice(cost.apiPrice),
-        };
-      }),
-    [byModel.data, sessionCosts],
-  );
+  const grouped = group === "model" ? byModel : byAccount;
+  const models = useMemo<ModelRow[]>(() => {
+    const labels = new Map(accounts.data?.map((account) => [account.id, account.label]));
+    return (grouped.data?.rows ?? []).map((row) => {
+      const cost = usageCost([row]);
+      const provider = row.dimensions.provider ?? null;
+      const account = row.dimensions.account;
+      return {
+        model:
+          group === "model"
+            ? (row.dimensions.model ?? "Not reported")
+            : account
+              ? (labels.get(account) ?? account)
+              : "Not attributed",
+        provider: providerLabel(provider),
+        tokens: formatTokens(cost.tokens),
+        reported:
+          cost.perStep > 0
+            ? formatUsd(cost.perStep)
+            : sessionCosts?.get(provider)?.count
+              ? "Per session"
+              : "–",
+        apiPrice: formatApiPrice(cost.apiPrice),
+      };
+    });
+  }, [grouped.data, group, accounts.data, sessionCosts]);
   const rows = daily.data?.rows ?? [];
   const total = rows.reduce((sum, row) => sum + tokens(row.totals), 0);
   const subscription = rows.reduce((sum, row) => sum + row.totals.subscriptionTokens, 0);
   const api = byModel.data && usageCost(byModel.data.rows);
   const paid = reported.data && reportedSummary(reported.data);
-  const retry = () => {
-    if (byModel.isError) void byModel.refetch();
-    if (reported.isError) void reported.refetch();
-  };
+  const groupName = group === "model" ? "model" : "account";
   return (
     <section aria-labelledby="usage-title" className="mt-10">
       <div className="flex items-center gap-4">
@@ -152,6 +169,7 @@ export function UsageSection() {
           onValueChange={(value) => setRange(value)}
         />
       </div>
+      {accounts.data && <Headroom accounts={accounts.data} />}
       {daily.isError ? (
         <p role="alert" className="mt-3 text-ui text-muted-foreground">
           {daily.error.message}
@@ -189,34 +207,60 @@ export function UsageSection() {
             />
           </dl>
           <DailyBars rows={rows} />
-          {(byModel.isError || reported.isError) && (
-            <div
-              role="alert"
-              className="mt-5 flex items-center gap-3 text-ui text-muted-foreground"
-            >
-              <span className="min-w-0 flex-1">
-                {byModel.isError
-                  ? "Usage by model couldn't be read."
-                  : "Reported costs couldn't be read."}
-              </span>
-              <Button size="sm" onClick={retry}>
-                Try again
-              </Button>
-            </div>
+          {reported.isError && (
+            <ReadFailed className="mt-5" retry={() => void reported.refetch()}>
+              Reported costs couldn't be read.
+            </ReadFailed>
           )}
-          {!byModel.isError && (
-            <div className="mt-5">
-              <DataTable
-                caption="Usage by model"
-                columns={columns}
-                data={models}
-                empty={byModel.data ? "No usage." : "Loading usage…"}
-              />
+          <div className="mt-5">
+            <SegmentedControl
+              label="Group usage"
+              size="sm"
+              value={group}
+              options={groups}
+              onValueChange={(value) => setGroup(value)}
+            />
+            <div className="mt-3">
+              {grouped.isError ? (
+                <ReadFailed retry={() => void grouped.refetch()}>
+                  Usage by {groupName} couldn't be read.
+                </ReadFailed>
+              ) : (
+                <>
+                  <DataTable
+                    caption={`Usage by ${groupName}`}
+                    columns={columns[group]}
+                    data={models}
+                    empty={grouped.data ? "No usage." : "Loading usage…"}
+                  />
+                  {grouped.data?.truncated && (
+                    <p className="mt-2 text-xs text-subtle-foreground">
+                      Shows the {models.length.toLocaleString()} busiest {groupName}s; the rest are
+                      left out.
+                    </p>
+                  )}
+                </>
+              )}
             </div>
-          )}
+          </div>
         </>
       )}
     </section>
+  );
+}
+
+/** A read that failed, said where its figures would be, with a way to read it again. */
+function ReadFailed(props: { retry: () => void; children: ReactNode; className?: string }) {
+  return (
+    <div
+      role="alert"
+      className={cn("flex items-center gap-3 text-ui text-muted-foreground", props.className)}
+    >
+      <span className="min-w-0 flex-1">{props.children}</span>
+      <Button size="sm" onClick={props.retry}>
+        Try again
+      </Button>
+    </div>
   );
 }
 

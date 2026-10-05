@@ -1,5 +1,6 @@
 import type { z } from "zod";
-import { specTypeSchemas, type CallToolResult } from "@modelcontextprotocol/server";
+import { parseToolArguments } from "./tool-failure.ts";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
 import type { ToolContext } from "./registry.ts";
 import type { McpCapability } from "@ace/protocol";
@@ -19,11 +20,12 @@ export async function executeContent<I extends z.ZodType>(
   context: ToolContext,
 ): Promise<CallToolResult> {
   if (!withinJsonBudget(input, 64 * 1024)) throw new Error("Input budget exceeded");
-  const args = definition.input.parse(input);
+  const args = parseToolArguments(definition.input, input);
   context.signal.throwIfAborted();
   const result = await definition.run(args, context);
   const limit = 12 * 1024 * 1024; // Includes base64 expansion of the 8 MiB JPEG limit.
   if (!withinJsonBudget(result, limit)) throw new ResultBudgetExceeded();
+  const { specTypeSchemas } = await import("@modelcontextprotocol/server");
   const checked = specTypeSchemas.CallToolResult["~standard"].validate(result);
   if (checked.issues) throw new Error("Invalid MCP tool content");
   if (Buffer.byteLength(JSON.stringify(checked.value)) > limit) throw new ResultBudgetExceeded();

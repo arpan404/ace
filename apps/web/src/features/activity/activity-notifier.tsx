@@ -21,8 +21,8 @@ import { threadToasts, type ToastCause } from "./toast-rules.ts";
 import { useNeedsYouCount } from "./use-needs-you.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
-// Automation runs are read after first paint: their toasts can wait for the shell to draw.
-const RunNotifier = lazy(() => import("./run-notifier.tsx"));
+// Automation runs and account limits are read after first paint: their toasts can wait.
+const LaterNotifiers = lazy(() => import("./later-notifiers.tsx"));
 
 /** A request or a failure stays until it's dealt with or 10 s pass, paused while hovered. */
 const attentionTimeout = 10_000;
@@ -33,10 +33,11 @@ const readStatuses = (reader: SidebarReader) =>
   reader.ids.map((id) => `${id}${separator}${reader.thread(id)?.status.state ?? "new"}`);
 
 /**
- * Turns live changes into notices: a thread that starts needing you or fails, and automation
- * runs that finish. With the window in front they're toasts; behind it, nothing here (the
- * desktop app notifies, and a browser tab that allowed it shows a system notification). The
- * tab's title carries the needs-you count. Mounted once in the shell; renders nothing.
+ * Turns live changes into notices: a thread that starts needing you or fails, automation
+ * runs that finish, and accounts nearing, reaching or coming back from a usage limit. With the
+ * window in front they're toasts; behind it, nothing here (the desktop app notifies, and a
+ * browser tab that allowed it shows a system notification). The tab's title carries the
+ * needs-you count. Mounted once in the shell; renders nothing.
  */
 export function ActivityNotifier() {
   useTitleCount(useNeedsYouCount());
@@ -44,7 +45,7 @@ export function ActivityNotifier() {
     <>
       <ThreadNotifier />
       <Suspense fallback={null}>
-        <RunNotifier />
+        <LaterNotifiers />
       </Suspense>
     </>
   );

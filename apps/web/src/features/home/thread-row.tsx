@@ -1,11 +1,13 @@
 import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
+import { useRefusedTitle } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
 import { RowFoot, RowHead, RowTitle, threadDetails } from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
+import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
 const card =
@@ -18,9 +20,16 @@ const card =
  */
 export function ThreadRow(props: { threadId: string }) {
   const row = useThreadCard(props.threadId, false);
-  const [renaming, setRenaming] = useState(false);
+  const [editing, setRenaming] = useState(false);
+  // A rename the daemon refused opens the field again, with what was typed.
+  const refused = useRefusedTitle(props.threadId);
+  const renaming = editing || refused !== undefined;
+  const started = useStartedTitle(props.threadId);
   if (!row) return null;
-  const { entry, card: view } = row;
+  const { entry } = row;
+  // A thread this window started reads its provisional title until the daemon titles it.
+  const view =
+    started && row.card.title === "New thread" ? { ...row.card, title: started } : row.card;
   const needsYou = view.status.tone === "needs-you";
   const body = (title: ReactNode) => (
     <>
@@ -43,7 +52,11 @@ export function ThreadRow(props: { threadId: string }) {
         {renaming ? (
           <div className={cn(card, "bg-sidebar-accent")}>
             {body(
-              <RenameField entry={entry} title={view.title} onDone={() => setRenaming(false)} />,
+              <RenameField
+                entry={entry}
+                title={refused ?? view.title}
+                onDone={() => setRenaming(false)}
+              />,
             )}
           </div>
         ) : (
