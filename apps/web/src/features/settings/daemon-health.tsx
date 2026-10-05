@@ -83,7 +83,7 @@ export function DaemonHealth() {
   ];
   return (
     <div className="flex flex-col gap-3 text-sm">
-      <dl className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-4 gap-y-1">
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1">
         {rows.map(([label, value]) => (
           <div key={label} className="contents">
             <dt className="text-muted-foreground">{label}</dt>

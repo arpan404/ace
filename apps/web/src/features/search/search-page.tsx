@@ -234,7 +234,7 @@ export function SearchPage(props: {
                     onClick={(event) => onHitClick(event, hit)}
                     onAuxClick={(event) => event.button === 1 && onHitClick(event, hit)}
                     className={cn(
-                      "cursor-pointer scroll-my-2 rounded-md px-3 py-2.5 transition-colors duration-(--dur-1)",
+                      "cursor-pointer rounded-md px-3 py-2.5 transition-colors duration-(--dur-1)",
                       index === active &&
                         "bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)]",
                     )}
@@ -294,7 +294,7 @@ function RecentSearches(props: {
               size="sm"
               label={`Forget "${query}"`}
               tooltip={false}
-              className="mr-1.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+              className="mr-1.5"
               onClick={() => props.onForget(query)}
             />
           </li>

@@ -310,7 +310,7 @@ function SourceStep(props: {
           is enabled.
         </DialogDescription>
       </DialogHeader>
-      <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-3 max-sm:grid-cols-1">
+      <div className="grid grid-cols-2 gap-3">
         <Field
           label="Repository"
           value={form.repository}
@@ -332,7 +332,7 @@ function SourceStep(props: {
             {listed.plugins.map((plugin) => (
               <label
                 key={plugin.name}
-                className="flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 hover:bg-accent has-checked:bg-accent"
+                className="flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 hover:bg-accent"
               >
                 <input
                   type="radio"

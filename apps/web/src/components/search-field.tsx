@@ -46,8 +46,9 @@ export function SearchField({
           onKeyDown?.(event);
           if (event.defaultPrevented || event.key !== "Escape") return;
           event.preventDefault();
+          // Empty: leave the field for the page around it.
           if (value) onValueChange("");
-          else event.currentTarget.blur();
+          else document.getElementById("main")?.focus();
         }}
         className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-subtle-foreground [&::-webkit-search-cancel-button]:appearance-none"
         {...props}

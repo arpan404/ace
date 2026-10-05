@@ -99,7 +99,7 @@ const entries = [
     id: "appearance.glass",
     page: "/settings/appearance",
     title: "Glass intensity",
-    keywords: ["transparency", "blur", "solid"],
+    keywords: ["transparency", "frosted", "solid"],
   },
   {
     id: "appearance.accent",

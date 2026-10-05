@@ -46,7 +46,7 @@ export function ThemeCard(props: {
     >
       <span
         className={cn(
-          "relative block h-20 overflow-hidden rounded-lg shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--dur-2) sm:h-24",
+          "relative block h-24 overflow-hidden rounded-lg shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--dur-2)",
           props.selected &&
             "shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_oklab,var(--ring)_18%,transparent)]",
           "group-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]",

@@ -69,7 +69,7 @@ export function AppearanceSettings() {
           role="radiogroup"
           aria-label="Theme"
           onKeyDown={onRadioKeys}
-          className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))] sm:gap-3.5"
+          className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3.5"
         >
           <ThemeCard
             name="System"

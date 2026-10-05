@@ -156,7 +156,7 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
         onOpenChange={setRemoving}
       />
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-(--column) px-8 pt-11 pb-20 max-sm:px-4 max-sm:pt-6">
+        <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
           <div className="flex items-start gap-4">
             <div className="min-w-0 flex-1">
               <h2 className="font-mono text-xl font-semibold tracking-title">{skill.name}</h2>

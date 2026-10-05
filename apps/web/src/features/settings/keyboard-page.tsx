@@ -305,7 +305,7 @@ function ShortcutRow(props: {
       inline
     >
       {swap && recording && (
-        // Mouse down so the recorder doesn't blur (and stop) first.
+        // Mouse down, so the recorder keeps focus (and keeps recording) until the click.
         <Button
           size="sm"
           variant="ghost"
@@ -339,7 +339,7 @@ function ShortcutRow(props: {
           onClick={() => props.onRecord(!recording)}
           onKeyDown={props.onKeyDown}
           onBlur={props.onBlur}
-          className="rounded-sm px-1 py-0.5 transition-shadow duration-(--dur-1) hover:bg-accent focus-ring aria-pressed:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]"
+          className="rounded-sm px-1 py-0.5 transition-shadow duration-(--dur-1) hover:bg-accent focus-ring aria-pressed:bg-accent"
         >
           {recording ? (
             <Kbd className="h-5 px-2 text-sm">Press keys…</Kbd>

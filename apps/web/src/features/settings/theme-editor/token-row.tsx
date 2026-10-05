@@ -1,5 +1,4 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/cn.ts";
 import {
   isValidTokenValue,
   tokenHints,
@@ -47,8 +46,8 @@ export const TokenRow = memo(function TokenRow(props: {
   const inputId = `token-${token.slice(2)}`;
   const errorId = `${inputId}-error`;
   return (
-    <div className="border-t py-1.5 sm:py-0">
-      <div className="grid grid-cols-[22px_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1 sm:h-9 sm:grid-cols-[200px_22px_minmax(0,1fr)]">
+    <div className="border-t py-1.5">
+      <div className="grid grid-cols-[22px_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1 sm:grid-cols-[200px_22px_minmax(0,1fr)]">
         <label
           htmlFor={inputId}
           className="col-span-2 flex items-center gap-1.5 font-mono text-sm text-muted-foreground sm:col-span-1"
@@ -95,13 +94,11 @@ export const TokenRow = memo(function TokenRow(props: {
         />
       </div>
       {!valid && (
-        <p id={errorId} className="mb-1.5 text-xs text-destructive sm:ml-[242px]">
+        <p id={errorId} className="mt-1 text-xs text-destructive sm:ml-[242px]">
           {tokenKindHints[kind]}
         </p>
       )}
-      {hint && (
-        <p className={cn("mb-1.5 text-xs text-muted-foreground sm:-mt-1 sm:ml-[242px]")}>{hint}</p>
-      )}
+      {hint && <p className="mt-1 text-xs text-muted-foreground sm:ml-[242px]">{hint}</p>}
     </div>
   );
 });

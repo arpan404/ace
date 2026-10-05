@@ -42,8 +42,8 @@ export function SettingRow(props: {
       id={props.id}
       ref={row}
       className={cn(
-        "@container scroll-mt-16 transition-colors duration-(--dur-4)",
-        inCard ? "-mx-4 px-4" : "border-t first:border-t-0",
+        "@container transition-colors duration-(--dur-4)",
+        inCard ? "px-4" : "border-t first:border-t-0",
         flashing && "bg-accent",
       )}
     >
@@ -131,7 +131,7 @@ export function SettingSection(props: {
   const scope = props.scope ? scopes[props.scope] : undefined;
   return (
     <section className="mt-7" aria-labelledby={id}>
-      <div className="mb-2 flex min-h-[26px] items-center gap-2">
+      <div className="mb-2 flex items-center gap-2">
         <h3 id={id} className="text-sm font-medium text-muted-foreground">
           {props.label}
         </h3>
@@ -147,7 +147,7 @@ export function SettingSection(props: {
       {props.note && <p className="mb-2 text-sm text-muted-foreground">{props.note}</p>}
       {props.card ? (
         <InCard value>
-          <div className="divide-y rounded-card border bg-card px-4">{props.children}</div>
+          <div className="divide-y rounded-card border bg-card">{props.children}</div>
         </InCard>
       ) : (
         props.children
