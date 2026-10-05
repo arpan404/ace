@@ -79,8 +79,7 @@ it("UI reads hold no capture lease and viewers release capture without restartin
   await f.screen.captureScreenshot(state.sessionId);
   expect(f.screen.state(state.sessionId).indicator).toBe(true);
   unsubscribe();
-  // Command acknowledgement and microtask drains replace timing-based synchronization.
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  // targets waits for outstanding capture transitions, then acknowledges native state.
   const released = (await f.screen.targets()).windows[0]?.title;
   expect(released).toContain("capture:false");
   expect(released?.split("pid:")[1]).toBe(title?.split("pid:")[1]);
@@ -218,7 +217,6 @@ it("v2 failure retains the visible indicator until owned process cleanup complet
   ).rejects.toThrow();
   try {
     await stopping.promise;
-    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(f.screen.state(state.sessionId)).toMatchObject({
       lifecycle: "stopping",
       indicator: true,
@@ -247,9 +245,15 @@ it("named key, Unicode, scroll and pointer operations use the existing v2 proces
     { kind: "pointer.drag", x: 10, y: 20, toX: 30, toY: 40 },
     "agent",
   );
-  expect(
-    (await f.screen.uiFind(state.sessionId, { query: { role: "AXTextField" } })).nodes[0]?.value,
-  ).toBe("6");
+  for (const [name, value] of [
+    ["Typed text", "こんにちは 👋"],
+    ["Last key", JSON.stringify({ key: "Enter", modifiers: ["command"] })],
+    ["Scroll", JSON.stringify({ dx: 0, dy: 20 })],
+    ["Pointer", JSON.stringify({ x: 30, y: 40 })],
+  ])
+    expect((await f.screen.uiFind(state.sessionId, { query: { name } })).nodes[0]?.value).toBe(
+      value,
+    );
 });
 it("oversized and deeply nested helper trees are rejected", async () => {
   for (const bad of ["nodes", "depth"]) {

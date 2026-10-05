@@ -39,6 +39,7 @@ export class ScreenApprovals {
     now(): number;
     id(): string;
     engine(): Engine | undefined;
+    schedule(callback: () => void, milliseconds: number): () => void;
   };
   constructor(options: {
     store: Store;
@@ -46,6 +47,7 @@ export class ScreenApprovals {
     now(): number;
     id(): string;
     engine(): Engine | undefined;
+    schedule(callback: () => void, milliseconds: number): () => void;
   }) {
     this.options = options;
     options.store.atomic((db) =>
@@ -170,7 +172,7 @@ export class ScreenApprovals {
     );
     await new Promise<void>((resolve) => {
       const finish = () => {
-        clearTimeout(timer);
+        cancelTimer();
         signal.removeEventListener("abort", abort);
         this.waiters.delete(interactionId);
         resolve();
@@ -179,7 +181,7 @@ export class ScreenApprovals {
         this.expire(pending);
         finish();
       };
-      const timer = setTimeout(abort, 60_000);
+      const cancelTimer = this.options.schedule(abort, 60_000);
       this.waiters.set(interactionId, finish);
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();

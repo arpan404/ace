@@ -22,12 +22,19 @@ async function fixture() {
     () => 1000,
     () => turn,
   );
+  const deadlines = new Map<() => void, number>();
   const approvals = new ScreenApprovals({
     store,
     grants,
     now: () => 1000,
     id: () => `screen-${++serial}`,
     engine: () => undefined,
+    schedule: (callback, milliseconds) => {
+      deadlines.set(callback, milliseconds);
+      return () => {
+        deadlines.delete(callback);
+      };
+    },
   });
   const caller = { threadId: thread.id, agentId: "agent" };
   onTestFinished(async () => {
@@ -61,6 +68,9 @@ async function fixture() {
     approvals,
     caller,
     resolve,
+    expire: () => {
+      for (const [callback, milliseconds] of deadlines) if (milliseconds <= 60_000) callback();
+    },
     nextTurn: () => {
       turn = "turn2";
     },
@@ -184,6 +194,7 @@ test("foreground approval blocks the engine tree until a human resolves it", asy
     now: h.clock.now,
     id: () => `screen-${++serial}`,
     engine: () => h.engine,
+    schedule: () => () => {},
   });
   onTestFinished(() => approvals.close());
   h.engine.bindHostInteractions((command) => approvals.resolve(command));
@@ -322,4 +333,61 @@ test("secure-field audit steps omit text and a takeover cancels pending foregrou
   await screen.enable(true);
   await screen.close();
   expect(persisted.enabled()).toBe(true);
+});
+
+test("a thread grant cannot authorize another thread in the same workspace", async () => {
+  const h = await fixture();
+  h.grants.enable(true);
+  h.grants.approve("dev.test.app", true, "thread", h.thread.id);
+  const other = createDevThread(h.store, h.thread.workspaceId);
+  expect(h.grants.allows("dev.test.app", h.caller)).toBe(true);
+  expect(h.grants.allows("dev.test.app", { ...h.caller, threadId: other.id })).toBe(false);
+  const approval = h.approvals.request(
+    "dev.test.app",
+    "Other thread",
+    { ...h.caller, threadId: other.id },
+    new AbortController().signal,
+  );
+  const expired = expect(approval).rejects.toMatchObject({ code: "timeout" });
+  expect(
+    Object.values(h.store.snapshotThread(other.id).interactions).some(
+      (item) => item.state === "pending",
+    ),
+  ).toBe(true);
+  h.expire();
+  await expired;
+  expect(
+    Object.values(h.store.snapshotThread(other.id).interactions).every(
+      (item) => item.state === "expired",
+    ),
+  ).toBe(true);
+});
+
+test("host approval deadlines expire and prevent late approval from granting access", async () => {
+  const h = await fixture();
+  h.grants.enable(true);
+  const pending = expect(
+    h.approvals.request("dev.test.app", "Deadline", h.caller, new AbortController().signal),
+  ).rejects.toMatchObject({ code: "timeout" });
+  const interaction = Object.values(h.store.snapshotThread(h.thread.id).interactions).find(
+    (item) => item.state === "pending",
+  );
+  if (!interaction) throw new Error("Missing interaction");
+  h.expire();
+  await pending;
+  expect(h.store.getInteraction(interaction.id)?.state).toBe("expired");
+  expect(
+    h.approvals.resolve(
+      Command.parse({
+        id: "late",
+        deviceId: "human",
+        payload: {
+          type: "interaction.resolve",
+          interactionId: interaction.id,
+          resolution: { kind: "approval", optionId: "allow_always" },
+        },
+      }),
+    ),
+  ).toBeUndefined();
+  expect(h.grants.allows("dev.test.app", h.caller)).toBe(false);
 });

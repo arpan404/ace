@@ -9,6 +9,25 @@ export class HelperHost {
   constructor(options: HelperOptions) {
     this.options = options;
   }
+  private executionTail: Promise<void> = Promise.resolve();
+  private queued = 0;
+  execute<T>(authorize: () => void, dispatch: () => Promise<T>): Promise<T> {
+    if (this.queued >= 160) return Promise.reject(new Error("Host execution queue limit"));
+    this.queued++;
+    const operation = this.executionTail
+      .then(() => {
+        authorize();
+        return dispatch();
+      })
+      .finally(() => {
+        this.queued--;
+      });
+    this.executionTail = operation.then(
+      () => {},
+      () => {},
+    );
+    return operation;
+  }
   open(): Promise<Helper> {
     if (this.closing) return this.closing.then(() => this.open());
     if (!this.opening) {

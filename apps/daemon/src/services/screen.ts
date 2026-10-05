@@ -38,6 +38,7 @@ export async function startScreen({
       now,
       id,
       engine: () => services.engine,
+      schedule: scheduleScreenTimeout,
     });
     manager.configureAccess({
       enabled: () => grants.enabled(),
@@ -148,4 +149,10 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       return true;
     },
   };
+}
+
+// Node timers stay in the service I/O boundary; approval logic requires injection.
+function scheduleScreenTimeout(callback: () => void, milliseconds: number): () => void {
+  const timer = setTimeout(callback, milliseconds);
+  return () => clearTimeout(timer);
 }

@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { connect } from "node:net";
 import { createInterface } from "node:readline";
 import { ScreenHelperRequest } from "@ace/protocol";
@@ -60,6 +61,10 @@ let pointerHeld = false;
 let failedCancel = false;
 let pointerUps = 0;
 let clickedTarget = "none";
+let textValue = "",
+  lastKey = "",
+  pointerValue = "",
+  scrollValue = "";
 const node = (ref: string, role: string, name: string, value?: string) => ({
   ref,
   role,
@@ -71,11 +76,35 @@ const node = (ref: string, role: string, name: string, value?: string) => ({
   secondaryActions: ["AXShowMenu"],
   children: [],
 });
-type FakeSession = { sequence: number; capturing: boolean; actions: number; clickedTarget: string };
+type FakeSession = {
+  sequence: number;
+  capturing: boolean;
+  actions: number;
+  clickedTarget: string;
+  textValue: string;
+  lastKey: string;
+  pointerValue: string;
+  scrollValue: string;
+  pointerHeld: boolean;
+  pointerUps: number;
+  codec: "jpeg" | "h264";
+};
 const sessions = new Map<string, FakeSession>();
 function saveSession() {
   if (sessions.has(sessionId))
-    sessions.set(sessionId, { sequence, capturing, actions, clickedTarget });
+    sessions.set(sessionId, {
+      sequence,
+      capturing,
+      actions,
+      clickedTarget,
+      textValue,
+      lastKey,
+      pointerValue,
+      scrollValue,
+      pointerHeld,
+      pointerUps,
+      codec,
+    });
 }
 function selectSession(id: string) {
   saveSession();
@@ -86,17 +115,54 @@ function selectSession(id: string) {
     capturing = state.capturing;
     actions = state.actions;
     clickedTarget = state.clickedTarget;
+    textValue = state.textValue;
+    lastKey = state.lastKey;
+    pointerValue = state.pointerValue;
+    scrollValue = state.scrollValue;
+    pointerHeld = state.pointerHeld;
+    pointerUps = state.pointerUps;
+    codec = state.codec;
   }
 }
 const lines = createInterface({ input: process.stdin });
+let nativeActions = Promise.resolve();
+let gated = false;
 lines.on("line", (line) => {
   const request = ScreenHelperRequest.parse(JSON.parse(line));
+  if (
+    process.env.ACTION_GATE_PORT &&
+    ["input", "action", "ui.act", "button.press"].includes(request.op)
+  ) {
+    nativeActions = nativeActions.then(async () => {
+      if (!gated) {
+        gated = true;
+        await new Promise<void>((resolve, reject) => {
+          const control = connect(Number(process.env.ACTION_GATE_PORT), "127.0.0.1");
+          control.on("error", reject);
+          control.once("connect", () => control.write("gesture started\n"));
+          control.once("end", resolve);
+          control.resume();
+        });
+      }
+      processRequest(request);
+    });
+    void nativeActions.catch(() => process.exit(1));
+  } else processRequest(request);
+});
+function processRequest(request: ScreenHelperRequest) {
   if (request.op === "start")
     sessions.set(request.sessionId, {
       sequence: 0,
       capturing: request.capture ?? !v2,
       actions: 0,
       clickedTarget: "none",
+      textValue: "",
+      lastKey: "",
+      pointerValue: "",
+      scrollValue: "",
+      pointerHeld: false,
+      pointerUps: 0,
+      codec: "jpeg",
     });
   if (request.sessionId) selectSession(request.sessionId);
   if (
@@ -220,6 +286,18 @@ lines.on("line", (line) => {
     }
     data = { nodes: [nested], truncated: false };
   }
+  const effects = [
+    node("effects", "AXStaticText", "Changes", String(actions)),
+    node(
+      "text",
+      "AXStaticText",
+      "Typed text",
+      process.env.SECURE_TEXT === "1" ? undefined : textValue,
+    ),
+    node("key", "AXStaticText", "Last key", lastKey),
+    node("pointer", "AXStaticText", "Pointer", pointerValue),
+    node("scroll", "AXStaticText", "Scroll", scrollValue),
+  ];
   if (request.op === "ui.find")
     data = {
       nodes: [
@@ -231,6 +309,7 @@ lines.on("line", (line) => {
           process.env.SECURE_TEXT === "1" ? undefined : String(actions),
         ),
       ]
+        .concat(effects)
         .filter(
           (item) =>
             (!request.query.role || item.role.includes(request.query.role)) &&
@@ -286,6 +365,20 @@ lines.on("line", (line) => {
       return;
     }
     actions++;
+    const input = request.input;
+    if (input.kind === "text.type" || input.kind === "text.paste") textValue += input.text;
+    if (input.kind === "key.press")
+      lastKey = JSON.stringify({ key: input.key, modifiers: input.modifiers });
+    if (input.kind === "scroll") scrollValue = JSON.stringify({ dx: input.dx, dy: input.dy });
+    if (
+      input.kind === "pointer.click" ||
+      input.kind === "pointer.move" ||
+      input.kind === "pointer.down" ||
+      input.kind === "pointer.up"
+    )
+      pointerValue = JSON.stringify({ x: input.x, y: input.y });
+    if (input.kind === "pointer.drag")
+      pointerValue = JSON.stringify({ x: input.toX, y: input.toY });
     if (request.input.kind === "pointer.down") pointerHeld = true;
     if (request.input.kind === "pointer.up" || request.input.kind === "pointer.cancel") {
       if (pointerHeld) pointerUps++;
@@ -327,8 +420,14 @@ lines.on("line", (line) => {
     };
   if (request.op === "targets" && process.env.NO_WINDOWS === "1")
     data = { displays: [], windows: [] };
-  if (request.op === "open.app")
+  if (request.op === "open.app") {
+    if (process.env.LAUNCH_LOG)
+      appendFileSync(
+        process.env.LAUNCH_LOG,
+        JSON.stringify({ bundleId: request.bundleId, mode: "background" }) + "\n",
+      );
     data = { bundleId: request.bundleId, pid: process.pid, mode: "background" };
+  }
   if (request.op === "start") {
     sessionId = request.sessionId ?? "test";
     capturing = request.capture ?? !v2;
@@ -408,7 +507,7 @@ lines.on("line", (line) => {
     console.log(held);
     held = undefined;
   }
-});
+}
 lines.on("close", () => {
   socket.end();
 });

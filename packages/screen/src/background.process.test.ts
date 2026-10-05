@@ -68,6 +68,7 @@ it("taking over one app cancels its queued actions while another agent keeps wor
     "one",
   );
   h.screen.controller(first.sessionId, "human", "human");
+  h.screen.controller(first.sessionId, "agent", "one");
   await expect(action).rejects.toThrow("Controller changed");
   const tool = computerUseHandler(h.screen, second.sessionId, "two");
   const result = await tool("screen_type", { text: "second" });
@@ -93,9 +94,22 @@ it("secure text and ignored posted events fail without affecting the destination
     (await h.screen.uiFind(state.sessionId, { query: { role: "AXSecureTextField" } })).nodes[0]
       ?.value,
   ).toBeUndefined();
+  expect(
+    (await h.screen.uiFind(state.sessionId, { query: { name: "Changes" } })).nodes[0]?.value,
+  ).toBe("0");
   h.screen.secureInput(state.sessionId, true);
   await h.screen.input(state.sessionId, "agent", { kind: "text.type", text: "secret" }, "agent");
+  expect(
+    (await h.screen.uiFind(state.sessionId, { query: { name: "Changes" } })).nodes[0]?.value,
+  ).toBe("1");
   h.screen.controller(state.sessionId, "human");
+  h.screen.controller(state.sessionId, "agent", "agent");
+  await expect(
+    h.screen.input(state.sessionId, "agent", { kind: "text.type", text: "another" }, "agent"),
+  ).rejects.toMatchObject({ code: "secure_input_required" });
+  expect(
+    (await h.screen.uiFind(state.sessionId, { query: { name: "Changes" } })).nodes[0]?.value,
+  ).toBe("1");
   expect(h.screen.state(state.sessionId).secureInputAllowed).toBe(false);
   const ignored = await manager({ FAKE_V2: "1", IGNORE_POSTED: "1" });
   onTestFinished(ignored.close);
@@ -242,4 +256,11 @@ it("foreground consent allows otherwise ignored input and takeover resets that c
   ).toBe("1");
   h.screen.controller(state.sessionId, "human", "human");
   expect(h.screen.state(state.sessionId).mode).toBe("background");
+  h.screen.controller(state.sessionId, "agent", "agent");
+  await expect(
+    h.screen.input(state.sessionId, "agent", { kind: "pointer.click", x: 5, y: 5 }, "agent"),
+  ).rejects.toMatchObject({ code: "foreground_required" });
+  expect(
+    (await h.screen.uiFind(state.sessionId, { query: { name: "Changes" } })).nodes[0]?.value,
+  ).toBe("1");
 });
