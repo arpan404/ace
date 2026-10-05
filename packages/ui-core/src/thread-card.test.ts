@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { entry } from "./test-entries.fixture.ts";
-import { cardDetails, threadCard, type ThreadCardInput } from "./thread-card.ts";
+import { cardDetails, middleTruncate, threadCard, type ThreadCardInput } from "./thread-card.ts";
 
 const now = new Date("2026-10-01T15:00:00").getTime();
 const input = (patch: Partial<ThreadCardInput> & Pick<ThreadCardInput, "entry">) => ({
@@ -84,7 +84,7 @@ test("branch, pull request, worktree and machine come from the daemon's details"
     },
   });
   const card = threadCard(input({ entry: remote, details: cardDetails(remote, "laptop.local") }));
-  expect(card.branch).toEqual({ name: "fix/retry", pr: 188, worktree: true });
+  expect(card.branch).toEqual({ name: "fix/retry", label: "fix/retry", pr: 188, worktree: true });
   expect(card.machine).toBe("build-box");
   expect(cardDetails(remote, "build-box.local").machine).toBeUndefined();
 });
@@ -94,4 +94,30 @@ test("a thread with no branch yet shows none rather than an empty one", () => {
   expect(
     threadCard(input({ entry: detached, details: cardDetails(detached, undefined) })).branch,
   ).toBeUndefined();
+});
+
+test("a thread on the project's default branch names no branch", () => {
+  for (const branch of ["main", "master"]) {
+    const local = entry("t", { state: "done" }, now, { details: { branch } });
+    expect(
+      threadCard(input({ entry: local, details: cardDetails(local, undefined) })).branch,
+    ).toBeUndefined();
+  }
+});
+
+test("a long branch is cut in the middle for the row and kept whole for the tooltip", () => {
+  const long = entry("t", { state: "done" }, now, {
+    details: { branch: "ace/33594883e2b3ea4fc70aeea5", mode: "worktree" },
+  });
+  const branch = threadCard(input({ entry: long, details: cardDetails(long, undefined) })).branch;
+  expect(branch?.name).toBe("ace/33594883e2b3ea4fc70aeea5");
+  expect(branch?.label).toBe("ace/335…0aeea5");
+});
+
+test("middle truncation keeps short text and both ends of long text", () => {
+  expect(middleTruncate("fix/retry", 16)).toBe("fix/retry");
+  expect(middleTruncate("deck/resumable-streams", 16)).toBe("deck/res…streams");
+  expect(middleTruncate("abcdef", 2)).toBe("ab");
+  // Characters, not UTF-16 units: an emoji in a branch name is never split in half.
+  expect(middleTruncate("🚀".repeat(12), 5)).toBe("🚀🚀…🚀🚀");
 });

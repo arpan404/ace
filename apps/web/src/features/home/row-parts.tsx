@@ -48,7 +48,8 @@ export function threadDetails(card: ThreadCard): string[] {
 
 /**
  * A Home row's one line: the title (medium when it needs you, is unread or is open), then on
- * the right a snooze, its worktree and pull request, and the status mark. Those marks are only
+ * the right a snooze, its branch (unless it is the project's default; cut in the middle), its
+ * pull request, and the status mark. Those marks are only
  * decoration, giving way to Settle and Snooze on hover and focus; the words for them stay in
  * the row's name (`threadDetails`), which nothing hides.
  */
@@ -73,7 +74,12 @@ export function ThreadLine(props: { card: ThreadCard; title: ReactNode }) {
         className="flex shrink-0 items-center gap-1 text-subtle-foreground group-focus-within/row:invisible group-hover/row:invisible"
       >
         {card.wake && <Icon icon={MoonIcon} size={13} />}
-        {branch?.worktree && <Icon icon={GitBranchIcon} size={13} />}
+        {branch && (
+          <span className="flex items-center gap-0.5 font-mono text-[11px] whitespace-nowrap">
+            <Icon icon={GitBranchIcon} size={13} />
+            {branch.label}
+          </span>
+        )}
         {branch?.pr !== undefined && <Icon icon={GitPullRequestIcon} size={13} />}
         {card.status.mark === "working" ? (
           <Spinner />
