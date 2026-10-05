@@ -59,7 +59,7 @@ export function ThreadRow(props: { threadId: string }) {
                 needsYou
                   ? "bg-[color-mix(in_oklab,var(--status-needs-you)_5%,transparent)] group-hover/row:bg-[color-mix(in_oklab,var(--status-needs-you)_9%,transparent)]"
                   : "group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent",
-                "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)]",
+                "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
               )}
             >
               {body(view.title)}

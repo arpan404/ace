@@ -42,15 +42,21 @@ export function threadDetails(card: ThreadCard): string[] {
   ].filter((part): part is string => typeof part === "string" && part.length > 0);
 }
 
-/** Two letters on a tint of the project's own hue; the mix with the text colour suits any theme. */
+/**
+ * Two letters on a tint of the project's own hue; the mix with the text colour suits any theme.
+ * The colours are per project, so they live inline rather than as one-off CSS rules.
+ */
 export function ProjectMark(props: { badge: ProjectBadge; className?: string }) {
+  const { hue } = props.badge;
   return (
     <span
       aria-hidden
-      style={{ "--hue": props.badge.hue } as CSSProperties}
+      style={{
+        backgroundColor: `oklch(0.68 0.13 ${hue} / 0.2)`,
+        color: `color-mix(in oklab, oklch(0.64 0.15 ${hue}) 78%, var(--foreground))`,
+      }}
       className={cn(
         "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-[4px] px-[3px] text-[9px] leading-none font-semibold tracking-[0.02em]",
-        "bg-[oklch(0.68_0.13_var(--hue)/0.2)] text-[color-mix(in_oklab,oklch(0.64_0.15_var(--hue))_78%,var(--foreground))]",
         props.className,
       )}
     >
@@ -59,14 +65,22 @@ export function ProjectMark(props: { badge: ProjectBadge; className?: string }) 
   );
 }
 
+// Tinted tones share one mix rule and name their status colour inline, so a new tone adds no CSS.
+const tinted = "text-[color-mix(in_oklab,var(--tone)_85%,var(--foreground))]";
 const pillTone: Record<TaskPill["tone"], string> = {
-  working: "text-[color-mix(in_oklab,var(--status-working)_85%,var(--foreground))]",
+  working: tinted,
   "needs-you":
-    "rounded-full bg-[color-mix(in_oklab,var(--status-needs-you)_16%,transparent)] px-1.5 text-[color-mix(in_oklab,var(--status-needs-you)_80%,var(--foreground))]",
-  waiting: "text-[color-mix(in_oklab,var(--status-waiting)_85%,var(--foreground))]",
-  failed: "text-[color-mix(in_oklab,var(--status-failed)_85%,var(--foreground))]",
-  done: "text-[color-mix(in_oklab,var(--status-done)_85%,var(--foreground))]",
+    "rounded-full bg-[color-mix(in_oklab,var(--status-needs-you)_13%,transparent)] px-1.5 text-[color-mix(in_oklab,var(--status-needs-you)_80%,var(--foreground))]",
+  waiting: tinted,
+  failed: tinted,
+  done: tinted,
   idle: "text-muted-foreground",
+};
+const toneColor: Partial<Record<TaskPill["tone"], string>> = {
+  working: "var(--status-working)",
+  waiting: "var(--status-waiting)",
+  failed: "var(--status-failed)",
+  done: "var(--status-done)",
 };
 
 function PillIcon(props: { pill: TaskPill }) {
@@ -96,6 +110,7 @@ export function RowPill(props: { pill: TaskPill }) {
   return (
     <span
       data-tone={pill.tone}
+      style={{ "--tone": toneColor[pill.tone] } as CSSProperties}
       className={cn(
         "inline-flex h-[18px] shrink-0 items-center gap-1 text-xs font-medium whitespace-nowrap",
         pillTone[pill.tone],
