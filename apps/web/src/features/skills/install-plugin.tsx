@@ -310,7 +310,7 @@ function SourceStep(props: {
           is enabled.
         </DialogDescription>
       </DialogHeader>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-3 max-sm:grid-cols-1">
         <Field
           label="Repository"
           value={form.repository}

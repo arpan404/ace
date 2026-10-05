@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { InstallPluginButton } from "./install-plugin.tsx";
+import { useRemovalReconciler } from "./remove-plugin.tsx";
 import type { Skill, SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
 
@@ -46,6 +47,7 @@ function matches(skill: Skill, query: string): boolean {
 /** Skills' list in the sidebar: what installed plugins ship, searchable and by plugin. */
 export function SkillsSidebar() {
   const skills = useSkills();
+  useRemovalReconciler();
   const [query, setQuery] = useState("");
   const [plugin, setPlugin] = useState("all");
   const listKeys = useViewListKeys<HTMLElement>();

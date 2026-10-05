@@ -1,5 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useRef } from "react";
+import { useClient, useConnectionState } from "@ace/client-react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -11,47 +13,79 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { shippedText, type Skill } from "./skills-model.ts";
-import { setPluginHidden, useRemovePluginNow } from "./skills-source.ts";
+import {
+  reconcileRemovals,
+  removeNow,
+  scheduleRemoval,
+  undoRemoval,
+  undoWindowMs,
+  type RemovalRunner,
+} from "./plugin-removals.ts";
+import { useRemovePluginNow } from "./skills-source.ts";
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "The plugin service didn't answer.";
 
+/** How a removal reaches this daemon, and how a refusal is told. */
+function useRemovalRunner(): RemovalRunner {
+  const removePlugin = useRemovePluginNow();
+  const client = useClient();
+  const toast = useToast();
+  return useMemo(
+    () => ({
+      remove: removePlugin,
+      online: () => client.state === "ready",
+      failed: (plugin, error) =>
+        toast.error({ title: `Couldn't remove ${plugin}`, description: errorText(error) }),
+    }),
+    [removePlugin, client, toast],
+  );
+}
+
 /**
- * Remove a plugin with Undo: it leaves the catalog at once, and the daemon only removes it once
- * the toast has gone without Undo. Removing drops the install, its availability and the
- * reviewed pin, so getting it back otherwise means a new review.
+ * Remove a plugin with Undo: it leaves the catalog at once, and the daemon removes it once Undo
+ * has gone (`undoWindowMs`). The pending removal is kept on this device, so a reload inside the
+ * window still completes it. Removing drops the install, its availability and the reviewed
+ * pin, so getting it back otherwise means a new review.
  */
 export function useRemovePlugin(): (plugin: string) => void {
-  const removeNow = useRemovePluginNow();
+  const runner = useRemovalRunner();
+  const daemon = useDaemonConnection().url;
   const toast = useToast();
   return useCallback(
     (plugin: string) => {
       let undone = false;
-      setPluginHidden(plugin, true);
+      scheduleRemoval(daemon, plugin, runner, Date.now());
       const toastId = toast.add({
         title: `Removed ${plugin}`,
+        timeout: undoWindowMs,
         actionProps: {
           children: "Undo",
           onClick: () => {
             undone = true;
-            setPluginHidden(plugin, false);
+            undoRemoval(daemon, plugin);
             toast.close(toastId);
           },
         },
-        onClose: () => {
-          if (undone) return;
-          removeNow(plugin).then(
-            () => setPluginHidden(plugin, false),
-            (error: unknown) => {
-              setPluginHidden(plugin, false);
-              toast.error({ title: `Couldn't remove ${plugin}`, description: errorText(error) });
-            },
-          );
-        },
+        // Dismissed early: no need to wait out the window.
+        onClose: () => undone || removeNow(daemon, plugin, runner),
       });
     },
-    [removeNow, toast],
+    [runner, daemon, toast],
   );
+}
+
+/**
+ * Finish removals confirmed before a reload, or that failed while offline, once this daemon is
+ * connected. Mount wherever Skills shows.
+ */
+export function useRemovalReconciler(): void {
+  const runner = useRemovalRunner();
+  const daemon = useDaemonConnection().url;
+  const ready = useConnectionState() === "ready";
+  useEffect(() => {
+    if (ready) reconcileRemovals(daemon, runner, Date.now());
+  }, [ready, daemon, runner]);
 }
 
 /**

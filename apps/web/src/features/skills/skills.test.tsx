@@ -1,10 +1,12 @@
 import { workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const catalog = () => screen.getByRole("navigation", { name: "Skills catalog" });
+
+afterEach(() => localStorage.clear());
 
 /** The design's daemon: two plugins installed, and a third its marketplace offers. */
 async function open(path: string) {
@@ -12,6 +14,16 @@ async function open(path: string) {
   app.daemon.seedServices(workbenchServices(Date.now()));
   await app.open(path);
   return app;
+}
+
+/** What the daemon itself says about its plugins: installs, pending reviews, availability. */
+async function pluginList(app: ReturnType<typeof harness>) {
+  const reply = await app.client.request({
+    type: "pluginRequest",
+    request: { type: "plugins.list" },
+  });
+  if (reply.response.type !== "plugins.list") throw new Error("Expected a plugin list");
+  return reply.response;
 }
 
 /** The plugins the daemon has installed, asked of it directly. */
@@ -120,7 +132,12 @@ test("ticking providers is one change and one toast, sent when the menu closes",
   expect(await screen.findByText("Claude Code and Codex")).toBeTruthy();
   expect(await screen.findByText("release available to Claude Code and Codex")).toBeTruthy();
   expect(screen.getAllByText(/^release available to/)).toHaveLength(1);
-  expect(await installed(app)).toContain("release");
+  // The daemon got exactly the closed menu's choice.
+  const { availability } = await pluginList(app);
+  expect(availability?.find((entry) => entry.name === "release")?.providers).toEqual([
+    "claude",
+    "codex",
+  ]);
 });
 
 test("installing lists the marketplace, shows what a plugin runs, and Back keeps the form", async () => {
@@ -263,6 +280,57 @@ test("a removal reaches the daemon once its Undo has gone", async () => {
   await waitFor(async () => expect(await installed(app)).not.toContain("release"));
   expect(within(catalog()).getByText("code-review")).toBeTruthy();
   expect(within(catalog()).queryByText("release-notes")).toBeNull();
+});
+
+test("a removal confirmed before a reload is finished when Skills next connects", async () => {
+  // As if the window closed during Undo: the pending removal is on this device, overdue.
+  localStorage.setItem(
+    "ace.skills.removing",
+    JSON.stringify([{ daemon: "memory://fake-daemon", plugin: "release", deadline: 0 }]),
+  );
+  const app = await open("/skills");
+  await screen.findByRole("heading", { level: 1, name: "code-review" });
+  // Hidden from the first paint, then removed on the daemon.
+  expect(within(catalog()).queryByText("release-notes")).toBeNull();
+  await waitFor(async () => expect(await installed(app)).not.toContain("release"));
+  expect(localStorage.getItem("ace.skills.removing")).toBeNull();
+  expect(await installed(app)).toContain("engineering");
+});
+
+test("a pending removal for another daemon is left alone", async () => {
+  localStorage.setItem(
+    "ace.skills.removing",
+    JSON.stringify([{ daemon: "wss://elsewhere:7417", plugin: "release", deadline: 0 }]),
+  );
+  const app = await open("/skills");
+  await screen.findByRole("heading", { level: 1, name: "code-review" });
+  expect(within(catalog()).getByText("release-notes")).toBeTruthy();
+  expect(await installed(app)).toContain("release");
+});
+
+test("Stop while a review is being made cancels that review once the daemon makes it", async () => {
+  const app = await open("/skills");
+  await screen.findByRole("heading", { level: 1, name: "code-review" });
+  // Hold the daemon's answer to plugins.prepare until after Stop.
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
+  const request = app.client.request.bind(app.client);
+  app.client.request = ((input: Parameters<typeof request>[0], options) =>
+    input.type === "pluginRequest" && input.request.type === "plugins.prepare"
+      ? held.then(() => request(input, options))
+      : request(input, options)) as typeof app.client.request;
+
+  await userEvent.click(screen.getByRole("button", { name: "Install plugin" }));
+  const dialog = await screen.findByRole("dialog", { name: "Install a plugin" });
+  await userEvent.type(within(dialog).getByLabelText("Repository"), "getsentry/sentry");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Find plugins" }));
+  await userEvent.click(await within(dialog).findByRole("button", { name: "Review" }));
+  await userEvent.click(await within(dialog).findByRole("button", { name: "Stop" }));
+  expect(await within(dialog).findByRole("button", { name: "Review" })).toBeTruthy();
+
+  release();
+  // The review the daemon made after Stop doesn't stay pending.
+  await waitFor(async () => expect((await pluginList(app)).reviews).toEqual([]));
+  expect(screen.queryByRole("dialog", { name: /^Review / })).toBeNull();
 });
 
 test("a daemon without plugins offers to install one from the main pane", async () => {
