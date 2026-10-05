@@ -46,6 +46,7 @@ import {
 import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { fakeHealth } from "./health.ts";
 import { FakeAccess } from "./access.ts";
+import { FakeScreen } from "./screen.ts";
 import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
@@ -71,6 +72,8 @@ import { forkPointError, switchEvents } from "./transitions.ts";
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
   clock(): number;
+  screenId?(): string;
+  screenSchedule?(callback: () => void, delay: number): () => void;
   hostId?: string;
   displayName?: string;
   version?: string;
@@ -131,6 +134,7 @@ export class FakeDaemon implements Host {
   readonly access: FakeAccess;
   /** iOS Simulators and Android emulators, over a dedicated devices channel. */
   readonly appDevices: FakeAppDevices;
+  readonly screen: FakeScreen;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
     this.hostId = HostId.parse(options.hostId ?? "fake-host");
@@ -146,6 +150,25 @@ export class FakeDaemon implements Host {
     });
     this.access = new FakeAccess(options.clock);
     this.appDevices = new FakeAppDevices(options.clock);
+    let screenSequence = 0;
+    this.screen = new FakeScreen({
+      permissions: this.appDevices.permissions,
+      id: options.screenId ?? (() => `fake-screen-${++screenSequence}`),
+      schedule:
+        options.screenSchedule ??
+        ((callback, delay) => {
+          const timer = setTimeout(callback, delay);
+          return () => clearTimeout(timer);
+        }),
+      host: {
+        now: options.clock,
+        thread: (id) => this.threads.get(id)?.view,
+        threads: () => [...this.threads.values()].map((host) => host.view.thread),
+        update: (id, payload) => this.append(this.thread(id), [payload], options.clock()),
+        apply: (id, facts) => this.apply(id, facts),
+        onResolved: (listener) => this.onResolved(listener),
+      },
+    });
     this.services = new FakeServices({
       clock: options.clock,
       thread: (threadId) => {
@@ -208,7 +231,37 @@ export class FakeDaemon implements Host {
     this.servicesWire.seed(seed);
   }
   session(send: (message: ServerMessage) => void): FakeWireSession {
-    return this.servicesWire.session(send);
+    const services = this.servicesWire.session(send);
+    let admin = false;
+    const screen = this.screen.connection((message) => {
+      if (admin && !(message instanceof Uint8Array)) send(message);
+    });
+    return {
+      authenticated: (device) => {
+        admin =
+          !["ace-agent", "ace-reviewer"].includes(device) &&
+          (this.options.deviceScopes === undefined ||
+            this.options.deviceScopes[device]?.includes("admin") === true);
+        services.authenticated?.(device);
+      },
+      handle: async (message, device) => {
+        if (message.type === "screen.request") {
+          if (!admin)
+            send({
+              type: "screen.result",
+              requestId: message.requestId,
+              ok: false,
+              errorCode: "forbidden",
+              error: "Admin scope required for screen access",
+            });
+          else await screen.request(message);
+        } else await services.handle(message, device);
+      },
+      close: () => {
+        screen.close();
+        services.close();
+      },
+    };
   }
   /** A page of a shell's full output (`output.read`), or undefined for an unknown stream. */
   output(streamId: string, offset: number, limit: number) {
@@ -353,6 +406,7 @@ export class FakeDaemon implements Host {
    * queue's new revision, apply a switch waiting for the turn to end, and settle on schedule.
    */
   private afterChange(host: ThreadHost, now: number): void {
+    this.screen.revalidate();
     holdOnLimit(host);
     const follow: EventPayload[] = [...switchEvents(host, now)];
     if (host.queueDirty) {
@@ -895,6 +949,16 @@ export class FakeDaemon implements Host {
             return { commandId, ok: false, error: "already_resolved" };
           const pending = host.interaction(key);
           if (!pending) return { commandId, ok: false, error: "not_found" };
+          const screenApproval = pending.raw.some((raw) => raw.type === "ace.screen.approval");
+          if (screenApproval) {
+            const error = this.screen.approvals.resolutionError(
+              host.id,
+              key,
+              command.deviceId,
+              payload.resolution,
+            );
+            if (error) return { commandId, ok: false, error };
+          }
           const browserOriginApproval = pending.raw.some(
             (raw) => raw.type === "ace.browser.origin",
           );
@@ -904,13 +968,14 @@ export class FakeDaemon implements Host {
               !["allow_once", "allow_thread", "deny"].includes(payload.resolution.optionId))
           )
             return { commandId, ok: false, error: "invalid_resolution" };
-          const error = browserOriginApproval
-            ? undefined
-            : permissionResolutionError(
-                host.view.thread.permission?.effective ?? "auto-review",
-                pending.request,
-                payload.resolution,
-              );
+          const error =
+            browserOriginApproval || screenApproval
+              ? undefined
+              : permissionResolutionError(
+                  host.view.thread.permission?.effective ?? "auto-review",
+                  pending.request,
+                  payload.resolution,
+                );
           if (error) return { commandId, ok: false, error };
           this.apply(host.id, [
             {
