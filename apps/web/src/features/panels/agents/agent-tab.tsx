@@ -1,6 +1,5 @@
-import { useAgent, useIntentSender, useItem, useSidebarThread } from "@ace/client-react";
+import { useAgent, useAgentTree, useItem, useSidebarThread } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
-import { ThreadId } from "@ace/protocol";
 import {
   agentName,
   agentStatusLabel,
@@ -23,6 +22,8 @@ import { keymap } from "@/lib/keymap.ts";
 import { useNow } from "@/lib/time.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { AgentStatusMark } from "./agent-status.tsx";
+import { StopAgent } from "./stop-agent.tsx";
+import { countSubagents, findAgentNode } from "./subagents.ts";
 import { useThreadParts } from "./thread-parts.ts";
 
 /**
@@ -48,7 +49,7 @@ export function AgentTab(props: TabViewProps) {
           <Kbd keys={keymap.agents.keys} />
         </Button>
         <span className="flex-1" />
-        {agent && <StopAgent threadId={props.scope} agent={agent} />}
+        {agent && <AgentStop threadId={props.scope} agent={agent} />}
       </div>
       {agent ? (
         <AgentDetail threadId={props.scope} agent={agent} />
@@ -63,35 +64,17 @@ export function AgentTab(props: TabViewProps) {
   );
 }
 
-function StopAgent(props: { threadId: string; agent: Agent }) {
-  const stop = useIntentSender();
-  if (props.agent.origin === "root" || !isRunning(props.agent)) return null;
-  const stopping = stop.intent?.state === "pending";
+/** The agent's Stop, with the subagents that go with it. */
+function AgentStop(props: { threadId: string; agent: Agent }) {
+  const tree = useAgentTree(props.threadId);
+  const node = tree && findAgentNode(tree, props.agent.id);
   return (
-    <>
-      {stop.intent?.state === "failed" && (
-        <span role="alert" className="truncate text-xs text-status-failed">
-          Couldn't stop: {stop.intent.error ?? "refused"}
-        </span>
-      )}
-      <Button
-        size="sm"
-        variant="ghost"
-        disabled={stopping}
-        onClick={() =>
-          void stop
-            .send({
-              type: "thread.interrupt",
-              threadId: ThreadId.parse(props.threadId),
-              agentId: props.agent.id,
-              cascade: true,
-            })
-            .catch(() => undefined)
-        }
-      >
-        {stopping ? "Stopping…" : "Stop"}
-      </Button>
-    </>
+    <StopAgent
+      threadId={props.threadId}
+      agent={props.agent}
+      subagents={node ? countSubagents(node) : 0}
+      showFailure
+    />
   );
 }
 
@@ -231,7 +214,7 @@ function Prompt(props: { text: string }) {
     <div className="flex flex-col items-start gap-1">
       <p
         className={cn(
-          "font-mono text-[12px] leading-5 whitespace-pre-wrap text-muted-foreground",
+          "font-mono text-sm leading-5 whitespace-pre-wrap text-muted-foreground",
           long && !open && "line-clamp-4",
         )}
       >
@@ -242,7 +225,7 @@ function Prompt(props: { text: string }) {
           type="button"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          className="rounded-xs text-xs text-subtle-foreground outline-none hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+          className="rounded-xs text-xs text-subtle-foreground outline-none hover:text-foreground focus-ring"
         >
           {open ? "Show less" : "Show the whole prompt"}
         </button>

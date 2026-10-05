@@ -153,7 +153,7 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
                 setQuery("");
               }
             }}
-            className="h-7 w-full rounded-md bg-secondary pr-2 pl-7 text-ui text-foreground outline-none placeholder:text-subtle-foreground focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]"
+            className="h-7 w-full rounded-md bg-secondary pr-2 pl-7 text-ui text-foreground outline-none placeholder:text-subtle-foreground focus-ring"
           />
         </label>
         <FilterMenus filter={filter} onChange={setFilter} />
@@ -185,7 +185,7 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
           {hidden} earlier {hidden === 1 ? "line" : "lines"} cleared ·{" "}
           <button
             type="button"
-            className="rounded-sm underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+            className="rounded-sm underline-offset-2 outline-none hover:text-foreground hover:underline focus-ring"
             onClick={() => showLogLines(services.logCleared, threadId)}
           >
             Show
@@ -254,7 +254,7 @@ function FollowedLines(props: { lines: readonly LogLine[]; label: string }) {
             setSeen(lines.length);
           }
         }}
-        className="h-full overflow-auto px-3 pt-2 pb-3 font-mono text-[12px] leading-5"
+        className="h-full overflow-auto px-3 pt-2 pb-3 font-mono text-sm leading-5"
       >
         <div role="list" aria-label={props.label} className="text-muted-foreground">
           <LongRows
@@ -270,7 +270,7 @@ function FollowedLines(props: { lines: readonly LogLine[]; label: string }) {
         <button
           type="button"
           onClick={() => setFollow(true)}
-          className="absolute bottom-3 left-1/2 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-full border bg-popover px-3 text-xs text-foreground shadow-[var(--glass-shadow)] outline-none hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+          className="absolute bottom-3 left-1/2 flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-full border bg-popover px-3 text-xs text-foreground shadow-[var(--glass-shadow)] outline-none hover:bg-accent focus-ring"
         >
           <ArrowLineDownIcon aria-hidden size={13} />
           {unseen ? `${unseen} new ${unseen === 1 ? "line" : "lines"}` : "Follow new lines"}

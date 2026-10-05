@@ -37,7 +37,7 @@ export function FileActions(props: {
         aria-pressed={props.viewed}
         onClick={() => props.onViewed(!props.viewed)}
         className={cn(
-          "flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-1.5 text-xs text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]",
+          "flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-1.5 text-xs text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-ring",
           props.viewed && "text-foreground",
         )}
       >

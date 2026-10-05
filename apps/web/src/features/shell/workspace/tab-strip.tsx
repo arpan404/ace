@@ -83,9 +83,13 @@ export function TabStrip(props: {
     else if (event.key === "End") goTo(last);
     else if ((event.key === "Delete" || event.key === "Backspace") && !tab.pinned) {
       const next = state.tabs[index + 1] ?? state.tabs[index - 1];
-      actions.close(tab.key);
-      if (next) focusNext.current = next.key;
-      setAnnouncement(`${titleOf(tab.key)} closed`);
+      const title = titleOf(tab.key);
+      // A tab that asks first (a running shell) keeps focus until the answer is yes.
+      void actions.close(tab.key).then((closed) => {
+        if (!closed) return;
+        if (next) tabButton(scroller.current, next.key)?.focus();
+        setAnnouncement(`${title} closed`);
+      });
     } else return;
     event.preventDefault();
   };
@@ -150,6 +154,8 @@ export function TabStrip(props: {
             entering={entering.has(tab.key)}
             width={fit?.widths.get(tab.key)}
             iconOnly={fit?.icons.has(tab.key) ?? false}
+            clipped={fit?.clipped.has(tab.key) ?? false}
+            badgeDot={fit?.dots.has(tab.key) ?? false}
             onKeyDown={onKeyDown(index)}
             onDragOver={(event, side) => {
               event.stopPropagation();
@@ -214,12 +220,12 @@ export function TabStrip(props: {
             {state.tabs.map((tab) => (
               <MenuItem
                 key={tab.key}
-                icon={<Icon icon={definition.kind(tab.kind)?.icon ?? PlusIcon} size={14} />}
+                icon={<Icon icon={definition.kind(tab.kind)?.icon ?? PlusIcon} />}
                 onClick={() => actions.activate(tab.key)}
               >
                 <span className="flex items-center gap-2">
                   <span className="truncate">{definition.title(tab)}</span>
-                  {tab.key === shown && <CheckIcon aria-label="Showing" size={12} />}
+                  {tab.key === shown && <CheckIcon role="img" aria-label="Showing" size={12} />}
                 </span>
               </MenuItem>
             ))}

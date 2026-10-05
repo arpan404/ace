@@ -19,6 +19,9 @@ async function launch(page: Page, tool: string) {
     .click();
 }
 
+/** The Preview tab, titled by the dev server it shows once one does. */
+const preview = /^(Preview|web · :\d+)/;
+
 test("the + launcher becomes the tool picked from it, and tabs reorder and close one at a time", async ({
   page,
 }) => {
@@ -27,24 +30,24 @@ test("the + launcher becomes the tool picked from it, and tabs reorder and close
   await expect(tabs(page)).toHaveText([/^Changes/, "Agents"]);
 
   await launch(page, "Preview");
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Preview"]);
-  await expect(sidePanel(page).getByRole("tab", { name: "Preview", selected: true })).toBeVisible();
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", preview]);
+  await expect(sidePanel(page).getByRole("tab", { name: preview, selected: true })).toBeVisible();
   await launch(page, "Devices");
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Preview", "Devices"]);
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", preview, "Devices"]);
 
   // Drag Devices before Preview; the showing tab stays Devices.
   await sidePanel(page)
     .getByRole("tab", { name: "Devices" })
-    .dragTo(sidePanel(page).getByRole("tab", { name: "Preview" }), {
+    .dragTo(sidePanel(page).getByRole("tab", { name: preview }), {
       targetPosition: { x: 4, y: 8 },
     });
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Devices", "Preview"]);
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Devices", preview]);
   await expect(sidePanel(page).getByRole("tab", { name: "Devices", selected: true })).toBeVisible();
 
   // Closing the showing tab shows its neighbour; the others stay.
   await sidePanel(page).getByRole("button", { name: "Close Devices" }).click();
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Preview"]);
-  await expect(sidePanel(page).getByRole("tab", { name: "Preview", selected: true })).toBeVisible();
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", preview]);
+  await expect(sidePanel(page).getByRole("tab", { name: preview, selected: true })).toBeVisible();
 });
 
 test("each thread keeps its own tabs, showing tab and panel, and gets them back on return", async ({
@@ -63,7 +66,7 @@ test("each thread keeps its own tabs, showing tab and panel, and gets them back 
   await expect(
     page.getByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" }),
   ).toBeVisible();
-  await expect(sidePanel(page).getByRole("tab", { name: "Preview", selected: true })).toBeVisible();
+  await expect(sidePanel(page).getByRole("tab", { name: preview, selected: true })).toBeVisible();
 });
 
 test("full view gives the side panel the work area and Back to the conversation restores the split", async ({
@@ -168,4 +171,23 @@ test("with the side panel open at its default width, Run, Open and Commit stay a
   expect(room.shown).toBeGreaterThanOrEqual(Math.min(160, room.whole));
   const box = await title.boundingBox();
   expect(box && Math.round(box.width)).toBeGreaterThanOrEqual(Math.min(160, room.whole));
+});
+
+test("at the default 520px panel, address suggestions show their detail beside the address", async ({
+  page,
+}) => {
+  await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await sidePanel(page).getByRole("button", { name: "New tab" }).click();
+  await sidePanel(page)
+    .getByRole("combobox", { name: /Address/ })
+    .click();
+  await page.keyboard.type("local");
+  const suggestion = sidePanel(page)
+    .getByRole("listbox", { name: "Suggested addresses" })
+    .getByRole("option")
+    .first();
+  await expect(suggestion).toContainText("localhost:5173");
+  // The detail truncates if it must, but shows.
+  await expect(suggestion.getByText(/thread's browser|Dev server/)).toBeVisible();
 });

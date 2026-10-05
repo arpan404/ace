@@ -494,7 +494,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"workspace.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"scripts"},"scripts":{"maxItems":256,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/WorkspaceScript.json"}}},"required":["kind","scripts"]},{"type":"object","properties":{"kind":{"type":"string","const":"editors"},"editors":{"maxItems":32,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/InstalledEditor.json"}}},"required":["kind","editors"]},{"type":"object","properties":{"kind":{"type":"string","const":"branches"},"branches":{"maxItems":1000,"type":"array","items":{"type":"string","maxLength":1024}},"truncated":{"type":"boolean"}},"required":["kind","branches","truncated"]},{"type":"object","properties":{"kind":{"type":"string","const":"details"},"details":{"$ref":"https://ace.local/protocol/v1/ThreadDetails.json"}},"required":["kind","details"]},{"type":"object","properties":{"kind":{"type":"string","const":"pr"},"status":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ForgePrStatus.json"},{"type":"null"}]}},"required":["kind","status"]},{"type":"object","properties":{"kind":{"type":"string","const":"runs"},"runs":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Run.json"}},"total":{"type":"integer","minimum":0,"maximum":9007199254740991},"nextBefore":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["kind","runs","total"]},{"type":"object","properties":{"kind":{"type":"string","const":"workspaces"},"workspaces":{"maxItems":100,"type":"array","items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"name":{"type":"string","maxLength":256},"path":{"type":"string","maxLength":4096},"deck":{"$ref":"https://ace.local/protocol/v1/DeckOwnership.json"}},"required":["id","name","path"]}},"next":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","workspaces"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","maxLength":128}},"required":["kind","code"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"scripts"},"scripts":{"maxItems":256,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/WorkspaceScript.json"}}},"required":["kind","scripts"]},{"type":"object","properties":{"kind":{"type":"string","const":"editors"},"editors":{"maxItems":32,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/InstalledEditor.json"}}},"required":["kind","editors"]},{"type":"object","properties":{"kind":{"type":"string","const":"branches"},"branches":{"maxItems":1000,"type":"array","items":{"type":"string","maxLength":1024}},"truncated":{"type":"boolean"}},"required":["kind","branches","truncated"]},{"type":"object","properties":{"kind":{"type":"string","const":"details"},"details":{"$ref":"https://ace.local/protocol/v1/ThreadDetails.json"}},"required":["kind","details"]},{"type":"object","properties":{"kind":{"type":"string","const":"pr"},"status":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ForgePrStatus.json"},{"type":"null"}]}},"required":["kind","status"]},{"type":"object","properties":{"kind":{"type":"string","const":"gitStatus"},"files":{"maxItems":500,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/GitStatusFile.json"}},"truncated":{"type":"boolean"}},"required":["kind","files","truncated"]},{"type":"object","properties":{"kind":{"type":"string","const":"runs"},"runs":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Run.json"}},"total":{"type":"integer","minimum":0,"maximum":9007199254740991},"nextBefore":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["kind","runs","total"]},{"type":"object","properties":{"kind":{"type":"string","const":"workspaces"},"workspaces":{"maxItems":100,"type":"array","items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},"name":{"type":"string","maxLength":256},"path":{"type":"string","maxLength":4096},"deck":{"$ref":"https://ace.local/protocol/v1/DeckOwnership.json"}},"required":["id","name","path"]}},"next":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","workspaces"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","maxLength":128}},"required":["kind","code"]}]} |
 
 Example:
 
@@ -713,7 +713,8 @@ Example:
 
 ```json
 {
-  "ok": true,
+  "error": "example",
+  "ok": false,
   "requestId": "example",
   "type": "permissions.capabilities.result"
 }
@@ -731,7 +732,7 @@ Example:
 
 ```json
 {
-  "requestId": "nmL9",
+  "requestId": "mL9",
   "result": {
     "code": "not_found",
     "kind": "error",
@@ -2008,14 +2009,7 @@ Example:
 ```json
 {
   "commandId": "example",
-  "editor": {
-    "editor": {
-      "command": "example",
-      "id": "example",
-      "name": "example"
-    },
-    "path": "example"
-  },
+  "commit": "567df308c7d37b1d959f8ea250e59d8826c98e664c1b863272459b3",
   "health": {
     "activeSessions": 5,
     "at": 2,
@@ -2042,27 +2036,37 @@ Example:
     }
   },
   "ok": false,
+  "pr": {
+    "number": 8,
+    "repository": {
+      "forge": "gitlab",
+      "host": "eAr",
+      "name": "f-rL5R",
+      "owner": "m/A/ChwYa6B64/-yS6sq"
+    }
+  },
   "prStatus": {
     "checks": [],
-    "ci": "none",
+    "ci": "pending",
     "comments": [],
     "headSha": "example",
-    "mergeability": "conflicting",
+    "mergeability": "unknown",
     "raw": null,
     "ref": {
-      "number": 8,
+      "number": 10,
       "repository": {
-        "forge": "gitlab",
-        "host": "eAr",
-        "name": "f-rL5R",
-        "owner": "m/A/ChwYa6B64/-yS6sq"
+        "forge": "github",
+        "host": "rC",
+        "name": "KFuefFc",
+        "owner": "uLA1hN/M/uSef"
       }
     },
     "reviewThreads": [],
-    "state": "draft",
+    "state": "closed",
     "title": "example",
     "url": "example"
   },
+  "terminalId": "example",
   "type": "commandResult",
   "workspace": {
     "id": "example",
@@ -2089,8 +2093,9 @@ Example:
 ```json
 {
   "code": "example",
+  "commandId": "example",
   "message": "example",
-  "requestId": "example",
+  "retryable": false,
   "type": "error"
 }
 ```
@@ -2112,9 +2117,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "eof": true,
-  "nextOffset": 6,
-  "offset": 1,
+  "eof": false,
+  "nextOffset": 5,
+  "offset": 4,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -2137,10 +2142,11 @@ Example:
 
 ```json
 {
+  "itemSeqs": {},
   "items": [],
-  "itemsBefore": 4,
+  "itemsBefore": null,
   "requestId": "example",
-  "seq": 0,
+  "seq": 6,
   "threadId": "example",
   "type": "items.page"
 }

@@ -94,9 +94,59 @@ test("the bottom panel's + opens another shell named after the first (zsh 2), an
   );
   expect(names(app)).toEqual(["tests", "zsh", "zsh 2"]);
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Close zsh 2" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "End session zsh 2" }));
+  const ask = await screen.findByRole("dialog", { name: "End zsh 2?" });
+  await userEvent.click(within(ask).getByRole("button", { name: "End" }));
   await waitFor(() => expect(names(app)).toEqual(["tests", "zsh"]));
   expect(within(panel).queryByRole("tab", { name: "zsh 2" })).toBeNull();
+});
+
+test("closing a running shell's tab asks first: Cancel keeps the tab and its shell", async () => {
+  const { app, panel } = await openTerminal();
+  const tab = await selectedTab(panel, "zsh");
+  tab.focus();
+  await userEvent.keyboard("{Delete}");
+  const ask = await screen.findByRole("dialog", { name: "End zsh?" });
+  expect(ask.textContent).toContain("Its shell and anything running in it stop.");
+  await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(within(panel).getByRole("tab", { name: "zsh", selected: true })).toBeTruthy();
+  expect(names(app)).toEqual(["tests", "zsh"]);
+
+  // The tab's own menu asks the same question.
+  within(panel).getByRole("tab", { name: "zsh" }).focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^End session/ }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "End zsh?" })).getByRole("button", {
+      name: "Cancel",
+    }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(names(app)).toEqual(["tests", "zsh"]);
+
+  // ⌥⌘W asks as well, and End ends it.
+  await userEvent.keyboard("{Alt>}{Meta>}w{/Meta}{/Alt}");
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "End zsh?" })).getByRole("button", {
+      name: "End",
+    }),
+  );
+  await waitFor(() => expect(names(app)).toEqual(["tests"]));
+});
+
+test("a shell that already exited closes without asking", async () => {
+  const { app, panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  await userEvent.type(
+    await within(panel).findByRole("textbox", { name: "zsh input" }),
+    "exit{Enter}",
+  );
+  await within(panel).findByText("The shell exited with code 0.");
+  await userEvent.click(within(panel).getByRole("button", { name: "End session zsh" }));
+  await waitFor(() => expect(within(panel).queryByRole("tab", { name: "zsh" })).toBeNull());
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(names(app)).toContain("tests");
 });
 
 test("⌥-click on the bottom panel's + opens a new tab's launcher there instead", async () => {
@@ -345,4 +395,17 @@ test("a tab whose shell the daemon no longer runs says it has ended and starts a
   await userEvent.click(within(panel).getByRole("button", { name: "Start a new terminal" }));
   expect(await selectedTab(panel, "Terminal")).toBeTruthy();
   await waitFor(() => expect(names(app)).toEqual(["tests", "Terminal"]));
+});
+
+test("with Logs showing, the bottom panel still offers the thread's shells and counts the unseen ones", async () => {
+  const { panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
+  expect(await selectedTab(panel, "Logs")).toBeTruthy();
+  // `tests` and the agent's soak relay run in no tab.
+  expect(
+    await within(panel).findByRole("button", { name: "Terminal sessions, 2 not shown" }),
+  ).toBeTruthy();
+  // Once, however many tabs show.
+  expect(within(panel).getAllByRole("button", { name: /^Terminal sessions/ })).toHaveLength(1);
 });

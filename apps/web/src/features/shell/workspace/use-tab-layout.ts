@@ -12,8 +12,9 @@ const tabElements = (list: HTMLElement) => [
 /**
  * The strip's layout pass: measures each tab's natural width and the room the strip has (its
  * row less the + and the All tabs menu), then sizes the tabs with `fitTabs`. Runs after every
- * render (titles change) and whenever the row resizes. jsdom has no layout: there the tabs keep
- * their CSS bounds.
+ * render, whenever the row resizes, and whenever a tab's content changes on its own (a badge
+ * with its own live subscription arrives after the tab was measured). jsdom has no layout:
+ * there the tabs keep their CSS bounds.
  */
 export function useTabFit(
   row: RefObject<HTMLElement | null>,
@@ -41,9 +42,9 @@ export function useTabFit(
       if (rowElement.clientWidth <= 0) return;
       const next = fitTabs(
         tabElements(listElement).map((element) => {
-          const { natural, least } = measureTab(element);
+          const { natural, least, badge } = measureTab(element);
           const tool = element.dataset.tabTool === "true";
-          return { key: element.dataset.tabKey ?? "", natural, least, tool };
+          return { key: element.dataset.tabKey ?? "", natural, least, tool, badge };
         }),
         shown,
         available,
@@ -51,10 +52,18 @@ export function useTabFit(
       setFit((previous) => (sameFit(previous, next) ? previous : next));
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(rowElement);
-    return () => observer.disconnect();
+    // Titles and badges that change without the strip re-rendering (the Changes diff stat
+    // loads after the tab first drew) are measured again; the tabs' widths are attributes,
+    // which this doesn't watch, so sizing them never loops.
+    const mutations =
+      typeof MutationObserver === "undefined" ? undefined : new MutationObserver(measure);
+    mutations?.observe(listElement, { childList: true, subtree: true, characterData: true });
+    const resizes = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    resizes?.observe(rowElement);
+    return () => {
+      mutations?.disconnect();
+      resizes?.disconnect();
+    };
   });
   return fit;
 }

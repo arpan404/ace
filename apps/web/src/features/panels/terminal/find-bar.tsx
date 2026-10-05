@@ -143,7 +143,7 @@ export function FindBar(props: {
         aria-pressed={options.regex}
         title="Use regular expression"
         onClick={() => setOptions((value) => ({ ...value, regex: !value.regex }))}
-        className="inline-grid size-6 shrink-0 place-items-center rounded-sm font-mono text-[11px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-pressed:bg-accent aria-pressed:text-foreground"
+        className="inline-grid size-6 shrink-0 place-items-center rounded-sm font-mono text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-ring aria-pressed:bg-accent aria-pressed:text-foreground"
       >
         .*
       </button>

@@ -16,7 +16,13 @@ export const DiagnosticsHealth = z.object({
     .record(z.string().max(128), count)
     .refine((value) => Object.keys(value).length <= 64)
     .meta({ maxProperties: 64, "x-ace-constraint": "At most 64 queue entries." }),
-  logs: z.object({ dropped: count, failed: count, queued: count }),
+  logs: z.object({
+    dropped: count,
+    failed: count,
+    queued: count,
+    /** Where the daemon writes its log files (absolute, on the daemon's machine). */
+    directory: z.string().min(1).max(4096).optional(),
+  }),
 });
 export type DiagnosticsHealth = z.infer<typeof DiagnosticsHealth>;
 

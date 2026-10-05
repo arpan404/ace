@@ -133,3 +133,14 @@ export interface DiffResult {
   patch: string;
   truncated: boolean;
 }
+
+/** One file `git status` reports, with its lines changed against HEAD. */
+export interface ChangedFile {
+  path: string;
+  /** A rename's old path. */
+  from?: string;
+  status: "added" | "modified" | "deleted" | "renamed" | "untracked";
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
