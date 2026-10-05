@@ -105,7 +105,7 @@ export class ThreadTransitions {
       ...metadata,
     };
     const requested = this.repo.transitions.selection(actor.id, current, p.selection);
-    const selection = await this.models.prepare(requested);
+    const selection = await this.models.prepare(requested, this.models.identity(actor.id));
     const crossProvider = selection.provider !== current.provider;
     const crossAccount = !crossProvider && selection.instanceId !== current.instanceId;
     const backend = this.repo.backend(actor.id);

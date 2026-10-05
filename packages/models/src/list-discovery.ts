@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CatalogModel } from "@ace/protocol";
 import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process";
 import { base } from "./model.ts";
+import { chatMetadata } from "./catalog-metadata.ts";
 import type { ModelInstance } from "./types.ts";
 
 export async function discoverListedModels(
@@ -86,16 +87,18 @@ async function piModels(
     .passthrough()
     .parse(await piRequest(proc, "get_state", "ace-models-state"));
   signal.throwIfAborted();
-  return PiReply.parse(payload).data.models.map((native) =>
-    CatalogModel.parse({
-      ...base(instance, `${native.provider}/${native.id}`, native.name, native),
-      isDefault: state.model?.provider === native.provider && state.model.id === native.id,
-      nativeProviderId: native.provider,
-      nativeModelId: native.id,
-      contextWindow: native.contextWindow,
-      inputModalities: native.input ?? [],
-    }),
-  );
+  return PiReply.parse(payload)
+    .data.models.filter(chatMetadata)
+    .map((native) =>
+      CatalogModel.parse({
+        ...base(instance, `${native.provider}/${native.id}`, native.name, native),
+        isDefault: state.model?.provider === native.provider && state.model.id === native.id,
+        nativeProviderId: native.provider,
+        nativeModelId: native.id,
+        contextWindow: native.contextWindow,
+        inputModalities: native.input ?? [],
+      }),
+    );
 }
 async function piRequest(
   proc: SupervisedProcess,

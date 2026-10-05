@@ -446,3 +446,136 @@ test("versioned Claude aliases share one choice and old settings still apply to 
   });
   expect(view[1]).toMatchObject({ isDefault: true, defaultSource: "built-in" });
 });
+
+test("versioned Claude aliases do not select a different minor version with the same prefix", async () => {
+  const { catalog } = await catalogFor("claude", {
+    models: [claude("opus-5.5"), claude("claude-opus-5-5"), claude("claude-opus-5-50")],
+  });
+  expect(chosen(catalog, "claude", "opus-5.5")).toBe("claude-opus-5-5");
+  expect(catalog.list().models.find((row) => row.id === "claude-opus-5-50")?.aliases).not.toContain(
+    "opus-5.5",
+  );
+});
+
+test("large ACP metadata cannot hide non-chat flags or erase aliases and legacy grouping", async () => {
+  const notes = "x".repeat(5000);
+  const { catalog } = await catalogFor("acp", {
+    configOptions: [
+      {
+        id: "model",
+        category: "model",
+        type: "select",
+        currentValue: "route-alias",
+        options: [
+          selector("private-router", { notes, internal: true }),
+          selector("vector-service", { notes, type: "embedding" }),
+          selector("route-alias", { notes, resolvedModel: "real-chat", aliases: ["old-chat"] }),
+          { group: "legacy", options: [selector("old-model", { notes })] },
+        ],
+      },
+    ],
+  });
+  expect(catalog.list().models.map((row) => row.id)).toEqual(["real-chat", "old-model"]);
+  expect(catalog.list().models[0]).toMatchObject({
+    aliases: ["old-chat", "route-alias"],
+    raw: { truncated: true },
+  });
+  expect(catalog.list().models[1]).toMatchObject({ group: "legacy", hidden: true });
+  expect(chosen(catalog, "acp", "old-chat")).toBe("real-chat");
+});
+
+test("malformed optional metadata does not suppress a valid non-chat classification", async () => {
+  const { catalog } = await catalogFor("acp", {
+    configOptions: [
+      {
+        id: "model",
+        category: "model",
+        type: "select",
+        currentValue: "real-chat",
+        options: [
+          selector("private-router", { internal: true, aliases: 42 }),
+          selector("real-chat"),
+        ],
+      },
+    ],
+  });
+  expect(catalog.list().models.map((row) => row.id)).toEqual(["real-chat"]);
+});
+
+test("OpenCode current connected rows survive earlier legacy and internal duplicates", async () => {
+  const { catalog } = await catalogFor(
+    "opencode",
+    {},
+    {
+      data: [
+        openCode("opencode-go", "muse-spark-1.3-contributor", { status: "legacy" }),
+        openCode("opencode-go", "muse-spark-1.3-contributor"),
+        openCode("anthropic", "claude-opus-5-5", { internal: true }),
+        openCode("anthropic", "claude-opus-5-5"),
+      ],
+    },
+  );
+  expect(chosen(catalog)).toBe("opencode-go/muse-spark-1.3-contributor");
+  expect(catalog.list().models).toHaveLength(2);
+  expect(catalog.list().models.every((row) => !row.hidden && row.group === "current")).toBe(true);
+});
+
+test("cached Claude aliases remain canonical across settings generations without discovery", async () => {
+  const config = instance("claude");
+  let preferences: ProviderConfigurations = [{ provider: "claude", favourites: ["opus"] }];
+  const catalog = new ModelCatalog({
+    instances: [config],
+    storage: {
+      load: () => [
+        {
+          provider: "claude",
+          instance: config.id,
+          revision: config.loginRevision,
+          refreshedAt: 1000,
+          models: normalizeClaude(
+            {
+              models: [
+                claude("default"),
+                claude("opus"),
+                claude("claude-opus-5-5"),
+                claude("claude-sonnet-5-2"),
+              ],
+            },
+            config,
+          ),
+        },
+      ],
+      replace() {},
+      remove() {},
+      close() {},
+    },
+    discover: async () => {
+      throw new Error("Discovery unavailable");
+    },
+    now: () => 1000,
+    deadline: () => () => {},
+    preferences: () => preferences,
+  });
+  try {
+    expect(catalog.list({ limit: 1 }).models[0]).toMatchObject({
+      id: "claude-opus-5-5",
+      aliases: ["opus"],
+      favourite: true,
+      isDefault: true,
+    });
+    preferences = [
+      { provider: "claude", defaultModel: "claude-sonnet-5-2", hiddenModels: ["opus"] },
+    ];
+    catalog.configurationChanged();
+    expect(catalog.list().models.map((row) => [row.id, row.hidden, row.isDefault])).toEqual([
+      ["claude-opus-5-5", true, false],
+      ["claude-sonnet-5-2", false, true],
+    ]);
+    expect(chosen(catalog)).toBe("claude-sonnet-5-2");
+    await catalog.refresh();
+    expect(catalog.list().instances[0]?.error).toBe("discovery_failed");
+    expect(chosen(catalog)).toBe("claude-sonnet-5-2");
+  } finally {
+    await catalog.close();
+  }
+});

@@ -1,5 +1,10 @@
-import { isDefaultSelection, matchesModel, type ModelCatalogApi } from "@ace/models";
-import type { DelegationRequest, Thread } from "@ace/protocol";
+import {
+  isDefaultSelection,
+  matchesModel,
+  selectionModelFilter,
+  type ModelCatalogApi,
+} from "@ace/models";
+import { AcpIdentity, type DelegationRequest, type Thread } from "@ace/protocol";
 
 /** Only catalog identities from the selected provider/account reach provider launch. */
 export function delegationModel(
@@ -9,17 +14,9 @@ export function delegationModel(
   instance?: string,
   configured?: string,
 ): string {
-  const filter = {
-    provider: request.provider,
-    ...(request.provider !== "acp" && instance ? { instance } : {}),
-    ...(request.provider === "acp"
-      ? {
-          acpAgentId: request.acpAgentId,
-          installationId: request.installationId,
-          instanceId: request.instanceId,
-        }
-      : {}),
-  };
+  const identity = request.provider === "acp" ? AcpIdentity.parse(request) : undefined;
+  const filter = selectionModelFilter(request.provider, instance, identity);
+  if (!filter) throw new Error("Cannot delegate without a source-qualified model identity");
   // Page the selected account, preserving the catalog's explicit default and aliases.
   const rows = [];
   let offset = 0;

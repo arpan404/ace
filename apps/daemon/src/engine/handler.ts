@@ -139,7 +139,7 @@ export function engineHandler(
           const { entry, acpIdentity, instanceId, handoff } = creation;
           deliveryCommand = creation.deliveryCommand;
           const model =
-            models?.select(p.provider, p.model, instanceId) ??
+            models?.select(p.provider, p.model, instanceId, acpIdentity) ??
             (isDefaultSelection(p.model) ? undefined : p.model);
           const at = now();
           const prepared = context.preparedWorkspace;

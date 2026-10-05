@@ -112,7 +112,10 @@ export class Sessions {
         options: {},
         ...metadata,
       };
-      const resolvedSelection = await this.dependencies.models.prepare(previousSelection);
+      const resolvedSelection = await this.dependencies.models.prepare(
+        previousSelection,
+        this.dependencies.models.identity(actor.id),
+      );
       if (resolvedSelection.model && resolvedSelection.model !== metadata.model)
         this.dependencies.models.remember(actor.id, resolvedSelection);
       metadata = this.dependencies.repo.session(actor.id);
@@ -347,12 +350,15 @@ export class Sessions {
   }
   async selectModel(actor: ThreadActor, model: string): Promise<string> {
     const metadata = this.dependencies.repo.session(actor.id);
-    const selection = await this.dependencies.models.prepare({
-      provider: this.dependencies.repo.requireState(actor.id).config.provider,
-      options: metadata.options ?? {},
-      ...metadata,
-      model,
-    });
+    const selection = await this.dependencies.models.prepare(
+      {
+        provider: this.dependencies.repo.requireState(actor.id).config.provider,
+        options: metadata.options ?? {},
+        ...metadata,
+        model,
+      },
+      this.dependencies.models.identity(actor.id),
+    );
     if (!selection.model)
       throw new Error("No available default model; refresh the provider catalog");
     return selection.model;

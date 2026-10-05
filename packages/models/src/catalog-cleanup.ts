@@ -1,6 +1,6 @@
 import type { CatalogModel, ProviderKind } from "@ace/protocol";
-import { z } from "zod";
 import { modelDisplayName } from "./display-name.ts";
+import { catalogMetadata, chatMetadata, legacyMetadata } from "./catalog-metadata.ts";
 
 /** Preference rules only rank reported choices. They never manufacture model IDs. */
 export const providerDefaultRules: Record<
@@ -64,25 +64,11 @@ export const providerDefaultRules: Record<
 export function isDefaultSelection(id: string | undefined): boolean {
   return id !== undefined && /^(?:default(?:\s*\(recommended\))?)$/i.test(id.trim());
 }
-const metadata = z
-  .object({
-    status: z.string().optional(),
-    resolvedModel: z.string().min(1).max(256).optional(),
-    resolvedModelId: z.string().min(1).max(256).optional(),
-    aliases: z.array(z.string().min(1).max(256)).max(32).optional(),
-    deprecated: z.boolean().optional(),
-    legacy: z.boolean().optional(),
-    internal: z.boolean().optional(),
-    type: z.string().optional(),
-    task: z.string().optional(),
-    capabilities: z.object({ chat: z.boolean().optional() }).passthrough().optional(),
-  })
-  .passthrough();
 function readMetadata(row: CatalogModel) {
   try {
-    return metadata.safeParse(JSON.parse(row.raw.json));
+    return catalogMetadata(JSON.parse(row.raw.json));
   } catch {
-    return metadata.safeParse(null);
+    return catalogMetadata(null);
   }
 }
 function usable(row: CatalogModel): boolean {
@@ -95,30 +81,10 @@ function usable(row: CatalogModel): boolean {
   )
     return false;
   if (row.inputModalities.length && !row.inputModalities.includes("text")) return false;
-  const parsed = readMetadata(row);
-  if (!parsed.success) return true;
-  const info = parsed.data;
-  return (
-    !info.internal &&
-    info.status !== "internal" &&
-    info.capabilities?.chat !== false &&
-    ![info.type, info.task].some(
-      (value) =>
-        value &&
-        /^(?:embedding|rerank|transcription|image-generation|speech|internal)$/i.test(value),
-    )
-  );
+  return chatMetadata(readMetadata(row));
 }
 function isLegacy(row: CatalogModel): boolean {
-  const info = readMetadata(row);
-  return Boolean(
-    row.legacy ||
-    row.deprecated ||
-    (info.success &&
-      (info.data.legacy ||
-        info.data.deprecated ||
-        /^(?:legacy|deprecated|retired)$/.test(info.data.status ?? ""))),
-  );
+  return Boolean(row.legacy || row.deprecated || legacyMetadata(readMetadata(row)));
 }
 function familyRank(row: CatalogModel): number {
   const families = providerDefaultRules[row.provider].families;
@@ -148,19 +114,34 @@ export function compareModels(a: CatalogModel, b: CatalogModel): number {
 /** Deduplicate selector identities across groups, retaining provider-qualified routes. */
 export function cleanCatalog(models: readonly CatalogModel[]): CatalogModel[] {
   const usableRows = models.filter(usable);
+  // Index exact numeric prefixes once; an alias never rescans/sorts the catalog.
+  const claudeFamilies = new Map<string, CatalogModel>();
+  for (const row of usableRows) {
+    if (row.provider !== "claude") continue;
+    const match = /^claude-(opus|sonnet|haiku)-(.+)$/.exec(row.id);
+    if (!match?.[1] || !match[2]) continue;
+    let key = match[1];
+    const keys = [key];
+    for (const part of match[2].split("-")) {
+      if (!/^\d+$/.test(part)) break;
+      key += `-${part}`;
+      keys.push(key);
+    }
+    for (const prefix of keys) {
+      const previous = claudeFamilies.get(prefix);
+      if (!previous || compareModels(row, previous) < 0) claudeFamilies.set(prefix, row);
+    }
+  }
   const byId = new Map<string, CatalogModel>();
   for (const original of usableRows) {
     const info = readMetadata(original);
     let canonical =
-      original.resolvedModelId ??
-      (info.success ? (info.data.resolvedModel ?? info.data.resolvedModelId) : undefined) ??
-      original.id;
+      original.resolvedModelId ?? info.resolvedModel ?? info.resolvedModelId ?? original.id;
     const claudeAlias = /^(opus|sonnet|haiku)(?:-([\d][\d.-]*))?$/.exec(original.id);
-    if (original.provider === "claude" && claudeAlias && !original.resolvedModelId) {
+    if (original.provider === "claude" && claudeAlias && canonical === original.id) {
       const version = claudeAlias[2]?.replaceAll(".", "-");
-      const prefix = `claude-${claudeAlias[1]}-${version ?? ""}`;
-      const family = usableRows.filter((row) => row.id.startsWith(prefix)).toSorted(compareModels);
-      canonical = family[0]?.id ?? original.id;
+      const key = `${claudeAlias[1]}${version ? `-${version}` : ""}`;
+      canonical = claudeFamilies.get(key)?.id ?? original.id;
     }
     if (original.nativeProviderId && !canonical.startsWith(`${original.nativeProviderId}/`))
       canonical = `${original.nativeProviderId}/${canonical}`;
@@ -179,7 +160,7 @@ export function cleanCatalog(models: readonly CatalogModel[]): CatalogModel[] {
       ...new Set([
         ...(previous?.aliases ?? []),
         ...(original.aliases ?? []),
-        ...(info.success ? (info.data.aliases ?? []) : []),
+        ...(info.aliases ?? []),
         ...(original.id !== canonical ? [original.id] : []),
       ]),
     ]
@@ -224,7 +205,8 @@ export function defaultModel(
   const preferred = rule.preferred
     .map((id) => available.find((row) => matchesModel(row, id)))
     .find((row) => row !== undefined);
-  const model =
-    (rule.nativeFirst ? (native ?? preferred) : preferred) ?? available.toSorted(compareModels)[0];
+  let fallback: CatalogModel | undefined;
+  for (const row of available) if (!fallback || compareModels(row, fallback) < 0) fallback = row;
+  const model = (rule.nativeFirst ? (native ?? preferred) : preferred) ?? fallback;
   return model ? { model, source: "built-in" } : undefined;
 }

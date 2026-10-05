@@ -1,5 +1,25 @@
 # Model catalog benchmark
 
+## PR 137 revision: needs run at merge
+
+No benchmarks, tests or probes were executed during this follow-up. The owner
+reserves execution for merge. Current latency, throughput and RSS need run at
+merge; historical measurements below do not verify this revision.
+
+The public-catalog workload now includes 512 Claude selectors that collapse to
+256 canonical models. It measures a catalog refresh with an in-memory discovery
+fixture, a warm page and a settings-generation change. Existing workloads cover
+512 native rows, 128 custom rows, dense visibility lists, policy resolution and
+OpenCode v2 normalization.
+
+Static review of the implementation shows one native cleanup per cache load or
+discovery update. Settings generations reuse those clean rows and choose their
+default with a linear scan. Claude alias lookup indexes exact numeric version
+prefixes once, followed by one final catalog sort. It does not rescan and sort
+the full catalog for each alias. Warm pages still visit the requested rows plus
+one lookahead. Startup default migration uses the cached-only resolver and
+schedules no CLI discovery; cold discovery belongs to the resumed session.
+
 ## PR 129 revision: needs run at merge
 
 The 2026-10-02 measurements below precede provider visibility settings and do

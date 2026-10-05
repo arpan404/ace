@@ -14,49 +14,54 @@ import type { ModelInstance } from "./types.ts";
 import { z } from "zod";
 import { base } from "./model.ts";
 import { OpenCodeParser } from "./open-code.ts";
+import { chatMetadata } from "./catalog-metadata.ts";
 
 export function normalizeCodex(payload: unknown, instance: ModelInstance): CatalogModel[] {
-  return CodexPage.parse(payload).data.map((native) =>
-    CatalogModel.parse({
-      ...base(instance, native.model, native.displayName, native),
-      isDefault: native.isDefault,
-      hidden: native.hidden,
-      deprecated: native.deprecated,
-      contextWindow: native.contextWindow,
-      reasoningEfforts: native.supportedReasoningEfforts.map((option) => option.reasoningEffort),
-      defaultEffort: native.defaultReasoningEffort,
-      defaultTier: native.defaultServiceTier ?? undefined,
-      serviceTiers: native.serviceTiers.length
-        ? native.serviceTiers.map((tier) => ({
-            id: tier.id,
-            name: tier.name,
-            ...(tier.id === "priority" ? { speed: "fast" } : {}),
-            parameters: { serviceTier: tier.id },
-          }))
-        : native.additionalSpeedTiers.map((id) => ({
-            id,
-            name: id,
-            parameters: { serviceTier: id },
-          })),
-      inputModalities: native.inputModalities,
-    }),
-  );
+  return CodexPage.parse(payload)
+    .data.filter(chatMetadata)
+    .map((native) =>
+      CatalogModel.parse({
+        ...base(instance, native.model, native.displayName, native),
+        isDefault: native.isDefault,
+        hidden: native.hidden,
+        deprecated: native.deprecated,
+        contextWindow: native.contextWindow,
+        reasoningEfforts: native.supportedReasoningEfforts.map((option) => option.reasoningEffort),
+        defaultEffort: native.defaultReasoningEffort,
+        defaultTier: native.defaultServiceTier ?? undefined,
+        serviceTiers: native.serviceTiers.length
+          ? native.serviceTiers.map((tier) => ({
+              id: tier.id,
+              name: tier.name,
+              ...(tier.id === "priority" ? { speed: "fast" } : {}),
+              parameters: { serviceTier: tier.id },
+            }))
+          : native.additionalSpeedTiers.map((id) => ({
+              id,
+              name: id,
+              parameters: { serviceTier: id },
+            })),
+        inputModalities: native.inputModalities,
+      }),
+    );
 }
 export function normalizeClaude(payload: unknown, instance: ModelInstance): CatalogModel[] {
-  return ClaudeModels.parse(payload).models.map((native) =>
-    CatalogModel.parse({
-      ...base(instance, native.value, native.displayName, native),
-      resolvedModelId: native.resolvedModel,
-      contextWindow: native.contextWindow,
-      reasoningEfforts: native.supportedEffortLevels,
-      inputModalities: native.inputModalities,
-      isDefault: native.isDefault ?? native.value === "default",
-      deprecated: native.deprecated,
-      serviceTiers: native.supportsFastMode
-        ? [{ id: "fast", name: "Fast", speed: "fast", parameters: { fastMode: true } }]
-        : [],
-    }),
-  );
+  return ClaudeModels.parse(payload)
+    .models.filter(chatMetadata)
+    .map((native) =>
+      CatalogModel.parse({
+        ...base(instance, native.value, native.displayName, native),
+        ...(native.resolvedModel ? { resolvedModelId: native.resolvedModel } : {}),
+        contextWindow: native.contextWindow,
+        reasoningEfforts: native.supportedEffortLevels,
+        inputModalities: native.inputModalities,
+        isDefault: native.isDefault ?? native.value === "default",
+        deprecated: native.deprecated,
+        serviceTiers: native.supportsFastMode
+          ? [{ id: "fast", name: "Fast", speed: "fast", parameters: { fastMode: true } }]
+          : [],
+      }),
+    );
 }
 function options(config: z.infer<typeof SelectConfigOption>) {
   return (config.options ?? []).flatMap((option) =>
@@ -126,11 +131,12 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
   if (rows.length > 512) throw new Error("Too many models");
   const sessionConfigs = session.configOptions ?? [];
   const sessionExtensions = sessionConfigs.filter((config) => !isSelectConfig(config));
+  const available = rows.filter((row) => chatMetadata(row.native));
   const representative = Math.max(
     0,
-    rows.findIndex((row) => row.modelId === current),
+    available.findIndex((row) => row.modelId === current),
   );
-  return rows.map((row, index) => {
+  return available.map((row, index) => {
     const model = base(instance, row.modelId, row.name, row.native);
     if (modelConfig) {
       model.modelConfigId = modelConfig.id;
@@ -169,21 +175,23 @@ export function normalizeOpenCode(output: string, instance: ModelInstance): Cata
 
 /** SDK catalog is authenticated in the selected instance host; never substitute ACP rows. */
 export function normalizeCursorSdk(payload: unknown, instance: ModelInstance): CatalogModel[] {
-  return decodeCursorSdkModels(payload).map((native) => {
-    const model = base(instance, native.id, native.displayName, native);
-    model.serviceTiers = (native.variants ?? []).map((variant, index) => ({
-      id: String(index),
-      name: variant.displayName,
-      parameters: Object.fromEntries(
-        variant.params.map((parameter) => [parameter.id, parameter.value]),
-      ),
-    }));
-    const defaultVariant = native.variants?.findIndex((variant) => variant.isDefault);
-    if (defaultVariant !== undefined && defaultVariant >= 0)
-      model.defaultTier = String(defaultVariant);
-    const effort = native.parameters?.find((parameter) => parameter.id === "reasoning_effort");
-    model.reasoningEfforts = effort?.values.map((value) => value.value) ?? [];
-    // Arbitrary SDK parameters remain in bounded raw metadata. No guessed model defaults/modalities.
-    return CatalogModel.parse(model);
-  });
+  return decodeCursorSdkModels(payload)
+    .filter(chatMetadata)
+    .map((native) => {
+      const model = base(instance, native.id, native.displayName, native);
+      model.serviceTiers = (native.variants ?? []).map((variant, index) => ({
+        id: String(index),
+        name: variant.displayName,
+        parameters: Object.fromEntries(
+          variant.params.map((parameter) => [parameter.id, parameter.value]),
+        ),
+      }));
+      const defaultVariant = native.variants?.findIndex((variant) => variant.isDefault);
+      if (defaultVariant !== undefined && defaultVariant >= 0)
+        model.defaultTier = String(defaultVariant);
+      const effort = native.parameters?.find((parameter) => parameter.id === "reasoning_effort");
+      model.reasoningEfforts = effort?.values.map((value) => value.value) ?? [];
+      // Arbitrary SDK parameters remain in bounded raw metadata. No guessed model defaults/modalities.
+      return CatalogModel.parse(model);
+    });
 }

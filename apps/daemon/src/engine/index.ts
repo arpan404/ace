@@ -260,7 +260,7 @@ export class Engine {
       this.readyPromise = (async () => {
         await recovery.prepare();
         for (const state of repo.states()) await recovery.prepare(state.threadId);
-        await models.migrateDefaults();
+        models.migrateCachedDefaults();
         if (!this.closing) recover();
         this.readyState = true;
       })();

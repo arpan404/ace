@@ -91,7 +91,17 @@ export function createModelView(
   instance: string,
   config: ProviderConfiguration,
 ) {
-  models = cleanCatalog(models);
+  return createCleanModelView(cleanCatalog(models), provider, instance, config);
+}
+
+/** Cached discoveries have already crossed the cleanup boundary. Settings edits
+ * only rebuild preference indexes and choose a default; they do not parse raw data. */
+export function createCleanModelView(
+  models: readonly CatalogModel[],
+  provider: ProviderKind,
+  instance: string,
+  config: ProviderConfiguration,
+) {
   const index = indexModelPreferences(config);
   const found = config.customModels?.length
     ? new Set(models.flatMap((model) => [model.id, ...(model.aliases ?? [])]))

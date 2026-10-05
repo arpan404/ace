@@ -1,5 +1,6 @@
 import { cleanCatalog } from "./catalog-cleanup.ts";
-import { createModelView, providerConfiguration } from "./preferences.ts";
+import { createCleanModelView, providerConfiguration } from "./preferences.ts";
+import { freezeCatalogModel } from "./freeze.ts";
 import type { ProviderConfigurations } from "@ace/protocol";
 import { createHash } from "node:crypto";
 import { normalizeAcp } from "./normalize.ts";
@@ -37,7 +38,7 @@ type State = {
   view?: {
     preferences: ProviderConfigurations;
     entry?: CacheEntry;
-    models: ReturnType<typeof createModelView>;
+    models: ReturnType<typeof createCleanModelView>;
   };
 };
 const emptyPreferences: ProviderConfigurations = [];
@@ -106,7 +107,13 @@ export class ModelCatalog implements ModelCatalogApi {
       throw new Error("Invalid concurrency");
     const entries = options.storage.load();
     if (entries.length > 64) throw new Error("Too many cached instances");
-    for (const entry of entries) this.#persisted.set(entry.instance, CachedEntry.parse(entry));
+    for (const entry of entries) {
+      const parsed = CachedEntry.parse(entry);
+      this.#persisted.set(parsed.instance, {
+        ...parsed,
+        models: Object.freeze(cleanCatalog(parsed.models).map(freezeCatalogModel)),
+      });
+    }
     for (const instance of options.instances ?? []) this.registerInstance(instance);
   }
   #configuration(config: ModelInstance) {
@@ -124,7 +131,7 @@ export class ModelCatalog implements ModelCatalogApi {
     const preferences = this.#options.preferences?.() ?? emptyPreferences;
     if (state.view?.preferences === preferences && state.view.entry === state.entry)
       return state.view.models;
-    const models = createModelView(
+    const models = createCleanModelView(
       state.entry?.models ?? [],
       state.config.provider,
       state.config.id,
@@ -324,6 +331,12 @@ export class ModelCatalog implements ModelCatalogApi {
     const filter = ModelFilter.parse(input);
     const states = this.#select(filter);
     this.#revalidate(states);
+    return this.#resolve(input, states);
+  }
+  resolveCached(input: ModelRoleSpec): ModelResolution {
+    return this.#resolve(input, this.#select(ModelFilter.parse(input)));
+  }
+  #resolve(input: ModelRoleSpec, states: State[]): ModelResolution {
     return resolveModel(input, this.#availableModels(states), (id) => {
       const state = this.#states.get(id);
       return !state || this.#stale(state);

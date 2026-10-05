@@ -1,5 +1,10 @@
-import { isDefaultSelection, type ModelCatalogApi } from "@ace/models";
-import type { ExecutionSelection, ProviderKind, ThreadId } from "@ace/protocol";
+import { isDefaultSelection, selectionModelFilter, type ModelCatalogApi } from "@ace/models";
+import {
+  AcpIdentity,
+  type ExecutionSelection,
+  type ProviderKind,
+  type ThreadId,
+} from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 
 /** One selection boundary for creation, resume, switches and legacy controls. */
@@ -12,13 +17,18 @@ export class EngineModels {
     this.now = now;
     this.catalog = catalog;
   }
-  select(provider: ProviderKind, model?: string, instance?: string): string | undefined {
+  select(
+    provider: ProviderKind,
+    model?: string,
+    instance?: string,
+    identity?: AcpIdentity,
+  ): string | undefined {
     if (!this.catalog) return isDefaultSelection(model) ? undefined : model;
-    const selectedInstance = this.instance(provider, instance);
+    const filter = selectionModelFilter(provider, instance, identity);
+    if (!filter) return isDefaultSelection(model) ? undefined : model;
     const resolution = this.catalog.resolve({
       role: "thread",
-      provider,
-      ...(selectedInstance ? { instance: selectedInstance } : {}),
+      ...filter,
       ...(model && !isDefaultSelection(model) ? { model } : {}),
     });
     if (!resolution.ok) return isDefaultSelection(model) ? undefined : model;
@@ -27,29 +37,25 @@ export class EngineModels {
       ? `${chosen.nativeProviderId}/${chosen.nativeModelId}`
       : chosen.nativeModelId;
   }
-  private instance(provider: ProviderKind, instance?: string): string | undefined {
-    if (instance) return instance;
-    const native = `${provider}-cli-default`;
-    return this.catalog
-      ?.list({ provider, limit: 1 })
-      .instances.some((row) => row.instance === native)
-      ? native
-      : undefined;
+  identity(id: ThreadId): AcpIdentity | undefined {
+    const thread = this.repo.store.getThread(id);
+    return thread?.provider === "acp" ? AcpIdentity.parse(thread) : undefined;
   }
-  async prepare(selection: ExecutionSelection): Promise<ExecutionSelection> {
+  async prepare(
+    selection: ExecutionSelection,
+    identity?: AcpIdentity,
+  ): Promise<ExecutionSelection> {
     const defaultRequested = !selection.model || isDefaultSelection(selection.model);
+    const filter = selectionModelFilter(selection.provider, selection.instanceId, identity);
     if (
       defaultRequested &&
       this.catalog &&
-      !this.select(selection.provider, undefined, selection.instanceId)
+      filter &&
+      !this.select(selection.provider, undefined, selection.instanceId, identity)
     ) {
-      const instance = this.instance(selection.provider, selection.instanceId);
-      await this.catalog.refresh({
-        provider: selection.provider,
-        ...(instance ? { instance } : {}),
-      });
+      await this.catalog.refresh(filter);
     }
-    const model = this.select(selection.provider, selection.model, selection.instanceId);
+    const model = this.select(selection.provider, selection.model, selection.instanceId, identity);
     const { model: _previous, ...rest } = selection;
     const next = { ...rest, ...(model ? { model } : {}) };
     return next;
@@ -84,22 +90,33 @@ export class EngineModels {
       );
     });
   }
-  async migrateDefaults(): Promise<void> {
-    const attempted = new Set<string>();
+  migrateCachedDefaults(): void {
+    const catalog = this.catalog;
+    if (!catalog?.resolveCached) return;
     for (const state of this.repo.states()) {
       const metadata = this.repo.session(state.threadId);
       const selection = this.repo.transitions.get(state.threadId).selection;
       if (!isDefaultSelection(metadata.model) && !isDefaultSelection(selection?.model)) continue;
       const previous = selection ?? { provider: state.config.provider, options: {}, ...metadata };
-      const key = JSON.stringify([previous.provider, previous.instanceId]);
-      if (
-        !this.select(previous.provider, previous.model, previous.instanceId) &&
-        attempted.has(key)
-      )
-        continue;
-      attempted.add(key);
-      const next = await this.prepare(previous);
-      if (next.model && (next.model !== metadata.model || next.model !== selection?.model))
+      // Startup only uses already-known choices. Discovery belongs to session opening.
+      const filter = selectionModelFilter(
+        previous.provider,
+        previous.instanceId,
+        this.identity(state.threadId),
+      );
+      if (!filter) continue;
+      const resolution = catalog.resolveCached({
+        role: "thread",
+        ...filter,
+        ...(previous.model && !isDefaultSelection(previous.model) ? { model: previous.model } : {}),
+      });
+      if (!resolution.ok) continue;
+      const chosen = resolution.model;
+      const model = chosen.nativeProviderId
+        ? `${chosen.nativeProviderId}/${chosen.nativeModelId}`
+        : chosen.nativeModelId;
+      const next = { ...previous, model };
+      if (model && (model !== metadata.model || model !== selection?.model))
         this.remember(state.threadId, next);
     }
   }

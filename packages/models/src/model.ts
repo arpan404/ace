@@ -1,6 +1,7 @@
 import type { CatalogModel } from "@ace/protocol";
 import { modelDisplayName } from "./display-name.ts";
 import { rawPayload } from "./raw.ts";
+import { catalogMetadata, legacyMetadata } from "./catalog-metadata.ts";
 import type { ModelInstance } from "./types.ts";
 
 export function base(
@@ -9,6 +10,7 @@ export function base(
   displayName: string,
   raw: unknown,
 ): CatalogModel {
+  const metadata = catalogMetadata(raw);
   return {
     id,
     displayName: modelDisplayName(
@@ -30,6 +32,11 @@ export function base(
     isDefault: false,
     hidden: false,
     deprecated: false,
+    legacy: legacyMetadata(raw),
+    ...((metadata.resolvedModel ?? metadata.resolvedModelId)
+      ? { resolvedModelId: metadata.resolvedModel ?? metadata.resolvedModelId }
+      : {}),
+    ...(metadata.aliases ? { aliases: metadata.aliases } : {}),
     raw: rawPayload(raw),
   };
 }
