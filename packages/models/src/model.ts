@@ -1,4 +1,5 @@
 import type { CatalogModel } from "@ace/protocol";
+import { modelDisplayName } from "./display-name.ts";
 import { rawPayload } from "./raw.ts";
 import type { ModelInstance } from "./types.ts";
 
@@ -10,7 +11,10 @@ export function base(
 ): CatalogModel {
   return {
     id,
-    displayName,
+    displayName: modelDisplayName(
+      id,
+      displayName === id || displayName === id.slice(id.indexOf("/") + 1) ? undefined : displayName,
+    ).displayName,
     nativeModelId: id,
     provider: instance.provider,
     instance: instance.id,

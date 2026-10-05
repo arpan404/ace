@@ -200,7 +200,23 @@ export function useDevices(threadId: string, deviceId?: string) {
       target && act(() => run({ op: "controller", deviceId: target, controller: "human" })),
     release: () =>
       target && act(() => run({ op: "controller", deviceId: target, controller: "none" })),
-    input: (input: DeviceInput) =>
-      target && act(() => withControl({ op: "input", deviceId: target, input })),
+    /**
+     * One input, resolved once the device acknowledged or refused it (a refusal shows as the
+     * problem), so a drag keeps a single move in flight. It never rejects and is never replayed.
+     * Input while in control skips the pending count: a drag must not re-render the whole tab.
+     */
+    input: async (input: DeviceInput): Promise<void> => {
+      if (!target) return;
+      try {
+        if (!controls?.inControl) await withControl({ op: "input", deviceId: target, input });
+        else {
+          if (failed) setFailed(undefined);
+          if (!session) throw new DeviceClientError("disconnected", "Devices are offline");
+          await session.client.request({ op: "input", deviceId: target, input });
+        }
+      } catch (error) {
+        setFailed(problem(error));
+      }
+    },
   };
 }

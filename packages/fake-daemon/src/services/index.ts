@@ -1,13 +1,10 @@
+import { configuredModels, providerConfiguration } from "@ace/models/preferences";
+import { ProviderConfigurations, ProviderKind } from "@ace/protocol";
 import { AccountManagementRequest } from "@ace/protocol/accounts";
-import type { z } from "zod";
+import { z } from "zod";
+const zGroup = z.tuple([ProviderKind, z.string()]);
 import type { AccountSummary as Summary } from "@ace/protocol/accounts";
-import type {
-  CatalogModel,
-  ClientMessage,
-  PaletteCommand,
-  ProviderKind,
-  ServerMessage,
-} from "@ace/protocol";
+import type { CatalogModel, ClientMessage, PaletteCommand, ServerMessage } from "@ace/protocol";
 import { FakeUsage } from "../catalog/usage.ts";
 import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
 import { accountSummaries } from "./accounts.ts";
@@ -58,6 +55,8 @@ export class FakeServices {
   installed = new Set<ProviderKind>(["claude", "codex", "opencode", "cursor", "acp"]);
   localCommands = new Set(["fake-acp"]);
   private host: ServiceHost;
+  private refreshingModels = new Set<string>();
+  private refreshedModels = new Map<string, number>();
   constructor(host: ServiceHost) {
     this.host = host;
     const now = host.clock();
@@ -90,6 +89,26 @@ export class FakeServices {
   }
   /** Answers one service message. False when it isn't a service this fake serves. */
   handle(message: ClientMessage, push: Push): boolean {
+    if (message.type === "models.refresh") {
+      const instances = this.modelResult({
+        ...message.filter,
+        offset: 0,
+        limit: 100,
+      }).instances.filter((row) => row.enabled !== false);
+      for (const row of instances) this.refreshingModels.add(row.instance);
+      void Promise.resolve().then(() => {
+        for (const row of instances) {
+          this.refreshingModels.delete(row.instance);
+          this.refreshedModels.set(row.instance, this.host.clock());
+        }
+        push({
+          type: "models.result",
+          requestId: message.requestId,
+          result: this.modelResult({ ...message.filter, offset: 0, limit: 100 }),
+        });
+      });
+      return true;
+    }
     const reply = this.reply(message, push);
     if (reply) push(reply);
     return reply !== undefined;
@@ -113,6 +132,63 @@ export class FakeServices {
     for (const [id, flow] of this.authTerminals)
       if (flow.owner === push) this.authTerminals.delete(id);
     this.settings.release(push);
+  }
+  private modelResult(
+    options: import("@ace/protocol").ModelListOptions,
+  ): import("@ace/protocol").ModelListResult {
+    const models = this.configuredModels();
+    const instances = new Map<string, import("@ace/protocol").ModelInstanceStatus>();
+    for (const model of models) {
+      if (
+        (options.provider && options.provider !== model.provider) ||
+        (options.instance && options.instance !== model.instance)
+      )
+        continue;
+      const refreshedAt = this.refreshedModels.get(model.instance);
+      instances.set(model.instance, {
+        provider: model.provider,
+        instance: model.instance,
+        enabled: model.providerEnabled !== false,
+        stale: false,
+        refreshing: this.refreshingModels.has(model.instance),
+        ...(refreshedAt === undefined ? {} : { refreshedAt, lastRefreshedAt: refreshedAt }),
+      });
+    }
+    return {
+      ...listModels(models, {
+        ...options,
+        offset: options.offset ?? 0,
+        limit: options.limit ?? 100,
+      }),
+      instances: [...instances.values()],
+    };
+  }
+  private configuredModels(): CatalogModel[] {
+    const configurations = ProviderConfigurations.parse(
+      this.settings.get("providers.configuration"),
+    );
+    const groups = new Map<string, CatalogModel[]>();
+    for (const model of this.models) {
+      const key = JSON.stringify([model.provider, model.instance]);
+      const rows = groups.get(key) ?? [];
+      rows.push(model);
+      groups.set(key, rows);
+    }
+    for (const config of configurations) {
+      if (config.instance) {
+        const key = JSON.stringify([config.provider, config.instance]);
+        if (!groups.has(key)) groups.set(key, []);
+      }
+    }
+    return [...groups].flatMap(([key, models]) => {
+      const [provider, instance] = zGroup.parse(JSON.parse(key));
+      return configuredModels(
+        models,
+        provider,
+        instance,
+        providerConfiguration(configurations, provider, instance),
+      );
+    });
   }
   private reply(message: ClientMessage, push: Push): ServerMessage | undefined {
     const mutation = AccountManagementRequest.safeParse(message);
@@ -262,25 +338,35 @@ export class FakeServices {
         return {
           type: "providers.result",
           requestId: message.requestId,
-          result: { ok: true, providers: structuredClone(this.providerStatuses) },
+          result: {
+            ok: true,
+            providers: this.providerStatuses.map((row) => ({
+              ...row,
+              enabled:
+                providerConfiguration(
+                  ProviderConfigurations.parse(this.settings.get("providers.configuration")),
+                  row.provider,
+                ).enabled !== false,
+            })),
+          },
         };
       case "models.list":
         return {
           type: "models.result",
           requestId: message.requestId,
-          result: listModels(this.models, message.options),
+          result: this.modelResult(message.options),
         };
       case "models.refresh":
         return {
           type: "models.result",
           requestId: message.requestId,
-          result: listModels(this.models, { ...message.filter, offset: 0, limit: 100 }),
+          result: this.modelResult({ ...message.filter, offset: 0, limit: 100 }),
         };
       case "models.resolve":
         return {
           type: "models.result",
           requestId: message.requestId,
-          result: resolveModel(this.models, message.roleSpec),
+          result: resolveModel(this.configuredModels(), message.roleSpec),
         };
       case "activity.reads":
       case "activity.markRead":

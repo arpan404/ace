@@ -33,12 +33,13 @@ import type { ServiceDefinition } from "./startup.ts";
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
+  { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
   { name: "accounts", phase: "core", requires: [], after: [], start: startAccounts },
   {
     name: "providerStatuses",
     phase: "core",
     requires: [],
-    after: ["accounts"],
+    after: ["accounts", "settings"],
     start: startProviderStatuses,
   },
   { name: "commands", phase: "core", requires: ["accounts"], after: [], start: startCommands },
@@ -46,7 +47,6 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "devices", phase: "core", requires: [], after: ["screen", "files"], start: startDevices },
   { name: "relay", phase: "core", requires: ["files"], after: [], start: startRelayKeys },
   { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
-  { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
   { name: "activityReads", phase: "core", requires: [], after: [], start: startActivityReads },
   { name: "browser", phase: "core", requires: [], after: ["settings"], start: startBrowser },
   {
@@ -63,7 +63,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     after: ["workspaceActions"],
     start: startProjects,
   },
-  { name: "models", phase: "core", requires: [], after: [], start: startModels },
+  { name: "models", phase: "core", requires: [], after: ["settings"], start: startModels },
   {
     name: "mcp",
     phase: "core",

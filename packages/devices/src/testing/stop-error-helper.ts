@@ -11,6 +11,26 @@ const frames = connect(endpoint.slice(5));
 frames.on("error", () => process.exit(1));
 let sessionId = "not-started";
 let sequence = 0;
+let capturing = false;
+/** One JPEG of the Simulator, as the native helper publishes while capture runs. */
+const frame = () => {
+  const payload = Buffer.from("simulator-frame");
+  frames.write(
+    framePacket(
+      {
+        version: 1,
+        sessionId,
+        sequence: sequence++,
+        timestamp: 0,
+        width: 390,
+        height: 844,
+        codec: "jpeg",
+        bytes: payload.length,
+      },
+      payload,
+    ),
+  );
+};
 const commands = createInterface({ input: process.stdin });
 commands.on("line", (line) => {
   const request = ScreenHelperRequest.parse(JSON.parse(line));
@@ -55,23 +75,12 @@ commands.on("line", (line) => {
   process.stdout.write(
     JSON.stringify({ version: request.version, id: request.id, ok: true, data }) + "\n",
   );
-  if (request.op === "capture" && request.enabled) {
-    const payload = Buffer.from("simulator-frame");
-    frames.write(
-      framePacket(
-        {
-          version: 1,
-          sessionId,
-          sequence: sequence++,
-          timestamp: 0,
-          width: 390,
-          height: 844,
-          codec: "jpeg",
-          bytes: payload.length,
-        },
-        payload,
-      ),
-    );
+  if (request.op === "capture") {
+    capturing = request.enabled;
+    if (capturing) frame();
   }
+  // Like the native helper, a screenshot request publishes a fresh JPEG while capture runs.
+  if (request.op === "stream.image" && capturing) frame();
+  if (request.op === "stop") capturing = false;
 });
 commands.on("close", () => frames.end());

@@ -1,3 +1,7 @@
+import { DeviceStreamOwners } from "./stream-owners.ts";
+import { watchDeviceLease } from "./lease-expiry.ts";
+import { deviceStreamSnapshot } from "./snapshot.ts";
+import { DeviceStreamControl, deviceImageStream } from "./stream-control.ts";
 import { type Frame, type FrameSink } from "@ace/screen";
 import { AppDevice as Device, DeviceOperation, DeviceState } from "@ace/protocol/devices";
 import { deviceFailure } from "./failure.ts";
@@ -31,6 +35,7 @@ export interface DevicesOptions extends LifecycleOptions {
   inventoryIntervalMs?: number;
 }
 export class DevicesService {
+  private readonly streamOwners = new DeviceStreamOwners();
   private enabled = false;
   private closed = false;
   private disabling = false;
@@ -53,6 +58,9 @@ export class DevicesService {
     });
   }
   /** The inventory, joining a read already in flight. */
+  async settleInventory(): Promise<void> {
+    await this.listing?.devices.catch(() => {});
+  }
   async list(): Promise<Device[]> {
     if (!this.listing) {
       const listing = { read: ++this.reads, devices: Promise.resolve<Device[]>([]) };
@@ -237,7 +245,12 @@ export class DevicesService {
     }
   }
   private async perform(operation: DeviceOperation, actor: Actor): Promise<unknown> {
-    if (["enable", "approve", "controller"].includes(operation.op) && actor.kind !== "human")
+    if (
+      ["enable", "approve", "controller", "stream.configure", "stream.keyframe"].includes(
+        operation.op,
+      ) &&
+      actor.kind !== "human"
+    )
       throw new DeviceError(
         "permission_denied",
         "Human authorization required",
@@ -293,7 +306,10 @@ export class DevicesService {
         ),
         enabled: this.isEnabled(),
       };
+    const viewer =
+      operation.op === "stream.configure" ? this.streamOwners.scope(actor.owner) : undefined;
     const session = await this.session(operation.deviceId);
+    viewer?.guard();
     if (operation.op === "approve") {
       if (!this.enabled)
         throw new DeviceError("permission_denied", "Devices are disabled", "Enable devices first.");
@@ -327,10 +343,28 @@ export class DevicesService {
           () => this.emit(session),
         );
       }
+      session.leaseExpiry?.();
+      session.leaseExpiry = watchDeviceLease(session.lease, this.options.runtime, () => {
+        try {
+          if (session.capture?.screenSessionId && this.options.screen)
+            this.options.screen.controller(session.capture.screenSessionId, "none");
+          this.emit(session);
+        } catch (error) {
+          this.options.log?.("warn", "Device lease cleanup failed", { message: String(error) });
+        }
+      });
       this.emit(session);
       return this.state(session);
     }
     switch (operation.op) {
+      case "stream.configure": {
+        const result = await this.streamControlFor(session).set(actor.owner, operation.settings);
+        viewer?.guard();
+        return result;
+      }
+      case "stream.keyframe":
+        await session.capture?.keyframe?.();
+        return { completed: true };
       case "start":
         // A person watching a simulator needs no thread approval: they approve its window.
         if (actor.kind === "human" && session.device.platform === "ios")
@@ -359,6 +393,7 @@ export class DevicesService {
       }
       case "subscribe":
       case "unsubscribe":
+        if (operation.op === "unsubscribe") await session.streamControl?.remove(actor.owner);
         return this.state(session);
       case "screenshot":
         return await this.screenshot(session.device.id, actor);
@@ -398,8 +433,11 @@ export class DevicesService {
       case "record.start":
         await this.record(session);
         return { started: true };
-      case "record.stop":
-        return stopDeviceRecording(session, actor, this.lifecycleOwner());
+      case "record.stop": {
+        const result = await stopDeviceRecording(session, actor, this.lifecycleOwner());
+        await session.streamControl?.refresh();
+        return result;
+      }
       default: {
         const result = await this.enqueue(session, actor, (guard) =>
           performDeviceAction(this.options.platform, session, actor, operation, guard),
@@ -478,8 +516,10 @@ export class DevicesService {
     const session = await this.session(id);
     this.authorize(session, actor);
     if (session.capture?.screenSessionId && this.options.screen) {
-      await this.options.screen.captureScreenshot(session.capture.screenSessionId);
+      const image = await this.options.screen.captureScreenshot(session.capture.screenSessionId);
       this.authorize(session, actor);
+      if (session.lifecycle !== "live") throw new Error("Capture stopped during screenshot");
+      return image;
     }
     if (!session.latest || session.lifecycle !== "live")
       throw new DeviceError(
@@ -487,19 +527,54 @@ export class DevicesService {
         "No live device frame",
         "Start the device stream and wait for its first frame.",
       );
+    if (session.latest.header.codec === "h264") {
+      const image = await deviceStreamSnapshot(
+        session,
+        this.streamControlFor(session),
+        this.options.runtime,
+      );
+      this.authorize(session, actor);
+      if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
+      return image;
+    }
     return session.latest;
   }
+  private streamControlFor(session: DeviceSession): DeviceStreamControl {
+    session.streamControl ??= new DeviceStreamControl(async (settings) => {
+      this.authorize(session, { kind: "human", owner: "capture" });
+      if (session.lifecycle !== "live") throw new Error("Device stream stopped");
+      return session.capture?.configure?.(settings) ?? { codec: "jpeg" };
+    });
+    return session.streamControl;
+  }
   async subscribe(id: string, actor: Actor, sink: FrameSink): Promise<() => void> {
+    const viewer = this.streamOwners.scope(actor.owner);
     const session = await this.session(id);
+    viewer.guard();
     this.authorize(session, actor);
     if (session.lifecycle !== "live")
       throw new DeviceError("not_found", "Device stream is not live", "Start the stream first.");
     const epoch = session.approvalEpoch;
-    return session.hub.subscribe(async (frame) => {
+    const preferences = this.streamControlFor(session);
+    if (!preferences.has(actor.owner)) await preferences.set(actor.owner, deviceImageStream);
+    viewer.guard();
+    const stop = session.hub.subscribe(async (frame) => {
+      viewer.guard();
       if (session.approvalEpoch !== epoch) throw new Error("Device approval changed");
       this.authorize(session, actor);
       await sink(frame);
     }, session.latest);
+    const remove = viewer.subscribe(id, () => {
+      void preferences
+        .remove(actor.owner)
+        .catch((error) =>
+          this.options.log?.("warn", "Device stream update failed", { message: String(error) }),
+        );
+    });
+    return () => {
+      stop();
+      remove();
+    };
   }
   async subscribeLogs(
     id: string,
@@ -516,11 +591,19 @@ export class DevicesService {
     });
   }
   private record(session: DeviceSession): Promise<void> {
-    return recordDevice(session, this.options);
+    return recordDevice(session, this.options, this.streamControlFor(session));
   }
   disconnect(owner: string): void {
+    this.streamOwners.disconnect(owner);
     for (const session of this.sessions.values()) {
+      void session.streamControl
+        ?.remove(owner)
+        .catch((error) =>
+          this.options.log?.("warn", "Device stream update failed", { message: String(error) }),
+        );
       if (session.lease.owned(owner)) {
+        session.leaseExpiry?.();
+        delete session.leaseExpiry;
         session.lease.release(owner);
         if (session.capture?.screenSessionId) this.options.screen?.releaseController(owner);
         this.emit(session);
@@ -528,6 +611,7 @@ export class DevicesService {
     }
   }
   async close(): Promise<void> {
+    this.streamOwners.close();
     this.closed = true;
     this.enabled = false;
     this.watching();

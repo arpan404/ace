@@ -1,7 +1,8 @@
+import { resolveModel as resolveCatalogModel } from "@ace/models/resolve";
 import type { CatalogModel, ModelListResult, ModelResolution } from "@ace/protocol";
 
 interface Filter {
-  provider?: string | undefined;
+  provider?: CatalogModel["provider"] | undefined;
   instance?: string | undefined;
 }
 
@@ -30,12 +31,7 @@ export function listModels(
 /** The requested model when the catalog has it, else the first match for the role's filter. */
 export function resolveModel(
   models: readonly CatalogModel[],
-  spec: Filter & { model?: string | undefined },
+  spec: import("@ace/protocol").ModelRoleSpec,
 ): ModelResolution {
-  const model = matching(models, spec).find(
-    (entry) => !spec.model || entry.nativeModelId === spec.model || entry.id === spec.model,
-  );
-  return model
-    ? { ok: true, model, stale: false, reason: "Fake catalog" }
-    : { ok: false, reason: "Model unavailable" };
+  return resolveCatalogModel(spec, models, () => false);
 }

@@ -14,6 +14,7 @@ export function resolveModel(
   let preferred: CatalogModel | undefined;
   let bestRank = Infinity;
   for (const model of models) {
+    if (model.providerEnabled === false) continue;
     if (
       (spec.provider !== undefined && model.provider !== spec.provider) ||
       (spec.instance !== undefined && model.instance !== spec.instance)

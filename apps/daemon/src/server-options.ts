@@ -46,6 +46,7 @@ export interface ServerOptions {
   accounts?: AccountService;
   accountManagement?: import("./account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
+  providerActivation?: Promise<void>;
   commands?: CommandService;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;

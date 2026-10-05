@@ -1,0 +1,121 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderConfiguration.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "binaryPath": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]).*$",
+      "type": "string",
+      "x-ace-constraint": "Absolute executable path with no control bytes."
+    },
+    "customModels": {
+      "items": {
+        "properties": {
+          "displayName": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": "object"
+      },
+      "maxItems": 128,
+      "type": "array",
+      "x-ace-constraint": "Custom model IDs must be unique."
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "favourites": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
+        "type": "string"
+      },
+      "maxItems": 512,
+      "type": "array",
+      "uniqueItems": true,
+      "x-ace-constraint": "IDs must be unique."
+    },
+    "hiddenGroups": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
+        "type": "string"
+      },
+      "maxItems": 512,
+      "type": "array",
+      "uniqueItems": true,
+      "x-ace-constraint": "IDs must be unique."
+    },
+    "hiddenModels": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
+        "type": "string"
+      },
+      "maxItems": 512,
+      "type": "array",
+      "uniqueItems": true,
+      "x-ace-constraint": "IDs must be unique."
+    },
+    "hideDeprecated": {
+      "type": "boolean"
+    },
+    "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "showOnlyFavourites": {
+      "type": "boolean"
+    },
+    "shownGroups": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
+        "type": "string"
+      },
+      "maxItems": 512,
+      "type": "array",
+      "uniqueItems": true,
+      "x-ace-constraint": "IDs must be unique."
+    },
+    "shownModels": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
+        "type": "string"
+      },
+      "maxItems": 512,
+      "type": "array",
+      "uniqueItems": true,
+      "x-ace-constraint": "IDs must be unique."
+    }
+  },
+  "required": [
+    "provider"
+  ],
+  "type": "object"
+}

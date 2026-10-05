@@ -1,4 +1,5 @@
 import { CaretDownIcon, FolderPlusIcon, FolderSimpleIcon } from "@phosphor-icons/react";
+import { projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -108,11 +109,21 @@ export function ProjectFilter() {
   );
 }
 
+/** A project in the filter, its folder in the project's tint as on its rows; All stays grey. */
 function ProjectItem(props: { value: string; label: string; count: number }) {
   return (
     <MenuRadioItem value={props.value} aria-label={props.label}>
       <span className="flex items-center gap-[9px]">
-        <Icon icon={FolderSimpleIcon} className="text-muted-foreground" />
+        <span
+          className="flex text-muted-foreground"
+          style={
+            props.value === all
+              ? undefined
+              : { color: `var(--project-${projectTint(props.value)})` }
+          }
+        >
+          <Icon icon={FolderSimpleIcon} />
+        </span>
         {props.label}
         <span className="ml-auto pl-4 text-xs text-subtle-foreground">{props.count}</span>
       </span>

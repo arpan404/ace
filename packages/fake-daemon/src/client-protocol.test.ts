@@ -864,6 +864,9 @@ test("fake Preview reopening by one client restores the other client's existing 
   }
 });
 
+// Provider status rows also report the synced provider enable setting.
+const withEnabled = (rows: readonly object[]) =>
+  rows.map((row) => Object.assign({}, row, { enabled: true }));
 test("provider discovery keeps native CLI login separate from ace account records", async () => {
   const f = await fixture();
   try {
@@ -895,7 +898,7 @@ test("provider discovery keeps native CLI login separate from ace account record
     ];
     expect(
       (await f.client.request({ type: "providers.request", operation: "list" })).result,
-    ).toEqual({ ok: true, providers: f.daemon.services.providerStatuses });
+    ).toEqual({ ok: true, providers: withEnabled(f.daemon.services.providerStatuses) });
     f.daemon.services.providerStatuses[0] = {
       ...f.daemon.services.providerStatuses[0],
       provider: "codex",
@@ -908,7 +911,7 @@ test("provider discovery keeps native CLI login separate from ace account record
     };
     expect(
       (await f.client.request({ type: "providers.request", operation: "refresh" })).result,
-    ).toEqual({ ok: true, providers: f.daemon.services.providerStatuses });
+    ).toEqual({ ok: true, providers: withEnabled(f.daemon.services.providerStatuses) });
     f.daemon.projects.seedFolders("/canonical/home", [], { homeLink: "/display/home" });
     expect(
       (await f.client.request({ type: "projects.request", operation: { op: "fs.home" } })).result,
