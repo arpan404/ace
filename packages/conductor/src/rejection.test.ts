@@ -130,4 +130,27 @@ describe("rejecting a gate", () => {
     expect(cancels(effects)).toEqual([lane.id]);
     expect(progress(h.state).phase).toBe("cancelling");
   });
+
+  it.each(["unresponsive", "failed"] as const)(
+    "a declined card stays declined when its stopping lane later reports %s, a destructive change or done",
+    (late) => {
+      const h = new Harness(spec(), plan({ a: [], b: ["a"], c: [] }));
+      const lane = h.lane("worker", "a");
+      h.send({ type: "destructive", laneId: lane.id, generation: 0, description: "rm" });
+      reject(h, gateOf(h, "destructive", "a").id);
+      // The cancelled lane is still live while it stops; nothing it says moves the card.
+      h.send({ type: "status", laneId: lane.id, generation: 0, status: late, at: h.env.now() });
+      h.send({ type: "destructive", laneId: lane.id, generation: 0, description: "rm again" });
+      expect(progress(h.state).needsUser.filter((g) => g.workstream === "a")).toEqual([]);
+      h.send({ type: "status", laneId: lane.id, generation: 0, status: "done", at: h.env.now() });
+      expect(states(h)).toEqual(["declined", "pending", "working"]);
+      // The rest of the deck finishes; the declined card and its dependant never start.
+      h.worker("c", "c".repeat(40));
+      h.reviewer("c");
+      h.send(verifyFact(effectOf(h.send(mergeFact(effectOf(h.effects, "merge"))), "verify")));
+      expect(states(h)).toEqual(["declined", "pending", "integrated"]);
+      expect(progress(h.state).phase).toBe("done");
+      expect(progress(h.state).lanes).toEqual([]);
+    },
+  );
 });
