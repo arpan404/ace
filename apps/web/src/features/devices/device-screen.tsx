@@ -10,6 +10,12 @@ import { useEffect, useRef, type PointerEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { DeviceSession } from "./device-session.ts";
 
+/**
+ * The device's live screen on a canvas, with no React render per frame. It asks for H.264 when
+ * WebCodecs can decode it and JPEG otherwise, and falls back to JPEG if the decoder fails.
+ * Unmounting, a reconnect (a new session) or a hidden page closes the decoder and its frames.
+ * With control, an iOS press streams down, the newest move and up; other devices get a gesture.
+ */
 export function DeviceScreen(props: {
   session: DeviceSession;
   deviceId: string;
@@ -141,11 +147,15 @@ export function DeviceScreen(props: {
       configured = "";
       configure();
     });
-    const observer = new ResizeObserver(() => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(configure, 160);
-    });
-    if (element.parentElement) observer.observe(element.parentElement);
+    // A resized panel asks for a matching stream; the daemon's next keyframe resets the decoder.
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(() => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(configure, 160);
+          });
+    if (element.parentElement) observer?.observe(element.parentElement);
     const onVisibility = () => {
       renderer.reset();
       if (press.current) stream.send("cancel", press.current);
@@ -172,7 +182,7 @@ export function DeviceScreen(props: {
       disposed = true;
       clearTimeout(timer);
       clearTimeout(resizeTimer);
-      observer.disconnect();
+      observer?.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
       if (press.current) stream.send("cancel", press.current);
       moves.close();
