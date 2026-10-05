@@ -7,7 +7,10 @@ import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads } from "./initial-preloads.ts";
 import { reactPlugins } from "./react-plugins.ts";
 import { zodWithoutJsonSchema, zodWithoutMetadata } from "./zod-json-schema.ts";
-import { zodWithoutUnusedMethods } from "./zod-methods.ts";
+import { droppedWorkerZodMethods, zodWithoutUnusedMethods } from "./zod-methods.ts";
+import { workerBundle } from "./worker-bundle.ts";
+import { zodPureSchemas } from "./zod-pure-schemas.ts";
+import { workerZod } from "./worker-zod.ts";
 
 const preloads = initialPreloads();
 
@@ -40,7 +43,14 @@ export default defineConfig({
   // Workers (the client worker, markdown, diffs) are ES modules so they can share chunks.
   worker: {
     format: "es",
-    plugins: () => [zodWithoutJsonSchema(), zodWithoutMetadata(), zodWithoutUnusedMethods()],
+    plugins: () => [
+      zodWithoutJsonSchema(),
+      zodWithoutMetadata(),
+      zodWithoutUnusedMethods(droppedWorkerZodMethods),
+      zodPureSchemas(),
+      workerZod(),
+      workerBundle(),
+    ],
     // Vite strips annotation, JSDoc and legal comments from the page's minified chunks but not from
     // workers', where `@__PURE__` and `@__NO_SIDE_EFFECTS__` alone were 0.5 KB gzip.
     rolldownOptions: { output: { comments: { annotation: false, jsdoc: false, legal: false } } },

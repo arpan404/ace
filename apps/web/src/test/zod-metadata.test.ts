@@ -58,4 +58,12 @@ describe("zodWithoutMetadata", () => {
     expect(strip(source, "/repo/packages/client/src/example.ts")).toBeUndefined();
     expect(strip(source, "/repo/node_modules/zod/v4/classic/schemas.js")).toBeUndefined();
   });
+
+  it("description-only annotations leave acceptance and rejection unchanged", () => {
+    const descriptionSource = 'out.Name = z.string().max(4).describe("Short name");';
+    const browser = evaluate(strip(descriptionSource) ?? "");
+    expect(browser["Name"]?.safeParse("abcd").success).toBe(true);
+    expect(browser["Name"]?.safeParse("abcde").success).toBe(false);
+    expect(browser["Name"]?.description).toBeUndefined();
+  });
 });

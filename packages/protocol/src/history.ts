@@ -1,17 +1,11 @@
 import { z } from "zod";
 import { ContentPart } from "./items.ts";
-import { NativeRef } from "./provider.ts";
 import { ThreadId, WorkspaceId, Timestamp } from "./ids.ts";
+
+export { ImportedProvenance } from "./imported-provenance.ts";
 
 export const HistoryProvider = z.enum(["claude", "codex", "opencode", "cursor"]);
 export type HistoryProvider = z.infer<typeof HistoryProvider>;
-export const ImportedProvenance = z.object({
-  sourceId: z.string().min(1),
-  instanceId: z.string().min(1),
-  native: NativeRef,
-  importedAt: Timestamp,
-});
-export type ImportedProvenance = z.infer<typeof ImportedProvenance>;
 export const HistorySession = z.object({
   id: z.string().min(1),
   instanceId: z.string().min(1),
