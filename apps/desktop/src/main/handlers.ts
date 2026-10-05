@@ -29,6 +29,9 @@ export function createHandlers(options: {
   env: NodeJS.ProcessEnv;
   /** The renderer's daemon hand-off; may reject while the daemon is still starting. */
   connection(): Promise<DaemonConnection>;
+  quit(): void;
+  /** Opens the daemon's logs in the file manager; false when there is nothing to show. */
+  showLogs(): Promise<boolean>;
 }): Handlers {
   const { runtime, settings, background } = options;
   const requireWindow = () => {
@@ -38,10 +41,15 @@ export function createHandlers(options: {
   };
   return {
     "app.info": () => options.info,
+    "app.quit": () => {
+      options.quit();
+      return undefined;
+    },
     "daemon.connection": () => options.connection(),
     "daemon.status": () => runtime.current(),
     "daemon.restart": () => runtime.restart(),
     "daemon.diagnose": () => runtime.diagnose(),
+    "daemon.showLogs": () => options.showLogs(),
     "daemon.pause": (paused) => runtime.pause(paused),
     "onboarding.providers": () => runtime.providers(),
     "system.toolchains": () => detectToolchains(options.env),
