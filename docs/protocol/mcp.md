@@ -37,34 +37,44 @@ Example:
 ```json
 {
   "thread": {
-    "capabilities": {
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "partial",
-      "fork": true,
-      "forkMode": "none",
-      "forkSubagents": true,
-      "imageInput": true,
-      "interruptCascades": true,
-      "permissions": {
-        "guarantees": [],
-        "modes": [],
-        "nativeAutoReview": true,
-        "toolGate": true
-      },
-      "planMode": false,
-      "resume": false,
-      "rewindFiles": false,
-      "sessionOptions": false,
-      "steer": true,
-      "subagentTranscripts": true,
-      "tokenUsage": true
+    "acpAgentId": "example",
+    "activityAt": 4,
+    "autoSettleAt": 2,
+    "createdAt": 9,
+    "deck": {
+      "deckId": "BMprM8JTrPryamFE7df788gFuhrLURZ062PyYPgnu3rbsWJbfjO1jZuPDdulxLSESkSQRntKIzuICAqWkele.5eurgYkfVsuMj-S.aeyP.PtzqIf7Z",
+      "laneId": "MEl1._QWzJkYzoHrUyVjczkHubdKT65SgwaYJsJc",
+      "role": "integrator",
+      "runId": "plf59lKg5h.x7tNC.a8eCpeBikvHlCG3WgYaiAIVfWi7A2QN-QwPPV40m1VHXkSAER5yKd5_4wbgPIPw6xm1awz4eKKfo2fYiyZQiapnZyJuddmd.l5yVjzRVO99MJ",
+      "workspaceId": "example"
     },
-    "createdAt": 8,
+    "deletedAt": 6,
+    "execution": {
+      "model": "example",
+      "options": {},
+      "provider": "antigravity"
+    },
+    "handoff": {
+      "bytes": 1,
+      "sourceThreadId": "example",
+      "truncated": false
+    },
     "id": "example",
-    "instanceId": "example",
+    "imported": {
+      "importedAt": 0,
+      "instanceId": "example",
+      "native": {
+        "aliases": [],
+        "forkedFromNativeId": "example",
+        "instanceId": "example",
+        "provider": "claude"
+      },
+      "sourceId": "example"
+    },
+    "installationId": "example",
     "lineage": {
       "lossy": false,
-      "mode": "native",
+      "mode": "portable",
       "parentAgentId": "example",
       "parentThreadId": "example",
       "point": {
@@ -72,28 +82,29 @@ Example:
         "type": "turn"
       }
     },
-    "permission": {
-      "effective": "auto-review",
-      "override": "read-only",
-      "pending": false
-    },
-    "provider": "cursor",
-    "readAt": 4,
+    "pinned": true,
+    "provider": "opencode",
+    "rootAgentId": "example",
+    "settledAt": 9,
     "status": {
-      "state": "limited",
-      "until": 3
+      "agents": 1,
+      "state": "working"
     },
     "switch": {
-      "at": 4,
-      "lossy": false,
+      "at": 0,
+      "error": "example",
+      "lossy": true,
       "selection": {
+        "instanceId": "example",
+        "model": "example",
         "options": {},
-        "provider": "opencode"
+        "provider": "codex"
       },
-      "state": "applied"
+      "state": "queued"
     },
     "title": "example",
-    "updatedAt": 4,
+    "unread": true,
+    "updatedAt": 5,
     "workspaceId": "example"
   }
 }
@@ -117,7 +128,9 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{}
+{
+  "limit": 9
+}
 ```
 
 ## ace_list_agents.output
@@ -134,7 +147,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": "example"
+  "nextCursor": null
 }
 ```
 
@@ -157,6 +170,7 @@ Example:
 
 ```json
 {
+  "level": "warning",
   "text": "example"
 }
 ```
@@ -199,6 +213,8 @@ Example:
 
 ```json
 {
+  "name": "example",
+  "provider": "opencode",
   "task": "example"
 }
 ```
@@ -251,12 +267,10 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "options": {
-    "serviceTier": "default"
-  },
-  "provider": "claude",
-  "requestId": "V",
+  "estimatedLoad": 2,
+  "permissionMode": "read-only",
+  "provider": "codex",
+  "requestId": "hv0Y_vZUIx",
   "role": "example",
   "task": "example"
 }
@@ -276,7 +290,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -307,12 +321,8 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "options": {
-    "serviceTier": "priority"
-  },
-  "provider": "codex",
-  "requestId": "fSThjpi",
+  "provider": "opencode",
+  "requestId": "p6pf",
   "title": "example"
 }
 ```
@@ -331,7 +341,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "ok": false
 }
 ```
@@ -356,7 +365,7 @@ Example:
 
 ```json
 {
-  "requestId": "qFHJSXbqIX",
+  "requestId": "-FnumQjb",
   "text": "example",
   "threadId": "example"
 }
@@ -376,7 +385,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_ready",
+  "ok": false
 }
 ```
 
@@ -401,7 +411,8 @@ Example:
 
 ```json
 {
-  "requestId": "8VqsaHv2-60",
+  "delivery": "queue",
+  "requestId": "SA3cIKHtwa",
   "text": "example",
   "threadId": "example"
 }
@@ -421,8 +432,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -462,7 +472,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "invalid",
+  "ok": true
 }
 ```
 
@@ -486,6 +497,8 @@ Example:
 
 ```json
 {
+  "before": 4,
+  "limit": 8,
   "threadId": "example"
 }
 ```
@@ -504,7 +517,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "invalid",
+  "ok": false
 }
 ```
 
@@ -529,8 +543,7 @@ Example:
 
 ```json
 {
-  "limit": 4,
-  "offset": 7,
+  "offset": 5,
   "streamId": "example",
   "threadId": "example"
 }
@@ -550,7 +563,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -575,6 +588,7 @@ Example:
 
 ```json
 {
+  "cursor": "example",
   "query": "example",
   "threadId": "example"
 }
@@ -594,7 +608,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -617,7 +631,7 @@ Example:
 
 ```json
 {
-  "requestId": "IRi.lhLx7t",
+  "requestId": "T9KV5JJbj",
   "threadId": "example"
 }
 ```
@@ -636,7 +650,6 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
   "data": null,
   "ok": true
 }
@@ -662,7 +675,8 @@ Example:
 
 ```json
 {
-  "requestId": "793AwtPuUR_",
+  "requestId": "IaYAWDTaXq",
+  "runId": "w",
   "threadId": "example"
 }
 ```
@@ -681,6 +695,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": false
 }
 ```
@@ -704,7 +719,7 @@ Example:
 
 ```json
 {
-  "requestId": "VllV800MLl",
+  "requestId": "BTjGUnecQ",
   "threadId": "example"
 }
 ```
@@ -723,8 +738,6 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "data": null,
   "ok": false
 }
 ```
@@ -750,8 +763,8 @@ Example:
 
 ```json
 {
-  "entryId": "-M",
-  "requestId": "lu_Q67VO2e",
+  "entryId": "1ngB6MwuC",
+  "requestId": "vP7NCox3D",
   "text": "example",
   "threadId": "example"
 }
@@ -771,8 +784,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -797,9 +809,9 @@ Example:
 ```json
 {
   "entryIds": [
-    "Fu5G7K"
+    "1tS1Uh"
   ],
-  "requestId": "B0",
+  "requestId": "HFOWCL-5eVc",
   "threadId": "example"
 }
 ```
@@ -818,6 +830,7 @@ Example:
 
 ```json
 {
+  "code": "forbidden",
   "ok": true
 }
 ```
@@ -845,10 +858,12 @@ Example:
 {
   "answer": {
     "answers": {},
+    "dismissed": true,
+    "feedback": "example",
     "kind": "question"
   },
   "interactionId": "example",
-  "requestId": "c2BAQE5",
+  "requestId": "GzPNfSThj",
   "threadId": "example"
 }
 ```
@@ -867,8 +882,7 @@ Example:
 
 ```json
 {
-  "code": "not_found",
-  "data": null,
+  "code": "invalid",
   "ok": false
 }
 ```
@@ -911,6 +925,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": false
 }
 ```
@@ -951,7 +966,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_ready",
+  "ok": false
 }
 ```
 
@@ -993,8 +1009,9 @@ Example:
 
 ```json
 {
+  "code": "unavailable",
   "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1076,6 +1093,7 @@ Example:
 
 ```json
 {
+  "code": "forbidden",
   "ok": false
 }
 ```
@@ -1099,26 +1117,8 @@ Example:
 ```json
 {
   "request": {
-    "automation": {
-      "concurrency": 4,
-      "enabled": false,
-      "id": "example",
-      "jitterMs": 8,
-      "missedRun": "skip",
-      "prompt": "example",
-      "provider": "cursor",
-      "title": "example",
-      "trigger": {
-        "kind": "file",
-        "paths": [
-          "example"
-        ]
-      },
-      "workspace": "example",
-      "worktree": false
-    },
     "requestId": "example",
-    "type": "automation.put"
+    "type": "automation.list"
   }
 }
 ```
@@ -1137,7 +1137,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1219,7 +1219,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "unsupported",
+  "ok": true
 }
 ```
 
@@ -1244,7 +1245,7 @@ Example:
 ```json
 {
   "branch": "example",
-  "requestId": ".",
+  "requestId": "2-60",
   "threadId": "example"
 }
 ```
@@ -1263,8 +1264,8 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
-  "ok": true
+  "code": "forbidden",
+  "ok": false
 }
 ```
 
@@ -1304,7 +1305,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1327,7 +1328,7 @@ Example:
 
 ```json
 {
-  "previewId": "I7Y",
+  "previewId": "MEB6YWrvW07",
   "threadId": "example"
 }
 ```
@@ -1346,7 +1347,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1370,7 +1371,6 @@ Example:
 
 ```json
 {
-  "limit": 3,
   "sourceThreadId": "example"
 }
 ```
@@ -1390,7 +1390,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 6,
+  "itemsBefore": null,
   "threadId": "example"
 }
 ```
@@ -1438,7 +1438,7 @@ Example:
 {
   "bytes": "example",
   "encoding": "utf-16le",
-  "eof": false,
-  "nextOffset": 1
+  "eof": true,
+  "nextOffset": 9
 }
 ```

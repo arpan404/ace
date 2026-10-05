@@ -34,6 +34,9 @@ export function clientView(
     updatedAt: root.updatedAt,
     plan: root.plan,
     planApproved: root.planApproved,
+    planApproval: root.spec.policies.planApproval,
+    merge: root.spec.policies.merge,
+    deadline: root.spec.constraints.deadline,
     needsUser: gates
       .slice(0, 64)
       .map((gate) => Object.assign({}, gate, { message: gate.message.slice(0, 2048) })),

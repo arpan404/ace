@@ -97,6 +97,18 @@
       "maxItems": 256,
       "type": "array"
     },
+    "deadline": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "delegations": {
       "default": [],
       "items": {
@@ -262,6 +274,14 @@
       "maxItems": 64,
       "type": "array"
     },
+    "merge": {
+      "enum": [
+        "auto-after-verification",
+        "ask",
+        "PR-only"
+      ],
+      "type": "string"
+    },
     "needsUser": {
       "items": {
         "properties": {
@@ -365,6 +385,13 @@
           "type": "null"
         }
       ]
+    },
+    "planApproval": {
+      "enum": [
+        "required",
+        "auto"
+      ],
+      "type": "string"
     },
     "planApproved": {
       "type": "boolean"

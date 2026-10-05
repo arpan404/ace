@@ -100,6 +100,10 @@ export const ConductorRunView = ConductorSummary.extend({
       }),
     )
     .max(256),
+  /** The run's policies and deadline, so a client can say what happens next without the spec. */
+  planApproval: ConductorSpec.shape.policies.shape.planApproval.optional(),
+  merge: ConductorSpec.shape.policies.shape.merge.optional(),
+  deadline: z.number().int().nonnegative().nullable().optional(),
   /** The Deck branch cards merge into, and the branch it started from, once the run has one. */
   branch: z.string().max(256).nullable().optional(),
   baseBranch: z.string().max(256).nullable().optional(),

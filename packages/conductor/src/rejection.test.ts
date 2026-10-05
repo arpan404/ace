@@ -19,7 +19,7 @@ const reject = (h: Harness, gateId: string) =>
   h.send({ type: "approve", approval: { gateId, decision: "reject" } });
 const states = (h: Harness) => progress(h.state).dag.map((node) => node.state);
 const cancels = (effects: Effect[]) =>
-  effects.filter((e) => e.type === "control" && e.action === "cancel").map((e) => e.lane.id);
+  effects.flatMap((e) => (e.type === "control" && e.action === "cancel" ? [e.lane.id] : []));
 
 describe("rejecting a gate", () => {
   it("a plan is redrafted, and the planner is told which plan was rejected", () => {
