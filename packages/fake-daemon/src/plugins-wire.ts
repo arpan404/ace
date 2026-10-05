@@ -147,15 +147,15 @@ export class FakePluginsWire {
           throw new Error("review_mismatch");
         if (!this.installs.has(review.name) && this.installs.size >= 256)
           throw new Error("install_limit");
-        const source = this.sources.get(review.id) ?? this.installs.get(review.name);
+        const origin = this.sources.get(review.id) ?? this.installs.get(review.name);
         const install = PluginInstall.parse({
           name: review.name,
           version: review.version,
           commit: review.commit,
           hash: review.hash,
           acceptedAt: 0,
-          ...(source?.repository ? { repository: source.repository } : {}),
-          ...(source?.ref ? { ref: source.ref } : {}),
+          ...(origin?.repository ? { repository: origin.repository } : {}),
+          ...(origin?.ref ? { ref: origin.ref } : {}),
         });
         this.installs.set(install.name, install);
         const components = this.prepared.get(review.id);
