@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Fact, ThreadState } from "@ace/core";
-import type { EventPayload, ThreadId } from "@ace/protocol";
+import { InteractionState, type EventPayload, type ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
 /** Durable native request ownership, independent of transcript paging and translator lifetimes. */
@@ -20,21 +20,45 @@ export class InteractionLedger {
       db.exec(`INSERT OR IGNORE INTO engine_interaction_requests
         SELECT r.thread_id,json_extract(r.value,'$.id'),r.key,
           (SELECT key FROM engine_state_records i WHERE i.thread_id=r.thread_id AND i.section='items' AND json_extract(i.value,'$.id')=json_extract(r.value,'$.toolCallId') LIMIT 1),
-          COALESCE(s.native_session_id,''),NULL,json_extract(r.value,'$.state')
+          (SELECT provider FROM threads WHERE id=r.thread_id)||':'||COALESCE(s.native_session_id,''),NULL,json_extract(r.value,'$.state')
         FROM engine_state_records r JOIN engine_sessions s ON s.thread_id=r.thread_id
-        WHERE r.section='interactions' AND json_extract(r.value,'$.state')<>'pending';`);
+        WHERE r.section IN ('interactions','interactionHistory') AND json_extract(r.value,'$.state')<>'pending';`);
     });
   }
   private store: Store;
+  outcome(id: ThreadId, interaction: string): import("@ace/protocol").InteractionState | undefined {
+    const row = this.store.statement("SELECT state FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=?").get(id, interaction);
+    return row ? InteractionState.parse(row.state) : undefined;
+  }
+  bind(id: ThreadId): void {
+    const binding = this.binding(id);
+    const provider = binding.slice(0, binding.indexOf(":"));
+    this.store.statement("UPDATE engine_interaction_requests SET binding=? WHERE thread_id=? AND binding=?").run(binding, id, `${provider}:`);
+  }
   latestGeneration(id: ThreadId): number {
-    return z.number().int().nonnegative().parse(this.store.statement("SELECT COALESCE(MAX(generation),0) AS generation FROM engine_interaction_requests WHERE thread_id=?").get(id)?.generation);
+    return z
+      .number()
+      .int()
+      .nonnegative()
+      .parse(
+        this.store
+          .statement(
+            "SELECT COALESCE(MAX(generation),0) AS generation FROM engine_interaction_requests WHERE thread_id=?",
+          )
+          .get(id)?.generation,
+      );
   }
   private binding(id: ThreadId): string {
     const row = this.store
-      .statement("SELECT native_session_id FROM engine_sessions WHERE thread_id=?")
+      .statement(
+        "SELECT s.native_session_id,t.provider FROM engine_sessions s JOIN threads t ON t.id=s.thread_id WHERE s.thread_id=?",
+      )
       .get(id);
-    return row?.native_session_id == null ? "" : z.string().parse(row.native_session_id);
+    const provider = z.string().parse(row?.provider);
+    const native = row?.native_session_id == null ? "" : z.string().parse(row.native_session_id);
+    return `${provider}:${native}`;
   }
+
   terminalItem(id: ThreadId, item: string): boolean {
     return Boolean(
       this.store

@@ -81,7 +81,10 @@ export function engineHandler(
           return { commandId: command.id, ok: false, error: "message_too_large" };
         }
       }
-      const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
+      const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error,
+        ...(error === "interaction_expired" ? { code: error, title: "Question expired", detail: "The provider disconnected. This question can no longer be answered." }
+          : error === "interaction_unavailable" ? { code: error, title: "Question unavailable", detail: "This question is no longer active." } : {}),
+      });
       if (
         ![
           "thread.create",
@@ -269,7 +272,7 @@ export function engineHandler(
             if (p.type === "interaction.resolve") {
               const key = repo.nativeEntity(state.threadId, "interactions", p.interactionId);
               const interaction = key === undefined ? undefined : state.interactions[key];
-              if (!interaction) return fail("already_resolved");
+              if (!interaction) return fail(repo.interactions.outcome(state.threadId, p.interactionId) === "expired" ? "interaction_expired" : "already_resolved");
               if (interaction.state === "expired") return fail("interaction_expired");
               if (interaction.state !== "pending" || repo.reserved(interaction.id))
                 return fail("already_resolved");

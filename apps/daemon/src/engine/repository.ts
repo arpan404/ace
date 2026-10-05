@@ -219,7 +219,7 @@ export class EngineRepository {
             readiness: this.readiness,
             admission: this.admissionStatements,
             opening: this.opening.has(id),
-            recoveryAcknowledged: this.recoveryAcknowledgement(id),
+            recoveryAcknowledged: () => this.recoveryAcknowledgement(id),
           },
           generation,
         );
@@ -368,12 +368,48 @@ export class EngineRepository {
       return row ? String(row.path) : undefined;
     });
   }
-  session(id: ThreadId) { return this.metadata.session(id); }
-  createUnpreparedSession(id: ThreadId, cwd: string, model?: string, backend?: ProviderBackend, instanceId?: string, options?: ExecutionOptions): void { this.metadata.createUnpreparedSession(id, cwd, model, backend, instanceId, options); }
-  createSession(id: ThreadId, cwd: string, model?: string, backend?: ProviderBackend, instanceId?: string, options?: ExecutionOptions): void { this.metadata.createSession(id, cwd, model, backend, instanceId, options); }
-  nativeSession(id: ThreadId, nativeId: string, backend?: ProviderBackend, instanceId?: string): void { this.metadata.nativeSession(id, nativeId, backend, instanceId); }
-  pinSessionIdentity(id: ThreadId, identity: { backend: ProviderBackend; instanceId: string; nativeSessionId?: string }): void { this.metadata.pinSessionIdentity(id, identity); }
-  backend(id: ThreadId): ProviderBackend | undefined { return this.metadata.backend(id); }
+  session(id: ThreadId) {
+    return this.metadata.session(id);
+  }
+  createUnpreparedSession(
+    id: ThreadId,
+    cwd: string,
+    model?: string,
+    backend?: ProviderBackend,
+    instanceId?: string,
+    options?: ExecutionOptions,
+  ): void {
+    this.metadata.createUnpreparedSession(id, cwd, model, backend, instanceId, options);
+  }
+  createSession(
+    id: ThreadId,
+    cwd: string,
+    model?: string,
+    backend?: ProviderBackend,
+    instanceId?: string,
+    options?: ExecutionOptions,
+  ): void {
+    this.metadata.createSession(id, cwd, model, backend, instanceId, options);
+  }
+  nativeSession(
+    id: ThreadId,
+    nativeId: string,
+    backend?: ProviderBackend,
+    instanceId?: string,
+  ): void {
+    this.metadata.nativeSession(id, nativeId, backend, instanceId);
+    this.interactions.bind(id);
+  }
+  pinSessionIdentity(
+    id: ThreadId,
+    identity: { backend: ProviderBackend; instanceId: string; nativeSessionId?: string },
+  ): void {
+    this.metadata.pinSessionIdentity(id, identity);
+    this.interactions.bind(id);
+  }
+  backend(id: ThreadId): ProviderBackend | undefined {
+    return this.metadata.backend(id);
+  }
   captureFrame(id: ThreadId, frame: Frame): void {
     // The SDK channel is shared by providers. Only Cursor owns this checkpoint journal.
     if (

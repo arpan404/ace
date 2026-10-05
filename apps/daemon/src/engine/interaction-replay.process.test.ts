@@ -126,7 +126,7 @@ test("provider exit expires unanswered requests and returns a typed expired rece
         interactionId: interaction.id,
         resolution: { kind: "approval", optionId: "yes" },
       }),
-    ).toMatchObject({ ok: false, error: "interaction_expired" });
+    ).toMatchObject({ ok: false, error: "interaction_expired", code: "interaction_expired", title: "Question expired", detail: expect.stringContaining("provider disconnected") });
     expect(h.adapter.commands.filter((command) => command.type === "resolve")).toEqual([]);
   } finally {
     await h.close();

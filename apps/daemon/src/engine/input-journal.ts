@@ -65,9 +65,16 @@ export class InputJournal {
           .some((field) => field.name === "generation")
       )
         db.exec("ALTER TABLE engine_inputs ADD COLUMN generation INTEGER");
-      if (!db.prepare("PRAGMA table_info(engine_inputs)").all().some((field) => field.name === "run_id")) {
+      if (
+        !db
+          .prepare("PRAGMA table_info(engine_inputs)")
+          .all()
+          .some((field) => field.name === "run_id")
+      ) {
         db.exec("ALTER TABLE engine_inputs ADD COLUMN run_id TEXT");
-        db.exec("UPDATE engine_inputs SET run_id=(SELECT json_extract(item,'$.runId') FROM items WHERE id=item_key)");
+        db.exec(
+          "UPDATE engine_inputs SET run_id=(SELECT json_extract(item,'$.runId') FROM items WHERE id=item_key)",
+        );
       }
       db.exec(`CREATE INDEX IF NOT EXISTS engine_inputs_run ON engine_inputs(thread_id,run_id);
         CREATE INDEX IF NOT EXISTS engine_inputs_delivery ON engine_inputs(thread_id,generation,signature,sent,matched,ordinal);
@@ -80,10 +87,17 @@ export class InputJournal {
     });
   }
   attachRun(thread: ThreadId, key: string, run: string): void {
-    this.store.statement("UPDATE engine_inputs SET run_id=? WHERE thread_id=? AND item_key=?").run(run, thread, key);
+    this.store
+      .statement("UPDATE engine_inputs SET run_id=? WHERE thread_id=? AND item_key=?")
+      .run(run, thread, key);
   }
   inRuns(thread: ThreadId, runs: Iterable<string>): string[] {
-    return [...runs].flatMap((run) => this.store.statement("SELECT item_key FROM engine_inputs WHERE thread_id=? AND run_id=?").all(thread, run).map((row) => z.string().parse(row.item_key)));
+    return [...runs].flatMap((run) =>
+      this.store
+        .statement("SELECT item_key FROM engine_inputs WHERE thread_id=? AND run_id=?")
+        .all(thread, run)
+        .map((row) => z.string().parse(row.item_key)),
+    );
   }
   invalidate(thread: ThreadId, key: string): void {
     this.store
@@ -114,14 +128,19 @@ export class InputJournal {
       .run(signature(providerInput(parts, provider)), generation ?? null, thread, key);
   }
   correlate(thread: ThreadId, fact: Fact, root: string, generation?: number): Fact | undefined {
-    if ((fact.type !== "item.upsert" && fact.type !== "item.reconciled") || fact.agent !== root || fact.draft.type !== "message" || fact.draft.role === "assistant") return fact;
-    const alias = this.store
-      .statement("SELECT e.item_key FROM engine_input_echoes e JOIN engine_inputs i ON i.thread_id=e.thread_id AND i.item_key=e.item_key WHERE e.thread_id=? AND e.native_key=? AND (? IS NULL OR i.generation=?)")
-      .get(thread, fact.item, generation ?? null, generation ?? null);
     if (
-      fact.draft.role !== "user" && !alias
+      (fact.type !== "item.upsert" && fact.type !== "item.reconciled") ||
+      fact.agent !== root ||
+      fact.draft.type !== "message" ||
+      fact.draft.role === "assistant"
     )
       return fact;
+    const alias = this.store
+      .statement(
+        "SELECT e.item_key FROM engine_input_echoes e JOIN engine_inputs i ON i.thread_id=e.thread_id AND i.item_key=e.item_key WHERE e.thread_id=? AND e.native_key=? AND (? IS NULL OR i.generation=?)",
+      )
+      .get(thread, fact.item, generation ?? null, generation ?? null);
+    if (fact.draft.role !== "user" && !alias) return fact;
     if (fact.draft.origin && fact.draft.origin.kind !== "person" && !fact.draft.origin.commandId)
       return fact;
     if (!alias && !fact.draft.parts) return fact;

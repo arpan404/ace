@@ -326,8 +326,12 @@ class AcpTranslator implements Translator {
     if (["agent_message_chunk", "agent_thought_chunk", "user_message_chunk"].includes(kind)) {
       if (kind === "user_message_chunk" && agent.inputKey && s.promptOpen) {
         // The outgoing prompt is authoritative; streamed echoes retain raw data only.
-        facts.push({ type: "item.reconciled", agent: agent.key, item: agent.inputKey,
-          draft: { type: "message", role: "user", raw: [raw(frame, "session/update")] } });
+        facts.push({
+          type: "item.reconciled",
+          agent: agent.key,
+          item: agent.inputKey,
+          draft: { type: "message", role: "user", raw: [raw(frame, "session/update")] },
+        });
         return true;
       }
       if (!agent.suspended && kind !== "user_message_chunk")

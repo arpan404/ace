@@ -5,7 +5,9 @@ import type { EngineRepository } from "./repository.ts";
 /** Persisted provider/account/workspace binding, shared by preparation and recovery. */
 export class SessionMetadata {
   private repo: EngineRepository;
-  constructor(repo: EngineRepository) { this.repo = repo; }
+  constructor(repo: EngineRepository) {
+    this.repo = repo;
+  }
   session(id: ThreadId): {
     cwd: string;
     model?: string;
@@ -16,7 +18,9 @@ export class SessionMetadata {
     options?: ExecutionOptions;
   } {
     return this.repo.store.atomic((_db) => {
-      const row = this.repo.store.statement("SELECT * FROM engine_sessions WHERE thread_id = ?").get(id);
+      const row = this.repo.store
+        .statement("SELECT * FROM engine_sessions WHERE thread_id = ?")
+        .get(id);
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),

@@ -40,8 +40,12 @@ export type ThreadCreateOptions = z.infer<typeof ThreadCreateOptions>;
 
 export const CommandPayload = z.discriminatedUnion("type", [
   /** Explicit duplicate-execution recovery; the replacement uses this command's id. */
-  z.object({ type: z.literal("queue.resend"), threadId: ThreadId, messageId: CommandId,
-    expectedRevision: z.number().int().nonnegative() }),
+  z.object({
+    type: z.literal("queue.resend"),
+    threadId: ThreadId,
+    messageId: CommandId,
+    expectedRevision: z.number().int().nonnegative(),
+  }),
   ThreadPrepareCommand.extend({ titleSource: z.enum(["person", "agent"]).optional() }),
   ThreadMarkReadCommand,
   z.object({

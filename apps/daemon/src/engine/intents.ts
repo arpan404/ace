@@ -110,7 +110,15 @@ export class IntentStore {
     });
   }
   latestGeneration(id: ThreadId): number {
-    return z.number().int().nonnegative().parse(this.sql("SELECT COALESCE(MAX(submitted_generation),0) AS generation FROM intents WHERE thread_id=?").get(id)?.generation);
+    return z
+      .number()
+      .int()
+      .nonnegative()
+      .parse(
+        this.sql(
+          "SELECT COALESCE(MAX(submitted_generation),0) AS generation FROM intents WHERE thread_id=?",
+        ).get(id)?.generation,
+      );
   }
   commandStatus(commandId: CommandId) {
     const row = this.sql("SELECT status FROM intents WHERE command_id=? LIMIT 1").get(commandId);

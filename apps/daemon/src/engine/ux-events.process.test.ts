@@ -83,12 +83,17 @@ test("structured terminal errors survive event replay and snapshots", async () =
     replayed.seq = event.seq - 1;
     applyEvent(replayed, event);
   }
-  expect(Object.values(replayed.runs)[0]).toMatchObject({ error: { code: "auth", detail: "login expired" } });
+  expect(Object.values(replayed.runs)[0]).toMatchObject({
+    error: { code: "auth", detail: "login expired" },
+  });
   const reopened = new Store(h.path);
   try {
-    expect(Object.values(reopened.snapshotThread(id).runs)[0]).toMatchObject({ error: { code: "auth", detail: "login expired" } });
-  } finally { reopened.close(); }
-
+    expect(Object.values(reopened.snapshotThread(id).runs)[0]).toMatchObject({
+      error: { code: "auth", detail: "login expired" },
+    });
+  } finally {
+    reopened.close();
+  }
 });
 
 test("prepared handoffs publish their summary before the spawn input", async () => {

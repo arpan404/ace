@@ -18,7 +18,7 @@ export interface FactPorts {
     correlated: StatementSync;
   };
   opening: boolean;
-  recoveryAcknowledged: boolean;
+  recoveryAcknowledged(): boolean;
 }
 /** Fold provider evidence and durable acknowledgements inside the repository transaction. */
 export function foldProviderFacts(
@@ -60,11 +60,17 @@ export function foldProviderFacts(
       input.type === "turn.started" &&
       input.agent === (state.rootKey ?? "root") &&
       queue?.trigger &&
-      ports.recoveryAcknowledged
+      ports.recoveryAcknowledged()
     )
       input = { ...input, trigger: queue.trigger };
-    if (ports.opening && input.type === "item.upsert" && input.draft.type === "tool_call") input = { ...input, type: "item.reconciled" };
-    const correlated = repo.inputs.correlate(id, input, state.rootKey ?? "root", ports.opening ? undefined : generation);
+    if (ports.opening && input.type === "item.upsert" && input.draft.type === "tool_call")
+      input = { ...input, type: "item.reconciled" };
+    const correlated = repo.inputs.correlate(
+      id,
+      input,
+      state.rootKey ?? "root",
+      ports.opening ? undefined : generation,
+    );
     if (!correlated) return [];
     let fact = capFact(
       (raw) => repo.store.capRaw(raw, id),

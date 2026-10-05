@@ -142,7 +142,8 @@ export async function executeIntent(
       );
       repo.pending.submit(intent, generation);
       const activeInputRun = state.agents[state.rootKey ?? ""]?.activeRun;
-      if (activeInputRun) repo.inputs.attachRun(actor.id, `input:${intent.command.id}`, activeInputRun);
+      if (activeInputRun)
+        repo.inputs.attachRun(actor.id, `input:${intent.command.id}`, activeInputRun);
       await session.send(
         input,
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
@@ -237,7 +238,12 @@ export async function executeIntent(
       await actor.flush();
       const current = repo.requireState(actor.id);
       const interaction = current.interactions[entry[0]];
-      if (interaction?.state === "expired" || !actor.session || (intent.resolutionGeneration !== undefined && intent.resolutionGeneration !== actor.generation)) {
+      if (
+        interaction?.state === "expired" ||
+        !actor.session ||
+        (intent.resolutionGeneration !== undefined &&
+          intent.resolutionGeneration !== actor.generation)
+      ) {
         if (interaction?.id === p.interactionId && interaction.state === "pending")
           actor.apply([{ type: "interaction.closed", interaction: entry[0], state: "expired" }]);
         throw new InteractionUnavailable("interaction_expired");

@@ -183,18 +183,45 @@ test("Stop during provider opening preserves a claimed unsent input without a fa
   const h = await harness([], scriptFrames());
   cleanups.push(h.close);
   const base = h.registry.get("codex");
-  h.registry.register({ ...base.adapter, async openSession(ctx) {
-    entered.resolve(); await release.promise;
-    return base.adapter.openSession(ctx);
-  } }, base.discovery);
-  const receipt = h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex",
-    input: [{ type: "text", text: "opening input" }] }, "device", "opening-input");
+  h.registry.register(
+    {
+      ...base.adapter,
+      async openSession(ctx) {
+        entered.resolve();
+        await release.promise;
+        return base.adapter.openSession(ctx);
+      },
+    },
+    base.discovery,
+  );
+  const receipt = h.command(
+    {
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      input: [{ type: "text", text: "opening input" }],
+    },
+    "device",
+    "opening-input",
+  );
   if (!receipt.threadId) throw new Error("No thread");
   const flushing = h.engine.flush();
-  try { await entered.promise; h.command({ type: "thread.interrupt", threadId: receipt.threadId, cascade: true }); }
-  finally { release.resolve(); }
+  try {
+    await entered.promise;
+    h.command({ type: "thread.interrupt", threadId: receipt.threadId, cascade: true });
+  } finally {
+    release.resolve();
+  }
   await flushing;
-  expect(h.engine.queue(receipt.threadId)).toMatchObject({ reason: "stopped", paused: true, messages: [{ id: "opening-input", state: "queued" }] });
+  expect(h.engine.queue(receipt.threadId)).toMatchObject({
+    reason: "stopped",
+    paused: true,
+    messages: [{ id: "opening-input", state: "queued" }],
+  });
   expect(h.adapter.commands.filter((command) => command.type === "send")).toEqual([]);
-  expect(Object.values(h.store.snapshotThread(receipt.threadId).items).filter((item) => item.type === "notice" && item.level === "error")).toEqual([]);
+  expect(
+    Object.values(h.store.snapshotThread(receipt.threadId).items).filter(
+      (item) => item.type === "notice" && item.level === "error",
+    ),
+  ).toEqual([]);
 });
