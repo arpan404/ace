@@ -20,6 +20,7 @@ import type { ComposerHandle } from "./composer/composer.tsx";
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkOpener } from "./transitions/fork-opener.ts";
+import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
 
 // Loaded on first open, off the route's first paint.
 const RenameDialog = lazy(() =>
@@ -75,9 +76,16 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const projectName = useProjectName();
   // The workspace's agent tabs draw with the transcript's own blocks, beside the route's parts.
   const outer = useThreadParts();
+  const forkPoint = useLatestForkPoint(id);
   const parts = useMemo(
-    () => ({ ...outer, AgentTranscript, SideChatComposer, AgentComposer }),
-    [outer],
+    () => ({
+      ...outer,
+      AgentTranscript,
+      SideChatComposer,
+      AgentComposer,
+      fork: forkPoint && (() => setForking(forkPoint)),
+    }),
+    [outer, forkPoint],
   );
   // Step details and interaction cards load once the transcript has painted.
   useEffect(() => whenIdle(() => void preloadDeferred()), []);

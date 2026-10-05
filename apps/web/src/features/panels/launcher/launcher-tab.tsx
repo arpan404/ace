@@ -95,7 +95,13 @@ export function LauncherTab(props: TabViewProps) {
                   >
                     <Icon icon={kind.icon} size={16} className="text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{kind.label}</span>
-                    {keys && <Kbd keys={keymap[keys].keys} />}
+                    {kind.unavailable ? (
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {kind.unavailable}
+                      </span>
+                    ) : (
+                      keys && <Kbd keys={keymap[keys].keys} />
+                    )}
                   </button>
                   {kind.docks.includes(other) && (
                     <DockMenu

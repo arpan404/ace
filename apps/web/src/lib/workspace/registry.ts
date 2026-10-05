@@ -48,6 +48,11 @@ export interface TabKindOptions {
   /** Position among the launcher's Tools; leave out to keep the kind off the launcher. */
   launcher?: number;
   /**
+   * The tool is listed but can't work yet ("Not available yet"): the launcher says so in place
+   * of its shortcut.
+   */
+  unavailable?: string;
+  /**
    * Small live text after the title (the diff stat on Changes). Loaded with the screen. With
    * `folded` the tab shows only its icon: draw at most a 6px mark (a dot in the badge's colour),
    * or nothing.
