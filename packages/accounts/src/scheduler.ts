@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ProviderInstance, AccountQuota } from "@ace/protocol/accounts";
-import { availability } from "./quota.ts";
+import { availability } from "./availability.ts";
 import { object } from "./quota-decode.ts";
 
 export type RolePolicy = Record<string, { speed: "standard" | "fast" }>;
