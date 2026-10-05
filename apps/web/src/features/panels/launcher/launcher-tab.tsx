@@ -8,7 +8,14 @@ import {
   KanbanIcon,
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+} from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -36,9 +43,47 @@ import {
   type UrlSuggestion,
 } from "./suggestions.ts";
 
-const heading = "px-1 text-xs font-medium text-subtle-foreground";
+const heading = "px-1 text-xs font-medium text-muted-foreground";
 const card =
-  "group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui text-foreground outline-none transition-colors duration-(--dur-1) bg-[color-mix(in_oklab,var(--foreground)_3%,transparent)] hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]";
+  "focus-ring group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui text-foreground transition-colors duration-(--dur-1) bg-[color-mix(in_oklab,var(--foreground)_3%,transparent)] hover:bg-accent";
+
+/**
+ * The Tools grid is one Tab stop: arrows move by its columns (two, or one below 30rem), Home
+ * and End jump, Enter opens. Shift+F10 on a tool opens its ⋯ menu.
+ */
+function useToolGrid() {
+  const [active, setActive] = useState(0);
+  const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
+    const cards = [
+      ...event.currentTarget.querySelectorAll<HTMLButtonElement>(":scope > li > [data-tool]"),
+    ];
+    const at = cards.indexOf(event.target as HTMLButtonElement);
+    if (at < 0) return;
+    if (event.key === "F10" && event.shiftKey) {
+      event.preventDefault();
+      cards[at]?.parentElement?.querySelector<HTMLElement>("[data-tool-menu]")?.click();
+      return;
+    }
+    const [first, second] = cards;
+    const columns = first && second && first.offsetTop === second.offsetTop ? 2 : 1;
+    const last = cards.length - 1;
+    const moves: Record<string, number> = {
+      ArrowRight: at + 1,
+      ArrowLeft: at - 1,
+      ArrowDown: at + columns,
+      ArrowUp: at - columns,
+      Home: 0,
+      End: last,
+    };
+    const next = moves[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    const to = Math.max(0, Math.min(last, next));
+    setActive(to);
+    cards[to]?.focus();
+  };
+  return { active, setActive, onKeyDown };
+}
 
 /**
  * The new tab: a catalog of the workspace's tools, then what this thread suggests opening (its
@@ -50,6 +95,7 @@ export function LauncherTab(props: TabViewProps) {
   const definition = store.definition(props.scope);
   const actions = useWorkspaceActions(props.scope);
   const navigate = useNavigate();
+  const grid = useToolGrid();
   const tools = useMemo(
     () =>
       (definition?.kinds() ?? [])
@@ -80,17 +126,23 @@ export function LauncherTab(props: TabViewProps) {
           <h2 className={heading}>Tools</h2>
           <ul
             aria-label="Tools"
+            onKeyDown={grid.onKeyDown}
             className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 @min-[30rem]:grid-cols-2"
           >
-            {tools.map((kind) => {
+            {tools.map((kind, index) => {
               const keys = definition?.shortcut(kind.kind);
               return (
                 <li key={kind.kind} className="relative min-w-0">
                   <button
                     type="button"
+                    data-tool
+                    tabIndex={grid.active === index ? 0 : -1}
+                    onFocus={() => {
+                      grid.setActive(index);
+                      kind.preload();
+                    }}
                     className={cn(card, kind.docks.includes(other) && "pr-11")}
                     onPointerEnter={kind.preload}
-                    onFocus={kind.preload}
                     onClick={() => openHere({ kind: kind.kind })}
                   >
                     <Icon icon={kind.icon} size={16} className="text-muted-foreground" />
@@ -118,13 +170,21 @@ export function LauncherTab(props: TabViewProps) {
               );
             })}
             <li className="min-w-0">
-              <button type="button" className={card} onClick={() => void navigate({ to: "/deck" })}>
+              <button
+                type="button"
+                data-tool
+                tabIndex={grid.active === tools.length ? 0 : -1}
+                onFocus={() => grid.setActive(tools.length)}
+                className={card}
+                onClick={() => void navigate({ to: "/deck" })}
+              >
                 <Icon icon={KanbanIcon} size={16} className="text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">Deck</span>
                 <ArrowUpRightIcon
+                  role="img"
                   aria-label="Opens the Deck view"
                   size={14}
-                  className="text-subtle-foreground"
+                  className="text-muted-foreground"
                 />
               </button>
             </li>
@@ -217,19 +277,17 @@ function DockMenu(props: { kind: TabKind; dock: "right" | "bottom"; onOpen(): vo
   const label = props.dock === "bottom" ? "Open in bottom panel" : "Open in side panel";
   return (
     <Menu>
+      {/* Off the Tab order (the grid is one stop): Shift+F10 on the tool opens it. */}
       <MenuTrigger
         aria-label={`${props.kind.label} options`}
-        className="absolute top-1/2 right-1.5 grid size-7 -translate-y-1/2 place-items-center rounded-md text-subtle-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
+        tabIndex={-1}
+        data-tool-menu
+        className="focus-ring absolute top-1/2 right-1.5 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
       >
         <DotsThreeIcon aria-hidden size={16} weight="bold" />
       </MenuTrigger>
       <MenuContent align="end">
-        <MenuItem
-          keys={props.dock === "bottom" ? keymap.bottomPanel.keys : keymap.rightPanel.keys}
-          onClick={props.onOpen}
-        >
-          {label}
-        </MenuItem>
+        <MenuItem onClick={props.onOpen}>{label}</MenuItem>
       </MenuContent>
     </Menu>
   );
@@ -305,18 +363,15 @@ function SuggestionRow(props: {
       <button
         type="button"
         onClick={props.onClick}
-        className="flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+        className="focus-ring flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui transition-colors duration-(--dur-1) hover:bg-accent"
       >
         <Icon icon={props.icon} size={16} className="text-muted-foreground" />
         <span
-          className={cn(
-            "shrink-0 truncate text-foreground",
-            props.mono && "font-mono text-[12.5px]",
-          )}
+          className={cn("shrink-0 truncate text-foreground", props.mono && "font-mono text-sm")}
         >
           {props.title}
         </span>
-        <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {props.detail}
         </span>
       </button>

@@ -1,6 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import type { ReviewDraft } from "./changes/drafts.ts";
 import type { ClearedLines } from "./logs/cleared.ts";
 import type { PreviewSource } from "./sources.ts";
@@ -102,4 +102,33 @@ export async function findRunningTerminal(
 ): Promise<{ id: string; name: string } | undefined> {
   const services = await panelServices(client);
   return services.terminals.findRunning(threadId, name);
+}
+
+const noNames: ReadonlySet<string> = new Set();
+
+/**
+ * Names of the thread's terminals still running, as the daemon last listed them: a script
+ * whose terminal runs reads "running" in the Run menu. Empty until the panel services load (the
+ * first call loads them and reads the thread's terminals).
+ */
+export function useRunningTerminalNames(threadId: string): ReadonlySet<string> {
+  const services = useLoadedServices();
+  const source = services?.terminals.source;
+  const subscribe = useCallback(
+    (changed: () => void) => (source ? source.subscribe(changed) : () => {}),
+    [source],
+  );
+  const version = useSyncExternalStore(subscribe, () => source?.version ?? -1);
+  return useMemo(
+    () =>
+      source && version >= 0
+        ? new Set(
+            source
+              .list(threadId)
+              .filter((terminal) => !terminal.exited)
+              .map((terminal) => terminal.name),
+          )
+        : noNames,
+    [source, threadId, version],
+  );
 }

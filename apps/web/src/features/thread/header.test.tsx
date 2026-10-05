@@ -54,6 +54,13 @@ test("running a script that is still running goes back to its terminal instead o
   await within(bottom).findByRole("tab", { name: "dev:relay", selected: true });
 
   await userEvent.click(screen.getByRole("button", { name: "Choose a script" }));
+  // The menu marks the one already running, under its Scripts label.
+  expect(await screen.findByRole("group", { name: "Scripts" })).toBeTruthy();
+  expect(
+    await screen.findByRole("menuitem", {
+      name: "bun run dev:relay, default, running: shows its terminal",
+    }),
+  ).toBeTruthy();
   await userEvent.click(await screen.findByRole("menuitem", { name: /bun run soak/ }));
   await within(bottom).findByRole("tab", { name: "soak", selected: true });
 
@@ -91,9 +98,11 @@ test("a project without scripts says so in Run's menu", async () => {
   await screen.findByRole("feed", { name: "Transcript" });
 
   await userEvent.click(await screen.findByRole("button", { name: "Choose a script" }));
-  const item = await screen.findByRole("menuitem", { name: /No scripts in this project/ });
+  const item = await screen.findByRole("menuitem", { name: /No scripts found/ });
   expect(item.getAttribute("aria-disabled")).toBe("true");
-  expect(within(item).getByText("Add one to package.json and it shows here")).toBeTruthy();
+  expect(
+    within(item).getByText("Add one to package.json, a Makefile, justfile or Procfile"),
+  ).toBeTruthy();
 });
 
 test("when the scripts can't be read, Run's menu says so and reads them again", async () => {

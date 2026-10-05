@@ -244,3 +244,26 @@ test("the new tab suggests the thread's dev server and edited files, and opens t
   expect(selected(panel).textContent).toBe("replay.ts");
   expect(tabNames(panel)).toEqual(["Changes", "Agents", "replay.ts"]);
 });
+
+test("the new tab's tools are one Tab stop that arrow keys move through by row and column", async () => {
+  await openColdStart();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  const tools = await within(panel).findByRole("list", { name: "Tools" });
+  const cards = within(tools)
+    .getAllByRole("button")
+    .filter((button) => !(button.getAttribute("aria-label") ?? "").endsWith("options"));
+  expect(cards.filter((card) => card.tabIndex === 0)).toHaveLength(1);
+  cards[0]!.focus();
+  // Two columns: down moves two tools on, right one.
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(cards[2]);
+  await userEvent.keyboard("{ArrowRight}");
+  expect(document.activeElement).toBe(cards[3]);
+  await userEvent.keyboard("{End}");
+  expect(document.activeElement?.textContent).toMatch(/^Deck/);
+  expect(cards.filter((card) => card.tabIndex === 0)).toEqual([document.activeElement]);
+  await userEvent.keyboard("{Home}");
+  expect(document.activeElement).toBe(cards[0]);
+});

@@ -1,4 +1,4 @@
-import { ClockCounterClockwiseIcon, GlobeSimpleIcon, PlayIcon } from "@phosphor-icons/react";
+import { ClockCounterClockwiseIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
 import {
   displayAddress,
   parseAddress,
@@ -147,7 +147,7 @@ export function AddressBar(props: {
           id={listId}
           role="listbox"
           aria-label="Suggested addresses"
-          className="absolute top-full right-0 left-0 z-10 mt-1.5 flex flex-col overflow-hidden rounded-lg border bg-popover p-1 shadow-[var(--glass-shadow)]"
+          className="@container absolute top-full right-0 left-0 z-10 mt-1.5 flex flex-col overflow-hidden rounded-lg border bg-popover p-1 shadow-[var(--glass-shadow)]"
         >
           {suggestions.map((suggestion, index) => (
             <li
@@ -165,14 +165,15 @@ export function AddressBar(props: {
               )}
             >
               <Icon
-                icon={suggestion.detail === "Visited" ? ClockCounterClockwiseIcon : PlayIcon}
+                icon={suggestion.detail === "Visited" ? ClockCounterClockwiseIcon : GlobeSimpleIcon}
                 size={14}
-                className="text-subtle-foreground"
+                className="shrink-0 text-muted-foreground"
               />
-              <span className="min-w-0 truncate text-foreground">
+              {/* The address is what you pick: it gets the room, the detail what is left. */}
+              <span className="min-w-0 flex-1 truncate text-foreground">
                 {displayAddress(suggestion.url)}
               </span>
-              <span className="ml-auto shrink-0 text-xs text-subtle-foreground">
+              <span className="max-w-[45%] min-w-0 shrink truncate text-xs text-muted-foreground @max-[22.5rem]:hidden">
                 {suggestion.detail}
               </span>
             </li>
