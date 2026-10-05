@@ -1,3 +1,6 @@
+import { CodexExitDiagnostic } from "./exit-diagnostic.ts";
+import { PermissionMode } from "@ace/protocol";
+import { answerEchoes } from "./answer-echo.ts";
 import { confirmModel } from "./model.ts";
 import { unknownBuffers, RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
@@ -14,6 +17,7 @@ import { list, obj, raw, requestKey, str, type Obj } from "./native.ts";
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
   const agents = new Map<string, Agent>();
   const sent = new Map<string, { method: string; params: Obj; interaction?: string }>();
+  const reviewPolicies = new Map<string, import("@ace/protocol").PermissionMode>();
   let recordedAnswer: string | undefined;
   const userTurns = new RecentSet();
   const buffers = unknownBuffers();
@@ -26,11 +30,12 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     }
   }
   function closeAsync(key: string) {
-    const owner = asyncOwners.get(key);
-    owner?.agent.async.delete(owner.item);
+    // Retain native identity after resolution so duplicate live notifications stay terminal.
     asyncOwners.delete(key);
   }
 
+  let scope = "";
+  const interactionKey = (id: unknown) => requestKey(id, scope);
   let root = "";
   let cwd = "";
   const { ensure, discover } = createAgentRegistry({
@@ -43,6 +48,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     discovered: finishUnknown,
   });
   const translation: TranslationContext = {
+    answerEchoes: answerEchoes(),
     agents,
     tasks: new Set(),
     asyncOwners,
@@ -65,6 +71,27 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       draft: { type: "notice", level: "info", text, complete: true, raw: raw(type, data) },
     };
   };
+  function title(value: unknown, data: unknown): Fact[] {
+    const text = str(value).trim();
+    return text
+      ? [
+          {
+            type: "item.upsert",
+            agent: init.rootKey,
+            item: "codex:thread-title",
+            draft: {
+              type: "notice",
+              code: "thread_title",
+              title: text,
+              level: "info",
+              text,
+              complete: true,
+              raw: raw("thread/name/updated", data),
+            },
+          },
+        ]
+      : [];
+  }
   function handle(frame: Frame, now: number): Fact[] {
     const facts: Fact[] = [];
     const message = obj(frame.data),
@@ -72,6 +99,12 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       method = str(message["method"]);
     const id = message["id"];
     if (frame.dir === "note") {
+      translation.answerEchoes.note(message);
+      if (message["event"] === "session-scope") scope = str(message["scope"]);
+      if (message["event"] === "permission-review-policy") {
+        const mode = PermissionMode.safeParse(message["mode"]);
+        if (mode.success) reviewPolicies.set(str(message["interaction"]), mode.data);
+      }
       if (message["event"] === "thread-discovered") {
         const thread = obj(message["thread"]);
         const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);
@@ -158,6 +191,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           root = str(thread["id"]);
           cwd = str(thread["cwd"], str(pending.params["cwd"], cwd));
           const agent = discover(root, thread, facts, now);
+          facts.push(...title(thread["name"], frame.data));
           confirmModel(agent, result["model"], facts);
         }
       } else if (
@@ -192,11 +226,17 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       if (!native) return root ? [note(init.rootKey, method, frame.data)] : [];
       if (!root) root = native;
       discover(native, thread, facts, now, str(thread["parentThreadId"]) || undefined);
+      if (native === root) facts.push(...title(thread["name"], frame.data));
       return facts;
     }
     const native = str(p["threadId"], root);
     if (!native) {
       return [note(init.rootKey, method || "unknown", frame.data)];
+    }
+    if (method === "thread/name/updated") {
+      // Codex broadcasts names for unloaded threads too. A title is not evidence of a child.
+      if (native === root) facts.push(...title(p["threadName"], frame.data));
+      return facts;
     }
     if (native !== root && !agents.get(native)?.known) {
       facts.push(note(init.rootKey, method || "unknown", frame.data));
@@ -217,9 +257,15 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     const agent = ensure(native, true, facts);
     facts.push({ type: "signal", agent: agent.key });
     if (isInteractiveRequest(method) && id !== undefined) {
-      const key = requestKey(id);
+      const key = interactionKey(id);
       const item = str(p["itemId"]);
-      facts.push(...openRequest(agent.key, key, method, p, agent.items.has(item)));
+      const opened = openRequest(agent.key, key, method, p, agent.items.has(item));
+      const mode = reviewPolicies.get(key);
+      reviewPolicies.delete(key);
+      for (const fact of opened)
+        if (fact.type === "interaction.opened" && mode)
+          fact.raw = [...(fact.raw ?? []), { type: "ace.permission-policy", data: { mode } }];
+      facts.push(...opened);
       if (item) agent.items.add(item);
       agent.requests.set(key, { item, turn: str(p["turnId"], agent.turn) });
       delete agent.unmatchedFlag;
@@ -229,7 +275,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         state: "cancelled",
       });
     } else if (method === "serverRequest/resolved") {
-      const key = requestKey(p["requestId"]);
+      const key = interactionKey(p["requestId"]);
       facts.push({ type: "interaction.closed", interaction: key, state: "resolved" });
       const item = agent.requests.get(key)?.item;
       if (item && !agent.open.has(item))
@@ -261,7 +307,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       delete agent.pendingTrigger;
       facts.push({ type: "turn.started", agent: agent.key, nativeTurnId: turn, trigger });
     } else if (method === "turn/completed") {
-      completeTurn(agent, native, p, translation, facts);
+      completeTurn(agent, native, p, translation, facts, frame.channel !== "hydration");
       if (agent.unmatchedFlag)
         facts.push({
           type: "interaction.opened",
@@ -400,7 +446,12 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     },
     translate(frame, now) {
       diagnosticFrame = frame.data;
-      diagnostics = raw(str(obj(frame.data)["method"], "codex.frame"), frame.data);
+      diagnostics = raw(
+        frame.dir === "note" && CodexExitDiagnostic.safeParse(frame.data).success
+          ? "codex.session-exit"
+          : str(obj(frame.data)["method"], "codex.frame"),
+        frame.data,
+      );
       try {
         return handle(frame, now);
       } catch {

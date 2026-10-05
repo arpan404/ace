@@ -55,6 +55,8 @@ export const DeviceFailure = z.object({
   ]),
   message: z.string().max(2048),
   hint: z.string().max(2048),
+  /** The macOS privacy permission the daemon's screen helper is missing, when that is the cause. */
+  permission: z.enum(["screenRecording", "accessibility"]).optional(),
 });
 export type DeviceFailure = z.infer<typeof DeviceFailure>;
 export const DeviceInventory = z.object({
@@ -62,6 +64,14 @@ export const DeviceInventory = z.object({
   issues: z.array(DeviceFailure).max(2).default([]),
 });
 export type DeviceInventory = z.infer<typeof DeviceInventory>;
+/** macOS privacy permissions held by the daemon's screen helper (iOS Simulator view and input). */
+export const DevicePermission = z.enum(["screenRecording", "accessibility"]);
+export type DevicePermission = z.infer<typeof DevicePermission>;
+export const DevicePermissions = z.object({
+  screenRecording: z.boolean(),
+  accessibility: z.boolean(),
+});
+export type DevicePermissions = z.infer<typeof DevicePermissions>;
 export const DeviceState = z.object({
   device: AppDevice,
   enabled: z.boolean(),
@@ -79,6 +89,18 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("enable"), enabled: z.boolean() }),
   z.object({ op: z.literal("list") }),
   z.object({ op: z.literal("states") }),
+  /**
+   * A Devices view is open on this connection (or closed, with `watching: false`): only then is
+   * the inventory re-read in the background. Closing the connection ends it too.
+   */
+  z.object({ op: z.literal("inventory.watch"), watching: z.boolean() }),
+  /** The screen helper's macOS permissions, checked afresh. */
+  z.object({ op: z.literal("permissions") }),
+  /**
+   * Ask macOS for a permission on the daemon's Mac: the system prompt the first time, then the
+   * matching Privacy & Security pane in System Settings. Human only.
+   */
+  z.object({ op: z.literal("permissions.request"), permission: DevicePermission }),
   z.object({ op: z.literal("approve"), ...target, threadId: ThreadId, allowed: z.boolean() }),
   z.object({ op: z.literal("boot"), ...target }),
   z.object({ op: z.literal("shutdown"), ...target }),
@@ -128,6 +150,14 @@ export const DeviceServerMessage = z.discriminatedUnion("type", [
     error: DeviceFailure.optional(),
   }),
   z.object({ type: z.literal("devices.state"), state: DeviceState }),
+  /** Devices were turned on or off for the daemon's machine, by any client. */
+  z.object({ type: z.literal("devices.enabled"), enabled: z.boolean() }),
+  /** The device inventory changed (a simulator booted or shut down outside ace, say). */
+  z.object({
+    type: z.literal("devices.inventory"),
+    devices: DeviceInventory.shape.devices,
+    issues: DeviceInventory.shape.issues,
+  }),
   z.object({
     type: z.literal("devices.logs"),
     deviceId: AppDeviceId,

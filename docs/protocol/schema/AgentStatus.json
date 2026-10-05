@@ -98,6 +98,12 @@
       "properties": {
         "error": {
           "properties": {
+            "code": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            },
             "details": {
               "$ref": "https://ace.local/protocol/v1/ProviderErrorDetails.json"
             },
@@ -113,6 +119,9 @@
               "type": "string"
             },
             "message": {
+              "type": "string"
+            },
+            "title": {
               "type": "string"
             }
           },

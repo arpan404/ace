@@ -1,5 +1,6 @@
 import Foundation
 import ApplicationServices
+import AppKit
 
 struct Target: Codable, Equatable {
     let kind: String
@@ -10,8 +11,10 @@ struct Target: Codable, Equatable {
 }
 enum InputCoordinates { case pixels, windowPoints }
 struct Action: Decodable {
-    // This trusted routing field is intentionally excluded from the JSON decoder.
+    // These trusted routing fields are intentionally excluded from the JSON decoder.
     var coordinates: InputCoordinates = .pixels
+    /// Focus the target window first when another window of its app holds focus.
+    var focusFirst = true
     enum CodingKeys: String, CodingKey { case kind, x, y, button, text, keyCode, windowId, modifiers, deltaX, deltaY }
     var kind: String
     var x: Double? = nil
@@ -57,9 +60,11 @@ struct Request: Decodable {
     let limit: Int?
     let ref: String?
     let value: String?
+    let permission: String?
+    let name: String?
     // ui.act's action is a string; decode it separately from v1's action object.
     let semanticAction: String?
-    enum CodingKeys: String, CodingKey { case version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value }
+    enum CodingKeys: String, CodingKey { case version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version); id = try c.decode(String.self, forKey: .id); op = try c.decode(String.self, forKey: .op)
@@ -71,6 +76,7 @@ struct Request: Decodable {
         capture = try c.decodeIfPresent(Bool.self, forKey: .capture); maxDepth = try c.decodeIfPresent(Int.self, forKey: .maxDepth)
         maxNodes = try c.decodeIfPresent(Int.self, forKey: .maxNodes); query = try c.decodeIfPresent(UIQuery.self, forKey: .query)
         limit = try c.decodeIfPresent(Int.self, forKey: .limit); ref = try c.decodeIfPresent(String.self, forKey: .ref); value = try c.decodeIfPresent(String.self, forKey: .value)
+        permission = try c.decodeIfPresent(String.self, forKey: .permission); name = try c.decodeIfPresent(String.self, forKey: .name)
     }
 }
 struct HelperError: Error, CustomStringConvertible {
@@ -94,6 +100,23 @@ func reply<T: Encodable>(_ request: Request, encoded data: T) throws {
     reply(request, data: try JSONSerialization.jsonObject(with: bytes))
 }
 func permissions() -> [String: Bool] { ["screenRecording": CGPreflightScreenCaptureAccess(), "accessibility": AXIsProcessTrusted()] }
+/// A person asked for this permission: show macOS's prompt (only the first time it ever asks),
+/// then open its Privacy & Security pane so the helper's switch is one click away.
+@MainActor func requestPermission(_ permission: String) throws {
+    let pane: String
+    switch permission {
+    case "screenRecording":
+        if CGPreflightScreenCaptureAccess() { return }
+        _ = CGRequestScreenCaptureAccess()
+        pane = "Privacy_ScreenCapture"
+    case "accessibility":
+        if AXIsProcessTrusted() { return }
+        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        pane = "Privacy_Accessibility"
+    default: throw HelperError("Unknown permission", code: "bounds")
+    }
+    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
+}
 func capabilities() -> [String: Any] {
     ["version": 2, "platform": "macos", "capture": ["windows": true, "displays": true, "changeDriven": true],
      "input": ["pointer": true, "keyboard": true, "scroll": true, "text": true], "uiTree": true,

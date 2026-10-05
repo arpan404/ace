@@ -66,7 +66,14 @@ export interface DeviceControls {
   leaseLeftMs: number;
   /** One line: "Live · You're in control", "Off", "Live · The agent is in control". */
   status: string;
-  error: { message: string; hint: string } | undefined;
+  error: DeviceProblem | undefined;
+}
+
+/** A refusal or failure as a person reads it; `permission` names a missing macOS permission. */
+export interface DeviceProblem {
+  message: string;
+  hint: string;
+  permission?: "screenRecording" | "accessibility" | undefined;
 }
 
 export function deviceControls(
@@ -111,7 +118,11 @@ export function deviceControls(
     inControl,
     leaseLeftMs,
     status: who ? `${where} · ${who}` : where,
-    error: state?.error && { message: state.error.message, hint: state.error.hint },
+    error: state?.error && {
+      message: state.error.message,
+      hint: state.error.hint,
+      permission: state.error.permission,
+    },
   };
 }
 

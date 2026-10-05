@@ -125,6 +125,18 @@ export function androidDimensions(output: string): { width: number; height: numb
   return { width, height };
 }
 
+/**
+ * Hardware keys that are buttons on the Simulator window (its toolbar and side buttons), pressed
+ * by accessible name: menu shortcuts reach Simulator only while it is the active app.
+ */
+const simulatorButtons: Partial<Record<Extract<DeviceInput, { kind: "key" }>["key"], string>> = {
+  home: "Home",
+  rotate: "Rotate",
+  power: "Sleep/Wake",
+};
+export function simulatorButton(input: DeviceInput): string | undefined {
+  return input.kind === "key" ? simulatorButtons[input.key] : undefined;
+}
 export function simulatorInput(input: DeviceInput): ScreenInput {
   let mapped: ScreenInput;
   if (input.kind === "swipe" || input.kind === "longPress")
@@ -140,10 +152,6 @@ export function simulatorInput(input: DeviceInput): ScreenInput {
   else if (input.kind === "tap")
     mapped = { kind: "pointer.click", x: input.x, y: input.y, button: "left" };
   else if (input.kind === "type") mapped = { kind: "text.type", text: input.text };
-  else if (input.key === "home")
-    mapped = { kind: "key.press", key: "h", modifiers: ["command", "shift"] };
-  else if (input.key === "rotate")
-    mapped = { kind: "key.press", key: "right", modifiers: ["command"] };
   else if (input.key === "enter") mapped = { kind: "key.press", key: "Return", modifiers: [] };
   else
     throw new DeviceError(
@@ -180,6 +188,12 @@ export function simulatorIdentity(input: Device, inventory: readonly Simulator[]
     ...device,
     name: selected.name,
     state: "booted",
-    runtime: selected.runtime,
+    runtime: simulatorRuntime(selected.runtime),
   });
+}
+
+/** "com.apple.CoreSimulator.SimRuntime.iOS-26-5" as a person reads it: "iOS 26.5". */
+export function simulatorRuntime(identifier: string): string {
+  const match = /SimRuntime\.([A-Za-z]+)-(\d+(?:-\d+)*)$/.exec(identifier);
+  return match?.[1] && match[2] ? `${match[1]} ${match[2].replaceAll("-", ".")}` : identifier;
 }

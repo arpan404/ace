@@ -4,6 +4,7 @@ import { createCodexTranslator } from "./translator.ts";
 import { openCodexSession, type CodexOptions } from "./session.ts";
 export { createCodexTranslator } from "./translator.ts";
 export { codexCapabilities } from "./capabilities.ts";
+export type { CodexSessionContext } from "./session-context.ts";
 export type { CodexOptions } from "./session.ts";
 export function createCodexAdapter(options: CodexOptions = {}): ProviderAdapter {
   return {
@@ -15,3 +16,7 @@ export function createCodexAdapter(options: CodexOptions = {}): ProviderAdapter 
 }
 export const adapter = createCodexAdapter();
 export default adapter;
+
+export { CodexInteractionUnavailable } from "./interaction-lifecycle.ts";
+
+export { CodexExitDiagnostic } from "./exit-diagnostic.ts";
