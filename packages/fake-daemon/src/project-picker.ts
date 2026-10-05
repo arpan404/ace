@@ -1,4 +1,10 @@
-import { commonPrefix, completionParts, ignoredFolder, rankFolders } from "@ace/project-picker";
+import {
+  commonPrefix,
+  completionParts,
+  ignoredFolder,
+  rankFolders,
+  visibleFolder,
+} from "@ace/project-picker";
 import type { ProjectFolderMatch, ProjectsResult } from "@ace/protocol";
 
 type Folder = Omit<ProjectFolderMatch, "score">;
@@ -31,8 +37,10 @@ export function fakeComplete(
   folders: Folder[],
   home: string,
   checked: (path: string) => string,
+  roots: readonly string[],
 ): Extract<ProjectsResult["result"], { kind: "completion" }> {
   const parts = completionParts(input.path, home, "/");
+  checked(parts.expanded);
   const parent = checked(parts.parent);
   if (!folders.some((folder) => folder.path === parent)) throw new Error("directory_unavailable");
   const candidates = folders
@@ -41,7 +49,8 @@ export function fakeComplete(
         folder.path.startsWith(parent + "/") &&
         !folder.path.slice(parent.length + 1).includes("/") &&
         folder.name.startsWith(parts.prefix) &&
-        !ignoredFolder(folder.name, input.showHidden),
+        !ignoredFolder(folder.name, input.showHidden) &&
+        visibleFolder(folder.path, roots, input.showHidden),
     )
     .toSorted((a, b) => a.name.localeCompare(b.name))
     .map((folder) =>

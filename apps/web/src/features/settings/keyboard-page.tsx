@@ -5,6 +5,7 @@ import { Kbd } from "@/components/ui/kbd.tsx";
 import { formatKeys, keymap, type KeymapId } from "@/lib/keymap.ts";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useSetting } from "./data/use-settings.ts";
+import { isRebindable } from "@/lib/keybindings.ts";
 import { conflictFor, recordChord, resolveKeymap } from "./keybindings.ts";
 
 const isApple = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent ?? "Mac");
@@ -54,6 +55,13 @@ export function KeyboardShortcuts() {
       {ids.map((id) => {
         const active = recording === id;
         const changed = id in overrides;
+        // Keys the platform or a control owns (F6, Send, terminal find) are shown, not edited.
+        if (!isRebindable(id))
+          return (
+            <SettingRow key={id} title={keymap[id].label} description="Can't be changed">
+              <Kbd keys={bindings[id]} resolve={false} className="h-5 px-2 text-[12px]" />
+            </SettingRow>
+          );
         return (
           <SettingRow
             key={id}
@@ -91,7 +99,7 @@ export function KeyboardShortcuts() {
               {active ? (
                 <Kbd className="h-5 px-2 text-[12px]">Press keys…</Kbd>
               ) : (
-                <Kbd keys={bindings[id]} className="h-5 px-2 text-[12px]" />
+                <Kbd keys={bindings[id]} resolve={false} className="h-5 px-2 text-[12px]" />
               )}
             </button>
           </SettingRow>

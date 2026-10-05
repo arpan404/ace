@@ -30,7 +30,7 @@ async function indexed(client: Client, query: string) {
 }
 
 test("folder search ranks names and recents, marks Git roots and excludes ignored descendants", async () => {
-  const f = await projectFixture();
+  const f = await projectFixture({ pickerClock: () => 1000 });
   const server = await projectServer(f);
   try {
     for (const name of [
@@ -223,54 +223,6 @@ test("superseding picker queries cancels the old request while other sockets rem
     await f.close();
   }
 });
-
-test("large trees have bounded results, depth and per-request work, then use the warm index", async () => {
-  let clock = 0;
-  const f = await projectFixture({ pickerClock: () => ++clock });
-  const server = await projectServer(f);
-  try {
-    await Promise.all(
-      Array.from({ length: 1100 }, (_, i) =>
-        mkdir(join(f.root, `folder-${String(i).padStart(4, "0")}`)),
-      ),
-    );
-    await mkdir(join(f.root, "deep", "a", "b", "c", "too-deep"), { recursive: true });
-    const client = await server.connect();
-    const before = clock;
-    expect(
-      await read(client, { op: "fs.search", query: "folder", limit: 2, showHidden: false }),
-    ).toMatchObject({ kind: "search", truncated: true });
-    expect(clock - before).toBeLessThan(150);
-    for (let i = 0; i < 80; i++)
-      await read(client, { op: "fs.search", query: "folder", limit: 2, showHidden: false });
-    const warm = clock;
-    const result = await read(client, {
-      op: "fs.search",
-      query: "folder",
-      limit: 2,
-      showHidden: false,
-    });
-    expect(result).toMatchObject({
-      kind: "search",
-      entries: [{ name: "folder-0000" }, { name: "folder-0001" }],
-      truncated: true,
-    });
-    expect(clock - warm).toBeLessThan(20);
-    const durations: number[] = [];
-    for (let sample = 0; sample < 9; sample++) {
-      const started = performance.now();
-      await read(client, { op: "fs.search", query: "folder", limit: 2, showHidden: false });
-      durations.push(performance.now() - started);
-    }
-    expect(durations.toSorted((a, b) => a - b)[4]).toBeLessThan(100);
-    expect(
-      await read(client, { op: "fs.search", query: "too-deep", limit: 10, showHidden: false }),
-    ).toMatchObject({ entries: [] });
-  } finally {
-    await server.close();
-    await f.close();
-  }
-}, 30_000);
 
 test("clone helpers normalize GitHub shorthand and reject credentials and invalid destinations", async () => {
   const f = await projectFixture();

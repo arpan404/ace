@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-export async function proof(url: string, authorization: string) {
+export async function proof(
+  url: string,
+  authorization: string,
+  features?: { url: string; deviceId: string },
+) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -33,8 +37,8 @@ export async function proof(url: string, authorization: string) {
     })
     .parse(await response.json());
   const threadId = body.result.structuredContent.thread.id;
-  const featureUrl = process.env["ACE_TEST_FEATURE_URL"];
-  const deviceId = process.env["ACE_TEST_FEATURE_DEVICE"];
+  const featureUrl = features?.url ?? process.env["ACE_TEST_FEATURE_URL"];
+  const deviceId = features?.deviceId ?? process.env["ACE_TEST_FEATURE_DEVICE"];
   if (featureUrl && deviceId) {
     const responseSchema = z.object({
       result: z.object({

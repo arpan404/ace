@@ -21,6 +21,27 @@ const ignored = new Set([
 export function ignoredFolder(name: string, showHidden: boolean): boolean {
   return ignored.has(name.toLowerCase()) || (!showHidden && name.startsWith("."));
 }
+/** Canonical candidates must pass ignored-folder policy as well as path containment. */
+export function visibleFolder(
+  path: string,
+  roots: readonly string[],
+  showHidden: boolean,
+  separator = "/",
+): boolean {
+  const root = roots
+    .toSorted((a, b) => b.length - a.length)
+    .find((entry) => {
+      const normalized = entry.endsWith(separator) ? entry.slice(0, -separator.length) : entry;
+      return path === entry || path.startsWith(normalized + separator);
+    });
+  return (
+    root !== undefined &&
+    !path
+      .slice(root.length)
+      .split(separator)
+      .some((name) => ignoredFolder(name, showHidden))
+  );
+}
 /** Name matches win over path matches; recent folders break close matches. */
 export function folderScore(query: string, name: string, path: string): number | undefined {
   const needle = query.trim().toLowerCase();
@@ -39,7 +60,7 @@ export function folderScore(query: string, name: string, path: string): number |
   const lower = name.toLowerCase();
   if (lower === needle) return 1000;
   if (lower.startsWith(needle)) return 800 - (lower.length - needle.length) / 10;
-  if (lower.includes(needle)) return 600 - lower.indexOf(needle);
+  if (lower.includes(needle)) return 600 - Math.min(100, lower.indexOf(needle));
   const score = fuzzy(lower);
   return score === undefined ? fuzzy(path.toLowerCase()) : 300 + score;
 }
@@ -72,7 +93,9 @@ export function commonPrefix(values: readonly string[]): string {
     while (length < prefix.length && prefix[length] === value[length]) length++;
     prefix = prefix.slice(0, length);
   }
-  return prefix;
+  // Different astral characters can share a UTF-16 high surrogate, which is not insertable.
+  const last = prefix.charCodeAt(prefix.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? prefix.slice(0, -1) : prefix;
 }
 /** Pure parsing shared by the real and fake host. Never contacts a forge. */
 export function parseCloneUrl(input: string): { url: string; name: string } {
@@ -98,6 +121,7 @@ export function completionParts(input: string, home: string, separator: string) 
         : input;
   const position = expanded.lastIndexOf(separator);
   return {
+    expanded,
     parent: expanded.endsWith(separator) ? expanded : expanded.slice(0, position + 1),
     prefix: expanded.endsWith(separator) ? "" : expanded.slice(position + 1),
     display: input === "~" ? "~/" : input.slice(0, input.lastIndexOf(separator) + 1),

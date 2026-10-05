@@ -3,6 +3,7 @@ import { z } from "zod";
 import { expect, test } from "vitest";
 import { Client } from "@ace/client";
 import {
+  Project,
   DeviceId,
   ProviderKind,
   WorkspaceId,
@@ -969,6 +970,128 @@ test("fake picker uses the machine's roots, completion and clone contract", asyn
     expect(await f.client.projects.complete({ path: "~/Co" })).toMatchObject({
       result: { kind: "error", code: "outside_project_roots" },
     });
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("removed fake projects lose project and last-opened hints while their folders remain searchable", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.projects.seedFolders("/home/person", [{ path: "/home/person/opened-folder" }]);
+    const receipt = await f.client.projects.add({ path: "/home/person/opened-folder" });
+    const project = Project.parse(receipt.workspace);
+    expect(await f.client.projects.search({ query: "opened-folder" })).toMatchObject({
+      result: { entries: [{ isProject: true, lastOpened: 1000 }] },
+    });
+    expect(await f.client.projects.remove({ workspaceId: project.id })).toMatchObject({ ok: true });
+    const result = await f.client.projects.search({ query: "opened-folder" });
+    expect(result).toMatchObject({
+      result: { entries: [{ name: "opened-folder", isProject: false, recentScore: 0 }] },
+    });
+    if (result.result.kind !== "search") throw new Error("Expected search");
+    expect(result.result.entries[0]).not.toHaveProperty("lastOpened");
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("fake completion refuses final traversal and NUL segments and preserves literal backslashes", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.projects.seedFolders("/host/home", [{ path: "/host/home/literal\\Library" }]);
+    for (const path of ["~/..", "~/bad\0name", "/host/home/..", "/host/home/bad\0name"])
+      expect(await f.client.projects.complete({ path })).toMatchObject({
+        result: { kind: "error", code: "invalid_path" },
+      });
+    expect(await f.client.projects.search({ query: "literal" })).toMatchObject({
+      result: { entries: [{ name: "literal\\Library" }] },
+    });
+    expect(await f.client.projects.complete({ path: "~/literal" })).toMatchObject({
+      result: { candidates: [{ name: "literal\\Library", completion: "~/literal\\Library/" }] },
+    });
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("fake draft images appear as attachment metadata and serve fixture bytes on their owning connection", async () => {
+  const f = await fixture();
+  try {
+    const bytes = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
+      ),
+      (c) => c.charCodeAt(0),
+    );
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const draft = await f.client.request({
+      type: "context.request",
+      operation: { op: "draft.create", workspaceId: WorkspaceId.parse("workspace") },
+    });
+    if (draft.result.kind !== "draft") throw new Error("Expected draft");
+    const begin = await f.client.request({
+      type: "context.request",
+      operation: {
+        op: "draft.upload.begin",
+        draftId: draft.result.draftId,
+        sha256,
+        bytes: bytes.length,
+        name: "screen.txt",
+      },
+    });
+    if (begin.result.kind !== "upload") throw new Error("Expected upload");
+    await f.client.request({
+      type: "context.request",
+      operation: {
+        op: "upload.chunk",
+        uploadId: begin.result.uploadId,
+        offset: 0,
+        data: btoa(String.fromCharCode(...bytes)),
+      },
+    });
+    await f.client.request({
+      type: "context.request",
+      operation: { op: "upload.commit", uploadId: begin.result.uploadId },
+    });
+    const created = await f.client.command({
+      type: "thread.create",
+      workspaceId: WorkspaceId.parse("workspace"),
+      provider: "codex",
+      input: [{ type: "text", text: "inspect" }],
+      context: { draftId: draft.result.draftId, mentions: [], attachments: [{ sha256 }] },
+    });
+    if (!created.threadId) throw new Error("Expected thread");
+    const page = await f.client.itemsPage({ threadId: created.threadId, limit: 20 });
+    expect(
+      page.items.find((item) => item.type === "message" && item.role === "user"),
+    ).toMatchObject({
+      attachments: [
+        {
+          sha256,
+          name: "screen.txt",
+          mimeType: "image/png",
+          bytes: bytes.length,
+          width: 1,
+          height: 1,
+          thumbnailAvailable: true,
+        },
+      ],
+    });
+    expect(
+      (
+        await f.client.attachmentBytes({
+          threadId: created.threadId,
+          sha256,
+          variant: "original",
+          maxBytes: bytes.length,
+        })
+      ).bytes,
+    ).toEqual(bytes);
+    expect((await f.client.attachmentBytes({ threadId: created.threadId, sha256 })).bytes).toEqual(
+      bytes,
+    );
+    await expect(f.client.attachmentBytes({ threadId: "other-thread", sha256 })).rejects.toThrow();
   } finally {
     await f.client.close();
   }

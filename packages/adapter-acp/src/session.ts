@@ -1,6 +1,5 @@
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { appendAcpMcp } from "@ace/mcp-server";
-import { AGENT_METHODS, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { AcpConfiguration } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
 import { clientMeta } from "./bridge-negotiation.ts";
@@ -221,6 +220,7 @@ class AcpSession implements ProviderSession {
     });
   }
   async initialize(): Promise<void> {
+    const { AGENT_METHODS, PROTOCOL_VERSION } = await import("@agentclientprotocol/sdk");
     const result = object(
       await this.rpc.request(
         AGENT_METHODS.initialize,

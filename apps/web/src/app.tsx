@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
+import { BootErrorBoundary } from "@/features/connect/index.ts";
 import { LayoutProvider } from "@/lib/layout.tsx";
 import { MachinePoolProvider } from "@/lib/machine-pool.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
@@ -18,14 +19,29 @@ export function createQueryClient(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000 } } });
 }
 
-/** Providers that do not need a daemon: theme, tooltips, toasts. Wraps the connection screen too. */
-export function AppFrame(props: { environment: Environment; children: ReactNode }) {
+/**
+ * Providers that do not need a daemon: theme, tooltips, toasts. Wraps the connection screen
+ * too. Anything that throws below them shows `BootFailure`, never a blank page or the splash.
+ */
+export function AppFrame(props: {
+  environment: Environment;
+  /** Forget the stored daemon and start over at the connection screen (from `BootFailure`). */
+  onConnectionSettings?: (() => void) | undefined;
+  children: ReactNode;
+}) {
   return (
-    <ThemeProvider environment={props.environment}>
-      <TooltipProvider>
-        <ToastProvider>{props.children}</ToastProvider>
-      </TooltipProvider>
-    </ThemeProvider>
+    // Outside the providers too: if theme, tooltips or toasts fail, this still says so.
+    <BootErrorBoundary bare>
+      <ThemeProvider environment={props.environment}>
+        <TooltipProvider>
+          <ToastProvider>
+            <BootErrorBoundary onConnectionSettings={props.onConnectionSettings}>
+              {props.children}
+            </BootErrorBoundary>
+          </ToastProvider>
+        </TooltipProvider>
+      </ThemeProvider>
+    </BootErrorBoundary>
   );
 }
 

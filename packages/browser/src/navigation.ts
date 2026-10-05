@@ -1,3 +1,4 @@
+import { PublicToolError } from "@ace/mcp-server";
 import type { BrowserOriginBlock } from "@ace/protocol";
 
 /** Monotonic time and cancellable timers supplied by the service's I/O boundary. */
@@ -46,7 +47,8 @@ export class NavigationTask {
   private expire(message: string): void {
     this.deadlineExpired = true;
     this.expiredOrigin = this.policyOrigin;
-    this.controller.abort(new Error(message));
+    this.controller.abort(new PublicToolError("timeout"));
+    void message;
   }
   pause(): () => void {
     if (this.paused++ === 0) {

@@ -47,7 +47,7 @@ interface FolderMatch {
 
 `query` is at most 256 characters. Paths and URLs are at most 4,096 characters.
 Limits are integers from 1 to 100. `showHidden` defaults to false. Exact names rank first,
-then prefixes, substrings, fuzzy names and fuzzy root-relative paths. Recent folders add
+then prefixes, substrings, fuzzy names and fuzzy root-relative paths. The score ranges do not overlap, including recency bonuses. Recent folders add
 up to 50 ranking points. An empty query puts recent folders first. The existing
 `fs.recentFolders` response stays compatible and its recent catalog feeds search.
 The top 100 recents can appear below the traversal depth limit. Ignored descendants
@@ -63,16 +63,15 @@ cancels client waiting; send a replacement picker request to supersede host work
 
 The in-memory BFS index admits at most 32 canonical roots, 1,024 directories per root,
 four levels below each root and 128 scan steps per root per call. Each enumeration slice
-examines at most 256 names and yields between directory opens. Search uses a cooperative
-35 ms scan budget; completion uses 50 ms and at most 256 matching directories. OS calls
+examines at most 256 names and yields between directory opens. A suspended directory retains one enumeration of at most 10,000 names per root view, rather than reading and sorting the directory again for every slice. Its device/inode identity is checked before reusing that snapshot. Search uses a cooperative
+35 ms scan budget; completion uses 50 ms and at most 256 metadata lookups for matching entries, including files and rejected links. OS calls
 and result validation can exceed that budget on slow filesystems. No recursive background
 scan, whole-disk traversal or persistent index runs. Indexes refresh lazily after 30 seconds
-and are discarded when roots or hidden mode change. Directory name enumeration has the
-existing descriptor boundary's 10,000-name limit. Warm search validates only the top
-requested matches, so deleted folders and escaping replacements disappear immediately.
+are discarded when roots change, and keep separate hidden-mode views within 32 total cache slots. Directory name enumeration has the
+existing descriptor boundary's 10,000-name limit. Disappearing entries are skipped individually. Transient directory failures retain the queued scan for another request. Warm search validates at most limit + 128 ranked candidates, fills the page past rejected cached hits and checks one additional live match to report truncation. Stale index entries are evicted; a validation cap leaves truncation true when remaining matches are unknown. Roots are resolved once per request and rechecked before delivery, so deleted folders and escaping replacements disappear immediately.
 
 Search never follows directory symlinks. Completion may offer a symlink whose canonical
-target remains allowed; its insertion text preserves the typed alias. Both check realpath
+target remains allowed and passes the ignored-directory policy; its insertion text preserves the typed alias. Both check realpath
 containment, system-directory policy and pinned directory identity. Home is the default
 root when no roots are configured. Explicit roots can exclude home, and `~` cannot bypass
 them. `node_modules`, `.git` internals, caches, `Library`, build outputs, `vendor`, ace data
@@ -84,7 +83,7 @@ trailing host separator. `~/Co` may return `~/Code/`. The common prefix covers e
 validated match, including candidates omitted by the response limit. If scan bounds stop
 validation before all matches are known, `commonPrefix` remains the input. An exhaustive
 scan with no matches returns an empty prefix. Relative paths, other-user tildes, traversal
-and NUL are refused. Typing a trailing separator completes children of that directory.
+and NUL are refused across the entire expanded input, including its final segment. Literal backslashes in POSIX names are preserved. Typing a trailing separator completes children of that directory.
 
 Clone validation accepts credential-free HTTPS, SSH, scp-style `git@host:path` and GitHub
 `owner/repo` shorthand. Shorthand becomes `https://github.com/owner/repo.git`; the suggested

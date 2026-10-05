@@ -105,7 +105,7 @@ export function launch(
     retiring: false,
   };
   const brief = ctx.state.plan?.workstreams.find((w) => w.id === node?.id)?.brief;
-  let prompt = plannerPrompt(ctx.state.spec);
+  let prompt = plannerPrompt(ctx.state.spec, ctx.state.rejectedPlan);
   if (brief && role === "reviewer" && node?.completion)
     prompt = reviewerPrompt(brief, node.completion.revision, ctx.state.spec.repositoryRules);
   else if (brief)
@@ -158,6 +158,7 @@ export function emptyState(
     beforePause: "planning",
     plan: null,
     planApproved: false,
+    rejectedPlan: null,
     ownershipCase,
     accounts: [],
     lanes: {},

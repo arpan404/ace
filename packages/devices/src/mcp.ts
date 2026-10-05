@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { DeviceOperation, AppDeviceId } from "@ace/protocol/devices";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "@ace/protocol";
-import type { Toolkit } from "@ace/mcp-server";
+import {
+  modelImage,
+  ModelImageError,
+  PublicToolError,
+  PublicToolCode,
+  type ModelImageRuntime,
+  type Toolkit,
+} from "@ace/mcp-server";
 import type { ApprovalTarget } from "@ace/protocol";
 import { DevicesService, agentOwner, deviceFailure } from "./service.ts";
 
@@ -9,6 +16,8 @@ const target = z.strictObject({ deviceId: AppDeviceId });
 const schemas = {
   device_list: z.strictObject({}),
   device_boot: target,
+  device_start: target,
+  device_stop: target,
   device_open_app: target.extend({ appId: z.string().min(1).max(256) }),
   device_open_url: target.extend({ url: z.string().min(1).max(4096) }),
   device_screenshot: target,
@@ -37,6 +46,8 @@ const schemas = {
 const operations: Record<string, string> = {
   device_list: "list",
   device_boot: "boot",
+  device_start: "start",
+  device_stop: "stop",
   device_open_app: "open_app",
   device_open_url: "open_url",
   device_ui_tree: "ui.tree",
@@ -52,6 +63,15 @@ const actions = new Map(
     device_list: {
       riskClass: "read-only",
       description: "List available in-app devices and their current status.",
+    },
+    device_start: {
+      riskClass: "read-only",
+      description:
+        "Start capture of a device approved for this thread. Call before device_screenshot. Requires installed capture tools and OS permission; does not grant input control.",
+    },
+    device_stop: {
+      riskClass: "external-effect",
+      description: "Stop device capture. Requires the agent controller lease.",
     },
     device_boot: {
       riskClass: "external-effect",
@@ -118,7 +138,7 @@ const actions = new Map(
     { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
   >),
 );
-export function devicesToolkit(service: DevicesService): Toolkit {
+export function devicesToolkit(service: DevicesService, imageRuntime?: ModelImageRuntime): Toolkit {
   return {
     register(registry) {
       for (const [name, input] of Object.entries(schemas)) {
@@ -153,17 +173,22 @@ export function devicesToolkit(service: DevicesService): Toolkit {
               if (name === "device_screenshot") {
                 const { deviceId } = target.parse(args);
                 const frame = await service.screenshot(deviceId, actor);
+                const image = await modelImage(
+                  { payload: frame.payload, ...frame.header },
+                  signal,
+                  imageRuntime,
+                );
                 signal.throwIfAborted();
                 return {
                   content: [
                     {
                       type: "image" as const,
-                      data: frame.payload.toString("base64"),
+                      data: image.payload.toString("base64"),
                       mimeType: "image/jpeg",
                     },
                     {
                       type: "text" as const,
-                      text: `Frame ${frame.header.sequence}, ${frame.header.width}x${frame.header.height}. Input uses target points; frame scale ${frame.header.scale ?? 1}. Prefer device_find and device_act.`,
+                      text: `Frame ${frame.header.sequence}, ${image.width}x${image.height}. Input uses target points; frame scale ${image.scale}. Prefer device_find and device_act.`,
                     },
                   ],
                 };
@@ -189,10 +214,13 @@ export function devicesToolkit(service: DevicesService): Toolkit {
               signal.throwIfAborted();
               return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
             } catch (error) {
-              return {
-                isError: true,
-                content: [{ type: "text" as const, text: JSON.stringify(deviceFailure(error)) }],
-              };
+              if (error instanceof ModelImageError) throw error;
+              const failure = deviceFailure(error);
+              const code = PublicToolCode.safeParse(failure.code);
+              throw new PublicToolError(
+                code.success ? code.data : "command_failed",
+                failure.permission,
+              );
             } finally {
               signal.removeEventListener("abort", abort);
             }

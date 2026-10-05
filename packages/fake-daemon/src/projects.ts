@@ -425,7 +425,7 @@ export class FakeProjects {
             return [];
           }
           const rank = recent.findIndex((project) => project.path === path);
-          const lastOpened = this.opened.get(path);
+          const lastOpened = rank < 0 ? undefined : this.opened.get(path);
           return [
             {
               name: path.split("/").at(-1) ?? path,
@@ -440,7 +440,13 @@ export class FakeProjects {
         return wrap(
           op.op === "fs.search"
             ? fakeSearch(op, folders, this.roots)
-            : fakeComplete(op, folders, this.homeLink ?? this.home, (path) => this.checked(path)),
+            : fakeComplete(
+                op,
+                folders,
+                this.homeLink ?? this.home,
+                (path) => this.checked(path),
+                this.roots,
+              ),
         );
       }
       if (op.op === "workspace.clone.cancel") {

@@ -1,4 +1,5 @@
 import { parseCloneUrl } from "@ace/project-picker";
+import type { PickerFilesystem } from "./project-picker-filesystem.ts";
 import { ProjectPicker } from "./project-picker.ts";
 import { projectRemotes } from "./project-git.ts";
 import { realpath } from "node:fs/promises";
@@ -33,6 +34,7 @@ export interface ProjectsOptions {
   home?: string;
   /** Monotonic clock at the filesystem I/O boundary, for scan budgets and cache expiry. */
   pickerClock?: () => number;
+  pickerFilesystem?: PickerFilesystem;
   roots?: () => Promise<readonly string[]>;
   git?: GitOptions;
   /** Host-injected test fixture only; no client can set transport policy. */
@@ -70,6 +72,7 @@ export class Projects {
       this.paths,
       this.catalog,
       options.pickerClock ?? (() => performance.now()),
+      options.pickerFilesystem,
     );
     this.commands = new AsyncCommands(store);
     this.stopRevocation = store.devices.onRevoke((device) => this.cancelDevice(device));
