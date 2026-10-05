@@ -72,3 +72,56 @@ test.each(["Grep", "Glob", "arbitrary-plugin"])(
     ).toBe("escalate");
   },
 );
+
+test("auto-review approves a wrapped Codex workspace inspection", () => {
+  expect(
+    reviewPermission({
+      mode: "auto-review",
+      target: {
+        tool: "item/commandExecution/requestApproval",
+        access: "execute",
+        command: "/bin/zsh -lc 'pwd'",
+      },
+      paths: [],
+      trustedShells: ["/bin/zsh"],
+    }).decision,
+  ).toBe("approve");
+});
+test.each([
+  "/bin/zsh -lc 'pwd; rm -rf build'",
+  "/bin/zsh -lc 'cat .env'",
+  "/bin/sh -c 'rm -rf build'",
+  "/bin/zsh -lc 'pwd' extra",
+])("wrapped command stays subject to the risk policy: %s", (command) => {
+  expect(
+    reviewPermission({
+      mode: "auto-review",
+      target: { tool: "shell", access: "execute", command },
+      paths: [],
+      trustedShells: ["/bin/zsh", "/bin/sh"],
+    }).decision,
+  ).not.toBe("approve");
+});
+
+test.each(["/repo/tools/bash", "/repo/evil;touch-owned/bash", "/repo/$HOME/bash", "/bin/bash"])(
+  "a shell name without boundary verification cannot earn approval: %s",
+  (shell) => {
+    expect(
+      reviewPermission({
+        mode: "auto-review",
+        target: { tool: "shell", access: "execute", command: `${shell} -c 'pwd'` },
+        paths: [],
+      }).decision,
+    ).toBe("escalate");
+  },
+);
+test("shell verification is exact and cannot bless a different executable", () => {
+  expect(
+    reviewPermission({
+      mode: "auto-review",
+      target: { tool: "shell", access: "execute", command: "/repo/tools/bash -c 'pwd'" },
+      paths: [],
+      trustedShells: ["/bin/bash"],
+    }).decision,
+  ).toBe("escalate");
+});
