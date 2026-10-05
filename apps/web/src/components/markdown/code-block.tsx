@@ -37,10 +37,17 @@ export function CodeBlock(props: {
   lang?: string | undefined;
   /** Tokens highlighted in the markdown worker; nested blocks highlight here. */
   tokens?: CodeToken[];
+  /** Still being written: plain text until it settles, rather than highlighting each update. */
+  plain?: boolean;
 }) {
   const local = useMemo(
-    () => (props.tokens ? undefined : highlight(props.code, props.lang)),
-    [props.tokens, props.code, props.lang],
+    () =>
+      props.tokens
+        ? undefined
+        : props.plain
+          ? [{ kind: "plain" as const, text: props.code }]
+          : highlight(props.code, props.lang),
+    [props.tokens, props.plain, props.code, props.lang],
   );
   const tokens = props.tokens ?? local ?? [];
   const { copied, copy } = useCopy();

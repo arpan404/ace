@@ -1,8 +1,17 @@
 # Web performance gates
 
 `bun run --filter @ace/web-perf check` runs the bundle budgets, accelerated client soak,
-browser interactions, retained-memory streaming and the million-item long-thread journey.
-The limits live in `src/budgets.ts` and ADR 0056.
+browser interactions, retained-memory streaming, the million-item long-thread journey and
+one long markdown answer streaming. The limits live in `src/budgets.ts` and ADR 0056.
+
+The markdown stream (`src/markdown-stream.ts`, `?markdown=1` in `--mode perf`) streams a
+~40 KB answer of prose, lists, fenced code and tables at 4 KB/s in 20-character deltas while
+a person types into the composer. It reports the markdown worker's time per update (from
+`acePerf.markdown`) early and late in the answer, the page's main-thread busy time per drawn
+frame (CDP `TaskDuration` over a requestAnimationFrame count), and how many markdown blocks
+had their DOM node replaced (a MutationObserver on the answer's blocks). Worker growth,
+main-thread time, interaction and long-task budgets are timing budgets and get one repeat.
+The answer size and the remount count are not timing budgets and fail at once.
 
 `node tools/web-perf/src/bundle.ts --analyze` also prints the client worker's eager and lazy
 chunk sizes, package totals and largest retained modules from Rolldown. Module lengths are
