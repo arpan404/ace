@@ -10,10 +10,6 @@ import {
   type ComponentProps,
   type CSSProperties,
 } from "react";
-import { WarningCircleIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
-import { buttonVariants } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
@@ -29,6 +25,7 @@ import type { ComposerHandle } from "./composer/composer.tsx";
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkOpener } from "./transitions/fork-opener.ts";
+import { ThreadLoadError } from "./thread-load-error.tsx";
 
 // Loaded on first open, off the route's first paint.
 const RenameDialog = lazy(() =>
@@ -154,18 +151,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
         workspace={{ scope: id, definition: threadWorkspace }}
       >
         {error ? (
-          <div role="alert" className="h-full">
-            <EmptyState
-              icon={WarningCircleIcon}
-              title="This thread couldn't be loaded"
-              description={`The daemon said: ${error.message}. The agents keep working; try again from the list.`}
-              action={
-                <Link to="/" className={buttonVariants({ size: "sm" })}>
-                  Back to Home
-                </Link>
-              }
-            />
-          </div>
+          <ThreadLoadError error={error} />
         ) : !meta ? (
           <TranscriptSkeleton />
         ) : (
