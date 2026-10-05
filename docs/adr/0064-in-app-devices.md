@@ -113,8 +113,13 @@ causes, and the decisions that replace the behaviour:
   pushed state still said "shutdown" until someone listed devices again. Boot and shutdown now
   re-read the inventory before answering, and every changed device state is pushed.
 - Nothing noticed a simulator booted or shut down outside ace. While devices are enabled and a
-  devices channel is open, the service re-reads the inventory every four seconds (never when
-  nobody watches) and pushes `devices.inventory` when it changed.
+  Devices view holds an `inventory.watch` lease on its connection (released with the view or the
+  connection), the service re-reads the inventory every four seconds and pushes
+  `devices.inventory` when it changed. State observers, such as the main channel, never cause
+  background reads. Lifecycle acknowledgements wait for a read that started after the change
+  rather than joining one already in flight.
+- Turning devices on or off is pushed to every connection as `devices.enabled`, so views with no
+  device sessions follow it.
 - The live view required the device to be approved for a thread, because only thread approval
   approved the Simulator bundle for capture. A person starting the view now approves the
   Simulator window for capture themselves; agents still need the thread approval.

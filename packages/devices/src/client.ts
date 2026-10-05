@@ -312,6 +312,9 @@ export class DeviceClient {
       if (message.type === "devices.state") {
         this.putState(message.state);
         this.notify();
+      } else if (message.type === "devices.enabled") {
+        this.enabled = message.enabled;
+        this.notify();
       } else if (message.type === "devices.inventory") {
         this.devices = message.devices;
         this.issues = message.issues;

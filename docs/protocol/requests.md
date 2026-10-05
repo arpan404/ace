@@ -1187,7 +1187,11 @@ Example:
 {
   "operation": {
     "deviceId": "android:Uncj8xqu7gKmZnVp8.asjZo",
-    "op": "screenshot"
+    "input": {
+      "key": "rotate",
+      "kind": "key"
+    },
+    "op": "input"
   },
   "requestId": "7P-_lpiOfZTRDDy-39_kO4Em1BsXDo038RNvr-2U5",
   "type": "devices.request"
@@ -1207,6 +1211,7 @@ Example:
 ```json
 {
   "options": {
+    "profile": "persistent",
     "threadId": "example",
     "workspaceId": "example"
   },
@@ -1247,8 +1252,9 @@ Example:
 ```json
 {
   "command": {
-    "action": "click",
-    "ref": "example"
+    "action": "type",
+    "ref": "example",
+    "text": "example"
   },
   "requestId": "example",
   "threadId": "example",
@@ -1308,7 +1314,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sequence": 1,
+  "sequence": 4,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -1364,10 +1370,11 @@ Example:
 ```json
 {
   "input": {
-    "event": "char",
-    "key": "example",
-    "kind": "key",
-    "text": "example"
+    "clickCount": 2,
+    "event": "mousePressed",
+    "kind": "mouse",
+    "x": 9,
+    "y": 8
   },
   "requestId": "example",
   "threadId": "example",
@@ -1459,9 +1466,9 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "installationId": "example",
-    "role": "example",
-    "tier": "example"
+    "effort": "example",
+    "provider": "acp",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -1479,7 +1486,7 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 3,
+  "inputAgeMs": 0,
   "threadId": null,
   "type": "presence.update"
 }
@@ -1500,9 +1507,9 @@ Example:
     "channel": "webpush",
     "platform": "phone",
     "subscription": {
-      "auth": "qGajTOXD8DSgaiNFgM2Yu7",
+      "auth": "XD8DSgaiNFgM2Yu7Gs0RJU",
       "endpoint": "https://example.invalid/",
-      "p256dh": "21GQs3ex6clTLyHSW8yAMCmtRn70zMD3s6ApKEuE0l4e_F3Vd2Fwb1GN0vkOYm6MocLW5Aqqip7R-tob4HJa3Gz"
+      "p256dh": "ex6clTLyHSW8yAMCmtRn70zMD3s6ApKEuE0l4e_F3Vd2Fwb1GN0vkOYm6MocLW5Aqqip7R-tob4HJa3GzwqGajT"
     }
   },
   "type": "notification.register"
@@ -1520,9 +1527,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "quietHours": null
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -1541,7 +1546,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 2
+  "until": 7
 }
 ```
 
@@ -1562,9 +1567,10 @@ Example:
 
 ```json
 {
+  "channel": "devices",
   "deviceId": "example",
   "protocolVersion": 1,
-  "token": "example",
+  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -1583,9 +1589,9 @@ Example:
 
 ```json
 {
-  "paced": false,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -1623,21 +1629,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "headSha": "example",
-      "link": {
-        "pr": {
-          "number": 8,
-          "repository": {
-            "forge": "github",
-            "host": "pQ",
-            "name": "Gx-LBoi",
-            "owner": "kZ-_./S2Tbi5/gRRm7KDA7/2tnsXDEmpZm/j-MCk/t0BSTYO9/1V_aholS/856NJ/KzKExek/fzv/z.lQwNqo"
-          }
-        },
-        "threadId": "example"
-      },
-      "method": "merge",
-      "type": "forge.pr.auto-merge"
+      "name": ".)#",
+      "path": "example",
+      "type": "workspace.add"
     }
   },
   "type": "command"
@@ -1658,7 +1652,7 @@ Example:
 
 ```json
 {
-  "limit": 2,
+  "limit": 10,
   "offset": 8,
   "requestId": "example",
   "streamId": "example",
@@ -1680,8 +1674,8 @@ Example:
 
 ```json
 {
-  "before": 10,
-  "limit": 8,
+  "before": 1,
+  "limit": 10,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -1703,9 +1697,9 @@ Example:
 
 ```json
 {
-  "before": 3,
-  "collection": "runs",
-  "limit": 4,
+  "before": 5,
+  "collection": "backgroundTasks",
+  "limit": 7,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"

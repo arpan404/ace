@@ -64,11 +64,13 @@ export function useDevices(threadId: string, deviceId?: string) {
   const [failed, setFailed] = useState<DeviceProblem | undefined>();
   const connected = snapshot.connected;
 
-  // Read the inventory each time the channel comes up.
+  // Read the inventory each time the channel comes up, and keep it current while this channel
+  // (open only while a devices view is) stays up.
   useEffect(() => {
     if (!session || !connected) return;
     void session.client
-      .request({ op: "list" })
+      .request({ op: "inventory.watch", watching: true })
+      .then(() => session.client.request({ op: "list" }))
       .then(() => session.client.request({ op: "states" }))
       .catch((error: unknown) => setFailed(problem(error)));
   }, [session, connected]);

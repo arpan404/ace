@@ -89,6 +89,11 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("enable"), enabled: z.boolean() }),
   z.object({ op: z.literal("list") }),
   z.object({ op: z.literal("states") }),
+  /**
+   * A Devices view is open on this connection (or closed, with `watching: false`): only then is
+   * the inventory re-read in the background. Closing the connection ends it too.
+   */
+  z.object({ op: z.literal("inventory.watch"), watching: z.boolean() }),
   /** The screen helper's macOS permissions, checked afresh. */
   z.object({ op: z.literal("permissions") }),
   /**
@@ -145,6 +150,8 @@ export const DeviceServerMessage = z.discriminatedUnion("type", [
     error: DeviceFailure.optional(),
   }),
   z.object({ type: z.literal("devices.state"), state: DeviceState }),
+  /** Devices were turned on or off for the daemon's machine, by any client. */
+  z.object({ type: z.literal("devices.enabled"), enabled: z.boolean() }),
   /** The device inventory changed (a simulator booted or shut down outside ace, say). */
   z.object({
     type: z.literal("devices.inventory"),

@@ -102,6 +102,9 @@ Live diagnosis of the in-app Simulator view (ADR 0064) found four macOS-side cau
   window's display mode, which stays valid while NSScreen lists nothing.
 
 Helper installation is versioned: each verified version installs once under
-`screen-helper/<sha256 prefix>/` beside earlier ones, never rewriting a running executable.
+`screen-helper/<version>/`, named for both the executable and Info.plist hashes, beside earlier
+ones, never rewriting a running executable. The copy is staged privately and renamed into place,
+so a version directory exists only complete and concurrent starts share the winner; startup never
+deletes a completed version. Bundles are bounded (256 MiB, 4,096 files).
 This replaces "a mismatched installed version requires an explicit upgrade", which made every
 new app build fail to open its helper.

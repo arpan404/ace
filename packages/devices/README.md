@@ -85,8 +85,9 @@ Simulator in the background when the window is missing. Its name must match
 uniquely, and no other booted Simulator may share that name. A person starting a
 live view approves the Simulator window for capture; agents still need the
 device approved for their thread. Boot and shutdown re-read the inventory, and
-while a devices channel is open the inventory is re-read every few seconds and
-pushed as `devices.inventory`, so a device booted elsewhere shows up. The screen manager currently owns one native capture,
+while a Devices view holds an `inventory.watch` lease the inventory is re-read every few seconds
+and pushed as `devices.inventory`, so a device booted elsewhere shows up. Enabling or disabling
+devices is pushed to every connection as `devices.enabled`. The screen manager currently owns one native capture,
 so another computer/Simulator capture may need to stop first. Timed gestures use
 the helper's target-point drag operation; direct platform calls without a window
 binding can use detected idb.

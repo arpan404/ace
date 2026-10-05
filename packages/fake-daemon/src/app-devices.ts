@@ -263,8 +263,11 @@ export class FakeAppDevices {
   }
 
   private operate(channel: Channel, operation: DeviceOperation): unknown {
+    if (operation.op === "inventory.watch") return { watching: operation.watching };
     if (operation.op === "enable") {
       this.enabled = operation.enabled;
+      for (const open of this.channels)
+        this.send(open, { type: "devices.enabled", enabled: this.enabled });
       if (!this.enabled)
         for (const session of this.sessions.values()) {
           delete session.threadId;

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
@@ -70,15 +70,51 @@ it("a new helper version installs beside the old one, which keeps its bytes and 
   expect(await installScreenHelper(f.app, destination)).toBe(next);
 });
 
-it("an interrupted install is redone instead of blocking every later start", async () => {
+it("a helper whose Info.plist alone changed installs as a new version, leaving the old one running", async () => {
+  const f = await fixture();
+  const destination = join(f.root, "data");
+  const old = await installScreenHelper(f.app, destination);
+  const before = await stat(old);
+  const plist = Buffer.from("changed plist bytes");
+  await writeFile(join(f.app, "Contents/Info.plist"), plist);
+  await writeFile(
+    join(f.root, "source/manifest.json"),
+    JSON.stringify({
+      bundleId: "dev.ace.screen-helper",
+      sha256: hash(f.binary),
+      plistSha256: hash(plist),
+    }),
+  );
+  const next = await installScreenHelper(f.app, destination);
+  expect(next).not.toBe(old);
+  expect(await readFile(join(next, "../../Info.plist"))).toEqual(plist);
+  expect((await stat(old)).ino).toBe(before.ino);
+  expect(await readFile(old)).toEqual(f.binary);
+});
+
+it("starts racing to install the same version all get one complete copy and leave no staging behind", async () => {
+  const f = await fixture();
+  const destination = join(f.root, "data");
+  const paths = await Promise.all(
+    Array.from({ length: 4 }, () => installScreenHelper(f.app, destination)),
+  );
+  expect(new Set(paths).size).toBe(1);
+  expect(await readFile(paths[0] ?? "")).toEqual(f.binary);
+  const left = await readdir(join(destination, "screen-helper"));
+  expect(left.filter((name) => name.startsWith("."))).toEqual([]);
+});
+
+it("a copy abandoned mid-install neither blocks a later start nor touches a completed version", async () => {
   const f = await fixture();
   const destination = join(f.root, "data");
   const path = await installScreenHelper(f.app, destination);
-  // A crash between the copy and the manifest leaves a version directory without one.
-  const version = join(path, "../../../..");
-  await rm(join(version, "manifest.json"));
-  await writeFile(join(version, "AceScreenHelper.app/Contents/MacOS/ace-screen-helper"), "partial");
+  const before = await stat(path);
+  // A start that died mid-copy leaves only its private staging directory.
+  const abandoned = join(destination, "screen-helper", `.${"a".repeat(24)}-dead`);
+  await mkdir(join(abandoned, "AceScreenHelper.app/Contents/MacOS"), { recursive: true });
+  await writeFile(join(abandoned, "AceScreenHelper.app/Contents/MacOS/ace-screen-helper"), "part");
   expect(await installScreenHelper(f.app, destination)).toBe(path);
+  expect((await stat(path)).ino).toBe(before.ino);
   expect(await readFile(path)).toEqual(f.binary);
 });
 

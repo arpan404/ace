@@ -671,6 +671,22 @@
     },
     {
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "type": {
+          "const": "devices.enabled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "devices": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/AppDevice.json"

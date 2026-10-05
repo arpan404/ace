@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it, onTestFinished, vi } from "vitest";
@@ -51,11 +51,20 @@ async function fixture(
     bin,
     "xcrun",
     `const fs = require('node:fs'); const args = process.argv.slice(2);
-    if (args.includes('list')) console.log(JSON.stringify({devices:{'com.apple.CoreSimulator.SimRuntime.iOS-26-5':[{udid:'${udid}',name:'iPhone',state:fs.readFileSync(process.env.SIMULATOR_STATE,'utf8')==='booted'?'Booted':'Shutdown',isAvailable:true}]}}));
+    if (args.includes('list')) {
+      fs.appendFileSync(process.env.SIMULATOR_READS, 'r');
+      const state = fs.readFileSync(process.env.SIMULATOR_STATE,'utf8');
+      // A read marked slow sees the state now and answers late, as a read racing a boot does.
+      if (fs.existsSync(process.env.SIMULATOR_SLOW)) { fs.rmSync(process.env.SIMULATOR_SLOW); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500); }
+      console.log(JSON.stringify({devices:{'com.apple.CoreSimulator.SimRuntime.iOS-26-5':[{udid:'${udid}',name:'iPhone',state:state==='booted'?'Booted':'Shutdown',isAvailable:true}]}}));
+    }
     else if (args.includes('boot')) fs.writeFileSync(process.env.SIMULATOR_STATE,'booted');
     else if (args.includes('shutdown')) fs.writeFileSync(process.env.SIMULATOR_STATE,'shutdown');`,
   );
-  const env = { PATH: bin, SIMULATOR_STATE: state };
+  const reads = join(home, "reads");
+  await writeFile(reads, "");
+  const slow = join(home, "slow-read");
+  const env = { PATH: bin, SIMULATOR_STATE: state, SIMULATOR_READS: reads, SIMULATOR_SLOW: slow };
   let id = 0;
   const screen = new ScreenManager({
     command: process.execPath,
@@ -95,7 +104,27 @@ async function fixture(
       .split("\n")
       .filter(Boolean)
       .map((line): unknown => JSON.parse(line));
-  return { home, state, service, screen, grant, helperJournal, logged };
+  /** How many times the simulator inventory has been read. */
+  const readCount = async () => (await readFile(reads, "utf8")).length;
+  /** Make the next inventory read see the state now but answer 1.5 s later. */
+  const slowNextRead = () => writeFile(slow, "");
+  const slowReadStarted = () =>
+    access(slow).then(
+      () => false,
+      () => true,
+    );
+  return {
+    home,
+    state,
+    service,
+    screen,
+    grant,
+    helperJournal,
+    logged,
+    readCount,
+    slowNextRead,
+    slowReadStarted,
+  };
 }
 
 /** A devices client connected to the service through the bridge, as the app connects. */
@@ -144,7 +173,9 @@ it("a simulator booted from ace reads as running for every watcher, without a re
   // No background reads during the test: the boot itself must bring the new state.
   const f = await fixture({ pollMs: 3_600_000 });
   const { client } = connect(f.service);
+  const other = connect(f.service, "browser-2");
   await vi.waitFor(() => expect(client.getSnapshot().connected).toBe(true));
+  await vi.waitFor(() => expect(other.client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
   await client.request({ op: "controller", deviceId, controller: "human" });
@@ -152,8 +183,46 @@ it("a simulator booted from ace reads as running for every watcher, without a re
 
   await client.request({ op: "boot", deviceId });
 
-  // The state pushed to the client already says booted; nobody asked for the list again.
+  // The state pushed to both clients already says booted; nobody asked for the list again.
   expect(deviceState(client)?.device).toMatchObject({ state: "booted", runtime: "iOS 26.5" });
+  await vi.waitFor(() => expect(deviceState(other.client)?.device.state).toBe("booted"));
+});
+
+it("boot and shutdown answer with the state after them, not a read that started before them", async () => {
+  const f = await fixture({ pollMs: 3_600_000 });
+  const { client } = connect(f.service);
+  await vi.waitFor(() => expect(client.getSnapshot().connected).toBe(true));
+  await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "list" });
+  await client.request({ op: "controller", deviceId, controller: "human" });
+
+  // A read already in flight saw the simulator off; it answers after the boot finishes.
+  await f.slowNextRead();
+  const earlier = client.request({ op: "list" });
+  await vi.waitFor(async () => expect(await f.slowReadStarted()).toBe(true));
+  await client.request({ op: "boot", deviceId });
+  expect(deviceState(client)?.device.state).toBe("booted");
+  await earlier;
+
+  await f.slowNextRead();
+  const before = client.request({ op: "list" });
+  await vi.waitFor(async () => expect(await f.slowReadStarted()).toBe(true));
+  await client.request({ op: "shutdown", deviceId });
+  expect(deviceState(client)?.device.state).toBe("shutdown");
+  await before;
+});
+
+it("turning devices on or off reaches every open view, even one with no device sessions", async () => {
+  const f = await fixture();
+  const quiet = connect(f.service, "window-2");
+  const first = connect(f.service, "window-1");
+  await vi.waitFor(() => expect(quiet.client.getSnapshot().connected).toBe(true));
+  await vi.waitFor(() => expect(first.client.getSnapshot().connected).toBe(true));
+
+  await first.client.request({ op: "enable", enabled: true });
+  await vi.waitFor(() => expect(quiet.client.getSnapshot().enabled).toBe(true));
+  await first.client.request({ op: "enable", enabled: false });
+  await vi.waitFor(() => expect(quiet.client.getSnapshot().enabled).toBe(false));
 });
 
 it("a second view that has no device sessions yet still learns that devices are on", async () => {
@@ -169,11 +238,12 @@ it("a second view that has no device sessions yet still learns that devices are 
   expect(second.client.getSnapshot()).toMatchObject({ enabled: true, states: [] });
 });
 
-it("a simulator booted or shut down outside ace shows up while a client watches", async () => {
+it("a simulator booted or shut down outside ace shows up while a Devices view is open", async () => {
   const f = await fixture();
   const { client } = connect(f.service);
   await vi.waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "inventory.watch", watching: true });
   await client.request({ op: "list" });
   expect(client.getSnapshot().devices).toMatchObject([{ id: deviceId, state: "shutdown" }]);
 
@@ -185,6 +255,29 @@ it("a simulator booted or shut down outside ace shows up while a client watches"
   await vi.waitFor(() =>
     expect(client.getSnapshot().devices).toMatchObject([{ id: deviceId, state: "shutdown" }]),
   );
+});
+
+it("without an open Devices view nothing reads the inventory in the background", async () => {
+  const f = await fixture({ pollMs: 20 });
+  // A connection that only observes device state (the app's main channel does this).
+  const observer = connect(f.service, "main");
+  await vi.waitFor(() => expect(observer.client.getSnapshot().connected).toBe(true));
+  await observer.client.request({ op: "enable", enabled: true });
+  await observer.client.request({ op: "list" });
+  const idle = await f.readCount();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(await f.readCount()).toBe(idle);
+
+  // A Devices view keeps it current, until it closes.
+  const view = connect(f.service, "devices-view");
+  await vi.waitFor(() => expect(view.client.getSnapshot().connected).toBe(true));
+  await view.client.request({ op: "inventory.watch", watching: true });
+  await vi.waitFor(async () => expect(await f.readCount()).toBeGreaterThan(idle + 2));
+  view.client.disconnect();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const closed = await f.readCount();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(await f.readCount()).toBe(closed);
 });
 
 it("frames from the simulator's window reach a person's client, with no thread approval needed", async () => {

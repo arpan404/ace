@@ -44,7 +44,9 @@ import ScreenCaptureKit
 func windowButton(_ window: AXUIElement, named name: String) -> AXUIElement? {
     var queue = [(window, 0)]
     var visited = 0
-    while !queue.isEmpty, visited < 256 {
+    // Each call is bounded; the whole search is too, well inside the helper's command deadline.
+    let deadline = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
+    while !queue.isEmpty, visited < 256, DispatchTime.now().uptimeNanoseconds < deadline {
         let (element, depth) = queue.removeFirst()
         visited += 1
         if (axAttribute(element, kAXRoleAttribute) as? String) == (kAXButtonRole as String),

@@ -37,7 +37,11 @@ export class DevicesService {
   private readonly sessions = new Map<string, DeviceSession>();
   private readonly listeners = new Set<(state: DeviceState) => void>();
   private readonly options: DevicesOptions;
-  private listing: Promise<Device[]> | undefined;
+  /** The inventory read in flight, numbered in the order reads started. */
+  private listing: { read: number; devices: Promise<Device[]> } | undefined;
+  private reads = 0;
+  private inventoryViews = 0;
+  private readonly enabledListeners = new Set<(enabled: boolean) => void>();
   private readonly inventory: InventoryWatch;
   constructor(options: DevicesOptions) {
     this.options = options;
@@ -48,11 +52,29 @@ export class DevicesService {
       log: options.log,
     });
   }
+  /** The inventory, joining a read already in flight. */
   async list(): Promise<Device[]> {
-    this.listing ??= this.refresh().finally(() => {
-      this.listing = undefined;
-    });
-    return this.listing;
+    if (!this.listing) {
+      const listing = { read: ++this.reads, devices: Promise.resolve<Device[]>([]) };
+      listing.devices = this.refresh().finally(() => {
+        if (this.listing === listing) this.listing = undefined;
+      });
+      this.listing = listing;
+    }
+    return this.listing.devices;
+  }
+  /**
+   * The inventory from a read that started after this call: a read already in flight may have
+   * seen the device before a boot or shutdown, so it is waited out rather than joined.
+   */
+  private async freshList(): Promise<Device[]> {
+    const before = this.reads;
+    for (;;) {
+      const current = this.listing;
+      if (!current) return this.list();
+      if (current.read > before) return current.devices;
+      await current.devices.catch(() => {});
+    }
   }
   private async refresh(): Promise<Device[]> {
     if (this.closed)
@@ -123,10 +145,42 @@ export class DevicesService {
         "Close another device connection before reconnecting.",
       );
     this.listeners.add(listener);
-    this.watching();
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+  /**
+   * A Devices view is open: keep the inventory current while devices are on. Release when the
+   * view closes; state observers alone never cause background reads.
+   */
+  holdInventoryView(): () => void {
+    if (this.inventoryViews >= 64)
+      throw new DeviceError(
+        "limit",
+        "Device view limit (64)",
+        "Close another Devices view before opening one.",
+      );
+    this.inventoryViews++;
+    this.watching();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.inventoryViews--;
       this.watching();
+    };
+  }
+  /** Hear when devices are turned on or off, by any client. */
+  watchEnabled(listener: (enabled: boolean) => void): () => void {
+    if (this.enabledListeners.size >= 64)
+      throw new DeviceError(
+        "limit",
+        "Device state subscriber limit (64)",
+        "Close another device connection before reconnecting.",
+      );
+    this.enabledListeners.add(listener);
+    return () => {
+      this.enabledListeners.delete(listener);
     };
   }
   /** Hear about inventory changes: a simulator booting or shutting down, inside ace or not. */
@@ -135,7 +189,7 @@ export class DevicesService {
   }
   /** Keep reading the inventory only while devices are on and a client is watching. */
   private watching(): void {
-    this.inventory.poll(this.enabled && !this.closed && this.listeners.size > 0);
+    this.inventory.poll(this.enabled && !this.closed && this.inventoryViews > 0);
   }
   private emit(session: DeviceSession): void {
     const state = this.state(session);
@@ -192,8 +246,17 @@ export class DevicesService {
     if (operation.op === "enable") {
       if (this.disabling)
         throw new DeviceError("busy", "Devices are disabling", "Wait for resource cleanup.");
+      const changed = this.enabled !== operation.enabled;
       this.enabled = operation.enabled;
       this.watching();
+      if (changed)
+        for (const listener of this.enabledListeners) {
+          try {
+            listener(this.enabled);
+          } catch {
+            /* One subscriber cannot stop the others hearing about the change. */
+          }
+        }
       if (!this.enabled) {
         this.disabling = true;
         try {
@@ -215,6 +278,12 @@ export class DevicesService {
             : devices.filter((device) => this.sessions.get(device.id)?.threadId === actor.threadId),
       };
     }
+    if (operation.op === "inventory.watch")
+      throw new DeviceError(
+        "not_supported",
+        "Only a devices connection watches the inventory",
+        "Open the Devices view.",
+      );
     if (operation.op === "permissions" || operation.op === "permissions.request")
       return this.permissions(operation, actor);
     if (operation.op === "states")
@@ -343,7 +412,7 @@ export class DevicesService {
   }
   /** Read the inventory again after a lifecycle change; watchers hear the new state. */
   private async settled(): Promise<void> {
-    await this.list();
+    await this.freshList();
   }
   private async permissions(
     operation: Extract<DeviceOperation, { op: "permissions" | "permissions.request" }>,
@@ -477,6 +546,7 @@ export class DevicesService {
     );
     this.sessions.clear();
     this.listeners.clear();
+    this.enabledListeners.clear();
     if (errors.length) throw new AggregateError(errors, "Devices close cleanup failed");
   }
 }

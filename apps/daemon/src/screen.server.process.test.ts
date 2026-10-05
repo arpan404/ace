@@ -170,6 +170,9 @@ it("screen state reaches the main channel only, never a devices channel that can
   );
 
   await expect.poll(() => main.types.includes("screen.state"), { timeout: 10_000 }).toBe(true);
+  // A round trip on the devices channel: anything pushed to it before now has arrived.
+  devices.socket.send(JSON.stringify({ type: "ping" }));
+  await expect.poll(() => devices.types.includes("pong"), { timeout: 10_000 }).toBe(true);
   expect(devices.types.filter((type) => type.startsWith("screen."))).toEqual([]);
 });
 

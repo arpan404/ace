@@ -45,6 +45,22 @@
     {
       "properties": {
         "op": {
+          "const": "inventory.watch",
+          "type": "string"
+        },
+        "watching": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "watching"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
           "const": "permissions",
           "type": "string"
         }

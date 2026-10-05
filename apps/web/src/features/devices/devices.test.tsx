@@ -269,7 +269,7 @@ test("when macOS hasn't allowed screen recording, the simulator tab says how to 
   expect(within(iphone).queryByRole("alert", { name: /permission needed/ })).toBeNull();
 });
 
-test("a simulator tap refused for want of Accessibility says how to allow it, above the live screen", async () => {
+test("a simulator key refused for want of Accessibility says how to allow it, above the live screen", async () => {
   const { app, panel } = await openDevices();
   app.daemon.appDevices.permissions.accessibility = false;
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
