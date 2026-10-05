@@ -58,3 +58,30 @@ a permitted lazy import in Node. Client and worker regressions check imported pr
 invalid account IDs without involving provider CLIs.
 
 Reproduce the final sizes and breakdown with `node tools/web-perf/src/bundle.ts --analyze`.
+
+## Browser regression follow-up after #126
+
+Merged main `bdb7079f` and rebuilt the baseline and optimized production bundles. No budgets
+changed. Sizes below are gzip KB (1,024 bytes), rounded to three decimals.
+
+| Worker budget             |      Main | Fixed branch |  Removed | Budget |
+| ------------------------- | --------: | -----------: | -------: | -----: |
+| Eager client worker       | 58.414 KB |    53.428 KB | 4.986 KB |  60 KB |
+| Including all lazy chunks | 72.981 KB |    66.915 KB | 6.066 KB |  73 KB |
+
+The entry is 0.450 KB, shared eager core 52.978 KB, and shared lazy services 13.487 KB. The
+current retained package bytes are: Zod 111,111 eager; protocol 90,837 eager / 76,609 lazy;
+client 88,727 eager / 10,912 lazy; client-worker 35,206 eager; projection 11,921 eager;
+web/bundler 2,761 eager / 348 lazy. The earlier tables record the original `f4511043` baseline.
+
+The worker method omissions incorrectly included Zod's `.array()`. They apply to every Vite
+worker, including the perf worker, where `@ace/core` constructs `RawPayload.array()`. The built
+worker threw before the transcript appeared. Browser origin replies also need this method at
+runtime. Restoring it fixes the real browser path while retaining the size savings.
+
+Both original search-jump cases pass unchanged, including three tool-output hit jumps and the
+empty Errors filter. All six other web-perf process tests pass, run serially by file. The
+six-round million-item long-thread benchmark passes: median search-to-hit 281 ms, interaction
+p95 72 ms, longest task 104 ms, peak 1,126 DOM nodes, and retained heap growth 2.20 MB.
+Typecheck, lint, formatting, size/UI/dependency checks, protocol docs check, and all bundle
+budgets pass. The full suite was not rerun for this follow-up.

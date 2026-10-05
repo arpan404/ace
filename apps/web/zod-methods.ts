@@ -60,17 +60,14 @@ export const droppedZodMethods: Readonly<Record<string, readonly string[]>> = {
   ],
 };
 
-/** The worker never uses fallback schemas; the page's saved Choices still need .catch(). */
+/**
+ * The worker never uses fallback schemas; the page's saved Choices still need .catch().
+ * Keep .array(): browser origin replies use it at runtime, and perf workers build core
+ * validation schemas with it too. These omissions apply to every Vite worker.
+ */
 export const droppedWorkerZodMethods = {
   ...droppedZodMethods,
-  ZodType: [
-    ...(droppedZodMethods["ZodType"] ?? []),
-    "array",
-    "or",
-    "parseAsync",
-    "safeParseAsync",
-    "catch",
-  ],
+  ZodType: [...(droppedZodMethods["ZodType"] ?? []), "or", "parseAsync", "safeParseAsync", "catch"],
   ZodObject: [...(droppedZodMethods["ZodObject"] ?? []), "merge"],
   _ZodString: [
     "includes",
