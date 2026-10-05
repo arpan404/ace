@@ -22,7 +22,8 @@ test("Home opens on the top thread, then comes back to the thread last opened", 
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });
 
   const rail = screen.getByRole("navigation", { name: "Views" });
-  await userEvent.click(within(rail).getByRole("link", { name: /^Activity/ }));
+  const sidebarTop = screen.getByRole("navigation", { name: "App" });
+  await userEvent.click(within(sidebarTop).getByRole("link", { name: /^Activity/ }));
   await screen.findByRole("heading", { level: 1, name: "Activity" });
   await userEvent.click(within(rail).getByRole("link", { name: /^Home/ }));
   expect(

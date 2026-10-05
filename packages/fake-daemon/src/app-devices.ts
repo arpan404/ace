@@ -16,11 +16,17 @@ const leaseMs = 5 * 60_000;
 const width = 390;
 const height = 844;
 
+type StreamSettings = Extract<DeviceOperation, { op: "stream.configure" }>["settings"];
+
 interface Session {
   device: AppDevice;
   threadId?: string;
   lifecycle: DeviceState["lifecycle"];
   streamId?: string;
+  /** What the live stream sends: JPEG until a viewer negotiates H.264 the helper can encode. */
+  codec: "jpeg" | "h264";
+  /** The next H.264 frame is a keyframe: after a (re)configure, a new stream or a request. */
+  keyframe: boolean;
   controller: DeviceState["controller"];
   leaseExpiresAt?: number;
   screen: keyof typeof deviceScreens;
@@ -73,8 +79,9 @@ function decode(base64: string): Uint8Array<ArrayBuffer> {
 /**
  * In-app devices as the daemon's `@ace/devices` service presents them, in memory: an iOS
  * Simulator and an Android emulator, enable, approval for a thread, boot and shutdown, a live
- * stream of JPEG screen frames in the screen binary format, an expiring human control lease,
- * input, and logs. Each `transport()` is one dedicated, already authenticated devices channel.
+ * stream of screen frames in the screen binary format (JPEG, or H.264 when negotiated and
+ * `videoEncoding` is on), an expiring human control lease, input, and logs. Each `transport()`
+ * is one dedicated, already authenticated devices channel.
  * Recording, screenshots and UI trees answer `not_supported`.
  */
 export class FakeAppDevices {
@@ -90,6 +97,14 @@ export class FakeAppDevices {
   readonly permissions: DevicePermissions = { screenRecording: true, accessibility: true };
   /** Each permission a person asked macOS for, in order. */
   readonly requested: DevicePermission[] = [];
+  /**
+   * Whether the screen helper can encode H.264. Off, every stream stays JPEG whatever a viewer
+   * asks for, as on a Mac without a hardware encoder. On, frames asked for as H.264 carry
+   * stand-in bytes for the encoder's NAL units, which only a test's decoder accepts.
+   */
+  videoEncoding = false;
+  /** Every live-view setting a viewer asked for, in order. */
+  readonly streamRequests: { deviceId: string; settings: StreamSettings }[] = [];
   constructor(clock: () => number) {
     this.clock = clock;
     for (const device of [
@@ -114,6 +129,8 @@ export class FakeAppDevices {
         controller: "none",
         screen: "home",
         logs: [],
+        codec: "jpeg",
+        keyframe: true,
       });
   }
 
@@ -189,6 +206,11 @@ export class FakeAppDevices {
 
   private frame(session: Session): Uint8Array {
     const payload = decode(deviceScreens[session.screen]);
+    const video =
+      session.codec === "h264"
+        ? { codec: "h264", keyframe: session.keyframe, videoCodec: "avc1.42E01F" }
+        : { codec: "jpeg" };
+    session.keyframe = false;
     const header = new TextEncoder().encode(
       JSON.stringify({
         version: 1,
@@ -197,7 +219,7 @@ export class FakeAppDevices {
         timestamp: this.clock(),
         width,
         height,
-        codec: "jpeg",
+        ...video,
         scale: 1,
         bytes: payload.byteLength,
       }),
@@ -211,8 +233,10 @@ export class FakeAppDevices {
 
   private paint(session: Session): void {
     if (session.lifecycle !== "live") return;
-    for (const channel of this.channels)
-      if (channel.streams.has(session.device.id)) channel.events.message(this.frame(session));
+    const viewers = [...this.channels].filter((channel) => channel.streams.has(session.device.id));
+    if (!viewers.length) return;
+    const packet = this.frame(session);
+    for (const channel of viewers) channel.events.message(packet);
   }
 
   private log(session: Session, line: string, channel?: Channel): void {
@@ -336,6 +360,8 @@ export class FakeAppDevices {
           throw denied("screenRecording");
         session.lifecycle = "live";
         session.streamId = `stream-${++this.streams}`;
+        session.codec = "jpeg";
+        session.keyframe = true;
         this.publish(session);
         this.paint(session);
         return this.state(session);
@@ -346,8 +372,24 @@ export class FakeAppDevices {
         return this.state(session);
       case "subscribe":
         channel.streams.add(session.device.id);
+        // A new viewer starts from a self-contained frame.
+        session.keyframe = true;
         if (session.lifecycle === "live") channel.events.message(this.frame(session));
         return this.state(session);
+      case "stream.configure": {
+        this.streamRequests.push({ deviceId: session.device.id, settings: operation.settings });
+        const codec = this.videoEncoding ? operation.settings.codec : "jpeg";
+        if (codec !== session.codec) {
+          session.codec = codec;
+          session.keyframe = true;
+          this.paint(session);
+        }
+        return { codec };
+      }
+      case "stream.keyframe":
+        session.keyframe = true;
+        this.paint(session);
+        return { completed: true };
       case "unsubscribe":
         channel.streams.delete(session.device.id);
         return this.state(session);
@@ -358,7 +400,11 @@ export class FakeAppDevices {
         this.inputs.push({ deviceId: session.device.id, input: operation.input });
         if (operation.input.kind === "key" && operation.input.key === "home")
           session.screen = "home";
-        else if (operation.input.kind === "tap") session.screen = "app";
+        else if (
+          operation.input.kind === "tap" ||
+          (operation.input.kind === "pointer" && operation.input.phase === "up")
+        )
+          session.screen = "app";
         this.log(session, `input ${operation.input.kind}`);
         this.paint(session);
         return { completed: true };

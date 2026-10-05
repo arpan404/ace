@@ -10,7 +10,15 @@ export type {
   DeviceTransport,
   DeviceClientOptions,
 } from "@ace/devices/client";
-export { deviceTransport, authenticatedChannel } from "./device-transport.ts";
+export { browserDeviceSocket, deviceTransport, authenticatedChannel } from "./device-transport.ts";
 export type { AuthenticatedChannelOptions, DeviceConnectionTarget } from "./device-transport.ts";
 export { downloadArtifact } from "@ace/files/client";
 export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
+
+export {
+  coalescedPointerMoves,
+  deviceCanvasRenderer,
+  deviceVideoSupported,
+  deviceStreamProfile,
+} from "@ace/devices/video-client";
+export type { DeviceConnection } from "@ace/devices/video-client";

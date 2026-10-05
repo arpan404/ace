@@ -71,7 +71,7 @@ test("on a narrow window the rail and sidebar are a sheet from the header, closi
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   expect(within(sheet).getByRole("navigation", { name: "Views" })).toBeTruthy();
   expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
-  expect(within(sheet).getByLabelText("Daemon: Connected")).toBeTruthy();
+  expect(within(sheet).getByRole("button", { name: "Account and connection" })).toBeTruthy();
   await userEvent.click(within(sheet).getByRole("link", { name: /^Automations/ }));
   await screen.findByRole("heading", { level: 2, name: "Nightly dependency audit" });
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
@@ -216,8 +216,29 @@ test("below 1100px asking for the sidebar back puts the right panel away", async
   expect(sidebar()).toBeTruthy();
 });
 
-test("on a tablet the floating panel closes with Escape, as an overlay does, and focus returns to its toggle", async () => {
+test("at 1024px the right panel docks beside the thread instead of floating over it", async () => {
   windowWidth(1024);
+  await openThread();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  await screen.findByRole("region", { name: "Thread panel" });
+  expect(document.querySelector("[data-scrim]")).toBeNull();
+  await userEvent.keyboard("{Escape}");
+  expect(screen.getByRole("region", { name: "Thread panel" })).toBeTruthy();
+});
+
+test("on a small tablet the floating panel leaves the sidebar where the person put it", async () => {
+  windowWidth(860);
+  await openThread();
+  const frame = document.querySelector("[data-sidebar]");
+  expect(frame?.getAttribute("data-sidebar")).toBe("shown");
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  await screen.findByRole("region", { name: "Thread panel" });
+  expect(document.querySelector("[data-scrim]")).toBeTruthy();
+  expect(frame?.getAttribute("data-sidebar")).toBe("shown");
+});
+
+test("on a tablet the floating panel closes with Escape, as an overlay does, and focus returns to its toggle", async () => {
+  windowWidth(860);
   await openThread();
   const toggle = within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" });
   await userEvent.click(toggle);
@@ -230,7 +251,7 @@ test("on a tablet the floating panel closes with Escape, as an overlay does, and
 });
 
 test("on a tablet a click beside the floating panel closes it", async () => {
-  windowWidth(1024);
+  windowWidth(860);
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   await screen.findByRole("region", { name: "Thread panel" });
@@ -247,4 +268,26 @@ test("in a wide window the panel sits beside the thread and Escape leaves it ope
 
   await userEvent.keyboard("{Escape}");
   expect(screen.getByRole("region", { name: "Thread panel" })).toBeTruthy();
+});
+
+test("the sheet closes when its link to the page already open is tapped", async () => {
+  windowWidth(390);
+  await openThread();
+  // On a phone the header's way to the list is "Back to threads" (#126).
+  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
+  const threads = within(sheet).getByRole("navigation", { name: "Threads" });
+  await userEvent.click(within(threads).getByRole("link", { name: /^Cap cold-start replay/ }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
+});
+
+test("Search in the sheet opens the palette in the sheet's place", async () => {
+  windowWidth(390);
+  await openThread();
+  // On a phone the header's way to the list is "Back to threads" (#126).
+  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
+  await userEvent.click(within(sheet).getByRole("button", { name: "Search and commands" }));
+  expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });

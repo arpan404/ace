@@ -92,7 +92,7 @@ function EffortPanel(props: {
             aria-live="polite"
             className={cn(
               "text-md leading-5 font-semibold",
-              view.effort ? "text-ring" : "text-foreground",
+              view.effort ? "text-link" : "text-foreground",
             )}
           >
             {title}

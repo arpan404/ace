@@ -1,7 +1,14 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { DotsThreeIcon, GearSixIcon } from "@phosphor-icons/react";
 import { useSidebarStore } from "@ace/client-react";
-import { AttentionTally, entryAttention, firstLaunch, type Attention } from "@ace/ui-core";
+import {
+  AttentionTally,
+  entryAttention,
+  firstLaunch,
+  isUnread,
+  type Attention,
+} from "@ace/ui-core";
+import { needYouPhrase } from "@ace/ui-core/counts";
 import { useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -13,13 +20,13 @@ import { SidebarMenu } from "./sidebar-menu.tsx";
 import { activeView, railViews, type RailView, type View } from "./views.ts";
 
 const square =
-  "relative grid size-8 place-items-center rounded-lg text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-sidebar-accent";
-const selected = "bg-foreground/8 text-foreground";
+  "relative grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent pointer-coarse:size-11";
+const selected = "bg-ring/10 text-link";
 
 /**
  * The rail of views: icons only, each named by its tooltip with its shortcut. Home carries a
- * dot while a thread needs you or has news; Activity its needs-you count. More is a menu of the
- * less used places; Settings and the account sit at the foot.
+ * dot while a thread has news (what needs you is counted on the sidebar's bell). More is a menu
+ * of the less used places; Settings and the account sit at the foot.
  */
 export function Rail(props: {
   /** Counts the views own (Activity's needs-you total), composed in by the app layer. */
@@ -54,6 +61,7 @@ export function Rail(props: {
               <button
                 type="button"
                 aria-label="More"
+                aria-current={current === "more" ? "page" : undefined}
                 className={cn(square, current === "more" && selected)}
               >
                 <Icon icon={DotsThreeIcon} size={18} weight="bold" />
@@ -82,18 +90,11 @@ export function Rail(props: {
   );
 }
 
-const dotWords = { "needs-you": "a thread needs you", unread: "new activity" } as const;
-
-function RailLink(props: {
-  view: RailView;
-  active: boolean;
-  badge: number;
-  dot: "needs-you" | "unread" | undefined;
-}) {
+function RailLink(props: { view: RailView; active: boolean; badge: number; dot: Attention }) {
   const { view, active, badge, dot } = props;
-  const count = `${badge} need you`;
+  const count = needYouPhrase(badge);
   const name =
-    badge > 0 ? `${view.label}, ${count}` : dot ? `${view.label}, ${dotWords[dot]}` : view.label;
+    badge > 0 ? `${view.label}, ${count}` : dot ? `${view.label}, new activity` : view.label;
   return (
     <Tip label={view.label} side="right" {...(view.shortcut ? { shortcut: view.shortcut } : {})}>
       <Link
@@ -108,8 +109,7 @@ function RailLink(props: {
           <span
             aria-hidden
             className={cn(
-              "absolute top-1 right-1 size-[7px] rounded-full shadow-[0_0_0_2px_var(--rail)]",
-              dot === "needs-you" ? "bg-status-needs-you" : "bg-ring",
+              "absolute top-1 right-1 size-[7px] rounded-full bg-ring shadow-[0_0_0_2px_var(--rail)]",
             )}
           />
         )}
@@ -119,10 +119,16 @@ function RailLink(props: {
 }
 
 /**
- * Home's dot, kept as counts: each change re-reads only the threads it names (`thread:<id>`),
- * and a fresh snapshot re-reads them all once. Unread is judged against this device's first
- * launch, the same moment Home's list uses.
+ * Home's dot: some thread Home lists has news the person hasn't opened. Kept as counts: each
+ * change re-reads only the threads it names (`thread:<id>`), and a fresh snapshot re-reads them
+ * all once. Unread is judged against this device's first launch, the same moment Home uses.
  */
+function news(entry: Parameters<typeof entryAttention>[0], baseline: number): Attention {
+  return entry && entryAttention(entry, baseline) && isUnread(entry, baseline)
+    ? "unread"
+    : undefined;
+}
+
 function useHomeAttention(): Attention {
   const store = useSidebarStore();
   const { storage } = useLayout();
@@ -135,7 +141,7 @@ function useHomeAttention(): Attention {
       if (!store) return () => {};
       const readAll = () => {
         tally.clear();
-        for (const id of store.ids) tally.set(id, entryAttention(store.thread(id), baseline));
+        for (const id of store.ids) tally.set(id, news(store.thread(id), baseline));
       };
       readAll();
       return store.observe((keys) => {
@@ -145,7 +151,7 @@ function useHomeAttention(): Attention {
           for (const key of keys)
             if (key.startsWith("thread:")) {
               const id = key.slice("thread:".length);
-              tally.set(id, entryAttention(store.thread(id), baseline));
+              tally.set(id, news(store.thread(id), baseline));
             }
         if (tally.value !== before) notify();
       });

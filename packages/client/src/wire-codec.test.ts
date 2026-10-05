@@ -70,3 +70,33 @@ test("a malformed service message is still refused once the schemas have loaded"
   expect(link.state).toBe("fatal");
   expect(link.error?.code).toBe("protocol");
 });
+
+test("imported thread provenance is decoded and validated before history service schemas load", () => {
+  const codec = new WireCodec();
+  const imported = {
+    sourceId: "source",
+    instanceId: "account",
+    native: { provider: "codex", nativeId: "native" },
+    importedAt: 1,
+  };
+  const thread = {
+    id: "thread",
+    workspaceId: "workspace",
+    title: "Imported",
+    provider: "codex",
+    status: { state: "done" },
+    createdAt: 1,
+    updatedAt: 1,
+    imported,
+  };
+  const value = (provenance: object) => ({
+    type: "snapshot",
+    subscriptionId: "sub",
+    seq: 0,
+    view: { kind: "threads", seq: 0, threads: { thread: { ...thread, imported: provenance } } },
+  });
+  expect(codec.decode(value(imported))).toMatchObject({
+    view: { threads: { thread: { imported } } },
+  });
+  expect(() => codec.decode(value({ ...imported, sourceId: "" }))).toThrow();
+});
