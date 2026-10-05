@@ -43,6 +43,7 @@ test("an OpenCode model switch uses the selected model on the next input and pre
   let completed = Promise.withResolvers<void>();
   const h = await harness([], scriptFrames(), {
     provider: "opencode",
+    discovery: { installed: true, auth: "logged_in", loginHint: "unused", version: "2.0.22" },
     nativeAdapter: {
       ...adapter,
       openSession: (ctx) =>

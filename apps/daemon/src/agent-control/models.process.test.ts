@@ -56,7 +56,12 @@ test("delegation carries the discovered OpenCode model to child launch without a
       },
     },
   });
-  f.registry.register(adapter, { installed: true, auth: "logged_in", loginHint: "unused" });
+  f.registry.register(adapter, {
+    installed: true,
+    auth: "logged_in",
+    loginHint: "unused",
+    version: "2.0.22",
+  });
   try {
     const parent = await f.parent();
     const child = f.service.delegate(
