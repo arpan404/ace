@@ -11,7 +11,12 @@ import type { ThreadRef } from "../sources/index.ts";
 import { Composer, type ComposerHandle, type Draft } from "./composer.tsx";
 import { ContextBar } from "./context-bar.tsx";
 import { ContextMeter } from "./context-meter.tsx";
-import { ControlsPending, DeferredQueueArea, DeferredThreadControls } from "./deferred-parts.tsx";
+import {
+  ControlsPending,
+  DeferredPlanChip,
+  DeferredQueueArea,
+  DeferredThreadControls,
+} from "./deferred-parts.tsx";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
 
@@ -160,6 +165,7 @@ export function ThreadComposer({
     >
       <div className={`relative ${readingColumn}`}>
         <Suspense fallback={null}>
+          <DeferredPlanChip.Component threadId={props.thread.id} />
           <DeferredQueueArea.Component threadId={props.thread.id} status={props.status} />
         </Suspense>
         <Composer
