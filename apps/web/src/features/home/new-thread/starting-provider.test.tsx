@@ -1,6 +1,6 @@
 import { workbench } from "@ace/fake-daemon";
 import type { KeyValueStorage } from "@ace/ui-core";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -67,7 +67,12 @@ test("an installed CLI whose catalog lists no models shows an empty state, not a
   // Nothing to start on: the message stays in the composer and no thread is created.
   const field = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(field, "Explain the restart backoff{Enter}");
-  expect((field as HTMLTextAreaElement).value).toBe("Explain the restart backoff");
+  // The composer empties on Enter; a message that wasn't started comes back into it.
+  await waitFor(async () =>
+    expect(
+      ((await screen.findByRole("combobox", { name: "Message" })) as HTMLTextAreaElement).value,
+    ).toBe("Explain the restart backoff"),
+  );
   expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
 });
 
