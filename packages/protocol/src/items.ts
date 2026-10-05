@@ -80,6 +80,7 @@ export const AgentItem = z.discriminatedUnion("type", [
   ItemBase.extend({ type: z.literal("tool_call"), call: ToolCall }),
   ItemBase.extend({
     type: z.literal("notice"),
+    commandId: CommandId.optional(),
     level: z.enum(["info", "warning", "error"]),
     code: z.string().optional(),
     title: z.string().optional(),

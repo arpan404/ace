@@ -211,6 +211,7 @@ export class IntentDelivery {
       item: `intent:${intent.id}`,
       draft: {
         type: "notice",
+        commandId: intent.commandId,
         level: "error",
         text: `${intent.kind}: ${message}`,
         complete: true,

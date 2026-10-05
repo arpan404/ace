@@ -1297,6 +1297,10 @@
               "code": {
                 "type": "string"
               },
+              "commandId": {
+                "minLength": 1,
+                "type": "string"
+              },
               "complete": {
                 "type": "boolean"
               },
