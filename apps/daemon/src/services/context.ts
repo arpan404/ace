@@ -127,7 +127,13 @@ export function createContextSession(context: SocketContext): SocketService {
           }
           contextBusy = true;
           const task = options.context
-            .handle(device, message, () => authorize(scope))
+            .handle(
+              device,
+              message,
+              () =>
+                authorize(scope) &&
+                (!("threadId" in message.operation) || canReadThread(message.operation.threadId)),
+            )
             .then(send)
             .catch((error: unknown) => {
               options.log?.(error);

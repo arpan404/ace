@@ -132,6 +132,90 @@ test("remote operate scope can reserve files but cannot read workspace or attach
   ).toMatchObject({ kind: "error", code: "forbidden" });
 });
 
+test("a WSS attachment read withheld at storage authorization returns no bytes after thread access is revoked", async () => {
+  let context: ContextService | undefined,
+    allowed = true,
+    suspend = false;
+  const { promise: blocked, resolve: entered } = Promise.withResolvers<void>();
+  const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+  const f = await setup({
+    canReadThread: () => allowed,
+    context: {
+      handle: (device, request, access) => {
+        if (!context) throw new Error("Context unavailable");
+        return context.handle(device, request, access);
+      },
+    },
+  });
+  context = await ContextService.open({
+    root: join(f.home, "context"),
+    id: () => "revoked-upload",
+    now: () => 1000,
+    authorize: async () => {
+      if (suspend) {
+        entered();
+        await gate;
+      }
+      return true;
+    },
+    workspace: () => undefined,
+  });
+  const owned = context;
+  cleanups.push(() => owned.close());
+  const bytes = Buffer.from("private attachment"),
+    sha256 = createHash("sha256").update(bytes).digest("hex");
+  const begin = await context.uploads.handle("owner", {
+    op: "upload.begin",
+    threadId: f.thread.id,
+    bytes: bytes.length,
+    sha256,
+    name: "private.txt",
+  });
+  if (begin.kind !== "upload") throw new Error("Expected upload");
+  await context.uploads.handle("owner", {
+    op: "upload.chunk",
+    uploadId: begin.uploadId,
+    offset: 0,
+    data: bytes.toString("base64"),
+  });
+  await context.uploads.handle("owner", { op: "upload.commit", uploadId: begin.uploadId });
+  const paired = await f.pair(["read"]),
+    ticket = await f.ticket(paired.token),
+    agent = pinnedAgent(identity.fingerprint);
+  cleanups.push(() => agent.destroy());
+  const client = new Client(f.server.remoteUrl, { agent });
+  cleanups.push(() => client.close());
+  await once(client.socket, "open");
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse(paired.device.id),
+    ticket: ticket.ticket,
+  });
+  await client.next();
+  suspend = true;
+  client.send({
+    type: "context.request",
+    requestId: "suspended",
+    operation: {
+      op: "attachment.read",
+      threadId: f.thread.id,
+      sha256,
+      variant: "original",
+      offset: 0,
+      limit: 65536,
+    },
+  });
+  await blocked;
+  allowed = false;
+  release();
+  expect(await client.next()).toMatchObject({
+    type: "context.result",
+    requestId: "suspended",
+    result: { kind: "error", code: "forbidden" },
+  });
+});
+
 test("attachment HTTP reads require current read and thread permission, preserve original bytes and bound preview and ranges", async () => {
   let context: ContextService | undefined;
   const { token } = await import("./socket-test-support.ts");

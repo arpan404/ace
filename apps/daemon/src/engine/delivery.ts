@@ -74,7 +74,8 @@ export async function executeIntent(
       prepared?.release();
       throw new DeliveryDeferred("Delivery was superseded before provider consumption");
     }
-    if (prepared?.attachments) actor.rememberAttachments(prepared.attachments);
+    // Commit before any send/admission frame; resume can resolve echoes even if no item survived.
+    if (prepared?.attachments) repo.attachments.remember(actor.id, intent.id, prepared.attachments);
     if (prepared)
       actor.retainInput(
         intent.id,

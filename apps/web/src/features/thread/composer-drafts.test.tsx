@@ -32,7 +32,8 @@ test("an unsent draft is still there after visiting another thread", async () =>
 
 test("a draft and its uploaded files survive a reload, and go once the message is sent", async () => {
   const storage = memoryKeyValue();
-  await app(storage).open("/t/thread-router");
+  const running = app(storage);
+  await running.open("/t/thread-router");
   await userEvent.type(await message(), "Compare with @");
   await userEvent.keyboard("{Escape}");
   await userEvent.upload(
@@ -43,7 +44,8 @@ test("a draft and its uploaded files survive a reload, and go once the message i
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   cleanup();
 
-  const reloaded = app(storage);
+  // A browser reload retains the daemon, including its scoped upload bytes.
+  const reloaded = running;
   await reloaded.open("/t/thread-router");
   const field = await message();
   expect(field.value).toBe("Compare with @");
@@ -57,7 +59,7 @@ test("a draft and its uploaded files survive a reload, and go once the message i
   expect(await within(feed).findByText("Compare with the table")).toBeTruthy();
   cleanup();
 
-  await app(storage).open("/t/thread-router");
+  await running.open("/t/thread-router");
   expect((await message()).value).toBe("");
   expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
 });

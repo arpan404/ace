@@ -24,6 +24,7 @@ import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 
 import { IntentStore, type IntentHeader } from "./intents.ts";
+import { AttachmentCorrelations } from "./attachment-correlations.ts";
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
   private aceAction: typeof import("@ace/mcp-server").aceToolAction | undefined;
@@ -35,6 +36,7 @@ export class EngineRepository {
   readonly queue: QueueStore;
   readonly inputs: InputJournal;
   readonly pending: IntentStore;
+  readonly attachments: AttachmentCorrelations;
   observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
   private ids: IdSource;
   private capacity: number;
@@ -64,6 +66,7 @@ export class EngineRepository {
     this.store = store;
     this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
+    this.attachments = new AttachmentCorrelations(store);
     store.atomic((db) =>
       db.exec(
         "CREATE INDEX IF NOT EXISTS engine_entity_ids ON engine_state_records(thread_id,section,json_extract(value,'$.id')) WHERE section IN ('interactions','tasks')",

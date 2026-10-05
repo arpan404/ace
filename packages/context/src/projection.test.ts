@@ -121,7 +121,7 @@ describe("native attachment projection", () => {
     });
     expect(result.diagnostics).toHaveLength(1);
   });
-  test("missing bytes and unsupported MIME types produce path references with diagnostics", () => {
+  test("missing bytes and unsupported MIME types explain provider limitations without local paths", () => {
     const result = projectAttachments(
       [
         { path: "/repo/x.svg", name: "x.svg", mimeType: "image/svg+xml" },

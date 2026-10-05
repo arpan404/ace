@@ -76,7 +76,7 @@ test("composer resolves mentions and stored phone uploads into one provider inpu
   ]);
   expect(result.diagnostics).toEqual([]);
 });
-test("binary mentions retain validated paths and typed fallback diagnostics", async () => {
+test("binary mentions explain provider limitations without local paths", async () => {
   const f = await fixture();
   await f.write("binary.dat", Buffer.from([0, 1]));
   const result = await f.service.compose(
