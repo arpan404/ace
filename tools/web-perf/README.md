@@ -4,6 +4,14 @@
 browser interactions, retained-memory streaming and the million-item long-thread journey.
 The limits live in `src/budgets.ts` and ADR 0056.
 
+`node tools/web-perf/src/bundle.ts --analyze` also prints the client worker's eager and lazy
+chunk sizes, package totals and largest retained modules from Rolldown. Module lengths are
+before minification; gzip sizes count each emitted chunk once, as the budgets do. The report
+asset is emitted only for analysis builds. Every production build checks the worker's static
+imports against `forbiddenEagerWorkerModules` in `apps/web/worker-bundle.ts`, reporting the
+module name if a cold service, page implementation or duplicate mini schema runtime returns
+to the startup path. See [the bundle diet measurements](client-worker-diet.md).
+
 The long-thread journey keeps all six rounds, 2,000 indexed turns, 48 subagent threads and
 20 live items per second. A run that exceeds only readiness, interaction or long-task timing
 budgets gets one complete repeat in a fresh browser. Both samples are printed. A second

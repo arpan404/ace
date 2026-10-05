@@ -60,7 +60,34 @@ export const droppedZodMethods: Readonly<Record<string, readonly string[]>> = {
   ],
 };
 
+/** The worker never uses fallback schemas; the page's saved Choices still need .catch(). */
+export const droppedWorkerZodMethods = {
+  ...droppedZodMethods,
+  ZodType: [
+    ...(droppedZodMethods["ZodType"] ?? []),
+    "array",
+    "or",
+    "parseAsync",
+    "safeParseAsync",
+    "catch",
+  ],
+  ZodObject: [...(droppedZodMethods["ZodObject"] ?? []), "merge"],
+  _ZodString: [
+    "includes",
+    "startsWith",
+    "endsWith",
+    "lowercase",
+    "uppercase",
+    "normalize",
+    "toLowerCase",
+    "toUpperCase",
+    "slugify",
+  ],
+  ZodError: ["format", "flatten"],
+};
+
 const classicSchemas = /zod\/v4\/classic\/schemas\.js$/;
+const classicErrors = /zod\/v4\/classic\/errors\.js$/;
 const stub = "__aceDroppedZodMethod";
 
 interface Node {
@@ -123,6 +150,18 @@ export function zodWithoutUnusedMethods(
   return {
     name: "ace:zod-without-unused-methods",
     transform(code, id) {
+      if (classicErrors.test(id.split("?")[0] ?? id) && dropped["ZodError"]?.length) {
+        const out = new MagicString(code);
+        out.replaceAll(
+          /_lazyMethod\(proto, "(format|flatten)",[^;]+;/g,
+          (_match, name: string) =>
+            `_lazyMethod(proto, "${name}", () => () => ${stub}("${name}"));`,
+        );
+        out.append(
+          `\nfunction ${stub}(name) { throw new Error(\`Zod's .\${name}() is left out of browser builds (apps/web/zod-methods.ts).\`); }\n`,
+        );
+        return { code: out.toString(), map: out.generateMap({ hires: true, source: id }) };
+      }
       if (!classicSchemas.test(id.split("?")[0] ?? id)) return null;
       const out = new MagicString(code);
       let changed = false;
