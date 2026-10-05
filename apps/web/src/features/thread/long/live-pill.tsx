@@ -27,7 +27,7 @@ export function LivePill(props: {
       )}
       Jump to live
       {count && (
-        <span className="rounded-full bg-[color-mix(in_oklab,var(--ring)_22%,transparent)] px-1.5 text-xs tabular-nums text-foreground">
+        <span className="rounded-full bg-ring/22 px-1.5 text-xs tabular-nums text-foreground">
           {count}
         </span>
       )}

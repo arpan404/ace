@@ -14,7 +14,7 @@ export const budgets = {
     firstScreenKb: 405,
     /** Any lazily loaded route, the chunks it adds beyond the initial ones, gzip. 134 KB. */
     routeKb: 138,
-    /** CSS, gzip. 20.2 KB. */
+    /** CSS, gzip. 19.2 KB (20.9 before Tailwind's legacy-browser polyfills were stripped). */
     cssKb: 21,
     /** A worker's eager script (client 56, markdown 33, diff 24 KB). */
     workerKb: 60,
