@@ -1,7 +1,6 @@
-import { ScreenStreamSettings } from "./screen.ts";
 import { z } from "zod";
 import { ThreadId, AgentId } from "./ids.ts";
-import { ScreenId } from "./screen-base.ts";
+import { ScreenId, ScreenStreamSettings } from "./screen-base.ts";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "./screen-v2.ts";
 
 export const AppDeviceId = z
