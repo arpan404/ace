@@ -334,7 +334,16 @@ export class ModelCatalog implements ModelCatalogApi {
         let timedOut = false;
         try {
           await state.invalidating;
-          await state.admit?.();
+          try {
+            await state.admit?.();
+          } catch (error) {
+            if (this.#states.get(state.config.id) !== state || this.#closed) return;
+            // A failed home/identity guard revokes cached choices too. A provider
+            // discovery failure below may retain stale rows from a valid home.
+            delete state.entry;
+            await this.#deletions.remove(state.config.id);
+            throw error;
+          }
           if (abort.signal.aborted || this.#closed) return;
           if (this.#discoveries.size >= 64) throw new Error("Discovery cleanup limit reached");
           const failure = new Promise<never>((_, reject) => {

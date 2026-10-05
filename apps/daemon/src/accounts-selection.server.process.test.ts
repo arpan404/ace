@@ -7,7 +7,7 @@ import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { Command } from "@ace/protocol";
 import { Engine, AdapterRegistry } from "./engine/index.ts";
 import { fixture } from "./socket-test-support.ts";
-import { harness, poll } from "./account-management-test-support.ts";
+import { harness } from "./account-management-test-support.ts";
 
 // Set default over the socket, reopen the registry, then create a real engine session over a socket.
 // Guards mutation 4 and admission through a replaced managed home (blocker 2).
@@ -67,6 +67,7 @@ test.each([false, true])(
         },
       },
     });
+    const workspace = socket.store.createWorkspace(f.dataDir, "Managed account workspace");
     engine = new Engine(socket.store, {
       registry: adapters,
       prepareWorkspace: async () => f.dataDir,
@@ -84,7 +85,7 @@ test.each([false, true])(
         deviceId: "device",
         payload: {
           type: "thread.create",
-          workspaceId: socket.workspace,
+          workspaceId: workspace,
           provider: "codex",
           input: [{ type: "text", text: "controlled fake adapter" }],
         },
@@ -101,11 +102,24 @@ test.each([false, true])(
       if (replaced) {
         expect(admitted).toEqual([]);
         expect(scripted.sessions).toHaveLength(0);
-        await poll(
-          () =>
-            socket.store.listThreads().find((thread) => thread.id !== socket.thread.id)?.status
-              .state,
-        ).toBe("failed");
+        // Opening failed before delivery, so the engine retains the original
+        // input in a paused queue for an explicit retry (no run was started).
+        expect(engine.commandExecution(command.id)).toBe("queued");
+        const created = socket.store.listThreads().find((thread) => thread.id !== socket.thread.id);
+        if (!created) throw new Error("Created thread missing");
+        expect(created.status).toEqual({ state: "waiting", on: "queue" });
+        expect(engine.queue(created.id)).toMatchObject({ paused: true, reason: "manual" });
+        expect(
+          socket.store.readItemPage(created.id, Number.MAX_SAFE_INTEGER, 100, 262144).items,
+        ).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "notice",
+              level: "error",
+              text: expect.stringContaining("Managed home"),
+            }),
+          ]),
+        );
       } else {
         expect(admitted).toEqual([
           { id: account.id, home: join(f.dataDir, "account-homes", account.id) },

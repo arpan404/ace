@@ -108,7 +108,9 @@ export class AccountService {
       this.registry.selectedCursorSdk() ??
       pickInstance(
         { provider: "cursor", role: "worker", estimatedLoad: 1 },
-        this.registry.list().filter((a) => !this.migrating.has(a.instance.id)),
+        this.registry
+          .list()
+          .filter((a) => !a.instance.implicit && !this.migrating.has(a.instance.id)),
         this.now(),
       )?.id
     );
@@ -197,13 +199,7 @@ export class AccountService {
     const assignment = AccountAssignment.parse({
       ...selection,
       instanceId:
-        selection.instanceId ??
-        this.registry.selectedProvider(adapter.provider) ??
-        preferred ??
-        (adapter.backend !== "cursor-sdk" &&
-        this.registry.get(`${adapter.provider}-cli-default`)?.instance.implicit
-          ? `${adapter.provider}-cli-default`
-          : undefined),
+        selection.instanceId ?? this.registry.selectedProvider(adapter.provider) ?? preferred,
     });
     if (context.resume && !assignment.instanceId)
       throw new Error("Resuming requires a pinned provider instance");
@@ -216,7 +212,9 @@ export class AccountService {
             role: assignment.role,
             estimatedLoad: assignment.estimatedLoad,
           },
-          this.registry.list().filter((a) => !this.migrating.has(a.instance.id)),
+          this.registry
+            .list()
+            .filter((a) => !a.instance.implicit && !this.migrating.has(a.instance.id)),
           this.now(),
         );
     if (provider === "acp") {

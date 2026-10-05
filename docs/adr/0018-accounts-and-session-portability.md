@@ -147,3 +147,24 @@ validation. The UTF-8 decoder holds at most an incomplete character; it creates
 no auth history, capture, replay or persisted output. Review regressions and
 mutation cases are written but not executed under the owner's merge-time testing
 rule. Runtime, process-effects and benchmark measurements need run at merge.
+
+### Amendment: implicit accounts and existing execution admission
+
+Adding an implicit account is a catalog operation. Its unknown sign-in status
+must not disable the existing normal CLI execution path or the conductor's
+`local.<provider>` account identity. Without an explicit selection or provider
+default, native execution keeps that path when there are no registered isolated
+accounts. Where registered accounts exist, preserve their quota-aware selection;
+an implicit home with no quota observations cannot displace them. An explicit
+provider default or pinned session still takes precedence. Cursor SDK continues
+to use its separate registered home and cannot use the implicit CLI login.
+Delegation and conductor admission therefore distinguish registered accounts
+from implicit records instead of treating every listed home as a scheduler candidate.
+
+A metadata discovery guard that rejects a changed home also revokes that account's
+cached model choices. Ordinary provider discovery failures may retain stale
+choices for a valid home. Removal waits for cancellation cleanup, so callers and
+test discoverers must release owned I/O before awaiting removal. Session opening
+failure preserves undelivered input in a paused queue with a visible error, as in
+ADR 0053. These admission changes preserve ADR 0002: no new credential inspection
+or provider authentication runs on the implicit home.

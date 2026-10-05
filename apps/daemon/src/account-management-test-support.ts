@@ -185,6 +185,17 @@ export async function harness(
         break;
       }
     }
+    // Exit precedes status/model cleanup. A close reply drains an owned auth
+    // terminal; "forbidden" means it already finished and left the auth map.
+    // This socket round trip is the completion barrier, not a timed sleep.
+    const settled = await request(owner, {
+      type: "terminal.request",
+      requestId: rid(),
+      operation: { op: "close", terminalId: reply.terminalId },
+    });
+    if (settled.type !== "terminal.result") throw new Error(JSON.stringify(settled));
+    if (!settled.ok) expect(settled.error).toBe("forbidden");
+    expect(accounts.isChangingAccount(instanceId)).toBe(false);
     return reply;
   }
   async function status(instanceId: string) {

@@ -54,19 +54,22 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
 
 /** The accounts in the approved design, as the daemon lists them. */
 export function accountSummaries(now: number): AccountSummary[] {
+  const registered = accountList(now);
   return [
-    ...accountList(now).map((account) => accountSummary(account, now)),
+    ...registered.map((account) => accountSummary(account, now)),
     ...NativeAccountProvider.options
       .filter((provider) => provider !== "opencode" && provider !== "cursor")
       .map((provider) => ({
         id: `${provider}-cli-default`,
         provider,
+        installationVersion: registered.find((account) => account.provider === provider)
+          ?.cliVersion,
         label: "Default (your CLI login)",
         implicit: true,
         isDefault: true,
-        availability: "available" as const,
+        availability: "unknown" as const,
         quota: {
-          auth: "logged_in" as const,
+          auth: "unknown" as const,
           observedAt: now,
           windows: {},
           blockers: {},
