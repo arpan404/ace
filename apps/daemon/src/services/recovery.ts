@@ -1,3 +1,4 @@
+import { automaticTarget, blockedUntil } from "@ace/accounts/availability";
 import { canonicalContext } from "@ace/context";
 import type { PrepareInput } from "../engine/input.ts";
 import { z } from "zod";
@@ -38,20 +39,8 @@ export function recoveryPorts(
     resetAt(id) {
       const instance = metadata(id).instanceId;
       const quota = instance ? services.accountRegistry?.get(instance)?.quota : undefined;
-      if (!quota) return undefined;
-      if (quota.blockers.overflow) return null;
-      const windows = [
-        ...Object.values(quota.windows),
-        ...(quota.blockers.limitError ? [quota.blockers.limitError] : []),
-      ].filter(
-        (window) =>
-          window.usedPercent >= 100 && (window.resetsAt === null || window.resetsAt > now()),
-      );
-      if (windows.some((window) => window.resetsAt === null)) return null;
-      if (!windows.length) return undefined;
-      return Math.max(
-        ...windows.flatMap((window) => (window.resetsAt === null ? [] : [window.resetsAt])),
-      );
+      // The daemon's own blocking-window rule, shared with the clients that word it.
+      return quota ? blockedUntil(quota, now()) : undefined;
     },
     async migrate(id, target) {
       const session = metadata(id);
@@ -64,14 +53,11 @@ export function recoveryPorts(
         throw new Error("Account-bound native session is required");
       const to =
         target ??
-        services.accountRegistry
-          ?.summaries(now())
-          .find(
-            (account) =>
-              account.id !== session.instanceId &&
-              account.provider === provider &&
-              account.availability === "available",
-          )?.id;
+        automaticTarget(
+          services.accountRegistry?.summaries(now()) ?? [],
+          { id: session.instanceId, provider },
+          now(),
+        )?.id;
       if (!to || to === session.instanceId) throw new Error("No other available provider account");
       const result = await services.accounts.handle({
         type: "accounts.migrate",

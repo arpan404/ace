@@ -1,5 +1,6 @@
+import { liveWindow } from "@ace/accounts/availability";
 import type { ProviderKind } from "@ace/protocol";
-import type { AccountSummary } from "@ace/protocol/accounts";
+import type { AccountQuota, AccountSummary } from "@ace/protocol/accounts";
 import type { z } from "zod";
 import { providerDisplayName } from "./providers.ts";
 
@@ -23,10 +24,13 @@ export interface AccountView {
   /** CLI version discovery reported, if any. */
   version: string | undefined;
   label: string;
+  /** What the daemon said when it was read; `accountLimit` says what holds at a later moment. */
   availability: Summary["availability"];
   signedIn: boolean;
   /** Shortest window first: 5-hour, then daily, weekly, then the rest by name. */
   windows: QuotaWindowView[];
+  /** The quota as the daemon reported it, blockers included, for the shared availability rules. */
+  quota: AccountQuota;
 }
 
 const known: [RegExp, string, number][] = [
@@ -71,18 +75,18 @@ export function accountView(summary: Summary): AccountView {
     availability: summary.availability,
     signedIn: summary.quota.auth !== "logged_out" && summary.availability !== "logged_out",
     windows,
+    quota: summary.quota,
   };
 }
 
 /** The window closest to its limit, which decides whether the account can take work. */
-export function tightestWindow(account: AccountView): QuotaWindowView | undefined {
+export function tightestWindow(account: {
+  windows: readonly QuotaWindowView[];
+}): QuotaWindowView | undefined {
   return account.windows.toSorted((a, b) => b.usedPercent - a.usedPercent)[0];
 }
 
-/** The earliest reset among exhausted windows: when the account can work again. */
-export function blockingReset(account: AccountView): number | undefined {
-  const resets = account.windows
-    .filter((window) => window.usedPercent >= 100 && window.resetsAt !== null)
-    .map((window) => window.resetsAt ?? 0);
-  return resets.length ? Math.min(...resets) : undefined;
+/** The account's windows still in their period at `now`: one that has reset no longer counts. */
+export function liveWindows(account: Pick<AccountView, "windows">, now: number): QuotaWindowView[] {
+  return account.windows.filter((window) => liveWindow(window, now));
 }

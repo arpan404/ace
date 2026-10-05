@@ -53,6 +53,15 @@ test("a thread that needs you is emphasised without a second unread announcement
   expect(card.status).toEqual({ label: "Needs you", tone: "needs-you", mark: "needs-you" });
 });
 
+test("a thread held at its account's usage limit is marked in the list, unlike a waiting one", () => {
+  const limited = threadCard(input({ entry: entry("t", { state: "limited" }, now) }));
+  expect(limited.status).toEqual({ label: "Limited", tone: "waiting", mark: "limited" });
+  const waiting = threadCard(
+    input({ entry: entry("t", { state: "waiting", on: "background_task" }, now) }),
+  );
+  expect(waiting.status.mark).toBe("none");
+});
+
 test("a working thread counts the subagents beside its main agent", () => {
   const card = threadCard(input({ entry: entry("t", { state: "working", agents: 3 }, now) }));
   expect(card.subagents).toBe(2);
