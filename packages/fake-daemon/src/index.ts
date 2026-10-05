@@ -63,3 +63,5 @@ export { FakeServices, FakeSettings } from "./services/index.ts";
 export { FakeAccess } from "./access.ts";
 export { FakeAppDevices } from "./app-devices.ts";
 export { accountSummary } from "./services/accounts.ts";
+
+export { uxAudit, uxAuditScreens } from "./scenarios/ux-audit.ts";

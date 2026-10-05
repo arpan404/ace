@@ -4,6 +4,7 @@ import type { AgentRecord, ThreadState } from "@ace/core";
 import {
   ThreadLineage,
   Agent,
+  AgentError,
   AgentActivity,
   AgentFidelity,
   AgentStatus,
@@ -22,10 +23,7 @@ import {
 
 const records = <T extends z.ZodType>(schema: T) => z.record(z.string(), schema);
 const keys = records(z.literal(true));
-const error = z.object({
-  kind: z.enum(["provider", "auth", "quota", "network", "process_exit", "unknown"]),
-  message: z.string(),
-});
+const error = AgentError;
 const root = z.object({
   agent: z.string(),
   lineage: ThreadLineage.optional(),

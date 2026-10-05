@@ -80,9 +80,8 @@ it("retains future fields on recognized native session metadata", () => {
   h.event("session.updated", {
     info: { id: "root_native", directory: "/work", unknownFuture: 17 },
   });
-  expect(
-    Object.values(h.view.items).some((item) => JSON.stringify(item).includes('"unknownFuture":17')),
-  ).toBe(true);
+  expect(JSON.stringify(h.diagnostics)).toContain('"unknownFuture":17');
+  expect(JSON.stringify(h.view.items)).not.toContain('"unknownFuture":17');
 });
 it("bounds completed-part reconciliation while retaining live parts and recent deltas", () => {
   const translator = new OpenCodeTranslator({

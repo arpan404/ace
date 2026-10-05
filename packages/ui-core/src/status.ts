@@ -69,3 +69,45 @@ export function threadStatusMark(status: ThreadStatus): ThreadMarkKind {
 export function runningSubagents(status: ThreadStatus): number {
   return status.state === "working" ? Math.max(0, status.agents - 1) : 0;
 }
+
+/** What a status pill draws beside its words: a ring while working, a check, a warning sign. */
+export type PillIcon = "working" | "needs-you" | "waiting" | "done" | "failed";
+
+/** A task row's status pill: short words, a tone and, while working, when it started. */
+export interface TaskPill {
+  /** "Working", "Needs you", "Done": the short form; the row's name has the full status. */
+  label: string;
+  tone: Tone;
+  icon: PillIcon;
+  /** While working: the moment it began, for the live "Working 18s". */
+  since?: number | undefined;
+}
+
+/**
+ * The pill a task row shows on its first line, or none: a settled-in thread (done and read, or
+ * new) shows its age instead. `since` is when the status last changed (the entry's activity),
+ * which is when a working thread started working.
+ */
+export function taskPill(
+  status: ThreadStatus,
+  input: { unread: boolean; since: number },
+): TaskPill | undefined {
+  switch (status.state) {
+    case "needs_you":
+      return { label: "Needs you", tone: "needs-you", icon: "needs-you" };
+    case "working":
+      return { label: "Working", tone: "working", icon: "working", since: input.since };
+    case "waiting":
+      return { label: "Waiting", tone: "waiting", icon: "waiting" };
+    case "limited":
+      return { label: "Limited", tone: "waiting", icon: "waiting" };
+    case "failed":
+      return { label: "Failed", tone: "failed", icon: "failed" };
+    case "unresponsive":
+      return { label: "Unresponsive", tone: "failed", icon: "failed" };
+    case "done":
+      return input.unread ? { label: "Done", tone: "done", icon: "done" } : undefined;
+    case "new":
+      return undefined;
+  }
+}

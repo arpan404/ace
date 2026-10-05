@@ -222,7 +222,7 @@ export function DaemonForm(props: {
       {props.alert && (
         <div
           role="alert"
-          className="rounded-md bg-[color-mix(in_oklab,var(--destructive)_10%,transparent)] px-3 py-2.5 text-ui leading-normal text-foreground"
+          className="rounded-md bg-destructive/10 px-3 py-2.5 text-ui leading-normal text-foreground"
         >
           {props.alert}
         </div>

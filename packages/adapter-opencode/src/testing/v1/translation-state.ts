@@ -43,7 +43,7 @@ export class TranslationState {
   backgrounds = new Backgrounds();
   seenEvents = new Set<string>();
   mcp = new Set<string>();
-  unknown = 0;
+  diagnostics: import("@ace/protocol").RawPayload[] = [];
   rootKey: Key;
 
   constructor(init: { threadId: ThreadId; rootKey: Key }) {
@@ -184,36 +184,20 @@ export class TranslationState {
       },
     ];
   }
-  metadata(name: string, key: string, data: unknown): Fact[] {
-    return [
-      {
-        type: "item.upsert",
-        agent: this.rootKey,
-        item: `native:${name}:${key}`,
-        draft: {
-          type: "notice",
-          complete: true,
-          level: "info",
-          text: `OpenCode ${name}`,
-          raw: raw(name, data),
-        },
-      },
-    ];
+  metadata(name: string, _key: string, data: unknown): Fact[] {
+    return this.notice(data, name);
   }
-  notice(data: unknown, name: string): Fact[] {
-    return [
-      {
-        type: "item.upsert",
-        agent: this.rootKey,
-        item: `raw:${++this.unknown}`,
-        draft: {
-          type: "notice",
-          complete: true,
-          level: "info",
-          text: `OpenCode ${name}`,
-          raw: raw(name, data),
+  notice(data: unknown, name: string, text?: string): Fact[] {
+    if (text !== undefined)
+      return [
+        {
+          type: "item.upsert",
+          agent: this.rootKey,
+          item: "opencode:request-error",
+          draft: { type: "notice", complete: true, level: "error", text, raw: raw(name, data) },
         },
-      },
-    ];
+      ];
+    if (!this.diagnostics.length) this.diagnostics.push(...raw(name, data));
+    return [];
   }
 }

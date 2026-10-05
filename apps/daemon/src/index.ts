@@ -280,6 +280,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       conductor: services.conductor,
       agentControl: services.agentControl,
       accounts: services.accounts,
+      accountManagement: services.accountManagement,
       cursorAuth: services.cursorAuth,
       get commands() {
         return services.commands;

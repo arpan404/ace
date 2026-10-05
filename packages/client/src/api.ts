@@ -1,3 +1,4 @@
+import type { PendingSend } from "./pending-sends.ts";
 import type { ProjectsApi } from "./projects-types.ts";
 import type {
   TurnsPageInput,
@@ -74,6 +75,7 @@ export interface ClientApi {
   readonly error: ClientError | undefined;
   connectionState(): Selection<ConnectionState>;
   intent(id: string): Selection<Intent | undefined>;
+  pendingSends(threadId?: string): Selection<readonly PendingSend[]>;
   start(): Promise<void>;
   close(): Promise<void>;
   networkOnline(online: boolean): void;
@@ -112,7 +114,7 @@ export interface ClientApi {
     input: ThreadReadStateInput,
     options?: RequestOptions,
   ): Promise<ThreadReadStateResponse>;
-  /** Coalesce pending monotonic read updates per thread into durable commands. */
+  /** Coalesce read updates per thread. Never persisted or replayed through the outbox. */
   markThreadRead(input: ThreadMarkReadInput, options?: RequestOptions): Promise<CommandResult>;
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },

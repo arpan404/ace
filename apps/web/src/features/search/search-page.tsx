@@ -49,10 +49,7 @@ function Snippet(props: { snippet: SearchHit["snippet"] }) {
     <p className="mt-1 line-clamp-2 text-ui leading-normal text-muted-foreground">
       {parts.map((part) =>
         part.hit ? (
-          <mark
-            key={part.at}
-            className="rounded-[2px] bg-[color-mix(in_oklab,var(--ring)_22%,transparent)] font-medium text-foreground"
-          >
+          <mark key={part.at} className="rounded-[2px] bg-ring/22 font-medium text-foreground">
             {part.text}
           </mark>
         ) : (
@@ -172,7 +169,7 @@ export function SearchPage(props: {
                   aria-selected={index === active}
                   className={cn(
                     "rounded-md transition-colors duration-(--dur-1)",
-                    index === active && "bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)]",
+                    index === active && "bg-foreground/5",
                   )}
                 >
                   <Link
