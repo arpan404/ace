@@ -433,6 +433,7 @@
       "name": "@ace/fake-daemon",
       "dependencies": {
         "@ace/automations": "workspace:*",
+        "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/projection": "workspace:*",
@@ -651,8 +652,8 @@
     "packages/terminal": {
       "name": "@ace/terminal",
       "dependencies": {
-        "@ace/provider-kit": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "node-pty": "^1.1.0",
       },
     },

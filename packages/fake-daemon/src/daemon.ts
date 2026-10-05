@@ -790,11 +790,22 @@ export class FakeDaemon implements Host {
             return { commandId, ok: false, error: "already_resolved" };
           const pending = host.interaction(key);
           if (!pending) return { commandId, ok: false, error: "not_found" };
-          const error = permissionResolutionError(
-            host.view.thread.permission?.effective ?? "auto-review",
-            pending.request,
-            payload.resolution,
+          const browserOriginApproval = pending.raw.some(
+            (raw) => raw.type === "ace.browser.origin",
           );
+          if (
+            browserOriginApproval &&
+            (payload.resolution.kind !== "approval" ||
+              !["allow_once", "allow_thread", "deny"].includes(payload.resolution.optionId))
+          )
+            return { commandId, ok: false, error: "invalid_resolution" };
+          const error = browserOriginApproval
+            ? undefined
+            : permissionResolutionError(
+                host.view.thread.permission?.effective ?? "auto-review",
+                pending.request,
+                payload.resolution,
+              );
           if (error) return { commandId, ok: false, error };
           this.apply(host.id, [
             {

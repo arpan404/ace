@@ -26,6 +26,13 @@
       "minLength": 1,
       "type": "string"
     },
+    "browser.allowedOrigins": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/BrowserOrigin.json"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "browser.backend": {
       "enum": [
         "auto",
@@ -328,6 +335,7 @@
     "providers.planner.model",
     "providers.planner.tier",
     "providers.planner.reasoningEffort",
+    "browser.allowedOrigins",
     "browser.backend",
     "browser.backendLoss",
     "permissions.defaultMode",

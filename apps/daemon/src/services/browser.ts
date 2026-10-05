@@ -1,6 +1,10 @@
+import { z } from "zod";
+import { BrowserOrigins } from "../browser-origins.ts";
 import { BrowserService } from "@ace/browser";
 import {
   ItemId,
+  PermissionMode,
+  BrowserOrigin,
   ThreadId,
   BrowserBackendClientMessage,
   BrowserBackendPreference,
@@ -13,9 +17,77 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   const { config, options, store, now, id, resources, services } = context;
 
   await desktopCredential(config.dataDir, store.devices, now);
+  const origins = new BrowserOrigins({
+    store,
+    now,
+    id,
+    mode: async (threadId) =>
+      services.engine?.permissionAuthority(threadId) ??
+      store.getThread(threadId)?.permission?.effective ??
+      PermissionMode.parse(
+        (
+          await services.settings?.get(
+            "permissions.defaultMode",
+            settingsScope(store, { threadId }),
+          )
+        )?.value ?? "auto-review",
+      ),
+    deferRecovery: true,
+    root: (threadId) => services.engine?.rootAgent(threadId),
+    open: (interaction) => {
+      if (!services.engine) {
+        store.appendEvents(
+          interaction.threadId,
+          [{ type: "interaction.opened", interaction }],
+          now(),
+        );
+        return interaction;
+      }
+      const raw = interaction.raw.find((entry) => entry.type === "ace.browser.origin");
+      const key = z
+        .object({ key: z.string() })
+        .parse(raw && "data" in raw ? raw.data : undefined).key;
+      const interactionId = services.engine.openHostApproval(
+        interaction.threadId,
+        key,
+        interaction.request,
+        interaction.raw,
+      );
+      const opened = store.getInteraction(interactionId);
+      if (!opened) throw new Error("Browser approval unavailable");
+      return opened;
+    },
+    closeInteraction: (threadId, interactionId, result) => {
+      if (!services.engine) {
+        store.appendEvents(
+          threadId,
+          [{ type: "interaction.closed", interactionId, closedAt: now(), ...result }],
+          now(),
+        );
+        return;
+      }
+      const raw = store
+        .getInteraction(interactionId)
+        ?.raw.find((entry) => entry.type === "ace.browser.origin");
+      const key = z
+        .object({ key: z.string() })
+        .parse(raw && "data" in raw ? raw.data : undefined).key;
+      services.engine.resolveHostApproval(threadId, key, result);
+    },
+    allowlist: async () =>
+      BrowserOrigin.array()
+        .max(256)
+        .parse((await services.settings?.get("browser.allowedOrigins", {}))?.value ?? []),
+  });
+  services.browserOrigins = origins;
+  resources.own(() => origins.close());
+  resources.onShutdown(() => origins.close());
   const browser = new BrowserService({
     ...options.browser,
     dataDir: config.dataDir,
+    originPolicy: (request) => origins.allowed(request),
+    origins,
+    onNavigation: (threadId) => origins.clearPage(threadId),
     cleanup: {
       ...options.browser?.cleanup,
       onTimeout(message) {
@@ -68,6 +140,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     },
   });
   resources.own(() => browser.close());
+  if (services.engine || options.handler) origins.recover();
   services.browser = browser;
 }
 
@@ -86,6 +159,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
       const thread = options.store.getThread(id);
       return (
         thread !== undefined &&
+        thread.deletedAt === undefined &&
         authorize(access) &&
         canReadThread(id) &&
         (workspaceId === undefined || thread.workspaceId === workspaceId)

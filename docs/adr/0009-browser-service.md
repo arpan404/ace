@@ -159,7 +159,8 @@ elapsed-time performance assertions.
 There is no Electron dependency and remote clients need no local browser engine.
 Persistent workspace profiles cannot be used simultaneously by two threads.
 This first version controls the primary page only; popup pages close immediately.
-Browser approvals remain a hook until ace interactions land. Frame acknowledgements
+Browser origin approvals use engine host interactions and durable thread grants
+under [ADR 0054](0054-desktop-shell.md#thread-browser-origin-consent). Frame acknowledgements
 are required in clients, and screenshots/recordings need artifact retrieval through
 the daemon's file transport. Live frames are lossy by design; durable thread state
 and artifact references remain reliable.

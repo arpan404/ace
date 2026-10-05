@@ -11,9 +11,20 @@ export class FakePage implements ViewPage {
   results = new Map<string, unknown>([["Page.captureScreenshot", { data: "AA==" }]]);
   private events = new Set<(method: string, params: unknown) => void>();
   private blocked = new Set<() => void>();
+  private navigationSequence = 0;
 
   async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
     this.calls.push({ method, params: params ?? {} });
+    if (method === "Page.getFrameTree")
+      return { frameTree: { frame: { id: "main", url: this.address } } };
+    if (method === "Page.navigate") {
+      if (typeof params?.url !== "string") throw new Error("Navigation URL required");
+      this.address = params.url;
+      const loaderId = `loader-${++this.navigationSequence}`;
+      this.emit("Page.frameNavigated", { frame: { id: "main", url: this.address, loaderId } });
+      this.emit("Page.lifecycleEvent", { frameId: "main", loaderId, name: "DOMContentLoaded" });
+      return { frameId: "main", loaderId };
+    }
     return this.results.get(method) ?? {};
   }
   onEvent(listener: (method: string, params: unknown) => void): () => void {
