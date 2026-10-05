@@ -63,6 +63,11 @@ export function panelServices(client: ClientApi): Promise<PanelServices> {
   return services;
 }
 
+/** A client's services if they have loaded, without loading them. */
+export function loadedPanelServices(client: ClientApi): PanelServices | undefined {
+  return ready.get(client);
+}
+
 /** The services once loaded (undefined for the first render after start-up). */
 export function useLoadedServices(): PanelServices | undefined {
   const client = useClient();

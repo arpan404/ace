@@ -66,6 +66,8 @@ export class WorkspaceStore {
   /** Per scope, the tabs closed most recently, newest last. Memory only. */
   private readonly closed = new Map<string, ClosedTab[]>();
   private confirmer: ((warning: CloseWarning) => Promise<boolean>) | undefined;
+  /** Questions asked while no dialog was registered. */
+  private readonly unasked: { warning: CloseWarning; answer(agreed: boolean): void }[] = [];
 
   constructor(options: { storage?: KeyValueStorage | undefined; capacity?: number } = {}) {
     this.storage = options.storage;
@@ -166,13 +168,20 @@ export class WorkspaceStore {
    */
   setConfirm(confirm: (warning: CloseWarning) => Promise<boolean>): () => void {
     this.confirmer = confirm;
+    // Questions asked before the dialog had loaded are asked now.
+    for (const { warning, answer } of this.unasked.splice(0)) void confirm(warning).then(answer);
     return () => {
       if (this.confirmer === confirm) this.confirmer = undefined;
     };
   }
 
+  /**
+   * Ask whether to close tabs that would stop something. With no dialog yet, the question waits
+   * for one rather than answering yes: closing never ends a shell unasked.
+   */
   confirmClose(warning: CloseWarning): Promise<boolean> {
-    return this.confirmer ? this.confirmer(warning) : Promise.resolve(true);
+    if (this.confirmer) return this.confirmer(warning);
+    return new Promise((answer) => this.unasked.push({ warning, answer }));
   }
 
   /** Keep a closed tab for Reopen closed tab (the last `closedCapacity` per scope). */

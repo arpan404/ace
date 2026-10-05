@@ -3,6 +3,7 @@ import { Kbd } from "@/components/ui/kbd.tsx";
 import { defineTabKind, type ClosingTab, type CloseWarning } from "@/lib/workspace/index.ts";
 import { OutputSkeleton } from "../tab-skeletons.tsx";
 import { requestTerminalEnd, terminalEnded } from "./closing.ts";
+import { TerminalClient } from "./terminal-client.tsx";
 import {
   isPendingTerminal,
   shellKind as shellKindId,
@@ -32,6 +33,8 @@ export const terminalKind = defineTabKind({
     if (!isPendingTerminal(tab.id)) requestTerminalEnd({ threadId: scope, terminalId: tab.id });
   },
   closeLabel: "End session",
+  // Ties ending shells, and asking whether they ended, to the client whose screen shows.
+  Overlay: TerminalClient,
   closeWarning: endWarning,
   // Its shell ended with the tab: there is nothing to come back to.
   reopenable: () => false,

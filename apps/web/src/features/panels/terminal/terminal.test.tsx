@@ -113,7 +113,19 @@ test("closing a running shell's tab asks first: Cancel keeps the tab and its she
   expect(within(panel).getByRole("tab", { name: "zsh", selected: true })).toBeTruthy();
   expect(names(app)).toEqual(["tests", "zsh"]);
 
-  // The tab's menu ends it too, after the same question; ⌥⌘W asks as well.
+  // The tab's own menu asks the same question.
+  within(panel).getByRole("tab", { name: "zsh" }).focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^End session/ }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "End zsh?" })).getByRole("button", {
+      name: "Cancel",
+    }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(names(app)).toEqual(["tests", "zsh"]);
+
+  // ⌥⌘W asks as well, and End ends it.
   await userEvent.keyboard("{Alt>}{Meta>}w{/Meta}{/Alt}");
   await userEvent.click(
     within(await screen.findByRole("dialog", { name: "End zsh?" })).getByRole("button", {
