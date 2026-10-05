@@ -233,6 +233,28 @@ Example:
 }
 ```
 
+### host.identity.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"host.identity.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| identity | yes | [HostIdentity.json](schema/HostIdentity.json) |  |
+
+Example:
+
+```json
+{
+  "identity": {
+    "displayName": "example",
+    "hostId": "example",
+    "version": "example"
+  },
+  "requestId": "example",
+  "type": "host.identity.result"
+}
+```
+
 ### machines.result
 
 | Field | Required | Type | Constraints |
@@ -744,7 +766,7 @@ Example:
 }
 ```
 
-### Variant 29
+### Variant 30
 
 Type: union. See JSON Schema for constraints.
 
@@ -825,7 +847,7 @@ Example:
 }
 ```
 
-### Variant 33
+### Variant 34
 
 Type: union. See JSON Schema for constraints.
 

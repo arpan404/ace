@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { HostId, Timestamp } from "./ids.ts";
 const id = z.string().min(1).max(128);
-/** Proposed directory contract. Pairings and reachability require a separate directory owner. */
+/** Deprecated proposed host-owned directory. No daemon implements this inventory. */
 export const Machine = z.object({
   hostId: HostId,
   name: z.string().min(1).max(256),
@@ -39,3 +39,20 @@ export const MachinesResult = z.object({
   ]),
 });
 export type MachinesResult = z.infer<typeof MachinesResult>;
+
+/** Authenticated identity of this daemon, never an inventory of other hosts. */
+export const HostIdentity = z.object({
+  hostId: HostId,
+  displayName: z.string().min(1).max(256),
+  version: z.string().min(1).max(128),
+});
+export type HostIdentity = z.infer<typeof HostIdentity>;
+export const HostIdentityRequest = z.object({
+  type: z.literal("host.identity"),
+  requestId: id,
+});
+export const HostIdentityResult = z.object({
+  type: z.literal("host.identity.result"),
+  requestId: id,
+  identity: HostIdentity,
+});
