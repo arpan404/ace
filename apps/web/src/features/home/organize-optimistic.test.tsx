@@ -2,7 +2,7 @@ import { workbench } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
@@ -117,9 +117,12 @@ test("Delete archives at once, so a window closed within Undo leaves it archived
   expect(card(/Invoice PDF/)).toBeNull();
   await waitFor(() => expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeDefined());
 
-  // The window goes away inside the Undo window.
+  // The window goes away inside the Undo window; then the Undo window passes (on a fake clock,
+  // so a delete still scheduled anywhere would fire here).
+  vi.useFakeTimers();
   cleanup();
-  await new Promise((resolve) => setTimeout(resolve, 6_500));
+  await vi.advanceTimersByTimeAsync(6_500);
+  vi.useRealTimers();
   const threadId = ThreadId.parse("thread-pdf-locale");
   expect(app.daemon.snapshot({ kind: "thread", threadId })).toBeDefined();
   expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeDefined();
