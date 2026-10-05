@@ -241,6 +241,46 @@
     },
     {
       "properties": {
+        "limit": {
+          "default": 65536,
+          "exclusiveMinimum": 0,
+          "maximum": 65536,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "op": {
+          "const": "attachment.read",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "variant": {
+          "default": "original",
+          "enum": [
+            "original",
+            "thumbnail"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "threadId",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "op": {
           "const": "attachment.release",
           "type": "string"

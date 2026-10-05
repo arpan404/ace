@@ -22,23 +22,24 @@ export class ProviderPayload {
       typeof input === "string" ? input : new TextDecoder("utf-8", { fatal: true }).decode(input);
     this.#data = JSON.parse(text);
     let nodes = 0;
-    const freeze = (value: unknown, depth: number): void => {
-      if (++nodes > 32768 || depth > 64)
-        throw new RangeError("Provider payload exceeds structural limit");
-      if (value === null || typeof value !== "object") return;
+    // Future native fields may be deeply nested. Bound work by bytes and node count,
+    // and traverse iteratively so a valid envelope cannot exhaust the call stack.
+    const pending: unknown[] = [this.#data];
+    while (pending.length) {
+      const value = pending.pop();
+      if (++nodes > 32768) throw new RangeError("Provider payload exceeds structural limit");
+      if (value === null || typeof value !== "object") continue;
       if (Array.isArray(value)) {
-        for (const child of value) freeze(child, depth + 1);
+        for (const child of value) pending.push(child);
         Object.freeze(value);
       } else {
         const record = object.parse(value);
         for (const key in record) {
-          if (Object.hasOwn(record, key)) freeze(record[key], depth + 1);
+          if (Object.hasOwn(record, key)) pending.push(record[key]);
         }
         Object.freeze(record);
       }
-    };
-    // Traversal is bounded by encoded bytes before any object enumeration occurs.
-    freeze(this.#data, 0);
+    }
     Object.freeze(this);
   }
   get data(): unknown {

@@ -179,13 +179,15 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
           : [],
         documents: [],
         embeddedContext: false,
-        // Pi consumes generic text and inline images, with a smaller native frame budget.
-        maxInlineBytes: provider === "pi" ? 128 * 1024 : 4 * 1024 * 1024,
+        // Pi and Cursor have smaller native input frames. Reserve space for base64,
+        // the user's text and the envelope; larger images produce a visible diagnostic.
+        maxInlineBytes: provider === "pi" || provider === "cursor" ? 128 * 1024 : 4 * 1024 * 1024,
       },
     );
     try {
       return {
         input: [...p.input, ...canonicalContext(prepared.projection)],
+        attachments: prepared.attachments,
         diagnostics: prepared.diagnostics,
         release: prepared.release,
       };
