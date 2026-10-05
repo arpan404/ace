@@ -87,9 +87,22 @@ export const ConductorRunView = ConductorSummary.extend({
         state: z.string().max(64).optional(),
         fixRounds: z.number().int().nonnegative().optional(),
         revision: z.string().nullable().optional(),
+        /** The latest review verdicts, oldest first; summaries are cut to 512 characters. */
+        reviews: z
+          .array(
+            z.object({
+              verdict: z.enum(["pass", "changes_required"]),
+              summary: z.string().max(512),
+            }),
+          )
+          .max(4)
+          .optional(),
       }),
     )
     .max(256),
+  /** The Deck branch cards merge into, and the branch it started from, once the run has one. */
+  branch: z.string().max(256).nullable().optional(),
+  baseBranch: z.string().max(256).nullable().optional(),
   truncated: z.boolean(),
   executionError: z.string().max(128).optional(),
 });

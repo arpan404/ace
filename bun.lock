@@ -444,6 +444,9 @@
         "@ace/usage": "workspace:*",
         "zod": "^4.6.5",
       },
+      "devDependencies": {
+        "@ace/conductor": "workspace:*",
+      },
     },
     "packages/files": {
       "name": "@ace/files",

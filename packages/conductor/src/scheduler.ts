@@ -72,3 +72,28 @@ export function readyWorkstreams(state: State): string[] {
     .toSorted((a, b) => b.priority - a.priority)
     .map((w) => w.id);
 }
+
+/**
+ * Declined workstreams and every pending one that depends on one, directly or not: none of them
+ * can ever run, so a deck whose other work is integrated is finished.
+ */
+export function heldWorkstreams(state: State): Set<string> {
+  const held = new Set<string>();
+  for (const node of Object.values(state.nodes)) if (node.state === "declined") held.add(node.id);
+  if (!held.size) return held;
+  const workstreams = state.plan?.workstreams ?? [];
+  // Plans are acyclic and at most 256 workstreams; repeat until no dependant is added.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const w of workstreams)
+      if (
+        !held.has(w.id) &&
+        state.nodes[w.id]?.state === "pending" &&
+        w.dependencies.some((d) => held.has(d))
+      ) {
+        held.add(w.id);
+        changed = true;
+      }
+  }
+  return held;
+}
