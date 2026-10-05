@@ -42,7 +42,7 @@ export function FeedRow(props: {
       type="button"
       data-view-row=""
       data-read-id={props.readId}
-      aria-current={props.selected ? "true" : undefined}
+      aria-current={props.selected ? "page" : undefined}
       onClick={(event) => {
         if (event.shiftKey && props.onPick) props.onPick();
         else props.onSelect();
@@ -54,7 +54,7 @@ export function FeedRow(props: {
       }}
       className={cn(
         viewRowClass,
-        "pt-[9px] pr-12 pb-2 hover:bg-transparent aria-[current=true]:bg-transparent",
+        "pt-[9px] pr-12 pb-2 hover:bg-transparent aria-[current=page]:bg-transparent",
       )}
     >
       <span

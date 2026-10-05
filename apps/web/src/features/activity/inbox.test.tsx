@@ -42,7 +42,7 @@ test("choosing a mention shows the whole comment in Activity instead of leaving 
   // Still Activity, and the row is read now.
   expect(screen.getByRole("heading", { level: 1, name: "Activity" })).toBeTruthy();
   expect(within(rowOf(feed, mention)).queryByText("Unread")).toBeNull();
-  expect(rowOf(feed, mention).getAttribute("aria-current")).toBe("true");
+  expect(rowOf(feed, mention).getAttribute("aria-current")).toBe("page");
 });
 
 test("a CI failure and an automation run each have their own page", async () => {
@@ -150,6 +150,13 @@ test("the feed is one Tab stop: arrows and J/K move along it, Enter opens a row"
   rowOf(feed, mention).focus();
   await userEvent.keyboard("{Enter}");
   expect(await main().findByRole("article", { name: "mira mentioned you" })).toBeTruthy();
+
+  // Esc from the main column comes back to the list, on the chosen row.
+  main()
+    .getByRole("button", { name: /Open thread/ })
+    .focus();
+  await userEvent.keyboard("{Escape}");
+  expect(document.activeElement).toBe(rowOf(feed, mention));
 });
 
 test("J moves focus itself to the next card, so its title is read out", async () => {

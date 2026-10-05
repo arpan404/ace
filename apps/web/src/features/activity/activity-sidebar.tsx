@@ -7,6 +7,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
+import { useHotkey } from "@/lib/hotkeys.ts";
 import { useNow } from "@/lib/time.ts";
 import { ArrivalScope } from "@/lib/arrival.tsx";
 import { useActivityState, type ActivityTab } from "./activity-state.tsx";
@@ -114,11 +115,17 @@ function FeedList(props: { id: string }) {
   const source = useFeedSource();
   const now = useNow();
   const keys = useViewListKeys<HTMLUListElement>();
-  const panel = {
-    id: `${props.id}-panel`,
-    role: "tabpanel",
-    "aria-labelledby": tabId(props.id, tab),
-  };
+  const panelId = `${props.id}-panel`;
+  const panel = { id: panelId, role: "tabpanel", "aria-labelledby": tabId(props.id, tab) };
+  // Esc from a card or an item's page comes back to the list, on the row it left.
+  useHotkey("escape", () => {
+    const root = document.getElementById(panelId);
+    if (!root || root.contains(document.activeElement)) return;
+    (
+      root.querySelector<HTMLElement>("[data-view-row][aria-current=page]") ??
+      root.querySelector<HTMLElement>("[data-view-row][tabindex='0']")
+    )?.focus();
+  });
   // Never say "nothing here" before the threads and the runs have arrived.
   if (!sidebarLoaded || !loaded)
     return (
