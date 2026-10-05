@@ -62,8 +62,9 @@
   --color-diff-del: var(--diff-del);
 
   /*
-   * Status hues: working blue, needs you amber, waiting and limited violet, failed red, done
-   * green. Pills, dots, rings and badges read them through `data-tone` (below) as --tone.
+   * Status hues: working blue, needs you amber, waiting violet (a Limited pill too), failed red,
+   * done green; a row held at a usage limit wears a hollow amber ring. Pills, dots, rings and
+   * badges read them through `data-tone` (below) as --tone.
    */
   --color-status-needs-you: var(--status-needs-you);
   --color-status-working: var(--status-working);
@@ -195,6 +196,10 @@
   }
   [data-tone="done"] {
     --tone: var(--status-done);
+  }
+  /* Held at a usage limit: a hollow amber ring on rows, since the person may act on it. */
+  [data-tone="limited"] {
+    --tone: var(--status-needs-you);
   }
   [data-tone="unresponsive"] {
     --tone: var(--status-unresponsive);

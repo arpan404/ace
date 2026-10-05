@@ -93,7 +93,9 @@ export function fakeDelegations(
         };
         if (host && JSON.stringify(host.thread(threadId)?.thread.deck) !== JSON.stringify(deck))
           host.update(threadId, { type: "thread.client.updated", changes: { deck } });
-        const settled = card.state === "merged" || ["cancelled", "merged"].includes(run.phase);
+        const settled =
+          ["approved", "merged", "declined"].includes(card.state) ||
+          ["cancelled", "merged"].includes(run.phase);
         const asking = role === "worker" && !settled && !!card.question;
         if (host && asking) ask(host, threadId, card);
         const thread = host?.thread(threadId)?.thread;
@@ -152,7 +154,10 @@ export function fakeDelegations(
                 outcome: settled
                   ? {
                       threadId: ThreadId.parse(threadId),
-                      outcome: run.phase === "cancelled" ? "cancelled" : "completed",
+                      outcome:
+                        run.phase === "cancelled" || card.state === "declined"
+                          ? "cancelled"
+                          : "completed",
                       result: card.title,
                       truncated: false,
                       before: null,

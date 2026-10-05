@@ -25,3 +25,11 @@ export function useDismissBootSplash(): void {
     return () => cancelAnimationFrame(frame);
   }, []);
 }
+
+/**
+ * Keep the boot shell up on purpose, under a screen that explains the wait itself (the
+ * desktop's "Starting ace…"), so the boot watchdog in index.html leaves it alone.
+ */
+export function holdBootSplash(doc: Document): void {
+  doc.getElementById("boot")?.setAttribute("data-held", "");
+}

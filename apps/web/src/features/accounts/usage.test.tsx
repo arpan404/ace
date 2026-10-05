@@ -225,9 +225,10 @@ test("when usage by model can't be read, the page says so and reads it again on 
   app.daemon.failRequests("usage.summary");
   await app.open("/more/accounts");
 
-  expect(
-    await screen.findByText("Usage by model couldn't be read.", {}, { timeout: 8000 }),
-  ).toBeTruthy();
+  const failed = (
+    await screen.findByText("Usage by model couldn't be read.", {}, { timeout: 8000 })
+  ).closest("[role=alert]");
+  if (!(failed instanceof HTMLElement)) throw new Error("no alert");
   expect((await stat("At API prices"))()).toEqual([
     "Unavailable",
     "Usage by model couldn't be read",
@@ -235,7 +236,8 @@ test("when usage by model can't be read, the page says so and reads it again on 
   expect(screen.queryByRole("table", { name: "Usage by model" })).toBeNull();
 
   app.daemon.restoreRequests();
-  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  // Reported costs failed too and have their own Try again; this one reads usage by model.
+  await userEvent.click(within(failed).getByRole("button", { name: "Try again" }));
   const table = await screen.findByRole("table", { name: "Usage by model" }, { timeout: 4000 });
   await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(5));
 });

@@ -1,6 +1,14 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { eventKey } from "./activity-state.tsx";
@@ -8,6 +16,7 @@ import { ButtonKey, CardActions, CardError, CardFrame, useCardFocused } from "./
 import { useFeedSource, type FeedEvent } from "./feed-source.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { InteractionCard } from "./interaction-card.tsx";
+import { useDeckChoice } from "./escalations.ts";
 
 /**
  * A deck's decision: its plan, a merge, or an escalation (a lane that keeps failing review, a
@@ -39,19 +48,19 @@ function DecisionCard(props: { event: FeedEvent }) {
   const navigate = useNavigate();
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string>();
+  const [rejecting, setRejecting] = useState(false);
+  // The Deck's own words for this gate: what approving and rejecting do (`gateDecision`).
+  const choice = useDeckChoice(event);
   const actions = event.actions ?? [];
   const primary = actions.find((action) => action.primary);
-  const take = (actionId: string, label: string) => {
+  const take = (actionId: string) => {
     setSending(true);
     setFailure(undefined);
     source.resolve(event, actionId).then(
-      () =>
-        toast.add({
-          title:
-            actionId === "reject"
-              ? "Rejected · the deck keeps its course"
-              : `${label} · the deck carries on`,
-        }),
+      () => {
+        const done = actionId === "reject" ? choice?.reject.toast : choice?.approve?.toast;
+        if (done) toast.add({ title: done });
+      },
       (error: unknown) => {
         setSending(false);
         setFailure(
@@ -63,7 +72,7 @@ function DecisionCard(props: { event: FeedEvent }) {
     );
   };
   const live = focused && !sending;
-  useHotkey("a", () => primary && take(primary.id, primary.label), { enabled: live && !!primary });
+  useHotkey("a", () => primary && take(primary.id), { enabled: live && !!primary });
   const openDeck = () =>
     event.runId
       ? void navigate({ to: "/deck/$runId", params: { runId: event.runId } })
@@ -79,17 +88,24 @@ function DecisionCard(props: { event: FeedEvent }) {
       {event.body && (
         <p className="text-[13.5px] leading-normal text-muted-foreground">{event.body}</p>
       )}
+      {choice && !choice.approve && (
+        <p className="text-sm text-muted-foreground">
+          Answering this needs a new value. Open the deck to set it.
+        </p>
+      )}
       <CardActions>
-        <Button variant="ghost" onClick={openDeck}>
+        {/* A gate that needs a value is answered in the deck: opening it is the main action. */}
+        <Button variant={primary ? "ghost" : "primary"} onClick={openDeck}>
           Open deck
-          <ButtonKey>O</ButtonKey>
+          <ButtonKey primary={!primary}>O</ButtonKey>
         </Button>
         {actions.map((action) => (
           <Button
             key={action.id}
             variant={action.primary ? "primary" : "secondary"}
             disabled={sending}
-            onClick={() => take(action.id, action.label)}
+            // Rejecting is confirmed first, saying what it does to the deck.
+            onClick={() => (action.id === "reject" ? setRejecting(true) : take(action.id))}
           >
             {action.label}
             {action.primary && <ButtonKey primary>A</ButtonKey>}
@@ -97,6 +113,32 @@ function DecisionCard(props: { event: FeedEvent }) {
         ))}
       </CardActions>
       <CardError message={failure} />
+      {choice && (
+        <Dialog open={rejecting} onOpenChange={setRejecting}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{choice.reject.title}</DialogTitle>
+              <DialogDescription>{choice.reject.body}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setRejecting(false)}>
+                {choice.reject.stopsDeck ? "Keep it running" : "Cancel"}
+              </Button>
+              <Button
+                type="button"
+                variant={choice.reject.stopsDeck ? "danger" : "primary"}
+                disabled={sending}
+                onClick={() => {
+                  setRejecting(false);
+                  take("reject");
+                }}
+              >
+                {choice.reject.confirm}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </CardFrame>
   );
 }

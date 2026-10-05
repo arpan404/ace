@@ -62,7 +62,7 @@ Routes are file routes, one layout route per view (it draws the view's list into
 
 Below 768px the sidebar becomes a sheet opened from the header.
 
-The browser build has no daemon until it is given one. A connection gate shows a connection screen (daemon address, default `ws://127.0.0.1:4242/`, and token from `~/.ace/daemon-token` or a paired device) and creates the client once the target parses; the daemon can also hand the token over in the `#token=` fragment. The token is kept in session storage unless the person asks to be remembered on the device. Connection trouble shows as one quiet line under the header; the account dot is the connection state.
+The browser build has no daemon until it is given one. A connection gate shows a connection screen (daemon address, default `ws://127.0.0.1:4242/`, and the token `ace token` prints on the daemon's machine, or a paired device's) and creates the client once the target parses; the daemon can also hand the token over in the `#token=` fragment, and a pasted `#token=` link fills the form. The app mounts only once the daemon has welcomed the window: until then the connection screen shows the attempt, and a target that can't be reached within a few seconds, or that the daemon refuses, stays on that screen with the reason (a token rejected later also returns there). The token is kept in local storage by default for a daemon on this computer and in session storage otherwise, unless the person flips "Remember on this device". Later connection trouble shows as one quiet line under the header; the account dot is the connection state. A boot that throws shows a "couldn't start" screen instead of the splash.
 
 ### Accessibility
 

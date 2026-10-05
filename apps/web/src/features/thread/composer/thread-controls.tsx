@@ -21,7 +21,12 @@ import {
 } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { ModelControl, useModelChoices, type ModelControlView } from "@/features/models/index.ts";
+import {
+  ModelControl,
+  useModelCatalogState,
+  useModelChoices,
+  type ModelControlView,
+} from "@/features/models/index.ts";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
@@ -111,6 +116,7 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
   const sources = useThreadSources();
   const toast = useToast();
   const choices = useModelChoices();
+  const catalog = useModelCatalogState();
   const statuses = useProviderStatuses();
   const compact = useComposerCompact();
   const [switching, setSwitching] = useState<ModelChoice>();
@@ -232,6 +238,7 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
     account: current?.id,
     models,
     providers: pickerProviders(models, statuses.data ?? []),
+    catalog,
   };
   return (
     <>

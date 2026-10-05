@@ -7,10 +7,22 @@ import type { WireCodec } from "./wire-codec.ts";
 import {
   ClientError,
   type ClientOptions,
+  type ConnectionInfo,
   type ConnectionState,
   type Limits,
   type Transport,
 } from "./types.ts";
+
+/** Field by field, so a selection over `info()` notifies only when something changed. */
+export function sameConnectionInfo(a: ConnectionInfo, b: ConnectionInfo): boolean {
+  return (
+    a.state === b.state &&
+    a.attempt === b.attempt &&
+    a.nextRetryAt === b.nextRetryAt &&
+    a.since === b.since &&
+    a.lastReadyAt === b.lastReadyAt
+  );
+}
 
 export class Connection {
   state: ConnectionState = "offline";
@@ -26,6 +38,10 @@ export class Connection {
   private online = true;
   private active = false;
   private cancel: (() => void) | undefined;
+  /** A reconnect waiting on its backoff timer (`cancel`), and when it runs if there's a clock. */
+  private retry: { at: number | undefined } | undefined;
+  private since: number | undefined;
+  private lastReadyAt: number | undefined;
   private heartbeat: (() => void) | undefined;
   private healthy: (() => void) | undefined;
   private awaitingPong = false;
@@ -72,7 +88,26 @@ export class Connection {
     } else if (decision === "connect") this.connect();
   }
 
+  /**
+   * Skip the backoff: run the scheduled reconnect now, keeping the attempt count (a failure
+   * still backs off further). Nothing happens unless a reconnect is waiting on its timer.
+   */
+  reconnectNow(): void {
+    if (!this.active || !this.retry) return;
+    this.connect();
+  }
+  info(): ConnectionInfo {
+    return {
+      state: this.state,
+      attempt: this.attempt,
+      ...(this.retry?.at !== undefined ? { nextRetryAt: this.retry.at } : {}),
+      ...(this.since !== undefined ? { since: this.since } : {}),
+      ...(this.lastReadyAt !== undefined ? { lastReadyAt: this.lastReadyAt } : {}),
+    };
+  }
+
   private setState(state: ConnectionState): void {
+    if (state !== this.state) this.since = this.options.now?.();
     this.state = state;
     this.changed();
   }
@@ -85,6 +120,7 @@ export class Connection {
     this.fragmentTimers.clear();
     this.cancel?.();
     this.cancel = undefined;
+    this.retry = undefined;
     this.heartbeat?.();
     this.heartbeat = undefined;
     this.healthy?.();
@@ -119,7 +155,6 @@ export class Connection {
       this.setState("offline");
       return;
     }
-    this.setState("reconnecting");
     let delay: number;
     try {
       delay = retryDelay(
@@ -132,9 +167,11 @@ export class Connection {
       this.fail(new ClientError("protocol"));
       return;
     }
-    this.cancel = this.options.scheduler.set(code === 4013 ? Math.max(5000, delay) : delay, () =>
-      this.connect(),
-    );
+    const wait = code === 4013 ? Math.max(5000, delay) : delay;
+    this.cancel = this.options.scheduler.set(wait, () => this.connect());
+    const now = this.options.now?.();
+    this.retry = { at: now === undefined ? undefined : now + wait };
+    this.setState("reconnecting");
   }
   private connect(): void {
     this.cleanup();
@@ -229,9 +266,11 @@ export class Connection {
         this.healthy = this.options.scheduler.set(this.limits.healthyMs, () => {
           this.attempt = 0;
           this.healthy = undefined;
+          this.changed();
         });
         this.awaitingPong = false;
         this.error = undefined;
+        this.since = this.lastReadyAt = this.options.now?.();
         this.state = "ready";
         this.tick();
         this.received(message);

@@ -34,7 +34,7 @@ test("an account whose CLI reports no usage says so instead of showing an empty 
   expect(within(opencode).getByText("OpenCode doesn't report usage")).toBeTruthy();
 });
 
-test("Move threads moves the limited threads to the same provider's account with most headroom", async () => {
+test("Move threads moves the limited threads where automatic recovery would: the provider's first available account", async () => {
   const app = harness();
   // This migration scenario has two signed-in isolated Codex accounts. The
   // normal CLI home is signed out and cannot receive a migrated conversation.
