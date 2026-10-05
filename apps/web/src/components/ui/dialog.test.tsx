@@ -49,7 +49,9 @@ test("with a submit hint, Ctrl+Enter presses the dialog's primary button, which 
   render(<ShortcutDialog onSave={onSave} />);
   await userEvent.keyboard("{Control>}{Alt>}r{/Alt}{/Control}");
   const title = await screen.findByRole("textbox", { name: "Title" });
-  expect(screen.getByRole("button", { name: /^Save/ }).textContent).toBe("SaveCtrl+Enter");
+  // The hint shows on the button but isn't part of its name.
+  const save = screen.getByRole("button", { name: "Save" });
+  expect(save.textContent).toBe("SaveCtrl+Enter");
 
   await userEvent.click(title);
   await userEvent.keyboard("{Control>}{Enter}{/Control}");

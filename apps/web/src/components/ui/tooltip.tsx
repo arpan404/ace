@@ -38,12 +38,14 @@ function TooltipContent({
 /**
  * A tooltip around one trigger element, with the shortcut that does the same thing. Pass a
  * keymap id (`shortcut="agents"`) or keys (`keys="mod+enter"`); either follows the user's
- * rebinding.
+ * rebinding, unless `resolve={false}` marks `keys` as a local command's own (find-bar Enter).
  */
 function Tip(props: {
   label: ReactNode;
   shortcut?: KeymapId;
   keys?: string;
+  /** False: `keys` are this control's own, never a rebindable shortcut's. */
+  resolve?: boolean;
   side?: TooltipPrimitive.Positioner.Props["side"];
   children: ReactElement;
 }) {
@@ -55,7 +57,7 @@ function Tip(props: {
         {props.shortcut ? (
           <Kbd shortcut={props.shortcut} />
         ) : (
-          props.keys && <Kbd keys={props.keys} />
+          props.keys && <Kbd keys={props.keys} resolve={props.resolve ?? true} />
         )}
       </TooltipContent>
     </TooltipPrimitive.Root>
