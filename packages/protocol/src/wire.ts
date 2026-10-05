@@ -1,3 +1,4 @@
+import { ActivityReadsChanged, ActivityReadsRequest, ActivityReadsResult } from "./activity.ts";
 import { ProvidersRequest, ProvidersResult } from "./provider-status.ts";
 import {
   ProjectsRequest,
@@ -139,6 +140,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PreviewRequest,
   ConductorRequest,
   ...AutomationRequest.options,
+  ...ActivityReadsRequest.options,
   QueueGet,
   PiControlRequest,
 
@@ -197,6 +199,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ConductorResult,
   ConductorChanged,
   AutomationResponse,
+  ActivityReadsResult,
+  ActivityReadsChanged,
   QueueResult,
   PiControlResult,
 

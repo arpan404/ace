@@ -14,6 +14,7 @@ import { commandCatalog, listCommands } from "./commands.ts";
 import { search } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
+import { FakeActivityReads } from "./activity-reads.ts";
 import { fakePermissionCapabilities } from "../permissions.ts";
 
 type AccountSummary = z.infer<typeof Summary>;
@@ -39,6 +40,8 @@ export class FakeServices {
   /** Usage over time and Claude's per-session totals; replace its fields to stage a report. */
   readonly usage: FakeUsage;
   readonly settings: FakeSettings;
+  /** Activity's read cursor (`activity.reads`); `set` stages one. */
+  readonly activityReads: FakeActivityReads;
   installations: import("@ace/protocol").RegistryInstallation[] = [];
   /**
    * The provider CLIs discovery found on this machine. Like the daemon, only these have an
@@ -66,6 +69,7 @@ export class FakeServices {
     }));
     this.commands = commandCatalog();
     this.usage = new FakeUsage(now);
+    this.activityReads = new FakeActivityReads(() => host.clock());
     this.settings = new FakeSettings(
       settingsValues(),
       (threadId) => host.thread(threadId)?.workspaceId,
@@ -79,6 +83,7 @@ export class FakeServices {
   }
   release(push: Push): void {
     this.settings.release(push);
+    this.activityReads.release(push);
   }
   private reply(message: ClientMessage, push: Push): ServerMessage | undefined {
     switch (message.type) {
@@ -177,6 +182,9 @@ export class FakeServices {
           requestId: message.requestId,
           result: resolveModel(this.models, message.roleSpec),
         };
+      case "activity.reads":
+      case "activity.markRead":
+        return this.activityReads.handle(message, push);
       case "settings.get":
       case "settings.set":
       case "settings.subscribe":

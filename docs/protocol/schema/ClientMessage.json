@@ -154,6 +154,12 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ActivityReadsGet.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ActivityMarkRead.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/QueueGet.json"
     },
     {

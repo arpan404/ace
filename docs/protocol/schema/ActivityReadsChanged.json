@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/ActivityReadsChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursor": {
+      "$ref": "https://ace.local/protocol/v1/ActivityReadCursor.json"
+    },
+    "type": {
+      "const": "activity.reads.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "cursor"
+  ],
+  "type": "object"
+}

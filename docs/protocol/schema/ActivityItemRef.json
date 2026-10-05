@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/ActivityItemRef.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "maximum": 8640000000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "at"
+  ],
+  "type": "object"
+}
