@@ -93,6 +93,7 @@ export async function harness(
     recovery?: EngineOptions["recovery"];
     preferences?: EngineOptions["preferences"];
     permissionSettings?: EngineOptions["permissionSettings"];
+    providerEnabled?: EngineOptions["providerEnabled"];
     prepareInput?: EngineOptions["prepareInput"];
     beforeSend?: EngineOptions["beforeSend"];
     steer?: boolean;
@@ -177,6 +178,7 @@ export async function harness(
   const errors: unknown[] = [];
   const engine = new Engine(store, {
     registry,
+    ...(options.providerEnabled ? { providerEnabled: options.providerEnabled } : {}),
     ...(options.recovery ? { recovery: options.recovery } : {}),
     ...(options.preferences ? { preferences: options.preferences } : {}),
     ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),

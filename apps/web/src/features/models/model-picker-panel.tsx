@@ -162,7 +162,7 @@ export function ModelPickerPanel(props: {
                 {model.label}
               </span>
               {model.isNew && (
-                <span className="shrink-0 rounded-xs bg-ring/10 px-1 text-2xs leading-4 font-semibold tracking-[0.02em] text-ring">
+                <span className="shrink-0 rounded-xs bg-ring/10 px-1 text-2xs leading-4 font-semibold tracking-[0.02em] text-link">
                   NEW
                 </span>
               )}

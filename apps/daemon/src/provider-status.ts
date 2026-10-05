@@ -11,6 +11,10 @@ import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation
 
 export interface ProviderStatusOptions extends DiscoveryOptions {
   piExecutable?: string;
+  configuration?: (provider: Status["provider"]) => {
+    enabled?: boolean | undefined;
+    binaryPath?: string | undefined;
+  };
   cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
 }
 export interface ProviderStatusRuntime {
@@ -54,6 +58,7 @@ export class ProviderStatuses {
     const now = this.runtime.now();
     return this.rows.map((row) => ({
       ...row,
+      enabled: this.options.configuration?.(row.provider).enabled !== false,
       stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
       refreshing: Boolean(this.flight),
     }));
@@ -68,21 +73,32 @@ export class ProviderStatuses {
       timeoutMs: this.options.timeoutMs ?? 4000,
     };
     const probe = (row: Status): Promise<DiscoveryResult | undefined> => {
+      const configuration = this.options.configuration?.(row.provider);
+      if (configuration?.enabled === false) return Promise.resolve(undefined);
+      const configured = {
+        ...options,
+        ...(configuration?.binaryPath &&
+        ["claude", "codex", "opencode", "cursor"].includes(row.provider)
+          ? { overrides: { ...options.overrides, [row.provider]: configuration.binaryPath } }
+          : {}),
+      };
       if (row.runtime === "cursor-sdk")
         return this.options.cursorSdk?.(this.controller.signal) ?? Promise.resolve(undefined);
       switch (row.provider) {
-        case "pi":
-          return discoverPiStatus({
-            ...options,
-            ...(this.options.piExecutable ? { executable: this.options.piExecutable } : {}),
-          });
+        case "pi": {
+          const executable = configuration?.binaryPath ?? this.options.piExecutable;
+          return discoverPiStatus({ ...options, ...(executable ? { executable } : {}) });
+        }
         case "antigravity":
-          return discoverAntigravity(options);
+          return discoverAntigravity({
+            ...options,
+            ...(configuration?.binaryPath ? { executable: configuration.binaryPath } : {}),
+          });
         case "claude":
         case "codex":
         case "opencode":
         case "cursor":
-          return discoverProvider(row.provider, options);
+          return discoverProvider(row.provider, configured);
         case "acp":
           return Promise.resolve(undefined);
       }

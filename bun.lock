@@ -449,6 +449,7 @@
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/core": "workspace:*",
+        "@ace/models": "workspace:*",
         "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
@@ -539,6 +540,9 @@
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/settings": "workspace:*",
       },
     },
     "packages/native-session": {

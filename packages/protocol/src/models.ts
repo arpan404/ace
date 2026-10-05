@@ -33,6 +33,20 @@ export const CatalogModel = z
     inputModalities: z.array(label).max(16),
     isDefault: z.boolean(),
     hidden: z.boolean(),
+    favourite: z.boolean().optional(),
+    custom: z.boolean().optional(),
+    providerEnabled: z.boolean().optional(),
+    visibilityReason: z
+      .enum([
+        "provider_disabled",
+        "group_hidden",
+        "model_hidden",
+        "deprecated",
+        "not_favourite",
+        "provider_hidden",
+      ])
+      .optional(),
+    legacy: z.boolean().optional(),
     deprecated: z.boolean(),
     /** The provider marks the model as newly released; pickers badge it. */
     isNew: z.boolean().optional(),
@@ -61,7 +75,7 @@ export const ModelFilter = z.object({
 });
 export type ModelFilter = z.infer<typeof ModelFilter>;
 export const ModelListOptions = ModelFilter.extend({
-  offset: z.number().int().min(0).max(32768).default(0),
+  offset: z.number().int().min(0).max(40960).default(0),
   limit: z.number().int().min(1).max(100).default(100),
 });
 export type ModelListOptions = z.input<typeof ModelListOptions>;
@@ -70,6 +84,8 @@ export const ModelInstanceStatus = z.object({
   provider: ProviderKind,
   instance: label,
   refreshedAt: z.number().nonnegative().optional(),
+  lastRefreshedAt: z.number().nonnegative().optional(),
+  enabled: z.boolean().optional(),
   stale: z.boolean(),
   refreshing: z.boolean(),
   error: z.enum(["discovery_failed", "timeout", "persistence_failed"]).optional(),

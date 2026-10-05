@@ -20,3 +20,6 @@ export {
 } from "./types.ts";
 export type { CatalogModel, ModelRoleSpec, ModelResolution, ModelListResult } from "@ace/protocol";
 export { OpenCodeParser, normalizeOpenCodeV2 } from "./open-code.ts";
+
+export { modelDisplayName } from "./display-name.ts";
+export { providerConfiguration, modelVisibility, configuredModels } from "./preferences.ts";

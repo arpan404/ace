@@ -610,7 +610,7 @@ function PlanApproveKey(props: { onApprove(): void }) {
 function ApproveKey() {
   return (
     <span aria-hidden className="contents">
-      <Kbd keys={deckKeys.deckApprove.keys} variant="bare" className="text-primary-foreground/60" />
+      <Kbd keys={deckKeys.deckApprove.keys} variant="bare" className="text-tint-foreground/60" />
     </span>
   );
 }

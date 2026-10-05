@@ -41,6 +41,7 @@ export type { EngineClock } from "./actor.ts";
 export interface EngineOptions {
   worktreeGit?: WorktreeGit;
   permissionSettings?: PermissionSettings;
+  providerEnabled?(provider: import("@ace/protocol").ProviderKind, instance?: string): boolean;
   selectInstance?: (
     provider: string,
     backend?: import("@ace/engine-api").ProviderBackend,
@@ -240,6 +241,7 @@ export class Engine {
       workspaceDirectory,
       options.selectInstance,
       options.machine,
+      options.providerEnabled,
     );
     this.internalHandler = {
       handle: (command, context) =>

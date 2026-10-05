@@ -35,7 +35,7 @@ function TabsPanel({ className, ...props }: TabsPrimitive.Panel.Props) {
   return (
     <TabsPrimitive.Panel
       data-slot="tabs-panel"
-      className={cn("min-h-0 flex-1 outline-none", className)}
+      className={cn("min-h-0 flex-1 focus-ring-inset", className)}
       {...props}
     />
   );

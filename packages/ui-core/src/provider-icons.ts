@@ -14,7 +14,7 @@ import { providerDisplayName, providerNames } from "./providers.ts";
 
 export type { Brand } from "./brand-art/index.gen.ts";
 export { brandArt } from "./brand-art/index.gen.ts";
-export type { BrandArt, BrandPath } from "./brand-art-types.ts";
+export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 
 /** The mark each built-in provider shows. ACP agents are looked up by registry id instead. */
 export const providerBrands: Record<ProviderKind, Brand | undefined> = {

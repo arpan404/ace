@@ -234,8 +234,8 @@
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },
         "fps": {
-          "default": 10,
-          "maximum": 30,
+          "default": 30,
+          "maximum": 60,
           "minimum": 1,
           "type": "integer"
         },
@@ -257,6 +257,42 @@
         },
         "op": {
           "const": "stop",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "stream.configure",
+          "type": "string"
+        },
+        "settings": {
+          "$ref": "https://ace.local/protocol/v1/ScreenStreamSettings.json"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "settings"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "stream.keyframe",
           "type": "string"
         }
       },

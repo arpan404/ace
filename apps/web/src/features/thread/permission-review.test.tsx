@@ -75,9 +75,9 @@ test("a request ace sent on says why, in the thread and in Activity", async () =
   // Approved and denied requests never reached a person.
   expect(screen.queryByRole("article", { name: "Run rm -rf dist?" })).toBeNull();
 
-  // The rail's Activity; the sidebar's bell goes there too.
+  // The sidebar's bell: Activity's way in.
   await userEvent.click(
-    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", {
+    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
       name: /^Activity/,
     }),
   );

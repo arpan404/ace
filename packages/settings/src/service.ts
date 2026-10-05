@@ -154,6 +154,8 @@ export class SettingsService {
     SettingsKey.parse(key);
     if (key === "browser.allowedOrigins" && layer.kind !== "global")
       throw new SettingsError("validation", "Browser allowlist is a global user setting");
+    if (key === "providers.configuration" && layer.kind !== "global")
+      throw new SettingsError("validation", "Provider configuration is a global user setting");
     const parsed = validateValue(key, value);
     const lease = await this.file(layer);
     try {
