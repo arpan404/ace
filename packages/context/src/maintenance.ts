@@ -1,3 +1,4 @@
+import { mediaExtension } from "./attachment-bytes.ts";
 import { opendir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { BlobHash } from "@ace/protocol";
@@ -44,6 +45,8 @@ export class Maintenance {
       const hash = BlobHash.parse(row.sha256);
       const blob = this.metadata.blob(hash);
       await rm(join(this.root, "blobs", hash), { force: true });
+      if (blob && mediaExtension(blob.mimeType))
+        await rm(join(this.root, "blobs", hash + mediaExtension(blob.mimeType)), { force: true });
       this.metadata.transaction(() => {
         this.metadata.run("DELETE FROM blobs WHERE sha256=? AND refs=0", hash);
         if (blob) this.metadata.adjustStorage(-blob.bytes, -1);
@@ -76,9 +79,12 @@ export class Maintenance {
       }
       if (
         entry.isFile() &&
-        BlobHash.safeParse(entry.name).success &&
-        !this.metadata.blob(entry.name) &&
-        !this.metadata.get("SELECT id FROM uploads WHERE sha256=? AND done=0 LIMIT 1", entry.name)
+        BlobHash.safeParse(entry.name.split(".")[0]).success &&
+        !this.metadata.blob(entry.name.split(".")[0] ?? "") &&
+        !this.metadata.get(
+          "SELECT id FROM uploads WHERE sha256=? AND done=0 LIMIT 1",
+          entry.name.split(".")[0] ?? "",
+        )
       ) {
         await rm(join(this.root, "blobs", entry.name));
         removed++;

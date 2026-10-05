@@ -68,11 +68,16 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     arch: info.arch,
     electron: info.electron,
     packaged: info.packaged,
+    app: {
+      quit: () => call("app.quit"),
+    },
     daemon: {
       connection: () => call("daemon.connection"),
       status: () => call("daemon.status"),
       restart: () => call("daemon.restart"),
       diagnose: () => call("daemon.diagnose"),
+      /** Opens the daemon's log folder in the file manager; false when there is none. */
+      showLogs: () => call("daemon.showLogs"),
       pause: (paused: boolean) => call("daemon.pause", paused),
       onStatus: (listener: (value: EventOf<"daemon.status">) => void) =>
         subscribe("daemon.status", listener),
@@ -152,8 +157,6 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     },
     onDeepLink: (listener: (value: EventOf<"deep-link">) => void) =>
       subscribe("deep-link", listener),
-    onMenuCommand: (listener: (value: EventOf<"menu.command">) => void) =>
-      subscribe("menu.command", listener),
     onSystemResumed: (listener: () => void) => subscribe("system.resumed", () => listener()),
   };
 }

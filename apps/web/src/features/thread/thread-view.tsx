@@ -36,6 +36,7 @@ import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import {
   DeferredCatchUpSlot,
+  DeferredLimitBadge,
   DeferredThreadHotkeys,
   DeferredThreadMenu,
   DeferredTurnsPanel,
@@ -99,7 +100,18 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     <ThreadPartsProvider value={parts}>
       <Screen
         title={title ?? "Loading thread…"}
-        subtitle={meta && projectName(meta.workspaceId)}
+        subtitle={
+          meta && (
+            <>
+              {projectName(meta.workspaceId)}
+              {meta.status.state === "limited" && (
+                <Suspense fallback={null}>
+                  <DeferredLimitBadge.Component threadId={id} />
+                </Suspense>
+              )}
+            </>
+          )
+        }
         menu={
           thread && (
             <Suspense fallback={null}>

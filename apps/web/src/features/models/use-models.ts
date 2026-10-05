@@ -9,6 +9,7 @@ import {
 import { useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
+import { useNow } from "@/lib/time.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
 
 /** Pages a large catalog in; the daemon returns at most 100 rows per `models.list`. */
@@ -46,7 +47,8 @@ const none: never[] = [];
 export function useModelChoices(): readonly ModelChoice[] {
   const models = settled(useModelCatalog());
   const accounts = settled(useAccountViews());
-  return useMemo(() => modelChoices(models ?? [], accounts ?? []), [models, accounts]);
+  const now = useNow();
+  return useMemo(() => modelChoices(models ?? [], accounts ?? [], now), [models, accounts, now]);
 }
 
 /**

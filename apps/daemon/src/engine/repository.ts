@@ -28,6 +28,7 @@ import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 
 import { IntentStore, type IntentHeader } from "./intents.ts";
+import { AttachmentCorrelations } from "./attachment-correlations.ts";
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
   private aceAction: typeof import("@ace/mcp-server").aceToolAction | undefined;
@@ -41,6 +42,7 @@ export class EngineRepository {
   readonly inputs: InputJournal;
   readonly interactions: InteractionLedger;
   readonly pending: IntentStore;
+  readonly attachments: AttachmentCorrelations;
   observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
   private ids: IdSource;
   private capacity: number;
@@ -71,6 +73,7 @@ export class EngineRepository {
     this.metadata = new SessionMetadata(this);
     this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
+    this.attachments = new AttachmentCorrelations(store);
     indexTitleInputs(store);
     store.atomic((db) =>
       db.exec(

@@ -1,6 +1,12 @@
 import { retryTiming, TimingFailure } from "@ace/perf-kit";
 import { reportBrowser } from "@ace/web-perf";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+
+// Expected rejected samples are test inputs, not real browser benchmark failures.
+beforeEach(() => {
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+});
+afterEach(() => vi.restoreAllMocks());
 
 const healthy = {
   interactions: 100,
