@@ -31,7 +31,9 @@ function crashingBuild(): Scenario {
   };
 }
 
-test("a thread that starts needing you raises a toast that leads to Activity", async () => {
+const request = "Run rm -rf node_modules/.cache/vitest?";
+
+test("a thread that starts needing you raises a toast naming the request, and Review opens it", async () => {
   const app = harness();
   const checkout = app.play(flakyCheckout());
   checkout.runThrough("watcher-started");
@@ -41,13 +43,51 @@ test("a thread that starts needing you raises a toast that leads to Activity", a
 
   checkout.runThrough("approval-requested");
 
-  await within(toasts()).findByText("Fix flaky checkout test");
-  expect(within(toasts()).getByText("billing-api · needs you")).toBeTruthy();
-  await userEvent.click(within(toasts()).getByRole("button", { name: "Answer" }));
+  expect(await within(toasts()).findByText(request)).toBeTruthy();
+  expect(within(toasts()).getByText("billing-api · Fix flaky checkout test")).toBeTruthy();
+  // The tab's title carries the count while something waits.
+  expect(document.title).toMatch(/^\(1\)/);
+  await userEvent.click(within(toasts()).getByRole("button", { name: "Review" }));
   await screen.findByRole("heading", { level: 1, name: "Activity" });
-  expect(
-    await screen.findByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" }),
-  ).toBeTruthy();
+  // Just that request, on its own.
+  expect(await screen.findByRole("article", { name: request })).toBeTruthy();
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+});
+
+test("a needs-you toast goes once the request is answered elsewhere", async () => {
+  const app = harness();
+  const checkout = app.play(flakyCheckout());
+  checkout.runThrough("watcher-started");
+  await app.open("/new");
+  await inList("Fix flaky checkout test");
+  checkout.runThrough("approval-requested");
+  await within(toasts()).findByText(request);
+
+  await userEvent.click(within(toasts()).getByRole("button", { name: "Review" }));
+  const card = await screen.findByRole("article", { name: request });
+  await userEvent.click(within(card).getByRole("button", { name: "Approve" }));
+
+  await waitFor(() => expect(within(toasts()).queryByText(request)).toBeNull());
+});
+
+test("while the window is in the background no toast is raised", async () => {
+  const app = harness();
+  const checkout = app.play(flakyCheckout());
+  checkout.runThrough("watcher-started");
+  await app.open("/new");
+  await inList("Fix flaky checkout test");
+  const visibility = Object.getOwnPropertyDescriptor(Document.prototype, "visibilityState");
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+  try {
+    checkout.runThrough("approval-requested");
+    const views = screen.getByRole("navigation", { name: "Views" });
+    await within(views).findByLabelText("1 need you");
+    expect(within(toasts()).queryByText(request)).toBeNull();
+    expect(within(toasts()).queryByText(/needs you/)).toBeNull();
+  } finally {
+    if (visibility) Object.defineProperty(document, "visibilityState", visibility);
+    else Reflect.deleteProperty(document, "visibilityState");
+  }
 });
 
 test("threads already waiting when the app connects don't raise toasts", async () => {
@@ -68,8 +108,11 @@ test("a thread that fails raises a toast that opens it", async () => {
 
   build.runThrough("failed");
 
-  expect(await within(toasts()).findByText("relay · failed")).toBeTruthy();
-  await userEvent.click(within(toasts()).getByRole("button", { name: "Open" }));
+  expect(await within(toasts()).findByText("Cut the 0.9 release build failed")).toBeTruthy();
+  // A failure is announced as one, at once; F6 reaches its action.
+  expect(screen.getByRole("alert")).toBeTruthy();
+  await userEvent.keyboard("{F6}");
+  await userEvent.click(await within(toasts()).findByRole("button", { name: "Open" }));
   await waitFor(() =>
     expect(
       screen.getByRole("heading", { level: 1, name: /Cut the 0.9 release build/ }),
@@ -77,7 +120,7 @@ test("a thread that fails raises a toast that opens it", async () => {
   );
 });
 
-test("turning a toast off in Activity's toast settings silences it", async () => {
+test("turning a toast off in Activity's notification settings silences it", async () => {
   const app = harness();
   const checkout = app.play(flakyCheckout());
   checkout.runThrough("watcher-started");
@@ -85,9 +128,9 @@ test("turning a toast off in Activity's toast settings silences it", async () =>
   await screen.findByRole("heading", { level: 1, name: "Activity" });
 
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Toast settings…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Toasts on this device" });
-  const needsYou = within(dialog).getByRole("switch", { name: "When a thread needs you" });
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Notification settings…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Notifications on this device" });
+  const needsYou = within(dialog).getByRole("switch", { name: "Needs you" });
   expect(needsYou.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(needsYou);
   expect(needsYou.getAttribute("aria-checked")).toBe("false");

@@ -20,10 +20,17 @@ export const NotificationPrefs = z.object({
   failures: withDefault(z.boolean(), true),
   /** An automation run finishes. */
   automations: withDefault(z.boolean(), true),
+  /** In a browser tab: a system notification instead, while the tab is in the background. */
+  browser: withDefault(z.boolean(), false),
 });
 export type NotificationPrefs = z.infer<typeof NotificationPrefs>;
 
-const defaults: NotificationPrefs = { needsYou: true, failures: true, automations: true };
+const defaults: NotificationPrefs = {
+  needsYou: true,
+  failures: true,
+  automations: true,
+  browser: false,
+};
 const storageKey = "ace.notifications.toasts";
 
 export interface PrefsStore {

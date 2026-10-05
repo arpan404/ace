@@ -28,15 +28,25 @@ export function threadToasts(
   return causes;
 }
 
-/** Runs seen running that have since finished. */
+/**
+ * Runs that finished since the app opened and haven't had a toast yet, whether or not they
+ * were ever seen running: a run can start and end between two reads of the inbox. Runs that
+ * finished before the app opened are history.
+ */
 export function runToasts(
-  previous: readonly AutomationRun[] | undefined,
-  next: readonly AutomationRun[],
+  runs: readonly AutomationRun[],
   prefs: NotificationPrefs,
+  since: number,
+  toasted: ReadonlySet<string>,
 ): ToastCause[] {
-  if (!previous || !prefs.automations) return [];
-  const running = new Set(previous.filter((run) => run.status === "running").map((run) => run.id));
-  return next
-    .filter((run) => running.has(run.id) && run.status !== "running")
+  if (!prefs.automations) return [];
+  return runs
+    .filter(
+      (run) =>
+        run.status !== "running" &&
+        run.finishedAt !== undefined &&
+        run.finishedAt > since &&
+        !toasted.has(run.id),
+    )
     .map((run) => ({ kind: "automation", run }));
 }
