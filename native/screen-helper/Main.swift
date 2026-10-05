@@ -4,12 +4,18 @@ import Darwin
 
 @main struct ScreenHelper {
     @MainActor static func main() async {
-        guard CommandLine.arguments.count == 3, ["--socket", "--endpoint"].contains(CommandLine.arguments[1]) else { exit(2) }
-        let argument = CommandLine.arguments[2]
-        guard CommandLine.arguments[1] == "--socket" || argument.hasPrefix("unix:/") else { exit(2) }
-        let path = CommandLine.arguments[1] == "--socket" ? argument : String(argument.dropFirst(5))
+        // Before anything else: macOS must attribute permissions to this helper, not its launcher.
+        Responsibility.disclaimIfNeeded()
+        let arguments = CommandLine.arguments.filter { $0 != "--inherit-responsibility" }
+        guard arguments.count == 3, ["--socket", "--endpoint"].contains(arguments[1]) else { exit(2) }
+        let argument = arguments[2]
+        guard arguments[1] == "--socket" || argument.hasPrefix("unix:/") else { exit(2) }
+        let path = arguments[1] == "--socket" ? argument : String(argument.dropFirst(5))
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
+        // A busy app (a Simulator mid-rotation on a loaded machine) must not hold a command for
+        // the six-second default: every Accessibility call gives up after one second.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1)
         do {
             let capture = Capture(writer: try FrameWriter(path: path))
             let accessibility = Accessibility(clock: { DispatchTime.now().uptimeNanoseconds })
@@ -43,10 +49,12 @@ import Darwin
                     case "metrics": reply(request, data: capture.metrics)
                     case "hello": reply(request, data: capabilities())
                     case "permissions": reply(request, data: permissions())
+                    case "permissions.request":
+                        try requestPermission(request.permission ?? ""); reply(request, data: permissions())
                     case "targets":
                         let content = try await capture.content()
                         reply(request, data: ["displays": content.displays.prefix(64).map { ["displayId": $0.displayID, "width": $0.width, "height": $0.height, "bounds": ["x": $0.frame.minX, "y": $0.frame.minY, "width": $0.frame.width, "height": $0.frame.height]] as [String: Any] },
-                                                 "windows": content.windows.prefix(2048).compactMap { window -> [String: Any]? in
+                                                 "windows": content.windows.filter(Capture.listed).prefix(2048).compactMap { window -> [String: Any]? in
                             guard let app = window.owningApplication, !app.bundleIdentifier.isEmpty else { return nil }
                             return ["windowId": window.windowID, "bundleId": app.bundleIdentifier, "title": String((window.title ?? "").prefix(1024)), "bounds": ["x": window.frame.minX, "y": window.frame.minY, "width": window.frame.width, "height": window.frame.height]]
                         }])
@@ -55,6 +63,9 @@ import Darwin
                     case "capture":
                         guard request.version == 2, let enabled = request.enabled else { throw HelperError("Unsupported capture lease", code: "not_supported") }
                         let sequence = try await capture.setCapturing(enabled); reply(request, data: ["afterSeq": sequence])
+                    case "button.press":
+                        guard request.version == 2, let name = request.name else { throw HelperError("Missing button name", code: "bounds") }
+                        try await capture.pressButton(name); accessibility.invalidate(); reply(request)
                     case "input":
                         guard request.version == 2, let input = request.input else { throw HelperError("Missing v2 input", code: "bounds") }
                         try await capture.injectV2(input); accessibility.invalidate(); reply(request)
