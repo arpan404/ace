@@ -54,15 +54,21 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
     ).toEqual([]);
   }, 60_000);
 
-  it("keeps persistent workspace storage and prevents two threads from sharing its live profile", async () => {
+  it("keeps persistent thread storage isolated between parallel threads in one workspace", async () => {
     const f = await fixture();
     await f.service.closeThread("thread");
     await f.service.open({ threadId: "thread", workspaceId: "workspace", profile: "persistent" });
     await f.navigate();
     await f.evaluate("localStorage.setItem('retained','yes')");
-    await expect(
-      f.service.open({ threadId: "second", workspaceId: "workspace", profile: "persistent" }),
-    ).rejects.toThrow("already in use");
+    await f.service.open({ threadId: "second", workspaceId: "workspace", profile: "persistent" });
+    await f.service.execute("second", { action: "navigate", url: f.url });
+    expect(
+      await f.service.execute("second", {
+        action: "evaluate",
+        expression: "localStorage.getItem('retained')",
+      }),
+    ).toBe(null);
+    await f.service.closeThread("second");
     await f.service.closeThread("thread");
     await f.service.open({ threadId: "thread", workspaceId: "workspace", profile: "persistent" });
     await f.navigate();

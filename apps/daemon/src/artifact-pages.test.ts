@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { Item } from "@ace/protocol";
 import { Store, createDevThread } from "./index.ts";
+import { browserArtifactAccess } from "./browser-artifacts.ts";
 import { message } from "./payload-test-support.ts";
 
 test("indexed wire pages preserve browser artifacts created before a root agent", () => {
@@ -21,6 +22,12 @@ test("indexed wire pages preserve browser artifacts created before a root agent"
       { type: "item.created", item: artifact },
       { type: "item.created", item: message("transcript", "hello") },
     ]);
+    const allowed = browserArtifactAccess(store);
+    expect(allowed(thread.id, "recording.html")).toBe(true);
+    expect(allowed(thread.id, "other.html")).toBe(false);
+    const other = createDevThread(store, store.createWorkspace("/other", "Other"));
+    expect(allowed(other.id, "recording.html")).toBe(false);
+    expect(browserArtifactAccess(store)(thread.id, "recording.html")).toBe(true);
     const page = store.readItemPage(thread.id, store.headSeq() + 1, 2);
     expect(page.items).toHaveLength(2);
     expect(page.items[0]).toEqual(artifact);

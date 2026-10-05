@@ -67,6 +67,7 @@ export interface Services {
     options: SpawnOptions,
   ): ReturnType<typeof launchPluginProcess>;
   browser: BrowserService;
+  browserApprovals?: import("../browser-approvals.ts").BrowserApprovals;
   browserOrigins?: import("../browser-origins.ts").BrowserOrigins;
   context: ContextService;
   settings: SettingsService;

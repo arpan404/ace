@@ -23,7 +23,7 @@ export class BrowserOrigins {
   private id: () => string;
   private mode: (threadId: ThreadId) => Promise<PermissionMode>;
   private allowlist: () => Promise<string[]>;
-  private once = new Map<string, Set<string>>();
+  private once = new Map<string, Map<string, number>>();
   private waiters = new Map<string, () => void>();
   private stop: () => void;
   private timeout: number;
@@ -92,7 +92,18 @@ export class BrowserOrigins {
     }
   }
   list(threadId: string) {
-    return this.grants.list(threadId);
+    const grants = this.grants.list(threadId).map((grant) => ({
+      origin: grant.origin,
+      grantedAt: grant.grantedAt,
+      scope: "thread" as const,
+    }));
+    const known = new Set(grants.map((grant) => grant.origin));
+    return [
+      ...grants,
+      ...[...(this.once.get(threadId)?.entries() ?? [])]
+        .filter(([origin]) => !known.has(origin))
+        .map(([origin, grantedAt]) => ({ origin, grantedAt, scope: "page" as const })),
+    ].toSorted((a, b) => a.origin.localeCompare(b.origin));
   }
   grant(threadId: string, origin: string): void {
     this.grants.grant(threadId, origin);
@@ -100,14 +111,31 @@ export class BrowserOrigins {
   revoke(threadId: string, origin: string): void {
     this.grants.revoke(threadId, origin);
     this.once.get(threadId)?.delete(origin);
+    const pending = this.store.atomic((db) =>
+      db
+        .prepare("SELECT * FROM browser_origin_pending WHERE thread_id=?")
+        .all(ThreadId.parse(threadId)),
+    );
+    for (const raw of pending) {
+      const row = Pending.parse(raw),
+        interaction = this.store.getInteraction(row.interaction_id);
+      const metadata = interaction?.raw.find((entry) => entry.type === "ace.browser.origin");
+      if (
+        z
+          .object({ origin: z.string() })
+          .safeParse(metadata && "data" in metadata ? metadata.data : undefined).data?.origin ===
+        origin
+      )
+        this.expire(row.thread_id, row.interaction_id);
+    }
   }
   clearPage(threadId: string): void {
     this.once.delete(threadId);
   }
   private pageGrant(threadId: string, origin: string): void {
-    const origins = this.once.get(threadId) ?? new Set<string>();
+    const origins = this.once.get(threadId) ?? new Map<string, number>();
     if (origins.size >= 256) throw new Error("Browser page origin limit");
-    origins.add(origin);
+    origins.set(origin, this.now());
     this.once.set(threadId, origins);
   }
   async allowed(request: OriginRequest): Promise<boolean> {

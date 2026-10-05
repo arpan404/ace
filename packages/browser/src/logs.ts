@@ -1,5 +1,7 @@
 import { createWriteStream, type WriteStream } from "node:fs";
 import { finished } from "node:stream/promises";
+import type { BackendLog } from "./backend.ts";
+import { redactBrowserText, redactBrowserUrl } from "./inspection.ts";
 import { join } from "node:path";
 
 /** Append-only JSONL, bounded by file size and the writable high-water mark. */
@@ -9,6 +11,27 @@ export class SessionLogs {
   private bytes = { console: 0, network: 0 };
   private failures = new Map<string, unknown>();
   private closing = false;
+  private retained: (BackendLog & { at: number })[] = [];
+  read(filter: {
+    kind?: "console" | "network" | undefined;
+    level?: string | undefined;
+    url?: string | undefined;
+    status?: number | undefined;
+    limit: number;
+  }) {
+    return {
+      entries: this.retained
+        .filter(
+          (entry) =>
+            (!filter.kind || entry.kind === filter.kind) &&
+            (!filter.level || entry.type === filter.level) &&
+            (!filter.url || entry.url?.includes(filter.url)) &&
+            (filter.status === undefined || entry.status === filter.status),
+        )
+        .slice(-filter.limit),
+      limit: filter.limit,
+    };
+  }
   constructor(dir: string, privateLimit = 16 * 1024 * 1024) {
     this.limit = privateLimit;
     this.paths = { console: join(dir, "console.jsonl"), network: join(dir, "network.jsonl") };
@@ -28,7 +51,14 @@ export class SessionLogs {
       stream.on("error", (error) => this.failures.set(kind, error));
   }
   private limit: number;
-  append(kind: "console" | "network", entry: { at: number; type: string; text: string }): boolean {
+  append(kind: "console" | "network", entry: Omit<BackendLog, "kind"> & { at: number }): boolean {
+    entry = {
+      ...entry,
+      text: redactBrowserText(entry.text).slice(0, 8192),
+      ...(entry.url ? { url: redactBrowserUrl(entry.url) } : {}),
+    };
+    if (this.retained.length >= 200) this.retained.shift();
+    this.retained.push({ ...entry, kind });
     const stream = this.streams[kind];
     if (this.closing || this.failures.has(kind) || stream.writableNeedDrain) return false;
     const line = JSON.stringify({ ...entry, text: entry.text.slice(0, 8192) }) + "\n";

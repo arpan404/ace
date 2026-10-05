@@ -158,9 +158,11 @@ export function readyServices(
   const handler = requireService(services.handler, "engine");
   services.browserOrigins?.recover();
   services.screenApprovals?.recover();
+  services.browserApprovals?.recover();
   services.handler = {
     handle: (command, store) =>
       services.screenApprovals?.resolve(command) ??
+      services.browserApprovals?.resolve(command) ??
       services.browserOrigins?.resolve(command) ??
       handler.handle(command, store),
   };

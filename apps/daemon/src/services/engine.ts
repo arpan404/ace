@@ -268,11 +268,14 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   await engine.ready();
   engine.bindHostInteractions(
     (command) =>
-      services.screenApprovals?.resolve(command) ?? services.browserOrigins?.resolve(command),
+      services.screenApprovals?.resolve(command) ??
+      services.browserApprovals?.resolve(command) ??
+      services.browserOrigins?.resolve(command),
   );
   services.engine = engine;
   services.browserOrigins?.recover();
   services.screenApprovals?.recover();
+  services.browserApprovals?.recover();
   services.handler = engine.handler;
 }
 

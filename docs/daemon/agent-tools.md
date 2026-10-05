@@ -12,7 +12,7 @@ share its origin approvals, and are not part of this contract.
 ## Browser journey
 
 1. `ace_browser_open({url: "http://localhost:3000/"})` opens the thread browser
-   and waits for the initial document. Omitting `url` opens a blank browser.
+   and waits for the initial document. Omitting `url` opens a blank browser. Add `newTab:true` for another background tab.
    Other browser tools also open it lazily.
 2. `ace_browser_snapshot({})` returns bounded accessibility `nodes`, with
    `name`, `role`, optional `value`, and optional `ref`. Only nodes with refs
@@ -41,20 +41,20 @@ Cancellation does not return a late success. Each text poll visits at most 1024 
 and 65536 text characters, and rejects documents over the 20000-node snapshot cap.
 Larger searches return `page_text_limit` instead of repeatedly scanning the page.
 
-Refs include a document generation and Chromium node identity. They remain
+Refs include frame identity, a document generation and Chromium node identity. They remain
 stable across snapshots of an unchanged element in the same document, but only
 the latest snapshot grants actionable refs. Navigation, detached elements and
 backend replacement require a fresh snapshot. A ref is not a CSS selector.
 
-| Tool                   | Arguments and result                                                              |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| `ace_browser_navigate` | `url`, optional `timeout`; HTTP(S), no URL credentials; returns browser state     |
-| `ace_browser_scroll`   | `x`, `y` are horizontal/vertical pixel distances, not target coordinates          |
-| `ace_browser_evaluate` | `expression`; bounded JSON result; separately requires the host evaluate policy   |
-| `ace_browser_logs`     | `{}`; returns local console/network log paths                                     |
-| `ace_browser_resize`   | `width`, `height`, 100–4096 CSS pixels                                            |
-| `ace_browser_emulate`  | `width`, `height`, optional `deviceScaleFactor`, `mobile`, `touch`, `colorScheme` |
-| `ace_browser_close`    | `{}`; closes the thread browser after agent control is restored                   |
+| Tool                   | Arguments and result                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `ace_browser_navigate` | `url`, optional `timeout`; HTTP(S), no URL credentials; returns browser state                     |
+| `ace_browser_scroll`   | `x`, `y` are horizontal/vertical pixel distances, not target coordinates                          |
+| `ace_browser_evaluate` | `expression`, optional `mode: read-only / unrestricted`; bounded JSON; separate evaluate approval |
+| `ace_browser_logs`     | optional kind, level, url substring, status, limit; returns bounded redacted inline entries       |
+| `ace_browser_resize`   | `width`, `height`, 100–4096 CSS pixels                                                            |
+| `ace_browser_emulate`  | `width`, `height`, optional `deviceScaleFactor`, `mobile`, `touch`, `colorScheme`                 |
+| `ace_browser_close`    | `{}`; closes the thread browser after agent control is restored                                   |
 
 ## Origin consent and control
 
@@ -69,8 +69,46 @@ policy. Site consent does not grant JavaScript evaluation.
 Browser takeover and handback are authenticated human operations, not agent
 tools. A human lease blocks agent input and agent close. Takeover invalidates
 queued input even if the human hands control back before it dispatches. A click
-already dispatched cannot be undone. Disconnect returns browser control; refresh
-the snapshot before continuing.
+already dispatched cannot be undone. Shared disconnect returns browser control; refresh the snapshot before continuing. Private takeover returns `human_private` for agent reads as well as input. A private disconnect pauses until explicit human handback; the agent must wait.
+
+## Tabs, files and inspection
+
+`ace_browser_tabs({operation:"list"})` returns stable IDs and the active tab.
+Use operation open with optional url, or switch/close with tabId. The last tab
+requires ace_browser_close. Each thread has at most eight tabs; the daemon has
+at most 32. Popups are policy-checked background tabs. Commands accept optional
+tabId to select their target; snapshot again after switching.
+
+`ace_browser_find({role:"button",name:"Save"})` returns matching snapshot nodes;
+exact defaults true. Hover/focus/check/uncheck take ref, drag takes ref and toRef,
+and select takes ref and option values. Frame-qualified refs target same-origin
+and cross-origin frame elements through their CDP sessions.
+
+`ace_browser_upload({ref,files:["relative/workspace/file.txt"]})` sets a file input.
+Workspace and thread artifact files are allowed; outside paths require a human.
+Downloads are quarantined and need a separate browser.downloads approval in
+Ask/Auto-review. Completed downloads announce an artifact with filename, size,
+MIME and executable/archive flags. Never execute or open a flagged file by default.
+
+A tab may carry pending_dialog with dialogId, tabId, type and message. Answer with
+`ace_browser_dialog({dialogId,accept:true,promptText:"text"})`, or accept:false to
+dismiss. Agent-owned beforeunload is accepted automatically. Native permission
+prompts and file chooser windows do not grant capabilities.
+
+Evaluate defaults to unrestricted. Use mode read-only to read DOM in an isolated
+world with side-effect checking. It refuses mutation, navigation and network calls;
+it cannot read page-world variables and may refuse harmless operations. Evaluation
+has its own Allow once / Deny approval, plus a read-only site/thread grant option.
+Full access evaluates directly. A site grant never permits unrestricted JavaScript.
+
+`ace_browser_network_body({requestId})` reads one completed bounded text response
+from a request ID in logs. Binary, incomplete, evicted or oversized bodies fail.
+Known secrets are redacted; arbitrary page text can still be sensitive.
+`ace_browser_record_start({})` and record_stop reuse the recording/artifact pipeline.
+Recording captures the active view; private frames are excluded. Recording is not replay.
+
+The [UI wire handoff](browser-parity-ui.md) defines tab/download/dialog state,
+grants, private reconnect and the human approval controls.
 
 ## Screen journey
 

@@ -165,9 +165,9 @@ it.each(["embedded", "headless"] as const)(
       .parse(await f.service.execute("thread", { action: "screenshot" }));
     expect(await readFile(image.path)).toEqual(Buffer.from([0]));
     const logs = z
-      .object({ console: z.string() })
+      .object({ entries: z.array(z.object({ text: z.string() })) })
       .parse(await f.service.execute("thread", { action: "logs" }));
-    expect(await readFile(logs.console, "utf8")).toContain("marker");
+    expect(logs.entries.some((entry) => entry.text.includes("marker"))).toBe(true);
     await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000" });
     await expect(f.service.execute("thread", { action: "click", ref })).rejects.toThrow("ref");
   },
@@ -277,10 +277,10 @@ it("native permission and download denials flow through bounded daemon logs", as
   });
   await f.service.execute("thread", { action: "screenshot" });
   const paths = z
-    .object({ console: z.string(), network: z.string() })
+    .object({ entries: z.array(z.object({ text: z.string() })) })
     .parse(await f.service.execute("thread", { action: "logs" }));
-  expect(await readFile(paths.console, "utf8")).toContain("permission.denied");
-  expect(await readFile(paths.network, "utf8")).toContain("download.denied");
+  expect(paths.entries.some((entry) => entry.text.includes("geolocation"))).toBe(true);
+  expect(paths.entries.some((entry) => entry.text.includes("file.bin"))).toBe(true);
 });
 
 it("bounds outstanding relay commands and rejects every pending result on disconnect", async () => {

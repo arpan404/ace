@@ -29,14 +29,14 @@ Example:
 
 ```json
 {
-  "concurrency": 6,
-  "enabled": false,
+  "concurrency": 10,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 8,
+  "jitterMs": 2,
   "missedRun": "run_once",
   "model": "example",
   "prompt": "example",
-  "provider": "cursor",
+  "provider": "antigravity",
   "title": "example",
   "trigger": {
     "kind": "file",
@@ -102,19 +102,19 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 1,
-    "enabled": false,
+    "concurrency": 10,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 0,
+    "jitterMs": 9,
     "missedRun": "run_once",
     "prompt": "example",
-    "provider": "cursor",
+    "provider": "claude",
     "title": "example",
     "trigger": {
       "kind": "schedule",
       "schedule": {
         "expression": "example",
-        "kind": "rrule",
+        "kind": "cron",
         "startAt": 0,
         "timezone": "example"
       }
@@ -194,8 +194,7 @@ Example:
 
 ```json
 {
-  "before": 3,
-  "limit": 4,
+  "limit": 10,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -221,13 +220,9 @@ Example:
 ```json
 {
   "automations": [],
-  "inbox": {
-    "before": null,
-    "runs": []
-  },
+  "error": "example",
   "ok": false,
   "requestId": "example",
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -255,12 +250,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 4,
   "id": "example",
-  "startedAt": 5,
-  "status": "running",
+  "result": "example",
+  "startedAt": 4,
+  "status": "failed",
   "title": "example",
-  "trigger": "file"
+  "trigger": "schedule"
 }
 ```
 
@@ -318,7 +313,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -340,10 +335,11 @@ Example:
 
 ```json
 {
-  "event": "review_comment",
+  "event": "issue_labelled",
   "kind": "github",
-  "pollIntervalMs": 60006,
-  "repository": "jgujfB/w-uKNlXqMx"
+  "pollIntervalMs": 60005,
+  "pullRequest": 3,
+  "repository": "zOORF2IPI/T"
 }
 ```
 
