@@ -55,7 +55,7 @@ export function ThreadRow(props: { threadId: string; pinned?: boolean }) {
                 line,
                 indent,
                 "group/link group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
-                "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+                "data-[status=active]:bg-foreground/8",
               )}
             >
               {content}

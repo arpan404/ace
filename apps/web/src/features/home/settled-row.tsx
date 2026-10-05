@@ -26,7 +26,7 @@ export function SettledRow(props: { threadId: string }) {
           <Link
             to="/t/$threadId"
             params={{ threadId: entry.id }}
-            className={`${row} group-hover/row:bg-sidebar-accent group-hover/row:text-muted-foreground focus-visible:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] data-[status=active]:text-foreground`}
+            className={`${row} group-hover/row:bg-sidebar-accent group-hover/row:text-muted-foreground focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/8 data-[status=active]:text-foreground`}
           >
             <SettledLine card={card} />
           </Link>
