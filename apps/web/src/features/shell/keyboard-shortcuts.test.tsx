@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { workbenchServices } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 
 // jsdom is a non-Apple browser tab: "mod" is Ctrl and keys render as "Shift+Ctrl+Y".
@@ -55,9 +56,11 @@ test("Reset brings the default keys back", async () => {
 });
 
 test("in a browser tab New thread is Ctrl+Alt+N, which the browser leaves to the page", async () => {
-  await harness().open("/");
+  const app = harness();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  await app.open("/");
   await heading("Home");
-  const link = screen.getByRole("link", { name: /^New thread/ });
+  const link = await screen.findByRole("link", { name: /^New thread/ });
   expect(link.textContent).toMatch(/Alt\+Ctrl\+N$/);
   await userEvent.keyboard("{Control>}{Alt>}n{/Alt}{/Control}");
   await heading("New thread");

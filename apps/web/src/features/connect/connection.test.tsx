@@ -63,7 +63,7 @@ test("a valid token connects and the token stays in this session unless remember
   const { local, session } = boot();
   await connectWith(token);
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
-  expect(await screen.findByRole("status", { name: "Daemon: Connected" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Account and connection" })).toBeTruthy();
   expect(session.getItem("ace.daemon.token")).toBe(token);
   expect(local.getItem("ace.daemon.token")).toBeNull();
   expect(local.getItem("ace.daemon.url")).toBe(url);
@@ -120,7 +120,8 @@ test("disconnecting forgets the token and returns to the connection screen", asy
   const { local, session } = boot();
   await connectWith(token, true);
   expect(local.getItem("ace.daemon.token")).toBe(token);
-  await userEvent.click(await screen.findByRole("button", { name: "Account and connection" }));
+  // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
+  await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
   await screen.findByRole("heading", { name: "Connect to your daemon" });
   expect(local.getItem("ace.daemon.token")).toBeNull();
@@ -131,8 +132,9 @@ test("a client that loads on demand connects once it arrives, and disconnecting 
   const { local } = boot({ onDemand: true });
   await connectWith(token, true);
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
-  expect(await screen.findByRole("status", { name: "Daemon: Connected" })).toBeTruthy();
-  await userEvent.click(await screen.findByRole("button", { name: "Account and connection" }));
+  expect(await screen.findByRole("button", { name: "Account and connection" })).toBeTruthy();
+  // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
+  await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
   await screen.findByRole("heading", { name: "Connect to your daemon" });
   expect(local.getItem("ace.daemon.token")).toBeNull();

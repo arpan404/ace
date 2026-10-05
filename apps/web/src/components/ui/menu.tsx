@@ -3,7 +3,7 @@ import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
-import { formatKeys, type KeymapId } from "@/lib/keymap.ts";
+import { describeKeys, type KeymapId } from "@/lib/keymap.ts";
 import {
   menuDanger,
   menuItem,
@@ -51,7 +51,7 @@ function MenuContent({
 function useShortcutText(shortcut: KeymapId | undefined, keys: string | undefined) {
   const resolved = useResolvedKeymap();
   const shown = shortcut ? resolved[shortcut] : keys && resolveKeys(keys, resolved);
-  return shown ? formatKeys(shown) : undefined;
+  return shown ? describeKeys(shown) : undefined;
 }
 
 /**
