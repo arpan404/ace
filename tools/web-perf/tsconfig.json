@@ -1,5 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "lib": ["es2024", "dom"] },
-  "include": ["src"]
+  "compilerOptions": {
+    "lib": ["es2024", "dom"]
+  },
+  "include": ["src", "device"]
 }

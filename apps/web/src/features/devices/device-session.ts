@@ -1,42 +1,18 @@
 import {
   DeviceClient,
+  type DeviceConnection,
   deviceTransport,
-  type AuthenticatedChannelOptions,
+  browserDeviceSocket,
   type DeviceClientSnapshot,
   type DeviceTransport,
 } from "@ace/client/devices";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { DaemonEndpoint } from "@/boot/connection.tsx";
 
-type PortableSocket = ReturnType<AuthenticatedChannelOptions["socket"]>;
-
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
   return () => clearTimeout(timer);
 };
-
-/** The browser's WebSocket as the portable socket the devices channel speaks through. */
-function browserSocket(address: string): PortableSocket {
-  const socket = new WebSocket(address);
-  return {
-    get binaryType() {
-      return socket.binaryType;
-    },
-    set binaryType(type: string) {
-      socket.binaryType = type === "blob" ? "blob" : "arraybuffer";
-    },
-    get bufferedAmount() {
-      return socket.bufferedAmount;
-    },
-    addEventListener: (type: string, listener: (event: { data: unknown }) => void) =>
-      socket.addEventListener(type, (event) =>
-        listener({ data: event instanceof MessageEvent ? event.data : undefined }),
-      ),
-    // The channel only sends JSON text; a binary frame is copied so it owns its buffer.
-    send: (data) => socket.send(typeof data === "string" ? data : new Uint8Array(data)),
-    close: () => socket.close(),
-  };
-}
 
 /**
  * The dedicated, authenticated devices channel for this endpoint: a socket of its own against a
@@ -50,7 +26,7 @@ function transportFor(endpoint: DaemonEndpoint): DeviceTransport {
     target: { kind: "local", url },
     deviceId,
     credential: async () => token,
-    socket: browserSocket,
+    socket: browserDeviceSocket,
     keys: () => {
       throw new Error("Relay targets are not reachable from the web app.");
     },
@@ -67,6 +43,7 @@ export interface DeviceSessionSnapshot extends DeviceClientSnapshot {
 /** A DeviceClient's snapshot as a stable external store (getSnapshot builds a new object). */
 export interface DeviceSession {
   readonly client: DeviceClient;
+  readonly connection?: DeviceConnection;
   subscribe(listener: () => void): () => void;
   get(): DeviceSessionSnapshot;
   close(): void;
@@ -86,6 +63,11 @@ function openSession(endpoint: DaemonEndpoint): DeviceSession {
   opening = false;
   return {
     client,
+    connection:
+      endpoint.kind === "fake" ||
+      ["localhost", "127.0.0.1", "[::1]"].includes(new URL(endpoint.target.url).hostname)
+        ? "local"
+        : "remote",
     subscribe(listener) {
       listeners.add(listener);
       return () => void listeners.delete(listener);

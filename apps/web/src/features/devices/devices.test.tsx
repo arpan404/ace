@@ -1,39 +1,18 @@
-import { flakyCheckout } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { harness } from "@/test/harness.tsx";
+import { afterEach, beforeEach, expect, test } from "vitest";
+import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts";
 
-// jsdom has no object URLs; each frame gets a distinct address the way a browser's would.
+// jsdom has no WebCodecs: every screen here is JPEG, as in a browser without it.
+let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
-  let urls = 0;
-  vi.stubGlobal(
-    "URL",
-    Object.assign(URL, {
-      createObjectURL: () => `blob:frame-${++urls}`,
-      revokeObjectURL: () => {},
-    }),
-  );
+  browser = deviceBrowser("none");
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => browser.restore());
 
-async function openDevices() {
-  // Control leases expire on the daemon's clock; here it is the page's.
-  const app = harness({ clock: () => Date.now() });
-  app.play(flakyCheckout()).runThrough("explorer-spawned");
-  await app.open("/t/thread-checkout");
-  // ⌃⇧M opens the Devices tool in the side panel.
-  await userEvent.keyboard("{Control>}{Shift>}m{/Shift}{/Control}");
-  const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { name: "Devices", selected: true })).toBeTruthy();
-  return { app, panel };
-}
-
-/** Open a device from the catalog as its own tab; its region once loaded. */
-async function openDevice(panel: HTMLElement, name: string) {
-  const list = await within(panel).findByRole("list", { name: "Devices" });
-  await userEvent.click(within(list).getByRole("button", { name: new RegExp(`^${name}`) }));
-  return within(panel).findByRole("region", { name });
+/** Wait until the device's screen has drawn at least one frame. */
+async function shows(screenImage: HTMLElement) {
+  await waitFor(() => expect(browser.draws(screenImage)).toBeGreaterThan(0));
 }
 
 /** The line at the top of a device's tab: "<device> · <what it is doing>". */
@@ -76,7 +55,7 @@ test("booting an emulator shows its live screen, which takes keys and text while
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
 
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
-  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+  await shows(screenImage);
   expect(statusLine(pixel)).toBe("Pixel 9 · Live · You're in control");
 
   await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
@@ -102,7 +81,7 @@ test("a running simulator shows its screen as soon as its tab opens, and only wa
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
-  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+  await shows(screenImage);
   expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(true);
 
   // The control bar over the screen hands the device to you, and back.
@@ -203,24 +182,28 @@ function visibility(state: DocumentVisibilityState) {
 }
 
 test("while the window is hidden the device screen decodes nothing, and shows the newest frame once shown", async () => {
-  const { panel } = await openDevices();
+  const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const pixel = await openDevice(panel, "Pixel 9");
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
-  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+  await shows(screenImage);
 
   try {
     visibility("hidden");
-    const before = screenImage.getAttribute("src");
-    // Each key press repaints the device's screen.
+    const drawn = browser.draws(screenImage);
+    const decoded = browser.bitmaps.length;
+    // Each key press repaints the device's screen; the daemon has both once it records them.
     await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
     await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screenImage.getAttribute("src")).toBe(before);
+    await waitFor(() => expect(app.daemon.appDevices.inputs).toHaveLength(2));
+    expect(browser.bitmaps).toHaveLength(decoded);
+    expect(browser.draws(screenImage)).toBe(drawn);
 
+    // Shown again, the screen asks for the newest frame and decodes only that one.
     act(() => visibility("visible"));
-    await waitFor(() => expect(screenImage.getAttribute("src")).not.toBe(before));
+    await waitFor(() => expect(browser.draws(screenImage)).toBe(drawn + 1));
+    expect(browser.bitmaps).toHaveLength(decoded + 1);
   } finally {
     visibility("visible");
   }
@@ -265,7 +248,7 @@ test("when macOS hasn't allowed screen recording, the simulator tab says how to 
   app.daemon.appDevices.permissions.screenRecording = true;
   await userEvent.click(within(guide).getByRole("button", { name: "Try again" }));
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
-  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+  await shows(screenImage);
   expect(within(iphone).queryByRole("alert", { name: /permission needed/ })).toBeNull();
 });
 

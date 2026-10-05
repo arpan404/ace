@@ -7,6 +7,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "enabled": {
+      "type": "boolean"
+    },
     "error": {
       "enum": [
         "discovery_failed",
@@ -29,6 +32,10 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "lastRefreshedAt": {
+      "minimum": 0,
+      "type": "number"
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

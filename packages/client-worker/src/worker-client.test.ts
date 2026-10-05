@@ -238,6 +238,20 @@ test("a malformed service request is refused before it reaches the daemon", asyn
     // @ts-expect-error the key is not a settings key; the client must refuse it at runtime too.
     remote.request({ type: "settings.get", key: 42 }),
   ).rejects.toMatchObject({ code: "protocol" });
+  await expect(remote.request({ type: "accounts.status", instanceId: "" })).rejects.toMatchObject({
+    code: "protocol",
+  });
+  await expect(
+    remote.enqueue({
+      type: "thread.limit",
+      threadId: ThreadId.parse("thread-queue"),
+      expectedRevision: 0,
+      action: "migrate_now",
+      instanceId: "invalid account id",
+    }),
+  ).rejects.toMatchObject({ code: "protocol" });
+  await remote.request({ type: "diagnostics.health" });
+  expect(remote.state).toBe("ready");
 });
 
 test("terminal output held for credit resumes when a tab grants credit through the worker", async () => {

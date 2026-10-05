@@ -48,3 +48,12 @@ export const ScreenAction = z.discriminatedUnion("kind", [
   }),
 ]);
 export type ScreenAction = z.infer<typeof ScreenAction>;
+/** Negotiated live preview. JPEG remains the default for screenshots and older clients. */
+export const ScreenStreamSettings = z.object({
+  codec: z.enum(["jpeg", "h264"]),
+  maxWidth: z.number().int().min(64).max(3840),
+  maxHeight: z.number().int().min(64).max(2160),
+  fps: z.number().int().min(1).max(60),
+  bitrate: z.number().int().min(128000).max(20000000),
+});
+export type ScreenStreamSettings = z.infer<typeof ScreenStreamSettings>;

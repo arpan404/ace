@@ -107,7 +107,11 @@ export class Pixels {
       this.task = undefined;
     }
   }
+  invalidateImage(): void {
+    this.latest = undefined;
+  }
   frame(frame: Frame): void {
+    if (frame.header.codec !== "jpeg") return;
     this.latest = frame;
     for (const waiter of this.waiters) {
       if (waiter.floor !== undefined && frame.header.sequence >= waiter.floor) {

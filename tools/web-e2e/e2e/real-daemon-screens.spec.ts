@@ -17,7 +17,9 @@ async function connect(page: Page, path = "/") {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   const daemon = encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`);
   await page.goto(`${path}#token=${token}&daemon=${daemon}`);
-  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Account and connection", exact: true }),
+  ).toBeAttached();
 }
 
 async function openThread(page: Page) {
@@ -116,7 +118,7 @@ test("New thread starts a thread on the provider's default model when there is n
   page,
 }) => {
   await connect(page, "/new");
-  await expect(page.getByRole("button", { name: /^Model: Claude Code default/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Model: Claude Code · Default/ })).toBeVisible();
   const request = "Summarise the README";
   await page.getByRole("combobox", { name: "Message" }).fill(request);
   await page.getByRole("combobox", { name: "Message" }).press("Enter");

@@ -126,7 +126,8 @@ test("OpenCode v2 metadata keeps provider/model IDs and image capability", async
 test("shared discovery keeps OpenCode metadata without starting an unprofiled ACP agent", async () => {
   const work = await workspace();
   cleanups.push(work.close);
-  const executable = join(work.path, "not-authorized-to-start");
+  const executable = process.execPath;
+  const script = await fakeCli(work.path);
   const discover = createModelDiscovery({
     opencode: async (entry) => ({
       location: { directory: entry.cwd },
@@ -146,7 +147,16 @@ test("shared discovery keeps OpenCode metadata without starting an unprofiled AC
     }),
   });
   const signal = new AbortController().signal;
-  const openCode = await discover({ ...instance("opencode"), executable, cwd: work.path }, signal);
+  const openCode = await discover(
+    {
+      ...instance("opencode"),
+      executable,
+      cwd: work.path,
+      args: [script],
+      env: { FAKE_PROVIDER: "opencode" },
+    },
+    signal,
+  );
   const acp = await discover({ ...instance("acp"), executable, cwd: work.path }, signal);
   expect(openCode).toEqual([
     expect.objectContaining({

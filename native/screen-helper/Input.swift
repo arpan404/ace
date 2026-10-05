@@ -17,7 +17,7 @@ extension Capture {
             return abs(actual.minX - expected.minX) < 1 && abs(actual.minY - expected.minY) < 1 && abs(actual.width - expected.width) < 1 && abs(actual.height - expected.height) < 1
         }
         guard matches.count == 1, let element = matches.first else { throw HelperError("Cannot resolve target AX window", code: "not_supported") }
-        guard let button = windowButton(element, named: name) else { throw HelperError("The window has no \(name) button", code: "not_supported") }
+        guard let button = windowButton(element, named: name, clock: runtime.nanos) else { throw HelperError("The window has no \(name) button", code: "not_supported") }
         guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else { throw HelperError("Could not press \(name)", code: "internal") }
     }
     func foregroundWindow(_ window: SCWindow) async throws {
@@ -33,10 +33,16 @@ extension Capture {
         guard matches.count == 1, let element = matches.first, AXUIElementPerformAction(element, kAXRaiseAction as CFString) == .success else { throw HelperError("Could not raise approved window", code: "not_supported") }
     }
     func inject(_ action: Action) async throws {
-        guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess() else { throw HelperError("macOS permission denied", code: "permission_denied") }
+        if action.kind == "down", pointerAction != nil { try releasePointer() }
+        // Permission is checked immediately before every event is posted below, after any
+        // asynchronous focus/discovery. Avoid duplicating the TCC query on the pointer path.
         guard let target, target.kind != "display", let bundle = target.bundleId, allowed.contains(bundle) else { throw HelperError("Approved controllable target required", code: "permission_denied") }
-        let content = try await content()
-        let candidates = content.windows.filter { $0.owningApplication?.bundleIdentifier == bundle }
+        let candidates: [SCWindow]
+        if target.kind == "window", ["click", "scroll", "move", "down", "drag", "up"].contains(action.kind), let captureWindow {
+            // Capture owns this SCWindow. Bounds/owner/overlap are verified from live CG rows
+            // below; enumerating ScreenCaptureKit targets on every pointer event stalls input.
+            candidates = [captureWindow]
+        } else { candidates = try await content().windows.filter { $0.owningApplication?.bundleIdentifier == bundle } }
         let window: SCWindow?
         if target.kind == "window" { window = candidates.first { $0.windowID == target.windowId } }
         else { window = try appInputWindow(candidates.filter { $0.windowLayer == 0 }) }
@@ -45,9 +51,12 @@ extension Capture {
         if mode == "foreground" { try await foregroundWindow(window) }
         var location = CGPoint.zero
         var inputWindow = window
+        var pointerBounds: CGRect?
         if ["click", "scroll", "move", "down", "drag", "up"].contains(action.kind) {
+            let geometry = target.kind == "window" ? try pointerGeometry(window) : nil
             let pointCoordinates = action.coordinates == .windowPoints
-            let bounds = pointCoordinates || target.kind == "window" ? try currentWindowBounds(window) : frame
+            let bounds = try geometry?.bounds ?? (pointCoordinates ? currentWindowBounds(window) : frame)
+            pointerBounds = bounds
             let x = action.x ?? (pointCoordinates && action.kind == "scroll" ? bounds.width / 2 : -1)
             let y = action.y ?? (pointCoordinates && action.kind == "scroll" ? bounds.height / 2 : -1)
             let limitX = pointCoordinates ? bounds.width : Double(width), limitY = pointCoordinates ? bounds.height : Double(height)
@@ -56,7 +65,7 @@ extension Capture {
             if target.kind == "window" {
                 guard bounds.contains(location) else { throw HelperError("Input outside captured window", code: "bounds") }
                 // Only a window of the same app stacked in front of this one could take the event.
-                guard !windowsInFront(of: window, among: candidates).contains(where: { $0.frame.contains(location) }) else { throw HelperError("Captured window overlaps another application window", code: "bounds") }
+                guard !(geometry?.front.contains(where: { $0.contains(location) }) ?? true) else { throw HelperError("Captured window overlaps another application window", code: "bounds") }
                 inputWindow = window
             } else if pointCoordinates {
                 guard action.windowId == window.windowID else { throw HelperError("App input focus changed", code: "target_gone") }
@@ -80,14 +89,16 @@ extension Capture {
             }
             guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess(), let pid = inputWindow.owningApplication?.processID, NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == bundle else { throw HelperError("macOS permission denied or target unavailable", code: "permission_denied") }
             synthesizedInput = true
-            if mode == "foreground" { event.location = location; event.post(tap: .cghidEventTap) } else { event.postToPid(pid) }
+            try NativeInputPost.perform(permission: runtime.inputAllowed) {
+                if mode == "foreground" { event.location = location; event.post(tap: .cghidEventTap) } else { event.postToPid(pid) }
+            }
         }
         func pointer(_ type: NSEvent.EventType) throws -> CGEvent {
             // NSEvent cannot look up this foreign NSWindow. Compensate for its screen-to-window Y conversion.
-            let current = try currentWindowBounds(inputWindow)
+            let current = try pointerBounds ?? currentWindowBounds(inputWindow)
             let local = CGPoint(x: location.x - current.minX, y: current.maxY - location.y)
             let point = CGPoint(x: local.x, y: local.y + CGDisplayBounds(CGMainDisplayID()).height - current.height)
-            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: Int(inputWindow.windowID), context: nil, eventNumber: 0, clickCount: 1, pressure: 1)?.cgEvent else { throw HelperError("Cannot create targeted pointer event") }
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: runtime.uptime(), windowNumber: Int(inputWindow.windowID), context: nil, eventNumber: 0, clickCount: 1, pressure: 1)?.cgEvent else { throw HelperError("Cannot create targeted pointer event") }
             return event
         }
         var focused: AXUIElement?
@@ -110,6 +121,12 @@ extension Capture {
             let right = action.button == "right"
             let type: NSEvent.EventType = action.kind == "move" ? .mouseMoved : action.kind == "down" ? (right ? .rightMouseDown : .leftMouseDown) : action.kind == "drag" ? (right ? .rightMouseDragged : .leftMouseDragged) : (right ? .rightMouseUp : .leftMouseUp)
             try post(try pointer(type))
+            if action.kind == "down" || action.kind == "drag" {
+                guard let pid = inputWindow.owningApplication?.processID,
+                      let app = NSRunningApplication(processIdentifier: pid) else { throw HelperError("Pointer target unavailable", code: "target_gone") }
+                heldPointer.hold(PointerPress(window: inputWindow, application: app, button: action.button ?? "left", location: location))
+            }
+            if action.kind == "up" { heldPointer.targetDestroyed() }
         case "type":
             guard let text = action.text, text.utf16.count <= 4096 else { throw HelperError("Text exceeds limit", code: "bounds") }
             if text.isEmpty { return }

@@ -15,10 +15,10 @@ export async function discoverAdapters(
   additional?: (registry: AdapterRegistry) => Promise<void>,
   cursorOptions: CursorAdapterOptions = {},
   sdkDiscovery: typeof discoverCursorSdk = discoverCursorSdk,
+  registry: AdapterRegistry = new AdapterRegistry(),
 ): Promise<AdapterRegistry> {
-  const registry = new AdapterRegistry();
   const { claude, codex, opencode, cursor } = await discover();
-  if (claude.installed) {
+  if (claude.installed && !registry.has("claude")) {
     const { createClaudeAdapter } = await import("@ace/adapter-claude");
     registry.register(
       claudeAdapter?.(claude) ??
@@ -26,11 +26,11 @@ export async function discoverAdapters(
       claude,
     );
   }
-  if (codex.installed) {
+  if (codex.installed && !registry.has("codex")) {
     const { createCodexAdapter } = await import("@ace/adapter-codex");
     registry.register(createCodexAdapter({ cli: codex }), codex);
   }
-  if (opencode.installed) {
+  if (opencode.installed && !registry.has("opencode")) {
     const { createOpenCodeAdapter } = await import("@ace/adapter-opencode");
     registry.register(
       createOpenCodeAdapter({
@@ -39,7 +39,7 @@ export async function discoverAdapters(
       opencode,
     );
   }
-  if (cursor.installed) {
+  if (cursor.installed && !registry.has("cursor")) {
     const { createAcpAdapter, cursorQuirks } = await import("@ace/adapter-acp");
     registry.registerFallback(
       createAcpAdapter(cursorQuirks, cursor.path ? { command: cursor.path } : {}),
@@ -48,7 +48,10 @@ export async function discoverAdapters(
     );
   }
   const sdk = await sdkDiscovery(cursorOptions.discovery);
-  if (sdk.installed) {
+  if (
+    sdk.installed &&
+    (!registry.has("cursor") || registry.get("cursor").adapter.backend !== "cursor-sdk")
+  ) {
     // Unsupported SDKs stay selected and fail on admission. Only absence permits ACP fallback.
     registry.register(createCursorAdapter(cursorOptions), {
       installed: true,

@@ -1,7 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-let helper = ["Responsibility.swift", "Protocol.swift", "FrameChanges.swift", "Metrics.swift", "AXAttributes.swift", "Accessibility.swift", "JPEGEncoder.swift", "FrameWriter.swift", "Capture.swift", "BackgroundSafety.swift", "WindowFocus.swift", "TargetedAXInput.swift", "Input.swift", "InputV2.swift", "Main.swift"]
+let helper = ["Responsibility.swift", "Protocol.swift", "Pipeline.swift", "PointerRelease.swift", "VideoEncoder.swift", "FrameChanges.swift", "Metrics.swift", "AXAttributes.swift", "Accessibility.swift", "JPEGEncoder.swift", "FrameWriter.swift", "Capture.swift", "BackgroundSafety.swift", "WindowFocus.swift", "TargetedAXInput.swift", "Input.swift", "InputV2.swift", "Main.swift"]
 let fixture = ["TestWindow.swift"]
 let inspector = ["InspectJPEG.swift"]
 let excluded = ["build", "Tests", "README.md", "Info.plist", "build.sh", "build-test-window.sh", "bench.sh", "bench-writer.sh", "Bench.swift", "WriterBench.swift"]

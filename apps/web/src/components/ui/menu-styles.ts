@@ -29,4 +29,4 @@ export const menuDanger = "text-destructive [&_svg]:text-destructive";
 export const menuShortcut = "ml-auto pl-[18px] text-xs text-subtle-foreground";
 export const menuSeparator = "mx-1.5 my-[5px] h-px bg-border";
 export const menuLabel =
-  "px-2.5 pt-[7px] pb-1 text-[11px] font-medium tracking-[0.02em] text-subtle-foreground";
+  "px-2.5 pt-[7px] pb-1 text-xs font-medium tracking-[0.02em] text-muted-foreground";

@@ -17,8 +17,9 @@ import Darwin
         // the six-second default: every Accessibility call gives up after one second.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1)
         do {
+            let runtime = NativeRuntime(nanos: { DispatchTime.now().uptimeNanoseconds }, milliseconds: { Date().timeIntervalSince1970 * 1000 }, uptime: { ProcessInfo.processInfo.systemUptime }, inputAllowed: { AXIsProcessTrusted() && CGPreflightScreenCaptureAccess() })
             let writer = try FrameWriter(path: path)
-            let inventory = Capture(writer: writer)
+            let inventory = Capture(writer: writer, runtime: runtime)
             var sessions: [String: (Capture, Accessibility)] = [:]
             defer { for (_, accessibility) in sessions.values { accessibility.reset() } }
             let commands = AsyncStream<Data>(bufferingPolicy: .bufferingOldest(32)) { continuation in
@@ -66,7 +67,7 @@ import Darwin
                             let existing = pair.0.target?.bundleIds ?? [pair.0.target?.bundleId].compactMap { $0 }
                             if !Set(ids).isDisjoint(with: existing) { throw HelperError("Target held by session \(holder)", code: "target_busy") }
                         }
-                        let capture = Capture(writer: writer)
+                        let capture = Capture(writer: writer, runtime: runtime)
                         try await capture.start(request)
                         sessions[id] = (capture, Accessibility(clock: { DispatchTime.now().uptimeNanoseconds }))
                         reply(request); continue
@@ -78,6 +79,12 @@ import Darwin
                     guard request.target == capture.target else { throw HelperError("Session target differs", code: "target_gone") }
                     capture.mode = request.mode ?? "background"
                     capture.secureInputAllowed = request.secureInputAllowed == true
+                    if request.op == "stream.configure" {
+                        guard let settings = request.settings else { throw HelperError("Stream settings required", code: "bounds") }
+                        try await capture.configureStream(settings); reply(request, data: ["codec": settings.codec]); continue
+                    }
+                    if request.op == "stream.keyframe" { capture.requestKeyframe(); reply(request); continue }
+                    if request.op == "stream.image" { capture.requestImage(); reply(request); continue }
                     if request.op == "stop" { try await capture.stop(); accessibility.reset(); sessions.removeValue(forKey: id); reply(request); continue }
                     if request.op == "capture" {
                         guard let enabled = request.enabled else { throw HelperError("Missing capture lease", code: "bounds") }

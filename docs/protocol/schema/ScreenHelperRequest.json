@@ -8,7 +8,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "hello",
@@ -46,7 +50,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "metrics",
@@ -94,7 +102,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "open.app",
@@ -130,6 +142,136 @@
     },
     {
       "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "stream.configure",
+          "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "settings": {
+          "$ref": "https://ace.local/protocol/v1/ScreenStreamSettings.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "settings"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "stream.keyframe",
+          "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "stream.image",
+          "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "enabled": {
           "type": "boolean"
         },
@@ -137,7 +279,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "capture",
@@ -179,7 +325,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenInput.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "input",
@@ -237,7 +387,11 @@
           "type": "integer"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "ui.tree",
@@ -293,7 +447,11 @@
           "type": "integer"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "ui.find",
@@ -350,7 +508,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "name": {
           "maxLength": 256,
@@ -450,7 +612,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "permissions",
@@ -488,7 +654,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "permissions.request",
@@ -534,7 +704,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "name": {
           "maxLength": 64,
@@ -578,7 +752,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "targets",
@@ -616,7 +794,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "stop",
@@ -657,7 +839,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "action",
@@ -703,7 +889,7 @@
           "type": "boolean"
         },
         "fps": {
-          "maximum": 30,
+          "maximum": 60,
           "minimum": 1,
           "type": "integer"
         },
@@ -711,7 +897,11 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "mode": {
-          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "start",

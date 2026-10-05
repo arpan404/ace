@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { z } from "zod";
 import { ClientMessage, ServerMessage, type ServerMessage as ServerFrame } from "@ace/protocol";
 import type { PortableRelay, PortableRelayOptions, PortableSocket } from "./portable-relay.ts";
@@ -237,5 +238,30 @@ export function deviceTransport(options: AuthenticatedChannelOptions): DeviceTra
     open: (events) => channel.open(events),
     send: (message) => channel.send(message),
     close: () => channel.close(),
+  };
+}
+
+/** Browser socket boundary shared by the app and device latency probe. */
+export function browserDeviceSocket(address: string): PortableSocket {
+  const socket = new WebSocket(address);
+  return {
+    get binaryType() {
+      return socket.binaryType;
+    },
+    set binaryType(type: string) {
+      socket.binaryType = type === "blob" ? "blob" : "arraybuffer";
+    },
+    get bufferedAmount() {
+      return socket.bufferedAmount;
+    },
+    addEventListener: (type, listener) =>
+      socket.addEventListener(type, (event) =>
+        listener({
+          data: event instanceof MessageEvent ? event.data : undefined,
+          ...(event instanceof CloseEvent ? { code: event.code } : {}),
+        }),
+      ),
+    send: (data) => socket.send(typeof data === "string" ? data : new Uint8Array(data)),
+    close: () => socket.close(),
   };
 }

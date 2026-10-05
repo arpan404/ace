@@ -60,9 +60,12 @@ transform and opacity only.
 
 The widths the shell adapts at live in `lib/breakpoints.ts` (`usePhone`, `useSidebarInline`, ...),
 in line with Tailwind's `sm` and `md`. Below 640px the header folds its actions and ⋯ menu into
-one and panels open as a sheet over the content. Below 768px the rail and sidebar are one sheet
-opened from the header (it closes once a place is chosen); below 1100px the sidebar steps aside
-while a right panel is open (the rail stays); below 1152px panels float over the content.
+one and panels open as a sheet over the content. Below 768px, and on short touch screens (a phone
+held sideways), the rail and sidebar are one sheet opened from the header (it closes once a place
+is chosen, a link in it is followed, or the palette or a dialog opens from it). From 897px to
+1100px the sidebar steps aside while a right panel is open, so the panel docks beside the column
+(the rail stays); at 896px and below panels float over the content and the sidebar stays as the
+person left it.
 
 ## Rail and sidebar
 
@@ -70,14 +73,16 @@ As in desktop chat apps: a narrow rail of views and, beside it, a sidebar with t
 own list (composed in `app/app-shell.tsx`).
 
 - **Rail** (`features/shell/rail.tsx`, 40px): icons only, each named by a tooltip with its
-  shortcut on hover and keyboard focus. Home (`g h`; a dot while a thread needs you or has news,
-  kept as counts by `AttentionTally` from the changed entries only, and judged against the same
-  first launch as Home's list, `firstLaunch` in `@ace/ui-core`), Activity (`g a`, the needs-you count), Deck (`g d`),
+  shortcut on hover and keyboard focus. Home (`g h`; a dot while a thread has news, kept as
+  counts by `AttentionTally` from the changed entries only, and judged against the same first
+  launch as Home's list, `firstLaunch` in `@ace/ui-core`), Deck (`g d`),
   Automations (`g u`), Skills (`g s`), More (a menu of usage and accounts, files and search);
-  Settings (⌘,) and the account with the connection dot at the foot.
-- **Sidebar** (`features/shell/app-sidebar.tsx`): "ace ▾" (the account and connection menu), the
-  Activity bell and Search (⌘K), New thread (⌘N), then the current view's list, the only part
-  that scrolls. A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the
+  Settings (⌘,) and the account (the person and the app: Settings, Appearance, shortcuts,
+  usage) with the connection dot at the foot.
+- **Sidebar** (`features/shell/app-sidebar.tsx`): "ace ▾" (the daemon: its state and address,
+  pairing, connection settings), the Activity bell (`g a`, with the needs-you count; Activity's
+  only way in outside the palette) and Search and commands (⌘K), New thread (⌘N; Add project
+  while there is none), then the current view's list, the only part that scrolls. A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the
   sidebar's body through a portal, so it keeps the route's providers.
 - **Home's list** (`features/home`): one flat list of tasks across projects, pinned first, then
   Home order (needs you, work in motion, trouble, the rest, most recent first), then the
@@ -146,7 +151,27 @@ Rules:
 - Provider, ACP agent and model marks are `ProviderIcon` / `ProviderIconTip` from
   `components/ui/provider-icons.tsx`, never an inline logo. Which brand stands for what is
   `@ace/ui-core/provider-icons`; the marks are LobeHub Icons, regenerated with `bun run icons:providers`.
-- Colour only for diff +/− and the needs-you and failed dots. Use `text-muted-foreground` / `text-subtle-foreground` for hierarchy, and weights 400/500 (600 for titles only).
+  They draw in brand colour (gradients included); black-and-white brands draw in the text colour
+  at full strength. `variant="mono"` is for a tiny inline mark in the surrounding text colour.
+- Colour has jobs, never decoration:
+  - **Accent** (`--ring`): `bg-tint text-tint-foreground` as a fill (labels are black or white,
+    always AA), `text-link` as text (links, the current rail view: the accent nudged until it
+    reads at AA on every surface, so any custom colour stays legible), `bg-ring/10` for its soft
+    wash and `bg-ring/45` for drawn lines. Each theme has its own (`--accent-theme`);
+    Appearance can pin another.
+  - **Status** through `data-tone="working | needs-you | waiting | failed | done | idle"`, which
+    sets `--tone` (`styles/index.css`): `StatusPill`, `Dot`, the Activity tiles and the spinner
+    (working blue) read it. Words always carry the status too. Waiting and limited share the
+    violet: a thread held at a usage limit waits on its provider, not on you, so its row dot is a
+    hollow violet ring beside a violet Limited pill; amber is only for needs you.
+  - **Diff**: green added, red removed (`--diff-add`, `--diff-del`, `text-status-done/failed` for counts).
+  - **Projects**: `var(--project-${projectTint(id)})` from `@ace/ui-core`, twelve tints per theme
+    that read as text at AA; a badge draws its letters in the tint on a wash of it.
+- Greys: `text-muted-foreground` / `text-subtle-foreground` for hierarchy (both AA on every
+  surface, `theme/surfaces.ts`). Ink washes are the opacity shorthand on four steps only:
+  `bg-foreground/3` quiet fills, `/5` hover and fields, `/8` the selected row or tab, `/10` the
+  selected nav item or pressed state (`bun run check:ui` rejects raw `color-mix` washes).
+  Weights 400/500 (600 for titles only).
 - Keep files under ~400 lines (hard limit 1,500, `bun run check:size`).
 
 ## Workspace tabs (side and bottom docks)

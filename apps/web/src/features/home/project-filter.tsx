@@ -1,4 +1,5 @@
 import { CaretDownIcon, FolderPlusIcon, FolderSimpleIcon } from "@phosphor-icons/react";
+import { projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -12,6 +13,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
+import { NeedsDaemon, useDaemonReachable } from "./needs-daemon.tsx";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import {
@@ -27,6 +29,8 @@ import {
 export function ThreadsActions() {
   const { project } = useOrganizerState();
   const dialogs = useProjectDialogs();
+  // Adding a project browses the daemon's folders, which can't wait for a reconnect.
+  const reachable = useDaemonReachable();
   return (
     <span
       className={cn(
@@ -35,14 +39,19 @@ export function ThreadsActions() {
       )}
     >
       <ProjectFilter />
-      <IconButton
-        icon={FolderPlusIcon}
-        label="Add project"
-        shortcut="addProject"
-        onClick={() => dialogs.open({ kind: "add", tab: "open" })}
-        onPointerEnter={dialogs.preload}
-        className="size-[26px] rounded-sm hover:bg-sidebar-accent"
-      />
+      <NeedsDaemon reachable={reachable}>
+        <IconButton
+          icon={FolderPlusIcon}
+          label="Add project"
+          shortcut="addProject"
+          tooltip={reachable}
+          disabled={!reachable}
+          focusableWhenDisabled
+          onClick={() => dialogs.open({ kind: "add", tab: "open" })}
+          onPointerEnter={dialogs.preload}
+          className="size-[26px] rounded-sm hover:bg-sidebar-accent data-disabled:pointer-events-auto"
+        />
+      </NeedsDaemon>
     </span>
   );
 }
@@ -100,11 +109,21 @@ export function ProjectFilter() {
   );
 }
 
+/** A project in the filter, its folder in the project's tint as on its rows; All stays grey. */
 function ProjectItem(props: { value: string; label: string; count: number }) {
   return (
     <MenuRadioItem value={props.value} aria-label={props.label}>
       <span className="flex items-center gap-[9px]">
-        <Icon icon={FolderSimpleIcon} className="text-muted-foreground" />
+        <span
+          className="flex text-muted-foreground"
+          style={
+            props.value === all
+              ? undefined
+              : { color: `var(--project-${projectTint(props.value)})` }
+          }
+        >
+          <Icon icon={FolderSimpleIcon} />
+        </span>
         {props.label}
         <span className="ml-auto pl-4 text-xs text-subtle-foreground">{props.count}</span>
       </span>

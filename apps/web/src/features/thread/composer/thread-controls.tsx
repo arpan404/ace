@@ -3,15 +3,13 @@ import { WorkspaceId, type ExecutionOptions, type PermissionMode } from "@ace/pr
 import {
   accountTag,
   choiceForModel,
-  choiceSelection,
   currentModelChoice,
   modelControlName,
   nextOptions,
   optionEffort,
-  permissionLabel,
+  permissionPendingNote,
   pickerModelsFromChoices,
   pickerProviders,
-  providerNames,
   reconcileNextOptions,
   recordedChoice,
   speedControl,
@@ -30,22 +28,24 @@ import {
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
-import { useThreadSources, type ThreadRef } from "../sources/index.ts";
+import type { ThreadRef } from "../sources/index.ts";
 import { SwitchDialog } from "../transitions/switch-dialog.tsx";
 import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
-import { usePermissionCapabilities, useSetThreadPermission } from "./permission-hooks.ts";
+import { useModelSwitch } from "./use-model-switch.ts";
+import { usePermissionCapabilities, useThreadPermission } from "./permission-hooks.ts";
 import { PermissionPicker } from "./permission-picker.tsx";
 
 /**
  * The thread's approval mode, inspectable and changeable after the thread started. A change
- * applies from the agent's next turn (ADR 0061); until then the chip marks it pending.
+ * applies from the agent's next turn (ADR 0061). The chip shows it at once beside the mode in
+ * effect, and takes it back with a toast only when the daemon refuses it; offline it waits.
  */
 export function ThreadPermissionControl(props: { thread: ThreadRef }) {
   const meta = useThreadMeta(props.thread.id);
   const toast = useToast();
-  const set = useSetThreadPermission(props.thread.id);
+  const permission = useThreadPermission(props.thread.id, meta?.permission);
   const [defaultMode] = useDaemonSetting("permissions.defaultMode", {
     workspaceId: WorkspaceId.parse(props.thread.workspaceId),
   });
@@ -53,17 +53,16 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
     meta?.provider,
     meta?.capabilities?.permissions,
   );
-  const summary = threadPermissionSummary(meta?.permission, capabilities);
+  const summary = threadPermissionSummary(meta?.permission, capabilities, {
+    chosen: permission.chosen,
+    defaultMode,
+  });
   const change = (mode: PermissionMode | null) =>
-    void set(mode).then(
-      () =>
-        toast.add({
-          title: mode ? `Approvals: ${permissionLabel(mode)}` : "Approvals follow the default",
-          description: "Applies from the agent's next turn.",
-        }),
-      (error: unknown) =>
+    void permission
+      .change(mode)
+      .catch((error: unknown) =>
         toast.add({ title: "Couldn't change approvals", description: failureMessage(error) }),
-    );
+      );
   return (
     <PermissionPicker
       mode={summary?.mode}
@@ -75,7 +74,10 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
           ? "The daemon didn't say how this thread is approved"
           : undefined
       }
-      pending={summary?.pending}
+      next={summary?.next}
+      // The daemon has no field yet for why a change waits; when it reports one ("busy"),
+      // pass it here and the note says the running command must finish first.
+      note={summary?.next && (permission.note ?? permissionPendingNote())}
       inherited={summary?.inherited}
       defaultMode={defaultMode}
       onChange={change}
@@ -83,6 +85,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
   );
 }
 
+/** Offline, changes still go: effort and speed with the next message, a switch from the outbox. */
 const offlineNote = "Offline: changes apply when the daemon is back";
 const clock = new Intl.DateTimeFormat(undefined, {
   hour: "2-digit",
@@ -113,13 +116,13 @@ const droppedWords = { effort: "Effort", speed: "Speed" } as const;
  */
 export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; next: NextTurn }) {
   const meta = useThreadMeta(props.thread.id);
-  const sources = useThreadSources();
   const toast = useToast();
   const choices = useModelChoices();
   const catalog = useModelCatalogState();
   const statuses = useProviderStatuses();
   const compact = useComposerCompact();
-  const [switching, setSwitching] = useState<ModelChoice>();
+  const [asking, setAsking] = useState<ModelChoice>();
+  const moving = useModelSwitch(props.thread, meta, choices);
   const online = useConnectionState() === "ready";
   const selection = runsOn(meta);
   const current = currentModelChoice(choices, selection);
@@ -179,10 +182,11 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
       });
   });
   const switchTo = (choice: ModelChoice) => {
-    setSwitching(undefined);
-    // Effort and speed picked for the old model stay until the switch lands; then they're
-    // checked against the new model (a refused switch keeps them as they were).
-    sources.actions.switchTo(props.thread, choiceSelection(choice)).then(
+    setAsking(undefined);
+    // The chip shows the new model at once. Effort and speed picked for the old one stay until
+    // the switch lands; then they're checked against the new model (a refused switch takes the
+    // choice back and keeps them as they were).
+    moving.switchTo(choice).then(
       () =>
         toast.add({
           title: props.busy
@@ -193,29 +197,34 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
         toast.add({ title: "Couldn't switch the model", description: failureMessage(error) }),
     );
   };
-  const account = shown?.account ? accountTag(shown.account) : undefined;
-  const name = shown
-    ? modelControlName({
-        model: shown.model,
-        account,
-        effort: effort.current,
-        effortDefault: !effort.reported,
-        hasEfforts: effort.efforts.length > 0,
-        fast: speed.on,
-      })
-    : undefined;
+  // What the chip names: the switch just chosen here, else what the thread runs on next.
+  const target = moving.chosen ?? shown;
+  const account = target?.account ? accountTag(target.account) : undefined;
+  const details = {
+    model: target?.model ?? "",
+    account,
+    effort: effort.current,
+    effortDefault: !effort.reported,
+    hasEfforts: effort.efforts.length > 0,
+    fast: speed.on,
+  };
+  const name = target && modelControlName(details);
   const waiting = pending ? "applies with your next message" : undefined;
+  const switchWaits = moving.waiting(target);
   const models = pickerModelsFromChoices(choices, limitReached);
   const view: ModelControlView = {
-    provider: shown?.provider,
-    label: shown?.model,
+    provider: target?.provider,
+    label: target?.model,
     placeholder: "Model",
     ariaLabel: name ? `Model: ${name}` : "Choose a model",
-    tip: shown
-      ? [providerNames[shown.provider], name, waiting].filter(Boolean).join(" · ")
+    tip: target
+      ? [modelControlName({ ...details, provider: target.provider }), waiting]
+          .filter(Boolean)
+          .join(" · ")
       : "Choose a model",
+    switching: switchWaits,
     offline: online ? undefined : offlineNote,
-    modelKey: shown?.key,
+    modelKey: target?.key,
     efforts: effort.efforts,
     // Without a known default, the provider's own default is a stop of its own.
     defaultStop: shown?.defaultEffort === undefined,
@@ -235,7 +244,7 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
             disabled: choice.exhausted ? limitReached(choice.resetsAt) : undefined,
           }))
       : [],
-    account: current?.id,
+    account: (moving.chosen ?? current)?.id,
     models,
     providers: pickerProviders(models, statuses.data ?? []),
     catalog,
@@ -251,10 +260,12 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
           onFast: (on) => change({ serviceTier: on ? speed.tier : speed.off }),
           onReset: () => change({ effort: undefined, serviceTier: undefined }),
           onModel: (key) => {
-            const choice = choiceForModel(choices, key, current?.accountId);
-            if (!choice || choice.id === current?.id) return true;
-            if (meta && choice.provider !== (selection?.provider ?? meta.provider)) {
-              setSwitching(choice);
+            const from = moving.chosen ?? current;
+            const choice = choiceForModel(choices, key, from?.accountId);
+            if (!choice || choice.id === from?.id) return true;
+            const provider = moving.chosen?.provider ?? selection?.provider ?? meta?.provider;
+            if (meta && choice.provider !== provider) {
+              setAsking(choice);
               return false;
             }
             switchTo(choice);
@@ -266,13 +277,13 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
           },
         }}
       />
-      {switching && meta && (
+      {asking && meta && (
         <SwitchDialog
-          from={selection?.provider ?? meta.provider}
-          to={switching}
+          from={moving.chosen?.provider ?? selection?.provider ?? meta.provider}
+          to={asking}
           busy={props.busy}
-          onConfirm={() => switchTo(switching)}
-          onClose={() => setSwitching(undefined)}
+          onConfirm={() => switchTo(asking)}
+          onClose={() => setAsking(undefined)}
         />
       )}
     </>

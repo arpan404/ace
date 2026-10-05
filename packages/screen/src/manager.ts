@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { ScreenStreamSettings } from "@ace/protocol";
 import { TargetBusyError } from "./target-busy.ts";
 import { HelperCommandError } from "./helper.ts";
 import type { ScreenAccess } from "./access.ts";
@@ -344,7 +346,7 @@ export class ScreenManager {
   ): Promise<ScreenState> {
     const target = ScreenTarget.parse(input);
     this.authorize(target, scope);
-    if (!Number.isInteger(fps) || fps < 1 || fps > 30) throw new Error("Invalid frame rate");
+    if (!Number.isInteger(fps) || fps < 1 || fps > 60) throw new Error("Invalid frame rate");
     const selectedBundles = bundles(target);
     for (const bundle of selectedBundles) {
       const holder = [...this.sessions.values()].find((session) =>
@@ -418,7 +420,7 @@ export class ScreenManager {
         op: "start" as const,
         sessionId: id,
         target,
-        fps,
+        fps: helper.capabilities?.platform === "macos" ? fps : Math.min(30, fps),
         capture: helper.capabilities?.platform !== "macos",
         allowlist: bundles(target),
       };
@@ -514,16 +516,49 @@ export class ScreenManager {
     if (!session.latest) throw new Error("No captured frame yet");
     return session.latest;
   }
+  async configureStream(
+    id: string,
+    raw: ScreenStreamSettings,
+  ): Promise<{ codec: "jpeg" | "h264" }> {
+    const settings = ScreenStreamSettings.parse(raw);
+    const session = this.live(id);
+    this.authorize(session.state.target);
+    if (
+      session.helper.capabilities?.platform !== "macos" ||
+      !session.helper.capabilities.codecs.includes("h264")
+    )
+      return { codec: "jpeg" };
+    return z
+      .object({ codec: z.enum(["jpeg", "h264"]) })
+      .parse(await session.helper.request({ op: "stream.configure", settings }));
+  }
+  async requestKeyframe(id: string): Promise<void> {
+    const session = this.live(id);
+    this.authorize(session.state.target);
+    if (session.helper.capabilities?.platform === "macos")
+      await session.helper.request({ op: "stream.keyframe" });
+  }
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
     this.authorize(session.state.target, session.approvalScope);
     if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux"))
       return this.screenshot(id);
-    return session.pixels.screenshot(
-      this.options.scheduler ?? nodeScheduler,
-      this.options.timeoutMs ?? 10_000,
-    );
+    const lease = session.pixels.acquire();
+    try {
+      await lease.ready;
+      if (session.helper.capabilities.platform === "macos") {
+        session.pixels.invalidateImage();
+        await session.helper.request({ op: "stream.image" });
+      }
+      return await session.pixels.screenshot(
+        this.options.scheduler ?? nodeScheduler,
+        this.options.timeoutMs ?? 10_000,
+      );
+    } finally {
+      lease.release();
+    }
   }
+
   private async readUI<T>(
     id: string,
     read: (session: Session) => Promise<T>,
@@ -607,7 +642,12 @@ export class ScreenManager {
       (session) => {
         if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
         beforeDispatch?.();
-        return session.helper.request({ op: "input", input });
+        if (input.kind === "pointer.down") session.pointerDown = true;
+        return session.helper.request({ op: "input", input }).then((result) => {
+          if (input.kind === "pointer.up" || input.kind === "pointer.cancel")
+            session.pointerDown = false;
+          return result;
+        });
       },
       input.kind,
     );
@@ -705,6 +745,24 @@ export class ScreenManager {
         mode: "background",
         secureInputAllowed: false,
       };
+    if (
+      session.pointerDown &&
+      session.helper.capabilities?.platform === "macos" &&
+      (session.state.controller !== controller || session.owner !== owner)
+    ) {
+      const cleanup = session.helper.request({ op: "input", input: { kind: "pointer.cancel" } });
+      const completion = cleanup.then(() => {
+        if (session.pointerCleanup === completion) {
+          session.pointerDown = false;
+          delete session.pointerCleanup;
+        }
+      });
+      session.pointerCleanup = completion;
+      void session.pointerCleanup.catch((error) => {
+        session.state.error = String(error);
+        this.emit(session);
+      });
+    }
     if (session.controllerBinding) {
       // No old input remains authorized if an external release callback fails.
       Object.assign(session, takeControl(session, "none", owner));
@@ -812,6 +870,7 @@ export class ScreenManager {
     const auditState = structuredClone(session.state);
     const execute = session.actionTail
       .then(async () => {
+        await session.pointerCleanup;
         if (session.epoch !== epoch) throw new Error("Controller changed");
         const permissions = ScreenPermissions.parse(
           await session.helper.request({ op: "permissions" }),

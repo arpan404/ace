@@ -116,3 +116,37 @@ it("bounds unsettled screenshots separately from ordinary device requests", asyn
   for (const error of await Promise.all(pending))
     expect(error).toMatchObject({ code: "disconnected" });
 });
+
+// Not executed: tests run at merge. A success envelope must never conceal dropped pixels.
+it("rejects screenshot metadata when its binary pixels were dropped", async () => {
+  const host = setup();
+  const result = host.client.request({ op: "screenshot", deviceId });
+  const sent = host.sent[0];
+  if (!sent) throw new Error("Missing request");
+  host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: header });
+  await expect(result).rejects.toThrow("Screenshot pixels missing");
+  host.client.disconnect();
+});
+
+it("a later video frame cannot replace pending screenshot pixels", async () => {
+  const host = setup();
+  const result = host.client.request({ op: "screenshot", deviceId });
+  const sent = host.sent[0];
+  if (!sent) throw new Error("Missing request");
+  host.receive(framePacket(header, Buffer.from([5])));
+  host.receive(framePacket({ ...header, seq: 6, codec: "h264" }, Buffer.from([6])));
+  host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: header });
+  await expect(result).resolves.toEqual(header);
+  host.client.disconnect();
+});
+it("concurrent screenshots of the same unchanged image retain matching pixels for both results", async () => {
+  const host = setup();
+  const first = host.client.request({ op: "screenshot", deviceId });
+  const second = host.client.request({ op: "screenshot", deviceId });
+  host.receive(framePacket(header, Buffer.from([5])));
+  host.receive(framePacket(header, Buffer.from([5])));
+  for (const sent of host.sent)
+    host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: header });
+  await expect(Promise.all([first, second])).resolves.toEqual([header, header]);
+  host.client.disconnect();
+});

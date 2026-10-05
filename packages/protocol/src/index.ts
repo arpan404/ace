@@ -100,3 +100,5 @@ export * from "./project-requests.ts";
 export * from "./long-thread.ts";
 
 export * from "./provider-status.ts";
+
+export { ProviderConfiguration, ProviderConfigurations } from "./provider-configuration.ts";

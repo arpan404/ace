@@ -1,5 +1,5 @@
 import { provisionalTitle } from "./thread-title.ts";
-import { permissionResolutionError } from "@ace/core";
+import { providerCommandDisabled, permissionResolutionError } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
@@ -30,10 +30,32 @@ export function engineHandler(
     backend?: import("@ace/engine-api").ProviderBackend,
   ) => string | undefined,
   machine?: { host: string; name: string },
+  providerEnabled?: (provider: import("@ace/protocol").ProviderKind, instance?: string) => boolean,
 ): CommandHandler {
   return {
     handle(command: Command, context): CommandResult {
       const payload = command.payload;
+      if (
+        providerEnabled &&
+        providerCommandDisabled(payload, {
+          thread(id) {
+            const thread = repo.store.getThread(id);
+            return thread
+              ? {
+                  provider: thread.provider,
+                  instanceId: repo.session(id).instanceId,
+                  parentThreadId: thread.lineage?.parentThreadId,
+                }
+              : undefined;
+          },
+          defaultInstance: (provider) =>
+            registry.has(provider)
+              ? selectInstance?.(provider, registry.get(provider).adapter.backend)
+              : undefined,
+          enabled: providerEnabled,
+        })
+      )
+        return { commandId: command.id, ok: false, error: "provider_disabled" };
       if ("threadId" in payload && payload.threadId) {
         const id = ThreadId.parse(payload.threadId);
         if (repo.store.workspaceReservations.threadReserved(id))

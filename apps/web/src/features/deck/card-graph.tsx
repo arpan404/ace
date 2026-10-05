@@ -381,23 +381,23 @@ function CardTile(props: {
   );
 }
 
-const dotTone: Record<CardTone, string> = {
-  idle: "bg-subtle-foreground",
-  waiting: "bg-status-waiting",
-  "needs-you": "bg-status-needs-you",
-  working: "bg-status-working",
-  done: "bg-status-done",
-};
-
 export function StatusMark(props: { mark: CardMark; tone: CardTone }) {
   switch (props.mark) {
     case "check":
-      return <Icon icon={CheckIcon} size={14} />;
+      return (
+        <span data-tone="done" className="flex text-(--tone)">
+          <Icon icon={CheckIcon} size={14} />
+        </span>
+      );
     case "spinner":
       return <Spinner />;
     case "dot":
       return (
-        <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dotTone[props.tone])} />
+        <span
+          aria-hidden
+          data-tone={props.tone}
+          className="size-1.5 shrink-0 rounded-full bg-(--tone)"
+        />
       );
   }
 }

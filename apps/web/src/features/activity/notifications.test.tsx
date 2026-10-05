@@ -97,8 +97,8 @@ test("turning a toast off in Activity's toast settings silences it", async () =>
   await screen.findByRole("heading", { level: 1, name: "Settings" });
   checkout.runThrough("approval-requested");
 
-  const views = screen.getByRole("navigation", { name: "Views" });
-  await within(views).findByLabelText("1 need you");
+  const views = screen.getByRole("navigation", { name: "App" });
+  await within(views).findByLabelText("1 needs you");
   expect(within(toasts()).queryByText("billing-api · needs you")).toBeNull();
   expect(JSON.parse(localStorage.getItem("ace.notifications.toasts") ?? "{}")).toMatchObject({
     needsYou: false,

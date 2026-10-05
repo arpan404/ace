@@ -236,6 +236,9 @@ export const ScreenInput = z.discriminatedUnion("kind", [
     dy: z.number().int().min(-1000).max(1000),
   }),
   z.object({ kind: z.literal("text.paste"), text: z.string().max(4096) }),
+  z.object({ kind: z.literal("pointer.down"), ...point }),
+  z.object({ kind: z.literal("pointer.up"), ...point }),
+  z.object({ kind: z.literal("pointer.cancel") }),
 ]);
 export type ScreenInput = z.infer<typeof ScreenInput>;
 
