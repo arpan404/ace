@@ -33,7 +33,8 @@ export const nodeScheduler: Scheduler = {
 };
 function noop(): void {}
 interface Entry {
-  descriptor: Tool;
+  /** Built on first list or schema read: JSON Schema per tool would otherwise sit idle in heap. */
+  descriptor(): Tool;
   action(input: unknown): import("@ace/protocol").ApprovalTarget | undefined;
   capability: McpCapability | null;
   timeoutMs: number;
@@ -121,7 +122,7 @@ export class ToolRegistry {
     timeoutMs: number,
     output?: z.ZodObject,
     riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"],
-  ): Tool {
+  ): () => Tool {
     if (
       (name !== "delegate_task" &&
         !/^ace_[a-z0-9_]{1,100}$/.test(name) &&
@@ -133,6 +134,17 @@ export class ToolRegistry {
     if (this.entries.size >= this.maxTools) throw new Error("Tool capacity reached");
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000)
       throw new Error("Invalid tool timeout");
+    let built: Tool | undefined;
+    return () => (built ??= this.build(name, description, input, timeoutMs, output, riskClass));
+  }
+  private build(
+    name: string,
+    description: string,
+    input: z.ZodType,
+    timeoutMs: number,
+    output?: z.ZodObject,
+    riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"],
+  ): Tool {
     const parsed = specTypeSchemas.Tool["~standard"].validate({
       name,
       description,
@@ -162,13 +174,13 @@ export class ToolRegistry {
     if (principal.signal.aborted) return [];
     const tools: Tool[] = [];
     for (const entry of this.entries.values())
-      if (allowed(entry, principal)) tools.push(entry.descriptor);
+      if (allowed(entry, principal)) tools.push(entry.descriptor());
     return tools;
   }
   inputSchema(name: string, principal: Principal): Record<string, unknown> | undefined {
     const entry = this.entries.get(name);
     return !principal.signal.aborted && entry && allowed(entry, principal)
-      ? entry.descriptor.inputSchema
+      ? entry.descriptor().inputSchema
       : undefined;
   }
   async call(
