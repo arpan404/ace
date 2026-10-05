@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import { CheckIcon, CopyIcon, GitForkIcon } from "@phosphor-icons/react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { forkPointOf } from "../transitions/fork-point.ts";
@@ -38,11 +38,14 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
 /** Copies the answer's markdown, as written, with a moment of "Copied". */
 function CopyAnswer(props: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const reset = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(reset.current), []);
   const copy = () =>
     void navigator.clipboard?.writeText(props.text).then(
       () => {
         setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+        clearTimeout(reset.current);
+        reset.current = setTimeout(() => setCopied(false), 1500);
       },
       () => setCopied(false),
     );
