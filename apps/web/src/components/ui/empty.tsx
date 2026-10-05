@@ -25,7 +25,7 @@ function EmptyState(props: {
       )}
     >
       {props.icon && (
-        <span className="mb-2 grid size-16 place-items-center rounded-full bg-tint-wash text-link">
+        <span className="mb-2 grid size-16 place-items-center rounded-full bg-ring/10 text-link">
           <Icon icon={props.icon} size={36} empty />
         </span>
       )}

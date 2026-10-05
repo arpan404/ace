@@ -12,7 +12,7 @@ export function StatusPill(props: { tone: Tone; label: string; className?: strin
       data-slot="status-pill"
       data-tone={props.tone}
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--tone)_14%,transparent)] px-[9px] text-[12px] font-medium whitespace-nowrap text-[color-mix(in_oklab,var(--tone)_80%,var(--foreground))]",
+        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-(--tone)/13 px-[9px] text-[12px] font-medium whitespace-nowrap text-[color-mix(in_oklab,var(--tone)_80%,var(--foreground))]",
         props.className,
       )}
     >

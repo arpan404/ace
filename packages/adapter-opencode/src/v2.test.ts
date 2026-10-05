@@ -582,3 +582,60 @@ it("a synthetic shell result consumed in an active execution clears its completi
   expect(h.view.thread.status.state).toBe("done");
   expect(h.translator.isSettled()).toBe(true);
 });
+
+it("unknown projected content stays diagnostic and malformed live data reports uncertain execution", () => {
+  const h = setup();
+  const message = {
+    id: "future",
+    type: "assistant",
+    content: [{ type: "future_block", opaque: 42 }],
+  };
+  h.frame("snapshot.message", { sessionID: "s-root", message });
+  expect(Object.values(h.view.items).filter((item) => item.type === "notice")).toEqual([]);
+  expect(h.translator.takeDiagnostics()).toMatchObject([{ data: { message } }]);
+  const invalid = {
+    id: "bad",
+    type: "session.execution.started",
+    data: null,
+    api_key: "synthetic-secret",
+  };
+  h.frame("sse", invalid);
+  expect(Object.values(h.view.items).filter((item) => item.type === "notice")).toMatchObject([
+    {
+      text: "OpenCode data could not be translated; execution remains uncertain",
+      level: "error",
+      raw: [{ data: { api_key: "[redacted]" } }],
+    },
+  ]);
+  expect(h.translator.takeDiagnostics()).toEqual([
+    { type: "session.execution.started", data: invalid },
+  ]);
+  expect(h.view.thread.status.state).not.toBe("done");
+});
+
+// Mutation: discard snapshot diagnostics or put unsanitized diagnostic data in a notice.
+// Not executed (tests run at merge).
+it("cumulative snapshots retain full diagnostic receipts and sanitize canonical evidence", () => {
+  const h = setup();
+  for (const size of [4096, 65536, 262144]) {
+    const message = {
+      id: "snapshot-user",
+      type: "user",
+      text: "x".repeat(size),
+      api_key: "synthetic-secret",
+      futureMetadata: { retained: size },
+    };
+    const receipt = { sessionID: "s-root", message, futureEnvelope: { retained: size } };
+    h.frame("snapshot.message", receipt);
+    expect(h.translator.takeDiagnostics()).toEqual([{ type: "snapshot.message", data: receipt }]);
+    expect(h.translator.takeDiagnostics()).toEqual([]);
+    const item = Object.values(h.view.items).find(
+      (entry) => entry.type === "message" && entry.nativeId === "snapshot-user",
+    );
+    expect(item).toMatchObject({
+      parts: [{ type: "text", text: message.text }],
+      raw: [{ data: { api_key: "[redacted]", futureMetadata: { retained: size } } }],
+    });
+    expect(Object.values(h.view.items).filter((entry) => entry.type === "notice")).toEqual([]);
+  }
+});

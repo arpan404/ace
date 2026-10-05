@@ -35,9 +35,6 @@
   --reading: rgb(var(--reading-rgb) / calc(1 - 0.1 * var(--glass-k)));
   --glass-bg: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * var(--glass-k)));
   --panel: color-mix(in oklab, var(--reading), var(--background) 30%);
-  /* The two ink washes every list, tab and toolbar uses, so greys stay consistent. */
-  --wash: color-mix(in oklab, var(--foreground) 5%, transparent);
-  --selected: color-mix(in oklab, var(--foreground) 8%, transparent);
 
   /*
    * The accent: focus, selection, primary actions, checked controls, sliders and links. The theme
@@ -48,9 +45,6 @@
   --ring: var(--accent-theme, var(--accent-blue));
   --ring-foreground: #fff;
   --ring-text: var(--ring);
-  /* The accent as a soft wash (the current view, empty states) and as a drawn line (handles). */
-  --tint-wash: color-mix(in oklab, var(--ring) 14%, transparent);
-  --tint-line: color-mix(in oklab, var(--ring) 45%, transparent);
   --sidebar-ring: var(--ring);
 }
 

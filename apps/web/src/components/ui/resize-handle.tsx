@@ -41,7 +41,7 @@ function ResizeHandle(props: {
       aria-valuemax={props.max}
       data-dragging={dragging ? "" : undefined}
       className={cn(
-        "absolute z-[3] outline-none transition-colors duration-(--dur-1) hover:bg-tint-line focus-visible:bg-tint-line data-dragging:bg-tint-line",
+        "absolute z-[3] outline-none transition-colors duration-(--dur-1) hover:bg-ring/45 focus-visible:bg-ring/45 data-dragging:bg-ring/45",
         vertical
           ? "inset-y-0 -left-[3px] w-1.5 cursor-col-resize"
           : "inset-x-0 -top-[3px] h-1.5 cursor-row-resize",

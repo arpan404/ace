@@ -246,3 +246,22 @@ test("a permanent command refusal fails only that intent and keeps the connectio
   expect(client.state).toBe("ready");
   await barrier(client, h.thread.id);
 });
+
+test("an offline durable action waits through reconnect and applies once", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, scheduler } = h.make();
+  await ready(client);
+  client.networkOnline(false);
+  const result = client.command(
+    { type: "thread.archive", threadId: h.thread.id },
+    {},
+    "offline-archive",
+  );
+  await when(client.intent("offline-archive"), (intent) => intent?.state === "pending");
+  scheduler.advance(20_000);
+  expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeUndefined();
+  client.networkOnline(true);
+  expect(await result).toMatchObject({ ok: true, commandId: "offline-archive" });
+  expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeDefined();
+});

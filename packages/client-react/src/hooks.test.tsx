@@ -14,6 +14,7 @@ import {
   ClientProvider,
   useAgentTree,
   useInteractions,
+  useItemInteraction,
   useItem,
   type AgentTreeNode,
 } from "./index.ts";
@@ -193,4 +194,65 @@ test("the agent tree re-nests a subagent when it is linked under another parent"
   await act(async () => script.step());
   await act(async () => {});
   expect(screen.getByLabelText("tree").textContent).toBe("[[[[]]]]");
+});
+
+test("an answered question remains attached to its loaded item", async () => {
+  const { daemon, client } = setup();
+  daemon.createThread({
+    id: "thread-question",
+    workspaceId: "ws",
+    title: "Question",
+    provider: "codex",
+  });
+  daemon.apply("thread-question", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.tool("root", "ask", { kind: "ask_user", title: "Choose", detail: { kind: "ask_user" } }),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "question",
+      item: "ask",
+      blocking: false,
+      request: {
+        kind: "question",
+        questions: [
+          {
+            id: "q",
+            text: "Which material?",
+            multiSelect: false,
+            allowOther: false,
+            options: [{ id: "steel", label: "Steel" }],
+          },
+        ],
+      },
+    },
+  ]);
+  await client.start();
+  const lease = client.thread("thread-question");
+  await act(async () => {});
+  const itemId = lease.store.order.find((id) => lease.store.item(id)?.type === "tool_call");
+  if (!itemId) throw new Error("Missing question item");
+  function Question() {
+    const interaction = useItemInteraction("thread-question", itemId ?? "");
+    return <output aria-label="question-state">{interaction?.state}</output>;
+  }
+  render(
+    <ClientProvider client={client}>
+      <Question />
+    </ClientProvider>,
+  );
+  await screen.findByText("pending");
+  await act(async () => {
+    daemon.apply("thread-question", [
+      {
+        type: "interaction.closed",
+        interaction: "question",
+        state: "resolved",
+        resolution: { kind: "question", answers: { q: ["steel"] } },
+      },
+    ]);
+  });
+  await screen.findByText("resolved");
+  lease.release();
 });

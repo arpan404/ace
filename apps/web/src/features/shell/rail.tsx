@@ -14,7 +14,7 @@ import { activeView, railViews, type RailView, type View } from "./views.ts";
 
 const square =
   "relative grid size-8 place-items-center rounded-lg text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-sidebar-accent";
-const selected = "bg-tint-wash text-link";
+const selected = "bg-ring/10 text-link";
 
 /**
  * The rail of views: icons only, each named by its tooltip with its shortcut. Home carries a

@@ -6,7 +6,7 @@ import type { ThemeTokens } from "./tokens.ts";
  * text is actually drawn and not only on the page background. Covers both glass extremes: solid
  * (glass intensity 0 or Reduce transparency) and fully clear, where the rail, sidebar, reading
  * column and floating glass show the wallpaper through their own alpha (tokens.css). Rows and
- * tabs add the selected ink wash (8%) on top of the surface under them.
+ * tabs add the strongest ink wash (10%) on top of the surface under them.
  */
 
 export interface Surface {
@@ -26,8 +26,8 @@ function over(top: Rgb, alpha: number, under: Rgb): Rgb {
   ];
 }
 
-/** The selected wash (tokens.css `--selected`). */
-const selectedInk = 0.08;
+/** The strongest ink wash text sits on: a selected nav item (`bg-foreground/10`). */
+const selectedInk = 0.1;
 /** How much each material lets the wallpaper through at full glass intensity (tokens.css). */
 const clear = { sidebar: 0.5, reading: 0.1 } as const;
 

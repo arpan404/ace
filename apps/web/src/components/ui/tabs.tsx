@@ -23,7 +23,7 @@ function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
       data-slot="tabs-tab"
       className={cn(
         "inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium whitespace-nowrap text-muted-foreground outline-none transition-[color,background-color,box-shadow] duration-(--dur-1) focus-visible:text-foreground focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_70%,transparent)]",
-        "hover:text-foreground hover:not-data-active:bg-wash data-active:bg-selected data-active:text-foreground",
+        "hover:text-foreground hover:not-data-active:bg-foreground/3 data-active:bg-foreground/8 data-active:text-foreground",
         className,
       )}
       {...props}

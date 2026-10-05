@@ -25,12 +25,7 @@ export function translateDelta(
 ): Fact[] {
   const type = string(body.type);
   if ((type === "text-delta" || type === "thinking-delta") && body.aceTextStream === true)
-    return [
-      context.notice(
-        "Large SDK text retained in ordered chunks; original body is raw provenance",
-        context.current,
-      ),
-    ];
+    return [];
   if (type === "text-delta" || type === "thinking-delta")
     return context.transcript.append(
       agent,
@@ -86,5 +81,5 @@ export function translateDelta(
         context.current,
       ),
     ];
-  return [context.notice("Unknown SDK delta retained", context.current)];
+  return [];
 }

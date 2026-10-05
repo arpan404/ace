@@ -157,20 +157,8 @@ export class Recovery {
       this.repo.backend(id),
     );
     if (!text) return;
-    this.repo.queue.set(id, { continuation: text, trigger: "restart" }, this.clock.now());
+    this.repo.queue.set(id, { continuation: "continue", trigger: "restart" }, this.clock.now());
     this.sync(id);
-    this.repo.apply(
-      id,
-      [
-        {
-          type: "item.upsert",
-          agent: this.repo.requireState(id).rootKey ?? "root",
-          item: `recovery:${this.repo.queue.get(id).revision}`,
-          draft: { type: "notice", level: "warning", text, complete: true },
-        },
-      ],
-      this.clock.now(),
-    );
   }
   observe(state: ThreadState, facts: Fact[], _events: EventPayload[], at: number): void {
     if (
@@ -210,9 +198,7 @@ export class Recovery {
         holdToken: queue.holdToken + 1,
         reason: "limit",
         resetAt: reset,
-        continuation:
-          queue.continuation ??
-          "ace is resuming after a provider usage limit. Continue the interrupted task from native history.",
+        continuation: queue.continuation ?? "continue",
         trigger: queue.trigger ?? "limit_resume",
         resumeAt: timed && reset !== null && reset > at ? reset : null,
         timerAction:

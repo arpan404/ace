@@ -121,6 +121,10 @@ export const CommandResult = z.object({
   forkThreadId: ThreadId.optional(),
   health: DiagnosticsHealth.optional(),
   error: z.string().optional(),
+  /** Readable execution/admission failure, preserving the legacy error field. */
+  code: z.string().optional(),
+  title: z.string().optional(),
+  detail: z.string().optional(),
   review: ReviewData.optional(),
   pr: ForgePrRef.optional(),
   prStatus: ForgePrStatus.optional(),

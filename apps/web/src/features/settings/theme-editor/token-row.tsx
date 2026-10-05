@@ -3,7 +3,7 @@ import { tokenHints, type TokenName } from "@/theme/tokens.ts";
 import { isHexColor, longHex, swatchColor } from "./editor-model.ts";
 
 const input =
-  "h-7 w-full min-w-0 rounded-sm bg-secondary px-2 font-mono text-[12px] text-foreground outline-none transition-shadow duration-(--dur-1) focus:shadow-[0_0_0_2px_var(--tint-line)]";
+  "h-7 w-full min-w-0 rounded-sm bg-secondary px-2 font-mono text-[12px] text-foreground outline-none transition-shadow duration-(--dur-1) focus:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]";
 
 /** One token: name, swatch, value field and, for hex colours, a native colour picker. */
 export const TokenRow = memo(function TokenRow(props: {

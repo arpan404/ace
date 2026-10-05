@@ -3,8 +3,16 @@
 @import "./tokens.css";
 @import "./motion.css";
 
-/* Generated merge tables hold Tailwind class names as data, not markup. */
+/*
+ * Tailwind turns every class-like string it scans into CSS. Generated merge tables hold class
+ * names as data, not markup; tests, their helpers, docs and build scripts never ship, and test
+ * strings such as `[codex:not_signed_in]` read as arbitrary properties.
+ */
 @source not "../lib/cn-tables.gen.ts";
+@source not "../**/*.test.{ts,tsx}";
+@source not "../test";
+@source not "../../*.{md,ts,json}";
+@source not "../../scripts";
 
 @custom-variant dark (&:where([data-scheme="dark"], [data-scheme="dark"] *));
 @custom-variant compact (&:where([data-density="compact"], [data-density="compact"] *));
@@ -38,12 +46,7 @@
   --color-tint-foreground: var(--ring-foreground);
   /* The accent as text: links and the current view, AA on every surface (theme/accent.ts). */
   --color-link: var(--ring-text);
-  --color-tint-wash: var(--tint-wash);
-  --color-tint-line: var(--tint-line);
   --color-code: var(--code);
-  /* Ink washes: one for hover and quiet fills, one for the selected row or tab. */
-  --color-wash: var(--wash);
-  --color-selected: var(--selected);
   --color-bubble: var(--bubble);
   --color-reading: var(--reading);
   --color-panel: var(--panel);

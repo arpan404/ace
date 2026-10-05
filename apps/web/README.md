@@ -79,15 +79,18 @@ own list (composed in `app/app-shell.tsx`).
   Activity bell and Search (⌘K), New thread (⌘N), then the current view's list, the only part
   that scrolls. A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the
   sidebar's body through a portal, so it keeps the route's providers.
-- **Home's list** (`features/home`): Pinned, then a folder per project (named from the project
-  cache) with its threads in Home order, the folder that owes most first; five threads, then
-  Show more (for this visit of the list); the open thread always shows. Closed folders persist
-  on this device (`ace.home.folders`, the newest 200). The grouping and the row keys are
-  `homeRows` and `homeRowKey` in `@ace/ui-core`; each kind of row has its own key prefix, so no
-  thread id can take a folder's key. Each row is one line: the title, then marks for a snooze,
-  worktree, pull request and status that give way to Settle and Snooze on hover; what they mean
-  stays in the row's name and its tooltip. The Threads heading carries the project filter and
-  Add project (⇧⌘O) on hover.
+- **Home's list** (`features/home`): one flat list of tasks across projects, pinned first, then
+  Home order (needs you, work in motion, trouble, the rest, most recent first), then the
+  collapsible Settled section. `homeOrder`, `homeRows` and `homeRowKey` in `@ace/ui-core` build
+  it; threads and the Settled heading have their own key prefixes, so no thread id can take the
+  heading's key. Each row is a three-line card: the project's badge (`projectBadge`: initials on
+  a tint derived from the project id) and name, then a pin, a snooze and the status pill
+  (`taskPill`; a working thread counts its seconds) or the age; the title (medium when it needs
+  you or is unread, quiet once done and read); the branch or worktree, the diff or pull request
+  and the provider with its running subagents. A thread that needs you carries a warm tint. The
+  marks are decoration: the words stay in the row's name and its tooltip. Settle and Snooze float
+  over the first line on hover; ↑↓ (or j and k) move between rows. The Threads heading carries
+  the project filter and Add project (⇧⌘O) on hover.
 - `SidebarFrame` owns where they sit and stays mounted for the app's life. `⌘\` is bound there:
   it hides or shows the sidebar (the rail stays; persisted as `sidebarOpen` in `ace.layout`), and
   on a narrow window opens and closes the sheet without touching that choice.
@@ -148,8 +151,8 @@ Rules:
 - Colour has jobs, never decoration:
   - **Accent** (`--ring`): `bg-tint text-tint-foreground` as a fill (labels are black or white,
     always AA), `text-link` as text (links, the current rail view: the accent nudged until it
-    reads at AA on every surface, so any custom colour stays legible), `bg-tint-wash` and
-    `bg-tint-line` for its soft wash and drawn lines. Each theme has its own (`--accent-theme`);
+    reads at AA on every surface, so any custom colour stays legible), `bg-ring/10` for its soft
+    wash and `bg-ring/45` for drawn lines. Each theme has its own (`--accent-theme`);
     Appearance can pin another.
   - **Status** through `data-tone="working | needs-you | waiting | failed | done | idle"`, which
     sets `--tone` (`styles/index.css`): `StatusPill`, `Dot`, the Activity tiles and the spinner
@@ -157,8 +160,10 @@ Rules:
   - **Diff**: green added, red removed (`--diff-add`, `--diff-del`, `text-status-done/failed` for counts).
   - **Projects**: `var(--project-${projectTint(id)})` from `@ace/ui-core`, twelve tints per theme
     that read as text at AA; a badge draws its letters in the tint on a wash of it.
-- Greys: `text-muted-foreground` / `text-subtle-foreground` for hierarchy (both AA), `bg-wash` for
-  hover and quiet fills, `bg-selected` for the selected row or tab; no other ink percentages.
+- Greys: `text-muted-foreground` / `text-subtle-foreground` for hierarchy (both AA on every
+  surface, `theme/surfaces.ts`). Ink washes are the opacity shorthand on four steps only:
+  `bg-foreground/3` quiet fills, `/5` hover and fields, `/8` the selected row or tab, `/10` the
+  selected nav item or pressed state (`bun run check:ui` rejects raw `color-mix` washes).
   Weights 400/500 (600 for titles only).
 - Keep files under ~400 lines (hard limit 1,500, `bun run check:size`).
 

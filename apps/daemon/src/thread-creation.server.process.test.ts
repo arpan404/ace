@@ -37,6 +37,8 @@ test("worktree creation refuses an unusable repository before accepting the firs
       provider: "codex" as const,
       workspaceId: h.workspace,
       mode: "worktree" as const,
+      trigger: "schedule" as const,
+      origin: { kind: "automation" as const },
       input,
     };
     expect(await command(client, "create", payload)).toMatchObject({
@@ -51,6 +53,16 @@ test("worktree creation refuses an unusable repository before accepting the firs
     expect(await command(client, "create", payload)).toMatchObject({ ok: true, threadId });
     await h.engine.flush();
     expect(h.inputs.map((entry) => entry.text)).toEqual(["Do not lose this draft"]);
+    expect(
+      h.store
+        .readItems(threadId, h.store.headSeq() + 1, 20)
+        .items.filter((item) => item.type === "message" && item.role === "user"),
+    ).toEqual([
+      expect.objectContaining({
+        origin: { kind: "person", commandId: "create" },
+        parts: input,
+      }),
+    ]);
     const created = h.store.getThread(threadId);
     const cwd = h.sessions[0]?.context.cwd;
     expect(cwd).toBe(created?.details?.worktree);

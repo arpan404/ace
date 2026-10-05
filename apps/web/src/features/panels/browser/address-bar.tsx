@@ -67,9 +67,9 @@ export function AddressBar(props: {
       <div
         className={cn(
           "flex h-8 min-w-0 items-center gap-2 rounded-full px-3 transition-[background-color,box-shadow] duration-(--dur-1)",
-          "bg-wash hover:bg-selected",
+          "bg-foreground/5 hover:bg-foreground/8",
           // Focus lightens the capsule, never an accent ring.
-          "focus-within:bg-selected",
+          "focus-within:bg-foreground/10",
           error && "shadow-[0_0_0_1px_var(--destructive)]",
         )}
       >
