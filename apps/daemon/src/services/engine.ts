@@ -209,7 +209,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           ["detail", details.detail],
         ]),
       );
-      engineOptions.onSessionOpenFailure?.(thread, details);
+      return engineOptions.onSessionOpenFailure?.(thread, details);
     },
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });

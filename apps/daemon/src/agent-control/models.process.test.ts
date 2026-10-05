@@ -1,12 +1,89 @@
 import { expect, test } from "vitest";
 import { CatalogModel, DelegationRequest } from "@ace/protocol";
-import { ModelCatalog, ModelInstance, openModelStorage } from "@ace/models";
+import { ModelCatalog, ModelInstance, openModelStorage, createModelDiscovery } from "@ace/models";
+import { createOpenCodeAdapter } from "@ace/adapter-opencode";
+import { copyFile, chmod } from "node:fs/promises";
 import { AccountRegistry, createInstance } from "@ace/accounts";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { join } from "node:path";
 import { setup } from "./test-support.ts";
 import { createAgentControlPort } from "./tools.ts";
+
+test("delegation carries the discovered OpenCode model to child launch without a second provider prefix", async () => {
+  const initial = setup();
+  const executable = join(initial.home, "opencode");
+  await copyFile(
+    new URL("../../../../packages/adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
+    executable,
+  );
+  await chmod(executable, 0o700);
+  const env = { HOME: initial.home };
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(join(initial.home, "models.sqlite")),
+    instances: [
+      ModelInstance.parse({
+        id: "opencode-cli-default",
+        provider: "opencode",
+        executable,
+        cwd: initial.home,
+        env,
+        loginRevision: "test",
+      }),
+    ],
+    now: () => initial.clock.now(),
+    deadline: (fn, ms) => initial.clock.setTimer(fn, ms),
+    discover: createModelDiscovery(),
+  });
+  await catalog.refresh();
+  await initial.close();
+  const f = setup({}, initial.dbPath, false, undefined, false, undefined, undefined, catalog);
+  const creates: unknown[] = [];
+  const adapter = createOpenCodeAdapter({
+    discovery: { overrides: { opencode: executable }, env },
+    runtime: {
+      fetch: async (input, init) => {
+        const url = new URL(
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+        );
+        if (
+          url.pathname === "/api/session" &&
+          init?.method === "POST" &&
+          typeof init.body === "string"
+        )
+          creates.push(JSON.parse(init.body));
+        return fetch(input, init);
+      },
+    },
+  });
+  f.registry.register(adapter, { installed: true, auth: "logged_in", loginHint: "unused" });
+  try {
+    const parent = await f.parent();
+    const child = f.service.delegate(
+      parent,
+      DelegationRequest.parse({
+        requestId: "opencode-child",
+        task: "Synthetic task",
+        role: "helper",
+        provider: "opencode",
+        model: "opencode-go/muse-spark-1.3-contributor",
+      }),
+    );
+    await f.engine.flush();
+    expect(creates).toEqual([
+      expect.objectContaining({
+        model: { providerID: "opencode-go", id: "muse-spark-1.3-contributor" },
+      }),
+    ]);
+    expect(f.store.getThread(child.childId)?.execution?.model).toBe(
+      "opencode-go/muse-spark-1.3-contributor",
+    );
+  } finally {
+    await f.close();
+    await adapter.close();
+    await catalog.close();
+  }
+});
 
 async function fixture(defaultAvailable = true, scopedAccounts = false) {
   const h = setup();

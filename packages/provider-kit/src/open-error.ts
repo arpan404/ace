@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { createTextRedactor, type RedactionContext } from "@ace/redaction";
+import type { RedactionContext } from "@ace/redaction";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 
 const Fields = z.object({
   code: z.string().optional().catch(undefined),
@@ -21,7 +22,7 @@ export class SessionOpenError extends Error {
     context: RedactionContext = {},
     redact: (value: unknown) => unknown = (value) => value,
   ) {
-    const scrub = createTextRedactor(context);
+    const scrub = createDiagnosticRedactor(context);
     const fields = Fields.safeParse(error);
     const source = fields.success ? fields.data : {};
     const safe = (value: string, limit: number) => {

@@ -29,3 +29,25 @@ it("open failures scrub environment credentials and bound detail without retaini
   for (const value of [secret, "abcdef012345", "hidden"]) expect(diagnostic).not.toContain(value);
   expect(failure.cause).toBeUndefined();
 });
+
+it.each([
+  '{"credentials":["opaque-login-value"]}',
+  'Rejected: {"credentials":{"login":"opaque-login-value"}}',
+  JSON.stringify(JSON.stringify({ credentials: ["opaque-login-value"] })),
+  JSON.stringify({ message: 'Rejected: {"credentials":["opaque-login-value"]}' }),
+  'Rejected: {"credentials":["opaque-login-value"',
+  'password="opaque login value"; cannot open',
+  "password='opaque login value'; cannot open",
+  'password="opaque login value',
+  "password='opaque login value",
+])("open failure diagnostics redact structured and quoted credentials: %s", (detail) => {
+  const failure = new SessionOpenError("Cannot open", {
+    code: "rejected",
+    detail: `Cannot select model: ${detail}`,
+  });
+  const exposed = `${failure.message} ${JSON.stringify(failure)} ${failure.stack}`;
+  expect(exposed).not.toContain("opaque-login-value");
+  expect(exposed).not.toContain("opaque login value");
+  expect(failure.code).toBe("rejected");
+  expect(failure.detail).toContain("Cannot select model");
+});

@@ -3,6 +3,7 @@ import { copyFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
 import { ThreadId } from "@ace/protocol";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { createModelDiscovery, ModelCatalog, openModelStorage } from "./index.ts";
 import { Clock, instance, workspace } from "./testing/support.ts";
 
@@ -93,15 +94,20 @@ test("a persisted OpenCode choice from before the fix opens after restart withou
   const row = rows[0];
   if (!row) throw new Error("Missing discovered model");
   const path = join(work.path, "models.sqlite");
-  const storage = openModelStorage(path);
-  await storage.replace({
-    instance: config.id,
-    provider: "opencode",
-    revision: config.loginRevision,
-    refreshedAt: 0,
-    models: [{ ...row, nativeModelId: "muse-spark-1.3-contributor" }],
-  });
-  await storage.close();
+  // Seed the actual legacy bytes: storage.replace already runs the repairing schema.
+  const legacy = new DatabaseSync(path);
+  legacy.exec("CREATE TABLE model_catalog (instance TEXT PRIMARY KEY, payload TEXT NOT NULL)");
+  legacy.prepare("INSERT INTO model_catalog(instance, payload) VALUES (?, ?)").run(
+    config.id,
+    JSON.stringify({
+      instance: config.id,
+      provider: "opencode",
+      revision: config.loginRevision,
+      refreshedAt: 0,
+      models: [{ ...row, nativeModelId: "muse-spark-1.3-contributor" }],
+    }),
+  );
+  legacy.close();
   const clock = new Clock();
   const catalog = new ModelCatalog({
     storage: openModelStorage(path),

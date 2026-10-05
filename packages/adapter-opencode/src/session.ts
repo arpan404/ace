@@ -144,11 +144,23 @@ export class OpenCodeSession implements ProviderSession {
               permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
             }),
       );
-      if (ctx.resume)
+      if (ctx.resume) {
         await s.client.session.update({
           sessionID: info.id,
           permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
         });
+        const model = selectedModel(ctx.model);
+        const previous = z.object({ providerID: z.string(), id: z.string() }).safeParse(info.model);
+        if (
+          model &&
+          (!previous.success ||
+            previous.data.providerID !== model.providerID ||
+            previous.data.id !== model.id)
+        ) {
+          await s.client.session.switchModel({ sessionID: info.id, model });
+          info.model = model;
+        }
+      }
       s.ownership.establish(info);
       s.emit("recv", "snapshot.info", { info, root: true });
       s.opening = false;

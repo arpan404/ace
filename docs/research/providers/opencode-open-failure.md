@@ -86,7 +86,34 @@ through the delivery failure to the persisted notice. ProviderErrorDetails keeps
 its existing code/provider/model fields and adds optional title/detail fields.
 Raw exceptions and provider stacks are not retained in the sanitized error.
 
-The regressions failed before the fix for both catalog discovery paths, all four
+Before the owner's no-test rule, regressions failed before the fix for both catalog discovery paths, all four
 permission modes, create/get/update error detail, and the exit-during-open
-uncertainty race. The persisted-catalog regression also opens an older cached
-choice after restart without a successful metadata refresh.
+uncertainty race. The original cache test seeded through the current storage
+writer, so it did not establish legacy disk compatibility. The corrected test
+inserts legacy JSON directly into temporary SQLite and reopens offline.
+
+## Review follow-up
+
+Delegation now returns the catalog's qualified execution selector unchanged.
+Previously it added another provider prefix. On resume, a changed OpenCode model
+is applied with the official v2.0.22 SDK's `session.switchModel`, a POST to
+`/api/session/:id/model`, before any input is sent. Native session identity and
+history are retained; unchanged selections skip this operation.
+
+Opening diagnostics recursively redact embedded JSON, including credential
+arrays/objects and escaped JSON inside string values. Damaged structures are
+omitted, and quoted credential assignments consume whitespace and malformed
+tails. The recursive redaction budget is shared across nested strings. Diagnostic
+hook exceptions and rejected promises are isolated from provider failure handling
+and session cleanup.
+
+New public-API regressions cover delegation, switch then next input, raw legacy
+SQLite, persisted credential-free notices, throwing hooks, persisted uncertainty,
+warn-level daemon logs, and concurrent failed opens alongside an existing session.
+The MCP test uses an opaque literal that does not also match a Bearer rule; the
+ACP test supplies an actual launch environment credential.
+
+These follow-up tests, mutation cases and performance benchmarks are **not
+executed (tests run at merge)**. Runtime confirmation **needs run at merge**.
+Only the owner's permitted static checks run during this follow-up. The real CLI
+observations above are historical evidence from the original task, not new probes.

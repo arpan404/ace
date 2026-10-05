@@ -266,12 +266,18 @@ export class Sessions {
               )
             : value,
       );
-      this.dependencies.openFailed?.(actor.id, {
-        provider: stateBefore.config.provider,
-        code: failure.code,
-        title: failure.title,
-        detail: failure.detail,
-      });
+      try {
+        const diagnostic = this.dependencies.openFailed?.(actor.id, {
+          provider: stateBefore.config.provider,
+          code: failure.code,
+          title: failure.title,
+          detail: failure.detail,
+        });
+        void Promise.resolve(diagnostic).catch(() => {});
+      } catch {
+        // Diagnostics are optional; their failure cannot replace the sanitized
+        // provider error or prevent lifetime/capacity cleanup below.
+      }
       await actor.flush();
       if (generation === actor.generation) {
         const session = actor.session;
