@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -124,4 +124,62 @@ test("a key the browser keeps is refused, and a taken one can be swapped", async
   await userEvent.click(screen.getByRole("button", { name: "Use anyway" }));
   expect((await shortcut("Settings")).textContent).toBe("Ctrl+K");
   expect((await shortcut("Command palette")).textContent).toBe("Ctrl+,");
+});
+
+test("a conflict can be swapped from the keyboard: Shift+Tab reaches Use anyway", async () => {
+  await harness().open("/settings/keyboard");
+  const settings = await shortcut("Settings");
+  await userEvent.click(settings);
+  press(settings, { key: "k", code: "KeyK", ctrlKey: true });
+  await userEvent.tab({ shift: true });
+  const useAnyway = screen.getByRole("button", { name: "Use anyway" });
+  expect(document.activeElement).toBe(useAnyway);
+  await userEvent.keyboard("{Enter}");
+  expect((await shortcut("Settings")).textContent).toBe("Ctrl+K");
+  expect((await shortcut("Command palette")).textContent).toBe("Ctrl+,");
+});
+
+test("retrying an older refused change never undoes a newer one that was saved", async () => {
+  const app = harness();
+  await app.open("/settings/keyboard");
+  // A: refused, so it goes back.
+  app.daemon.failRequests("settings.set");
+  const agents = await shortcut("Agents");
+  await userEvent.click(agents);
+  press(agents, { key: "u", code: "KeyU", ctrlKey: true, altKey: true });
+  await waitFor(async () => expect((await shortcut("Agents")).textContent).toBe("Ctrl+Shift+A"));
+
+  // B: saved.
+  app.daemon.restoreRequests();
+  const settings = await shortcut("Settings");
+  await userEvent.click(settings);
+  press(settings, { key: "y", code: "KeyY", ctrlKey: true, shiftKey: true });
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("clients.keybindings")).toEqual({
+      settings: "shift+mod+y",
+    }),
+  );
+
+  // Retry A, refused again: B stays, on screen and on the daemon.
+  app.daemon.failRequests("settings.set");
+  await userEvent.click(
+    (await screen.findAllByRole("button", { name: "Retry", hidden: true }))[0] ?? document.body,
+  );
+  await waitFor(async () =>
+    expect((await screen.findAllByRole("button", { name: "Retry", hidden: true })).length).toBe(2),
+  );
+  expect((await shortcut("Settings")).textContent).toBe("Shift+Ctrl+Y");
+  expect((await shortcut("Agents")).textContent).toBe("Ctrl+Shift+A");
+
+  // Retry A once the daemon takes it: A lands on top of B, not instead of it.
+  app.daemon.restoreRequests();
+  await userEvent.click(
+    (await screen.findAllByRole("button", { name: "Retry", hidden: true }))[0] ?? document.body,
+  );
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("clients.keybindings")).toEqual({
+      settings: "shift+mod+y",
+      agents: "alt+mod+u",
+    }),
+  );
 });

@@ -33,10 +33,7 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
               to={page.to}
               data-view-row=""
               aria-current={active ? "page" : undefined}
-              className={cn(
-                rowClass,
-                active && "bg-foreground/10 font-medium text-foreground",
-              )}
+              className={cn(rowClass, active && "bg-foreground/10 font-medium text-foreground")}
             >
               <Icon icon={page.icon} active={active} />
               {page.title}

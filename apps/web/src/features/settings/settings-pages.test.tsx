@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 async function goTo(page: string) {
@@ -160,13 +160,24 @@ test("offline, daemon settings are disabled and say why; this device's stay edit
 });
 
 test("searching Settings finds a single setting and opens its page at that row", async () => {
+  const scrolled: Element[] = [];
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element) {
+    scrolled.push(this);
+  };
+  onTestFinished(() => {
+    Element.prototype.scrollIntoView = scrollIntoView;
+  });
   await harness().open("/settings/general");
   await userEvent.type(await screen.findByRole("searchbox", { name: "Search settings" }), "accent");
   const results = screen.getByRole("region", { name: "Matching settings" });
   await userEvent.click(within(results).getByRole("link", { name: /^Accent colour/ }));
 
   await screen.findByRole("heading", { level: 2, name: "Appearance" });
-  expect(document.getElementById("appearance.accent")).toBeTruthy();
+  const row = document.getElementById("appearance.accent");
+  // The page scrolls to that row, the one holding the accent picker.
+  await waitFor(() => expect(scrolled).toContain(row));
+  expect(row?.querySelector('[role="radiogroup"][aria-label="Accent colour"]')).toBeTruthy();
   const nav = screen.getByRole("navigation", { name: "Settings pages" });
   expect(within(nav).getByRole("link", { name: "Appearance" }).getAttribute("aria-current")).toBe(
     "page",

@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { SearchField } from "@/components/search-field.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -28,7 +28,7 @@ import {
   type KeyScope,
 } from "@/lib/keymap.ts";
 import { settingKeys } from "./data/setting-keys.ts";
-import { useSetting, useSettingWrite } from "./data/use-settings.ts";
+import { useSetting, useSettingsBackend, useSettingWrite } from "./data/use-settings.ts";
 
 /** The page's sections, in order; an id not listed lands in "Other". */
 const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
@@ -141,21 +141,39 @@ export function KeyboardShortcuts() {
   const env = keyboardEnv();
   const rebound = Object.keys(overrides).length > 0;
 
-  /** Store the rebindings: shown at once, back again (with a toast) if the daemon refuses. */
-  const save = (next: Keybindings) => {
-    const clean: Record<string, string> = {};
-    for (const [id, keys] of Object.entries(next))
-      if (normalizeKeys(keys) !== normalizeKeys(defaultKeys(id as KeymapId))) clean[id] = keys;
-    const before = overrides;
-    setKeybindingOverrides(clean);
-    write.run(() =>
-      store(clean).catch((error: unknown) => {
-        setKeybindingOverrides(before);
-        throw error;
-      }),
+  // The rebindings as they stand when a change runs (a Retry runs later than its click).
+  const latest = useRef(overrides);
+  useEffect(() => {
+    latest.current = overrides;
+  });
+  const backend = useSettingsBackend();
+  /** What the daemon holds now, as far as this window knows (its optimistic writes included). */
+  const authoritative = (): Keybindings => {
+    const parsed = settingKeys.keybindings.schema.safeParse(
+      backend.values.get()[settingKeys.keybindings.key],
     );
+    return parsed.success ? parsed.data : {};
   };
-  const bind = (id: KeymapId, keys: string) => save({ ...overrides, [id]: keys });
+  /**
+   * Apply an edit to the rebindings: shown at once, then stored. A Retry re-applies the edit to
+   * what is current then, never an old snapshot; a refusal shows what the daemon holds, so a
+   * failed older edit can't undo a newer one that was accepted.
+   */
+  const change = (edit: (current: Keybindings) => Keybindings) =>
+    write.run(async () => {
+      const clean: Record<string, string> = {};
+      for (const [id, keys] of Object.entries(edit(latest.current)))
+        if (normalizeKeys(keys) !== normalizeKeys(defaultKeys(id as KeymapId))) clean[id] = keys;
+      latest.current = clean;
+      setKeybindingOverrides(clean);
+      try {
+        await store(clean);
+      } catch (error) {
+        setKeybindingOverrides(authoritative());
+        throw error;
+      }
+    });
+  const bind = (id: KeymapId, keys: string) => change((current) => ({ ...current, [id]: keys }));
   const stop = () => setRecording(undefined);
 
   const onKeyDown = (id: KeymapId, event: KeyboardEvent) => {
@@ -215,7 +233,7 @@ export function KeyboardShortcuts() {
           className="max-w-80"
         />
         {rebound && (
-          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => save({})}>
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => change(() => ({}))}>
             Reset all shortcuts
           </Button>
         )}
@@ -243,13 +261,16 @@ export function KeyboardShortcuts() {
               }}
               onKeyDown={(event) => onKeyDown(id, event)}
               onBlur={() => recording === id && stop()}
-              onReset={() => {
-                const next = { ...overrides };
-                delete next[id];
-                save(next);
-              }}
+              onReset={() =>
+                change((current) => {
+                  const next = { ...current };
+                  delete next[id];
+                  return next;
+                })
+              }
               onSwap={(swap) => {
-                save({ ...overrides, [id]: swap.keys, [swap.with]: bindings[id] });
+                const previous = bindings[id];
+                change((current) => ({ ...current, [id]: swap.keys, [swap.with]: previous }));
                 setProblem(undefined);
                 stop();
               }}
@@ -298,56 +319,71 @@ function ShortcutRow(props: {
           <span role="alert">{problem.text}</span>
         ) : recording ? (
           "Press the new shortcut. Esc cancels."
-        ) : scope !== "global" ? (
-          scopeChips[scope]
-        ) : undefined
+        ) : (
+          [
+            // Keys the platform or a control owns (F6, Send, terminal find): shown, not edited.
+            readOnly === "Fixed" && "Can't be changed",
+            scope !== "global" && scopeChips[scope],
+          ]
+            .filter(Boolean)
+            .join(" · ") || undefined
+        )
       }
       inline
     >
-      {swap && recording && (
-        // Mouse down, so the recorder keeps focus (and keeps recording) until the click.
-        <Button
-          size="sm"
-          variant="ghost"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => props.onSwap(swap)}
-        >
-          Use anyway
-        </Button>
-      )}
-      {props.changed && !recording && (
-        <Button size="sm" variant="ghost" aria-label={`Reset ${label}`} onClick={props.onReset}>
-          Reset
-        </Button>
-      )}
-      {readOnly ? (
-        <span className="inline-flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">{readOnly}</span>
-          <Kbd keys={keys} resolve={false} className="h-5 px-2 text-sm" />
-        </span>
-      ) : (
-        <span id={described} hidden>
-          {`${describeKeys(keys)}. Press to change.`}
-        </span>
-      )}
-      {!readOnly && (
-        <button
-          type="button"
-          aria-label={`${label} shortcut`}
-          aria-describedby={described}
-          aria-pressed={recording}
-          onClick={() => props.onRecord(!recording)}
-          onKeyDown={props.onKeyDown}
-          onBlur={props.onBlur}
-          className="rounded-sm px-1 py-0.5 transition-shadow duration-(--dur-1) hover:bg-accent focus-ring aria-pressed:bg-accent"
-        >
-          {recording ? (
-            <Kbd className="h-5 px-2 text-sm">Press keys…</Kbd>
-          ) : (
+      <span
+        className="flex items-center gap-2"
+        // Recording ends when focus leaves the row's controls, not when it moves to Use anyway.
+        onBlur={(event) => {
+          if (
+            !(
+              event.relatedTarget instanceof Node &&
+              event.currentTarget.contains(event.relatedTarget)
+            )
+          )
+            props.onBlur();
+        }}
+      >
+        {swap && recording && (
+          <Button size="sm" variant="ghost" onClick={() => props.onSwap(swap)}>
+            Use anyway
+          </Button>
+        )}
+        {props.changed && !recording && (
+          <Button size="sm" variant="ghost" aria-label={`Reset ${label}`} onClick={props.onReset}>
+            Reset
+          </Button>
+        )}
+        {readOnly ? (
+          <span className="inline-flex items-center gap-2">
+            {readOnly !== "Fixed" && (
+              <span className="text-xs text-muted-foreground">{readOnly}</span>
+            )}
             <Kbd keys={keys} resolve={false} className="h-5 px-2 text-sm" />
-          )}
-        </button>
-      )}
+          </span>
+        ) : (
+          <span id={described} hidden>
+            {`${describeKeys(keys)}. Press to change.`}
+          </span>
+        )}
+        {!readOnly && (
+          <button
+            type="button"
+            aria-label={`${label} shortcut`}
+            aria-describedby={described}
+            aria-pressed={recording}
+            onClick={() => props.onRecord(!recording)}
+            onKeyDown={props.onKeyDown}
+            className="rounded-sm px-1 py-0.5 transition-shadow duration-(--dur-1) hover:bg-accent focus-ring aria-pressed:bg-accent"
+          >
+            {recording ? (
+              <Kbd className="h-5 px-2 text-sm">Press keys…</Kbd>
+            ) : (
+              <Kbd keys={keys} resolve={false} className="h-5 px-2 text-sm" />
+            )}
+          </button>
+        )}
+      </span>
     </SettingRow>
   );
 }
