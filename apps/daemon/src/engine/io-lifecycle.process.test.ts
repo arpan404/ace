@@ -75,7 +75,7 @@ test("a control intent without a live session becomes a visible failure notice",
   const view = h.store.snapshotThread(id);
   expect(
     Object.values(view.items).some(
-      (item) => item.type === "notice" && item.text.includes("Provider session is not live"),
+      (item) => item.type === "notice" && item.detail?.includes("Provider session is not live"),
     ),
   ).toBe(true);
   expect(h.adapter.commands.some((command) => command.type === "interrupt")).toBe(false);

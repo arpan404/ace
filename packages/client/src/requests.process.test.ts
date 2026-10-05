@@ -78,7 +78,7 @@ test("request capacity bounds outstanding correlations and frees capacity after 
   await barrier(client, h.thread.id);
 });
 
-test("command timeout leaves its durable intent pending until the accepted receipt returns", async () => {
+test("a durable command keeps waiting past a deadline until the accepted receipt returns", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   const { client, faults, scheduler } = h.make();
@@ -96,12 +96,17 @@ test("command timeout leaves its durable intent pending until the accepted recei
     { timeoutMs: 100 },
     "slow-ack",
   );
-  const rejected = expect(request).rejects.toMatchObject({ code: "timeout" });
+  let finished = false;
+  void request.then(() => {
+    finished = true;
+  });
   await faults.wait((event) => event.type === "commandResult");
-  scheduler.advance(100);
-  await rejected;
+  scheduler.advance(20_000);
+  await Promise.resolve();
+  expect(finished).toBe(false);
   expect(client.intent("slow-ack").getSnapshot()?.state).toBe("pending");
   if (receipt) deliverReceipt?.(receipt);
+  expect(await request).toMatchObject({ ok: true, commandId: "slow-ack" });
   await when(client.intent("slow-ack"), (intent) => intent?.state === "acked");
 });
 

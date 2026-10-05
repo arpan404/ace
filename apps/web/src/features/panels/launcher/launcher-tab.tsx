@@ -45,7 +45,7 @@ import {
 
 const heading = "px-1 text-xs font-medium text-muted-foreground";
 const card =
-  "focus-ring group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui text-foreground transition-colors duration-(--dur-1) bg-[color-mix(in_oklab,var(--foreground)_3%,transparent)] hover:bg-accent";
+  "focus-ring group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui text-foreground transition-colors duration-(--dur-1) bg-foreground/3 hover:bg-accent";
 
 /**
  * The Tools grid is one Tab stop: arrows move by its columns (two, or one below 30rem), Home

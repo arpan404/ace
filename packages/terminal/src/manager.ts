@@ -4,6 +4,8 @@ import type { BackendFactory } from "./pty.ts";
 import type { ShutdownScheduler } from "./ownership.ts";
 import { randomUUID } from "node:crypto";
 import { TerminalOpenSchema } from "@ace/protocol";
+import { LiveTerminal } from "./live-terminal.ts";
+import type { TerminalEvent } from "./types.ts";
 import { Terminal } from "./terminal.ts";
 import { validateDimensions } from "./types.ts";
 import type { OpenTerminalOptions } from "./types.ts";
@@ -24,7 +26,7 @@ export interface TerminalDependencies {
 export class TerminalManager {
   #capacity: number;
   #graceMs: number;
-  #terminals = new Set<Terminal>();
+  #terminals = new Set<Terminal | LiveTerminal>();
   #closing: Promise<void> | undefined;
   #closed = false;
   #dependencies: TerminalDependencies;
@@ -64,6 +66,26 @@ export class TerminalManager {
     return terminal;
   }
 
+  openLiveTerminal(
+    options: OpenTerminalOptions,
+    emit: (event: TerminalEvent) => void,
+  ): LiveTerminal {
+    if (this.#closed) throw new Error("Terminal manager is closed");
+    options = TerminalOpenSchema.parse(options);
+    const shell = this.#dependencies.resolveShell(options.shell);
+    const backend = this.#dependencies.backendFactory(options, shell, {
+      owner: this.#dependencies.createSessionId(),
+      scheduler: this.#dependencies.shutdownScheduler,
+    });
+    const terminal = new LiveTerminal(backend, emit);
+    this.#terminals.add(terminal);
+    return terminal;
+  }
+  async releaseLive(terminal: LiveTerminal): Promise<void> {
+    if (!this.#terminals.has(terminal)) return;
+    await terminal.close(this.#graceMs);
+    this.#terminals.delete(terminal);
+  }
   /** Idempotent. Retains exited terminals and their scrollback for existing handles. */
   closeAll(): Promise<void> {
     this.#closed = true;

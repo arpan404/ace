@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Fact } from "@ace/core";
+import type { AgentError, Fact } from "@ace/core";
 import type { ProviderKind, ProviderErrorDetails } from "@ace/protocol";
 
 const metadata = z.object({ model: z.string().min(1).max(256).optional() }).passthrough();
@@ -43,38 +43,86 @@ function readable(
     ? { text: message, details: { code, provider, ...(model ? { model } : {}) } }
     : undefined;
 }
-export function readableProviderFact(
+export function structuredError(
+  error: AgentError,
   provider: ProviderKind,
+  selectedModel?: string,
+): AgentError {
+  const readableError = readable(
+    provider,
+    error.details?.code ?? error.code ?? error.message,
+    error.details?.model ?? selectedModel,
+  );
+  if (readableError)
+    error = {
+      ...error,
+      message: readableError.text,
+      details: readableError.details,
+      detail: error.detail ?? error.message,
+    };
+  const code = error.code ?? error.details?.code ?? error.kind;
+  const title =
+    error.title ??
+    (code === "auth" || code === "authentication_failed"
+      ? `Not signed in to ${provider === "claude" ? "Claude Code" : provider === "codex" ? "Codex" : provider}`
+      : code === "quota" || code === "rate_limit" || code === "billing_error"
+        ? "Usage limit reached"
+        : code === "network"
+          ? "Network trouble"
+          : code === "process_exit"
+            ? "Agent process exited"
+            : code === "context_length"
+              ? "Conversation is too long"
+              : code === "model_not_found" || code === "unrecognized_model"
+                ? "Model not recognised"
+                : "Turn failed");
+  return { ...error, code, title, detail: error.detail ?? error.message };
+}
+/** Normalize provider failures once, retaining native evidence and both notice contracts. */
+export function shapeProviderError(
   fact: Fact,
+  provider: ProviderKind,
   selectedModel?: string,
 ): Fact {
+  if (fact.type === "turn.ended" && fact.error)
+    return { ...fact, error: structuredError(fact.error, provider, selectedModel) };
   if (
     (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
-    fact.draft.type === "notice" &&
-    fact.draft.text
+    fact.draft.type === "notice"
   ) {
-    const error = readable(provider, fact.draft.text, selectedModel);
-    if (error)
-      return {
-        ...fact,
-        draft: {
-          ...fact.draft,
-          text: error.text,
-          details: error.details,
-          raw: fact.draft.raw?.length
-            ? fact.draft.raw
-            : [{ type: "provider.error", data: { text: fact.draft.text } }],
-        },
-      };
-  }
-  if (fact.type === "turn.ended" && fact.error) {
-    const error = readable(
+    const nativeText = fact.draft.text ?? "Turn failed";
+    const translated = readable(
       provider,
-      fact.error.details?.code ?? fact.error.message,
-      fact.error.details?.model ?? selectedModel,
+      fact.draft.details?.code ?? fact.draft.code ?? nativeText,
+      fact.draft.details?.model ?? selectedModel,
     );
-    if (error)
-      return { ...fact, error: { ...fact.error, message: error.text, details: error.details } };
+    if (fact.draft.level !== "error" && !translated) return fact;
+    const error = structuredError(
+      {
+        kind: "provider",
+        message: translated?.text ?? nativeText,
+        code: fact.draft.code ?? translated?.details.code,
+        title: fact.draft.title,
+        detail: fact.draft.detail ?? nativeText,
+        details: translated?.details ?? fact.draft.details,
+      },
+      provider,
+      selectedModel,
+    );
+    return {
+      ...fact,
+      draft: {
+        ...fact.draft,
+        text: error.message,
+        code: error.code,
+        title: error.title,
+        detail: error.detail,
+        details: error.details,
+        ...(translated && !fact.draft.raw?.length
+          ? { raw: [{ type: "provider.error", data: { text: nativeText } }] }
+          : {}),
+      },
+    };
   }
   if (fact.type === "process.exited" && fact.message) {
     const error = readable(provider, fact.message, selectedModel);

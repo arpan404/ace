@@ -19,7 +19,7 @@ import { useFavoriteModels } from "./favorites.ts";
 const numbered = 9;
 
 const tabButton =
-  "grid size-8 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-selected:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] aria-selected:text-foreground data-disabled:opacity-40";
+  "grid size-8 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground data-disabled:opacity-40";
 
 /**
  * Pick a model: Favorites and one tab per provider down the left, a search over every

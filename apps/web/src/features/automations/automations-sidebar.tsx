@@ -153,7 +153,7 @@ function Row(props: {
         aria-current={props.selected ? "page" : undefined}
         className={cn(
           "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 rounded-[10px] px-[11px] py-[9px] outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
-          props.selected && "bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+          props.selected && "bg-foreground/8",
         )}
       >
         <span className="mt-px grid size-[26px] place-items-center rounded-sm bg-secondary text-muted-foreground">

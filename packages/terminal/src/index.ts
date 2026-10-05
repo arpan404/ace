@@ -12,3 +12,5 @@ export type {
   TerminalAttachment,
   TerminalSnapshot,
 } from "./types.ts";
+
+export type { LiveTerminal } from "./live-terminal.ts";

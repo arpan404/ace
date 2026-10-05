@@ -50,8 +50,16 @@ export class Simulators {
       if ((await this.runProbe("xcrun", ["simctl", "boot", udid])).code !== 0)
         throw new Error("Simulator boot failed");
     }
+    await this.show(udid);
+  }
+  /**
+   * Open Simulator without bringing it forward, so the person stays in ace (a full-screen ace
+   * keeps its Space). Simulator opens a window for each booted device.
+   */
+  async show(input: string): Promise<void> {
+    const udid = z.string().uuid().parse(input);
     if (
-      (await this.runProbe("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", udid]))
+      (await this.runProbe("open", ["-g", "-a", "Simulator", "--args", "-CurrentDeviceUDID", udid]))
         .code !== 0
     )
       throw new Error("Simulator window launch failed");

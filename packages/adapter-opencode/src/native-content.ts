@@ -169,7 +169,7 @@ export function projected(state: NativeState, session: string, value: unknown): 
               data,
               c,
             )
-          : state.note(c, "Unknown projected content");
+          : [];
     });
   if (p.type === "user" || p.type === "synthetic" || p.type === "system")
     return [
@@ -193,5 +193,5 @@ export function projected(state: NativeState, session: string, value: unknown): 
     ];
   // Idle markers are historical evidence. A fresh info/active snapshot owns turn settlement.
   if (p.type === "idle") return [];
-  return state.note(p, "Unknown projected message");
+  return [];
 }

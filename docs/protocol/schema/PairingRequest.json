@@ -12,11 +12,12 @@
           "read",
           "operate",
           "admin",
-          "projects"
+          "projects",
+          "accounts"
         ],
         "type": "string"
       },
-      "maxItems": 4,
+      "maxItems": 5,
       "minItems": 1,
       "type": "array"
     }

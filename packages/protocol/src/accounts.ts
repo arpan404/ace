@@ -2,7 +2,7 @@ import { NativeSessionId } from "./ids.ts";
 import { z } from "zod";
 import { AcpIdentity } from "./agent-registry.ts";
 
-export const NativeAccountProvider = z.enum(["codex", "claude", "opencode", "cursor"]);
+export const NativeAccountProvider = z.enum(["codex", "claude", "opencode", "cursor", "pi"]);
 export const AccountProvider = z.enum([...NativeAccountProvider.options, "acp"]);
 export const AccountInstanceId = z.string().min(1).max(256);
 export const AccountId = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/);
@@ -28,10 +28,13 @@ export const AccountEnvKey = z.enum([
   "XDG_STATE_HOME",
   "XDG_CACHE_HOME",
   "CURSOR_DATA_DIR",
+  "PI_CODING_AGENT_DIR",
 ]);
 export const ProviderInstance = z
   .object({
     id: AccountInstanceId,
+    implicit: z.literal(true).optional(),
+    managed: z.literal(true).optional(),
     ...AcpIdentity.partial().shape,
     homeStrategy: z.literal("default_cli").optional(),
     loginRevision: z.string().max(128).optional(),
@@ -43,6 +46,14 @@ export const ProviderInstance = z
     env: z.partialRecord(AccountEnvKey, AccountDirectory),
   })
   .superRefine((instance, ctx) => {
+    if (
+      instance.implicit &&
+      (instance.managed || instance.provider === "acp" || Object.keys(instance.env).length)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Implicit native CLI accounts have no isolated selectors",
+      });
     if (instance.provider === "acp") {
       if (
         !AcpIdentity.safeParse(instance).success ||
@@ -125,6 +136,8 @@ export const AccountAvailability = z.enum([
   "unknown",
 ]);
 export const AccountSummary = z.object({
+  implicit: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
   id: AccountInstanceId,
   ...AcpIdentity.partial().shape,
   homeStrategy: z.literal("default_cli").optional(),
@@ -153,7 +166,45 @@ export const MigrationResult = z.discriminatedUnion("status", [
   z.object({ status: z.literal("refused"), reason: z.string().max(512), cleanupWarnings }),
 ]);
 export type MigrationResult = z.infer<typeof MigrationResult>;
+export const AccountManagementRequest = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("accounts.add"),
+    requestId: z.string().max(128),
+    provider: NativeAccountProvider,
+    label: z.string().min(1).max(128).regex(/\S/),
+  }),
+  z.object({
+    type: z.literal("accounts.rename"),
+    requestId: z.string().max(128),
+    instanceId: AccountInstanceId,
+    label: z.string().min(1).max(128).regex(/\S/),
+  }),
+  z.object({
+    type: z.literal("accounts.remove"),
+    requestId: z.string().max(128),
+    instanceId: AccountInstanceId,
+    deleteHome: z.boolean().default(false),
+  }),
+  z.object({
+    type: z.literal("accounts.setDefault"),
+    requestId: z.string().max(128),
+    provider: NativeAccountProvider,
+    instanceId: AccountInstanceId,
+  }),
+  z.object({
+    type: z.literal("accounts.login"),
+    requestId: z.string().max(128),
+    instanceId: AccountInstanceId,
+  }),
+  z.object({
+    type: z.literal("accounts.logout"),
+    requestId: z.string().max(128),
+    instanceId: AccountInstanceId,
+  }),
+]);
+export type AccountManagementRequest = z.infer<typeof AccountManagementRequest>;
 export const AccountsRequest = z.discriminatedUnion("type", [
+  ...AccountManagementRequest.options,
   z.object({ type: z.literal("accounts.list"), requestId: z.string().max(128) }),
   z.object({
     type: z.literal("accounts.status"),
@@ -170,6 +221,18 @@ export const AccountsRequest = z.discriminatedUnion("type", [
   }),
 ]);
 export const AccountsResponse = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("accounts.changed"),
+    requestId: z.string().max(128),
+    account: AccountSummary.nullable(),
+  }),
+  z.object({
+    type: z.literal("accounts.auth"),
+    requestId: z.string().max(128),
+    instanceId: AccountInstanceId,
+    terminalId: z.string().min(1).max(128),
+    instruction: z.enum(["/login", "/logout"]).optional(),
+  }),
   z.object({
     type: z.literal("accounts.list"),
     requestId: z.string().max(128),
