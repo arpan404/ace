@@ -20,6 +20,10 @@ import {
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
 
+/** The send pipeline's code: fetched when a composer mounts, so the first Enter never waits on it. */
+let sender: Promise<typeof import("./send-message.ts")> | undefined;
+const loadSender = () => (sender ??= import("./send-message.ts"));
+
 /** Desktop widths put the caret in the composer when a thread opens; a phone's keyboard waits. */
 const wideEnoughToFocus = () =>
   typeof matchMedia === "function" && matchMedia("(min-width: 768px)").matches;
@@ -93,7 +97,7 @@ export function ThreadComposer({
     // whether the message is a bubble (steered in) or a pill (queued).
     const other = followUp === "steer" ? "queue" : "steer";
     const delivery = busy ? (draft.opposite ? other : (followUp ?? "queue")) : undefined;
-    const { sendMessage } = await import("./send-message.ts");
+    const { sendMessage } = await loadSender();
     const ok = await sendMessage({
       client,
       threadId: props.thread.id,
@@ -106,6 +110,8 @@ export function ThreadComposer({
     if (ok && sent) setSpent({ commandId, turn: sent });
     return ok;
   };
+
+  useEffect(() => void loadSender(), []);
 
   // Stop names the turn it was pressed in, and reads "Stopping…" until that turn ends.
   const run = useActiveRootRun(props.thread.id);
