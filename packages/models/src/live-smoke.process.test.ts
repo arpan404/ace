@@ -32,7 +32,11 @@ for (const empty of [false, true])
       new AbortController().signal,
     );
     expect(rows.map((row) => [row.id, row.nativeProviderId, row.nativeModelId])).toEqual([
-      ["opencode-go/muse-spark-1.3-contributor", "opencode-go", "muse-spark-1.3-contributor"],
+      [
+        "opencode-go/muse-spark-1.3-contributor",
+        "opencode-go",
+        "opencode-go/muse-spark-1.3-contributor",
+      ],
     ]);
     if (!empty)
       expect(rows[0]).toMatchObject({ contextWindow: 200000, reasoningEfforts: ["high"] });

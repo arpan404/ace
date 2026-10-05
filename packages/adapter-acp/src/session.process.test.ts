@@ -20,7 +20,12 @@ const homes: string[] = [];
 afterEach(async () => {
   for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true });
 });
-async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRuntime) {
+async function setup(
+  quirks = cursorQuirks,
+  resume = false,
+  runtime?: SessionRuntime,
+  env: Record<string, string> = {},
+) {
   const home = await mkdtemp(join(tmpdir(), "ace-acp-session-"));
   homes.push(home);
   const frames: Frame[] = [];
@@ -34,7 +39,7 @@ async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRun
   const ctx = {
     threadId,
     cwd: home,
-    env: { HOME: home },
+    env: { HOME: home, ...env },
     model: "test-model",
     signal: controller.signal,
     ...(resume ? { resume: { nativeSessionId: "native-root" } } : {}),
@@ -55,6 +60,7 @@ async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRun
           {
             command: process.execPath,
             args: [fake],
+            env: ctx.env,
             version: quirks.provider === "cursor" ? "2026.09.26-test" : "1.2.1",
           },
           runtime,
@@ -468,4 +474,29 @@ it("binds the root before queued input when session creation and root traffic sh
   } finally {
     await session.close("shutdown");
   }
+});
+
+it("ACP open failures preserve structured causes and redact launch credentials", async () => {
+  const secret = "private-acp-launch-secret";
+  const failed = setup(
+    cursorQuirks,
+    false,
+    {
+      now: () => 0,
+      spawn: () => {
+        throw {
+          code: "launch_failed",
+          title: "CLI launch failed",
+          detail: `Cannot launch with ${secret}`,
+        };
+      },
+    },
+    { PRIVATE_LAUNCH_CREDENTIAL: secret },
+  );
+  const failure: unknown = await failed.catch((error: unknown) => error);
+  expect(failure).toMatchObject({ code: "launch_failed", title: "CLI launch failed" });
+  expect(failure).toBeInstanceOf(Error);
+  if (!(failure instanceof Error)) throw new Error("Expected opening failure");
+  expect(failure.message).toContain("Cannot launch");
+  expect(failure.message).not.toContain(secret);
 });

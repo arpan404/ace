@@ -1,3 +1,4 @@
+import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { OpenCode, type OpenCodeClient } from "@opencode/client";
 import { z } from "zod";
 import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
@@ -248,11 +249,17 @@ export class OpenCodeServer {
       });
       this.stream = this.consumeEvents(() => connected?.());
       await handshake;
-    } catch {
+    } catch (error) {
+      const failure = new SessionOpenError(
+        "OpenCode startup failed: requires 2.0.22 and matching JSON API contract",
+        error,
+        { env: this.options.discovery?.env },
+        (value) => this.redact(value),
+      );
       this.deliberate = true;
       this.controller.abort();
-      await this.process?.stop({ graceMs: 0 });
-      throw new Error("OpenCode startup failed: requires 2.0.22 and matching JSON API contract");
+      await this.process?.stop({ graceMs: 0 }).catch(() => {});
+      throw failure;
     } finally {
       cancel();
     }
