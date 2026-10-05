@@ -14,7 +14,6 @@ export function syntheticInput(
 ): void {
   const parts = [{ type: "text" as const, text }];
   repo.inputs.register(id, key, parts, origin);
-  repo.inputs.sending(id, key, parts);
   repo.apply(
     id,
     [
