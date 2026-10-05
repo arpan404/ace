@@ -7,11 +7,9 @@ import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
  * snooze expiry are decided by the daemon and arrive on the entry; these rules only read them.
  */
 
-/** Hidden from Home altogether: archived or deleted on the daemon, or hiding here for Undo. */
-export function isRemoved(entry: ThreadListEntry, state: Pick<OrganizerState, "hiding">): boolean {
-  return (
-    entry.archivedAt !== undefined || entry.deletedAt !== undefined || state.hiding.has(entry.id)
-  );
+/** Hidden from Home altogether: archived or deleted. */
+export function isRemoved(entry: ThreadListEntry): boolean {
+  return entry.archivedAt !== undefined || entry.deletedAt !== undefined;
 }
 
 /** Needs you, then moving, then trouble, then the rest; a snooze sinks a thread to the end. */
@@ -40,13 +38,13 @@ export interface Arrangement {
 /** Home order: by rank, pinned first within a rank, then most recent. Settled by recency. */
 export function arrange(
   entries: readonly ThreadListEntry[],
-  state: Pick<OrganizerState, "hiding" | "project">,
+  state: Pick<OrganizerState, "project">,
   now: number,
 ): Arrangement {
   const active: { entry: ThreadListEntry; rank: number; pinned: boolean }[] = [];
   const settled: ThreadListEntry[] = [];
   for (const entry of entries) {
-    if (isRemoved(entry, state)) continue;
+    if (isRemoved(entry)) continue;
     if (state.project !== null && entry.workspaceId !== state.project) continue;
     if (isSettled(entry)) settled.push(entry);
     else active.push({ entry, rank: rank(entry, now), pinned: entry.pinned === true });
@@ -70,14 +68,10 @@ export interface ProjectCount {
 }
 
 /** Every project with at least one listed thread, by name. */
-export function projectCounts(
-  entries: readonly ThreadListEntry[],
-  state: Pick<OrganizerState, "hiding">,
-): ProjectCount[] {
+export function projectCounts(entries: readonly ThreadListEntry[]): ProjectCount[] {
   const counts = new Map<string, number>();
   for (const entry of entries)
-    if (!isRemoved(entry, state))
-      counts.set(entry.workspaceId, (counts.get(entry.workspaceId) ?? 0) + 1);
+    if (!isRemoved(entry)) counts.set(entry.workspaceId, (counts.get(entry.workspaceId) ?? 0) + 1);
   return [...counts]
     .map(([id, threads]) => ({ id, threads }))
     .toSorted((a, b) => a.id.localeCompare(b.id));

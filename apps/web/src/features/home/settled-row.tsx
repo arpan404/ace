@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { useRefusedTitle } from "@/features/organize/index.ts";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
 import { SettledLine } from "./row-parts.tsx";
@@ -12,7 +13,10 @@ const row =
 /** A compact settled row: title and age, Unsettle on hover. Opening it keeps it settled. */
 export function SettledRow(props: { threadId: string }) {
   const data = useThreadCard(props.threadId, true);
-  const [renaming, setRenaming] = useState(false);
+  const [editing, setRenaming] = useState(false);
+  // A rename the daemon refused opens the field again, with what was typed.
+  const refused = useRefusedTitle(props.threadId);
+  const renaming = editing || refused !== undefined;
   if (!data) return null;
   const { entry, card } = data;
   return (
@@ -20,7 +24,11 @@ export function SettledRow(props: { threadId: string }) {
       <div className="group/row relative">
         {renaming ? (
           <div className={`${row} bg-sidebar-accent`}>
-            <RenameField entry={entry} title={card.title} onDone={() => setRenaming(false)} />
+            <RenameField
+              entry={entry}
+              title={refused ?? card.title}
+              onDone={() => setRenaming(false)}
+            />
           </div>
         ) : (
           <Link

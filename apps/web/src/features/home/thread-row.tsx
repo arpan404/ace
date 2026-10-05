@@ -1,6 +1,7 @@
 import { PushPinIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { useRefusedTitle } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -19,7 +20,10 @@ const line =
  */
 export function ThreadRow(props: { threadId: string; pinned?: boolean }) {
   const row = useThreadCard(props.threadId, false);
-  const [renaming, setRenaming] = useState(false);
+  const [editing, setRenaming] = useState(false);
+  // A rename the daemon refused opens the field again, with what was typed.
+  const refused = useRefusedTitle(props.threadId);
+  const renaming = editing || refused !== undefined;
   if (!row) return null;
   const { entry, card } = row;
   const indent = props.pinned ? "pl-[11px]" : "pl-9";
@@ -32,7 +36,11 @@ export function ThreadRow(props: { threadId: string; pinned?: boolean }) {
         card={card}
         title={
           renaming ? (
-            <RenameField entry={entry} title={card.title} onDone={() => setRenaming(false)} />
+            <RenameField
+              entry={entry}
+              title={refused ?? card.title}
+              onDone={() => setRenaming(false)}
+            />
           ) : (
             card.title
           )

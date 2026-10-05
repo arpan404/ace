@@ -11,7 +11,11 @@ import {
   type HomeGroups,
   type ProjectCount,
 } from "@ace/ui-core";
-import { useOrganizerState } from "@/features/organize/index.ts";
+import {
+  useOrganizeOverlay,
+  useOrganizerState,
+  usePendingActions,
+} from "@/features/organize/index.ts";
 
 /** Home's threads: pinned and by project folder, and Settled apart, each in Home order. */
 export interface HomeList {
@@ -28,6 +32,19 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
     const entry = reader.thread(id);
     return entry ? [entry] : [];
   });
+
+/** The list's entries as this window shows them, with organize actions not yet confirmed. */
+function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
+  const overlay = useOrganizeOverlay();
+  const pending = usePendingActions();
+  return useCallback(
+    (reader: SidebarReader) => {
+      const entries = entriesOf(reader);
+      return pending.length ? entries.map((entry) => overlay.apply(entry)) : entries;
+    },
+    [overlay, pending],
+  );
+}
 
 /** Keys for every entry, so a selection over the whole list sees each status change. */
 // `threads` changes with any entry, so one key covers the whole list at any size.
@@ -50,9 +67,10 @@ export function useHomeList(): HomeList {
   const keys = useEveryEntryKey();
   const state = useOrganizerState();
   const now = useNow();
+  const read = useEntries();
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
-      const entries = entriesOf(reader);
+      const entries = read(reader);
       const { active, settled } = arrange(entries, state, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
@@ -73,7 +91,7 @@ export function useHomeList(): HomeList {
       );
       return { groups, settled, needsYou };
     },
-    [state, now],
+    [state, now, read],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }
@@ -89,10 +107,7 @@ const countsEqual = (a: ProjectCount[], b: ProjectCount[]) =>
 /** Projects that have threads here, with how many. */
 export function useProjects(): ProjectCount[] {
   const keys = useEveryEntryKey();
-  const state = useOrganizerState();
-  const select = useCallback(
-    (reader: SidebarReader) => projectCounts(entriesOf(reader), state),
-    [state],
-  );
+  const read = useEntries();
+  const select = useCallback((reader: SidebarReader) => projectCounts(read(reader)), [read]);
   return useSidebar(keys, select, countsEqual) ?? noProjects;
 }
