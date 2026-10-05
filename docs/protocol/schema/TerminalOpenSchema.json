@@ -2,6 +2,13 @@
   "$id": "https://ace.local/protocol/v1/TerminalOpenSchema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "args": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "cols": {
       "maximum": 65535,
       "minimum": 1,

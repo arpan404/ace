@@ -64,6 +64,14 @@ export class AccountService {
     this.resolveAcpLogin = options.resolveAcpLogin;
     this.safety = options.safety ?? { acquire: async () => undefined };
   }
+  isChangingAccount(id: string): boolean {
+    return this.migrating.has(id);
+  }
+  reserveAccountChange(id: string): () => void {
+    if (this.writers.has(id) || this.migrating.has(id)) throw new Error("Instance is busy");
+    this.migrating.add(id);
+    return () => this.migrating.delete(id);
+  }
   /** Local interactive terminal API, deliberately absent from remote accounts messages. */
   async loginAcp(instanceId: string, signal?: AbortSignal) {
     const instance = this.registry.get(instanceId)?.instance;
@@ -96,10 +104,13 @@ export class AccountService {
   }
   preferredCursorInstance(): string | undefined {
     return (
+      this.registry.selectedProvider("cursor") ??
       this.registry.selectedCursorSdk() ??
       pickInstance(
         { provider: "cursor", role: "worker", estimatedLoad: 1 },
-        this.registry.list().filter((a) => !this.migrating.has(a.instance.id)),
+        this.registry
+          .list()
+          .filter((a) => !a.instance.implicit && !this.migrating.has(a.instance.id)),
         this.now(),
       )?.id
     );
@@ -140,6 +151,8 @@ export class AccountService {
         requestId: request.requestId,
         account: this.registry.summary(request.instanceId, this.now()) ?? null,
       });
+    if (request.type !== "accounts.migrate")
+      throw new Error("Use the daemon account management service");
     const from = this.registry.get(request.from)?.instance;
     const to = this.registry.get(request.to)?.instance;
     const refused = (reason: string): AccountsResponse => ({
@@ -148,6 +161,7 @@ export class AccountService {
       result: { status: "refused", reason },
     });
     if (!from || !to) return refused("Unknown instance");
+    if (from.implicit || to.implicit) return refused("Normal CLI homes are immutable");
     for (const id of [from.id, to.id])
       if (this.writers.has(id) || this.migrating.has(id))
         return refused("Source or destination has an active writer or migration");
@@ -155,6 +169,8 @@ export class AccountService {
     this.migrating.add(to.id);
     let releaseFailed = false;
     try {
+      await this.registry.validateHome(from);
+      await this.registry.validateHome(to);
       const result = await migrateSession(
         { provider: request.provider, nativeSessionId: request.nativeSessionId, from, to },
         this.safety,
@@ -178,9 +194,12 @@ export class AccountService {
       adapter.backend === "cursor-sdk" && !context.resume
         ? this.registry.selectedCursorSdk()
         : undefined;
+    if (context.resume && !selection.instanceId)
+      throw new Error("Resuming requires a pinned provider instance");
     const assignment = AccountAssignment.parse({
       ...selection,
-      instanceId: selection.instanceId ?? preferred,
+      instanceId:
+        selection.instanceId ?? this.registry.selectedProvider(adapter.provider) ?? preferred,
     });
     if (context.resume && !assignment.instanceId)
       throw new Error("Resuming requires a pinned provider instance");
@@ -193,7 +212,9 @@ export class AccountService {
             role: assignment.role,
             estimatedLoad: assignment.estimatedLoad,
           },
-          this.registry.list().filter((a) => !this.migrating.has(a.instance.id)),
+          this.registry
+            .list()
+            .filter((a) => !a.instance.implicit && !this.migrating.has(a.instance.id)),
           this.now(),
         );
     if (provider === "acp") {
@@ -208,6 +229,8 @@ export class AccountService {
     }
     if (!chosen || chosen.provider !== adapter.provider)
       throw new Error("No matching provider instance");
+    if (chosen.implicit && adapter.backend === "cursor-sdk")
+      throw new Error("The normal Cursor CLI login cannot authenticate the SDK backend");
     if (this.migrating.has(chosen.id)) throw new Error("Instance is migrating");
     this.writers.set(chosen.id, (this.writers.get(chosen.id) ?? 0) + 1);
     const lifetime = new AbortController();
@@ -247,6 +270,8 @@ export class AccountService {
       );
     };
     try {
+      await this.registry.validateHome(chosen);
+      lifetime.signal.throwIfAborted();
       const session = await adapter.openSession({
         ...context,
         instanceId: chosen.id,

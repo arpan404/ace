@@ -47,6 +47,7 @@ export function startProviderStatuses(context: ServiceContext): void {
           try {
             if (context.services.cursorAccounts?.isFenced(instance.id))
               throw new Error("SDK auth change in progress");
+            if (account) await context.services.accountRegistry?.validateHome(account.instance);
             const status = await driver.status(
               { id: instance.id, homeDir: instance.homeDir },
               signal,

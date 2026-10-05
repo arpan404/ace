@@ -74,7 +74,16 @@ export function createPosixBackendFactory(
   const read = createProcessTable();
   return (options, shell, context) => {
     if (process.platform === "win32") throw new Error("Terminal service currently requires POSIX");
-    const env = { ...process.env, ...options.env, TERM: "xterm-256color", COLORTERM: "truecolor" };
+    const environment = {
+      ...process.env,
+      ...options.env,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+    };
+    // node-pty stringifies undefined as "undefined". Preserve explicit environment masks.
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(environment))
+      if (value !== undefined) env[key] = value;
     assertTestEnvironmentIsolation(env);
     const lease = ports?.createLease?.() ?? createGroupLease(leaseRoot, context.scheduler);
     const keeper = fileURLToPath(new URL("../native/group-keeper", import.meta.url));
@@ -97,7 +106,7 @@ export function createPosixBackendFactory(
     // The helper retains the ORIGINAL group ID, which cannot be reused while a
     // member remains. It ignores catchable signals and cleans the session on FIFO EOF.
     const launcher = `trap '' ${ignored}; "$3" "$1" "$2" >/dev/null 2>&1 & keeper=$!; while [ ! -f "$2" ]; do kill -0 "$keeper" 2>/dev/null || exit 1; /bin/sleep 0.01; done; trap - ${ignored}; shift 3; exec "$@"`;
-    const loginArgs = ["-l", "-i"];
+    const loginArgs = options.args ?? ["-l", "-i"];
     let pty: NativePty;
     try {
       pty = (ports?.spawn ?? spawn)(

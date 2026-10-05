@@ -59,6 +59,8 @@ export async function migrateSession(
           status: "unsupported",
           reason: "ACP migration has no verified CLI-owned strategy",
         };
+      if (request.provider === "pi")
+        return { status: "unsupported", reason: "Pi native session portability is unverified" };
       if (request.provider === "opencode")
         return {
           status: "unsupported",

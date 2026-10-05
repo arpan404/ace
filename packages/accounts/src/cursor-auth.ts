@@ -30,6 +30,7 @@ interface Job {
 }
 export interface CursorAuthOptions {
   registry: AccountRegistry;
+  isChangingInstance?(id: string): boolean;
   driver: Driver;
   now(): number;
   id(): string;
@@ -50,9 +51,17 @@ export class CursorAuthService {
   constructor(options: CursorAuthOptions) {
     this.options = options;
   }
+  isChangingInstance(id: string): boolean {
+    return (
+      this.busy.has(id) ||
+      [...this.jobs.values()].some(
+        (job) => job.instanceId === id && (job.state === "starting" || job.state === "browser"),
+      )
+    );
+  }
   private account(id: string): ProviderInstance | undefined {
     const instance = this.options.registry.get(id)?.instance;
-    return instance?.provider === "cursor" ? instance : undefined;
+    return instance?.provider === "cursor" && !instance.implicit ? instance : undefined;
   }
   private event(requestId: string, job: Job): CursorAuthEvent {
     return CursorAuthEvent.parse({
@@ -101,7 +110,11 @@ export class CursorAuthService {
         if (request.type === "cursor.auth.cancel") await this.cancel(job);
         return this.event(request.requestId, job);
       }
-      if (this.busy.has(request.instanceId)) return error("busy");
+      if (
+        this.busy.has(request.instanceId) ||
+        this.options.isChangingInstance?.(request.instanceId)
+      )
+        return error("busy");
       if (request.type === "cursor.auth.start") {
         for (const job of this.jobs.values())
           if (
