@@ -112,9 +112,11 @@ test("while a step waits for approval nothing says Working: the line says it wai
   const line = await screen.findByRole("status", { name: "Waiting for your approval" });
   expect(line.textContent).not.toMatch(/\d+s/);
   expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
-  // The waiting step says so on its own row.
+  // The waiting step says so on its own row (IR-2's wording).
   expect(
-    within(feed).getByRole("button", { name: /^Run git push .* Awaiting approval$/ }),
+    await within(feed).findByRole("button", {
+      name: /^Run git push .* Waiting for your approval$/,
+    }),
   ).toBeTruthy();
 });
 
@@ -132,9 +134,15 @@ test("ace's review of a step joins that step's log instead of splitting the work
 
   const log = between[0]!;
   await userEvent.click(log);
+  // Each decision reads once, as the note on the step it judged (IR-2), inside that log.
   const steps = within(log.parentElement!).getByRole("list", { name: "Steps" });
-  expect(within(steps).getByRole("article", { name: "Permission review: Approved by ace" }));
-  expect(within(steps).getByRole("article", { name: "Permission review: Denied by ace" }));
+  expect(
+    await within(steps).findByRole("button", { name: "Ran pwd Approved by ace · auto-review" }),
+  ).toBeTruthy();
+  expect(
+    within(steps).getByRole("button", { name: "Run rm -rf dist Denied by ace · auto-review" }),
+  ).toBeTruthy();
+  expect(within(steps).queryByRole("article", { name: /Permission review/ })).toBeNull();
 });
 
 function edit(key: string, path: string, agent = "root") {

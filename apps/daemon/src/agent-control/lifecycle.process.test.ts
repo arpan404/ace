@@ -71,6 +71,16 @@ test("a reopened subtree receives a fresh cascading interruption while unrelated
   expect(h.service.message(parent, "resume-a", a.childId, "again", "queue").ok).toBe(true);
   expect(h.service.message(parent, "resume-b", b.childId, "again", "queue").ok).toBe(true);
   await h.engine.flush();
+  expect(h.store.getThread(b.childId)?.status).toEqual({ state: "waiting", on: "queue" });
+  for (const threadId of [a.childId, b.childId])
+    expect(
+      h.service.command(`release-${threadId}`, {
+        type: "queue.resume",
+        threadId,
+        expectedRevision: h.engine.queue(threadId).revision,
+      }).ok,
+    ).toBe(true);
+  await h.engine.flush();
   expect(h.store.getThread(b.childId)?.status.state).toBe("working");
   expect(interrupt("first").ok).toBe(true);
   await h.engine.flush();

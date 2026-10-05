@@ -1,3 +1,4 @@
+import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePermissionRules } from "./permission-policy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
@@ -143,11 +144,23 @@ export class OpenCodeSession implements ProviderSession {
               permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
             }),
       );
-      if (ctx.resume)
+      if (ctx.resume) {
         await s.client.session.update({
           sessionID: info.id,
           permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
         });
+        const model = selectedModel(ctx.model);
+        const previous = z.object({ providerID: z.string(), id: z.string() }).safeParse(info.model);
+        if (
+          model &&
+          (!previous.success ||
+            previous.data.providerID !== model.providerID ||
+            previous.data.id !== model.id)
+        ) {
+          await s.client.session.switchModel({ sessionID: info.id, model });
+          info.model = model;
+        }
+      }
       s.ownership.establish(info);
       s.emit("recv", "snapshot.info", { info, root: true });
       s.opening = false;
@@ -162,9 +175,17 @@ export class OpenCodeSession implements ProviderSession {
       }
       ctx.signal.throwIfAborted();
       return s;
-    } catch {
-      await s.close("shutdown");
-      throw new Error("OpenCode session opening failed");
+    } catch (error) {
+      // Capture before closing the last lease clears the server's redaction secrets.
+      const failure = new SessionOpenError(
+        "OpenCode session opening failed",
+        error,
+        { env: ctx.env, workspace: ctx.cwd },
+        (value) => server.redact(value),
+      );
+      // Cleanup failure must not replace the cause that prevented opening.
+      await s.close("shutdown").catch(() => {});
+      throw failure;
     }
   }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {

@@ -1,6 +1,6 @@
 import { opendir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { discoverProvider, type DiscoveryOptions } from "@ace/provider-kit/discovery";
+import { discoverProvider, discoverPi, type DiscoveryOptions } from "@ace/provider-kit/discovery";
 import { ProviderInstance, type NativeAccountProvider } from "@ace/protocol/accounts";
 import type { z } from "zod";
 
@@ -21,14 +21,16 @@ export function createInstance(input: {
       ? { CODEX_HOME: homeDir }
       : input.provider === "claude"
         ? { CLAUDE_CONFIG_DIR: homeDir }
-        : input.provider === "cursor"
-          ? { CURSOR_DATA_DIR: homeDir }
-          : {
-              XDG_DATA_HOME: join(homeDir, "data"),
-              XDG_CONFIG_HOME: join(homeDir, "config"),
-              XDG_STATE_HOME: join(homeDir, "state"),
-              XDG_CACHE_HOME: join(homeDir, "cache"),
-            };
+        : input.provider === "pi"
+          ? { PI_CODING_AGENT_DIR: homeDir }
+          : input.provider === "cursor"
+            ? { CURSOR_DATA_DIR: homeDir }
+            : {
+                XDG_DATA_HOME: join(homeDir, "data"),
+                XDG_CONFIG_HOME: join(homeDir, "config"),
+                XDG_STATE_HOME: join(homeDir, "state"),
+                XDG_CACHE_HOME: join(homeDir, "cache"),
+              };
   return ProviderInstance.parse({ ...input, homeDir, env });
 }
 
@@ -55,15 +57,18 @@ export function instanceEnv(
   backend?: "cursor-sdk" | "acp",
 ): NodeJS.ProcessEnv {
   const parsed = ProviderInstance.parse(instance);
+  if (parsed.implicit) return { ...base };
   if (parsed.provider === "acp") return { ...base };
   const allowed =
     parsed.provider === "codex"
       ? ["CODEX_HOME"]
       : parsed.provider === "claude"
         ? ["CLAUDE_CONFIG_DIR"]
-        : parsed.provider === "cursor"
-          ? ["CURSOR_DATA_DIR"]
-          : ["XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
+        : parsed.provider === "pi"
+          ? ["PI_CODING_AGENT_DIR"]
+          : parsed.provider === "cursor"
+            ? ["CURSOR_DATA_DIR"]
+            : ["XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
   if (Object.keys(parsed.env).some((key) => !allowed.includes(key)))
     throw new Error("Conflicting instance environment");
   const expected = createInstance(parsed).env;
@@ -72,6 +77,20 @@ export function instanceEnv(
   if (parsed.provider === "opencode" && (!parsed.env.XDG_DATA_HOME || !parsed.env.XDG_CONFIG_HOME))
     throw new Error("OpenCode requires data and config roots");
   const env = { ...base };
+  if (parsed.managed) {
+    Object.assign(env, {
+      HOME: join(parsed.homeDir, "user"),
+      USERPROFILE: join(parsed.homeDir, "user"),
+      APPDATA: join(parsed.homeDir, "appdata"),
+      XDG_DATA_HOME: join(parsed.homeDir, "data"),
+      XDG_CONFIG_HOME: join(parsed.homeDir, "config"),
+      XDG_STATE_HOME: join(parsed.homeDir, "state"),
+      XDG_CACHE_HOME: join(parsed.homeDir, "cache"),
+      TMPDIR: parsed.homeDir,
+      TMP: parsed.homeDir,
+      TEMP: parsed.homeDir,
+    });
+  }
   for (const key of authOverrides) env[key] = undefined;
   // Cursor has a separate documented configuration override; keep it on the same home.
   if (parsed.provider === "cursor") {
@@ -96,7 +115,9 @@ export async function loginStatus(instance: ProviderInstance, options: Discovery
       loginHint: "Use the selected agent’s own CLI login",
       error: "ACP login status is unverified",
     };
-  const result = await discoverProvider(instance.provider, {
+  const result = await (
+    instance.provider === "pi" ? discoverPi : discoverProvider.bind(null, instance.provider)
+  )({
     ...options,
     env: instanceEnv(instance, options.env ?? process.env),
   });
@@ -119,6 +140,7 @@ export function loginArgs(
       throw new Error("Use codex login --with-api-key directly; ace never accepts keys");
     return ["login"];
   }
+  if (provider === "pi") return [];
   if (provider === "claude") return ["auth", "login", mode === "api" ? "--console" : "--claudeai"];
   return provider === "cursor" ? ["login"] : ["auth", "login"];
 }

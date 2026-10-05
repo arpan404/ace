@@ -153,8 +153,12 @@ it("retains complete child envelopes including unknown params and outer fields",
     },
   };
   const facts = translator.translate(frame, 1);
-  expect(JSON.stringify(facts)).toContain('"vendorOuter":"retained"');
-  expect(JSON.stringify(facts)).toContain('"vendorParams":"retained"');
+  const diagnostics = JSON.stringify(translator.takeDiagnostics?.() ?? []);
+  expect(diagnostics).toContain('"vendorOuter":"retained"');
+  expect(diagnostics).toContain('"vendorParams":"retained"');
+  expect(facts.some((fact) => fact.type === "item.upsert" && fact.draft.type === "notice")).toBe(
+    false,
+  );
 });
 it("emits a bounded raw change for each tool refresh while retaining its initial input", () => {
   const translator = cursorAdapter.createTranslator({

@@ -15,6 +15,7 @@ export function harness(quirks: AcpQuirks = cursorQuirks) {
     threadId,
     config: { provider: quirks.provider, silenceMs: 90_000 },
   });
+  const diagnostics: import("@ace/protocol").RawPayload[] = [];
   let seq = 0;
   let ids = 0;
   let lastFacts: Fact[] = [];
@@ -33,6 +34,7 @@ export function harness(quirks: AcpQuirks = cursorQuirks) {
   function replay(nativeFrame: Frame) {
     context.now = nativeFrame.t;
     const facts = translator.translate(nativeFrame, nativeFrame.t);
+    diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
     lastFacts = facts;
     const events = facts.flatMap((f) => apply(state, f, context));
     check();
@@ -61,6 +63,7 @@ export function harness(quirks: AcpQuirks = cursorQuirks) {
   const tools = () => Object.values(state.items).filter((i) => i.type === "tool_call");
   return {
     state,
+    diagnostics,
     frame,
     replay,
     tick,

@@ -1,6 +1,11 @@
 import type { Fact } from "@ace/core";
 import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
-import { inputText, steerFacts, type ThreadCommandOutcome } from "./thread-commands.ts";
+import {
+  admissionFacts,
+  inputText,
+  steerFacts,
+  type ThreadCommandOutcome,
+} from "./thread-commands.ts";
 import type { FakeQueued, ThreadHost } from "./thread-host.ts";
 
 /*
@@ -92,6 +97,7 @@ export function queueCommand(
         return {
           ok: true,
           facts: [
+            ...admissionFacts(host, edited.key, edited.input),
             ...steerFacts(host, edited.key, edited.text),
             { type: "queue.changed", count: host.queued.length },
           ],

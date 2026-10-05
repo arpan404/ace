@@ -27,10 +27,15 @@ export function replay() {
     for (const fact of values)
       apply(state, fact, { now, ids: { next: (kind) => `${kind}-${++ids}` } });
   };
-  const frame = (value: Frame) => facts(translator.translate(value, value.t), value.t);
+  const diagnostics: import("@ace/protocol").RawPayload[] = [];
+  const frame = (value: Frame) => {
+    facts(translator.translate(value, value.t), value.t);
+    diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
+  };
   return {
     threadId,
     translator,
+    diagnostics,
     get state() {
       return state;
     },

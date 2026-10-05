@@ -24,7 +24,7 @@ export type QueuedMessage = z.infer<typeof QueuedMessage>;
 export const QueueState = z.object({
   revision: z.number().int().nonnegative(),
   paused: z.boolean(),
-  reason: z.enum(["manual", "restart", "limit", "snooze", "uncertain"]).nullable(),
+  reason: z.enum(["manual", "restart", "limit", "snooze", "uncertain", "stopped"]).nullable(),
   resumeAt: z.number().int().nonnegative().nullable(),
 });
 export const QueueSnapshot = QueueState.extend({

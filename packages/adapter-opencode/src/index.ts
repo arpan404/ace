@@ -49,8 +49,9 @@ export function createOpenCodeAdapter(
           },
         };
       } catch (error) {
-        await lease.release();
-        await lease.server.release();
+        // Preserve the opening cause while attempting both cleanup boundaries.
+        await lease.release().catch(() => {});
+        await lease.server.release().catch(() => {});
         throw error;
       }
     },
