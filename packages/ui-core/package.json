@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ace/accounts": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/protocol": "workspace:*",
     "zod": "^4.6.5"

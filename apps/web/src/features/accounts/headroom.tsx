@@ -29,7 +29,7 @@ function headroomLine(row: ProviderHeadroom, now: number): string {
  */
 export function Headroom(props: { accounts: readonly AccountView[] }) {
   const now = useNow();
-  const rows = providerHeadroom(props.accounts);
+  const rows = providerHeadroom(props.accounts, now);
   if (!rows.length) return null;
   return (
     <>

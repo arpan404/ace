@@ -40,7 +40,7 @@ export function QueueNotice(props: {
   const now = useNow();
   // What accounts.list says about the account it ran out on: its reset, and where Move goes.
   const { account, accounts } = useThreadAccount(props.threadId);
-  const context = account && accounts ? limitContext(accounts, account.id) : undefined;
+  const context = account && accounts ? limitContext(accounts, account.id, now) : undefined;
   const notice = queueNotice(props.status, live ?? props.queue.page, now, undefined, context);
   if (!notice) return null;
   const [primary, ...rest] = notice.actions;

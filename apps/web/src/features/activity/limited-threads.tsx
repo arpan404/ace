@@ -1,5 +1,5 @@
-import type { SidebarReader } from "@ace/client";
-import { useSidebarAll } from "@ace/client-react";
+import { useSidebarIndex } from "@ace/client-react";
+import type { ThreadListEntry } from "@ace/protocol";
 import {
   limitedGroups,
   type AccountView,
@@ -20,54 +20,42 @@ import { useNow } from "@/lib/time.ts";
 import { inProject, useActivityState } from "./activity-state.tsx";
 
 const none: readonly LimitedThread[] = [];
-const sameThreads = (a: readonly LimitedThread[], b: readonly LimitedThread[]) =>
-  a.length === b.length &&
-  a.every((thread, index) => {
-    const other = b[index];
-    return (
-      other?.id === thread.id &&
-      other.title === thread.title &&
-      other.account === thread.account &&
-      other.until === thread.until
-    );
-  });
+const sameThread = (a: LimitedThread, b: LimitedThread) =>
+  a.id === b.id && a.title === b.title && a.account === b.account && a.until === b.until;
 
-/** Threads held at their account's usage limit, in the project Activity is filtered to. */
+/**
+ * Threads held at their account's usage limit, in the project Activity is filtered to, from an
+ * index the thread list keeps up to date entry by entry.
+ */
 export function useLimitedThreads(): readonly LimitedThread[] {
   const { project } = useActivityState();
-  const read = useCallback(
-    (reader: SidebarReader) =>
-      reader.ids.flatMap((id): LimitedThread[] => {
-        const thread = reader.thread(id);
-        if (
-          thread?.status.state !== "limited" ||
-          thread.archivedAt !== undefined ||
-          thread.deletedAt !== undefined ||
-          !inProject(project, thread.workspaceId)
-        )
-          return [];
-        return [
-          {
-            id,
+  const pick = useCallback(
+    (thread: ThreadListEntry): LimitedThread | undefined =>
+      thread.status.state !== "limited" ||
+      thread.archivedAt !== undefined ||
+      thread.deletedAt !== undefined ||
+      !inProject(project, thread.workspaceId)
+        ? undefined
+        : {
+            id: thread.id,
             title: thread.title,
             account: thread.live?.account ?? thread.execution?.instanceId,
             until: thread.status.until,
           },
-        ];
-      }),
     [project],
   );
-  return useSidebarAll(read, sameThreads) ?? none;
+  return useSidebarIndex(pick, sameThread) ?? none;
 }
 
 /**
  * Under what needs you: threads stopped at a usage limit, by account, with when the account frees
- * up and a way to move them all to the same provider's account with the most room.
+ * up and a way to move them all to the account automatic recovery would pick.
  */
 export function LimitedThreads(props: { threads: readonly LimitedThread[] }) {
   const accounts = useAccountViews({ enabled: props.threads.length > 0 });
+  const now = useNow();
   if (!props.threads.length) return null;
-  const groups = limitedGroups(props.threads, accounts.data);
+  const groups = limitedGroups(props.threads, accounts.data, now);
   return (
     <section aria-labelledby="limited-title" className="mt-10">
       <h2 id="limited-title" className="text-md font-medium">

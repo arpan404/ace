@@ -15,7 +15,7 @@ export function LimitBadge(props: { threadId: string }) {
   const { account } = useThreadAccount(props.threadId);
   const now = useNow();
   if (status?.state !== "limited") return null;
-  const until = status.until ?? (account && accountLimit(account).resetsAt);
+  const until = status.until ?? (account && accountLimit(account, now).resetsAt);
   return (
     <span role="status">
       {" · Limited"}

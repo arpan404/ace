@@ -25,6 +25,7 @@ export { useInteractions, useInteraction } from "./interactions.ts";
 export {
   useSidebar,
   useSidebarAll,
+  useSidebarIndex,
   useSidebarIds,
   useSidebarLoaded,
   useSidebarThread,

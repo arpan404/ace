@@ -64,9 +64,9 @@ export function describeMove(result: MoveResult): string {
 }
 
 /**
- * Moves each limited thread to the same provider's account with most headroom. Every thread is
- * its own `thread.limit` command against its current queue revision, so one refusal doesn't stop
- * the others.
+ * Moves each limited thread to the account automatic recovery would pick (the first other
+ * account of the provider that is available). Every thread is its own `thread.limit` command
+ * against its current queue revision, so one refusal doesn't stop the others.
  */
 export function useMoveThreads() {
   const client = useClient();
@@ -76,8 +76,8 @@ export function useMoveThreads() {
       from: string;
       threadIds: readonly string[];
     }): Promise<MoveResult> => {
-      const to = migrationTarget(input.accounts, input.from);
-      if (!to) throw new Error("No other account for this provider has headroom.");
+      const to = migrationTarget(input.accounts, input.from, Date.now());
+      if (!to) throw new Error("No other account for this provider is available.");
       if (!input.threadIds.length) throw new Error("There are no threads to move.");
       const results = await Promise.all(
         input.threadIds.map(async (id) => {

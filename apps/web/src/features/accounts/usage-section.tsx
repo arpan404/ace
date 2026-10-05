@@ -1,5 +1,5 @@
 import type { UsageRow, UsageTotals } from "@ace/protocol";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
@@ -12,6 +12,7 @@ import {
   usageCost,
   usageDay,
 } from "@ace/ui-core";
+import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { ProviderKind } from "@ace/protocol";
@@ -153,10 +154,7 @@ export function UsageSection() {
   const subscription = rows.reduce((sum, row) => sum + row.totals.subscriptionTokens, 0);
   const api = byModel.data && usageCost(byModel.data.rows);
   const paid = reported.data && reportedSummary(reported.data);
-  const retry = () => {
-    if (byModel.isError) void byModel.refetch();
-    if (reported.isError) void reported.refetch();
-  };
+  const groupName = group === "model" ? "model" : "account";
   return (
     <section aria-labelledby="usage-title" className="mt-10">
       <div className="flex items-center gap-4">
@@ -209,49 +207,60 @@ export function UsageSection() {
             />
           </dl>
           <DailyBars rows={rows} />
-          {(byModel.isError || reported.isError) && (
-            <div
-              role="alert"
-              className="mt-5 flex items-center gap-3 text-ui text-muted-foreground"
-            >
-              <span className="min-w-0 flex-1">
-                {byModel.isError
-                  ? "Usage by model couldn't be read."
-                  : "Reported costs couldn't be read."}
-              </span>
-              <Button size="sm" onClick={retry}>
-                Try again
-              </Button>
-            </div>
+          {reported.isError && (
+            <ReadFailed className="mt-5" retry={() => void reported.refetch()}>
+              Reported costs couldn't be read.
+            </ReadFailed>
           )}
-          {!byModel.isError && (
-            <div className="mt-5">
-              <SegmentedControl
-                label="Group usage"
-                size="sm"
-                value={group}
-                options={groups}
-                onValueChange={(value) => setGroup(value)}
-              />
-              <div className="mt-3">
-                {grouped.isError ? (
-                  <p role="alert" className="text-ui text-muted-foreground">
-                    Usage by account couldn't be read.
-                  </p>
-                ) : (
+          <div className="mt-5">
+            <SegmentedControl
+              label="Group usage"
+              size="sm"
+              value={group}
+              options={groups}
+              onValueChange={(value) => setGroup(value)}
+            />
+            <div className="mt-3">
+              {grouped.isError ? (
+                <ReadFailed retry={() => void grouped.refetch()}>
+                  Usage by {groupName} couldn't be read.
+                </ReadFailed>
+              ) : (
+                <>
                   <DataTable
-                    caption={group === "model" ? "Usage by model" : "Usage by account"}
+                    caption={`Usage by ${groupName}`}
                     columns={columns[group]}
                     data={models}
                     empty={grouped.data ? "No usage." : "Loading usage…"}
                   />
-                )}
-              </div>
+                  {grouped.data?.truncated && (
+                    <p className="mt-2 text-xs text-subtle-foreground">
+                      Shows the {models.length.toLocaleString()} busiest {groupName}s; the rest are
+                      left out.
+                    </p>
+                  )}
+                </>
+              )}
             </div>
-          )}
+          </div>
         </>
       )}
     </section>
+  );
+}
+
+/** A read that failed, said where its figures would be, with a way to read it again. */
+function ReadFailed(props: { retry: () => void; children: ReactNode; className?: string }) {
+  return (
+    <div
+      role="alert"
+      className={cn("flex items-center gap-3 text-ui text-muted-foreground", props.className)}
+    >
+      <span className="min-w-0 flex-1">{props.children}</span>
+      <Button size="sm" onClick={props.retry}>
+        Try again
+      </Button>
+    </div>
   );
 }
 

@@ -1,12 +1,8 @@
+import { availability, blockedUntil, nearLimitPercent } from "@ace/accounts/availability";
 import type { LimitPolicy } from "@ace/protocol";
 import type { z } from "zod";
-import { headroom, migrationTarget } from "./account-threads.ts";
-import {
-  blockingReset,
-  tightestWindow,
-  type AccountView,
-  type QuotaWindowView,
-} from "./accounts.ts";
+import { migrationTarget } from "./account-threads.ts";
+import { liveWindows, tightestWindow, type AccountView, type QuotaWindowView } from "./accounts.ts";
 
 /*
  * Usage limits as the composer, the header, Activity, toasts and Usage & accounts word them: how
@@ -15,7 +11,7 @@ import {
  */
 
 /** From this share of a window used, an account is near its limit (the meters turn amber). */
-export const nearLimitPercent = 85;
+export { nearLimitPercent };
 
 /** "Claude Code · Personal". */
 export function accountName(account: Pick<AccountView, "providerLabel" | "label">): string {
@@ -38,27 +34,38 @@ export function quotaWindowShort(window: Pick<QuotaWindowView, "label">): string
   }
 }
 
-export type LimitLevel = "ok" | "near" | "reached";
+/** Unknown until the account's CLI says it is signed in: nothing is claimed about its limits. */
+export type LimitLevel = "ok" | "near" | "reached" | "unknown";
 
 export interface AccountLimit {
   level: LimitLevel;
-  /** The window closest to its limit; undefined when the provider reports none. */
+  /** The window still in its period that is closest to its limit; undefined when none is. */
   window: QuotaWindowView | undefined;
-  /** When a reached account can work again: the earliest reset of an exhausted window. */
+  /**
+   * When a reached account can work again, as the daemon resumes it: the last reset among what
+   * holds it. Undefined when any of those didn't say when it resets.
+   */
   resetsAt: number | undefined;
 }
 
+const levels = {
+  available: "ok",
+  near_limit: "near",
+  exhausted: "reached",
+  logged_out: "unknown",
+  unknown: "unknown",
+} as const satisfies Record<AccountView["availability"], LimitLevel>;
+
 /**
- * How close an account is to its limit: reached when the daemon says it is exhausted or a window
- * is full, near when the daemon says so or a window is past `nearLimitPercent`.
+ * How close an account is to its limit at `now`, by the daemon's own availability rules over the
+ * quota it reported: windows and limit errors whose reset has passed no longer hold it.
  */
-export function accountLimit(account: AccountView): AccountLimit {
-  const window = tightestWindow(account);
-  const used = window?.usedPercent ?? 0;
-  if (account.availability === "exhausted" || used >= 100)
-    return { level: "reached", window, resetsAt: blockingReset(account) };
-  const level = account.availability === "near_limit" || used >= nearLimitPercent ? "near" : "ok";
-  return { level, window, resetsAt: undefined };
+export function accountLimit(account: AccountView, now: number): AccountLimit {
+  const level = levels[availability(account.quota, now)];
+  const window = tightestWindow({ windows: liveWindows(account, now) });
+  const resetsAt =
+    level === "reached" ? (blockedUntil(account.quota, now) ?? undefined) : undefined;
+  return { level, window, resetsAt };
 }
 
 /** What a thread's limit notice knows about the account it ran out on. */
@@ -67,9 +74,9 @@ export interface LimitContext {
   name: string;
   /** "Codex": to say no other account of it has room. */
   providerLabel: string;
-  /** When the account can work again, if any exhausted window says. */
+  /** When the account can work again; undefined when what holds it didn't say. */
   resetsAt: number | undefined;
-  /** Where Move sends the thread; null when no other account of the provider has room. */
+  /** Where Move sends the thread, as automatic recovery would; null when no account is available. */
   target: { id: string; name: string } | null;
 }
 
@@ -77,21 +84,22 @@ export interface LimitContext {
 export function limitContext(
   accounts: readonly AccountView[],
   accountId: string,
+  now: number,
 ): LimitContext | undefined {
   const account = accounts.find((candidate) => candidate.id === accountId);
   if (!account) return undefined;
-  const target = migrationTarget(accounts, account.id);
+  const target = migrationTarget(accounts, account.id, now);
   return {
     name: accountName(account),
     providerLabel: account.providerLabel,
-    resetsAt: accountLimit(account).resetsAt,
+    resetsAt: accountLimit(account, now).resetsAt,
     target: target ? { id: target.id, name: accountName(target) } : null,
   };
 }
 
 /**
- * What happens to a thread when its account runs out, by the daemon's `threads.limitPolicy`;
- * `target` names the account a move would pick.
+ * What happens to a thread when its account runs out, by the daemon's `threads.limitPolicy` for
+ * that thread; `target` names the account automatic recovery would move it to.
  */
 export function atLimitLine(
   policy: z.infer<typeof LimitPolicy> | undefined,
@@ -105,7 +113,7 @@ export function atLimitLine(
     case "migrate_now":
       return target
         ? `At the limit it moves to ${target}.`
-        : "At the limit it moves to the account with the most room.";
+        : "At the limit it moves to another account if one is available.";
     default:
       return "At the limit it stops until you choose what to do.";
   }
@@ -122,39 +130,47 @@ export interface ProviderHeadroom {
   available: number;
   /** The available account with the most room, and the window that decides it. */
   best: { account: AccountView; left: number; window: QuotaWindowView } | undefined;
-  /** The account at a limit that frees up first, when one does. */
+  /** The account at a limit that frees up first, when one says when. */
   nextReset: { account: AccountView; at: number } | undefined;
 }
 
 /**
- * Headroom per provider, in the order accounts are listed: only signed-in accounts whose provider
- * reports windows count, since an account that reports nothing has no headroom to compare.
+ * Headroom per provider at `now`, in the order accounts are listed: only accounts known to be
+ * signed in whose provider reports windows count, since one that reports nothing has no headroom
+ * to compare.
  */
-export function providerHeadroom(accounts: readonly AccountView[]): ProviderHeadroom[] {
-  const groups = new Map<string, AccountView[]>();
+export function providerHeadroom(
+  accounts: readonly AccountView[],
+  now: number,
+): ProviderHeadroom[] {
+  const groups = new Map<string, { account: AccountView; limit: AccountLimit }[]>();
   for (const account of accounts) {
-    if (!account.signedIn || !account.windows.length) continue;
-    groups.set(account.providerLabel, [...(groups.get(account.providerLabel) ?? []), account]);
+    if (!account.windows.length) continue;
+    const limit = accountLimit(account, now);
+    if (limit.level === "unknown") continue;
+    let group = groups.get(account.providerLabel);
+    if (!group) groups.set(account.providerLabel, (group = []));
+    group.push({ account, limit });
   }
   return [...groups].map(([providerLabel, group]) => {
     let best: ProviderHeadroom["best"];
     let nextReset: ProviderHeadroom["nextReset"];
     let available = 0;
-    for (const account of group) {
-      const limit = accountLimit(account);
+    for (const { account, limit } of group) {
       if (limit.level === "reached") {
         if (limit.resetsAt !== undefined && (!nextReset || limit.resetsAt < nextReset.at))
           nextReset = { account, at: limit.resetsAt };
         continue;
       }
       available++;
-      const left = headroom(account);
-      if (limit.window && (!best || left > best.left))
-        best = { account, left, window: limit.window };
+      if (!limit.window) continue;
+      const left = 100 - limit.window.usedPercent;
+      if (!best || left > best.left) best = { account, left, window: limit.window };
     }
+    const first = group[0]?.account;
     return {
-      provider: group[0]?.provider ?? "acp",
-      acpAgentId: group[0]?.acpAgentId,
+      provider: first?.provider ?? "acp",
+      acpAgentId: first?.acpAgentId,
       providerLabel,
       accounts: group.length,
       available,
@@ -170,59 +186,72 @@ export type LimitChange =
   | { kind: "reached"; key: string; account: AccountView; resetsAt: number | undefined }
   | { kind: "reset"; key: string; account: AccountView };
 
+/** Each account's limit as of the reads so far, for the next read to compare with. */
+export type LimitReading = ReadonlyMap<string, AccountLimit>;
+
 /**
- * What changed between two reads of `accounts.list`: an account that crossed into near its limit,
- * one that reached it, and one at its limit that can work again. Accounts seen only once are
- * history, not news. Each change has a `key` naming the window period it is about, so a caller
- * can say it once even when a meter wobbles across the line.
+ * What changed since the previous reading, for an `accounts.list` read at `now`: an account that
+ * crossed into near its limit, one that reached it, and one at its limit that the daemon says can
+ * work again. Accounts seen for the first time are history, not news. An account whose state is
+ * unknown (its CLI hasn't said it is signed in) is no news either way and keeps its last known
+ * state, so only an affirmative reading says it recovered. Each change has a `key` naming the
+ * window period it is about, so a caller can say it once even when a meter wobbles across the line.
  */
 export function limitChanges(
-  previous: readonly AccountView[] | undefined,
-  next: readonly AccountView[],
-): LimitChange[] {
-  if (!previous) return [];
-  const before = new Map(previous.map((account) => [account.id, accountLimit(account)]));
+  previous: LimitReading | undefined,
+  accounts: readonly AccountView[],
+  now: number,
+): { changes: LimitChange[]; reading: LimitReading } {
+  const reading = new Map<string, AccountLimit>();
   const changes: LimitChange[] = [];
-  for (const account of next) {
-    const was = before.get(account.id);
-    if (!was || !account.signedIn) continue;
-    const now = accountLimit(account);
-    if (now.level === was.level) continue;
-    if (now.level === "reached")
+  for (const account of accounts) {
+    const was = previous?.get(account.id);
+    const limit = accountLimit(account, now);
+    if (limit.level === "unknown") {
+      if (was) reading.set(account.id, was);
+      continue;
+    }
+    reading.set(account.id, limit);
+    if (!was || limit.level === was.level) continue;
+    if (limit.level === "reached")
       changes.push({
         kind: "reached",
-        key: `reached:${account.id}:${now.resetsAt ?? ""}`,
+        key: `reached:${account.id}:${limit.resetsAt ?? ""}`,
         account,
-        resetsAt: now.resetsAt,
+        resetsAt: limit.resetsAt,
       });
     else if (was.level === "reached")
       changes.push({ kind: "reset", key: `reset:${account.id}:${was.resetsAt ?? ""}`, account });
-    else if (now.level === "near" && now.window)
+    else if (limit.level === "near" && limit.window)
       changes.push({
         kind: "near",
-        key: `near:${account.id}:${now.window.id}:${now.window.resetsAt ?? ""}`,
+        key: `near:${account.id}:${limit.window.id}:${limit.window.resetsAt ?? ""}`,
         account,
-        window: now.window,
+        window: limit.window,
       });
   }
-  return changes;
+  return { changes, reading };
 }
 
 /**
  * The next moment an account read could change by itself: the earliest future reset among the
- * windows near or at their limit. Undefined when none is coming.
+ * windows and limit errors near or at their limit. Undefined when none is coming.
  */
 export function nextLimitReset(accounts: readonly AccountView[], now: number): number | undefined {
   let next: number | undefined;
-  for (const account of accounts)
-    for (const window of account.windows)
-      if (
-        window.resetsAt !== null &&
-        window.resetsAt > now &&
-        window.usedPercent >= nearLimitPercent &&
-        (next === undefined || window.resetsAt < next)
-      )
-        next = window.resetsAt;
+  const consider = (window: { usedPercent: number; resetsAt: number | null }) => {
+    if (
+      window.resetsAt !== null &&
+      window.resetsAt > now &&
+      window.usedPercent >= nearLimitPercent &&
+      (next === undefined || window.resetsAt < next)
+    )
+      next = window.resetsAt;
+  };
+  for (const account of accounts) {
+    for (const window of Object.values(account.quota.windows)) consider(window);
+    if (account.quota.blockers.limitError) consider(account.quota.blockers.limitError);
+  }
   return next;
 }
 
@@ -243,22 +272,23 @@ export interface LimitedGroup {
   name: string;
   /** The earliest the threads can go on: their own resets, else the account's. */
   resetsAt: number | undefined;
-  /** The account Move picks; null when none has room, undefined while accounts are unknown. */
+  /** The account Move picks; null when none is available, undefined while accounts are unknown. */
   target: { id: string; name: string } | null | undefined;
   threads: LimitedThread[];
 }
 
-/** Limited threads grouped by account, in the order their accounts first appear. */
+/** Limited threads grouped by account at `now`, in the order their accounts first appear. */
 export function limitedGroups(
   threads: readonly LimitedThread[],
   accounts: readonly AccountView[] | undefined,
+  now: number,
 ): LimitedGroup[] {
   const groups = new Map<string, LimitedGroup>();
   for (const thread of threads) {
     const key = thread.account ?? "";
     let group = groups.get(key);
     if (!group) {
-      const context = thread.account && accounts && limitContext(accounts, thread.account);
+      const context = thread.account && accounts && limitContext(accounts, thread.account, now);
       group = {
         accountId: thread.account,
         name: context ? context.name : (thread.account ?? "Account not reported"),
