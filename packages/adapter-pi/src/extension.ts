@@ -9,7 +9,7 @@ import type { PiExtensionApi } from "./extension-api.ts";
 const ToolName = z
   .string()
   .max(128)
-  .regex(/^(?:ace_|screen_|device_)[a-z0-9_]+$/);
+  .regex(/^(?:delegate_task|(?:ace_|screen_|device_)[a-z0-9_]+)$/);
 const Tools = z.object({
   tools: z
     .array(
@@ -17,6 +17,10 @@ const Tools = z.object({
         name: ToolName,
         description: z.string().max(16384).optional(),
         inputSchema: z.record(z.string(), z.unknown()),
+        _meta: z
+          .object({ "ace/timeoutMs": z.number().int().min(1).max(300000).optional() })
+          .passthrough()
+          .optional(),
       }),
     )
     .max(256),
@@ -93,6 +97,31 @@ export default async function aceExtension(
       }
     },
   });
+  pi.registerCommand("ace-context", {
+    description: "ace-originated delegation context",
+    async handler(args) {
+      const [supplied, encoded, ...rest] = args.split(" ");
+      if (
+        supplied !== secret ||
+        !encoded ||
+        rest.length ||
+        encoded.length > 800000 ||
+        !/^[A-Za-z0-9+/=]+$/.test(encoded)
+      )
+        throw new Error("Unauthorized ace context");
+      if (!pi.sendMessage) throw new Error("Pi custom context is unavailable");
+      const content = Buffer.from(encoded, "base64").toString("utf8");
+      pi.sendMessage(
+        {
+          customType: "ace.delegation.settled",
+          content,
+          display: false,
+          details: { origin: "ace" },
+        },
+        { triggerTurn: true, deliverAs: "followUp" },
+      );
+    },
+  });
   if (!env.ACE_PI_MCP_URL) return;
   const connection = AceMcpConnectionSchema.parse({
     url: env.ACE_PI_MCP_URL,
@@ -134,7 +163,10 @@ export default async function aceExtension(
             const result = Result.parse(
               await client.callTool(
                 { name: tool.name, arguments: args },
-                { ...(signal ? { signal } : {}), timeout: 30_000 },
+                {
+                  ...(signal ? { signal } : {}),
+                  timeout: tool["_meta"]?.["ace/timeoutMs"] ?? 30_000,
+                },
               ),
             );
             return {

@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { afterEach } from "vitest";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
+import { ModelCatalog, openModelStorage } from "@ace/models";
+import { scriptedModelInstance, scriptedModelDiscovery } from "../testing/models.ts";
 import type { SessionContext } from "@ace/engine-api";
 import type { Fact } from "@ace/core";
 import {
@@ -30,6 +32,7 @@ export function setup(
   _followup = false,
   accounts?: import("@ace/accounts").AccountRegistry,
   capacity?: number,
+  models?: import("@ace/models").ModelCatalogApi,
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) homes.push(home);
@@ -37,11 +40,24 @@ export function setup(
   const store = new Store(dbPath);
   const workspace = store.createWorkspace(home, "workspace");
   const clock = new ManualClock();
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(join(home, "scripted-models.sqlite")),
+    instances: ["codex", "claude"].map((provider) =>
+      scriptedModelInstance(provider === "codex" ? "codex" : "claude", home),
+    ),
+    discover: scriptedModelDiscovery(),
+    now: () => clock.now(),
+    deadline: (fn, ms) => clock.setTimer(fn, ms),
+  });
   const frames = scriptFrames();
   let admitting = true;
   let nativeSequence = 0;
   const nativeHistories = new Map<string, string[]>();
   const inputs = new Map<ThreadId, string[]>();
+  const inputMessages = new Map<
+    ThreadId,
+    { commandId: string; nativeId: string; origin?: "ace" }[]
+  >();
   const contexts = new Map<ThreadId, SessionContext>();
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
@@ -116,8 +132,20 @@ export function setup(
           return {
             ...session,
             nativeSessionId,
-            async send(input, delivery) {
-              await session.send(input, delivery);
+            async send(input, delivery, commandId, origin) {
+              if (commandId) {
+                const message = {
+                  commandId,
+                  nativeId: `scripted:${commandId}`,
+                  ...(origin ? { origin } : {}),
+                };
+                ctx.onInputMessage?.(message);
+                inputMessages.set(ctx.threadId, [
+                  ...(inputMessages.get(ctx.threadId) ?? []),
+                  message,
+                ]);
+              }
+              await session.send(input, delivery, commandId, origin);
               const text = input.flatMap((part) => (part.type === "text" ? [part.text] : []));
               history.push(...text);
               inputs.set(ctx.threadId, [...(inputs.get(ctx.threadId) ?? []), ...text]);
@@ -153,6 +181,7 @@ export function setup(
     policy,
     ...(capacity === undefined ? {} : { journalCapacity: capacity }),
     ...(accounts ? { accounts } : {}),
+    models: models ?? catalog,
     admitsWork: () => admitting,
     onError: (error) => errors.push(error),
   });
@@ -165,6 +194,7 @@ export function setup(
     service.close();
     unsubscribe();
     await engine.close();
+    await catalog.close();
     store.close();
   }
   cleanup.push(close);
@@ -174,6 +204,7 @@ export function setup(
     return { sessionId: "test-lease", threadId, agentId };
   }
   async function parent() {
+    await (models ?? catalog).refresh();
     const result = service.command(randomUUID(), {
       type: "thread.create",
       workspaceId: workspace,
@@ -223,6 +254,7 @@ export function setup(
     home,
     nativeHistories,
     inputs,
+    inputMessages,
     closeAdmission: () => {
       admitting = false;
     },
@@ -230,6 +262,7 @@ export function setup(
       admitting = true;
     },
     registry,
+    catalog,
     frames,
     dbPath,
     store,
@@ -257,6 +290,7 @@ export function setup(
         policy,
         ...(capacity === undefined ? {} : { journalCapacity: capacity }),
         ...(accounts ? { accounts } : {}),
+        models: models ?? catalog,
         admitsWork: () => admitting,
         onError: (error) => errors.push(error),
       });

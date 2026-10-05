@@ -1,3 +1,4 @@
+export { aceToolAction } from "./actions.ts";
 export { CredentialRegistry, type Principal, type SessionLease } from "./credentials.ts";
 export {
   ToolRegistry,
