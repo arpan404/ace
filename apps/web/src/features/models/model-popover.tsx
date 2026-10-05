@@ -26,26 +26,35 @@ export function ModelPopover(props: {
   const { view, actions } = props;
   // Without a model there is nothing to tune yet: start at the picker.
   const [pane, setPane] = useState<"effort" | "picker">(view.label ? "effort" : "picker");
-  if (view.offline)
-    return (
-      <p role="status" className="max-w-64 px-3 py-2.5 text-xs leading-4 text-muted-foreground">
-        {view.offline}
-      </p>
-    );
+  // Offline, changes still go (effort and speed with the next message, a switch from the
+  // outbox): say when they apply above whatever the popover shows.
+  const offline = view.offline && (
+    <p role="status" className="px-3 pt-2.5 text-center text-xs leading-4 text-muted-foreground">
+      {view.offline}
+    </p>
+  );
   if (pane === "picker")
     return (
-      <ModelPickerPanel
-        models={view.models}
-        providers={view.providers}
-        current={view.modelKey}
-        currentProvider={view.provider}
-        onPick={(key) => {
-          if (key !== view.modelKey && !actions.onModel(key)) props.onClose();
-          else setPane("effort");
-        }}
-      />
+      <>
+        {offline}
+        <ModelPickerPanel
+          models={view.models}
+          providers={view.providers}
+          current={view.modelKey}
+          currentProvider={view.provider}
+          onPick={(key) => {
+            if (key !== view.modelKey && !actions.onModel(key)) props.onClose();
+            else setPane("effort");
+          }}
+        />
+      </>
     );
-  return <EffortPanel view={view} actions={actions} onModels={() => setPane("picker")} />;
+  return (
+    <>
+      {offline}
+      <EffortPanel view={view} actions={actions} onModels={() => setPane("picker")} />
+    </>
+  );
 }
 
 function EffortPanel(props: {
