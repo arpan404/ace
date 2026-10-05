@@ -131,8 +131,22 @@ export async function harness(
       }),
     createTranslator:
       options.createTranslator ??
-      (() => ({
-        translate: frames.translate,
+      ((init) => ({
+        translate(frame) {
+          const facts = frames.translate(frame);
+          const mode =
+            contexts.findLast((ctx) => ctx.threadId === init.threadId)?.permissionMode ??
+            "auto-review";
+          for (const fact of facts)
+            if (
+              (options.provider ?? "codex") === "codex" &&
+              fact.type === "interaction.opened" &&
+              fact.request.kind === "approval" &&
+              !fact.raw?.some((raw) => raw.type === "ace.permission-policy")
+            )
+              fact.raw = [...(fact.raw ?? []), { type: "ace.permission-policy", data: { mode } }];
+          return facts;
+        },
         tick: options.tick ?? (() => []),
         ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
       })),

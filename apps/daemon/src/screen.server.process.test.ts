@@ -104,6 +104,78 @@ it("authenticated devices receive visible screen state and binary frames and dis
   await released;
   expect(screen.state(state.sessionId).controller).toBe("none");
 });
+it("screen state reaches the main channel only, never a devices channel that can't parse it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "daemon-screen-"));
+  let id = 0;
+  const screen = new ScreenManager({
+    command: process.execPath,
+    args: [
+      new URL("../../../packages/screen/src/testing/fake-helper.ts", import.meta.url).pathname,
+    ],
+    nextId: () => `id-${++id}`,
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+  });
+  cleanups.push(async () => {
+    await screen.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const f = await fixture({ screen });
+  cleanups.push(f.close);
+  const open = async (channel?: "devices") => {
+    const socket = new WebSocket(f.server.url);
+    await once(socket, "open");
+    const types: string[] = [];
+    socket.on("message", (data, binary) => {
+      if (!binary) types.push(String(JSON.parse(data.toString()).type));
+    });
+    socket.send(
+      JSON.stringify({
+        type: "hello",
+        protocolVersion: 1,
+        token,
+        deviceId: "device",
+        ...(channel ? { channel } : {}),
+      }),
+    );
+    cleanups.push(async () => {
+      socket.close();
+    });
+    await expect.poll(() => types.includes("welcome"), { timeout: 10_000 }).toBe(true);
+    return { socket, types };
+  };
+  const main = await open();
+  const devices = await open("devices");
+
+  main.socket.send(
+    JSON.stringify({
+      type: "screen.request",
+      requestId: "enable",
+      operation: { op: "enable", enabled: true },
+    }),
+  );
+  main.socket.send(
+    JSON.stringify({
+      type: "screen.request",
+      requestId: "approve",
+      operation: { op: "approve", bundleId: "dev.ace.test", allowed: true },
+    }),
+  );
+  main.socket.send(
+    JSON.stringify({
+      type: "screen.request",
+      requestId: "start",
+      operation: { op: "start", target: { kind: "window", bundleId: "dev.ace.test", windowId: 1 } },
+    }),
+  );
+
+  await expect.poll(() => main.types.includes("screen.state"), { timeout: 10_000 }).toBe(true);
+  // A round trip on the devices channel: anything pushed to it before now has arrived.
+  devices.socket.send(JSON.stringify({ type: "ping" }));
+  await expect.poll(() => devices.types.includes("pong"), { timeout: 10_000 }).toBe(true);
+  expect(devices.types.filter((type) => type.startsWith("screen."))).toEqual([]);
+});
+
 it("unauthenticated clients cannot enable screen access", async () => {
   const f = await fixture();
   cleanups.push(f.close);
