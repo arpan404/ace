@@ -13,3 +13,20 @@ The browser entry and the IndexedDB outbox are in `apps/web/src/boot/client-work
 migrates the old `ace/outbox` aggregate or localStorage seed once. Web boot should
 import this adapter from `@ace/client-worker` in place of its local
 `boot/idb-storage.ts` adapter. Each enqueue or receipt writes only its own intent.
+
+Pending sends use a lifetime removal channel, including tabs with no mounted
+subscriber. Both `command()` and `enqueue()` caches evict settled drafts by
+count and bytes. Unwatched full intent records are capped at 64 and 8 MiB,
+further restricted by `unwatchedIntents`. Hidden tabs coalesce at most 256
+changed pending IDs, then send one bounded reset when visible. A normal frame
+reads only changed IDs.
+
+`RemoteOptions.id` remains optional. Supply an injected generator when available;
+otherwise `start()` assigns a worker-generated prefix using the underlying
+client's injected generator. Calls before attachment need their own generator
+or explicit command ID. Runtime logic never falls back to ambient randomness.
+
+Native IndexedDB regression tests use a temporary Chromium profile and a local
+HTTP origin. The merge runner needs the Playwright Chromium installation; these
+tests and performance benchmarks are not executed during implementation under
+the owner's rule. See ADR 0066 for receipt ownership and memory limits.
