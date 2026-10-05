@@ -139,7 +139,8 @@ test("hidden, the side panel's tabs are counted in the header and listed there",
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   await sidePanel();
-  await userEvent.keyboard("{Meta>}{Shift>}b{/Shift}{/Meta}");
+  // Off Apple platforms the side panel is Ctrl+Alt+B (Ctrl+Shift+B is the Browser there).
+  await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 
   await userEvent.click(screen.getByRole("button", { name: "3 open tabs" }));
