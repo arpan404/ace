@@ -6,8 +6,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { chromium } from "@playwright/test";
-import { expect, test } from "vitest";
+import { expect, inject, test } from "vitest";
 import { z } from "zod";
+
+declare module "vitest" {
+  export interface ProvidedContext {
+    /** Provided by `tools/web-perf/src/browser-test-setup.ts` in the process project. */
+    chromiumExecutable: string;
+  }
+}
 
 /** Native IndexedDB, a fresh browser profile and a loopback origin; no app or provider process. */
 async function browserStorage(
@@ -39,7 +46,11 @@ async function browserStorage(
     try {
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("Expected loopback server");
-      const browser = await chromium.launch({ headless: true });
+      // The process project resolves the installed browser before HOME is isolated.
+      const browser = await chromium.launch({
+        headless: true,
+        executablePath: inject("chromiumExecutable"),
+      });
       try {
         const page = await browser.newPage();
         await page.goto(`http://127.0.0.1:${address.port}`);

@@ -1,6 +1,6 @@
 import type { Fact } from "@ace/core";
 import { CommandId, type CommandPayload, type ProviderKind } from "@ace/protocol";
-import { rootAgent, turn } from "./facts.ts";
+import { message, rootAgent } from "./facts.ts";
 
 type CreateThread = Extract<CommandPayload, { type: "thread.create" }>;
 
@@ -27,11 +27,14 @@ export function startedThread(
   thread: { id: string; workspaceId: string; title: string; provider: ProviderKind };
   facts: Fact[];
 } {
+  const text = request.input
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n");
   return {
     thread: {
       id,
       workspaceId: request.workspaceId,
-      title: request.title ?? "New thread",
+      title: request.title ?? defaultTitle(text),
       provider: request.provider,
     },
     facts: [
@@ -51,7 +54,9 @@ export function startedThread(
           origin: { kind: "person", commandId: CommandId.parse(commandId) },
         },
       },
-      turn("root"),
+      // The run started for this command takes its admitted input (`turn-<commandId>`).
+      { type: "turn.started", agent: "root", nativeTurnId: `turn-${commandId}`, trigger: "user" },
+      message("root", "reading", "assistant", "Reading the project before making changes.", false),
     ],
   };
 }
