@@ -27,6 +27,11 @@ export interface RowOptions {
   open: ReadonlySet<number>;
   /** Turns at or after this ordinal are recent and shown whole without a header. */
   openFrom: number;
+  /**
+   * Blocks that keep their turn whole whatever its age: a request still waiting on the person,
+   * a step still in flight. Never folded away, so never hidden.
+   */
+  keep?(block: Block): boolean;
 }
 
 /**
@@ -77,7 +82,11 @@ export function transcriptRows(blocks: readonly Block[], options: RowOptions): R
     }
     const section = blocks.slice(index, end);
     index = end;
-    if (ordinal === undefined || ordinal >= options.openFrom) {
+    if (
+      ordinal === undefined ||
+      ordinal >= options.openFrom ||
+      (options.keep && section.some(options.keep))
+    ) {
       for (const block of section) rows.push({ kind: "block", key: block.key, block, ordinal });
       continue;
     }
