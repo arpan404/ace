@@ -36,11 +36,25 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
     if (state.threadId && !peer.canReadThread(state.threadId)) return;
     void send({ type: "devices.state", state }).catch(close);
   });
+  // Admin peers see the whole inventory, as a "list" request would show them.
+  const unwatchInventory = service.watchInventory((inventory) => {
+    void send({ type: "devices.inventory", ...inventory }).catch(close);
+  });
+  // Turning devices on or off reaches every view, including ones with no device sessions.
+  const unwatchEnabled = service.watchEnabled((enabled) => {
+    void send({ type: "devices.enabled", enabled }).catch(close);
+  });
+  /** Held while this connection's client says a Devices view is open. */
+  let inventoryView: (() => void) | undefined;
   function close() {
     if (closed) return;
     closed = true;
     frames.close();
     unwatch();
+    unwatchInventory();
+    unwatchEnabled();
+    inventoryView?.();
+    inventoryView = undefined;
     streams.close();
     logs.close();
     service.disconnect(owner);
@@ -109,8 +123,18 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
           } else if (operation.op === "logs.stop") {
             logs.remove(operation.deviceId);
           }
+          if (operation.op === "inventory.watch") {
+            if (!operation.watching) {
+              inventoryView?.();
+              inventoryView = undefined;
+            } else inventoryView ??= service.holdInventoryView();
+          }
           const data =
-            operation.op === "screenshot" ? undefined : await service.request(operation, actor);
+            operation.op === "inventory.watch"
+              ? { watching: inventoryView !== undefined }
+              : operation.op === "screenshot"
+                ? undefined
+                : await service.request(operation, actor);
           access();
           if ("deviceId" in operation) deviceAccess(operation.deviceId);
           if (operation.op === "screenshot") {
@@ -130,6 +154,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
                     states: service
                       .states()
                       .filter((state) => !state.threadId || peer.canReadThread(state.threadId)),
+                    enabled: service.isEnabled(),
                   }
                 : data;
             await send({
