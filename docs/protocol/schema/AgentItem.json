@@ -26,6 +26,9 @@
           "maxLength": 256,
           "type": "string"
         },
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
+        },
         "parts": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/ContentPart.json"
@@ -352,11 +355,17 @@
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
+        "code": {
+          "type": "string"
+        },
         "complete": {
           "type": "boolean"
         },
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "detail": {
+          "type": "string"
         },
         "details": {
           "$ref": "https://ace.local/protocol/v1/ProviderErrorDetails.json"
@@ -393,6 +402,9 @@
           "$ref": "https://ace.local/protocol/v1/TextSource.json"
         },
         "text": {
+          "type": "string"
+        },
+        "title": {
           "type": "string"
         },
         "toolCallId": {

@@ -1,5 +1,5 @@
 import { useItemOrder, type HistoryPager } from "@ace/client-react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import {
   Suspense,
   useCallback,
@@ -190,6 +190,16 @@ export function Feed(props: FeedProps) {
     scrollMargin: feed.current?.offsetTop ?? 0,
     scrollPaddingStart: topRoom,
     getItemKey: (index) => rows[index]?.key ?? index,
+    // A jump must measure its target even when estimated sizes initially place
+    // it outside the viewport. Retain only that one row alongside the visible
+    // range; the next jump or return to live replaces or clears the focus.
+    rangeExtractor: (range) => {
+      const visible = defaultRangeExtractor(range);
+      const target = focus ? rowOf(rows, focus.itemId) : -1;
+      return target < 0 || visible.includes(target)
+        ? visible
+        : [...visible, target].toSorted((a, b) => a - b);
+    },
   });
   useForgetGoneRows(virtualizer, rows.length, (index) => rows[index]?.key ?? index);
   const total = virtualizer.getTotalSize();
