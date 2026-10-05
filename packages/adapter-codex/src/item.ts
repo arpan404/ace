@@ -1,3 +1,4 @@
+import { commandDetail } from "./command-items.ts";
 import type { ItemDraft, ToolDetailDraft } from "@ace/core";
 import type { ContentPart, FileChange, ToolStatus } from "@ace/protocol";
 import type { ThreadItem } from "./generated/v2/ThreadItem.ts";
@@ -106,23 +107,12 @@ export function itemDraft(item: Obj, complete: boolean): ItemDraft {
   let title = type;
   let name: unknown = item["name"];
   if (type === "commandExecution") {
-    const action = obj(list(item["commandActions"])[0]);
-    detail =
-      action["type"] === "read"
-        ? { kind: "file.read", path: str(action["path"]) }
-        : action["type"] === "search" || action["type"] === "listFiles"
-          ? {
-              kind: "search",
-              query: str(action["query"], str(item["command"])),
-              ...(typeof action["path"] === "string" ? { path: action["path"] } : {}),
-            }
-          : {
-              kind: "shell",
-              command: str(item["command"]),
-              cwd: str(item["cwd"]),
-              ...(typeof item["exitCode"] === "number" ? { exitCode: item["exitCode"] } : {}),
-            };
-    title = str(item["command"]);
+    detail = commandDetail(item);
+    const command =
+      detail.kind === "shell"
+        ? detail.command
+        : str(obj(list(item["commandActions"])[0])["command"], str(item["command"]));
+    title = `Run ${command}`;
   } else if (type === "fileChange") {
     const changes = list(item["changes"]).map(fileChange);
     const kind = changes[0]?.kind;

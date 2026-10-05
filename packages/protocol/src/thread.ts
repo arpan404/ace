@@ -68,6 +68,7 @@ export const Thread = z.object({
   id: ThreadId,
   workspaceId: WorkspaceId,
   title: z.string(),
+  titleSource: z.enum(["provisional", "provider", "person", "agent"]).optional(),
   provider: ProviderKind,
   backend: z.enum(["acp", "cursor-sdk"]).optional(),
   capabilities: Capabilities.optional(),

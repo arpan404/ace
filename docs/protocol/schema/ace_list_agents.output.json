@@ -328,6 +328,12 @@
                   "error": {
                     "additionalProperties": false,
                     "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "detail": {
+                        "type": "string"
+                      },
                       "details": {
                         "additionalProperties": false,
                         "properties": {
@@ -372,6 +378,9 @@
                         "type": "string"
                       },
                       "message": {
+                        "type": "string"
+                      },
+                      "title": {
                         "type": "string"
                       }
                     },
