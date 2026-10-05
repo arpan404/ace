@@ -15,6 +15,7 @@ function IconButton({
   label,
   shortcut,
   keys,
+  resolve,
   pressed,
   size = "default",
   tooltip = true,
@@ -26,6 +27,8 @@ function IconButton({
   label: string;
   shortcut?: KeymapId;
   keys?: string;
+  /** False: `keys` are this button's own, never a rebindable shortcut's (Tip). */
+  resolve?: boolean;
   pressed?: boolean;
   size?: "sm" | "default" | "lg";
   tooltip?: boolean;
@@ -43,7 +46,7 @@ function IconButton({
         "hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground",
         "disabled:pointer-events-none disabled:opacity-40 data-disabled:opacity-40",
         reason === undefined && "data-disabled:pointer-events-none",
-        size === "sm" && "size-6 rounded-sm",
+        size === "sm" && "size-6 rounded-sm touch-hit-lg",
         size === "default" && "size-[30px] rounded-md",
         size === "lg" && "size-[34px] rounded-card",
         className,
@@ -59,6 +62,7 @@ function IconButton({
       label={props.disabled && reason ? reason : label}
       {...(props.disabled && reason ? {} : shortcut ? { shortcut } : {})}
       {...(props.disabled && reason ? {} : keys ? { keys } : {})}
+      {...(resolve === false ? { resolve } : {})}
     >
       {button}
     </Tip>

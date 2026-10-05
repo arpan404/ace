@@ -74,6 +74,7 @@ export const ToolDetail = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("shell"),
     command: z.string(),
+    rawCommand: z.string().optional(),
     cwd: z.string().optional(),
     exitCode: z.number().int().nullable().optional(),
     /** Full output lives in the daemon stream store. */

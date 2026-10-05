@@ -29,6 +29,8 @@ export interface LifecycleOwner {
   emit(session: DeviceSession): void;
   failure(error: unknown): DeviceFailure;
   authorize(session: DeviceSession, actor: Actor): void;
+  /** A failure nobody asked about (a live view ending on its own), for the daemon log. */
+  log(message: string, session: DeviceSession, error: unknown): void;
 }
 export async function startDevice(
   session: DeviceSession,
@@ -109,6 +111,7 @@ export async function startDevice(
       },
       failure(error) {
         if (session.generation !== generation) return;
+        owner.log("Device live view ended", session, error);
         session.error = owner.failure(error);
         firstReject?.(error);
         void stopDevice(session, owner).catch(() => {});
@@ -178,15 +181,9 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
       if (!owned && startup) {
         try {
           owned = await startup.capture;
-        } catch (error) {
-          if (
-            !(
-              startup.controller.signal.aborted &&
-              error instanceof DOMException &&
-              error.name === "AbortError"
-            )
-          )
-            throw error;
+        } catch {
+          // A startup that failed owns nothing, and its own error is already the session's.
+          // Reporting it again here would turn "permission missing" into "cleanup failed".
         }
       }
       if (owned) session.capture = owned;

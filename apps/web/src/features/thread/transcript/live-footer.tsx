@@ -1,114 +1,32 @@
-import type { ThreadReader } from "@ace/client";
-import { useInteractions, useThread, useThreadMeta } from "@ace/client-react";
-import { Suspense, useCallback } from "react";
-import type { ThreadStatus } from "@ace/protocol";
+import { useInteractions } from "@ace/client-react";
+import { activityText, type TurnActivity } from "@ace/ui-core";
+import { Suspense } from "react";
 import { HourglassMediumIcon } from "@phosphor-icons/react";
-import { agentName, formatClock, limitHoldShown } from "@ace/ui-core";
 import { Icon } from "@/components/icon.tsx";
+import { Dot } from "@/components/ui/dot.tsx";
+import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { DeferredInteractionCard } from "../deferred.ts";
+import { useTicker } from "../lib/clock.ts";
 
 const InteractionCard = DeferredInteractionCard.Component;
 
-function list(names: readonly string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-}
+const noneShown: ReadonlySet<string> = new Set();
 
 /**
- * One live line. `working` lines move (spinner, shimmer); `held` lines wait on something outside
- * the agent (a rate limit, the network, the provider) and stay still.
+ * Below the last block: open requests to answer, then the turn's live line. `activity` is left
+ * out when the bottom work log already carries the line as its header. Requests in `inline`
+ * already sit in the transcript where they were asked.
  */
-export interface LiveLine {
-  text: string;
-  tone: "working" | "held";
-}
-
-const working = (text: string): LiveLine => ({ text, tone: "working" });
-
-/**
- * The root agent's state as one live line: "Waiting on reconnect-audit and regression-test".
- * `threadStatus` lets a rate limit stay quiet while the queue banner already explains it.
- */
-export function liveLine(
-  reader: ThreadReader,
-  rootId: string,
-  threadStatus?: ThreadStatus,
-): LiveLine | undefined {
-  const status = reader.agent(rootId)?.status;
-  if (!status) return undefined;
-  switch (status.state) {
-    case "starting":
-      return working("Starting");
-    case "working":
-      return working(status.detail ?? (status.activity === "thinking" ? "Thinking" : "Working"));
-    case "blocked": {
-      if (status.on === "human") return undefined;
-      if (status.on === "subagents") {
-        const names = status.refs.flatMap((id) => {
-          const agent = reader.agent(id);
-          return agent ? [agentName(agent)] : [];
-        });
-        return working(names.length ? `Waiting on ${list(names)}` : "Waiting on subagents");
-      }
-      if (status.on === "background_task") {
-        const titles = status.refs.flatMap((id) => {
-          const task = reader.task(id);
-          return task ? [task.title] : [];
-        });
-        return working(
-          titles.length ? `Waiting on ${list(titles)}` : "Waiting on a background task",
-        );
-      }
-      if (status.on === "rate_limit" && limitHoldShown(threadStatus, reader.queue))
-        return undefined;
-      const until = status.until ? `, retrying at ${formatClock(status.until)}` : "";
-      const reason = {
-        rate_limit: "Rate limited",
-        network: "Network trouble",
-        upstream: "Provider unavailable",
-      }[status.on];
-      return { text: `${reason}${until}`, tone: "held" };
-    }
-    default:
-      return undefined;
-  }
-}
-
-const sameLine = (a: LiveLine | undefined, b: LiveLine | undefined) =>
-  a?.text === b?.text && a?.tone === b?.tone;
-
-/** The root agent is mid-turn and doing the work itself (not blocked or waiting). */
-export function useRootWorking(threadId: string): boolean {
-  const rootId = useThreadMeta(threadId)?.rootAgentId ?? "";
-  const read = useCallback(
-    (reader: ThreadReader) => reader.agent(rootId)?.status.state === "working",
-    [rootId],
-  );
-  return useThread(threadId, [`agent:${rootId}`], read) ?? false;
-}
-
-/**
- * Below the last block: open requests to answer, then what the agent is doing now. `quiet`
- * drops a plain "Working" line when the work log above already says "Working for …".
- */
-export function LiveFooter(props: { threadId: string; quiet?: boolean }) {
-  const pending = useInteractions(props.threadId) ?? [];
-  const meta = useThreadMeta(props.threadId);
-  const rootId = meta?.rootAgentId ?? "";
-  const status = meta?.status;
-  const read = useCallback(
-    (reader: ThreadReader) => liveLine(reader, rootId, status),
-    [rootId, status],
-  );
-  const live = useThread(
-    props.threadId,
-    ["agents", "tasks", "queue", `agent:${rootId}`],
-    read,
-    sameLine,
-  );
-  const line = props.quiet && live?.tone === "working" ? undefined : live;
-  if (!pending.length && !line) return null;
+export function LiveFooter(props: {
+  threadId: string;
+  activity: TurnActivity | undefined;
+  inline?: ReadonlySet<string>;
+}) {
+  const inline = props.inline ?? noneShown;
+  const pending = (useInteractions(props.threadId) ?? []).filter((id) => !inline.has(id));
+  const { activity } = props;
+  if (!pending.length && !activity) return null;
   return (
     <div className="flex flex-col gap-3 pb-2">
       {pending.length > 0 && (
@@ -118,25 +36,51 @@ export function LiveFooter(props: { threadId: string; quiet?: boolean }) {
           ))}
         </Suspense>
       )}
-      {line && (
-        <p
-          role="status"
-          aria-label={line.text}
-          className="fx-view-in flex items-center gap-[9px] text-[13.5px]"
-        >
-          {line.tone === "working" ? (
-            <>
-              <Spinner />
-              <span className="shimmer">{line.text}</span>
-            </>
-          ) : (
-            <>
-              <Icon icon={HourglassMediumIcon} size={14} className="text-subtle-foreground" />
-              <span className="text-muted-foreground">{line.text}</span>
-            </>
-          )}
-        </p>
-      )}
+      {activity && <ActivityLine activity={activity} />}
     </div>
+  );
+}
+
+/**
+ * The live line: "Working for 1m 14s · Running bun install" moves (spinner, shimmer, a timer);
+ * waiting on the person shows the needs-you mark and no timer; held lines stay still; a usage
+ * limit pause is a divider.
+ */
+export function ActivityLine(props: { activity: TurnActivity }) {
+  const { activity } = props;
+  const now = useTicker(activity.elapsedFrom !== undefined);
+  const text = activityText(activity, now);
+  if (activity.tone === "paused")
+    return (
+      <Marker role="status" aria-label={text} variant="separator" className="text-xs">
+        <MarkerContent>{text}</MarkerContent>
+      </Marker>
+    );
+  return (
+    <p
+      role="status"
+      aria-label={activity.label}
+      className="fx-view-in flex min-w-0 items-center gap-[9px] text-[13.5px]"
+    >
+      {activity.tone === "working" ? (
+        <>
+          <Spinner />
+          <span className="shrink-0 shimmer tabular-nums">{text}</span>
+          {activity.current && (
+            <span className="min-w-0 truncate text-muted-foreground">· {activity.current}</span>
+          )}
+        </>
+      ) : activity.tone === "needs-you" ? (
+        <>
+          <Dot tone="needs-you" />
+          <span className="text-foreground">{text}</span>
+        </>
+      ) : (
+        <>
+          <Icon icon={HourglassMediumIcon} size={14} className="text-subtle-foreground" />
+          <span className="text-muted-foreground">{text}</span>
+        </>
+      )}
+    </p>
   );
 }

@@ -14,6 +14,9 @@ async function openAudit(path: string) {
 test("the transcript records each decision ace's risk policy took, and why", async () => {
   await openAudit("/t/thread-release-audit");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
+  // Each review sits under the step it reviewed, in that step's work log.
+  const [first] = await within(feed).findAllByRole("button", { name: /^Worked for/ });
+  await userEvent.click(first!);
   const approved = await within(feed).findByRole("article", {
     name: "Permission review: Approved by ace",
   });

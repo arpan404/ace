@@ -36,6 +36,32 @@ export function useStayPinned(
 }
 
 /**
+ * A card docked above the viewport (the catch-up card) pushes the transcript down instead of
+ * covering it. When it appears, grows or is dismissed, a reader who isn't at the live end keeps
+ * the same lines on screen; one at the live end stays there (`useStayPinned`).
+ */
+export function useDockShift(
+  dock: RefObject<HTMLElement | null>,
+  viewport: RefObject<HTMLElement | null>,
+  pinned: RefObject<boolean>,
+) {
+  useEffect(() => {
+    const el = dock.current;
+    const view = viewport.current;
+    if (!el || !view || typeof ResizeObserver === "undefined") return;
+    let height = el.offsetHeight;
+    const observer = new ResizeObserver(() => {
+      const next = el.offsetHeight;
+      const delta = next - height;
+      height = next;
+      if (delta && !pinned.current) view.scrollTop += delta;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [dock, viewport, pinned]);
+}
+
+/**
  * Where scrollbars take room (not overlay ones), the transcript reserves it on both edges and
  * publishes one edge's width as `--transcript-gutter`, which the composer adds to its own sides,
  * so the composer's shell and the transcript's text share both edges at every width.

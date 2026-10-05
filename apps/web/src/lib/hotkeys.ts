@@ -1,39 +1,26 @@
 import { useEffect, useRef } from "react";
-import { keyboardEnv, useHotkeyBindings } from "./keybindings.ts";
+import { keyNameOf, keyboardEnv, useHotkeyBindings } from "./keybindings.ts";
 import { parseChord, type Chord, type KeymapId } from "./keymap.ts";
 
 export { parseChord };
 
-const physical: Record<string, string> = {
-  BracketLeft: "[",
-  BracketRight: "]",
-  Backquote: "`",
-  Backslash: "\\",
-  Comma: ",",
-};
-
 /**
- * Whether a keydown is `chord`. On Apple platforms "mod" is ⌘ alone, so ⌃⇧B (Browser) and
- * ⇧⌘B (side panel) never both match. Elsewhere "mod" is Ctrl (⊞/Super also counts; the system
- * keeps nearly all of those chords), and a bare "ctrl" excludes ⌘.
+ * Whether a keydown is `chord`, its modifiers exactly. On Apple platforms ⌘ ("mod") and ⌃
+ * ("ctrl") are separate keys, so ⌃⇧B (Browser) and ⇧⌘B (side panel) never both match, and
+ * ⌃⌘Y matches only "ctrl+mod+y". Elsewhere "mod" and "ctrl" are both Ctrl (⊞/Super counts as
+ * it too, as the recorder takes it, since the system keeps nearly all of those chords). The key
+ * is named as the recorder names it (`keyNameOf`), or by the character typed.
  */
 export function matchesChord(
   event: KeyboardEvent,
   chord: Chord,
   isApple: boolean = keyboardEnv().apple,
 ): boolean {
-  const modifiers = chord.mod
-    ? isApple
-      ? event.metaKey && !event.ctrlKey
-      : event.ctrlKey || event.metaKey
-    : chord.ctrl
-      ? event.ctrlKey && !event.metaKey
-      : !event.metaKey && !event.ctrlKey;
+  const modifiers = isApple
+    ? event.metaKey === chord.mod && event.ctrlKey === chord.ctrl
+    : (event.ctrlKey || event.metaKey) === (chord.mod || chord.ctrl);
   if (!modifiers || event.shiftKey !== chord.shift || event.altKey !== chord.alt) return false;
-  const key = event.key.toLowerCase();
-  if (key === chord.key || physical[event.code] === chord.key) return true;
-  // ⌥ changes the character on macOS (⌥⌘P types "π"): match the letter's key instead.
-  return chord.alt && /^[a-z]$/.test(chord.key) && event.code === `Key${chord.key.toUpperCase()}`;
+  return keyNameOf(event) === chord.key || event.key.toLowerCase() === chord.key;
 }
 
 function isEditable(target: EventTarget | null): boolean {
