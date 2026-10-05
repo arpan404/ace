@@ -27,6 +27,9 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
     ).toBe(0);
     const helper = await Helper.open({
       command: join(directory, "build/ace-screen-helper"),
+      // Opt-in runs use the grants of the terminal that runs them, as before the helper
+      // disclaimed its launcher.
+      args: ["--inherit-responsibility"],
       nextId: ids(),
       onFrame: () => {},
       onFailure: () => {},

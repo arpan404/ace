@@ -34,7 +34,7 @@ test("a failed provider open frees capacity and fences late callbacks before ano
   const failed = await h.create();
   expect(
     Object.values(h.store.snapshotThread(failed).items).some(
-      (item) => item.type === "notice" && item.text.includes("probe open failure"),
+      (item) => item.type === "notice" && item.detail?.includes("probe open failure"),
     ),
   ).toBe(true);
   const old = h.contexts[0];
@@ -59,7 +59,9 @@ test("a failed provider open frees capacity and fences late callbacks before ano
   expect(h.adapter.commands.filter((c) => c.type === "send")).toHaveLength(1);
   expect(h.store.listThreads().find((thread) => thread.id !== failed)?.status.state).toBe("done");
   expect(
-    Object.values(h.store.snapshotThread(failed).items).some((item) => item.type === "message"),
+    Object.values(h.store.snapshotThread(failed).items).some(
+      (item) => item.type === "message" && item.role === "assistant",
+    ),
   ).toBe(false);
 });
 
@@ -222,7 +224,9 @@ test("replacement retires accumulated journal before cold recovery", async () =>
     );
     await engine.flush();
     expect(
-      Object.values(store.snapshotThread(id).items).find((item) => item.type === "message"),
+      Object.values(store.snapshotThread(id).items).find(
+        (item) => item.type === "message" && item.role === "assistant",
+      ),
     ).toMatchObject({ parts: [{ type: "text", text: "replacement new" }] });
     expect(h.errors).toEqual([]);
   } finally {

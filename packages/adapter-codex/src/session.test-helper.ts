@@ -1,9 +1,11 @@
+import type { CodexSessionContext } from "./session-context.ts";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { createCodexAdapter } from "./index.ts";
+import { requestKey } from "./native.ts";
 import { replayHarness } from "./replay.test-helper.ts";
 export async function sessionHarness(
   resume = false,
@@ -12,6 +14,7 @@ export async function sessionHarness(
   options?: SessionContext["options"],
   aceMcp?: SessionContext["aceMcp"],
   permissionMode?: SessionContext["permissionMode"],
+  policy?: Pick<CodexSessionContext, "getPermissionMode">,
   onInputMessage?: SessionContext["onInputMessage"],
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ace-codex-session-"));
@@ -28,6 +31,7 @@ export async function sessionHarness(
       stopGraceMs: 0,
       now: () => now,
       userMessageId: () => "offline-message",
+      sessionId: () => "offline-session",
       schedule(callback, delay) {
         scheduled.set(callback, delay);
         return () => {
@@ -47,9 +51,11 @@ export async function sessionHarness(
   const waiters = new Set<{ match(frame: Frame): boolean; resolve(frame: Frame): void }>();
   const exit = Promise.withResolvers<{ deliberate: boolean; message?: string }>();
   const exited = exit.promise;
-  const session = await adapter.openSession({
+  const context: CodexSessionContext = {
     threadId: ThreadId.parse("fixture"),
     cwd: directory,
+    ...policy,
+    interactionId: (key: string) => replay.state.interactions[key]?.id,
     ...(permissionMode ? { permissionMode } : {}),
     ...(fork ? { fork } : {}),
     ...(options ? { options } : {}),
@@ -71,10 +77,12 @@ export async function sessionHarness(
       replay.feedFact({ type: "process.exited", ...result }, frames.at(-1)?.t ?? 0);
       exit.resolve(result);
     },
-  });
+  };
+  const session = await adapter.openSession(context);
   return {
     cwd: directory,
     session,
+    requestKey: (id: unknown) => requestKey(id, "offline-session"),
     frames,
     replay,
     controller,

@@ -109,15 +109,41 @@ it("ACP fallback correlates ace input before the native prompt is logged", async
     expect(facts.some((fact) => fact.type === "item.upsert" && fact.draft.type === "notice")).toBe(
       false,
     );
-    expect(JSON.stringify(diagnostics)).toContain("echoed context");
+    const inputFact = facts.find(
+      (fact) => fact.type === "item.upsert" && fact.draft.type === "message",
+    );
+    if (!inputFact || inputFact.type !== "item.upsert") throw new Error("Missing sent input");
+    expect(facts).toContainEqual(
+      expect.objectContaining({
+        type: "item.reconciled",
+        item: inputFact.item,
+        draft: expect.objectContaining({
+          type: "message",
+          role: "user",
+          raw: [expect.objectContaining({ type: "session/update" })],
+        }),
+      }),
+    );
+    // The echo is retained once, as raw evidence on the sent input, not again as a diagnostic.
+    expect(JSON.stringify(diagnostics)).not.toContain("echoed context");
     const after = h.frames.length;
     await h.session.send(input("user-echo"), "queue", "copied-user-command");
     const userFacts = h.frames
       .slice(after)
       .flatMap((frame) => translator.translate(frame, frame.t));
     expect(userFacts).toContainEqual(
-      expect.objectContaining({ type: "item.delta", append: "echoed context" }),
+      expect.objectContaining({
+        type: "item.reconciled",
+        draft: expect.objectContaining({
+          type: "message",
+          role: "user",
+          raw: [expect.objectContaining({ type: "session/update" })],
+        }),
+      }),
     );
+    expect(
+      userFacts.some((fact) => fact.type === "item.delta" && fact.append === "echoed context"),
+    ).toBe(false);
   } finally {
     await h.session.close("user");
   }

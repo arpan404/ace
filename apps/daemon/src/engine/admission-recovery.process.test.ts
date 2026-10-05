@@ -118,7 +118,7 @@ for (const delivery of ["queue", "steer"] as const) {
 }
 
 for (const interruption of ["exit", "crash"] as const) {
-  test(`admitted recovery interrupted by ${interruption} resumes native history with a fresh restart notice`, async () => {
+  test(`admitted recovery interrupted by ${interruption} resumes native history with a fresh ace continuation`, async () => {
     const frames = scriptFrames();
     const h = await fixture(
       [
@@ -209,9 +209,13 @@ for (const interruption of ["exit", "crash"] as const) {
     await engine.flush();
     const sent = replacement.commands.filter((command) => command.type === "send");
     expect(sent).toHaveLength(1);
-    expect(sent[0]).not.toEqual(oldInput);
+    expect(store.snapshotThread(id).items["input:restart-admitted-work"]).toMatchObject({
+      synthetic: true,
+      origin: { kind: "restart", commandId: "restart-admitted-work" },
+      nativeId: "fresh-restart",
+    });
     expect(sent[0]).toMatchObject({
-      input: [{ type: "text", text: expect.stringContaining("ace restarted") }],
+      input: [{ type: "text", text: "continue" }],
     });
     expect(
       Object.values(store.snapshotThread(id).runs).some((run) => run.trigger === "restart"),

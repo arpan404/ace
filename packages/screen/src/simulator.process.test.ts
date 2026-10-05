@@ -31,7 +31,7 @@ it("simulator discovery omits unavailable devices and booting opens the selected
   await simulator.boot(udid);
   expect(effects).toEqual([
     ["xcrun", "simctl", "boot", udid],
-    ["open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", udid],
+    ["open", "-g", "-a", "Simulator", "--args", "-CurrentDeviceUDID", udid],
   ]);
   await expect(simulator.boot("invalid")).rejects.toThrow();
 });
