@@ -125,6 +125,22 @@ Example:
 }
 ```
 
+### host.identity
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"host.identity"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "host.identity"
+}
+```
+
 ### machines.request
 
 | Field | Required | Type | Constraints |
@@ -359,7 +375,7 @@ Example:
 }
 ```
 
-### Variant 17
+### Variant 18
 
 Type: union. See JSON Schema for constraints.
 
@@ -551,7 +567,7 @@ Example:
 
 ```json
 {
-  "key": "providers.coder.reasoningEffort",
+  "key": "providers.coder.tier",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -598,7 +614,7 @@ Example:
 ```json
 {
   "keys": [
-    "approvals.policy"
+    "permissions.defaultMode"
   ],
   "requestId": "example",
   "scope": {},
@@ -702,7 +718,7 @@ Example:
 }
 ```
 
-### Variant 34
+### Variant 35
 
 Type: union. See JSON Schema for constraints.
 

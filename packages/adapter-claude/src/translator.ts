@@ -138,6 +138,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
               error: {
                 kind: lastError?.kind ?? ("provider" as const),
                 message: lastError?.message ?? string(data["result"], "Claude execution failed"),
+                ...(lastError?.details ? { details: lastError.details } : {}),
               },
             }
           : {}),

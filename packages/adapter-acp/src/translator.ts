@@ -26,6 +26,8 @@ export function createAcpTranslator(
 }
 class AcpTranslator implements Translator {
   readonly state: TranslationState;
+  private inputNativeId: string | undefined;
+  private promptAceInput = false;
   constructor(state: TranslationState) {
     this.state = state;
   }
@@ -40,6 +42,8 @@ class AcpTranslator implements Translator {
     if (frame.dir === "note") {
       if (data["event"] === "stop") s.stopped = true;
       if (data["event"] === "process-start") {
+        this.inputNativeId = undefined;
+        this.promptAceInput = false;
         s.resetProcess();
         s.stopped = false;
         s.processDead = false;
@@ -55,6 +59,11 @@ class AcpTranslator implements Translator {
       }
       if (data["event"] === "queue-changed" && typeof data["count"] === "number")
         facts.push({ type: "queue.changed", count: data["count"] });
+      if (data["event"] === "input-sending") {
+        this.inputNativeId = string(data["nativeId"]);
+        this.promptAceInput = data["origin"] === "ace";
+        return facts;
+      }
       s.notice(facts, frame.data, "recorder");
       return facts;
     }
@@ -94,11 +103,13 @@ class AcpTranslator implements Translator {
           draft: {
             type: "message",
             role: "user",
+            ...(this.inputNativeId ? { nativeId: this.inputNativeId } : {}),
             parts: list(params["prompt"]).flatMap(decodeContent),
             complete: true,
             raw: [raw(frame.data, method)],
           },
         });
+        this.inputNativeId = undefined;
         return facts;
       }
     }
@@ -161,6 +172,7 @@ class AcpTranslator implements Translator {
         )
           s.end(s.root, facts, "completed");
         if (sent.method === "session/prompt") {
+          this.promptAceInput = false;
           const agent = s.agent(string(sent.params["sessionId"]), facts);
           endPrompt(s, agent, string(result["stopReason"]), object(data["error"]), now, facts);
         }
@@ -302,6 +314,16 @@ class AcpTranslator implements Translator {
       return true;
     }
     if (["agent_message_chunk", "agent_thought_chunk", "user_message_chunk"].includes(kind)) {
+      if (kind === "user_message_chunk" && agent === s.root && this.promptAceInput) {
+        s.notice(
+          facts,
+          frame,
+          "ace.input.echo",
+          "Delegated-agent context echoed by the provider.",
+          agent,
+        );
+        return true;
+      }
       if (!agent.suspended && kind !== "user_message_chunk")
         s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
       const content = object(update["content"]);

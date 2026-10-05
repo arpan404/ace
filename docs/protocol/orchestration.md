@@ -40,7 +40,7 @@ Example:
   "durationMs": 5,
   "files": [],
   "filesTruncated": false,
-  "laneId": "dtvTfgL",
+  "laneId": "fL",
   "patch": "example",
   "patchTruncated": false,
   "usage": {

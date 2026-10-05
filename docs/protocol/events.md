@@ -457,23 +457,11 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "call": {
-      "agentId": "example",
-      "detail": {
-        "kind": "image"
-      },
-      "error": "example",
-      "id": "example",
-      "kind": "notebook",
-      "raw": [],
-      "startedAt": 1,
-      "status": "failed",
-      "title": "example"
-    },
     "complete": false,
     "createdAt": 5,
     "id": "example",
-    "type": "tool_call"
+    "text": "example",
+    "type": "reasoning"
   },
   "type": "item.updated"
 }
@@ -508,29 +496,22 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "autoReviewed": false,
+    "autoReviewed": true,
     "blocking": false,
-    "createdAt": 6,
+    "createdAt": 9,
     "id": "example",
     "request": {
-      "defaultToNo": true,
-      "kind": "approval",
-      "options": [],
-      "title": "example"
-    },
-    "resolution": {
-      "action": "decline",
-      "content": null,
-      "kind": "elicitation"
+      "kind": "question",
+      "questions": []
     },
     "review": {
-      "decision": "approve",
+      "decision": "escalate",
       "interactionId": "example",
-      "mode": "ask",
+      "mode": "full-access",
       "reason": "example",
       "reviewer": "ace-risk-policy"
     },
-    "state": "expired",
+    "state": "pending",
     "threadId": "example"
   },
   "type": "interaction.opened"
@@ -553,11 +534,12 @@ Example:
 
 ```json
 {
-  "closedAt": 8,
+  "autoReviewed": false,
+  "closedAt": 4,
   "interactionId": "example",
   "resolution": {
-    "action": "decline",
-    "kind": "elicitation"
+    "kind": "approval",
+    "optionId": "example"
   },
   "state": "resolved",
   "type": "interaction.closed"
@@ -577,16 +559,13 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "endedAt": 3,
+    "ambient": false,
     "id": "example",
-    "kind": "other",
-    "outputPath": "example",
-    "raw": [],
-    "startedAt": 0,
-    "status": "completed",
+    "kind": "shell",
+    "startedAt": 2,
+    "status": "failed",
     "stoppable": true,
-    "title": "example",
-    "toolCallId": "example"
+    "title": "example"
   },
   "type": "background_task.started"
 }
@@ -605,7 +584,7 @@ Example:
 
 ```json
 {
-  "status": "failed",
+  "status": "stopped",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -625,9 +604,9 @@ Example:
 
 ```json
 {
-  "paused": true,
-  "reason": "snooze",
-  "resumeAt": 9,
+  "paused": false,
+  "reason": null,
+  "resumeAt": 7,
   "revision": 4,
   "type": "queue.updated"
 }
@@ -646,10 +625,11 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 4,
-    "source": "unknown",
-    "usedTokens": null,
-    "windowTokens": null
+    "epoch": 2,
+    "model": "example",
+    "source": "catalog",
+    "usedTokens": 4,
+    "windowTokens": 1
   },
   "type": "context_meter.updated"
 }
@@ -671,9 +651,8 @@ Example:
 ```json
 {
   "agentId": "example",
-  "model": "example",
   "type": "context.sampled",
-  "usedTokens": 3
+  "usedTokens": 0
 }
 ```
 
@@ -708,14 +687,12 @@ Example:
 {
   "accountId": "example",
   "agentId": "example",
-  "cachedInputTokens": 5,
+  "cacheWriteTokens": 2,
   "contextSessionId": "example",
-  "counterKey": "example",
-  "counterMode": "cumulative",
-  "inputTokens": 4,
-  "outputTokens": 4,
-  "type": "usage.updated",
-  "usageScope": "provider_session"
+  "contextWindow": 1,
+  "inputTokens": 8,
+  "outputTokens": 1,
+  "type": "usage.updated"
 }
 ```
 
@@ -736,8 +713,7 @@ Example:
     "id": "example",
     "op": "example",
     "path": "example",
-    "trashId": "example",
-    "version": null
+    "version": "example"
   },
   "type": "workspace.files_changed",
   "workspaceId": "example"

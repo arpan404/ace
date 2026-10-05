@@ -87,7 +87,8 @@ export async function bindMcpSession(
       ...(configure ? { configure } : {}),
       ...(setModel ? { setModel } : {}),
       ...(setMode ? { setMode } : {}),
-      send: (input, delivery, commandId) => session.send(input, delivery, commandId),
+      send: (input, delivery, commandId, origin) =>
+        session.send(input, delivery, commandId, origin),
       interrupt: (target) => session.interrupt(target),
       resolve: (interaction, resolution) => session.resolve(interaction, resolution),
       stopTask: (task) => session.stopTask(task),

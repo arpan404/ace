@@ -74,6 +74,10 @@
       ],
       "type": "string"
     },
+    "host.displayName": {
+      "maxLength": 256,
+      "type": "string"
+    },
     "logs.retention": {
       "enum": [
         "7d",
@@ -313,6 +317,7 @@
     }
   },
   "required": [
+    "host.displayName",
     "projects.roots",
     "threads.followUpBehavior",
     "threads.continueAfterRestart",

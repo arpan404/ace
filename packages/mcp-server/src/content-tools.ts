@@ -5,6 +5,7 @@ import type { ToolContext } from "./registry.ts";
 import type { McpCapability } from "@ace/protocol";
 export interface ContentToolDefinition<I extends z.ZodType> {
   name: string;
+  riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"];
   description: string;
   input: I;
   capability: McpCapability;

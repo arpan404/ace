@@ -118,10 +118,12 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     return adapter.backend === "cursor-sdk" ? wrapped : withDaemonMcp(context, wrapped);
   });
   const ports = recoveryPorts(context, (id) => engine.sessionMetadata(id));
+  const aceAction = engineOptions.aceToolAction ?? services.mcp?.action;
   const engine = new Engine(store, {
     ...acp,
     ...engineOptions,
     registry,
+    ...(aceAction ? { aceToolAction: aceAction } : {}),
     permissionSettings:
       engineOptions.permissionSettings ??
       (async (id) => {
