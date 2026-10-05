@@ -34,6 +34,9 @@ function ToastList() {
     <Toast.Root
       key={toast.id}
       toast={toast}
+      // Base UI hides a high-priority toast from assistive tech until it has focus (its live
+      // region reads it out); an error's Retry and Dismiss must still be reachable.
+      aria-hidden={false}
       className={cn(
         "group/toast glass relative rounded-lg text-ui font-medium text-popover-foreground",
         "transition-[opacity,transform] duration-(--dur-3) ease-spring data-ending-style:translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",

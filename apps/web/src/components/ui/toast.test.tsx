@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { ToastProvider, useToast } from "./toast.tsx";
@@ -6,6 +6,8 @@ import { ToastProvider, useToast } from "./toast.tsx";
 afterEach(() => {
   vi.useRealTimers();
 });
+
+let retried = () => {};
 
 function Buttons() {
   const toast = useToast();
@@ -27,6 +29,17 @@ function Buttons() {
         onClick={() => toast.error({ title: "Couldn't archive", description: "Offline." })}
       >
         Fail
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          toast.error({
+            title: "Couldn't save",
+            actionProps: { children: "Retry", onClick: () => retried() },
+          })
+        }
+      >
+        Fail with retry
       </button>
     </>
   );
@@ -58,16 +71,30 @@ test("every toast has a Dismiss button that closes it", async () => {
   await vi.waitFor(() => expect(screen.queryByText("Archived")).toBeNull());
 });
 
-test("a toast with an action stays twice as long as a plain one", async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
+test("a plain toast goes after 4 s and one with an action after 8 s, not before", async () => {
+  vi.useFakeTimers();
   setup();
-  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-  await user.click(screen.getByRole("button", { name: "Copy" }));
-  await user.click(screen.getByRole("button", { name: "Archive" }));
-  await user.unhover(screen.getByRole("button", { name: "Archive" }));
-  await act(() => vi.advanceTimersByTimeAsync(5_000));
+  fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+  fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+  await act(() => vi.advanceTimersByTimeAsync(3_999));
+  expect(screen.getByText("Copied")).toBeTruthy();
+  // Closed at 4 s; the exit takes at most a few frames.
+  await act(() => vi.advanceTimersByTimeAsync(51));
   expect(screen.queryByText("Copied")).toBeNull();
   expect(screen.getByText("Archived")).toBeTruthy();
-  await act(() => vi.advanceTimersByTimeAsync(4_000));
+  await act(() => vi.advanceTimersByTimeAsync(7_999 - 4_050));
+  expect(screen.getByText("Archived")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(51));
   expect(screen.queryByText("Archived")).toBeNull();
+});
+
+test("an error toast's Retry and Dismiss can be found by role and used", async () => {
+  const retry = vi.fn();
+  retried = retry;
+  setup();
+  await userEvent.click(screen.getByRole("button", { name: "Fail with retry" }));
+  const card = await screen.findByRole("alertdialog");
+  await userEvent.click(within(card).getByRole("button", { name: "Retry" }));
+  expect(retry).toHaveBeenCalledTimes(1);
+  expect(within(card).getByRole("button", { name: "Dismiss", hidden: false })).toBeTruthy();
 });

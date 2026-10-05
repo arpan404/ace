@@ -58,7 +58,15 @@ export const keymap = {
   files: { keys: "mod+p", label: "Open a file" },
   browser: { keys: "ctrl+shift+b", label: "Browser" },
   newTerminal: { keys: "ctrl+shift+`", label: "New terminal" },
-  findInTerminal: { keys: "mod+f", label: "Find in a terminal or log", scope: "terminal" },
+  // The terminal owns its find key (keys.ts): ⌘F on a Mac, Ctrl+Shift+F elsewhere (Ctrl+F is
+  // the shell's). Shown, not rebindable.
+  findInTerminal: {
+    keys: "mod+f",
+    nonApple: "shift+mod+f",
+    label: "Find in a terminal or log",
+    scope: "terminal",
+    fixed: true,
+  },
   sideChat: { keys: "alt+mod+s", label: "Side chat" },
   renameThread: { keys: "alt+mod+r", label: "Rename the thread" },
   pinThread: { keys: "alt+mod+p", label: "Pin or unpin the thread" },
@@ -77,7 +85,8 @@ export const keymap = {
   nextTurn: { keys: "alt+mod+arrowdown", label: "Next turn" },
   findInThread: { keys: "mod+f", label: "Search this thread", scope: "thread" },
   settings: { keys: "mod+,", label: "Settings" },
-  send: { keys: "mod+enter", label: "Send", scope: "composer" },
+  // The composer's own keys (Enter sends, ⌘↵ the other of queue or steer). Shown, not rebindable.
+  send: { keys: "mod+enter", label: "Send", scope: "composer", fixed: true },
   goHome: { keys: "g h", label: "Go to Home" },
   goActivity: { keys: "g a", label: "Go to Activity" },
   goDeck: { keys: "g d", label: "Go to Deck" },
