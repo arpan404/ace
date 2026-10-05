@@ -63,12 +63,70 @@ const node = (ref: string, role: string, name: string, value?: string) => ({
   value,
   bounds: { x: 0, y: 0, w: 100, h: 100 },
   states: [],
-  actions: ["press", "setValue"],
+  actions: ["press", "setValue", "performSecondaryAction", "selectText"],
+  secondaryActions: ["AXShowMenu"],
   children: [],
 });
+type FakeSession = { sequence: number; capturing: boolean; actions: number; clickedTarget: string };
+const sessions = new Map<string, FakeSession>();
+function saveSession() {
+  if (sessions.has(sessionId))
+    sessions.set(sessionId, { sequence, capturing, actions, clickedTarget });
+}
+function selectSession(id: string) {
+  saveSession();
+  sessionId = id;
+  const state = sessions.get(id);
+  if (state) {
+    sequence = state.sequence;
+    capturing = state.capturing;
+    actions = state.actions;
+    clickedTarget = state.clickedTarget;
+  }
+}
 const lines = createInterface({ input: process.stdin });
 lines.on("line", (line) => {
   const request = ScreenHelperRequest.parse(JSON.parse(line));
+  if (request.op === "start")
+    sessions.set(request.sessionId, {
+      sequence: 0,
+      capturing: request.capture ?? !v2,
+      actions: 0,
+      clickedTarget: "none",
+    });
+  if (request.sessionId) selectSession(request.sessionId);
+  if (
+    process.env.SECURE_TEXT === "1" &&
+    ((request.op === "input" &&
+      ["text.type", "text.paste", "key.press"].includes(request.input.kind)) ||
+      (request.op === "ui.act" && request.ref === "field")) &&
+    !request.secureInputAllowed
+  ) {
+    console.log(
+      JSON.stringify({
+        version: request.version,
+        id: request.id,
+        ok: false,
+        error: { code: "secure_input_required", message: "Secure text requires session consent" },
+      }),
+    );
+    return;
+  }
+  if (
+    request.op === "input" &&
+    process.env.IGNORE_POSTED === "1" &&
+    request.mode !== "foreground"
+  ) {
+    console.log(
+      JSON.stringify({
+        version: request.version,
+        id: request.id,
+        ok: false,
+        error: { code: "foreground_required", message: "App ignores background events" },
+      }),
+    );
+    return;
+  }
   if (request.op.startsWith("ui.") && process.env.ACCESS_DENIED === "1") {
     console.log(
       JSON.stringify({
@@ -85,25 +143,45 @@ lines.on("line", (line) => {
     data = {
       version: 2,
       platform: "macos",
+      background: true,
+      maxSessions: 8,
       capture: { windows: true, displays: true, changeDriven: true },
       input: { pointer: true, keyboard: true, scroll: true, text: true },
       uiTree: true,
-      semanticActions: ["press", "focus", "setValue", "scroll", "expand", "select"],
+      semanticActions: [
+        "press",
+        "focus",
+        "setValue",
+        "scroll",
+        "expand",
+        "select",
+        "performSecondaryAction",
+        "selectText",
+      ],
       codecs: ["jpeg"],
       permissions: { screen: "granted", input: "granted" },
     };
   if (request.op === "hello" && process.env.BAD_CAPABILITIES === "1") data = { version: 99 };
   if (request.op === "capture") {
     data = { afterSeq: sequence };
+    const starting = request.enabled && !capturing;
     capturing = request.enabled;
-    if (capturing) frame();
+    if (starting) frame();
   }
-  if (request.op === "stop") capturing = false;
+  if (request.op === "stop") {
+    capturing = false;
+    sessions.delete(sessionId);
+  }
   if (request.op === "ui.tree") {
     const root = node("root", "AXWindow", `host-${process.pid}`);
     const children = [
       node("button", "AXButton", "Click"),
-      node("field", "AXTextField", "Name", String(actions)),
+      node(
+        "field",
+        process.env.SECURE_TEXT === "1" ? "AXSecureTextField" : "AXTextField",
+        "Name",
+        process.env.SECURE_TEXT === "1" ? undefined : String(actions),
+      ),
     ];
     data = {
       nodes: [
@@ -133,7 +211,12 @@ lines.on("line", (line) => {
     data = {
       nodes: [
         node("button", "AXButton", "Click"),
-        node("field", "AXTextField", "Name", String(actions)),
+        node(
+          "field",
+          process.env.SECURE_TEXT === "1" ? "AXSecureTextField" : "AXTextField",
+          "Name",
+          process.env.SECURE_TEXT === "1" ? undefined : String(actions),
+        ),
       ]
         .filter(
           (item) =>
@@ -146,6 +229,17 @@ lines.on("line", (line) => {
       truncated: false,
     };
   if (request.op === "ui.act") {
+    if (request.action === "performSecondaryAction" && request.name !== "AXShowMenu") {
+      console.log(
+        JSON.stringify({
+          version: request.version,
+          id: request.id,
+          ok: false,
+          error: { code: "not_supported", message: "Action is not advertised" },
+        }),
+      );
+      return;
+    }
     if (request.ref !== "button" && request.ref !== "field") {
       console.log(
         JSON.stringify({
@@ -159,7 +253,7 @@ lines.on("line", (line) => {
     }
     actions++;
     if (capturing) frame();
-    data = { fallback: request.action === "expand" };
+    data = { fallback: request.action === "expand", mode: request.mode ?? "background" };
   }
   if (request.op === "input") {
     actions++;
@@ -187,8 +281,20 @@ lines.on("line", (line) => {
               ? `Test;clicked:${clickedTarget}`
               : "Test",
         },
-      ],
+      ].concat(
+        process.env.MULTI_TARGETS === "1"
+          ? Array.from({ length: 8 }, (_, index) => ({
+              windowId: index + 2,
+              bundleId: `dev.ace.test${index + 2}`,
+              title: "Other app",
+            }))
+          : [],
+      ),
     };
+  if (request.op === "targets" && process.env.NO_WINDOWS === "1")
+    data = { displays: [], windows: [] };
+  if (request.op === "open.app")
+    data = { bundleId: request.bundleId, pid: process.pid, mode: "background" };
   if (request.op === "start") {
     sessionId = request.sessionId ?? "test";
     capturing = request.capture ?? !v2;
@@ -212,6 +318,31 @@ lines.on("line", (line) => {
     if (capturing) frame();
     data = { action: request.action };
   }
+  if (v2 && ["input", "action", "ui.act", "button.press"].includes(request.op)) {
+    data = {
+      fallback:
+        request.op === "ui.act" ? request.action === "expand" : request.op !== "button.press",
+      mode: request.mode ?? "background",
+      snapshot: {
+        nodes: [
+          {
+            ...node("root", "AXWindow", `host-${process.pid}`),
+            children: [
+              node("button", "AXButton", "Click"),
+              node(
+                "field",
+                process.env.SECURE_TEXT === "1" ? "AXSecureTextField" : "AXTextField",
+                "Name",
+                process.env.SECURE_TEXT === "1" ? undefined : String(actions),
+              ),
+            ],
+          },
+        ],
+        truncated: false,
+      },
+    };
+  }
+  saveSession();
   const reply = JSON.stringify({ version: request.version, id: request.id, ok: true, data });
   if (
     process.env.HOLD_PERMISSION === "1" &&

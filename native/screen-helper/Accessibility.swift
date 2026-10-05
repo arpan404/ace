@@ -42,7 +42,7 @@ import AppKit
                   let rawBounds = info[kCGWindowBounds as String] as? [String: Double], let x = rawBounds["X"], let y = rawBounds["Y"], let w = rawBounds["Width"], let h = rawBounds["Height"],
                   (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid else { throw HelperError("Target window is gone", code: "target_gone") }
             let expected = CGRect(x: x, y: y, width: w, height: h)
-            let matches = axChildren(application, maximum: 128, attribute: kAXWindowsAttribute).filter { let actual = axBounds($0).rect; return abs(actual.minX - expected.minX) < 1 && abs(actual.minY - expected.minY) < 1 && abs(actual.width - expected.width) < 1 && abs(actual.height - expected.height) < 1 }
+            let matches = axWindows(application).filter { let actual = axBounds($0).rect; return abs(actual.minX - expected.minX) < 1 && abs(actual.minY - expected.minY) < 1 && abs(actual.width - expected.width) < 1 && abs(actual.height - expected.height) < 1 }
             guard matches.count == 1 else { throw HelperError("Cannot resolve an unambiguous accessible window", code: "not_supported") }
             root = matches.first
         } else { root = application }
@@ -102,7 +102,7 @@ import AppKit
             let ref = try reference(element)
             guard visited.insert(ref).inserted else { return nil }
             let snapshot = axSnapshot(element, ref: ref)
-            var node = snapshot.node; node.actions = axActions(element, secure: snapshot.secure)
+            var node = snapshot.node; node.actions = axActions(element, secure: snapshot.secure); node.secondaryActions = axActionNames(element)
             truncated = truncated || snapshot.truncated
             let size = try JSONEncoder().encode(node).count
             guard size <= bytes else { truncated = true; return nil }
@@ -144,7 +144,7 @@ import AppKit
             var node = snapshot.node; truncated = truncated || snapshot.truncated
             func contains(_ candidate: String, _ term: String?) -> Bool { term.map { candidate.localizedCaseInsensitiveContains($0) } ?? true }
             if contains(node.role, query.role), contains(node.name, query.name), contains([node.name, node.value ?? "", node.description ?? ""].joined(separator: " "), query.text) {
-                node.actions = axActions(element, secure: snapshot.secure)
+                node.actions = axActions(element, secure: snapshot.secure); node.secondaryActions = axActionNames(element)
                 let size = try JSONEncoder().encode(node).count
                 guard size <= bytes else { truncated = true; break }
                 bytes -= size; nodes.append(node); if nodes.count == limit { truncated = true; break }
@@ -163,25 +163,62 @@ import AppKit
         if active?.kind == "window", let root, !CFEqual(root, entry.element) {
             guard let window = axAttribute(entry.element, kAXWindowAttribute), CFGetTypeID(window) == AXUIElementGetTypeID(), CFEqual(window, root) else { throw HelperError("Element left the selected window", code: "target_gone") }
         }
-        guard let action = request.semanticAction, ["press", "focus", "setValue", "scroll", "expand", "select"].contains(action), (request.value?.utf16.count ?? 0) <= 4096 else { throw HelperError("Unsupported semantic action", code: "not_supported") }
+        guard let action = request.semanticAction, ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"].contains(action), (request.value?.utf16.count ?? 0) <= 4096 else { throw HelperError("Unsupported semantic action", code: "not_supported") }
         let snapshot = axMetadata(entry.element, ref: ref)
         let node = snapshot.node
         if node.states.contains("disabled") { throw HelperError("Element is disabled", code: "bounds") }
-        if snapshot.secure { throw HelperError("Secure fields refuse semantic input", code: "permission_denied") }
+        if snapshot.secure && request.secureInputAllowed != true { throw HelperError("Secure fields require session consent", code: "secure_input_required") }
         if (action == "focus" && node.states.contains("focused")) || (action == "select" && node.states.contains("selected")) || (action == "expand" && node.states.contains("expanded")) { return false }
-        if action == "setValue" && request.value == nil { throw HelperError("setValue requires a value", code: "bounds") }
+        if action == "setValue" && request.value == nil && request.booleanValue == nil { throw HelperError("setValue requires a value", code: "bounds") }
+        if action == "focus", node.role == "AXWindow" {
+            guard request.mode == "foreground" else { throw HelperError("AXRaise requires foreground mode", code: "foreground_required") }
+            guard AXUIElementPerformAction(entry.element, kAXRaiseAction as CFString) == .success else { throw HelperError("Cannot raise window", code: "not_supported") }
+            invalidate(); return false
+        }
         let result: AXError
         switch action {
+        case "performSecondaryAction":
+            guard let name = request.name, axActionNames(entry.element).contains(name) else { throw HelperError("Action is not advertised by this element", code: "not_supported") }
+            if name == kAXRaiseAction && request.mode != "foreground" { throw HelperError("AXRaise requires foreground mode", code: "foreground_required") }
+            result = AXUIElementPerformAction(entry.element, name as CFString)
+        case "selectText":
+            if let range = request.range {
+                guard range.location >= 0, range.length >= 0, range.location <= Int.max - range.length else { throw HelperError("Invalid text range", code: "bounds") }
+                var value = CFRange(location: range.location, length: range.length)
+                guard let axRange = AXValueCreate(.cfRange, &value) else { throw HelperError("Cannot encode text range", code: "bounds") }
+                result = AXUIElementSetAttributeValue(entry.element, kAXSelectedTextRangeAttribute as CFString, axRange)
+            } else {
+                guard let value = request.value else { throw HelperError("selectText requires value or range", code: "bounds") }
+                result = AXUIElementSetAttributeValue(entry.element, kAXSelectedTextAttribute as CFString, value as CFString)
+            }
         case "press": result = AXUIElementPerformAction(entry.element, kAXPressAction as CFString)
-        case "scroll": result = AXUIElementPerformAction(entry.element, (request.value == "up" ? "AXScrollUpByPage" : "AXScrollDownByPage") as CFString)
+        case "scroll":
+            let name = request.scrollValue.map { abs($0.dx) > abs($0.dy) ? ($0.dx > 0 ? "AXScrollRightByPage" : "AXScrollLeftByPage") : ($0.dy > 0 ? "AXScrollUpByPage" : "AXScrollDownByPage") } ?? (request.value == "up" ? "AXScrollUpByPage" : "AXScrollDownByPage")
+            result = AXUIElementPerformAction(entry.element, name as CFString)
         default:
             let attribute = ["focus": kAXFocusedAttribute, "setValue": kAXValueAttribute, "select": kAXSelectedAttribute, "expand": "AXExpanded"][action] ?? ""
-            let value: CFTypeRef = action == "setValue" ? (request.value ?? "") as CFString : kCFBooleanTrue
+            let value: CFTypeRef = action == "setValue" && request.booleanValue == nil ? (request.value ?? "") as CFString : (request.booleanValue == false ? kCFBooleanFalse : kCFBooleanTrue)
             result = AXUIElementSetAttributeValue(entry.element, attribute as CFString, value)
         }
         if result == .success { invalidate(); return false }
         guard result == .actionUnsupported || result == .attributeUnsupported || result == .notImplemented else { throw HelperError("Accessibility action failed (\(result.rawValue))", code: result == .invalidUIElement ? "target_gone" : "internal") }
+        guard !["performSecondaryAction", "selectText", "focus", "select", "expand"].contains(action) else { throw HelperError("No safe semantic fallback", code: "not_supported") }
         guard node.bounds.w > 0, node.bounds.h > 0, !node.states.contains("offscreen") else { throw HelperError("Element has no usable bounds", code: "bounds") }
         try await fallback(node.bounds, action, request.value); invalidate(); return true
     }
+    /// Event-driven invalidation plus a short quiet interval; no timer while idle.
+    func settle(_ request: Request) async throws -> UITree {
+        invalidate()
+        var previous = generation, quiet = 0
+        for _ in 0..<8 {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            serviceNotifications()
+            if generation == previous { quiet += 1 } else { quiet = 0 }
+            if quiet >= 3 { break }
+            previous = generation
+        }
+        invalidate()
+        return try tree(request)
+    }
+
 }

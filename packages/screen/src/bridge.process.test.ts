@@ -7,7 +7,7 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
 it("human devices can discover sessions, delegate to a scoped agent and observe takeover without subscribing to frames", async () => {
-  const test = await manager();
+  const test = await manager({ FAKE_V2: "1" });
   cleanups.push(test.close);
   const state = await ready(test.screen);
   const messages: ScreenServerMessage[] = [];

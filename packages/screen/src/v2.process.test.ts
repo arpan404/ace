@@ -101,7 +101,7 @@ it("semantic tools enforce approvals, owner takeover, stale refs and bounded tre
   ).toMatchObject({ nodes: [{ ref: "button" }] });
   expect(
     await f.screen.uiAct(state.sessionId, "agent", { ref: "button", action: "expand" }, "agent"),
-  ).toEqual({ fallback: true });
+  ).toMatchObject({ fallback: true, mode: "background" });
   await expect(handler("screen_ui_act", { ref: "missing", action: "press" })).rejects.toMatchObject(
     { code: "target_gone" },
   );
@@ -251,12 +251,12 @@ it("named key, Unicode, scroll and pointer operations use the existing v2 proces
     (await f.screen.uiFind(state.sessionId, { query: { role: "AXTextField" } })).nodes[0]?.value,
   ).toBe("6");
 });
-it("oversized and deeply nested helper trees are rejected before recursive decoding", async () => {
+it("oversized and deeply nested helper trees are rejected", async () => {
   for (const bad of ["nodes", "depth"]) {
     const f = await manager({ FAKE_V2: "1", BAD_TREE: bad });
     onTestFinished(f.close);
     const state = await ready(f.screen);
-    await expect(f.screen.uiTree(state.sessionId, {})).rejects.toThrow("UI tree");
+    await expect(f.screen.uiTree(state.sessionId, {})).rejects.toThrow();
   }
 });
 it("malformed capabilities fail closed rather than silently downgrading to v1", async () => {

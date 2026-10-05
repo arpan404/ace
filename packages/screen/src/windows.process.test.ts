@@ -11,6 +11,7 @@ import {
   type Frame,
 } from "./index.ts";
 import { spawnWindowsHelper } from "./windows-process.ts";
+import { allowForeground } from "./testing/foreground.ts";
 import { deferred, ids, target } from "./testing/support.ts";
 async function fixture(env: NodeJS.ProcessEnv = {}) {
   const directory = await mkdtemp(join(tmpdir(), "screen-v2-"));
@@ -103,6 +104,7 @@ it("one host helper serves inspections, restarts and semantic tools with control
     const before = await manager.targets();
     const session = await manager.start(target);
     manager.controller(session.sessionId, "agent", "agent-a");
+    await allowForeground(manager, session.sessionId);
     const tool = computerUseHandler(manager, session.sessionId, "agent-a");
     const tree = await tool("screen_ui_tree", {});
     expect(tree.content).toEqual([
@@ -181,6 +183,7 @@ it("a crashed Windows helper clears screenshots and cannot retain agent ownershi
     await manager.approve(target.bundleId, true);
     const session = await manager.start(target);
     manager.controller(session.sessionId, "agent", "a");
+    await allowForeground(manager, session.sessionId);
     await manager.screenshotFresh(session.sessionId);
     await expect(
       manager.action(session.sessionId, "agent", { kind: "type", text: "crash" }, "a"),

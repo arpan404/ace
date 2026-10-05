@@ -51,7 +51,7 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate {
         guard let packet = encoder.packet(image: image, sessionId: sessionId, sequence: seq, timestamp: Date().timeIntervalSince1970 * 1000, version: version, scale: currentScale, dirtyRects: damage) else { return }
         changes = nextChanges
         lock.lock(); sequence += 1; initial = false; encodeNanos += DispatchTime.now().uptimeNanoseconds - started; lock.unlock()
-        writer.publish(packet)
+        writer.publish(packet, sessionId: sessionId)
     }
     func stream(_ stream: SCStream, didStopWithError error: Error) { exit(1) }
 }
@@ -68,12 +68,17 @@ struct ShareableContent {
     private var output: CaptureOutput?
     private var configuration: (filter: SCContentFilter, config: SCStreamConfiguration)?
     private var capturing = false
+    private var initialRequest: Request?
+    private var capturedWindowId: UInt32?
     private var cachedContent: (at: UInt64, content: ShareableContent)?
     private(set) var target: Target?
     private(set) var allowed = Set<String>()
     private(set) var frame = CGRect.zero
     private(set) var width = 0
     private(set) var height = 0
+    var synthesizedInput = false
+    var mode = "background"
+    var secureInputAllowed = false
     let writer: FrameWriter
     init(writer: FrameWriter) { self.writer = writer }
     var metrics: [String: Any] { var result = resourceMetrics(); result.merge(output?.metrics ?? ["encodedFrames": 0, "encodeNanos": 0]) { _, new in new }; return result }
@@ -103,11 +108,21 @@ struct ShareableContent {
               session.count <= 64, let approvals = request.allowlist, approvals.count <= 64,
               let fps = request.fps, (1...30).contains(fps) else { throw HelperError("Invalid capture request", code: "bounds") }
         allowed = Set(approvals)
+        initialRequest = request
         let content = try await content()
         let filter: SCContentFilter
-        if target.kind == "window" {
+        if target.kind == "window" || target.kind == "app" {
             guard let bundle = target.bundleId, allowed.contains(bundle) else { throw HelperError("Window is not approved", code: "permission_denied") }
-            guard let window = content.windows.first(where: { $0.windowID == target.windowId && $0.owningApplication?.bundleIdentifier == bundle }) else { throw HelperError("Window is not approved or available", code: "target_gone") }
+            let candidates = content.windows.filter { $0.owningApplication?.bundleIdentifier == bundle && $0.windowLayer == 0 }
+            if target.kind == "app", candidates.isEmpty { self.target = target; return }
+            let window: SCWindow
+            if target.kind == "app" { window = try appInputWindow(candidates) }
+            else {
+                guard let selected = candidates.first(where: { $0.windowID == target.windowId }) else { throw unavailableWindow(target) }
+                window = selected
+            }
+            capturedWindowId = window.windowID
+            try validateCaptureWindow(window, displays: content.displays)
             filter = SCContentFilter(desktopIndependentWindow: window); frame = window.frame
         } else {
             guard let display = content.displays.first(where: { $0.displayID == target.displayId }) else { throw HelperError("Display unavailable", code: "target_gone") }
@@ -120,21 +135,33 @@ struct ShareableContent {
         guard frame.width > 0, frame.height > 0 else { throw HelperError("Empty capture target", code: "bounds") }
         // A window is captured at the screen's pixel density, so a phone screen stays legible;
         // a whole display stays at points to bound its encoding cost.
-        let density = target.kind == "window" ? Self.pixelDensity(of: frame, on: content.displays) : 1
+        let density = target.kind != "display" ? Self.pixelDensity(of: frame, on: content.displays) : 1
         let scale = min(density, min(3840 / frame.width, 2160 / frame.height))
         width = max(1, Int(frame.width * scale)); height = max(1, Int(frame.height * scale))
         let config = SCStreamConfiguration()
         config.width = width; config.height = height; config.queueDepth = 3
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
-        config.pixelFormat = kCVPixelFormatType_32BGRA; config.showsCursor = true
+        config.pixelFormat = kCVPixelFormatType_32BGRA; config.showsCursor = false
         let output = CaptureOutput(writer: writer, sessionId: session, version: request.version, scale: Double(width) / frame.width)
-        if target.kind == "window" { output.onResize = { [weak self] in Task { @MainActor in await self?.refit() } } }
+        if target.kind != "display" { output.onResize = { [weak self] in Task { @MainActor in await self?.refit() } } }
         self.output = output; self.configuration = (filter, config); self.target = target
         do { if request.version == 1 || request.capture == true { try await setCapturing(true) } } catch { self.stream = nil; self.configuration = nil; self.output = nil; self.target = nil; throw error }
     }
     @discardableResult func setCapturing(_ enabled: Bool) async throws -> UInt64 {
+        if enabled, configuration == nil, target?.kind == "app", let request = initialRequest {
+            self.target = nil; cachedContent = nil
+            do { try await start(request) } catch { self.target = request.target; throw error }
+        }
+        if !enabled && configuration == nil { return 0 }
         guard let configuration, let output else { throw HelperError("No selected capture target", code: "target_gone") }
         let after = output.nextSequence
+        if enabled, let target, target.kind != "display" {
+            let content = try await content()
+            let candidates = content.windows.filter { $0.owningApplication?.bundleIdentifier == target.bundleId && $0.windowLayer == 0 }
+            guard let window = candidates.first(where: { $0.windowID == capturedWindowId }) else { throw unavailableWindow(target) }
+            if target.kind == "app", try appInputWindow(candidates).windowID != capturedWindowId { throw HelperError("App focus changed; select an explicit window target", code: "not_supported") }
+            try validateCaptureWindow(window, displays: content.displays)
+        }
         if enabled && !capturing {
             guard CGPreflightScreenCaptureAccess() else { throw HelperError("Screen Recording permission denied", code: "permission_denied") }
             let created = SCStream(filter: configuration.filter, configuration: configuration.config, delegate: output)
@@ -150,9 +177,9 @@ struct ShareableContent {
     }
     /// Match the stream to the captured window's current size, as after a Simulator rotation.
     func refit() async {
-        guard let target, target.kind == "window", let configuration, let stream else { return }
+        guard let target, target.kind != "display", let configuration, let stream else { return }
         cachedContent = nil
-        guard let content = try? await content(), let window = content.windows.first(where: { $0.windowID == target.windowId }),
+        guard let content = try? await content(), let window = content.windows.first(where: { $0.windowID == capturedWindowId }),
               window.frame.width > 0, window.frame.height > 0,
               abs(window.frame.width - frame.width) >= 1 || abs(window.frame.height - frame.height) >= 1 else { return }
         let density = Self.pixelDensity(of: window.frame, on: content.displays)
@@ -165,6 +192,7 @@ struct ShareableContent {
     }
     func stop() async throws {
         if capturing { _ = try await setCapturing(false) }
-        stream = nil; configuration = nil; target = nil; output = nil; allowed.removeAll(); cachedContent = nil
+        if let output { writer.retire(output.sessionId) }
+        stream = nil; configuration = nil; target = nil; initialRequest = nil; capturedWindowId = nil; output = nil; allowed.removeAll(); cachedContent = nil
     }
 }

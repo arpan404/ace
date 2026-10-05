@@ -1,4 +1,10 @@
-import { ScreenClientMessage, ScreenState, type ScreenServerMessage } from "@ace/protocol";
+import { TargetBusyError } from "./target-busy.ts";
+import {
+  ScreenError,
+  ScreenClientMessage,
+  ScreenState,
+  type ScreenServerMessage,
+} from "@ace/protocol";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
 
@@ -40,10 +46,48 @@ export function screenConnection(
             await manager.enable(operation.enabled);
             break;
           case "approve":
-            await manager.approve(operation.bundleId, operation.allowed);
+            await manager.approve(
+              operation.bundleId,
+              operation.allowed,
+              operation.scope,
+              operation.threadId,
+            );
+            break;
+          case "approvals":
+            data = manager.approvals(operation.threadId);
+            break;
+          case "stop.all":
+            await manager.stopAll();
+            break;
+          case "mode":
+            data = await manager.mode(
+              operation.sessionId,
+              operation.mode,
+              undefined,
+              operation.reason,
+            );
+            break;
+          case "secure.input":
+            manager.secureInput(operation.sessionId, operation.allowed);
+            data = manager.state(operation.sessionId);
+            break;
+          case "open.app":
+            data = await manager.openApp(operation.bundleId);
+            break;
+          case "capabilities":
+            data = await manager.capabilities();
+            break;
+          case "ui.tree":
+            data = await manager.uiTree(operation.sessionId, operation, owner);
+            break;
+          case "ui.find":
+            data = await manager.uiFind(operation.sessionId, operation, owner);
+            break;
+          case "ui.act":
+            data = await manager.uiAct(operation.sessionId, "human", operation, owner);
             break;
           case "input":
-            await manager.input(operation.sessionId, "human", operation.input, owner);
+            data = await manager.input(operation.sessionId, "human", operation.input, owner);
             break;
           case "permissions":
             data = await manager.permissions();
@@ -55,7 +99,11 @@ export function screenConnection(
             data = await manager.targets();
             break;
           case "start": {
-            const state = await manager.start(operation.target, operation.fps);
+            const state = await manager.start(
+              operation.target,
+              operation.fps,
+              operation.threadId ? { threadId: operation.threadId, agentId: "human" } : undefined,
+            );
             if (closed) await manager.stop(state.sessionId);
             else data = state;
             break;
@@ -84,7 +132,7 @@ export function screenConnection(
           case "subscribe": {
             subscriptions.get(operation.sessionId)?.();
             subscriptions.delete(operation.sessionId);
-            if (subscriptions.size >= 4) throw new Error("Screen subscription limit");
+            if (subscriptions.size >= 8) throw new Error("Screen subscription limit");
             const stop = manager.subscribe(operation.sessionId, async (frame) => {
               if (!closed) await peer.frame(frame.packet);
             });
@@ -118,6 +166,12 @@ export function screenConnection(
         respond({
           ok: false,
           error: error instanceof Error ? error.message : "Screen request failed",
+          ...(error instanceof Error &&
+          "code" in error &&
+          ScreenError.shape.code.safeParse(error.code).success
+            ? { errorCode: ScreenError.shape.code.parse(error.code) }
+            : {}),
+          ...(error instanceof TargetBusyError ? { holder: error.holder } : {}),
         });
       } finally {
         pending--;
