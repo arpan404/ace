@@ -13,6 +13,7 @@ function IconButton({
   label,
   shortcut,
   keys,
+  resolve,
   pressed,
   size = "default",
   tooltip = true,
@@ -23,6 +24,8 @@ function IconButton({
   label: string;
   shortcut?: KeymapId;
   keys?: string;
+  /** False: `keys` are this button's own, never a rebindable shortcut's (Tip). */
+  resolve?: boolean;
   pressed?: boolean;
   size?: "sm" | "default" | "lg";
   tooltip?: boolean;
@@ -33,10 +36,10 @@ function IconButton({
       aria-label={label}
       {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
       className={cn(
-        "inline-grid shrink-0 place-items-center text-muted-foreground transition-[background-color,color,transform] duration-(--dur-1) ease-smooth active:scale-[0.94]",
+        "relative inline-grid shrink-0 place-items-center text-muted-foreground transition-[background-color,color,transform] duration-(--dur-1) ease-smooth focus-ring touch-hit active:scale-[0.94]",
         "hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground",
         "disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40",
-        size === "sm" && "size-6 rounded-sm",
+        size === "sm" && "size-6 rounded-sm touch-hit-lg",
         size === "default" && "size-[30px] rounded-md",
         size === "lg" && "size-[34px] rounded-card",
         className,
@@ -48,7 +51,12 @@ function IconButton({
   );
   if (!tooltip) return button;
   return (
-    <Tip label={label} {...(shortcut ? { shortcut } : {})} {...(keys ? { keys } : {})}>
+    <Tip
+      label={label}
+      {...(shortcut ? { shortcut } : {})}
+      {...(keys ? { keys } : {})}
+      {...(resolve === false ? { resolve } : {})}
+    >
       {button}
     </Tip>
   );

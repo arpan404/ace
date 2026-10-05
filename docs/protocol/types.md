@@ -2869,17 +2869,17 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | action | yes | `"wait_for"` |  |
-| ref | yes | string | {"minLength":1,"maxLength":256} |
-| state | yes | ["visible","hidden"] |  |
+| ref | no | string | {"description":"Ref from the latest snapshot. Use only for element visibility waits.","minLength":1,"maxLength":256} |
+| state | no | ["visible","hidden"] | {"description":"Required with ref."} |
+| url | no | string | {"description":"Exact destination URL. Also waits for DOMContentLoaded. Works before or after navigation commits.","minLength":1,"maxLength":8192} |
+| text | no | string | {"description":"Visible page text to wait for, matched as a substring.","minLength":1,"maxLength":4096} |
 | timeout | no | integer | {"default":10000,"minimum":1,"maximum":30000} |
 
 Example:
 
 ```json
 {
-  "action": "wait_for",
-  "ref": "example",
-  "state": "hidden"
+  "action": "wait_for"
 }
 ```
 
@@ -2910,7 +2910,7 @@ Example:
 ```json
 {
   "action": "resize",
-  "height": 108,
+  "height": 103,
   "width": 107
 }
 ```
@@ -2932,9 +2932,8 @@ Example:
 ```json
 {
   "action": "emulate",
-  "height": 107,
-  "mobile": false,
-  "width": 108
+  "height": 109,
+  "width": 100
 }
 ```
 
@@ -2952,8 +2951,8 @@ Example:
 
 ```json
 {
-  "controller": "none",
-  "generation": 5
+  "controller": "human",
+  "generation": 9
 }
 ```
 
@@ -2973,9 +2972,9 @@ Example:
 
 ```json
 {
-  "phase": "extracting",
-  "received": 6,
-  "total": 0,
+  "phase": "downloading",
+  "received": 0,
+  "total": 9,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -2998,10 +2997,10 @@ Example:
 ```json
 {
   "data": "example",
-  "height": 106,
-  "sequence": 2,
-  "timestamp": 9,
-  "width": 106
+  "height": 108,
+  "sequence": 6,
+  "timestamp": 6,
+  "width": 103
 }
 ```
 
@@ -3024,10 +3023,10 @@ Example:
 
 ```json
 {
-  "event": "mousePressed",
+  "event": "mouseMoved",
   "kind": "mouse",
-  "x": 8,
-  "y": 2
+  "x": 9,
+  "y": 8
 }
 ```
 
@@ -3046,10 +3045,9 @@ Example:
 
 ```json
 {
-  "event": "char",
+  "event": "keyDown",
   "key": "example",
-  "kind": "key",
-  "text": "example"
+  "kind": "key"
 }
 ```
 
@@ -3067,11 +3065,11 @@ Example:
 
 ```json
 {
-  "deltaX": 7,
-  "deltaY": 5,
+  "deltaX": 4,
+  "deltaY": 6,
   "kind": "scroll",
-  "x": 4,
-  "y": 6
+  "x": 7,
+  "y": 5
 }
 ```
 
@@ -3087,7 +3085,7 @@ Example:
 
 ```json
 {
-  "event": "touchMove",
+  "event": "touchStart",
   "kind": "touch",
   "points": []
 }
@@ -3142,7 +3140,7 @@ Example:
 ```json
 {
   "origin": "example",
-  "reason": "timeout"
+  "reason": "denied"
 }
 ```
 
@@ -3159,7 +3157,7 @@ Example:
 
 ```json
 {
-  "grantedAt": 2,
+  "grantedAt": 5,
   "origin": "https://youtube.com"
 }
 ```
@@ -3187,7 +3185,7 @@ Example:
   "backend": "embedded",
   "pageStateLost": true,
   "reason": "example",
-  "recovery": "pause",
+  "recovery": "headless",
   "threadId": "example",
   "type": "browser.backend.lost",
   "url": "example"
@@ -3208,8 +3206,8 @@ Example:
 
 ```json
 {
-  "phase": "extracting",
-  "received": 7,
+  "phase": "ready",
+  "received": 6,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -3230,13 +3228,9 @@ Example:
 
 ```json
 {
-  "blocked": {
-    "origin": "example",
-    "reason": "read_only"
-  },
-  "error": "example",
-  "ok": false,
+  "ok": true,
   "requestId": "example",
+  "result": null,
   "type": "browser.result"
 }
 ```
@@ -3253,9 +3247,8 @@ Example:
 ```json
 {
   "state": {
-    "closed": false,
-    "controller": "human",
-    "owner": "example",
+    "closed": true,
+    "controller": "agent",
     "threadId": "example",
     "url": "example"
   },
@@ -3277,10 +3270,10 @@ Example:
 {
   "frame": {
     "data": "example",
-    "height": 109,
-    "sequence": 9,
-    "timestamp": 6,
-    "width": 100
+    "height": 104,
+    "sequence": 6,
+    "timestamp": 0,
+    "width": 109
   },
   "threadId": "example",
   "type": "browser.frame"
@@ -3308,10 +3301,8 @@ Example:
 
 ```json
 {
-  "backend": "embedded",
-  "closed": false,
-  "controller": "human",
-  "owner": "example",
+  "closed": true,
+  "controller": "agent",
   "reason": "example",
   "status": "recovering",
   "threadId": "example",

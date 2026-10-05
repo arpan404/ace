@@ -16,6 +16,8 @@ it("passes Codex overrides as exact TOML values with the bearer only in its envi
     'mcp_servers.ace.url="http://127.0.0.1:12345/mcp"',
     "-c",
     'mcp_servers.ace.bearer_token_env_var="ACE_MCP_BEARER_TOKEN"',
+    "-c",
+    "mcp_servers.ace.tool_timeout_sec=300",
   ]);
   expect(parseToml(`${result.args[1]}\n${result.args[3]}`)).toEqual({
     mcp_servers: { ace: { url: connection.url, bearer_token_env_var: "ACE_MCP_BEARER_TOKEN" } },
@@ -44,6 +46,7 @@ it("builds OpenCode config content with remote type, headers and OAuth disabled"
         url: connection.url,
         enabled: true,
         oauth: false,
+        timeout: { execution: 300_000 },
         headers: { Authorization: `Bearer ${connection.bearer}` },
       },
     },
