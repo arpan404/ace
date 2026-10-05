@@ -79,6 +79,8 @@ test("arrow keys move through the catalog as one Tab stop", async () => {
   await open("/skills");
   await screen.findByRole("heading", { level: 1, name: "code-review" });
   const first = within(catalog()).getByRole("link", { name: /^code-review/ });
+  // A route lands focus on its heading; take it from there into the list.
+  await waitFor(() => expect(document.activeElement?.tagName).toBe("H1"));
   first.focus();
 
   await userEvent.keyboard("{ArrowDown}");
