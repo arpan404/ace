@@ -102,7 +102,8 @@ export function foldProviderFacts(
       if (
         pending &&
         (pending.kind === "thread.create" || pending.kind === "thread.send") &&
-        pending.trigger
+        pending.trigger &&
+        ["user", "queue", "unknown"].includes(fact.trigger)
       )
         fact = { ...fact, trigger: pending.trigger };
     }
@@ -195,11 +196,23 @@ export function foldProviderFacts(
   const root = state.agents[state.rootKey ?? ""]?.agent.id;
   const inputUpdates: EventPayload[] = [];
   for (const event of events) {
+    const rootStarted =
+      event.type === "run.started" &&
+      !ports.opening &&
+      event.run.agentId === root &&
+      [
+        "user",
+        "queue",
+        "unknown",
+        "spawn",
+        "parent_agent",
+        "subagent_result",
+        "schedule",
+        "restart",
+        "limit_resume",
+      ].includes(event.run.trigger);
     const pending =
-      event.type === "input.admitted" ||
-      (event.type === "run.started" && event.run.agentId === root)
-        ? repo.pending.awaiting(id)
-        : undefined;
+      event.type === "input.admitted" || rootStarted ? repo.pending.awaiting(id) : undefined;
     const commandId =
       event.type === "input.admitted"
         ? (event.commandId ?? pending?.commandId)
@@ -226,22 +239,7 @@ export function foldProviderFacts(
     }
     const admitted = event.type === "input.admitted" && event.agentId === root && !ports.opening;
     if (admitted) ports.admission.mark.run(id);
-    const started =
-      event.type === "run.started" &&
-      !ports.opening &&
-      event.run.agentId === root &&
-      [
-        "user",
-        "queue",
-        "unknown",
-        "spawn",
-        "parent_agent",
-        "subagent_result",
-        "schedule",
-        "restart",
-        "limit_resume",
-      ].includes(event.run.trigger) &&
-      !ports.admission.has.get(id);
+    const started = rootStarted && !ports.admission.has.get(id);
     const acknowledged =
       event.type === "input.admitted" && admitted && event.commandId !== undefined
         ? ports.admission.correlated.all(id, event.commandId)
