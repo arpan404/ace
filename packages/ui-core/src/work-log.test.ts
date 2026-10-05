@@ -226,5 +226,73 @@ test("a command that failed and then passed on a re-run counts as retried, not f
   ]);
   expect(summary).toMatchObject({ failed: 1, retried: 1 });
   expect(workCounts(summary)).toBe("Ran 3 commands · 1 failed · 1 retried");
+  expect(summary.firstFailed).toBeDefined();
   expect(workLogHeadline(summary, 3).firstFailed).toBe(summary.firstFailed);
+});
+
+/** The same as `call`, with the agent and turn set: what makes a re-run the same step. */
+const callIn = (
+  detail: ToolCall["detail"],
+  status: ToolCall["status"],
+  at: number,
+  where: { agentId?: string; runId?: string } = {},
+): Item => {
+  const item = call(detail, status, at, at + 1);
+  return Item.parse({ ...item, agentId: where.agentId ?? "root", runId: where.runId ?? "run-1" });
+};
+
+test("a success somewhere else retries nothing: the failure keeps its count and jump target", () => {
+  const failed = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/a", exitCode: 1 },
+    "failed",
+    0,
+  );
+  const elsewhere = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/b", exitCode: 0 },
+    "succeeded",
+    1,
+  );
+  expect(summarizeWork([failed, elsewhere])).toMatchObject({
+    failed: 1,
+    retried: 0,
+    firstFailed: failed.id,
+  });
+  const otherAgent = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/a", exitCode: 0 },
+    "succeeded",
+    1,
+    { agentId: "child" },
+  );
+  expect(summarizeWork([failed, otherAgent])).toMatchObject({ failed: 1, retried: 0 });
+  const otherTurn = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/a", exitCode: 0 },
+    "succeeded",
+    1,
+    { runId: "run-2" },
+  );
+  expect(summarizeWork([failed, otherTurn])).toMatchObject({ failed: 1, retried: 0 });
+  const again = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/a", exitCode: 0 },
+    "succeeded",
+    2,
+  );
+  expect(summarizeWork([failed, again])).toMatchObject({ failed: 0, retried: 1 });
+});
+
+test("reading other lines of a file doesn't retry a failed read", () => {
+  const failed = callIn(
+    { kind: "file.read", path: "src/a.ts", range: { start: 1, end: 20 } },
+    "failed",
+    0,
+  );
+  const other = callIn(
+    { kind: "file.read", path: "src/a.ts", range: { start: 40, end: 60 } },
+    "succeeded",
+    1,
+  );
+  expect(summarizeWork([failed, other])).toMatchObject({
+    failed: 1,
+    retried: 0,
+    firstFailed: failed.id,
+  });
 });

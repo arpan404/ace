@@ -1,14 +1,8 @@
 import type { FileChange, Interaction, Item, ToolCall } from "@ace/protocol";
 import { quickStat } from "./file-changes.ts";
 import { approvalOutcome } from "./approvals.ts";
-import {
-  displayCommand,
-  stepPath,
-  errorNote,
-  mcpToolLabel,
-  namedToolLabel,
-  type PathContext,
-} from "./step-display.ts";
+import { displayCommand, stepPath, errorNote, type PathContext } from "./step-display.ts";
+import { mcpToolLabel, namedToolLabel } from "./tool-labels.ts";
 import { formatElapsed } from "./time.ts";
 
 export type StepIcon = "read" | "search" | "shell" | "edit" | "web" | "tool" | "think" | "note";
@@ -303,7 +297,7 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
   const succeeded = new Map<string, number>();
   items.forEach((item, index) => {
     if (item?.type !== "tool_call") return;
-    const key = retryKey(item.call);
+    const key = retryKey(item);
     if (key && item.call.status === "succeeded") succeeded.set(key, index);
   });
   for (const [index, item] of items.entries()) {
@@ -323,7 +317,7 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
     }
     if (call.status === "awaiting_approval") summary.awaiting = true;
     if (call.status === "failed") {
-      const key = retryKey(call);
+      const key = retryKey(item);
       if (key && (succeeded.get(key) ?? -1) > index) summary.retried++;
       else failures.push({ id: item.id, key: key ?? item.id });
     }
@@ -342,13 +336,21 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
   return summary;
 }
 
-/** Two runs of the same command (or call on the same target) are the same step tried again. */
-function retryKey(call: ToolCall): string | undefined {
-  const detail = call.detail;
-  if (detail.kind === "shell") return `shell:${displayCommand(detail).command}`;
-  if (detail.kind === "mcp")
-    return `mcp:${detail.server}:${detail.tool}:${JSON.stringify(detail.arguments ?? null)}`;
-  if (detail.kind === "file.read") return `read:${detail.path}`;
+/**
+ * Two steps are the same step tried again only when the same agent, in the same turn, ran the
+ * exact same command in the same directory, or read the same lines of the same file (TS-6).
+ * A success elsewhere (another directory, another range, another agent) retries nothing.
+ */
+function retryKey(item: Extract<Item, { type: "tool_call" }>): string | undefined {
+  const detail = item.call.detail;
+  const where = `${item.agentId}\u0000${item.runId ?? ""}`;
+  if (detail.kind === "shell") {
+    // The exact string run: WP4's `rawCommand` when the adapter sends one.
+    const exact = (detail as { rawCommand?: string }).rawCommand ?? detail.command;
+    return `shell\u0000${where}\u0000${detail.cwd ?? ""}\u0000${exact}`;
+  }
+  if (detail.kind === "file.read")
+    return `read\u0000${where}\u0000${detail.path}\u0000${detail.range ? `${detail.range.start}-${detail.range.end}` : ""}`;
   return undefined;
 }
 
