@@ -66,8 +66,9 @@ export function ThreadComposer({
   const [setting] = useDaemonSetting("threads.followUpBehavior", {
     threadId: ThreadId.parse(props.thread.id),
   });
-  // Steering needs a provider that can take input mid-turn; otherwise a follow-up queues.
-  const canSteer = meta?.capabilities?.steer !== false;
+  // Steering needs a provider that says it can take input mid-turn; otherwise (or while its
+  // capabilities are unknown) a follow-up queues (SY-14).
+  const canSteer = meta?.capabilities?.steer === true;
   const followUp = canSteer ? setting : "queue";
   const busy = isBusy(props.status);
   const threadId = ThreadId.parse(props.thread.id);

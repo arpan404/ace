@@ -1,5 +1,7 @@
-import { usePendingSends } from "@ace/client-react";
-import { useLayoutEffect, useMemo } from "react";
+import { useConnectionState, usePendingSends } from "@ace/client-react";
+import { formatClock } from "@ace/ui-core";
+import { useLayoutEffect, useMemo, useState } from "react";
+import { useSeconds } from "@/lib/time.ts";
 import { leasable, publishLocalSends } from "../composer/send-store.ts";
 import {
   commandOf,
@@ -14,8 +16,8 @@ import {
 /**
  * Works out this window's messages on their way for one thread (outbox entries, messages held
  * for their uploads, the ones dismissed, still queued, or not delivered) and publishes the
- * transcript's view of them. Renders nothing. Published before paint, so a message sent shows
- * as its bubble in the same frame.
+ * transcript's view of them, before paint, so a message sent shows as its bubble in the same
+ * frame. At the live end it says since when this window has been offline (SY-6).
  */
 export function LocalSends(props: { threadId: string }) {
   const { threadId } = props;
@@ -44,5 +46,21 @@ export function LocalSends(props: { threadId: string }) {
   }, [pending, staged, dismissed, queued, failures]);
   useLayoutEffect(() => publishLocalSends(threadId, view), [threadId, view]);
   useLayoutEffect(() => () => publishLocalSends(threadId, undefined), [threadId]);
-  return null;
+  return <OfflineSince />;
+}
+
+/** "Offline since 5:31 PM", at the transcript's live end while the daemon can't be reached. */
+function OfflineSince() {
+  const state = useConnectionState();
+  const away = state === "offline" || state === "reconnecting";
+  const now = useSeconds(false);
+  const [since, setSince] = useState<number>();
+  if (away && since === undefined) setSince(now);
+  if (!away && since !== undefined) setSince(undefined);
+  if (!away || since === undefined) return null;
+  return (
+    <p role="status" className="pt-2 text-xs text-subtle-foreground">
+      Offline since {formatClock(since)}
+    </p>
+  );
 }
