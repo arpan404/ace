@@ -300,7 +300,7 @@ function Code(props: {
           type="button"
           aria-label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}
           onClick={() => props.onComment(target)}
-          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-[4px] bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100"
+          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-xs bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100"
         >
           <PlusIcon aria-hidden size={10} weight="bold" />
         </button>

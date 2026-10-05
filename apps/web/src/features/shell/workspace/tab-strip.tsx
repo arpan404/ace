@@ -220,12 +220,12 @@ export function TabStrip(props: {
             {state.tabs.map((tab) => (
               <MenuItem
                 key={tab.key}
-                icon={<Icon icon={definition.kind(tab.kind)?.icon ?? PlusIcon} size={14} />}
+                icon={<Icon icon={definition.kind(tab.kind)?.icon ?? PlusIcon} />}
                 onClick={() => actions.activate(tab.key)}
               >
                 <span className="flex items-center gap-2">
                   <span className="truncate">{definition.title(tab)}</span>
-                  {tab.key === shown && <CheckIcon aria-label="Showing" size={12} />}
+                  {tab.key === shown && <CheckIcon role="img" aria-label="Showing" size={12} />}
                 </span>
               </MenuItem>
             ))}

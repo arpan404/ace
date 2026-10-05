@@ -60,11 +60,11 @@ function RenameForm(props: Parameters<typeof RenameDialog>[0]) {
         onFocus={(event) => event.currentTarget.select()}
         onChange={(event) => setValue(event.target.value)}
       />
-      <DialogFooter>
-        <Button type="button" variant="ghost" size="sm" onClick={() => props.onOpenChange(false)}>
+      <DialogFooter submitHint>
+        <Button type="button" variant="ghost" onClick={() => props.onOpenChange(false)}>
           Cancel
         </Button>
-        <Button type="submit" size="sm">
+        <Button type="submit" variant="primary">
           Rename
         </Button>
       </DialogFooter>
