@@ -36,7 +36,7 @@ test("a question sits in the transcript where the agent asked it", async () => {
   ).toHaveLength(1);
 });
 
-const { endTurn, message, rootAgent, tool, toolDone, turn } = facts;
+const { endTurn, message, rootAgent, subagent, tool, toolDone, turn } = facts;
 
 const follows = (a: Element, b: Element) =>
   !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -137,9 +137,9 @@ test("ace's review of a step joins that step's log instead of splitting the work
   expect(within(steps).getByRole("article", { name: "Permission review: Denied by ace" }));
 });
 
-function edit(key: string, path: string) {
+function edit(key: string, path: string, agent = "root") {
   return [
-    tool("root", key, {
+    tool(agent, key, {
       kind: "file.edit",
       title: `Edit ${path}`,
       detail: {
@@ -147,7 +147,7 @@ function edit(key: string, path: string) {
         changes: [{ path, kind: "update", diff: "@@ -1 +1 @@\n-old\n+new" }],
       },
     }),
-    toolDone("root", key),
+    toolDone(agent, key),
   ];
 }
 
@@ -211,6 +211,10 @@ test("a failed turn ends with its reason, and Retry sends the ask again", async 
       2,
     ),
   );
+  // The retried turn is history now: it keeps its reason, without offering Retry again.
+  const kept = within(feed).getByRole("group", { name: "Turn failed" });
+  expect(kept.textContent).toContain("2 tests failing on #74");
+  expect(within(kept).queryByRole("button", { name: "Retry" })).toBeNull();
 });
 
 function stopped(withWork: boolean): Scenario {
@@ -247,15 +251,28 @@ test("a stopped turn says so under what it got done", async () => {
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const note = await within(feed).findByRole("note", { name: /^Stopped by you/ });
   expect(follows(within(feed).getByText("Building the web bundle first"), note)).toBe(true);
+  // What it had written stays, but no longer looks like it is still being written.
+  expect(within(feed).queryByRole("status", { name: "Streaming" })).toBeNull();
 });
 
-test("a turn stopped before any reply still says so under the ask", async () => {
+test("a turn stopped before any reply keeps saying so under its ask after the next ask", async () => {
   const app = harness();
   app.play(stopped(false)).runUntilBlocked();
   await app.open("/t/thread-stopped");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const note = await within(feed).findByRole("note", { name: /^Stopped by you/ });
   expect(follows(within(feed).getByText("Build the release bundle."), note)).toBe(true);
+
+  act(() =>
+    app.daemon.apply("thread-stopped", [
+      { type: "turn.started", agent: "root", nativeTurnId: "turn-2", trigger: "user" },
+      message("root", "ask-2", "user", "Build only the web bundle."),
+    ]),
+  );
+  const next = await within(feed).findByText("Build only the web bundle.");
+  const kept = within(feed).getByRole("note", { name: /^Stopped by you/ });
+  expect(follows(within(feed).getByText("Build the release bundle."), kept)).toBe(true);
+  expect(follows(kept, next)).toBe(true);
 });
 
 test("the subagents line opens to the agents started, with their model, and opens a delegate's thread", async () => {
@@ -273,17 +290,239 @@ test("the subagents line opens to the agents started, with their model, and open
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
 });
 
-test("a usage-limit pause marks where the turn stopped", async () => {
+test("a usage-limit pause marks where the turn stopped, and stays there after the resume", async () => {
   const app = harness();
   app
     .play(accountLimit("thread-limit-flags", "Remove the legacy feature-flag reader"))
     .runUntilBlocked();
   await app.open("/t/thread-limit-flags");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const pause = await screen.findByRole("status", {
+  const pause = await within(feed).findByRole("note", {
     name: "Paused · Codex usage limit · reset time unknown",
   });
-  expect(follows(within(feed).getByText("Remove the legacy feature-flag reader"), pause)).toBe(
-    true,
+  const ask = within(feed).getByText("Remove the legacy feature-flag reader");
+  expect(follows(ask, pause)).toBe(true);
+  // One marker: the live line doesn't repeat it.
+  expect(screen.queryByRole("status", { name: /^Paused/ })).toBeNull();
+
+  act(() => app.daemon.apply("thread-limit-flags", resumeAfterLimit));
+  const resumed = await within(feed).findByText("Picking the flag removal back up.");
+  const kept = within(feed).getByRole("note", { name: "Paused · Codex usage limit" });
+  expect(follows(ask, kept) && follows(kept, resumed)).toBe(true);
+});
+
+const resumeAfterLimit = [
+  { type: "limit.cleared", agent: "root" } as const,
+  { type: "turn.started", agent: "root", nativeTurnId: "resume", trigger: "limit_resume" } as const,
+  message("root", "resumed", "assistant", "Picking the flag removal back up."),
+];
+
+test("a pause in history is rebuilt from the resume, after a reload", async () => {
+  const app = harness();
+  const script = app.play(
+    accountLimit("thread-limit-flags", "Remove the legacy feature-flag reader"),
   );
+  script.runUntilBlocked();
+  app.daemon.apply("thread-limit-flags", resumeAfterLimit);
+  await app.open("/t/thread-limit-flags");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const pause = await within(feed).findByRole("note", { name: "Paused · Codex usage limit" });
+  expect(follows(pause, within(feed).getByText("Picking the flag removal back up."))).toBe(true);
+  // The resume interrupted the paused turn; the pause already says why it stopped.
+  expect(within(feed).queryByRole("note", { name: /^Stopped/ })).toBeNull();
+});
+
+test("the changed-files card waits until the subagents a turn started have finished too", async () => {
+  const app = harness();
+  const script = app.play({
+    thread: {
+      id: "thread-tree",
+      workspaceId: "ace",
+      title: "Rename with help",
+      provider: "claude",
+    },
+    steps: [
+      {
+        kind: "facts",
+        label: "root-done",
+        facts: [
+          rootAgent("claude"),
+          turn("root"),
+          message("root", "ask", "user", "Rename the flag; have a subagent fix the tests."),
+          tool("root", "spawn-tests", {
+            kind: "agent.spawn",
+            title: "Fix the tests",
+            detail: { kind: "agent.spawn", description: "Fix the tests", childAgent: "tests" },
+          }),
+          subagent("claude", "tests", "tests", "spawn-tests"),
+          turn("tests"),
+          ...edit("edit-test", "src/flags.test.ts", "tests"),
+          ...edit("edit-root", "src/flags.ts"),
+          message("root", "answer", "assistant", "Renamed; the subagent is finishing the tests."),
+          endTurn("root"),
+        ],
+      },
+      {
+        kind: "facts",
+        label: "tree-done",
+        facts: [...edit("edit-test-2", "src/app.test.ts", "tests"), endTurn("tests")],
+      },
+    ],
+  });
+  script.runThrough("root-done");
+  await app.open("/t/thread-tree");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText("Renamed; the subagent is finishing the tests.");
+  expect(within(feed).queryByRole("region", { name: /changed file/ })).toBeNull();
+
+  // The subagent's run ends on its own: that alone settles the turn.
+  act(() => script.runThrough("tree-done"));
+  expect(await within(feed).findByRole("region", { name: "3 changed files" })).toBeTruthy();
+});
+
+test("the step in flight on the live line follows the step's own updates", async () => {
+  const app = harness();
+  app
+    .play({
+      thread: { id: "thread-run", workspaceId: "ace", title: "Run the tests", provider: "codex" },
+      steps: [
+        {
+          kind: "facts",
+          facts: [
+            rootAgent("codex"),
+            turn("root"),
+            message("root", "ask", "user", "Run the web tests."),
+            tool("root", "tests", {
+              kind: "shell",
+              title: "bun test",
+              detail: { kind: "shell", command: "bun test" },
+            }),
+          ],
+        },
+      ],
+    })
+    .runUntilBlocked();
+  await app.open("/t/thread-run");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText("Running bun test");
+
+  // The provider refines the command; the agent's own status doesn't change.
+  act(() =>
+    app.daemon.apply("thread-run", [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "tests",
+        draft: {
+          type: "tool_call",
+          call: { detail: { kind: "shell", command: "bun test apps/web" } },
+        },
+      },
+    ]),
+  );
+  expect(await within(feed).findByText("Running bun test apps/web")).toBeTruthy();
+});
+
+test("a finished log's time is fixed when the agent moved on, whatever settles later", async () => {
+  let now = 1_000;
+  const app = harness({ clock: () => now });
+  const script = app.play({
+    thread: { id: "thread-frozen", workspaceId: "ace", title: "Build", provider: "claude" },
+    steps: [
+      {
+        kind: "facts",
+        label: "started",
+        facts: [
+          rootAgent("claude"),
+          turn("root"),
+          message("root", "ask", "user", "Build it."),
+          tool("root", "build", {
+            kind: "shell",
+            title: "bun run build",
+            detail: { kind: "shell", command: "bun run build" },
+          }),
+        ],
+      },
+      {
+        kind: "facts",
+        label: "spoke",
+        facts: [message("root", "note", "assistant", "The build runs; meanwhile, the docs.")],
+      },
+      { kind: "facts", label: "settled", facts: [toolDone("root", "build")] },
+    ],
+  });
+  script.runThrough("started");
+  now = 11_000;
+  script.runThrough("spoke");
+  await app.open("/t/thread-frozen");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  expect(await within(feed).findByRole("button", { name: /^Worked for 10s/ })).toBeTruthy();
+
+  now = 101_000;
+  act(() => script.runThrough("settled"));
+  await waitFor(() =>
+    expect(
+      within(feed).getByRole("button", { name: /Ran bun run build|^Worked for/ }),
+    ).toBeTruthy(),
+  );
+  expect(within(feed).getByRole("button", { name: /^Worked for 10s/ })).toBeTruthy();
+});
+
+test("a question still waiting in an old turn keeps that turn open in a long thread", async () => {
+  const app = harness();
+  type Facts = Parameters<typeof app.daemon.apply>[1][number][];
+  // One step per turn, so each turn happens at its own time.
+  const turns: Facts[] = [];
+  for (let n = 1; n <= 14; n++) {
+    const steps: Facts = n === 1 ? [rootAgent("claude")] : [];
+    turns.push(steps);
+    steps.push(
+      { type: "turn.started", agent: "root", nativeTurnId: `t${n}`, trigger: "user" },
+      message("root", `ask-${n}`, "user", `Question ${n}`),
+    );
+    if (n === 1)
+      steps.push({
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "keep-reader",
+        blocking: false,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "keep",
+              text: "Keep the legacy flag reader?",
+              multiSelect: false,
+              allowOther: false,
+              options: [
+                { id: "yes", label: "Keep it" },
+                { id: "no", label: "Remove it" },
+              ],
+            },
+          ],
+        },
+      });
+    steps.push(message("root", `answer-${n}`, "assistant", `Answer ${n}`), {
+      type: "turn.ended",
+      agent: "root",
+      nativeTurnId: `t${n}`,
+      outcome: "completed",
+    });
+  }
+  app
+    .play({
+      thread: { id: "thread-old-question", workspaceId: "ace", title: "Flags", provider: "claude" },
+      steps: turns.map((list) => ({ kind: "facts" as const, facts: list })),
+    })
+    .runUntilBlocked();
+  await app.open("/t/thread-old-question");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  // Fourteen turns: the older ones fold, but not the one whose question still waits.
+  expect(
+    await within(feed).findByRole("button", { name: /^Turn 2: Question 2\. Show the turn$/ }),
+  ).toBeTruthy();
+  expect(
+    await within(feed).findByRole("article", { name: "Keep the legacy flag reader?" }),
+  ).toBeTruthy();
+  expect(within(feed).getByText("Answer 1")).toBeTruthy();
 });

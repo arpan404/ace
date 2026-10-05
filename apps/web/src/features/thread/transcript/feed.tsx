@@ -1,5 +1,6 @@
 import type { ThreadReader } from "@ace/client";
-import { arrayEqual, useItemOrder, useThread, type HistoryPager } from "@ace/client-react";
+import { useItemOrder, type HistoryPager } from "@ace/client-react";
+import { ledgerOf } from "@ace/ui-core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Suspense,
@@ -42,27 +43,39 @@ import { useDockShift, useGutter, useKeepPlace, useStayPinned, type Anchor } fro
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
+import { useWatched, type Watched } from "./use-watched.ts";
 import { useNewActivity } from "./use-new-activity.ts";
 
 const none: readonly string[] = [];
 const unsettledKeys = ["order", "interactions"] as const;
-const inFlight = new Set(["pending", "running", "awaiting_approval"]);
+interface Unsettled {
+  /** Steps still in flight (or awaiting approval) and the steps open requests came from. */
+  items: ReadonlySet<string>;
+  /** Requests still waiting on the person. */
+  requests: ReadonlySet<string>;
+}
+const settledNothing: Unsettled = { items: new Set(), requests: new Set() };
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+  a.size === b.size && [...a].every((id) => b.has(id));
+const sameUnsettled = (a: Unsettled, b: Unsettled) =>
+  sameSet(a.items, b.items) && sameSet(a.requests, b.requests);
 /**
- * Steps still in flight and the steps that asked open requests. Re-read as items arrive, so a
- * step that settles lets its turn fold at the next change; that only ever keeps a turn open.
+ * What must never fold away, from the thread's shared ledger (costs what changed): the steps in
+ * flight, each watched so its settling lets its turn fold, and the open requests.
  */
-function readUnsettled(reader: ThreadReader): readonly string[] {
-  const ids: string[] = [];
-  for (const id of reader.interactionIds()) {
-    const interaction = reader.interaction(id);
-    if (interaction?.state === "pending" && interaction.toolCallId)
-      ids.push(interaction.toolCallId);
+function readUnsettled(reader: ThreadReader): Watched<Unsettled> {
+  const ledger = ledgerOf(reader);
+  const flying = [...ledger.inFlight()];
+  const items = new Set(flying);
+  const requests = new Set<string>();
+  for (const interaction of ledger.pending()) {
+    requests.add(interaction.id);
+    if (interaction.toolCallId) items.add(interaction.toolCallId);
   }
-  for (const id of reader.order) {
-    const item = reader.item(id);
-    if (item?.type === "tool_call" && inFlight.has(item.call.status)) ids.push(id);
-  }
-  return ids;
+  return {
+    value: items.size || requests.size ? { items, requests } : settledNothing,
+    watch: flying.map((id) => `item:${id}`),
+  };
 }
 const nearEdge = 64;
 /** Room above a row brought into view, for the bars that float over the transcript's top. */
@@ -173,17 +186,20 @@ export function Feed(props: FeedProps) {
   const focus = jump.focus;
   const focusOrdinal = focus ? ordinalOf(focus.itemId) : undefined;
   // Turns with a step still running or a request still open never fold.
-  const unsettled = useThread(threadId, unsettledKeys, readUnsettled, arrayEqual) ?? none;
+  const unsettled =
+    useWatched(threadId, unsettledKeys, readUnsettled, sameUnsettled) ?? settledNothing;
+  const keep = useCallback(
+    (block: Block) =>
+      (block.kind === "question" && unsettled.requests.has(block.interactionId)) ||
+      blockItems(block).some((id) => unsettled.items.has(id)),
+    [unsettled],
+  );
   const open = useMemo(() => {
     const set = new Set(opened);
     if (focus && handled.current !== focus.nonce && focusOrdinal !== undefined)
       set.add(focusOrdinal);
-    for (const id of unsettled) {
-      const ordinal = ordinalOf(id);
-      if (ordinal !== undefined) set.add(ordinal);
-    }
     return set;
-  }, [opened, focus, focusOrdinal, unsettled, ordinalOf]);
+  }, [opened, focus, focusOrdinal]);
   // Live, every turn shows whole until the window is long; then the newest ones do. In a jumped
   // window the reader reads on from the turn they jumped to: it and every later turn show
   // whole, the turns before it fold.
@@ -196,8 +212,8 @@ export function Feed(props: FeedProps) {
       ? Math.min(jump.turn ?? Infinity, recent)
       : recent;
   const rows = useMemo(
-    () => transcriptRows(blocks, { ordinalOf, open, openFrom }),
-    [blocks, ordinalOf, open, openFrom],
+    () => transcriptRows(blocks, { ordinalOf, open, openFrom, keep }),
+    [blocks, ordinalOf, open, openFrom, keep],
   );
   const keys = useMemo(() => rows.map(rowKey), [rows]);
   const divider = useNewActivity(threadId, blocks, order, props.liveNewest);
@@ -325,6 +341,53 @@ export function Feed(props: FeedProps) {
   };
   useEffect(readTop);
 
+  // Rows above a jump's target measure only once they render, and the virtualizer aimed with
+  // estimates: keep re-aiming at the target for a few frames until the view holds still, so a
+  // jump lands on its row however its neighbours measure. The reader's own scrolling stops it.
+  const rowsNow = useRef(rows);
+  useLayoutEffect(() => {
+    rowsNow.current = rows;
+  }, [rows]);
+  const landing = useRef(0);
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const stop = () => {
+      landing.current++;
+    };
+    el.addEventListener("wheel", stop, { passive: true });
+    el.addEventListener("touchstart", stop, { passive: true });
+    el.addEventListener("keydown", stop);
+    return () => {
+      el.removeEventListener("wheel", stop);
+      el.removeEventListener("touchstart", stop);
+      el.removeEventListener("keydown", stop);
+    };
+  }, []);
+  const keepLanding = useCallback(
+    (key: string, itemId: string, align: "start" | "center") => {
+      const nonce = ++landing.current;
+      let frames = 0;
+      let still = 0;
+      let last = -1;
+      const step = () => {
+        const el = viewport.current;
+        if (landing.current !== nonce || !el || frames++ > 60 || still >= 3) return;
+        const index = rowsNow.current.findIndex((row) => row.key === key);
+        if (index < 0) return;
+        virtualizer.scrollToIndex(index, { align });
+        settle(virtualizer, el, placedUntil);
+        placedAt(anchor, virtualizer, el, rowsNow.current, index, itemId);
+        const at = el.scrollTop + virtualizer.getTotalSize();
+        still = at === last ? still + 1 : 0;
+        last = at;
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    },
+    [virtualizer],
+  );
+
   // A jump (or a search hit) brings its item into view once its row exists.
   useLayoutEffect(() => {
     if (!focus || handled.current === focus.nonce) return;
@@ -343,7 +406,8 @@ export function Feed(props: FeedProps) {
     // The jump's row is the reader's place from now on, so rows folding or sliding around it
     // (the window's turns arriving, say) keep it where it landed.
     placedAt(anchor, virtualizer, viewport.current, rows, index, focus.itemId);
-  }, [focus, rows, focusOrdinal, virtualizer, setPinned]);
+    if (key) keepLanding(key, focus.itemId, focus.query ? "center" : "start");
+  }, [focus, rows, focusOrdinal, virtualizer, setPinned, keepLanding]);
   useEffect(() => {
     if (!flash || flash.hit) return;
     const timer = setTimeout(() => setFlash(undefined), 1_600);
@@ -508,7 +572,8 @@ export function Feed(props: FeedProps) {
             ) : (
               <LiveFooter
                 threadId={threadId}
-                activity={liveBlock ? undefined : activity}
+                // A usage-limit pause is a transcript block, not a live line.
+                activity={liveBlock || activity?.tone === "paused" ? undefined : activity}
                 inline={inline}
               />
             )}
