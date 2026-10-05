@@ -1,3 +1,4 @@
+import { controlActions } from "./control-actions.ts";
 import { z } from "zod";
 import { AgentControlOperation, AgentControlResult, type McpAttribution } from "@ace/protocol";
 import type { Toolkit } from "./toolkits.ts";
@@ -15,25 +16,28 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
   const op = opSchema.value;
   return {
     op,
+    riskClass: controlActions[op].riskClass,
     name: op === "delegate_task" ? "delegate_task" : `ace_${op.replaceAll(".", "_")}`,
     description:
       op === "delegate_task"
-        ? "Delegate to an independent child thread on a chosen local provider, model and account. Set wait to observe its result or continue working. Completion results wake the parent in a batched turn. Request IDs make retries safe."
+        ? "Delegate to an independent child thread under the parent permission ceiling and delegation budget, on a chosen local provider, model and account. Set wait to receive its outcome in this tool result; otherwise completion results wake the parent as ace context in a batched turn. Request IDs make retries safe."
         : op === "thread.read_output"
           ? "Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread."
           : op === "thread.read"
             ? "Read thread metadata and a byte-budgeted transcript page. Use itemsBefore as the next before cursor. For truncated parts with source.streamId, use ace_thread_read_output to page retained bytes."
-            : `${op}: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.`,
+            : controlActions[op].description,
     input: z.strictObject(shape),
     output: AgentControlResult,
     capability:
-      op === "automation.manage"
-        ? ("automations" as const)
-        : op.startsWith("project.")
-          ? ("projects" as const)
-          : op === "delegate_task"
-            ? ("agents" as const)
-            : ("thread_control" as const),
+      controlActions[op].riskClass === "read-only"
+        ? null
+        : op === "automation.manage"
+          ? ("automations" as const)
+          : op.startsWith("project.")
+            ? ("projects" as const)
+            : op === "delegate_task"
+              ? ("agents" as const)
+              : ("thread_control" as const),
     timeoutMs: op === "delegate_task" || op === "thread.wait" ? 300000 : 10000,
   };
 });

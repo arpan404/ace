@@ -691,6 +691,18 @@ describe("in-app device ownership", () => {
     await delegate(h);
     const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
     devicesToolkit(h.service).register(registry);
+    expect(registry.action("device_ui_tree", { deviceId })).toMatchObject({
+      origin: "ace",
+      riskClass: "read-only",
+      access: "read",
+      description: expect.stringContaining(deviceId),
+    });
+    expect(registry.action("device_tap", { deviceId, x: 3, y: 4 })).toMatchObject({
+      origin: "ace",
+      riskClass: "external-effect",
+      access: "write",
+      description: expect.stringContaining("Tap"),
+    });
     // A second owner cannot replace the first toolkit's authorized bindings.
     expect(() => devicesToolkit(h.service).register(registry)).toThrow(
       "Invalid or duplicate tool name",

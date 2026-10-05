@@ -74,6 +74,7 @@ export async function startDaemonMcp(
   const server = await startMcpServer({ registry });
   return {
     url: server.url,
+    action: (name: string, input: unknown) => registry.action(name, input),
     providers: new McpProviderSessions(),
     /** Provider adapters own this lease, and end it or abort lifetime on every exit path. */
     openSession(scope: McpScope, lifetime: AbortSignal) {

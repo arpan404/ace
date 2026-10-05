@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderErrorDetails.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    }
+  },
+  "required": [
+    "code",
+    "provider"
+  ],
+  "type": "object"
+}

@@ -81,6 +81,186 @@
     },
     {
       "properties": {
+        "accountId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "childThreadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "origin": {
+          "const": "ace",
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/DelegationOutcome.json"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "phase": {
+          "enum": [
+            "created",
+            "running",
+            "cancelling",
+            "settled"
+          ],
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
+        "role": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "status": {
+          "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+        },
+        "title": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.started",
+          "type": "string"
+        },
+        "updatedAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "complete",
+        "type",
+        "origin",
+        "childThreadId",
+        "provider",
+        "title",
+        "role",
+        "phase",
+        "status",
+        "updatedAt",
+        "generation"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "delivery": {
+          "enum": [
+            "tool",
+            "ace-input"
+          ],
+          "type": "string"
+        },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "origin": {
+          "const": "ace",
+          "type": "string"
+        },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
+        "results": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/DelegationOutcome.json"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "type": {
+          "const": "delegation.settled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "complete",
+        "type",
+        "origin",
+        "results",
+        "delivery"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
@@ -193,6 +373,9 @@
         },
         "detail": {
           "type": "string"
+        },
+        "details": {
+          "$ref": "https://ace.local/protocol/v1/ProviderErrorDetails.json"
         },
         "executionSource": {
           "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"

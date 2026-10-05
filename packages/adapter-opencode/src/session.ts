@@ -69,6 +69,7 @@ export class OpenCodeSession implements ProviderSession {
       session: () => this.nativeSessionId,
       directory: () => this.ownership.sessions.get(this.nativeSessionId)?.directory ?? ctx.cwd,
       frame: this.emit,
+      correlate: ctx.onInputMessage,
       barrier: () => this.barrier(),
       uncertain: () => {
         if (this.closed) return;

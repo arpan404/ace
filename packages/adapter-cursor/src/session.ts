@@ -189,6 +189,7 @@ export async function openCursorSession(
           }
           active = true;
           try {
+            if (commandId) context.onInputMessage?.({ commandId, nativeId: commandId });
             await host.request("send", {
               operationId: operation,
               commandId: commandId ?? operation,

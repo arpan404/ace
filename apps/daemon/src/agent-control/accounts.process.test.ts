@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 import { AccountRegistry, createInstance } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { setup } from "./test-support.ts";
+import { scriptedModelInstance } from "../testing/models.ts";
 
 test("explicit exhausted or mismatched accounts are rejected without creating children and eligible accounts are retained", async () => {
   const db = new DatabaseSync(":memory:"),
@@ -64,6 +65,8 @@ test("explicit exhausted or mismatched accounts are rejected without creating ch
       observedAt: 1000,
       timeZone: "UTC",
     });
+    h.catalog.registerInstance(scriptedModelInstance("claude", h.home, "claude-eligible"));
+    await h.catalog.refresh({ instance: "claude-eligible" });
     const child = h.service.delegate(parent, {
       ...request,
       requestId: "eligible",

@@ -129,7 +129,15 @@ export class CursorTranslator implements Translator {
             type: "item.upsert",
             agent: this.root,
             item: `${namespace}:user:${event.commandId ?? event.segment}`,
-            draft: { type: "message", role: "user", parts: input.data, complete: true },
+            draft: {
+              type: "message",
+              role: "user",
+              parts: input.data,
+              complete: true,
+              ...(event.commandId && event.commandId.length <= 256
+                ? { nativeId: event.commandId }
+                : {}),
+            },
           });
         this.segment = event.segment;
         this.replacement = false;

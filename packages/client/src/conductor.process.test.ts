@@ -46,6 +46,20 @@ test("Deck watches reacquire a snapshot on reconnect and stop receiving after cl
   );
   const f = await setup(undefined, undefined, { registry });
   cleanup = f.cleanup;
+  const instance = {
+    id: "codex-cli-default",
+    provider: "codex" as const,
+    cwd: f.directory,
+    executable: "unused-scripted-cli",
+    loginRevision: "scripted",
+  };
+  f.daemon.models.registerInstance(instance);
+  await f.daemon.models.updateFromSession(instance, {
+    models: {
+      currentModelId: "scripted",
+      availableModels: [{ modelId: "scripted", name: "Scripted model" }],
+    },
+  });
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: f.directory, stdio: "ignore" });
   git("init", "-q", "-b", "main");
@@ -93,7 +107,8 @@ test("Deck watches reacquire a snapshot on reconnect and stop receiving after cl
   const decks = new ConductorClient(client, () => "deck-watch");
   const watch = decks.watch("watched");
   try {
-    await when(watch.run, (run) => run?.needsUser[0]?.kind === "plan");
+    await when(watch.run, (run) => run?.needsUser[0]?.kind === "plan" || !!run?.executionError);
+    expect(watch.run.getSnapshot()?.executionError).toBeUndefined();
     const startedAt = watch.run.getSnapshot()?.startedAt;
     faults.disconnect();
     await when(client.connectionState(), (state) => state === "reconnecting");

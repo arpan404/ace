@@ -1,3 +1,4 @@
+import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadLineage } from "./thread-transitions.ts";
 import { z } from "zod";
 import { AgentId, ItemId, ThreadId, Timestamp } from "./ids.ts";
@@ -62,6 +63,7 @@ export const AgentStatus = z.discriminatedUnion("state", [
       code: z.string().optional(),
       title: z.string().optional(),
       detail: z.string().optional(),
+      details: ProviderErrorDetails.optional(),
     }),
   }),
   z.object({
