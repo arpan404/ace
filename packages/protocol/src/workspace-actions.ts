@@ -135,8 +135,15 @@ export const WorkspaceCommands = [
       .string()
       .regex(/^[a-f0-9]{40,64}$/)
       .nullable(),
-    /** Commit only these files (a rename names both paths); every change when absent. */
-    paths: z.array(repoPath).min(1).max(gitStatusLimit).optional(),
+    /**
+     * Commit only these paths; every change when absent. A rename names both its paths, so a
+     * full `git.status` page can need twice its file count.
+     */
+    paths: z
+      .array(repoPath)
+      .min(1)
+      .max(2 * gitStatusLimit)
+      .optional(),
   }),
   z.object({
     type: z.literal("git.push"),

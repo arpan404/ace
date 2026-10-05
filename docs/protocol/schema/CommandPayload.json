@@ -719,7 +719,7 @@
             "type": "string",
             "x-ace-constraint": "Repository-relative path without NUL bytes."
           },
-          "maxItems": 500,
+          "maxItems": 1000,
           "minItems": 1,
           "type": "array"
         },

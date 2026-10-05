@@ -1,5 +1,6 @@
 import { FakeProjects } from "./projects.ts";
 import {
+  gitStatusLimit,
   ServerMessage,
   type GitStatusFile,
   type WorkspaceActionRequest,
@@ -39,11 +40,12 @@ export class FakeWorkspaceWire {
   setGitStatus(threadId: string, files: readonly GitStatusFile[]): void {
     this.gitFiles.set(threadId, files);
   }
+  /** Every file, sorted by path as git lists them (`git.status` pages the first 500). */
   gitStatus(threadId: string): readonly GitStatusFile[] {
     return (
       this.gitFiles.get(threadId) ??
       synthesizedStatus(this.context.thread(threadId)?.thread.details?.diff ?? emptyDiff)
-    );
+    ).toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   }
   scripts(workspaceId: string | undefined) {
     const names =
@@ -97,7 +99,11 @@ export class FakeWorkspaceWire {
             : op.op === "pr.status"
               ? { kind: "pr", status: this.forge.status(op.threadId) }
               : op.op === "git.status"
-                ? { kind: "gitStatus", files: this.gitStatus(op.threadId), truncated: false }
+                ? {
+                    kind: "gitStatus",
+                    files: this.gitStatus(op.threadId).slice(0, gitStatusLimit),
+                    truncated: this.gitStatus(op.threadId).length > gitStatusLimit,
+                  }
                 : op.op === "thread.details"
                   ? {
                       kind: "details",
@@ -186,12 +192,22 @@ export class FakeWorkspaceWire {
       if ((thread?.details?.head ?? null) !== payload.expectedHead)
         return { ok: false, error: "git_head_moved" };
       const commit = "a".repeat(40);
-      // Only the files named are committed; the rest stay uncommitted, as with git.
+      // Only the paths named are committed; the rest stay uncommitted, as with git. A rename
+      // named by one of its paths splits: the half not named stays (its old path a deletion,
+      // its new one an addition).
       const named = payload.paths && new Set(payload.paths);
       const left = named
-        ? this.gitStatus(payload.threadId).filter(
-            (file) => !named.has(file.path) && !(file.from && named.has(file.from)),
-          )
+        ? this.gitStatus(payload.threadId).flatMap((file): GitStatusFile[] => {
+            if (!file.from) return named.has(file.path) ? [] : [file];
+            const added = named.has(file.path);
+            const removed = named.has(file.from);
+            if (added && removed) return [];
+            if (!added && !removed) return [file];
+            const { from, ...rest } = file;
+            return added
+              ? [{ path: from, status: "deleted", additions: 0, deletions: 0, binary: false }]
+              : [{ ...rest, status: "added" }];
+          })
         : [];
       this.gitFiles.set(payload.threadId, left);
       this.context.update(payload.threadId, {

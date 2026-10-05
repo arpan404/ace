@@ -90,6 +90,60 @@ test("changed files list exactly what git status reports, and a commit can take 
   }
 });
 
+test("listing changed files writes nothing to the repository and stops at the cap", async () => {
+  const root = await repository();
+  const service = new GitService();
+  try {
+    const objects = async () => scalar(root, "count-objects", "-v");
+    await put(root, "tracked.txt", "changed\n");
+    for (let index = 0; index < 501; index++)
+      await put(root, `new/${String(index).padStart(3, "0")}.txt`, "one\ntwo\n");
+    const before = await objects();
+    const { files, truncated } = await service.changedFiles(root);
+    expect(await objects()).toBe(before);
+    expect(files).toHaveLength(500);
+    expect(truncated).toBe(true);
+    expect(files[0]).toMatchObject({ path: "new/000.txt", status: "untracked", additions: 2 });
+    expect((await service.changedFiles(root, 1000)).files.at(-1)).toMatchObject({
+      path: "tracked.txt",
+      status: "modified",
+      additions: 1,
+      deletions: 1,
+    });
+  } finally {
+    await service.close();
+  }
+});
+
+test("committing named files takes their names literally and accepts a rename's two paths per file", async () => {
+  const root = await repository({ "a.md": "a\n", "old.txt": "moved\n" });
+  const service = new GitService();
+  try {
+    // A file literally named "*.md" beside a.md, which a glob would also match.
+    await put(root, "*.md", "star\n");
+    await put(root, "a.md", "changed\n");
+    await git(root, "mv", "old.txt", "new.txt");
+    const { files } = await service.changedFiles(root);
+    expect(files.find((file) => file.path === "new.txt")).toMatchObject({
+      status: "renamed",
+      from: "old.txt",
+    });
+    await service.commit({
+      worktree: root,
+      expectedHead: await scalar(root, "rev-parse", "HEAD"),
+      message: "Star and rename",
+      paths: ["*.md", "new.txt", "old.txt", "new.txt"],
+    });
+    expect(
+      (await scalar(root, "show", "--name-status", "--format=", "-M", "HEAD")).split("\n"),
+    ).toEqual(["A\t*.md", "R100\told.txt\tnew.txt"]);
+    // a.md matched the glob but wasn't named: still uncommitted.
+    expect((await service.changedFiles(root)).files.map((file) => file.path)).toEqual(["a.md"]);
+  } finally {
+    await service.close();
+  }
+});
+
 test("push updates an existing remote branch and refuses detached HEAD", async () => {
   const root = await repository();
   const remote = join(await scratch(), "remote.git");

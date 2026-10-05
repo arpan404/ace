@@ -20,10 +20,13 @@ export const pickedByDefault = (files: readonly ChangedFile[]): ReadonlySet<stri
   new Set(files.filter((file) => file.status !== "untracked").map((file) => file.path));
 
 /** The paths a commit of `picked` names: a rename's old path too, so its removal goes with it. */
-export const pathsOf = (files: readonly ChangedFile[], picked: ReadonlySet<string>): string[] =>
-  files
-    .filter((file) => picked.has(file.path))
-    .flatMap((file) => (file.from ? [file.path, file.from] : [file.path]));
+export const pathsOf = (files: readonly ChangedFile[], picked: ReadonlySet<string>): string[] => [
+  ...new Set(
+    files
+      .filter((file) => picked.has(file.path))
+      .flatMap((file) => (file.from ? [file.path, file.from] : [file.path])),
+  ),
+];
 
 /**
  * The files a commit takes, exactly as `git status` lists them, each with a checkbox: what is

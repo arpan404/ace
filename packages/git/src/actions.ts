@@ -14,7 +14,8 @@ const commitPaths = z
       .refine((path) => !path.includes("\0")),
   )
   .min(1)
-  .max(500)
+  // 500 listed files, each a rename naming two paths.
+  .max(1000)
   .refine(
     (paths) => paths.reduce((sum, path) => sum + Buffer.byteLength(path) + 1, 0) <= maxPathBytes,
   );
@@ -36,7 +37,7 @@ export async function commitChanges(
   const expected = head.nullable().parse(options.expectedHead);
   const paths = options.paths === undefined ? undefined : commitPaths.safeParse(options.paths);
   if (paths && !paths.success)
-    throw new GitError("invalid_argument", "Name between 1 and 500 files to commit");
+    throw new GitError("invalid_argument", "Name between 1 and 1000 paths to commit");
   const root = await repository.root(options.worktree);
   return serial(root, async () => {
     const info = await repository.info(root);
@@ -47,12 +48,17 @@ export async function commitChanges(
       throw new GitError("conflicts", "Resolve conflicts before committing");
     // Literal pathspecs: a file named "*.ts" or ":(glob)x" means that file.
     const literal = { GIT_LITERAL_PATHSPECS: "1" };
-    const named = paths?.data ?? ["."];
-    await repository.cli.call(root, ["add", "--all", "--", ...named], {
-      write: true,
-      captureBytes: 65536,
-      env: literal,
-    });
+    const named = paths ? [...new Set(paths.data)] : ["."];
+    // Stage what the working tree changed among them; a path already staged (a rename's old
+    // name, a staged deletion) is in no worktree and `git add` would refuse it.
+    const changed = new Set([...status.unstaged.map((entry) => entry.path), ...status.untracked]);
+    const staging = paths ? named.filter((path) => changed.has(path)) : named;
+    if (staging.length)
+      await repository.cli.call(root, ["add", "--all", "--", ...staging], {
+        write: true,
+        captureBytes: 65536,
+        env: literal,
+      });
     await repository.cli.call(
       root,
       ["commit", "--file=-", ...(paths ? ["--only", "--", ...named] : [])],

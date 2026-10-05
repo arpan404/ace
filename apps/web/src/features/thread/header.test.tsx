@@ -516,3 +516,57 @@ test("snoozing from the ⋯ menu snoozes it on the daemon and confirms until whe
     view?.kind === "threads" && view.threads["thread-replay-cursor"]?.snoozedUntil,
   ).toBeGreaterThan(Date.now());
 });
+
+const renamed = (index: number) => ({
+  path: `src/moved/${String(index).padStart(3, "0")}.ts`,
+  from: `src/old/${String(index).padStart(3, "0")}.ts`,
+  status: "renamed" as const,
+  additions: 1,
+  deletions: 1,
+  binary: false,
+});
+
+test("a full page of renames commits in one go: each names both its paths", async () => {
+  const app = await openThread("checkout");
+  app.daemon.workspace.setGitStatus(
+    "thread-checkout",
+    Array.from({ length: 251 }, (_, index) => renamed(index)),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Commit" }).getAttribute("aria-disabled")).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  expect(await within(dialog).findByText("· 251 picked")).toBeTruthy();
+  await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
+  expect(await screen.findByText("Committed")).toBeTruthy();
+  expect(app.daemon.workspace.gitStatus("thread-checkout")).toEqual([]);
+});
+
+test("past 500 files the list says it is cut short, and commits only what it lists", async () => {
+  const app = await openThread("checkout");
+  app.daemon.workspace.setGitStatus(
+    "thread-checkout",
+    Array.from({ length: 501 }, (_, index) => ({
+      path: `src/file-${String(index).padStart(3, "0")}.ts`,
+      status: "modified" as const,
+      additions: 1,
+      deletions: 0,
+      binary: false,
+    })),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Commit" }).getAttribute("aria-disabled")).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  expect(await within(dialog).findByRole("button", { name: "500+ files" })).toBeTruthy();
+  expect(
+    within(dialog).getByText("Only the first 500 files are listed; the rest stay uncommitted."),
+  ).toBeTruthy();
+  await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
+  expect(await screen.findByText("Committed")).toBeTruthy();
+  expect(app.daemon.workspace.gitStatus("thread-checkout").map((file) => file.path)).toEqual([
+    "src/file-500.ts",
+  ]);
+});
