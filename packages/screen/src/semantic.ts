@@ -80,9 +80,10 @@ export async function actOnElement(
   target: ScreenTarget,
   allowlist: string[],
   action: ScreenUIActOptions,
+  beforeDispatch?: () => void,
 ) {
   requireTree(helper);
   return ScreenUIActResult.parse(
-    await helper.request({ op: "ui.act", target, allowlist, ...action }),
+    await helper.request({ op: "ui.act", target, allowlist, ...action }, beforeDispatch),
   );
 }

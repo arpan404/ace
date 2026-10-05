@@ -11,7 +11,7 @@ export function helperSession(helper: Helper, state: () => ScreenState): HelperP
     set capabilities(value) {
       helper.capabilities = value;
     },
-    request(command) {
+    request(command, beforeDispatch) {
       const current = state();
       const routed =
         helper.capabilities?.background === true
@@ -22,10 +22,10 @@ export function helperSession(helper: Helper, state: () => ScreenState): HelperP
               secureInputAllowed: current.secureInputAllowed,
             }
           : command;
-      return helper.request(routed);
+      return helper.request(routed, beforeDispatch);
     },
-    requestV2(command) {
-      return helper.requestV2(command);
+    requestV2(command, beforeDispatch) {
+      return helper.requestV2(command, beforeDispatch);
     },
   };
 }

@@ -18,7 +18,7 @@ export function executeSessionAction<T>(
   session: Session,
   actor: "human" | "agent",
   owner: string,
-  dispatch: (session: Session) => Promise<T>,
+  dispatch: (session: Session, validate: () => void) => Promise<T>,
   actionName: string,
 ): Promise<T> {
   runtime.authorize(session);
@@ -59,7 +59,7 @@ export function executeSessionAction<T>(
             "Helper cannot guarantee background input",
           );
         try {
-          const result = await dispatch(session);
+          const result = await dispatch(session, validate);
           if (actor === "agent") runtime.audit(auditState, actionName, "completed");
           return result;
         } catch (error) {

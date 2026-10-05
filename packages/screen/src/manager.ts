@@ -345,13 +345,17 @@ export class ScreenManager {
       id,
       actor,
       owner,
-      (session) => {
-        beforeDispatch?.();
+      (session, validate) => {
         return actOnElement(
           session.helper,
           session.state.target,
           bundles(session.state.target),
           action,
+          () => {
+            validate();
+            beforeDispatch?.();
+            validate();
+          },
         );
       },
       action.action,
@@ -369,15 +373,20 @@ export class ScreenManager {
       id,
       actor,
       owner,
-      (session) => {
+      (session, validate) => {
         if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
-        beforeDispatch?.();
         if (input.kind === "pointer.down") session.pointerDown = true;
-        return session.helper.request({ op: "input", input }).then((result) => {
-          if (input.kind === "pointer.up" || input.kind === "pointer.cancel")
-            session.pointerDown = false;
-          return result;
-        });
+        return session.helper
+          .request({ op: "input", input }, () => {
+            validate();
+            beforeDispatch?.();
+            validate();
+          })
+          .then((result) => {
+            if (input.kind === "pointer.up" || input.kind === "pointer.cancel")
+              session.pointerDown = false;
+            return result;
+          });
       },
       input.kind,
     );
@@ -393,11 +402,14 @@ export class ScreenManager {
     owner = "local",
     beforeDispatch?: () => void,
   ): Promise<void> {
-    await this.execute(id, actor, owner, (session) => {
+    await this.execute(id, actor, owner, (session, validate) => {
       if (session.helper.capabilities?.platform !== "macos")
         throw new Error("Window buttons need the macOS helper");
-      beforeDispatch?.();
-      return session.helper.request({ op: "button.press", name });
+      return session.helper.request({ op: "button.press", name }, () => {
+        validate();
+        beforeDispatch?.();
+        validate();
+      });
     });
   }
   async namedKey(
@@ -476,7 +488,12 @@ export class ScreenManager {
       id,
       actor,
       owner,
-      (session) => dispatchLegacyAction(session, action, beforeDispatch ?? (() => {})),
+      (session, validate) =>
+        dispatchLegacyAction(session, action, () => {
+          validate();
+          beforeDispatch?.();
+          validate();
+        }),
       action.kind,
     );
   }
@@ -500,8 +517,12 @@ export class ScreenManager {
       id,
       "agent",
       owner,
-      (session) =>
-        dispatchLegacyAction(session, legacyModelAction(session, owner, action), beforeDispatch),
+      (session, validate) =>
+        dispatchLegacyAction(session, legacyModelAction(session, owner, action), () => {
+          validate();
+          beforeDispatch();
+          validate();
+        }),
       action.kind,
     );
   }
@@ -509,7 +530,7 @@ export class ScreenManager {
     id: string,
     actor: "human" | "agent",
     owner: string,
-    dispatch: (session: Session) => Promise<T>,
+    dispatch: (session: Session, validate: () => void) => Promise<T>,
     actionName = "input",
   ): Promise<T> {
     return executeSessionAction(

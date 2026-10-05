@@ -126,15 +126,18 @@ function selectSession(id: string) {
 }
 const lines = createInterface({ input: process.stdin });
 let nativeActions = Promise.resolve();
-let gated = false;
+let gated = false,
+  readGated = false;
+let readCompletion = Promise.resolve();
 lines.on("line", (line) => {
   const request = ScreenHelperRequest.parse(JSON.parse(line));
   if (
-    process.env.ACTION_GATE_PORT &&
+    (process.env.ACTION_GATE_PORT || process.env.READ_GATE_PORT) &&
     ["input", "action", "ui.act", "button.press"].includes(request.op)
   ) {
     nativeActions = nativeActions.then(async () => {
-      if (!gated) {
+      await readCompletion;
+      if (process.env.ACTION_GATE_PORT && !gated) {
         gated = true;
         await new Promise<void>((resolve, reject) => {
           const control = connect(Number(process.env.ACTION_GATE_PORT), "127.0.0.1");
@@ -477,6 +480,21 @@ function processRequest(request: ScreenHelperRequest) {
   }
   saveSession();
   const reply = JSON.stringify({ version: request.version, id: request.id, ok: true, data });
+  if (request.op === "ui.tree" && process.env.READ_GATE_PORT && !readGated) {
+    readGated = true;
+    readCompletion = new Promise<void>((resolve, reject) => {
+      const control = connect(Number(process.env.READ_GATE_PORT), "127.0.0.1");
+      control.on("error", reject);
+      control.once("connect", () => control.write("observation started\n"));
+      control.once("end", () => {
+        console.log(reply);
+        resolve();
+      });
+      control.resume();
+    });
+    void readCompletion.catch(() => process.exit(1));
+    return;
+  }
   if (
     process.env.HOLD_PERMISSION === "1" &&
     request.op === "permissions" &&

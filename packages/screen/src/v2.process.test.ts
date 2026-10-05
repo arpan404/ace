@@ -1,3 +1,4 @@
+import { helperGate } from "./testing/gate.ts";
 import { stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { onTestFinished, expect, it } from "vitest";
@@ -271,12 +272,19 @@ it("malformed capabilities fail closed rather than silently downgrading to v1", 
 });
 
 it("approval revocation cannot return a tree that was pending when access was removed", async () => {
-  const f = await manager({ FAKE_V2: "1", HOLD_UI: "1" });
-  onTestFinished(f.close);
+  const gate = await helperGate();
+  const f = await manager({ FAKE_V2: "1", READ_GATE_PORT: gate.port });
+  onTestFinished(async () => {
+    gate.release();
+    await f.close();
+    await gate.close();
+  });
   const state = await ready(f.screen);
   const pending = expect(f.screen.uiTree(state.sessionId, {})).rejects.toThrow("approval");
-  expect((await f.screen.targets()).windows[0]?.title).toContain("held:true");
-  await f.screen.approve(target.bundleId, false);
+  await gate.reached;
+  const revoked = f.screen.approve(target.bundleId, false);
+  gate.release();
+  await revoked;
   await pending;
 });
 it("v2 stops capture before stalled publication and disable still terminates the idle host", async () => {

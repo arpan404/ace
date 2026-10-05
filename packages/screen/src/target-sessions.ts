@@ -155,31 +155,32 @@ export class TargetSessions {
       };
       const startingSession = session,
         startingHelper = helper;
-      await this.host.execute(
-        () => {
-          this.authorize(target, scope);
-          if (epoch !== this.policy.epoch || startingSession.state.lifecycle !== "starting")
-            throw new Error("Screen start cancelled");
-        },
-        async () => {
-          startingSession.nativeStarted = true;
-          if (startingHelper.capabilities?.platform === "windows") {
-            await startingHelper.requestV2({
+      const validateStart = () => {
+        this.authorize(target, scope);
+        if (epoch !== this.policy.epoch || startingSession.state.lifecycle !== "starting")
+          throw new Error("Screen start cancelled");
+      };
+      await this.host.execute(validateStart, async () => {
+        startingSession.nativeStarted = true;
+        if (startingHelper.capabilities?.platform === "windows") {
+          await startingHelper.requestV2(
+            {
               ...start,
               captureGeneration: startingSession.pixels.startGeneration(),
-            });
-            await startingSession.pixels.initialize();
-          } else {
-            const result = await startingHelper.request(start);
-            if (startingHelper.capabilities?.platform.startsWith("linux")) {
-              if (!result || typeof result !== "object" || !("capabilities" in result))
-                throw new Error("Missing capture capabilities");
-              startingHelper.capabilities = ScreenCapabilities.parse(result.capabilities);
-              startingSession.state.capabilities = startingHelper.capabilities;
-            }
+            },
+            validateStart,
+          );
+          await startingSession.pixels.initialize();
+        } else {
+          const result = await startingHelper.request(start, validateStart);
+          if (startingHelper.capabilities?.platform.startsWith("linux")) {
+            if (!result || typeof result !== "object" || !("capabilities" in result))
+              throw new Error("Missing capture capabilities");
+            startingHelper.capabilities = ScreenCapabilities.parse(result.capabilities);
+            startingSession.state.capabilities = startingHelper.capabilities;
           }
-        },
-      );
+        }
+      });
       this.authorize(target, scope);
       if (epoch !== this.policy.epoch || session.state.lifecycle !== "starting")
         throw new Error("Screen start cancelled");

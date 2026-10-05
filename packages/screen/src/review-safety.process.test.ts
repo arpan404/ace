@@ -1,3 +1,4 @@
+import { helperGate } from "./testing/gate.ts";
 import { expect, it, onTestFinished } from "vitest";
 import { createServer } from "node:net";
 import { readFile } from "node:fs/promises";
@@ -36,8 +37,6 @@ it("takeover discards another app's input waiting behind an acknowledged native 
     h.screen.input(b.sessionId, "agent", { kind: "text.type", text: "stale" }, "b"),
   ).rejects.toThrow("Controller changed");
   await blocked.promise;
-  // A read acknowledgement drains IPC without releasing the native gesture.
-  await h.screen.permissions();
   h.screen.controller(b.sessionId, "human");
   released.resolve();
   await drag;
@@ -114,4 +113,33 @@ it("concurrent starts reserve an app before helper startup finishes", async () =
   release.resolve(process.execPath);
   await refused;
   expect((await first).lifecycle).toBe("live");
+});
+
+it("takeover cancels an action queued behind a native observation after permissions passed", async () => {
+  const gate = await helperGate();
+  const h = await manager({ FAKE_V2: "1", READ_GATE_PORT: gate.port });
+  onTestFinished(async () => {
+    gate.release();
+    await h.close();
+    await gate.close();
+  });
+  const state = await ready(h.screen);
+  h.screen.controller(state.sessionId, "agent", "agent");
+  let observation: Promise<unknown> | undefined;
+  const unwatch = h.screen.watch((next) => {
+    if (next.sessionId === state.sessionId && !observation)
+      observation = h.screen.uiTree(state.sessionId, {});
+  });
+  const action = expect(
+    h.screen.input(state.sessionId, "agent", { kind: "text.type", text: "stale" }, "agent"),
+  ).rejects.toThrow("Controller changed");
+  await gate.reached;
+  h.screen.controller(state.sessionId, "human");
+  unwatch();
+  gate.release();
+  await observation;
+  await action;
+  expect(
+    (await h.screen.uiFind(state.sessionId, { query: { name: "Changes" } })).nodes[0]?.value,
+  ).toBe("0");
 });

@@ -28,7 +28,7 @@ export class AppLaunches {
       this.host.execute(validate, async () => {
         if (!helper.capabilities?.background)
           throw new HelperCommandError("foreground_required", "Helper cannot launch in background");
-        return helper.request({ op: "open.app", bundleId, allowlist: [bundleId] });
+        return helper.request({ op: "open.app", bundleId, allowlist: [bundleId] }, validate);
       }),
     );
     this.pending.add(operation);
