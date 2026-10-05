@@ -1,23 +1,24 @@
 import { contentHash, LruCache } from "@ace/ui-core";
-import { Lexer, type Token } from "marked";
+import type { Token } from "marked";
 import { highlight, type CodeToken } from "./highlight.ts";
 
 /*
- * Markdown as a list of top-level blocks, each keyed by the hash of its source. While a message
- * streams only its last block changes, so earlier blocks keep their key and their rendered
- * elements. Runs in the markdown worker; in place where there is no worker.
+ * Markdown as a list of top-level blocks. A streaming message's settled blocks never change
+ * once they cross to the page, so each keeps its object and its rendered elements; only the
+ * open blocks after them are new on each update. Built in the markdown worker; in place where
+ * there is no worker.
  */
 
 export interface MarkdownBlock {
-  /** Hash of the block's source, plus its rank among identical blocks of the document. */
-  key: string;
   token: Token;
-  /** Highlighted tokens of a fenced code block. */
-  code?: CodeToken[];
+  /** Highlighted tokens of a settled fenced code block. */
+  code?: CodeToken[] | undefined;
 }
 export interface MarkdownDoc {
-  hash: string;
-  blocks: MarkdownBlock[];
+  /** The settled blocks, then the open ones. */
+  blocks: readonly MarkdownBlock[];
+  /** How many of `blocks` are settled; the rest are still being written. */
+  settled: number;
 }
 
 const highlighted = new LruCache<string, CodeToken[]>({
@@ -36,21 +37,11 @@ export function highlightCached(code: string, lang: string | undefined): CodeTok
   return tokens;
 }
 
-export function markdownDoc(text: string, hash = contentHash(text)): MarkdownDoc {
-  const seen = new Map<string, number>();
-  const blocks: MarkdownBlock[] = [];
-  for (const token of Lexer.lex(text, { gfm: true, breaks: false })) {
-    if (token.type === "space" || token.type === "def") continue;
-    const source = contentHash(token.raw);
-    const rank = seen.get(source) ?? 0;
-    seen.set(source, rank + 1);
-    const block: MarkdownBlock = { key: `${source}#${rank}`, token };
-    if (token.type === "code" && typeof token.text === "string")
-      block.code = highlightCached(
-        token.text,
-        typeof token.lang === "string" ? token.lang : undefined,
-      );
-    blocks.push(block);
-  }
-  return { hash, blocks };
+/** A settled block: a fenced code block is highlighted once, here. */
+export function settledBlock(token: Token): MarkdownBlock {
+  if (token.type !== "code" || typeof token.text !== "string") return { token };
+  return {
+    token,
+    code: highlightCached(token.text, typeof token.lang === "string" ? token.lang : undefined),
+  };
 }

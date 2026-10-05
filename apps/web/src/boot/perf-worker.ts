@@ -1,5 +1,5 @@
 import { ClientHost, type PortLike } from "@ace/client-worker";
-import { LongThreadSoak, SoakDaemon, fakeTransport } from "@ace/fake-daemon";
+import { LongThreadSoak, SoakDaemon, fakeTransport, longMarkdownAnswer } from "@ace/fake-daemon";
 import { z } from "zod";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 
@@ -14,6 +14,8 @@ const Config = z.object({
   history: z.number().int().nonnegative().max(100_000_000),
   /** The synthetic five-day thread of a million items (ADR 0062) instead of the endless agent. */
   long: z.boolean().default(false),
+  /** Each exchange streams a long markdown answer (code, lists, a table) in small deltas. */
+  markdown: z.boolean().default(false),
 });
 let daemon: SoakDaemon | LongThreadSoak | undefined;
 let pumping = false;
@@ -49,13 +51,17 @@ if (isPort(scope)) {
   const port = scope;
   const host = new ClientHost({
     target(config) {
-      const { rate, history, long } = Config.parse(config);
+      const { rate, history, long, markdown } = Config.parse(config);
       return {
         key: "perf",
         create: () => {
           const soak = (daemon ??= long
             ? longThread()
-            : new SoakDaemon({ clock: () => Date.now(), history }));
+            : new SoakDaemon({
+                clock: () => Date.now(),
+                history,
+                ...(markdown ? { answer: { text: longMarkdownAnswer() } } : {}),
+              }));
           const client = createBrowserClient({
             deviceId: "web-perf-device",
             transport: () => fakeTransport(soak),
