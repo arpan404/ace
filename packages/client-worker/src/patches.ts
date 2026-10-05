@@ -45,12 +45,16 @@ export function agentLinks(reader: ThreadReader): AgentLinks {
   return { ids, children };
 }
 
+/** A reader's error as a mirror stores it: plain data that crosses to the tab. */
+const errorOf = ({ error }: { error: ThreadReader["error"] }) =>
+  error && { code: error.code, message: error.message };
+
 /** The value a thread key stands for, as a mirror stores it. */
 export function threadValue(reader: ThreadReader, key: string): unknown {
   const { kind, id } = splitKey(key);
   switch (kind) {
     case "error":
-      return reader.error && { code: reader.error.code, message: reader.error.message };
+      return errorOf(reader);
     case "thread":
       return reader.thread;
     case "queue":
@@ -88,43 +92,51 @@ export function threadValue(reader: ThreadReader, key: string): unknown {
   }
 }
 
-type Message = Extract<Item, { type: "message" }>;
-
-/**
- * Text `next` appended to `previous`'s last text part, when that is the only difference.
- * Every other field and part must be the same object, which is how the client's delta path
- * builds the next message; anything else is sent whole.
- */
-export function appendedText(previous: Item | undefined, next: Item | undefined) {
-  if (previous && next && previous.type === next.type && hasText(previous) && hasText(next))
-    return appendedField(previous, next);
-  if (previous?.type !== "message" || next?.type !== "message") return undefined;
-  for (const field of Object.keys(next) as (keyof Message)[])
-    if (field !== "parts" && !Object.is(previous[field], next[field])) return undefined;
-  const before = previous.parts;
-  const after = next.parts;
-  if (before.length !== after.length || !after.length) return undefined;
-  const last = after.length - 1;
-  for (let index = 0; index < last; index++)
-    if (!Object.is(before[index], after[index])) return undefined;
-  const old = before[last];
-  const now = after[last];
-  if (old?.type !== "text" || now?.type !== "text" || old.source !== now.source) return undefined;
-  if (now.text.length <= old.text.length || !now.text.startsWith(old.text)) return undefined;
-  return now.text.slice(old.text.length);
-}
-
 type TextItem = Extract<Item, { type: "reasoning" | "notice" }>;
 /** Reasoning and notices stream into one `text` field. */
 export function hasText(item: Item): item is TextItem {
   return item.type === "reasoning" || item.type === "notice";
 }
-function appendedField(previous: TextItem, next: TextItem): string | undefined {
-  for (const field of Object.keys(next) as (keyof TextItem)[])
-    if (field !== "text" && !Object.is(previous[field], next[field])) return undefined;
-  if (next.text.length <= previous.text.length || !next.text.startsWith(previous.text))
+
+/** What `now` adds to the end of `old`, when that is all that changed. */
+const gained = (old: string, now: string) =>
+  now.length > old.length && now.startsWith(old) ? now.slice(old.length) : undefined;
+
+/** Whether `next` holds `previous`'s values in every field but `field`. */
+const sameBut = (previous: Record<string, unknown>, next: Record<string, unknown>, field: string) =>
+  Object.keys(next).every((key) => key === field || Object.is(previous[key], next[key]));
+
+/**
+ * Text `next` appended to `previous`'s text (a message's last text part), when that is the
+ * only difference. Every other field and part must be the same object, which is how the
+ * client's delta path builds the next item; anything else is sent whole. For a message that
+ * path built, the reader vouches for the append, where comparing the texts would scan the
+ * whole message each frame.
+ */
+export function appendedText(
+  previous: Item | undefined,
+  next: Item | undefined,
+  reader: Pick<ThreadReader, "appended">,
+) {
+  if (!previous || !next || previous.type !== next.type) return undefined;
+  if (hasText(previous) && hasText(next))
+    return sameBut(previous, next, "text") ? gained(previous.text, next.text) : undefined;
+  if (previous.type !== "message" || next.type !== "message" || !sameBut(previous, next, "parts"))
     return undefined;
-  return next.text.slice(previous.text.length);
+  const before = previous.parts;
+  const after = next.parts;
+  const old = before.at(-1);
+  const now = after.at(-1);
+  if (
+    before.length !== after.length ||
+    after.some((part, at) => part !== now && part !== before[at])
+  )
+    return undefined;
+  if (old?.type !== "text" || now?.type !== "text" || old.source !== now.source) return undefined;
+  // Within one run of appends the text only grows.
+  return reader.appended?.(previous, next)
+    ? now.text.slice(old.text.length)
+    : gained(old.text, now.text);
 }
 
 /**
@@ -146,11 +158,12 @@ export function threadPatches(
     }
     const item = reader.item(id);
     const cut = reader.truncated(id);
-    const append = appendedText(sent.get(id), item);
+    const append = appendedText(sent.get(id), item, reader);
     if (item) sent.set(id, item);
     else sent.delete(id);
-    if (append !== undefined) patches.push({ k, append, cut });
-    else patches.push(item ? { k, v: item, cut } : { k, cut });
+    patches.push(
+      append !== undefined ? { k, append, cut } : item ? { k, v: item, cut } : { k, cut },
+    );
   }
   return patches;
 }
@@ -162,12 +175,7 @@ export function sidebarPatches(reader: SidebarReader, keys: Iterable<string>): P
     // The mirror derives `threads` from the entry and membership patches it applies.
     if (k === "threads") continue;
     const { kind, id } = splitKey(k);
-    const v =
-      kind === "ids"
-        ? reader.ids
-        : kind === "thread"
-          ? reader.thread(id)
-          : reader.error && { code: reader.error.code, message: reader.error.message };
+    const v = kind === "ids" ? reader.ids : kind === "thread" ? reader.thread(id) : errorOf(reader);
     patches.push(v === undefined ? { k } : { k, v });
   }
   return patches;

@@ -57,25 +57,38 @@ export interface SoakOptions {
   interactive?: boolean;
   /** Items of history made on demand below the live stream (a thread of this many items). */
   history?: number;
+  /**
+   * The answer each exchange streams, in deltas of `chunk` characters (20 by default), instead
+   * of `deltas` pieces of a one-line sentence.
+   */
+  answer?: { text: string; chunk?: number };
 }
 
 const answer =
   "The replay window now caps at 200 events, and the resume handshake carries lastAckedSeq so the server can drop frames the client already has. ";
 
-function exchange(deltas: number, interactive: boolean): Fact[] {
+/** The pieces an exchange streams its answer in. */
+function answerDeltas(options: SoakOptions): string[] {
+  if (options.answer) {
+    const { text, chunk = 20 } = options.answer;
+    if (!Number.isInteger(chunk) || chunk < 1)
+      throw new RangeError(`answer.chunk must be a positive integer, not ${chunk}`);
+    const pieces: string[] = [];
+    for (let at = 0; at < text.length; at += chunk) pieces.push(text.slice(at, at + chunk));
+    return pieces;
+  }
+  return Array.from({ length: options.deltas ?? 24 }, (_, n) =>
+    answer.slice((n * 24) % answer.length, ((n * 24) % answer.length) + 24),
+  );
+}
+
+function exchange(deltas: readonly string[], interactive: boolean): Fact[] {
   const facts: Fact[] = [
     turn("root"),
     message("root", "ask", "user", "Run the relay suite again and summarise what changed."),
     message("root", "answer", "assistant", "", false),
   ];
-  for (let n = 0; n < deltas; n++)
-    facts.push(
-      stream(
-        "root",
-        "answer",
-        answer.slice((n * 24) % answer.length, ((n * 24) % answer.length) + 24),
-      ),
-    );
+  for (const delta of deltas) facts.push(stream("root", "answer", delta));
   facts.push(
     finish("root", "answer"),
     tool("root", "test", {
@@ -160,7 +173,7 @@ export class SoakDaemon implements Host {
       { type: "thread.created", thread },
       ...host.fold(rootAgent("claude"), now),
     ];
-    const cycle = exchange(options.deltas ?? 24, options.interactive ?? false).flatMap((fact) =>
+    const cycle = exchange(answerDeltas(options), options.interactive ?? false).flatMap((fact) =>
       host.fold(fact, now),
     );
     this.template = JSON.stringify(cycle);
