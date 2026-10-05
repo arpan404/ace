@@ -1,4 +1,4 @@
-import { BellIcon, CardsIcon, ClockIcon, CubeIcon } from "@phosphor-icons/react";
+import { BellIcon, CardsIcon, ClockIcon, CubeIcon, HouseIcon } from "@phosphor-icons/react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 
@@ -12,22 +12,21 @@ export interface View {
   shortcut?: KeymapId;
 }
 
-/** A view with a row of its own in the sidebar. */
-export interface SidebarView extends View {
+/** A view with an icon of its own on the rail. */
+export interface RailView extends View {
   icon: IconGlyph;
 }
 
-/** Home is the thread list itself, reached by New thread, the wordmark and the list. */
-const home: View = {
-  id: "home",
-  label: "Home",
-  to: "/",
-  matches: ["/t/", "/new"],
-  shortcut: "goHome",
-};
-
-/** The sidebar's rows under New thread and Search. */
-export const sidebarViews: readonly SidebarView[] = [
+/** The rail's views, top to bottom; More (a menu) follows them. */
+export const railViews: readonly RailView[] = [
+  {
+    id: "home",
+    label: "Home",
+    icon: HouseIcon,
+    to: "/",
+    matches: ["/t/", "/new"],
+    shortcut: "goHome",
+  },
   {
     id: "activity",
     label: "Activity",
@@ -62,10 +61,10 @@ export const sidebarViews: readonly SidebarView[] = [
   },
 ];
 
-/** The less used places, a menu in the sidebar. */
+/** The less used places, a menu on the rail. */
 const more: View = { id: "more", label: "More", to: "/more", matches: ["/more"] };
 
-export const views: readonly View[] = [home, ...sidebarViews, more];
+export const views: readonly View[] = [...railViews, more];
 
 export function activeView(pathname: string): View["id"] | "settings" | undefined {
   if (pathname.startsWith("/settings")) return "settings";

@@ -9,7 +9,7 @@ import { Command, DeviceId } from "@ace/protocol";
 import { Client } from "../socket-test-support.ts";
 import { until } from "./test-support.ts";
 
-// Not executed (tests run at merge). Real daemon/log sink with an offline native boundary.
+// Real daemon/log sink with an offline native boundary.
 test("Codex exit evidence reaches the daemon debug log with code, signal and redacted stderr", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-codex-exit-log-"));
   const binary = join(home, "offline-codex.mjs");
@@ -29,7 +29,7 @@ test("Codex exit evidence reaches the daemon debug log with code, signal and red
         loginHint: "unused",
       },
     }),
-    { installed: true, auth: "logged_in", loginHint: "unused" },
+    { installed: true, version: "0.159.1", auth: "logged_in", loginHint: "unused" },
   );
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "debug" }),
@@ -78,8 +78,21 @@ test("Codex exit evidence reaches the daemon debug log with code, signal and red
         (message) => message.type === "commandResult" && message.commandId === "exit",
       ),
     ).toMatchObject({ ok: true });
-    await ended.promise;
-    stop();
+    const deadline = setTimeout(() => {
+      ended.reject(
+        new Error(
+          JSON.stringify(
+            daemon.store.listThreads().map((thread) => daemon.store.snapshotThread(thread.id)),
+          ),
+        ),
+      );
+    }, 10_000);
+    try {
+      await ended.promise;
+    } finally {
+      clearTimeout(deadline);
+      stop();
+    }
     await client.close();
     await daemon.close();
     const logs = await readFile(join(home, "logs", "ace.jsonl"), "utf8");

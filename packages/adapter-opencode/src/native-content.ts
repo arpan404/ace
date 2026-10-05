@@ -182,6 +182,7 @@ export function projected(state: NativeState, session: string, value: unknown): 
         item: `message:${session}:${message}`,
         draft: {
           type: "message",
+          ...(message && message.length <= 256 ? { nativeId: message } : {}),
           role: p.type === "user" ? "user" : "assistant",
           synthetic: p.type === "synthetic",
           parts: [{ type: "text", text: string(p.text) }],

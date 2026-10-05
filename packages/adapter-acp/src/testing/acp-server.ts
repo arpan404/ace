@@ -56,7 +56,13 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return;
     }
     const text = string(object(list(params["prompt"])[0])["text"]);
-    if (text === "eof") {
+    if (text === "user-echo") {
+      update({
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "echoed context" },
+      });
+      result(message["id"], { stopReason: "end_turn" });
+    } else if (text === "eof") {
       closeSync(1);
     } else if (text === "unknown") {
       result(message["id"], { stopReason: "future-paused" });

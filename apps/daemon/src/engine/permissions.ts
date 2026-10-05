@@ -204,7 +204,13 @@ export class Permissions {
               this.ceiling(state.threadId),
             )
           : this.effective(state.threadId);
-      if (mode === "ask") continue;
+      const target =
+        interaction.request.kind === "approval" ? interaction.request.target : undefined;
+      if (
+        (mode === "full-access" && state.config.provider !== "codex") ||
+        (mode === "ask" && (target?.origin !== "ace" || target.riskClass !== "read-only"))
+      )
+        continue;
       if (this.repo.reserved(interaction.id)) continue;
       const previous = this.repo.store.atomic((db) =>
         db
@@ -212,8 +218,6 @@ export class Permissions {
           .get(interaction.id),
       );
       if (previous) continue;
-      const target =
-        interaction.request.kind === "approval" ? interaction.request.target : undefined;
       let decision = reviewPermission({
         mode,
         ...(target ? { target } : {}),

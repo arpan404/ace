@@ -11,6 +11,35 @@ function info(id: string, parentID?: string, directory = "/one") {
     outcome: "succeeded",
   };
 }
+it("correlates host commands before native prompt frames and projects the same identity", async () => {
+  const h = await setup();
+  await h.session.send(
+    [
+      { type: "text", text: "Handoff context" },
+      { type: "text", text: "ace result" },
+    ],
+    "queue",
+    "ace-wake",
+  );
+  const identity = h.inputMessages[0];
+  if (!identity) throw new Error("Missing host correlation");
+  expect(identity.commandId).toBe("ace-wake");
+  const promptIndex = h.frames.findIndex(
+    (frame) =>
+      frame.dir === "send" &&
+      frame.channel === "http" &&
+      String(object(frame.data).path).endsWith("/prompt"),
+  );
+  expect(promptIndex).toBeGreaterThanOrEqual(identity.beforeFrame);
+  expect(Object.values(h.projection.view.items)).toContainEqual(
+    expect.objectContaining({
+      type: "message",
+      role: "user",
+      nativeId: identity.nativeId,
+      parts: [{ type: "text", text: "Handoff context\nace result" }],
+    }),
+  );
+});
 it("the installed boundary serves JSON readiness under a stdin lease and secrets stay out of frames", async () => {
   const h = await setup();
   await h.session.send([{ type: "text", text: "input" }], "queue");

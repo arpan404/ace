@@ -389,6 +389,7 @@ export async function openCodexSession(
       },
       getModel: () => model,
       userMessageId: io.userMessageId,
+      onInputMessage: ctx.onInputMessage,
       refreshQueue,
     }),
   };

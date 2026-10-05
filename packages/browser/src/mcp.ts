@@ -1,7 +1,55 @@
 import { z } from "zod";
 import { BrowserCommand } from "@ace/protocol";
+import type { ApprovalTarget } from "@ace/protocol";
 import type { BrowserToolkit } from "@ace/mcp-server";
 import type { BrowserService } from "./service.ts";
+const actions = {
+  navigate: {
+    riskClass: "external-effect",
+    description: "Navigate the approved browser to a URL.",
+  },
+  click: {
+    riskClass: "external-effect",
+    description: "Click the approved browser element identified by its semantic ref.",
+  },
+  type: {
+    riskClass: "external-effect",
+    description: "Type text into the approved browser element.",
+  },
+  press: { riskClass: "external-effect", description: "Press a key in the approved browser." },
+  scroll: {
+    riskClass: "external-effect",
+    description: "Scroll the approved browser by the requested coordinates.",
+  },
+  snapshot: {
+    riskClass: "read-only",
+    description: "Read the approved browser's bounded page snapshot and semantic refs.",
+  },
+  screenshot: { riskClass: "read-only", description: "Read a screenshot of the approved browser." },
+  evaluate: {
+    riskClass: "external-effect",
+    description: "Execute JavaScript in the approved browser page under its evaluate policy.",
+  },
+  wait_for: {
+    riskClass: "read-only",
+    description: "Wait for an approved browser element to become visible or hidden.",
+  },
+  logs: {
+    riskClass: "read-only",
+    description: "Read the approved browser's retained console logs.",
+  },
+  resize: {
+    riskClass: "external-effect",
+    description: "Change the approved browser viewport dimensions.",
+  },
+  emulate: {
+    riskClass: "external-effect",
+    description: "Change the approved browser's device emulation settings.",
+  },
+} satisfies Record<
+  BrowserCommand["action"],
+  { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
+>;
 
 /** Agents use the human-opened browser and its existing origin/evaluate policy. */
 export function browserToolkit(
@@ -14,7 +62,8 @@ export function browserToolkit(
         const action = command.shape.action.value;
         registry.registerContent({
           name: `ace_browser_${action}`,
-          description: `Run ${action} in this thread's approved ace browser. Element refs come from snapshot.`,
+          description: actions[action].description,
+          riskClass: actions[action].riskClass,
           input: z.strictObject(
             Object.fromEntries(Object.entries(command.shape).filter(([key]) => key !== "action")),
           ),

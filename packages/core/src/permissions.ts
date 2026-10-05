@@ -99,7 +99,20 @@ export function reviewPermission(input: {
     return { decision: "escalate", reason: "Physical workspace containment could not be verified" };
   if (mode === "read-only" && target.access !== "read")
     return { decision: "deny", reason: "Read-only mode does not permit this action" };
+  if (target.origin === "ace" && target.riskClass === "read-only")
+    return { decision: "approve", reason: target.description ?? "Read-only ace inspection" };
   if (mode === "ask") return { decision: "escalate", reason: "Ask mode requires a human decision" };
+  if (target.origin === "ace" && target.riskClass) {
+    if (target.riskClass === "external-effect")
+      return {
+        decision: "escalate",
+        reason: target.description ?? "ace action has external effects",
+      };
+    return {
+      decision: "approve",
+      reason: target.description ?? "Scoped ace thread control under inherited permissions",
+    };
+  }
   if (target.command !== undefined) {
     if (
       target.access !== "execute" ||

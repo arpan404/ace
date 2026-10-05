@@ -519,11 +519,7 @@ test.each(["ask", "read-only", "auto-review"] as const)(
 test("a child's applied ancestry-limited override stops showing pending after its ancestor tightens", async () => {
   const frames = scriptFrames();
   const h = await harness(
-    [
-      { on: "send", frames: [frames.frame(start, end)] },
-      { on: "send", frames: [frames.frame(start, end)] },
-      { on: "send", frames: [frames.frame(start, end)] },
-    ],
+    [{ on: "send", frames: [frames.frame(start, end)] }, { on: "close" }],
     frames,
     { permissionSettings: async () => "full-access" },
   );
@@ -543,19 +539,27 @@ test("a child's applied ancestry-limited override stops showing pending after it
       }),
       { parentThreadId: parent, permissionMode: "full-access" },
     );
+    expect(child.ok).toBe(true);
     if (!child.threadId) throw new Error("No child thread");
-    h.command({ type: "thread.permission.set", threadId: parent, permissionMode: "ask" });
-    h.command({
-      type: "thread.send",
-      threadId: parent,
-      input: [{ type: "text", text: "tighten" }],
-    });
+    expect(
+      h.command({ type: "thread.permission.set", threadId: parent, permissionMode: "ask" }).ok,
+    ).toBe(true);
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: parent,
+        input: [{ type: "text", text: "tighten" }],
+      }).ok,
+    ).toBe(true);
     await h.engine.flush();
-    h.command({
-      type: "thread.send",
-      threadId: child.threadId,
-      input: [{ type: "text", text: "continue" }],
-    });
+    expect(h.store.getThread(parent)?.permission?.effective).toBe("ask");
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: child.threadId,
+        input: [{ type: "text", text: "continue" }],
+      }).ok,
+    ).toBe(true);
     await h.engine.flush();
     expect(h.store.getThread(child.threadId)?.permission).toEqual({
       override: "full-access",
