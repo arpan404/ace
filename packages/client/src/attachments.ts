@@ -32,6 +32,7 @@ export async function attachmentBytes(
   const threadId = ThreadId.parse(input.threadId),
     sha256 = BlobHash.parse(input.sha256);
   const variant = input.variant ?? "thumbnail";
+  if (variant === "original" && input.maxBytes === undefined) throw new ClientError("limit");
   const max = input.maxBytes ?? 256 * 1024;
   if (!Number.isSafeInteger(max) || max <= 0 || max > 32 * 1024 * 1024)
     throw new ClientError("limit");

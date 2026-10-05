@@ -30,10 +30,21 @@ export async function providerImagePath(path: string, mime: string): Promise<str
   return alias;
 }
 export const previewLimit = 256 * 1024;
+export async function renderThumbnail(path: string): Promise<Buffer> {
+  return sharp(path, { limitInputPixels: 40_000_000, sequentialRead: true, animated: false })
+    .rotate()
+    .resize({ width: 256, height: 256, fit: "inside", withoutEnlargement: true })
+    .png()
+    .toBuffer();
+}
 /** Originals are read in bounded ranges; previews have independent byte and pixel bounds. */
 export class AttachmentBytes {
   private previews = 0;
   private cache = new Map<string, Buffer>();
+  private render: (path: string) => Promise<Buffer>;
+  constructor(render: (path: string) => Promise<Buffer> = renderThumbnail) {
+    this.render = render;
+  }
   async read(
     blob: { path: string; attachment: Attachment },
     variant: "original" | "thumbnail",
@@ -59,15 +70,7 @@ export class AttachmentBytes {
       this.previews++;
       try {
         let data = this.cache.get(blob.attachment.sha256);
-        data ??= await sharp(blob.path, {
-          limitInputPixels: 40_000_000,
-          sequentialRead: true,
-          animated: false,
-        })
-          .rotate()
-          .resize({ width: 256, height: 256, fit: "inside", withoutEnlargement: true })
-          .png()
-          .toBuffer();
+        data ??= await this.render(blob.path);
         requireContext(data.length <= previewLimit, "quota", "Thumbnail exceeds byte limit");
         this.cache.delete(blob.attachment.sha256);
         this.cache.set(blob.attachment.sha256, data);

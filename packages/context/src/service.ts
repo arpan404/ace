@@ -21,6 +21,8 @@ import {
 } from "./projection.ts";
 
 export interface ContextServiceOptions extends UploadOptions {
+  /** Decoder I/O boundary; production defaults to the bounded Sharp renderer. */
+  renderThumbnail?(path: string): Promise<Buffer>;
   /** Logical project root used to authorize draft adoption into isolated worktrees. */
   threadWorkspaceRoot?(id: string): string | undefined | Promise<string | undefined>;
   workspaceRoot?(id: string): string | undefined | Promise<string | undefined>;
@@ -33,11 +35,12 @@ export interface ContextServiceOptions extends UploadOptions {
 }
 export class ContextService {
   readonly uploads: UploadStore;
-  private attachmentBytes = new AttachmentBytes();
+  private attachmentBytes: AttachmentBytes;
   private workspaces = new WorkspaceCache();
   private options: ContextServiceOptions;
   private constructor(options: ContextServiceOptions, uploads: UploadStore) {
     this.options = options;
+    this.attachmentBytes = new AttachmentBytes(options.renderThumbnail);
     this.uploads = uploads;
   }
   static async open(options: ContextServiceOptions): Promise<ContextService> {

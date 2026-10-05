@@ -5,6 +5,7 @@ import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
 import { allows } from "./devices.ts";
+import { attachmentResponse } from "./attachment-response.ts";
 
 /** Bearer-only reads share socket scope checks. URLs contain content ids, never credentials. */
 export function attachmentsHttp(
@@ -78,7 +79,7 @@ export function attachmentsHttp(
         response.end();
         return;
       }
-      const read = options.context?.readAttachment;
+      const read = options.context?.readAttachment?.bind(options.context);
       if (!read) {
         response.statusCode = 503;
         response.end();
@@ -90,11 +91,15 @@ export function attachmentsHttp(
         return;
       }
       active++;
+      const budget = attachmentResponse(
+        response,
+        options.runtime?.delay ? { delay: options.runtime.delay } : undefined,
+      );
       try {
         const hash = match[2],
           variant = match[3] === "thumbnail" ? "thumbnail" : "original";
         // Authorize and validate ownership even for HEAD and conditional requests.
-        const first = await read(device.id, thread, hash, variant, 0, 65536, allowed);
+        const first = await budget.wait(read(device.id, thread, hash, variant, 0, 65536, allowed));
         if (first.bytes > 32 * 1024 * 1024)
           throw new ContextError("quota", "Attachment exceeds response limit");
         const etag = `"${hash}-${variant}-v1"`;
@@ -141,36 +146,30 @@ export function attachmentsHttp(
           const chunk =
             offset === 0
               ? first
-              : await read(
-                  device.id,
-                  thread,
-                  hash,
-                  variant,
-                  offset,
-                  Math.min(65536, end - offset),
-                  allowed,
+              : await budget.wait(
+                  read(
+                    device.id,
+                    thread,
+                    hash,
+                    variant,
+                    offset,
+                    Math.min(65536, end - offset),
+                    allowed,
+                  ),
                 );
           if (!allowed()) throw new ContextError("forbidden", "Device access revoked");
           const data = chunk.data.subarray(0, end - offset);
           if (!data.length) throw new Error("Attachment read made no progress");
           offset += data.length;
-          if (!response.write(data))
-            await new Promise<void>((resolve) => {
-              const done = () => {
-                response.off("drain", done);
-                response.off("close", done);
-                resolve();
-              };
-              response.once("drain", done);
-              response.once("close", done);
-            });
+          if (!response.write(data)) await budget.drain();
         }
-        response.end();
+        await budget.end();
       } finally {
+        budget.close();
         active--;
       }
     })().catch((error: unknown) => {
-      if (response.headersSent) {
+      if (response.headersSent || response.destroyed) {
         response.destroy();
         return;
       }

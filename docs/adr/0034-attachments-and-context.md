@@ -89,9 +89,16 @@ an explicit export-to-PNG/JPEG message. Animated containers remain rejected.
 
 User message items gain `attachments` metadata with `sha256` as the content id,
 name, MIME, byte size, dimensions and `thumbnailAvailable`. The engine replaces
-verified attachment echoes with that metadata and removes the corresponding raw
-user payload, which also contained the provider-local path or inline original.
-Unrelated provider data still follows the lenient decoding rule.
+verified attachment echoes with that metadata. Matched path, URI and base64 fields
+in native user envelopes become content-id references; unrelated native fields
+remain available for debugging. Claude image-only envelopes also produce a user
+item, and OpenCode prompt evidence retains its file parts for correlation.
+
+Attachment metadata and its originating intent id are committed to an indexed
+SQLite table before provider send/admission. Native resume resolves each hash
+from that table before accepting its echo, including a crash before any user
+item was stored. Actor construction reads no transcript bodies and performs no
+attachment-history scan; per-echo lookups use the thread/hash primary key.
 
 `context.request` gains `attachment.read`. Reads are thread scoped, require read
 permission, and return at most 64 KiB with offset, total bytes, MIME and EOF. The
@@ -120,3 +127,16 @@ Fake daemons retain uploaded bytes and return small original fixtures as preview
 `ServicesSeed.attachmentImages` seeds an orange PNG by thread id; `fixtureImage`
 exports its content id for UI fixtures. Production size and authorization guarantees
 belong to the real daemon, not the fake image codec.
+
+HTTP admission includes a 30-second absolute response deadline, using the injected
+delivery timer. Expiry or transport close releases the slot while a storage read
+or a socket drain is pending. Each completed wait detaches its listener; previous
+chunks are not retained by a shared unresolved close promise. WebSocket reads,
+HTTP reads and relay reads all recheck current thread access after asynchronous
+work. Originals require an explicit `maxBytes` budget in the client helper.
+
+Review regressions and benchmark definitions are written but not executed under
+the owner policy. `apps/daemon/bench/attachments.ts` reports actor-open/indexed
+lookup latency at multiple history sizes, preview/original CPU time and RSS.
+Numbers and runtime assertions need run at merge. Client rendering is a separate
+UI follow-up: metadata must be displayed using the connection that owns the item.

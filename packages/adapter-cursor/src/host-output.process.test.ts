@@ -15,6 +15,12 @@ import {
 } from "./index.ts";
 
 it("the SDK host admits large normal tool results through blobs and output chunks before bounded IPC", async () => {
+  const imageData = (
+    await (
+      await import("node:fs/promises")
+    ).readFile(new URL("../../context/fixtures/colours.png", import.meta.url))
+  ).toString("base64");
+
   const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-large-host-")));
   const terminal = Promise.withResolvers<void>(),
     output = "line\n".repeat(209716);
@@ -123,12 +129,12 @@ it("the SDK host admits large normal tool results through blobs and output chunk
       commandId: "command",
       input: [
         { type: "text", text: "synthetic" },
-        { type: "image", mimeType: "image/png", url: "data:image/png;base64,YWJj" },
+        { type: "image", mimeType: "image/png", url: `data:image/png;base64,${imageData}` },
       ],
     });
     expect(sdkInput).toEqual({
       text: "synthetic",
-      images: [{ url: "data:image/png;base64,YWJj" }],
+      images: [{ url: `data:image/png;base64,${imageData}` }],
     });
     expect(Object.values(state.items).find((item) => item.type === "tool_call")).toMatchObject({
       complete: true,

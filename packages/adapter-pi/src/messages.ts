@@ -1,6 +1,5 @@
 import type { Fact, Key } from "@ace/core";
 import { obj, str, list } from "./native.ts";
-import { resultText } from "./tools.ts";
 export type MessageOutcome = "completed" | "failed" | "interrupted";
 const raw = (data: unknown) => [{ type: str(obj(data).type) || "message_end", data }];
 /** Each admitted envelope is retained once; subsequent items retain only their native block. */
@@ -88,7 +87,12 @@ export function messageFacts(input: {
         type: "message",
         role: "user",
         complete: true,
-        parts: [{ type: "text", text: typeof m.content === "string" ? m.content : resultText(m) }],
+        parts:
+          typeof m.content === "string"
+            ? [{ type: "text", text: m.content }]
+            : list(m.content)
+                .filter((block) => obj(block).type === "text")
+                .map((block) => ({ type: "text", text: str(obj(block).text) })),
         raw: raw(input.data),
       },
     });

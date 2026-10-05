@@ -391,18 +391,24 @@ it("sends wait behind recovery and an unowned root cannot keep that barrier open
 });
 
 it("native OpenCode URI attachments embed the verified image MIME and bytes", async () => {
+  const imageData = (
+    await (
+      await import("node:fs/promises")
+    ).readFile(new URL("../../context/fixtures/colours.png", import.meta.url))
+  ).toString("base64");
+
   const h = await setup();
   await h.session.send(
     [
       { type: "text", text: "inspect" },
-      { type: "image", mimeType: "image/png", url: "data:image/png;base64,YWJj" },
+      { type: "image", mimeType: "image/png", url: `data:image/png;base64,${imageData}` },
     ],
     "queue",
   );
   const prompt = array(await h.control("/test/requests"))
     .map(object)
     .find((r) => String(r.path).endsWith("/prompt"));
-  expect(object(prompt?.body).files).toEqual([{ uri: "data:image/png;base64,YWJj" }]);
+  expect(object(prompt?.body).files).toEqual([{ uri: `data:image/png;base64,${imageData}` }]);
   await expect(
     h.session.send([{ type: "file", mimeType: "image/png", path: "/tmp/extensionless" }], "queue"),
   ).rejects.toThrow();

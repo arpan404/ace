@@ -36,7 +36,7 @@ Other operations are `upload.cancel`, `attachment.list`, `attachment.release`, `
 
 Local token-file clients have admin rights. Remote `read` permits status, attachment listings, mention completion and resolution; `operate` permits upload mutations and attachment release; `admin` includes both. A normal composer needs both read and operate. Every operation also checks thread access. Remote transport uses the merged pairing/ticket/pinned-TLS service. There is no separate upload HTTP endpoint.
 
-Errors and diagnostics use `ContextErrorCode`: quota, busy, forbidden, not_found, offset, hash_mismatch, invalid_image, outside_workspace, ignored, binary, truncated, unsupported and invalid_request. Unsupported provider input produces a diagnostic naming the file and provider. Binary mentions produce a diagnostic and validated path reference during composition.
+Errors and diagnostics use `ContextErrorCode`: quota, busy, forbidden, not_found, offset, hash_mismatch, invalid_image, outside_workspace, ignored, binary, truncated, unsupported and invalid_request. Unsupported provider input produces a diagnostic naming the file and provider. Unsupported binary mentions produce a diagnostic naming the provider limitation without a daemon path.
 
 ## Bounds and durability
 
@@ -73,3 +73,9 @@ Providers receive MIME-derived local filenames or native inline image content.
 HEIC and animated images fail explicitly. Unsupported provider media produce a
 visible diagnostic instead of a path reference. Previews alone use a bounded Sharp
 raster decode, with dimensions, concurrency, byte and cache limits documented in ADR 0034.
+
+Native user image echoes retain metadata across restart through the daemon’s
+indexed input correlations. Matched raw attachment payload fields become content
+ids; unrelated provider fields are preserved. HTTP downloads have a 30-second
+response deadline, covering storage waits and backpressure. WSS reads recheck
+current thread permission after asynchronous storage/decoding.

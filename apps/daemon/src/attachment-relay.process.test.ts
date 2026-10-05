@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
+import { imageSize } from "image-size";
 import { attachmentBytes } from "@ace/client";
 import { ContextService } from "@ace/context";
 import { ContextResult, DeviceId } from "@ace/protocol";
@@ -113,6 +114,12 @@ test("paired relay readers resolve exact attachment bytes and previews while oth
     const preview = await attachmentBytes(r.connection, { threadId: thread.id, sha256 });
     expect(preview.bytes.length).toBeLessThan(256 * 1024);
     expect(preview.mimeType).toBe("image/png");
+    const dimensions = imageSize(preview.bytes);
+    expect(dimensions.type).toBe("png");
+    expect(dimensions.width).toBeGreaterThan(0);
+    expect(dimensions.width).toBeLessThanOrEqual(256);
+    expect(dimensions.height).toBeGreaterThan(0);
+    expect(dimensions.height).toBeLessThanOrEqual(256);
     await expect(
       attachmentBytes(r.connection, { threadId: "other-thread", sha256 }),
     ).rejects.toThrow("permission");

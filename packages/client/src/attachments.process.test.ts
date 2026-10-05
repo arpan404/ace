@@ -135,9 +135,9 @@ test("draft upload becomes a path-free user item and this daemon connection reso
           thumbnailAvailable: true,
         },
       ],
-      raw: [],
     });
     expect(JSON.stringify(message)).not.toContain(f.directory);
+    expect(JSON.stringify(message)).not.toContain(bytes.toString("base64"));
     const original = await client.attachmentBytes({
       threadId: created.threadId,
       sha256,
