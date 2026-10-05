@@ -139,60 +139,21 @@
   "apps/web/src/features/more/more-sidebar.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/panels/agents/agent-tab.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/panels/agents/agents-tab.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/panels/changes/changes-toolbar.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/panels/changes/file-diff.tsx": {
-    "text-size": 4,
-    "radius": 1
-  },
-  "apps/web/src/features/panels/changes/file-tree.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/panels/changes/line-comment.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/features/panels/changes/review-bar.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/panels/files/file-tab.tsx": {
     "bare-outline": 1
-  },
-  "apps/web/src/features/panels/files/file-toolbar.tsx": {
-    "radius": 1
   },
   "apps/web/src/features/panels/files/file-tree.tsx": {
     "bare-outline": 1
   },
   "apps/web/src/features/panels/files/quick-open.tsx": {
-    "text-size": 2,
+    "text-size": 1,
     "bare-outline": 1
-  },
-  "apps/web/src/features/panels/launcher/launcher-tab.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/panels/logs/daemon-log.tsx": {
-    "text-size": 3
-  },
-  "apps/web/src/features/panels/logs/logs-tab.tsx": {
-    "text-size": 1
   },
   "apps/web/src/features/panels/terminal/find-bar.tsx": {
-    "text-size": 1,
     "bare-outline": 1
-  },
-  "apps/web/src/features/panels/terminal/sessions-menu.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/panels/terminal/shell-resource.tsx": {
-    "text-size": 1,
-    "radius": 1
   },
   "apps/web/src/features/panels/terminal/terminal-view.tsx": {
     "radius": 1
@@ -240,22 +201,11 @@
   "apps/web/src/features/shell/screen.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/features/shell/workspace/count-mark.tsx": {
-    "text-size": 1,
-    "radius": 1
-  },
-  "apps/web/src/features/shell/workspace/open-tabs.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/shell/workspace/tab-content.tsx": {
     "bare-outline": 1
   },
   "apps/web/src/features/shell/workspace/tab-item.tsx": {
-    "radius": 2,
     "bare-outline": 1
-  },
-  "apps/web/src/features/shell/workspace/workspace.tsx": {
-    "radius": 1
   },
   "apps/web/src/features/skills/install-plugin.tsx": {
     "text-size": 1
@@ -275,9 +225,6 @@
   },
   "apps/web/src/features/thread/composer/suggestion-list.tsx": {
     "text-size": 2
-  },
-  "apps/web/src/features/thread/header/header-actions.tsx": {
-    "text-size": 1
   },
   "apps/web/src/features/thread/header/summary-body.tsx": {
     "text-size": 1

@@ -60,6 +60,33 @@ export const budgets = {
     /** Retained page heap growth from the first round to the last. */
     pageGrowthMb: 4,
   },
+  markdownStream: {
+    /** Seconds of streaming measured (PERF_SECONDS overrides): one whole answer. */
+    seconds: 11,
+    /** Fake-daemon deltas per second, 20 characters each: 4 KB of markdown a second. */
+    eventsPerSecond: 200,
+    /** The answer must reach this size inside the window, or the run measured too little. */
+    answerKb: 30,
+    /** Input to next paint, p95, while typing as the answer streams (40–56 ms measured). */
+    interactionP95Ms: 100,
+    /** No long task at all: the browser reports only tasks over 50 ms. */
+    longestTaskMs: 50,
+    /**
+     * Median markdown worker time per update in the answer's last quarter over its first: work
+     * per update follows the open block, not the answer (1.0 measured; 4.7 when every update
+     * lexed the whole answer).
+     */
+    workerGrowth: 3,
+    /** Medians under one tick of the worker's clock (0.1 ms) count as one tick. */
+    workerFloorMs: 0.1,
+    /** The page's main-thread busy time per drawn frame (2.6 ms measured; 3.9 before). */
+    mainMsPerFrame: 4,
+    /**
+     * Blocks whose DOM node was replaced while the answer streamed: only an open block that
+     * changes kind (a header line becoming a table) is replaced (9–10 measured; 430 before).
+     */
+    remounts: 20,
+  },
   browser: {
     /** Fake-daemon events per second streamed while interacting. */
     eventsPerSecond: 5_000,

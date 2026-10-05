@@ -57,6 +57,7 @@ import { FakeOutputStore } from "./output-store.ts";
 import type { FakeBrowser } from "./browser.ts";
 import type { FakeTerminals } from "./terminals.ts";
 import type { FakeProjects } from "./projects.ts";
+import type { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
 import {
   drainQueue,
@@ -195,6 +196,10 @@ export class FakeDaemon implements Host {
   /** The host folders and project catalog behind `projects.request` and project commands. */
   get projects(): FakeProjects {
     return this.servicesWire.workspace.projects;
+  }
+  /** Threads' checkouts behind `workspace.request` and the git commands (`git.status`). */
+  get workspace(): Pick<FakeWorkspaceWire, "gitStatus" | "setGitStatus"> {
+    return this.servicesWire.workspace;
   }
   /** The browser and previews clients reach through `browser.*` and `preview.request`. */
   get browser(): FakeBrowser {
@@ -658,6 +663,9 @@ export class FakeDaemon implements Host {
     if (!this.canManageProjects(command.deviceId))
       return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
     if (command.payload.type !== "workspace.clone") return Promise.resolve(this.command(command));
+    // `refuseCommands` covers clones too: a clone Git refuses (sign-in, network) fails at once.
+    const refusal = this.refusals.get(command.payload.type);
+    if (refusal) return Promise.resolve({ commandId: command.id, ok: false, error: refusal });
     const prior = this.receipts.get(command.id);
     if (prior)
       return Promise.resolve(

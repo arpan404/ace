@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitStatusFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "additions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "binary": {
+      "default": false,
+      "type": "boolean"
+    },
+    "deletions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "from": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Repository-relative path without NUL bytes."
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Repository-relative path without NUL bytes."
+    },
+    "status": {
+      "enum": [
+        "added",
+        "modified",
+        "deleted",
+        "renamed",
+        "untracked"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "status",
+    "additions",
+    "deletions"
+  ],
+  "type": "object"
+}

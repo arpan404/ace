@@ -1,9 +1,9 @@
 /*
  * How wide each tab of a strip is drawn. The showing tab keeps its whole title (up to the cap).
- * Short of room, the others first narrow evenly down to a readable title; then the pinned tools
- * (Changes, Agents) fold to their icons together, then the other tabs, furthest from the showing
- * one first. Only once every other tab is an icon does the strip scroll. So a strip has at most
- * two looks at once: titled tabs of one width, and icons.
+ * Short of room, the others first narrow evenly down to a readable title; then a badge gives way
+ * to its dot (Changes' diff stat), then the pinned tools (Changes, Agents) fold to their icons
+ * one at a time, the last first, then the other tabs, furthest from the showing one first. Only
+ * once every other tab is an icon does the strip scroll.
  */
 export const tabSizes = {
   /** No tab grows past this, however long its title. */
@@ -22,8 +22,10 @@ export interface TabMeasure {
   natural: number;
   /** Narrower than this the tab folds to its icon (a badge leaves less room for the title). */
   least?: number;
-  /** A pinned per-thread tool (Changes, Agents): these fold first, and together. */
+  /** A pinned per-thread tool (Changes, Agents): these fold first. */
   tool?: boolean;
+  /** Pixels its badge frees when it gives way to its dot. */
+  badge?: number;
 }
 
 export interface TabFit {
@@ -31,6 +33,10 @@ export interface TabFit {
   widths: ReadonlyMap<string, number>;
   /** Tabs drawn as their icon alone. */
   icons: ReadonlySet<string>;
+  /** Titled tabs whose badge shows as its dot. */
+  dots: ReadonlySet<string>;
+  /** Titled tabs drawn narrower than their title (their tooltip carries it). */
+  clipped: ReadonlySet<string>;
 }
 
 /** The cap that shares `budget` among `wants`: each gets its want or the cap, whichever is less. */
@@ -54,22 +60,27 @@ export function fitTabs(
   active: string | undefined,
   available: number,
 ): TabFit {
-  const want = (tab: TabMeasure) => Math.ceil(Math.min(tab.natural, tabSizes.max));
+  const icons = new Set<string>();
+  const dots = new Set<string>();
+  const saved = (tab: TabMeasure) => (dots.has(tab.key) ? (tab.badge ?? 0) : 0);
+  const natural = (tab: TabMeasure) => tab.natural - saved(tab);
+  const want = (tab: TabMeasure) => Math.ceil(Math.min(natural(tab), tabSizes.max));
   const room = available - tabSizes.gap * Math.max(0, tabs.length - 1);
   const shown = tabs.find((tab) => tab.key === active);
   const others = tabs.filter((tab) => tab !== shown);
   const budget = room - (shown ? want(shown) : 0);
   const at = shown ? tabs.indexOf(shown) : 0;
   const distance = (tab: TabMeasure) => Math.abs(tabs.indexOf(tab) - at);
-  // Each step folds one group: the pinned tools together, then one tab at a time, the furthest
-  // from the showing tab first, so its neighbours keep their titles longest.
-  const tools = others.filter((tab) => tab.tool);
+  // Each step gives up a little more: badges become dots, then one tab at a time folds, the
+  // tools first (the last of them first), then the furthest from the showing tab, so its
+  // neighbours keep their titles longest.
+  const badged = others.filter((tab) => (tab.badge ?? 0) > 0);
+  const tools = others.filter((tab) => tab.tool).toReversed();
   const rest = others.filter((tab) => !tab.tool).toSorted((a, b) => distance(b) - distance(a));
-  const steps: (readonly TabMeasure[])[] = [
-    ...(tools.length ? [tools] : []),
-    ...rest.map((tab) => [tab]),
+  const steps: { tabs: readonly TabMeasure[]; to: Set<string> }[] = [
+    ...(badged.length ? [{ tabs: badged, to: dots }] : []),
+    ...[...tools, ...rest].map((tab) => ({ tabs: [tab], to: icons })),
   ];
-  const icons = new Set<string>();
   const capFor = () =>
     waterLevel(
       others.filter((tab) => !icons.has(tab.key)).map((tab) => want(tab)),
@@ -81,25 +92,35 @@ export function fitTabs(
     others.some(
       (tab) =>
         !icons.has(tab.key) &&
-        cap < Math.min(want(tab), Math.max(tab.least ?? 0, tabSizes.labelled)),
+        cap < Math.min(want(tab), Math.max((tab.least ?? 0) - saved(tab), tabSizes.labelled)),
     );
-  for (const step of steps) {
-    if (!cramped()) break;
-    for (const tab of step) icons.add(tab.key);
+  // A badge also gives way rather than squeeze its own title ("Chan… +17 −5").
+  if (badged.some((tab) => cap < want(tab))) {
+    for (const tab of badged) dots.add(tab.key);
     cap = capFor();
   }
+  for (const step of steps) {
+    if (!cramped()) break;
+    for (const tab of step.tabs) step.to.add(tab.key);
+    cap = capFor();
+  }
+  for (const key of icons) dots.delete(key);
   const widths = new Map<string, number>();
-  for (const tab of tabs)
-    widths.set(
-      tab.key,
-      tab === shown ? want(tab) : icons.has(tab.key) ? tabSizes.icon : Math.min(want(tab), cap),
-    );
-  return { widths, icons };
+  const clipped = new Set<string>();
+  for (const tab of tabs) {
+    const width =
+      tab === shown ? want(tab) : icons.has(tab.key) ? tabSizes.icon : Math.min(want(tab), cap);
+    widths.set(tab.key, width);
+    if (!icons.has(tab.key) && width < Math.ceil(natural(tab))) clipped.add(tab.key);
+  }
+  return { widths, icons, dots, clipped };
 }
 
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+  a.size === b.size && [...b].every((key) => a.has(key));
+
 export function sameFit(a: TabFit | undefined, b: TabFit): boolean {
-  if (!a || a.widths.size !== b.widths.size || a.icons.size !== b.icons.size) return false;
+  if (!a || a.widths.size !== b.widths.size) return false;
   for (const [key, width] of b.widths) if (a.widths.get(key) !== width) return false;
-  for (const key of b.icons) if (!a.icons.has(key)) return false;
-  return true;
+  return sameSet(a.icons, b.icons) && sameSet(a.dots, b.dots) && sameSet(a.clipped, b.clipped);
 }

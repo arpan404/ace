@@ -46,7 +46,7 @@ export function TabContent(props: {
               label={props.definition.title(tab)}
               // Called on every render, so Try again picks up a fresh loader after a failure.
               render={() => (
-                <Suspense fallback={<TabLoading />}>
+                <Suspense fallback={kind.Skeleton ? <kind.Skeleton /> : <TabLoading />}>
                   {createElement(kind.view(), { scope: props.scope, tab, dock: props.dock })}
                 </Suspense>
               )}

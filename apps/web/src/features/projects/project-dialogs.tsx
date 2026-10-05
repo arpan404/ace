@@ -6,6 +6,7 @@ import { RemoveProjectDialog, RenameProjectDialog } from "./manage-dialogs.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import type { AddTab, FolderAttempt, ProjectRequest } from "./requests.ts";
 import { useCloneRun } from "./use-clone-run.ts";
+import { useMachines } from "@/lib/machines.ts";
 
 /**
  * The project dialogs, loaded on first use (ADR 0056) and kept mounted after, so a clone in
@@ -33,11 +34,13 @@ export default function ProjectDialogs(props: {
       setAttempt(request.attempt);
     }
   }
+  const machines = useMachines();
   const clone = useCloneRun({
+    machines,
     visible: open && request.kind === "add",
-    onCloned: (result) => {
+    onCloned: (result, machine) => {
       onOpenChange(false);
-      land(result, "Cloned");
+      land(result, "Cloned", { machine });
     },
   });
 
@@ -94,9 +97,9 @@ export default function ProjectDialogs(props: {
       onTab={setTab}
       attempt={attempt}
       clone={clone}
-      onAdded={(result, verb) => {
+      onAdded={(result, verb, options) => {
         onOpenChange(false);
-        land(result, verb);
+        land(result, verb, options);
       }}
     />
   );
