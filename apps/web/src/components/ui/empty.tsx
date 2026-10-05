@@ -25,7 +25,7 @@ function EmptyState(props: {
       )}
     >
       {props.icon && (
-        <span className="mb-2 grid size-16 place-items-center rounded-full bg-[color-mix(in_oklab,var(--ring)_12%,transparent)] text-tint">
+        <span className="mb-2 grid size-16 place-items-center rounded-full bg-tint-wash text-link">
           <Icon icon={props.icon} size={36} empty />
         </span>
       )}

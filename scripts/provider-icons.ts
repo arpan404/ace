@@ -77,7 +77,9 @@ interface Path {
 }
 
 const attributes = (tag: string): Map<string, string> =>
-  new Map([...tag.matchAll(/([a-zA-Z-]+)="([^"]*)"/g)].map((m) => [m[1] ?? "", m[2] ?? ""]));
+  new Map(
+    [...tag.matchAll(/([a-zA-Z][a-zA-Z0-9:-]*)="([^"]*)"/g)].map((m) => [m[1] ?? "", m[2] ?? ""]),
+  );
 
 const rule = (value: string | undefined, file: string): "evenodd" | "nonzero" | undefined => {
   if (value === undefined) return undefined;

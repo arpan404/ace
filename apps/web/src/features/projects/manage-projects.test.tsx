@@ -113,3 +113,34 @@ test("projects added on another device appear without a reload", async () => {
   // The picker ends with Add project.
   expect(screen.getByRole("menuitem", { name: /Add project…/ })).toBeTruthy();
 });
+
+/** The colour a project's folder wears in the thread list. */
+function tintOf(name: string) {
+  const list = screen.getByRole("navigation", { name: "Threads" });
+  const folder = within(list).getByRole("button", { name: new RegExp(`^${name}`) });
+  return folder.querySelector<HTMLElement>("[style]")?.style.color;
+}
+
+test("a project keeps its colour when renamed, after a reload and on another device", async () => {
+  const made = withProjects(true);
+  const view = await made.open("/new");
+  const before = await waitFor(() => {
+    const tint = tintOf("docs");
+    expect(tint).toMatch(/^var\(--project-([1-9]|1[0-2])\)$/);
+    return tint;
+  });
+
+  await filterTo("docs");
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename docs…" }));
+  const field = within(await screen.findByRole("dialog", { name: "Rename docs" })).getByRole(
+    "textbox",
+    { name: "Name" },
+  );
+  await userEvent.clear(field);
+  await userEvent.type(field, "Handbook{Enter}");
+  await waitFor(() => expect(tintOf("Handbook")).toBe(before));
+
+  view.unmount();
+  await withProjects(true).open("/new");
+  await waitFor(() => expect(tintOf("docs")).toBe(before));
+});

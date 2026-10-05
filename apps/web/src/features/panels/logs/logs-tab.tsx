@@ -153,7 +153,7 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
                 setQuery("");
               }
             }}
-            className="h-7 w-full rounded-md bg-secondary pr-2 pl-7 text-ui text-foreground outline-none placeholder:text-subtle-foreground focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]"
+            className="h-7 w-full rounded-md bg-secondary pr-2 pl-7 text-ui text-foreground outline-none placeholder:text-subtle-foreground focus-visible:shadow-[0_0_0_2px_var(--tint-line)]"
           />
         </label>
         <FilterMenus filter={filter} onChange={setFilter} />

@@ -36,6 +36,10 @@
   /* The accent as a fill (primary actions, checked controls) and the text on it. */
   --color-tint: var(--ring);
   --color-tint-foreground: var(--ring-foreground);
+  /* The accent as text: links and the current view, AA on every surface (theme/accent.ts). */
+  --color-link: var(--ring-text);
+  --color-tint-wash: var(--tint-wash);
+  --color-tint-line: var(--tint-line);
   --color-code: var(--code);
   /* Ink washes: one for hover and quiet fills, one for the selected row or tab. */
   --color-wash: var(--wash);

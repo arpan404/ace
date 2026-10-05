@@ -2,42 +2,94 @@ import { expect, test } from "vitest";
 import { formatKeys } from "@/lib/keymap.ts";
 import { projectTintCount } from "@ace/ui-core";
 import { accentColours } from "./accent.ts";
+import { worstContrast } from "./colour.ts";
 import { contrastRatio, contrastWarnings, parseOpaqueColor } from "./contrast.ts";
 import { themeRule } from "./css.ts";
 import { parseThemeFile, themeFromFile, withToken } from "./custom-themes.ts";
 import { accentNames, basePreset, presetThemes } from "./presets.ts";
+import { themeSurfaces } from "./surfaces.ts";
 
 test("every preset clears the WCAG checks the theme editor runs", () => {
   for (const theme of presetThemes)
     expect([theme.id, contrastWarnings(theme.tokens)]).toEqual([theme.id, []]);
 });
 
-test("a label on an accent fill reads at AA for every preset and accent", () => {
-  for (const theme of presetThemes)
+const rgb = (value: string) => {
+  const parsed = parseOpaqueColor(value);
+  if (!parsed) throw new Error(`not an opaque colour: ${value}`);
+  return parsed;
+};
+/** Every colour of a 16-step cube, plus the mid greys where black and white labels tie. */
+const customAccents = [
+  ...Array.from({ length: 4096 }, (_, i) =>
+    [i >> 8, (i >> 4) & 15, i & 15].map((c) => (c * 17).toString(16).padStart(2, "0")),
+  ).map((c) => `#${c.join("")}`),
+  "#777777",
+  "#757575",
+  "#767676",
+  "#111111",
+];
+
+test("a label on an accent fill reads at AA for every preset, accent and custom colour", () => {
+  for (const theme of presetThemes) {
     for (const accent of ["theme", ...accentNames] as const) {
       const { ring, foreground } = accentColours(theme, { accent, customAccent: "#000000" });
-      const [fill, text] = [parseOpaqueColor(ring), parseOpaqueColor(foreground)];
-      if (!fill || !text) throw new Error(`${theme.id} ${accent} is not opaque`);
-      expect(contrastRatio(fill, text), `${theme.id} ${accent}`).toBeGreaterThanOrEqual(4.5);
-    }
-});
-
-test("a pale custom accent gets dark labels and a deep one white labels", () => {
-  const theme = basePreset("dark");
-  expect(accentColours(theme, { accent: "custom", customAccent: "#F4E27A" }).foreground).toBe(
-    "#111111",
-  );
-  expect(accentColours(theme, { accent: "custom", customAccent: "#1B3A8A" }).foreground).toBe(
-    "#FFFFFF",
-  );
-});
-
-test("every project tint a project can get exists in every preset", () => {
-  for (const theme of presetThemes)
-    for (let tint = 1; tint <= projectTintCount; tint++)
       expect(
-        parseOpaqueColor(theme.tokens[`--project-${tint}` as keyof typeof theme.tokens]),
-      ).toBeDefined();
+        contrastRatio(rgb(ring), rgb(foreground)),
+        `${theme.id} ${accent}`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  for (const customAccent of customAccents) {
+    const { ring, foreground } = accentColours(basePreset("dark"), {
+      accent: "custom",
+      customAccent,
+    });
+    expect(contrastRatio(rgb(ring), rgb(foreground)), customAccent).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+test("links read at AA on every surface whatever accent is chosen, white on Light included", () => {
+  for (const theme of presetThemes) {
+    const surfaces = themeSurfaces(theme.tokens).map((surface) => surface.rgb);
+    for (const customAccent of customAccents.filter((_, i) => i % 7 === 0).concat("#FFFFFF")) {
+      const { text } = accentColours(theme, { accent: "custom", customAccent });
+      expect(
+        worstContrast(rgb(text), surfaces),
+        `${theme.id} ${customAccent}`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  // The person's own colour is kept where it already reads.
+  expect(
+    accentColours(basePreset("dark"), { accent: "custom", customAccent: "#7AA2F7" }).text,
+  ).toBe("#7AA2F7");
+});
+
+test("grey text that reads on the page but not on a solid popover or a selected row is flagged", () => {
+  // The old Dark subtle grey: 4.9:1 on the page, about 4:1 on a menu with glass turned off.
+  const theme = withToken(basePreset("dark"), "--subtle-foreground", "#808080");
+  expect(contrastWarnings(theme.tokens)).toEqual([
+    expect.objectContaining({ token: "--subtle-foreground", label: "Subtle text" }),
+  ]);
+});
+
+test("a project badge's letters read at AA on its wash over every surface of every preset", () => {
+  for (const theme of presetThemes)
+    for (const surface of themeSurfaces(theme.tokens))
+      for (let tint = 1; tint <= projectTintCount; tint++) {
+        const letters = rgb(theme.tokens[`--project-${tint}` as keyof typeof theme.tokens]);
+        // The badge's wash: the tint at 16% over the surface.
+        const wash = surface.rgb.map((c, i) => Math.round(letters[i]! * 0.16 + c * 0.84)) as [
+          number,
+          number,
+          number,
+        ];
+        expect(
+          contrastRatio(letters, wash),
+          `${theme.id} ${surface.name} ${tint}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
 });
 
 test("a custom theme with grey-on-grey secondary text is flagged", () => {

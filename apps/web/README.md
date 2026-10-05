@@ -146,9 +146,11 @@ Rules:
   They draw in brand colour (gradients included); black-and-white brands draw in the text colour
   at full strength. `variant="mono"` is for a tiny inline mark in the surrounding text colour.
 - Colour has jobs, never decoration:
-  - **Accent** (`--ring`; `bg-tint text-tint-foreground` as a fill, `text-tint` as text): primary
-    actions, checked controls, sliders, links, focus, selection and the current rail view. Each
-    theme has its own (`--accent-theme`); Appearance can pin another.
+  - **Accent** (`--ring`): `bg-tint text-tint-foreground` as a fill (labels are black or white,
+    always AA), `text-link` as text (links, the current rail view: the accent nudged until it
+    reads at AA on every surface, so any custom colour stays legible), `bg-tint-wash` and
+    `bg-tint-line` for its soft wash and drawn lines. Each theme has its own (`--accent-theme`);
+    Appearance can pin another.
   - **Status** through `data-tone="working | needs-you | waiting | failed | done | idle"`, which
     sets `--tone` (`styles/index.css`): `StatusPill`, `Dot`, the Activity tiles and the spinner
     (working blue) read it. Words always carry the status too.

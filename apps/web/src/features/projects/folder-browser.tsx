@@ -158,7 +158,7 @@ export function FolderBrowser(props: {
             aria-label={props.label}
             aria-activedescendant={selectedIndex >= 0 ? `${listId}-${selectedIndex}` : undefined}
             onKeyDown={onKeyDown}
-            className="rounded-sm outline-none focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]"
+            className="rounded-sm outline-none focus-visible:shadow-[0_0_0_2px_var(--tint-line)]"
           >
             {entries.map((entry, index) => (
               <FolderRow

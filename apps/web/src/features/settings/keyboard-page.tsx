@@ -86,7 +86,7 @@ export function KeyboardShortcuts() {
               }}
               onKeyDown={(event) => onKeyDown(id, event)}
               onBlur={() => active && stop()}
-              className="rounded-sm px-1 py-0.5 outline-none transition-shadow duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)] aria-pressed:shadow-[0_0_0_2px_var(--ring)]"
+              className="rounded-sm px-1 py-0.5 outline-none transition-shadow duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--tint-line)] aria-pressed:shadow-[0_0_0_2px_var(--ring)]"
             >
               {active ? (
                 <Kbd className="h-5 px-2 text-[12px]">Press keys…</Kbd>

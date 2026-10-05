@@ -77,7 +77,7 @@ export function ViewSidebarError(props: { onRetry(): void }) {
       <button
         type="button"
         onClick={props.onRetry}
-        className="rounded-sm font-medium text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]"
+        className="rounded-sm font-medium text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:shadow-[0_0_0_2px_var(--tint-line)]"
       >
         Try again
       </button>

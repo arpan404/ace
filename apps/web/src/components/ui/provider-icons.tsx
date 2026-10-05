@@ -118,7 +118,9 @@ export function ProviderIcon(props: ProviderIconProps) {
           )}
           {paths.map((path, index) => (
             <path
-              key={path.d}
+              // A mark's paths never reorder, and some share an outline (Gemini's layers).
+              // oxlint-disable-next-line react/no-array-index-key
+              key={index}
               d={path.d}
               fill={path.gradient ? `url(#${gradientId}g${index})` : (path.fill ?? "currentColor")}
               fillRule={path.fillRule}

@@ -41,11 +41,16 @@
 
   /*
    * The accent: focus, selection, primary actions, checked controls, sliders and links. The theme
-   * provider sets --ring and --ring-foreground (the text on an accent fill) from the theme and the
+   * provider sets --ring, --ring-foreground (labels on an accent fill) and --ring-text (the accent
+   * as text) from the theme and the
    * Appearance choice (src/theme/accent.ts); these are the values before it runs.
    */
   --ring: var(--accent-theme, var(--accent-blue));
   --ring-foreground: #fff;
+  --ring-text: var(--ring);
+  /* The accent as a soft wash (the current view, empty states) and as a drawn line (handles). */
+  --tint-wash: color-mix(in oklab, var(--ring) 14%, transparent);
+  --tint-line: color-mix(in oklab, var(--ring) 45%, transparent);
   --sidebar-ring: var(--ring);
 }
 

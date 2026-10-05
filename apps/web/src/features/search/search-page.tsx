@@ -86,7 +86,7 @@ export function SearchPage(props: {
     <Screen title="Search">
       <div className="h-full overflow-auto">
         <div className="mx-auto max-w-(--column) px-8 pt-11 pb-20">
-          <label className="flex h-11 items-center gap-2.5 rounded-lg bg-secondary px-3.5 text-base focus-within:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]">
+          <label className="flex h-11 items-center gap-2.5 rounded-lg bg-secondary px-3.5 text-base focus-within:shadow-[0_0_0_2px_var(--tint-line)]">
             <Icon icon={MagnifyingGlassIcon} className="text-subtle-foreground" />
             <input
               type="search"

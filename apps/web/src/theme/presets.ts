@@ -44,8 +44,8 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "light",
     background: "#F4F4F7",
     foreground: "#1C1C22",
-    mutedForeground: "#56565F",
-    subtleForeground: "#6E6E78",
+    mutedForeground: "#4D4D56",
+    subtleForeground: "#606069",
     popover: "#FFFFFF",
     primaryForeground: "#FFFFFF",
     destructive: "#D23F3F",
@@ -55,7 +55,7 @@ const seeds: readonly ThemeSeed[] = [
     rail: "238 238 243",
     glass: "255 255 255",
     code: "rgb(28 28 34 / 0.04)",
-    wall: "#E6E6EA",
+    wall: "#EBEBEF",
     washes: [
       "rgb(255 255 255 / 0.9)",
       "rgb(196 210 240 / 0.6)",
@@ -69,8 +69,8 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "dark",
     background: "#0F0F0F",
     foreground: "#ECECEC",
-    mutedForeground: "#A6A6A6",
-    subtleForeground: "#808080",
+    mutedForeground: "#ADADAD",
+    subtleForeground: "#999999",
     popover: "#1B1B1B",
     primaryForeground: "#0F0F0F",
     destructive: "#F07171",
@@ -78,7 +78,7 @@ const seeds: readonly ThemeSeed[] = [
     reading: "17 17 17",
     sidebar: "24 24 24",
     rail: "16 16 16",
-    glass: "34 34 34",
+    glass: "30 30 30",
     code: "rgb(0 0 0 / 0.3)",
     wall: "#0A0A0A",
     washes: [
@@ -94,8 +94,8 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "dark",
     background: "#0B0D14",
     foreground: "#E6E8F0",
-    mutedForeground: "#A0A4B5",
-    subtleForeground: "#7A7F93",
+    mutedForeground: "#ACAFBE",
+    subtleForeground: "#9599A9",
     popover: "#161925",
     primaryForeground: "#0B0D14",
     destructive: "#F07A86",
@@ -103,7 +103,7 @@ const seeds: readonly ThemeSeed[] = [
     reading: "14 16 23",
     sidebar: "20 23 33",
     rail: "12 14 21",
-    glass: "32 36 50",
+    glass: "27 31 43",
     code: "rgb(0 0 0 / 0.3)",
     wall: "#060810",
     washes: [
@@ -119,8 +119,8 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "dark",
     background: "#1A1917",
     foreground: "#ECE9E4",
-    mutedForeground: "#ADA89F",
-    subtleForeground: "#89837B",
+    mutedForeground: "#BBB7B0",
+    subtleForeground: "#A7A29C",
     popover: "#262421",
     primaryForeground: "#1A1917",
     destructive: "#F08070",
@@ -128,7 +128,7 @@ const seeds: readonly ThemeSeed[] = [
     reading: "28 27 25",
     sidebar: "36 34 31",
     rail: "24 23 21",
-    glass: "52 50 46",
+    glass: "40 38 35",
     code: "rgb(0 0 0 / 0.25)",
     wall: "#141311",
     washes: [
@@ -144,8 +144,8 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "light",
     background: "#F6F3EC",
     foreground: "#26231E",
-    mutedForeground: "#5E5850",
-    subtleForeground: "#736C63",
+    mutedForeground: "#524D46",
+    subtleForeground: "#655F57",
     popover: "#FFFDF8",
     primaryForeground: "#FFFDF8",
     destructive: "#C8423A",
@@ -155,7 +155,7 @@ const seeds: readonly ThemeSeed[] = [
     rail: "236 232 222",
     glass: "255 253 248",
     code: "rgb(60 50 30 / 0.05)",
-    wall: "#E8E3D8",
+    wall: "#EDE9DF",
     washes: [
       "rgb(255 253 246 / 0.9)",
       "rgb(214 206 190 / 0.7)",
@@ -169,16 +169,16 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "dark",
     background: "#22272E",
     foreground: "#DDE3EA",
-    mutedForeground: "#A7B1BC",
-    subtleForeground: "#919CA7",
-    popover: "#2C323B",
+    mutedForeground: "#C1C8D0",
+    subtleForeground: "#A7B0B9",
+    popover: "#272C34",
     primaryForeground: "#22272E",
     destructive: "#E8818A",
     accent: "#88B4E8",
     reading: "36 41 48",
-    sidebar: "44 50 58",
+    sidebar: "40 46 54",
     rail: "30 35 42",
-    glass: "62 70 80",
+    glass: "40 46 54",
     code: "rgb(0 0 0 / 0.2)",
     wall: "#1B2027",
     washes: [
@@ -296,8 +296,8 @@ const accentSets: Record<Scheme, Record<AccentName, string>> = {
  */
 const projectHues = [25, 55, 85, 125, 150, 178, 205, 240, 268, 295, 325, 355] as const;
 const projectLightness: Record<Scheme, { l: number; c: number }> = {
-  dark: { l: 0.79, c: 0.12 },
-  light: { l: 0.52, c: 0.15 },
+  dark: { l: 0.84, c: 0.12 },
+  light: { l: 0.42, c: 0.14 },
 };
 type ProjectToken = Extract<TokenName, `--project-${number}`>;
 function projectTints(scheme: Scheme): Record<ProjectToken, string> {
@@ -398,7 +398,8 @@ function stripUndefined(values: Partial<ThemeTokens> | undefined): Partial<Theme
 }
 
 export const presetThemes: readonly Theme[] = seeds.map(expand);
-export const defaultThemeId = "dark";
+/** New installs follow the operating system's light or dark preference. */
+export const defaultThemeId = "system";
 
 export function presetTheme(id: string): Theme | undefined {
   return presetThemes.find((theme) => theme.id === id);

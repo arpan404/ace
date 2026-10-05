@@ -32,7 +32,7 @@ export function FeedRow(props: {
         type="button"
         aria-current={props.selected ? "true" : undefined}
         onClick={props.onSelect}
-        className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-[10px] px-[11px] pt-[9px] pb-2 pr-12 text-left outline-none focus-visible:shadow-[inset_0_0_0_2px_color-mix(in_oklab,var(--ring)_45%,transparent)]"
+        className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-[10px] px-[11px] pt-[9px] pb-2 pr-12 text-left outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--tint-line)]"
       >
         <span
           data-tone={props.mark === "needs-you" ? "needs-you" : undefined}

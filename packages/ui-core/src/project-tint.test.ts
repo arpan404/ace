@@ -1,9 +1,11 @@
 import { expect, test } from "vitest";
 import { projectTint, projectTintCount } from "./project-tint.ts";
 
-test("a project keeps its tint every time it is drawn", () => {
-  const ids = ["ws-billing-api", "ws-ace", "/Users/me/code/relay", "ws-ace-mobile"];
-  expect(ids.map(projectTint)).toEqual(ids.map(projectTint));
+test("a project's tint is pinned across releases, so no device or upgrade recolours it", () => {
+  // Changing the hash or the palette size would repaint every badge people know by colour.
+  expect(
+    ["ws-billing-api", "ws-ace", "/Users/me/code/relay", "ws-ace-mobile", "docs"].map(projectTint),
+  ).toEqual([9, 10, 2, 11, 7]);
 });
 
 test("every tint is one the themes define", () => {

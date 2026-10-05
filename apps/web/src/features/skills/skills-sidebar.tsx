@@ -70,7 +70,7 @@ export function SkillsSidebar() {
       }
       toolbar={
         <div className="shrink-0 pr-2.5 pb-2 pl-3">
-          <label className="flex h-8 w-full items-center gap-2 rounded-md bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground focus-within:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]">
+          <label className="flex h-8 w-full items-center gap-2 rounded-md bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground focus-within:shadow-[0_0_0_2px_var(--tint-line)]">
             <Icon icon={MagnifyingGlassIcon} />
             <input
               type="search"

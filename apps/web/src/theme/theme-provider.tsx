@@ -85,6 +85,7 @@ export function ThemeProvider(props: { environment: Environment; children: React
     const style: Record<string, string> = {
       "--ring": accent.ring,
       "--ring-foreground": accent.foreground,
+      "--ring-text": accent.text,
       "--glass": String(appearance.glass),
       "--transcript-size": `${transcriptSizes[appearance.transcriptSize].px}px`,
     };
