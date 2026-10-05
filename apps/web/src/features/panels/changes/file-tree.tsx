@@ -111,7 +111,7 @@ export function FileTree(props: {
               type="button"
               aria-label="Clear filter"
               onClick={() => setFilter("")}
-              className="h-5 shrink-0 rounded-xs px-1 text-xs text-subtle-foreground outline-none hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+              className="h-5 shrink-0 rounded-xs px-1 text-xs text-subtle-foreground outline-none hover:text-foreground focus-ring"
             >
               Clear
             </button>
@@ -185,7 +185,7 @@ function TreeRowView(props: {
       onKeyDown={props.onKeyDown}
       style={{ paddingLeft: 6 + row.depth * 14 }}
       className={cn(
-        "flex h-7 min-w-0 cursor-default items-center gap-1.5 rounded-md pr-2 text-sm text-muted-foreground outline-none select-none hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
+        "flex h-7 min-w-0 cursor-default items-center gap-1.5 rounded-md pr-2 text-sm text-muted-foreground outline-none select-none hover:bg-accent hover:text-foreground focus-ring-inset",
         props.current && "bg-accent text-foreground",
       )}
     >
@@ -206,7 +206,7 @@ function TreeRowView(props: {
         size={14}
         className="text-subtle-foreground"
       />
-      <span className={cn("min-w-0 flex-1 truncate", !folder && "font-mono text-[12px]")}>
+      <span className={cn("min-w-0 flex-1 truncate", !folder && "font-mono text-sm")}>
         {row.name}
       </span>
       {props.comments > 0 && (

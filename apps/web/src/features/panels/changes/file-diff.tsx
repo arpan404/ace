@@ -83,7 +83,7 @@ export function FileDiffBlock(props: {
           type="button"
           aria-expanded={open}
           onClick={() => onView({ ...view, open: !open })}
-          className="flex h-8 min-w-0 flex-1 items-center gap-2 pl-3.5 text-left font-mono text-[12px] text-muted-foreground outline-none hover:text-foreground focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]"
+          className="flex h-8 min-w-0 flex-1 items-center gap-2 pl-3.5 text-left font-mono text-sm text-muted-foreground outline-none hover:text-foreground focus-ring-inset"
         >
           <CaretDownIcon
             aria-hidden
@@ -105,7 +105,7 @@ export function FileDiffBlock(props: {
           <DiffStat
             additions={file.additions}
             deletions={file.deletions}
-            className="ml-auto shrink-0 text-[12px]"
+            className="ml-auto shrink-0 text-sm"
           />
         </button>
         {props.actions}
@@ -123,7 +123,7 @@ export function FileDiffBlock(props: {
       {open && (renderer === "dom" || asText) && (
         <div
           className={cn(
-            "font-mono text-[12px] leading-5",
+            "font-mono text-sm leading-5",
             props.wrap ? "whitespace-pre-wrap break-all" : "overflow-x-auto whitespace-pre",
           )}
         >
@@ -274,7 +274,7 @@ function Gutter(props: { line: DiffLine; value: number | undefined }) {
     <span
       aria-hidden
       className={cn(
-        "pr-2.5 text-right text-[11px] text-subtle-foreground select-none",
+        "pr-2.5 text-right text-xs text-subtle-foreground select-none",
         props.line.kind === "add" && "text-status-done",
         props.line.kind === "del" && "text-status-failed",
       )}

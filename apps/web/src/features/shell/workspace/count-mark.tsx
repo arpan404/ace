@@ -25,7 +25,7 @@ export function openTabsLabel(workspace: ScopeWorkspace, definition: WorkspaceDe
 /** The count itself: a small outlined numeral, like a stack of tabs. */
 export function CountMark(props: { count: number }) {
   return (
-    <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] px-1 text-[11px] leading-none font-semibold tabular-nums shadow-[inset_0_0_0_1.5px_currentColor]">
+    <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-xs px-1 text-xs leading-none font-semibold tabular-nums shadow-[inset_0_0_0_1.5px_currentColor]">
       {props.count}
     </span>
   );

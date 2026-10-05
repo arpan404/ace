@@ -85,7 +85,7 @@ export function SessionsMenu(props: { scope: string; dock: Dock }) {
             // 14px at the button's corner, ringed in the panel's colour so it stands clear of
             // the glyph under it.
             style={ring}
-            className="pointer-events-none absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-foreground px-1 text-[10px] leading-none font-semibold text-background tabular-nums"
+            className="pointer-events-none absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-foreground px-1 text-2xs leading-none font-semibold text-background tabular-nums"
           >
             {unseen}
           </span>

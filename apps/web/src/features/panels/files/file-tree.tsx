@@ -252,7 +252,7 @@ export function FileTree(props: {
               type="button"
               aria-label="Clear search"
               onClick={() => setQuery("")}
-              className="mr-1 grid size-6 shrink-0 place-items-center rounded-sm text-subtle-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+              className="mr-1 grid size-6 shrink-0 place-items-center rounded-sm text-subtle-foreground outline-none hover:bg-accent hover:text-foreground focus-ring"
             >
               <XIcon aria-hidden size={12} />
             </button>
