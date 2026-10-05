@@ -7,6 +7,10 @@
       "minLength": 1,
       "type": "string"
     },
+    "detail": {
+      "maxLength": 2048,
+      "type": "string"
+    },
     "model": {
       "maxLength": 256,
       "minLength": 1,
@@ -14,6 +18,10 @@
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "title": {
+      "maxLength": 256,
+      "type": "string"
     }
   },
   "required": [

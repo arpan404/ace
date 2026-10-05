@@ -63,8 +63,7 @@ export interface ScreenMark {
   end: number;
 }
 
-const markClass =
-  "rounded-[2px] bg-[color-mix(in_oklab,var(--ring)_38%,transparent)] text-foreground";
+const markClass = "rounded-[2px] bg-ring/38 text-foreground";
 
 function ScreenRow(props: { row: Row; mark?: ScreenMark | undefined }) {
   const { mark, row } = props;

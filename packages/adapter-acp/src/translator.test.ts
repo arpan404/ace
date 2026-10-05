@@ -252,9 +252,7 @@ it("keeps unknown and malformed frames as raw without rejecting later traffic", 
   chunk(h, "still here");
   end(h);
   expect(h.state.status.state).toBe("done");
-  const retained = Object.values(h.state.items).flatMap((i) =>
-    i.type === "notice" ? i.raw.flatMap((r) => ("data" in r ? [r.data] : [])) : [],
-  );
+  const retained = h.diagnostics.flatMap((r) => ("data" in r ? [r.data] : []));
   for (const value of [
     null,
     [],
@@ -263,11 +261,8 @@ it("keeps unknown and malformed frames as raw without rejecting later traffic", 
   ])
     expect(retained).toContainEqual(value);
   h.replay({ seq: 999, t: 1000, dir: "recv", channel: "stdio-text", data: "{broken JSON" });
-  expect(
-    Object.values(h.state.items).flatMap((i) =>
-      i.type === "notice" ? i.raw.flatMap((r) => ("data" in r ? [r.data] : [])) : [],
-    ),
-  ).toContain("{broken JSON");
+  expect(h.diagnostics.flatMap((r) => ("data" in r ? [r.data] : []))).toContain("{broken JSON");
+  expect(Object.values(h.state.items).filter((i) => i.type === "notice")).toEqual([]);
 });
 it("does not expire a silent live tool but marks silent model work unresponsive", () => {
   const h = harness();

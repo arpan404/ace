@@ -56,12 +56,10 @@ test("picking a project narrows Home to it", async () => {
   expect(
     await screen.findByRole("heading", { level: 1, name: /Partial refunds|Invoice PDF/ }),
   ).toBeTruthy();
-  // Only billing-api's folder is left, with its two threads.
+  // Only billing-api's two threads are left in the task list.
   const list = within(screen.getByRole("navigation", { name: "Threads" }));
-  expect(list.getAllByRole("button", { expanded: true }).map((b) => b.textContent)).toEqual([
-    "billing-api",
-  ]);
   expect(list.getAllByRole("link")).toHaveLength(2);
+  expect(list.getAllByRole("link", { name: /Project billing-api$/ })).toHaveLength(2);
 });
 
 test("on a settled thread, the palette brings it back to the list", async () => {

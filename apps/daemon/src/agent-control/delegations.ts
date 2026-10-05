@@ -105,7 +105,7 @@ export class DelegationService {
   command(id: string, payload: CommandPayload) {
     const command = Command.parse({ id, deviceId: "ace-agent", payload });
     return this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      this.deps.engine.handler.handle(command, commandContext(this.deps.store)),
+      this.deps.engine.internalHandler.handle(command, commandContext(this.deps.store)),
     );
   }
   /** A receipt reserves each follow-up generation once, including retries after completion. */
@@ -134,7 +134,7 @@ export class DelegationService {
       },
     });
     const result = this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      this.deps.engine.handler.handle(command, commandContext(this.deps.store)),
+      this.deps.engine.internalHandler.handle(command, commandContext(this.deps.store)),
     );
     this.arm();
     return result;
@@ -247,6 +247,15 @@ export class DelegationService {
         input: [{ type: "text", text }],
         delivery: "queue",
         trigger: "spawn",
+        origin: {
+          kind: current.request.role.startsWith("automation:")
+            ? "automation"
+            : current.request.role.startsWith("handoff:")
+              ? "handoff"
+              : "spawn",
+          parentThreadId: current.parentId,
+          role: current.request.role,
+        },
       });
       if (!result.ok) throw new Error(result.error);
       current.phase = "running";
@@ -286,8 +295,10 @@ export class DelegationService {
         .toSorted((a, b) => b.depth - a.depth);
       for (const child of children) {
         this.journal.stop(child.childId);
-        if (this.deps.store.getThread(child.childId))
+        if (this.deps.store.getThread(child.childId)) {
           this.deps.engine.discardRecovery(child.childId);
+          this.deps.engine.cancelDelegatedInputs(child.childId);
+        }
         child.phase = "cancelling";
         this.journal.save(child);
         const childThread = this.deps.store.getThread(child.childId);
@@ -480,6 +491,7 @@ export class DelegationService {
             input: [{ type: "text", text }],
             delivery: "queue",
             trigger: "subagent_result",
+            origin: { kind: "subagent_result", threadIds: pending.map((edge) => edge.childId) },
           });
           if (!result.ok) throw new Error(result.error);
           this.journal.consume(next.parent_id);

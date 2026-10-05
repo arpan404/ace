@@ -184,7 +184,7 @@ test("SDK error text fails the turn without treating ordinary auth prose as an e
   failed.result();
   expect(failed.state.agents["root"]?.agent.status).toMatchObject({
     state: "failed",
-    error: { kind: "auth", message: "Please log in" },
+    error: { kind: "auth", title: "Not signed in to Claude Code", detail: "Please log in" },
   });
   const normal = harness();
   normal.init();

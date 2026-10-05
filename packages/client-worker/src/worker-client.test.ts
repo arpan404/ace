@@ -1,216 +1,15 @@
-import { Client, type ClientApi, type Scheduler, type ThreadSource } from "@ace/client";
-import {
-  FakeDaemon,
-  ScenarioPlayer,
-  fakeTransport,
-  flakyCheckout,
-  longHistory,
-} from "@ace/fake-daemon";
-import {
-  ServerMessage,
-  type ServerMessage as Message,
-  DeviceId,
-  ThreadId,
-  Project,
-} from "@ace/protocol";
+import { type ClientApi } from "@ace/client";
+import { ScenarioPlayer, flakyCheckout, longHistory } from "@ace/fake-daemon";
+import { ThreadId, Project } from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
-import { ClientHost, RemoteClient, type HostOptions, type RemoteOptions } from "./index.ts";
+import { RemoteClient } from "./index.ts";
 
-const timers: Scheduler = {
-  set(delayMs, callback) {
-    const timer = setTimeout(callback, delayMs);
-    return () => clearTimeout(timer);
-  },
-};
-const cleanups: (() => unknown)[] = [];
+import { timers, cleanups, world, transcript, inProcess } from "./worker-test-support.ts";
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-/** A worker host serving tabs over real MessageChannels, backed by one fake daemon. */
-function world(
-  snapshotItems?: number,
-  hostOptions: Partial<HostOptions> = {},
-  projectScheduler?: (callback: () => void) => void,
-) {
-  let now = 1;
-  let ids = 0;
-  const daemon = new FakeDaemon({
-    clock: () => (now += 1),
-    ...(snapshotItems ? { snapshotItems } : {}),
-    ...(projectScheduler ? { projectScheduler } : {}),
-  });
-  const sockets = { opened: 0, open: 0 };
-  let hostTime = 0;
-  const scheduled = new Set<{ at: number; callback(): void }>();
-  const hostScheduler: Scheduler = {
-    set(delay, callback) {
-      const timer = { at: hostTime + delay, callback };
-      scheduled.add(timer);
-      // Frames have an explicit microtask boundary; liveness and linger use manual time.
-      if (delay <= 4)
-        queueMicrotask(() => {
-          if (scheduled.delete(timer)) callback();
-        });
-      return () => {
-        scheduled.delete(timer);
-      };
-    },
-  };
-  const advance = (ms: number) => {
-    const until = hostTime + ms;
-    for (;;) {
-      const timer = [...scheduled]
-        .filter((scheduledTimer) => scheduledTimer.at <= until)
-        .toSorted((a, b) => a.at - b.at)[0];
-      if (!timer) break;
-      hostTime = timer.at;
-      scheduled.delete(timer);
-      timer.callback();
-    }
-    hostTime = until;
-  };
-  const received: Message[] = [];
-  const waiters: { predicate(message: Message): boolean; resolve(message: Message): void }[] = [];
-  const faults = {
-    incoming: (_message: Message, text: string, deliver: (text: string) => void) => deliver(text),
-    wait(predicate: (message: Message) => boolean): Promise<Message> {
-      const found = received.find(predicate);
-      return found
-        ? Promise.resolve(found)
-        : new Promise((resolve) => waiters.push({ predicate, resolve }));
-    },
-  };
-  const host = new ClientHost({
-    target(config) {
-      const { daemon: key } = z.object({ daemon: z.string() }).parse(config);
-      return {
-        key,
-        create: () =>
-          new Client({
-            deviceId: DeviceId.parse("worker-device"),
-            transport: () => {
-              const inner = fakeTransport(daemon);
-              return {
-                open(events) {
-                  sockets.opened++;
-                  sockets.open++;
-                  inner.open({
-                    ...events,
-                    message(text) {
-                      const message = ServerMessage.parse(JSON.parse(text));
-                      received.push(message);
-                      for (const waiter of waiters.slice())
-                        if (waiter.predicate(message)) {
-                          waiters.splice(waiters.indexOf(waiter), 1);
-                          waiter.resolve(message);
-                        }
-                      faults.incoming(message, text, events.message);
-                    },
-                  });
-                },
-                send: (text) => inner.send(text),
-                close() {
-                  sockets.open--;
-                  inner.close();
-                },
-              };
-            },
-            credential: async () => daemon.token,
-            storage: { load: async () => null, save: async () => {} },
-            scheduler: timers,
-            random: () => 0.5,
-            id: () => `id-${++ids}`,
-          }),
-      };
-    },
-    scheduler: hostScheduler,
-    now: () => hostTime,
-    frameMs: 4,
-    lingerMs: 30,
-    silenceMs: 300,
-    ...hostOptions,
-  });
-  const tab = (target = "local", tabOptions: Partial<RemoteOptions> = {}) => {
-    const { port1, port2 } = new MessageChannel();
-    const left = Promise.withResolvers<void>();
-    const listeners = new Map<
-      (event: { data: unknown }) => void,
-      (event: { data: unknown }) => void
-    >();
-    host.attach({
-      postMessage: (value) => port1.postMessage(value),
-      start: () => port1.start(),
-      close: () => port1.close(),
-      addEventListener(type, listener) {
-        const wrapped = (event: { data: unknown }) => {
-          listener(event);
-          if (z.object({ t: z.literal("bye") }).safeParse(event.data).success) left.resolve();
-        };
-        listeners.set(listener, wrapped);
-        port1.addEventListener(type, wrapped);
-      },
-      removeEventListener(type, listener) {
-        const wrapped = listeners.get(listener);
-        if (wrapped) port1.removeEventListener(type, wrapped);
-      },
-    });
-    const page = { visible: true, changed: () => {} };
-    const remote = new RemoteClient(
-      port2,
-      { daemon: target },
-      {
-        scheduler: timers,
-        pingMs: 50,
-        visibility: {
-          visible: () => page.visible,
-          watch(changed) {
-            page.changed = changed;
-            return () => {};
-          },
-        },
-        ...tabOptions,
-      },
-    );
-    cleanups.push(async () => {
-      await remote.close();
-      await left.promise;
-    });
-    const show = (visible: boolean) => {
-      page.visible = visible;
-      page.changed();
-    };
-    return Object.assign(remote, { show, left: left.promise });
-  };
-  cleanups.push(() => advance(1000));
-  return { daemon, host, sockets, tab, faults, advance };
-}
-
-const textOf = (store: ThreadSource, id: string) => {
-  const item = store.item(id);
-  return item?.type === "message"
-    ? item.parts.map((part) => (part.type === "text" ? part.text : "")).join("")
-    : undefined;
-};
-/** Every message in the window, as text, oldest first. */
-const transcript = (store: ThreadSource) => store.order.map((id) => textOf(store, id) ?? id);
-
-async function inProcess(daemon: FakeDaemon) {
-  let ids = 0;
-  const client = new Client({
-    deviceId: DeviceId.parse("reference-device"),
-    transport: () => fakeTransport(daemon),
-    credential: async () => daemon.token,
-    storage: { load: async () => null, save: async () => {} },
-    scheduler: timers,
-    random: () => 0.5,
-    id: () => `ref-${++ids}`,
-  });
-  cleanups.push(() => client.close());
-  await client.start();
-  return client;
-}
 const settled = (client: ClientApi) => vi.waitFor(() => expect(client.state).toBe("ready"));
 
 test("a tab sees the thread the worker's client streams, delta by delta", async () => {
@@ -527,8 +326,6 @@ function lockManager() {
   };
 }
 
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 test("a hidden tab whose timers are throttled keeps its leases and catches up when shown", async () => {
   const { daemon, tab, sockets, advance } = world(undefined, { hiddenSilenceMs: 5_000 });
   const script = new ScenarioPlayer(daemon, flakyCheckout());
@@ -538,7 +335,7 @@ test("a hidden tab whose timers are throttled keeps its leases and catches up wh
   const lease = remote.thread(script.threadId);
   await vi.waitFor(() => expect(lease.store.thread).toBeDefined());
   remote.show(false);
-  await pause(20);
+  await remote.itemsPage({ threadId: script.threadId, limit: 1 });
   // Longer than a visible tab may stay silent, shorter than a hidden one.
   advance(800);
   expect(sockets.open).toBe(1);
@@ -567,7 +364,7 @@ test("a tab holding its liveness lock is never dropped for silence, and is relea
   await remote.start();
   remote.threads();
   await vi.waitFor(() => expect(sockets.open).toBe(1));
-  await pause(20);
+  await remote.registry({ type: "registry.list", offset: 0, limit: 1 });
   advance(800);
   expect(sockets.open).toBe(1);
   // The tab's process dies: no goodbye, only its lock frees.
@@ -586,7 +383,7 @@ test("a tab hidden through a long stream catches up exactly when shown", async (
   const lease = remote.thread(script.threadId);
   await vi.waitFor(() => expect(lease.store.thread).toBeDefined());
   remote.show(false);
-  await pause(20);
+  await remote.itemsPage({ threadId: script.threadId, limit: 1 });
   script.runUntilBlocked();
   const reference = (await inProcess(daemon)).thread(script.threadId);
   await vi.waitFor(() => expect(reference.store.order.length).toBeGreaterThan(100));
@@ -1228,4 +1025,47 @@ test("projects and long-thread reads coexist across the worker without replacing
   expect(changes).toEqual(["added", "removed"]);
   stop();
   lease.release();
+});
+
+test("a tab sees its send synchronously and another tab sees it while worker storage is held", async () => {
+  let held = false;
+  const gate = Promise.withResolvers<void>();
+  const { daemon, tab } = world(undefined, {}, undefined, {
+    load: async () => null,
+    save: async () => {
+      if (held) await gate.promise;
+    },
+  });
+  new ScenarioPlayer(daemon, flakyCheckout()).runUntilBlocked();
+  const first = tab();
+  const second = tab();
+  await Promise.all([first.start(), second.start()]);
+  await settled(first);
+  await settled(second);
+  const left = first.pendingSends("thread-checkout");
+  const right = second.pendingSends("thread-checkout");
+  const stopLeft = left.subscribe(() => {});
+  const stopRight = right.subscribe(() => {});
+  held = true;
+  const sent = first.enqueue(
+    {
+      type: "thread.send",
+      threadId: ThreadId.parse("thread-checkout"),
+      delivery: "queue",
+      input: [{ type: "text", text: "Shared before save" }],
+    },
+    "shared-send",
+  );
+  expect(left.getSnapshot()).toMatchObject([{ commandId: "shared-send", state: "saving" }]);
+  await vi.waitFor(() =>
+    expect(right.getSnapshot()).toMatchObject([{ commandId: "shared-send", state: "saving" }]),
+  );
+  held = false;
+  gate.resolve();
+  await sent;
+  await vi.waitFor(() =>
+    expect(right.getSnapshot()).toMatchObject([{ commandId: "shared-send", state: "accepted" }]),
+  );
+  stopLeft();
+  stopRight();
 });

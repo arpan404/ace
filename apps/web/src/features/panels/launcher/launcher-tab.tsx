@@ -38,7 +38,7 @@ import {
 
 const heading = "px-1 text-xs font-medium text-subtle-foreground";
 const card =
-  "group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui text-foreground outline-none transition-colors duration-(--dur-1) bg-[color-mix(in_oklab,var(--foreground)_3%,transparent)] hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]";
+  "group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui text-foreground outline-none transition-colors duration-(--dur-1) bg-foreground/3 hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]";
 
 /**
  * The new tab: a catalog of the workspace's tools, then what this thread suggests opening (its

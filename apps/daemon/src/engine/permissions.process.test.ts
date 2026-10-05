@@ -109,7 +109,7 @@ test.each(["success", "failure", "process-exit"] as const)(
       release.resolve();
       await creating;
       expect(interaction()?.state).toBe(
-        outcome === "success" ? "resolved" : outcome === "failure" ? "cancelled" : "expired",
+        outcome === "success" ? "resolved" : outcome === "failure" ? "pending" : "expired",
       );
       expect(interaction()?.review).toMatchObject({
         decision: "approve",

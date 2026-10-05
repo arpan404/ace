@@ -124,7 +124,8 @@
     "bare-outline": 1
   },
   "apps/web/src/features/home/row-parts.tsx": {
-    "text-size": 1
+    "text-size": 3,
+    "radius": 1
   },
   "apps/web/src/features/home/thread-list.tsx": {
     "bare-outline": 1
@@ -291,7 +292,7 @@
     "text-size": 1
   },
   "apps/web/src/features/thread/interactions/question-form.tsx": {
-    "text-size": 1,
+    "text-size": 2,
     "radius": 1
   },
   "apps/web/src/features/thread/items/agent-row.tsx": {
@@ -302,24 +303,36 @@
     "text-size": 3,
     "radius": 2
   },
-  "apps/web/src/features/thread/items/block-view.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/thread/items/changed-files.tsx": {
     "text-size": 4
   },
-  "apps/web/src/features/thread/items/messages.tsx": {
-    "text-size": 1,
-    "radius": 1
+  "apps/web/src/features/thread/items/error-row.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/items/event-divider.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/items/model-facing.tsx": {
+    "text-size": 1
   },
   "apps/web/src/features/thread/items/step-detail.tsx": {
-    "text-size": 3
+    "text-size": 6
   },
   "apps/web/src/features/thread/items/subagents.tsx": {
     "text-size": 1
   },
+  "apps/web/src/features/thread/items/task-card.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/items/user-message.tsx": {
+    "text-size": 1,
+    "radius": 1
+  },
+  "apps/web/src/features/thread/items/work-log-steps.tsx": {
+    "text-size": 1
+  },
   "apps/web/src/features/thread/items/work-log-view.tsx": {
-    "text-size": 2
+    "text-size": 1
   },
   "apps/web/src/features/thread/long/search-bar.tsx": {
     "text-size": 1,

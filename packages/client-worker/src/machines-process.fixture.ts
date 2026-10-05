@@ -89,7 +89,7 @@ export function persistence() {
     raw: () => raw,
   };
 }
-export function poolWorld(options: { threadCount?: number } = {}) {
+export function poolWorld(options: { threadCount?: number; outboxRoot?: string } = {}) {
   const p = persistence();
   const workers = new Map<string, Worker>();
   const sidebarFaults = new Map<string, "hold" | "fail">();
@@ -109,6 +109,7 @@ export function poolWorld(options: { threadCount?: number } = {}) {
           sidebarFault: sidebarFaults.get(entry.hostId),
           gate,
           threadCount: options.threadCount,
+          outboxRoot: options.outboxRoot,
         },
         execArgv: [],
       });

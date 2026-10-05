@@ -8,6 +8,7 @@ export type {
   Transport,
   TransportEvents,
   Storage,
+  IntentRecords,
   Scheduler,
   Limits,
   RequestOptions,
@@ -78,3 +79,8 @@ export type {
   ThreadReadStateInput,
   ThreadMarkReadInput,
 } from "./long-thread.ts";
+
+export { pendingSend, pendingSendsEqual, matchesPendingThread } from "./pending-sends.ts";
+export type { PendingSend, SendPayload } from "./pending-sends.ts";
+
+export { fitsUtf8 } from "./bounds.ts";

@@ -66,7 +66,7 @@ function ContrastBanner(props: { warnings: ContrastWarning[] }) {
     return (
       <p
         role="status"
-        className="mt-3.5 rounded-card bg-[color-mix(in_oklab,var(--status-done)_9%,transparent)] px-3 py-2.5 text-sm leading-normal"
+        className="mt-3.5 rounded-card bg-status-done/9 px-3 py-2.5 text-sm leading-normal"
       >
         <b className="font-medium">Contrast looks good.</b> Text, buttons and status colours all
         clear WCAG AA against the background.
@@ -75,7 +75,7 @@ function ContrastBanner(props: { warnings: ContrastWarning[] }) {
   return (
     <div
       role="status"
-      className="mt-3.5 rounded-card bg-[color-mix(in_oklab,var(--status-needs-you)_9%,transparent)] px-3 py-2.5 text-sm leading-normal"
+      className="mt-3.5 rounded-card bg-status-needs-you/9 px-3 py-2.5 text-sm leading-normal"
     >
       <b className="font-medium">
         {count} contrast warning{count === 1 ? "" : "s"}

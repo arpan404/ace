@@ -38,7 +38,7 @@ await client.close();
 
 `enqueue(payload, id?)` durably records an intent before sending. Use stable globally unique ids for retry keys. `intent(id)` selects pending, acked or failed state, including daemon rejection text. Acked means the daemon accepted the command, not that an agent finished its work. Terminal receipts leave the bounded local cache as new intents arrive. Retry keys still work through the daemon's receipt store.
 
-`command(payload, options?, id?)` adds a cancellable, timed waiter for the daemon receipt. Aborting or timing out a waiter cannot undo the durable intent or daemon effects. Use `enqueue` for offline sends. A reconnect replays pending intents even if a prior waiter was cancelled. A failed persistence write does not send anything. Persistence failures while recording receipts put the client in fatal state and keep the durable command replayable.
+`command(payload, options?, id?)` adds a cancellable waiter for the daemon receipt, without a failure deadline. Both `command` and `enqueue` save offline actions. Aborting a waiter cannot undo the durable intent or daemon effects. A reconnect replays pending intents even if a prior waiter was cancelled. A failed persistence write does not send anything. Persistence failures while recording receipts put the client in fatal state and keep the durable command replayable.
 
 `itemsPage({threadId,before?,limit}, options?)` returns older items with an exclusive numeric creation-sequence cursor and consistency sequence. Use `thread.store.itemsBefore` as the older-page cursor. Creation-sequence metadata keeps this cursor accurate when the SDK trims a daemon window. Apply it with `thread.store.page(page)`. The store reconciles later item changes and rejects expired coverage with ClientError("stale"); obtain a fresh page in that case. Live creation advances the bounded window; updates to unloaded history do not reinsert it. `outputRead({streamId,offset,limit})` reads a bounded Uint8Array at byte offsets. `output` is an async generator that requests another chunk only when its consumer advances. Shell items expose bounded output summaries containing streamId, byte count and a tail; complete output lives in the daemon stream store.
 
@@ -153,8 +153,41 @@ that action and its wording.
 
 `threadReadState({ threadId })` returns the authenticated device's persisted
 `lastSeenSeq`. `markThreadRead({ threadId, lastSeenSeq })` coalesces updates for
-100 ms per thread into one durable command using the greatest active cursor.
-Each caller retains its own abort and timeout. The daemon advances monotonically
-and caps the cursor at its current head. An accepted command stays in the normal
-outbox until its receipt is acknowledged. Pending unsent read marks are bounded
-by the client's request limit.
+100 ms per thread into one ephemeral command using the greatest active cursor.
+Read marks never enter the outbox; unsent marks and in-flight read waiters reject
+on disconnect. The latest failed cursor is retried on reconnect in memory and
+never survives a client restart.
+
+Durable `command()` calls persist even while offline and wait across disconnects.
+They have no receipt deadline. `timeoutMs` only sets deadlines for one-shot reads
+and previews through `request()`. Aborting a durable call stops its waiter, not
+its already saved command. Reuse the command id when reattaching or retrying a
+create. Closing the client stops local waiters; saved commands survive reload.
+UI callers should show "Will apply when reconnected" offline and a waiting hint
+after five seconds, and roll back only after a definite daemon refusal.
+
+Outboxes may provide `Storage.records.load/write` for per-intent writes. Successful
+commands, including sends, leave disk as soon as their receipt arrives. The
+daemon admission transaction owns durable input at that point; cleanup needs no
+thread lease. Observing `input:<commandId>` marks a retained bubble delivered. Both count and byte caps evict
+settled in-memory entries before refusing active work. Legacy aggregate storage
+is accepted and trimmed on load, so an old oversized history cannot wedge sends.
+Read marks bypass persistence and coalesce by the greatest sequence per thread.
+
+`pendingSends(threadId?)` is a synchronous selection of send/create entries,
+including `saving` before persistence resolves. Each entry supplies `commandId`,
+`itemId` as `input:<commandId>`, the complete payload, state, error and a five-second
+waiting hint. Create entries can be read under `pending:<commandId>` before and
+after their receipt supplies the real `threadId`. `usePendingSends` exposes it to
+React. Render entries and admission items under the same key, suppressing a local
+entry while its daemon item is loaded. Accepted means admitted; delivered means
+the transcript item has been observed, not that the provider answered.
+
+For optimistic queue pills, filter `pendingSends(threadId)` by queue delivery and
+merge with `queue.get` by `commandId`, which is also the server queue message id.
+Queue edit, move, remove and resume commands can be enqueued independently with
+stable ids. Watch `intent(id)` per affected pill until its receipt; `queue_conflict`
+is a definite refusal of that command and leaves other intents unaffected. The
+UI owns the optimistic reorder and its rollback against the authoritative queue
+revision. Draft state stays per device in the UI's draft store; WP3 owns its
+cross-window storage listener.

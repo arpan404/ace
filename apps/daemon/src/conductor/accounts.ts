@@ -64,7 +64,7 @@ export function executionAccounts(
     if (
       !spec?.constraints.accounts.includes(`local.${provider}`) ||
       provider === "acp" ||
-      managed.some(({ instance }) => instance.provider === provider)
+      managed.some(({ instance }) => instance.provider === provider && !instance.implicit)
     )
       continue;
     try {

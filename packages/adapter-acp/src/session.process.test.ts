@@ -20,7 +20,12 @@ const homes: string[] = [];
 afterEach(async () => {
   for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true });
 });
-async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRuntime) {
+async function setup(
+  quirks = cursorQuirks,
+  resume = false,
+  runtime?: SessionRuntime,
+  env: Record<string, string> = {},
+) {
   const home = await mkdtemp(join(tmpdir(), "ace-acp-session-"));
   homes.push(home);
   const frames: Frame[] = [];
@@ -34,7 +39,7 @@ async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRun
   const ctx = {
     threadId,
     cwd: home,
-    env: { HOME: home },
+    env: { HOME: home, ...env },
     model: "test-model",
     signal: controller.signal,
     ...(resume ? { resume: { nativeSessionId: "native-root" } } : {}),
@@ -55,6 +60,7 @@ async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRun
           {
             command: process.execPath,
             args: [fake],
+            env: ctx.env,
             version: quirks.provider === "cursor" ? "2026.09.26-test" : "1.2.1",
           },
           runtime,
@@ -91,7 +97,12 @@ it("ACP fallback correlates ace input before the native prompt is logged", async
       command: process.execPath,
       args: [fake],
     }).createTranslator({ threadId: ThreadId.parse("session-test"), rootKey: "root" });
-    const facts = h.frames.flatMap((frame) => translator.translate(frame, frame.t));
+    const diagnostics: import("@ace/protocol").RawPayload[] = [];
+    const facts = h.frames.flatMap((frame) => {
+      const translated = translator.translate(frame, frame.t);
+      diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
+      return translated;
+    });
     expect(facts).toContainEqual(
       expect.objectContaining({
         type: "item.upsert",
@@ -101,23 +112,44 @@ it("ACP fallback correlates ace input before the native prompt is logged", async
     expect(
       facts.some((fact) => fact.type === "item.delta" && fact.append === "echoed context"),
     ).toBe(false);
+    expect(facts.some((fact) => fact.type === "item.upsert" && fact.draft.type === "notice")).toBe(
+      false,
+    );
+    const inputFact = facts.find(
+      (fact) => fact.type === "item.upsert" && fact.draft.type === "message",
+    );
+    if (!inputFact || inputFact.type !== "item.upsert") throw new Error("Missing sent input");
     expect(facts).toContainEqual(
       expect.objectContaining({
-        type: "item.upsert",
+        type: "item.reconciled",
+        item: inputFact.item,
         draft: expect.objectContaining({
-          type: "notice",
-          text: "Delegated-agent context echoed by the provider.",
+          type: "message",
+          role: "user",
+          raw: [expect.objectContaining({ type: "session/update" })],
         }),
       }),
     );
+    // The echo is retained once, as raw evidence on the sent input, not again as a diagnostic.
+    expect(JSON.stringify(diagnostics)).not.toContain("echoed context");
     const after = h.frames.length;
     await h.session.send(input("user-echo"), "queue", "copied-user-command");
     const userFacts = h.frames
       .slice(after)
       .flatMap((frame) => translator.translate(frame, frame.t));
     expect(userFacts).toContainEqual(
-      expect.objectContaining({ type: "item.delta", append: "echoed context" }),
+      expect.objectContaining({
+        type: "item.reconciled",
+        draft: expect.objectContaining({
+          type: "message",
+          role: "user",
+          raw: [expect.objectContaining({ type: "session/update" })],
+        }),
+      }),
     );
+    expect(
+      userFacts.some((fact) => fact.type === "item.delta" && fact.append === "echoed context"),
+    ).toBe(false);
   } finally {
     await h.session.close("user");
   }
@@ -452,4 +484,29 @@ it("binds the root before queued input when session creation and root traffic sh
   } finally {
     await session.close("shutdown");
   }
+});
+
+it("ACP open failures preserve structured causes and redact launch credentials", async () => {
+  const secret = "private-acp-launch-secret";
+  const failed = setup(
+    cursorQuirks,
+    false,
+    {
+      now: () => 0,
+      spawn: () => {
+        throw {
+          code: "launch_failed",
+          title: "CLI launch failed",
+          detail: `Cannot launch with ${secret}`,
+        };
+      },
+    },
+    { PRIVATE_LAUNCH_CREDENTIAL: secret },
+  );
+  const failure: unknown = await failed.catch((error: unknown) => error);
+  expect(failure).toMatchObject({ code: "launch_failed", title: "CLI launch failed" });
+  expect(failure).toBeInstanceOf(Error);
+  if (!(failure instanceof Error)) throw new Error("Expected opening failure");
+  expect(failure.message).toContain("Cannot launch");
+  expect(failure.message).not.toContain(secret);
 });

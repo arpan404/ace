@@ -19,7 +19,7 @@ import { Icon, type IconGlyph } from "@/components/icon.tsx";
 export const viewRowClass = cn(
   "group grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-card px-[11px] py-[9px] text-left transition-colors duration-(--dur-1)",
   "hover:bg-sidebar-accent focus-ring-inset",
-  "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] aria-[current=page]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+  "data-[status=active]:bg-foreground/8 aria-[current=page]:bg-foreground/8",
 );
 
 export function ViewRowBody(props: {

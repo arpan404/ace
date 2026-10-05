@@ -253,12 +253,10 @@ describe("OpenCode translation", () => {
       data: { part: { id: "p1", sessionID: "ses_root", type: "text", text: "hello" } },
     });
     expect(Object.values(h.view.items).filter((i) => i.type === "message")).toHaveLength(1);
-    expect(
-      Object.values(h.view.items).find(
-        (i) => i.type === "notice" && i.text === "OpenCode future.event",
-      ),
-    ).toMatchObject({
-      raw: [{ data: { payload: { properties: p } } }],
+    expect(Object.values(h.view.items).filter((i) => i.type === "notice")).toEqual([]);
+    expect(h.diagnostics).toContainEqual({
+      type: "future.event",
+      data: { payload: { type: "future.event", properties: p } },
     });
     const translator = new OpenCodeTranslator({
       threadId: ThreadId.parse("thread_x"),
