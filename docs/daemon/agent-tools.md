@@ -74,18 +74,24 @@ the snapshot before continuing.
 
 ## Screen journey
 
-A human first enables screen access, grants OS permissions, approves an app,
-starts capture, and delegates its screen session to the calling agent. Missing
-setup returns `delegation_required` with a remedy; an agent cannot approve an app.
+A human enables screen access and grants the helper's OS permissions. Call
+`screen_request_app({bundleId, reason})` for a host approval (this turn, this thread,
+always or deny), then `screen_open_app({bundleId})` to launch without activation
+and acquire a background session. Sensitive apps always ask. A human can also
+start and delegate a session. Up to eight distinct macOS apps share one helper;
+`target_busy` identifies the existing holder. Session tools accept `sessionId`;
+include it whenever the agent controls multiple apps. Cross-agent selection fails.
 
 Use `screen_ui_tree({})`, or
 `screen_ui_find({query: {name: "Name"}})`, then
 `screen_ui_act({ref: "…", action: "setValue", value: "Ada"})` or
 `screen_ui_act({ref: "…", action: "press"})`. Use only actions listed on the node.
-Action replies report whether synthesized input was needed. Refresh expired refs.
+Action replies include mode, whether synthesized input was needed and a fresh settled snapshot. Nodes advertise named secondary actions; `selectText` accepts text or a range. Refresh expired refs.
 OS accessibility support varies; unsupported operations return an error.
 
-`screen_type({text: "Ada"})` types into the focused control.
+`screen_type({text: "Ada"})` uses AX selected text before process-posted keys.
+`screen_paste({text: "Ada"})` saves and restores clipboard representations.
+Secure text fields refuse typing, keys and paste without human session consent.
 `screen_key({key: "Enter"})` sends a named v2 key.
 `screen_click({x: 10, y: 20})` uses target-window points on v2.
 `screen_scroll({dx: 0, dy: 100})` scrolls, with optional target-window `x`, `y`.
@@ -102,8 +108,18 @@ device model images are capped at 1536 pixels and 1 MiB. Large images require
 ffmpeg on the daemon host for resizing; a missing encoder returns a typed remedy.
 Live-view frames retain their original resolution.
 
+Background input never activates the app or uses HID input. `foreground_required`
+means the app needs an explicitly approved escalation; request it with
+`screen_request_foreground({sessionId, reason})`. Unsupported background events
+are never silently retried in foreground. Every action waits for a bounded UI
+settle; agents do not need to sleep. Occluded windows can be captured; minimized
+or off-display windows report explicit errors. Locked-Mac compatibility needs a
+live check. Windows/Linux background input remains a follow-up.
+
 Human takeover removes screen delegation. The human must delegate again before
-agent tools resume. Ending the provider lease releases its delegated control.
+agent tools resume. Ending the provider lease releases its delegated control. The global human kill
+switch stops all sessions and blocks reacquisition until enablement is renewed.
+See the [UI wire handoff](background-computer-use.md).
 
 ## Device journey
 
