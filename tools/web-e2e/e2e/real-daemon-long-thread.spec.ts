@@ -24,7 +24,9 @@ const mod = "ControlOrMeta";
 
 async function openLongThread(page: Page): Promise<string> {
   await page.goto(`/#token=${token()}&daemon=${encodeURIComponent(url)}`);
-  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Account and connection", exact: true }),
+  ).toBeAttached();
   const row = page
     .getByRole("navigation", { name: "Threads" })
     .getByRole("link", { name: new RegExp(longTitle) });

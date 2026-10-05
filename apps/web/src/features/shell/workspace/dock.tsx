@@ -253,9 +253,17 @@ export function WorkspaceDock(props: {
   );
 }
 
-/** The dock's toggle outside the dock itself (the header's), to return focus to. */
+/**
+ * The dock's toggle outside the dock itself (the header's), to return focus to. On a phone the
+ * toggles live in the header's ⋯, closed by now: focus goes back to that ⋯.
+ */
 function toggleOutside(side: Dock): HTMLElement | undefined {
-  return [...document.querySelectorAll<HTMLElement>(`[data-dock-toggle="${side}"]`)].find(
-    (toggle) => !toggle.closest("[data-dock]"),
+  const toggle = [...document.querySelectorAll<HTMLElement>(`[data-dock-toggle="${side}"]`)].find(
+    (each) => !each.closest("[data-dock]"),
+  );
+  return (
+    toggle ??
+    document.querySelector<HTMLElement>('header button[aria-label="More actions"]') ??
+    undefined
   );
 }

@@ -41,6 +41,15 @@ test("client projects and long-thread requests coexist while updating another cl
     expect(await client.projects.browse({ path: root, limit: 1 })).toMatchObject({
       result: { kind: "directories", entries: [{ name: "opened-folder" }] },
     });
+    expect(await client.projects.search({ query: "opened" })).toMatchObject({
+      result: { kind: "search", entries: [{ name: "opened-folder", isProject: true }] },
+    });
+    expect(await client.projects.complete({ path: "~/opened" })).toMatchObject({
+      result: { kind: "completion", commonPrefix: "~/opened-folder/" },
+    });
+    expect(await client.projects.validateCloneUrl("arpan404/ace")).toMatchObject({
+      result: { kind: "cloneUrl", url: "https://github.com/arpan404/ace.git", name: "ace" },
+    });
     expect(await client.projects.home()).toMatchObject({ result: { kind: "home", path: root } });
     expect(await client.projects.recentFolders()).toMatchObject({
       result: { kind: "recentFolders", folders: [{ id: project.id }] },

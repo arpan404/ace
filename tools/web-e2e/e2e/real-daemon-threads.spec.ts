@@ -15,7 +15,9 @@ import {
 async function connect(page: Page) {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
-  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Account and connection", exact: true }),
+  ).toBeAttached();
 }
 
 test("a new thread opens from the daemon's receipt and its organization survives a reload", async ({

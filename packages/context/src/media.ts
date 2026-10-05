@@ -18,6 +18,11 @@ export function sniffMime(header: Uint8Array): string {
   if (/^GIF8[79]a/.test(b.subarray(0, 6).toString("ascii"))) return "image/gif";
   if (b.subarray(0, 4).toString() === "RIFF" && b.subarray(8, 12).toString() === "WEBP")
     return "image/webp";
+  if (
+    b.subarray(4, 8).toString() === "ftyp" &&
+    /^(heic|heix|hevc|hevx|mif1|msf1)$/.test(b.subarray(8, 12).toString())
+  )
+    return "image/heic";
   if (b.subarray(0, 5).toString() === "%PDF-") return "application/pdf";
   try {
     if (b.includes(0)) return "application/octet-stream";
@@ -40,6 +45,11 @@ export function inspectImage(
 ): { mimeType: string; width?: number; height?: number } {
   const mimeType = sniffMime(header);
   if (!mimeType.startsWith("image/")) return { mimeType };
+  requireContext(
+    mimeType !== "image/heic",
+    "unsupported",
+    "HEIC images are unsupported. Export the image as PNG or JPEG before uploading.",
+  );
   let size: z.infer<typeof dimensions>;
   try {
     size = dimensions.parse(imageSize(header));

@@ -1,6 +1,6 @@
 import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
-import { isActionableInteraction } from "@ace/core";
+import { isActionableInteraction } from "@ace/core/human";
 import type { ThreadId } from "@ace/protocol";
 import { InteractionLink } from "./model.ts";
 import { OwnerState, type MetadataEvent } from "./metadata.ts";

@@ -1,3 +1,5 @@
+import { parseCloneUrl } from "@ace/project-picker";
+import { fakeSearch, fakeComplete } from "./project-picker.ts";
 import {
   Project,
   ProjectCloneUrl,
@@ -33,6 +35,7 @@ export class FakeProjects {
   private hasOwnedWork: (id: string) => boolean;
   private projects = new Map<string, Project>();
   private nextProject = 0;
+  private opened = new Map<string, number>();
   /** The host user's home, canonical; the only allowed root unless `seedFolders` names others. */
   private home = "/fake";
   /** Allowed roots, canonical, as a real daemon reports them. */
@@ -197,6 +200,7 @@ export class FakeProjects {
     const added = !this.projects.has(id);
     this.projects.delete(id);
     this.projects.set(id, project);
+    this.opened.set(path, this.context.now());
     this.removed.delete(id);
     if (added)
       this.emit({
@@ -310,6 +314,7 @@ export class FakeProjects {
       const parent = this.checked(input.parent);
       if (!this.directories.has(parent)) throw new Error("directory_unavailable");
       if (!ProjectCloneUrl.safeParse(input.url).success) throw new Error("git_invalid_argument");
+      const parsedUrl = parseCloneUrl(input.url);
       const path = `${parent}/${input.name}`;
       if (this.directories.get(path)?.empty === false) throw new Error("destination_not_empty");
       if (this.destinations.has(path)) throw new Error("project_busy");
@@ -350,7 +355,7 @@ export class FakeProjects {
         empty: false,
         git: true,
         initialBranch: "main",
-        remote: input.url,
+        remote: parsedUrl.url,
         modifiedAt: this.context.now(),
       });
       flight.committed = true;
@@ -372,6 +377,46 @@ export class FakeProjects {
       ProjectsResult.parse({ type: "projects.result", requestId: request.requestId, result });
     const op = request.operation;
     try {
+      if (op.op === "workspace.clone.validate") {
+        try {
+          return wrap({ kind: "cloneUrl", ...parseCloneUrl(op.url) });
+        } catch {
+          throw new Error("git_invalid_argument");
+        }
+      }
+      if (op.op === "fs.search" || op.op === "fs.complete") {
+        const recent = [...this.projects.values()].toReversed();
+        const folders = [...this.directories].flatMap(([path, directory]) => {
+          try {
+            this.checked(path);
+          } catch {
+            return [];
+          }
+          const rank = recent.findIndex((project) => project.path === path);
+          const lastOpened = rank < 0 ? undefined : this.opened.get(path);
+          return [
+            {
+              name: path.split("/").at(-1) ?? path,
+              path,
+              isGitRepo: directory.git,
+              isProject: rank >= 0,
+              recentScore: rank < 0 || rank >= 100 ? 0 : 1 / (rank + 1),
+              ...(lastOpened === undefined ? {} : { lastOpened }),
+            },
+          ];
+        });
+        return wrap(
+          op.op === "fs.search"
+            ? fakeSearch(op, folders, this.roots)
+            : fakeComplete(
+                op,
+                folders,
+                this.homeLink ?? this.home,
+                (path) => this.checked(path),
+                this.roots,
+              ),
+        );
+      }
       if (op.op === "workspace.clone.cancel") {
         const flight = this.clones.get(op.commandId);
         if (!flight) throw new Error("clone_not_running");
@@ -395,7 +440,17 @@ export class FakeProjects {
       if (op.op === "fs.recentFolders")
         return wrap({
           kind: "recentFolders",
-          folders: [...this.projects.values()].slice(-op.limit).toReversed(),
+          folders: [...this.projects.values()]
+            .filter((folder) => {
+              try {
+                this.checked(folder.path);
+                return true;
+              } catch {
+                return false;
+              }
+            })
+            .slice(-op.limit)
+            .toReversed(),
         });
       const path = this.checked(op.path);
       if (!this.directories.has(path)) throw new Error("directory_unavailable");

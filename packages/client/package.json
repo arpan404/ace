@@ -6,6 +6,7 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
+    "./attachments": "./src/attachments.ts",
     "./devices": "./src/devices.ts",
     "./files": "./src/files.ts",
     "./project-calls": "./src/project-calls.ts",
@@ -25,7 +26,9 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@ace/adapter-codex": "workspace:*",
     "@ace/adapter-testkit": "workspace:*",
+    "@ace/core": "workspace:*",
     "@ace/daemon": "workspace:*",
     "@ace/relay": "workspace:*",
     "@types/ws": "^8.18.1",

@@ -59,6 +59,8 @@ export function executionView(
   }
   return {
     ...view,
+    branch: root.branch.slice(0, 256),
+    baseBranch: root.baseBranch?.slice(0, 256) ?? null,
     updatedAt: Math.max(
       view.updatedAt,
       ...delegations.map(
