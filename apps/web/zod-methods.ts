@@ -1,3 +1,4 @@
+import { MagicString } from "magic-string";
 import type { Plugin } from "vite";
 
 /*
@@ -113,8 +114,8 @@ function* declarators(program: Node): Generator<Node> {
 }
 
 /**
- * Replaces each dropped member of classic Zod's schema prototypes with the throwing stand-in,
- * keeping the line count so the sourcemap still lines up.
+ * Replaces each dropped member of classic Zod's schema prototypes with a method that throws,
+ * naming itself, with a sourcemap so the stack points at the member it replaced.
  */
 export function zodWithoutUnusedMethods(
   dropped: Readonly<Record<string, readonly string[]>> = droppedZodMethods,
@@ -123,7 +124,8 @@ export function zodWithoutUnusedMethods(
     name: "ace:zod-without-unused-methods",
     transform(code, id) {
       if (!classicSchemas.test(id.split("?")[0] ?? id)) return null;
-      const spans: [number, number, string][] = [];
+      const out = new MagicString(code);
+      let changed = false;
       for (const declarator of declarators(this.parse(code) as unknown as Node)) {
         const found = memberTable(declarator);
         const names = found && new Set(dropped[found[0]]);
@@ -131,20 +133,16 @@ export function zodWithoutUnusedMethods(
         for (const member of found[1]["properties"] as unknown[]) {
           if (!isNode(member) || member.type !== "Property" || member["computed"]) continue;
           const name = nameOf(member["key"]);
-          if (name && names.has(name)) spans.push([member.start, member.end, name]);
+          if (!name || !names.has(name)) continue;
+          out.overwrite(member.start, member.end, `${name}() { ${stub}("${name}"); }`);
+          changed = true;
         }
       }
-      if (!spans.length) return null;
-      let out = "";
-      let at = 0;
-      for (const [start, end, name] of spans.toSorted((a, b) => a[0] - b[0])) {
-        // Same number of lines, so every line after the member keeps its sourcemap position.
-        const lines = code.slice(start, end).split("\n").length - 1;
-        out += `${code.slice(at, start)}${name}: ${stub}${"\n".repeat(lines)}`;
-        at = end;
-      }
-      out += `${code.slice(at)}\nfunction ${stub}() {\n  throw new Error("This Zod method is left out of browser builds (apps/web/zod-methods.ts).");\n}\n`;
-      return { code: out, map: null };
+      if (!changed) return null;
+      out.append(
+        `\nfunction ${stub}(name) {\n  throw new Error(\`Zod's .\${name}() is left out of browser builds (apps/web/zod-methods.ts).\`);\n}\n`,
+      );
+      return { code: out.toString(), map: out.generateMap({ hires: true, source: id }) };
     },
   };
 }
