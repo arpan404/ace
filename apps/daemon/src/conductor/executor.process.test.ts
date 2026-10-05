@@ -217,11 +217,7 @@ test("pausing preserves a lane continuation and resume does not leave subtree ca
   });
   await h.waitFor((run) => run.phase === "done");
   expect(
-    h.sends.filter(
-      (entry) =>
-        entry.thread === thread &&
-        entry.text.includes("Continue the interrupted task from native history"),
-    ),
+    h.sends.filter((entry) => entry.thread === thread && entry.text === "continue"),
   ).toHaveLength(1);
   expect(
     h.sends.filter(

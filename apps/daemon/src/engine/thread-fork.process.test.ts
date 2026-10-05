@@ -64,7 +64,7 @@ test("an interrupted run can fork at an exact native item", async () => {
   const h = setup({ native: true, outcome: "interrupted" });
   const source = await h.create();
   const item = Object.values(h.store.snapshotThread(source).items).find(
-    (candidate) => candidate.type === "message",
+    (candidate) => candidate.type === "message" && candidate.role === "assistant",
   );
   if (!item) throw new Error("No source item");
   const result = h.command({
@@ -91,7 +91,7 @@ test("a merge becomes cited context in the source and reaches its next provider 
   const source = await h.create();
   const fork = await h.fork(source);
   const item = Object.values(h.store.snapshotThread(fork).items).find(
-    (candidate) => candidate.type === "message",
+    (candidate) => candidate.type === "message" && candidate.role === "assistant",
   );
   if (!item) throw new Error("No fork item");
   expect(

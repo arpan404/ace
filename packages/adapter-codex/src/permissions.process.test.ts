@@ -126,3 +126,35 @@ test.each(["resume", "fork"] as const)(
     }
   },
 );
+
+test("steering retains the active turn's permissions and the next start receives the new policy", async () => {
+  let mode: "auto-review" | "full-access" = "auto-review";
+  const h = await sessionHarness(false, "", undefined, undefined, undefined, mode, {
+    getPermissionMode: async () => mode,
+  });
+  try {
+    await h.session.send([{ type: "text", text: "running" }], "steer");
+    await h.wait((frame) => obj(frame.data).method === "turn/started");
+    mode = "full-access";
+    await h.session.send([{ type: "text", text: "correction" }], "steer");
+    expect(
+      h.frames
+        .filter(
+          (frame) => frame.dir === "note" && obj(frame.data).event === "permission-mode-applied",
+        )
+        .map((frame) => obj(frame.data).mode),
+    ).toEqual(["auto-review"]);
+    await h.session.interrupt({ cascade: false });
+    await h.wait((frame) => obj(frame.data).method === "turn/completed");
+    await h.session.send([{ type: "text", text: "running" }], "steer");
+    const start = h.frames.findLast(
+      (frame) => frame.dir === "send" && obj(frame.data).method === "turn/start",
+    );
+    expect(obj(obj(start?.data).params)).toMatchObject({
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "dangerFullAccess" },
+    });
+  } finally {
+    await h.dispose();
+  }
+});

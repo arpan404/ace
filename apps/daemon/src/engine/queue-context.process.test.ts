@@ -210,12 +210,13 @@ test("missing context preparation holds the complete message instead of sending 
   expect(sends(h.adapter)).toHaveLength(0);
   expect(h.engine.queue(id)).toMatchObject({
     paused: true,
-    reason: "uncertain",
-    messages: [{ input: text("read the attachment"), context, state: "uncertain" }],
+    reason: "manual",
+    messages: [{ input: text("read the attachment"), context, state: "queued" }],
   });
   expect(
     Object.values(h.store.snapshotThread(id).items).some(
-      (item) => item.type === "notice" && item.text.includes("Context preparation is unavailable"),
+      (item) =>
+        item.type === "notice" && item.detail?.includes("Context preparation is unavailable"),
     ),
   ).toBe(true);
 });

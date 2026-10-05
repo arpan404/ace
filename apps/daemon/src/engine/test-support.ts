@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import type { Fact } from "@ace/core";
 import type { Frame, SessionContext, ProviderAdapter } from "@ace/engine-api";
+import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import {
   Command,
@@ -102,6 +103,9 @@ export async function harness(
     provider?: ProviderKind;
     capabilities?: Capabilities;
     nativeAdapter?: ProviderAdapter;
+    discovery?: DiscoveryResult;
+    onSessionOpenFailure?: EngineOptions["onSessionOpenFailure"];
+    createTranslator?: ProviderAdapter["createTranslator"];
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-engine-"));
@@ -128,11 +132,27 @@ export async function harness(
         imageInput: true,
         rewindFiles: false,
       }),
-    createTranslator: () => ({
-      translate: frames.translate,
-      tick: options.tick ?? (() => []),
-      ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
-    }),
+    createTranslator:
+      options.createTranslator ??
+      ((init) => ({
+        translate(frame) {
+          const facts = frames.translate(frame);
+          const mode =
+            contexts.findLast((ctx) => ctx.threadId === init.threadId)?.permissionMode ??
+            "auto-review";
+          for (const fact of facts)
+            if (
+              (options.provider ?? "codex") === "codex" &&
+              fact.type === "interaction.opened" &&
+              fact.request.kind === "approval" &&
+              !fact.raw?.some((raw) => raw.type === "ace.permission-policy")
+            )
+              fact.raw = [...(fact.raw ?? []), { type: "ace.permission-policy", data: { mode } }];
+          return facts;
+        },
+        tick: options.tick ?? (() => []),
+        ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
+      })),
     steps,
   });
   const registry = new AdapterRegistry();
@@ -152,7 +172,7 @@ export async function harness(
         return session;
       },
     },
-    { installed: true, auth: "logged_in", loginHint: "unused" },
+    options.discovery ?? { installed: true, auth: "logged_in", loginHint: "unused" },
   );
   const errors: unknown[] = [];
   const engine = new Engine(store, {
@@ -167,6 +187,7 @@ export async function harness(
     idleMs: options.idleMs ?? 30_000,
     silenceMs: 100,
     onError: (error) => errors.push(error),
+    ...(options.onSessionOpenFailure ? { onSessionOpenFailure: options.onSessionOpenFailure } : {}),
   });
   const server = await startServer({
     port: 0,
@@ -180,6 +201,12 @@ export async function harness(
   function command(payload: CommandPayload, deviceId = "device", id: string = randomUUID()) {
     const value = Command.parse({ id, deviceId, payload });
     return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
+  }
+  function internalCommand(payload: CommandPayload, id: string) {
+    const value = Command.parse({ id, deviceId: "ace-agent", payload });
+    return store.recordCommand(value.id, value.deviceId, () =>
+      engine.internalHandler.handle(value, store),
+    );
   }
   async function connect(deviceId: string) {
     const client = new Client(server.url);
@@ -214,6 +241,7 @@ export async function harness(
     registry,
     engine,
     command,
+    internalCommand,
     connect,
     errors,
     async create() {

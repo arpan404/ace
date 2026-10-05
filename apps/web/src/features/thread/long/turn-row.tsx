@@ -27,6 +27,7 @@ export function FoldedTurn(props: {
   const now = useNow();
   const headline = ask || (summary ? turnHeadline(summary) : "Turn without a message in view");
   const facts = summary ? digestFacts(summary.digest) : [];
+  const span = summary ? turnSpan(summary, now) : "";
   return (
     <button
       type="button"
@@ -37,15 +38,11 @@ export function FoldedTurn(props: {
     >
       <CaretRightIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       <span className="shrink-0 font-mono text-xs tabular-nums text-subtle-foreground">
-        {props.ordinal}
+        Turn {props.ordinal}
       </span>
       <span className="min-w-0 flex-1 truncate">{headline}</span>
       <DigestFacts facts={facts} className="max-w-[44ch] shrink text-xs text-subtle-foreground" />
-      {summary && (
-        <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">
-          {turnSpan(summary, now)}
-        </span>
-      )}
+      {span && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{span}</span>}
     </button>
   );
 }

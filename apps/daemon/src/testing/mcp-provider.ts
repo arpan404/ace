@@ -57,6 +57,7 @@ if (provider === "opencode") {
     "event.subscribe",
     "session.create",
     "session.get",
+    "session.switchModel",
     "session.list",
     "session.active",
     "session.prompt",

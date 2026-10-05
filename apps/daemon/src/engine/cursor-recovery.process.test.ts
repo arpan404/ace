@@ -132,7 +132,10 @@ it("recovers a killed daemon's committed deltas once and holds new input until e
       .items.filter((item) => item.type === "notice");
     expect(
       recoveryNotices.some(
-        (item) => item.type === "notice" && item.text.includes("outcomes remain uncertain"),
+        (item) =>
+          item.type === "notice" &&
+          item.code === "recovery_uncertain" &&
+          item.detail?.includes("outcomes remain uncertain"),
       ),
     ).toBe(true);
     const command = Command.parse({

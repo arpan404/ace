@@ -10,15 +10,16 @@ import { useProjectDirectory } from "@/lib/projects.ts";
 import { SidebarHeader } from "@/features/shell/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { activityOf, isUnread } from "@ace/ui-core";
-import { ThreadsActions } from "./folder-rows.tsx";
+import { ThreadsActions } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { rememberThread } from "./last-thread.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
 /**
- * Home's list in the sidebar: pinned threads, then a folder per project with its threads in the
- * order of what is owed, with Settled folded away at the end. New thread sits above it.
+ * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
+ * of what is owed, with Settled folded away at the end. New thread sits above it; the project
+ * filter in the heading narrows it to one project.
  */
 export function HomeSidebar() {
   const list = useHomeList();
@@ -26,7 +27,7 @@ export function HomeSidebar() {
   const organizer = useOrganizer();
   useSeenWhileOpen();
   const loaded = useSidebarLoaded();
-  const empty = !list.groups.pinned.length && !list.groups.projects.length && !list.settled.length;
+  const empty = !list.active.length && !list.settled.length;
   const directory = useProjectDirectory();
   const dialogs = useProjectDialogs();
   const noProjects = directory.loaded && directory.projects.length === 0;
