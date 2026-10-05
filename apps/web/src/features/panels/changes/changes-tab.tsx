@@ -40,7 +40,7 @@ const virtualRowsAbove = 2_000;
 const splitFrom = 880;
 /** The files tree sits beside the diff from this tab width, above it below. */
 const treeBesideFrom = 600;
-/** The tree's width beside the diff. */
+/** The tree's width beside the diff (its `w-[240px]`). */
 const treeWidth = 240;
 /** A chosen Split needs this much diff width; narrower it shows unified until there is room. */
 const splitNeeds = 640;
@@ -247,8 +247,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         const file = files[index];
         if (file) jump(file.path);
       }}
-      style={beside ? { width: treeWidth } : undefined}
-      className={beside ? "shrink-0 border-l" : "max-h-[40%] shrink-0 border-b"}
+      className={beside ? "w-[240px] shrink-0 border-l" : "max-h-[40%] shrink-0 border-b"}
     />
   );
   return (

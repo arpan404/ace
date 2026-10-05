@@ -24,7 +24,7 @@ import {
 import type { Agent, BackgroundTask } from "@ace/protocol";
 import { ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { useMemo } from "react";
+import { createContext, use, useMemo, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -33,9 +33,74 @@ import { useServerQueue } from "@/lib/server-queue.ts";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentStatusMark } from "./agent-status.tsx";
+import { countSubagents, stopLabel } from "./subagents.ts";
 import { AgentCounts, ThreadDeck } from "./tree-extras.tsx";
 
-const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-subtle-foreground";
+const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground";
+
+/** The tree's roving focus and folded branches, shared by its rows. */
+interface TreeState {
+  active: string | undefined;
+  setActive(id: string): void;
+  collapsed: ReadonlySet<string>;
+  fold(id: string, open: boolean): void;
+}
+const Tree = createContext<TreeState>({
+  active: undefined,
+  setActive: () => {},
+  collapsed: new Set(),
+  fold: () => {},
+});
+
+/**
+ * The tree's keys, as the Changes and Files trees have them: one Tab stop; ↑/↓ move, →/←
+ * expand, collapse or step in and out, Home/End jump, Enter opens the agent, Delete or S moves
+ * to a running agent's Stop.
+ */
+function treeKeys(tree: TreeState) {
+  return (event: KeyboardEvent<HTMLUListElement>) => {
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+    const item = (event.target as HTMLElement).closest<HTMLElement>('[role="treeitem"]');
+    const at = item ? items.indexOf(item) : -1;
+    if (!item || at < 0 || event.target !== item) return;
+    const id = item.dataset.agent ?? "";
+    const level = Number(item.getAttribute("aria-level"));
+    const expanded = item.getAttribute("aria-expanded");
+    const focus = (index: number) => {
+      const next = items[Math.max(0, Math.min(items.length - 1, index))];
+      if (!next) return;
+      tree.setActive(next.dataset.agent ?? "");
+      next.focus();
+    };
+    const moves: Record<string, number> = {
+      ArrowDown: at + 1,
+      ArrowUp: at - 1,
+      Home: 0,
+      End: items.length - 1,
+    };
+    const target = moves[event.key];
+    if (target !== undefined) focus(target);
+    else if (event.key === "ArrowRight") {
+      if (expanded === "false") tree.fold(id, true);
+      else if (expanded === "true") focus(at + 1);
+      else return;
+    } else if (event.key === "ArrowLeft") {
+      if (expanded === "true") tree.fold(id, false);
+      else
+        focus(
+          items.findLastIndex(
+            (other, index) => index < at && Number(other.getAttribute("aria-level")) < level,
+          ),
+        );
+    } else if (event.key === "Enter" || event.key === " ") item.click();
+    else if (event.key === "Delete" || event.key === "s" || event.key === "S") {
+      const stop = item.parentElement?.querySelector<HTMLElement>("[data-stop]");
+      if (!stop) return;
+      stop.focus();
+    } else return;
+    event.preventDefault();
+  };
+}
 
 /**
  * Agents tab: the whole agent tree with what each agent is doing and for how long (a row opens
@@ -67,9 +132,7 @@ export function AgentsTab(props: { threadId: string }) {
     <ArrivalScope>
       <div className="px-2.5 pt-2 pb-5">
         <AgentCounts threadId={props.threadId} />
-        <ul aria-label="Agent tree">
-          <Branch threadId={props.threadId} nodes={tree} depth={0} />
-        </ul>
+        <AgentTree threadId={props.threadId} nodes={tree} />
         {(tasks.length > 0 || queuedCount > 0 || queueWaiting) && (
           <section aria-labelledby="agents-background">
             <h3 id="agents-background" className={heading}>
@@ -107,10 +170,40 @@ function QueueRow(props: { count: number }) {
     >
       <ClockIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
       <span className="font-medium">{label}</span>
-      <span className="truncate text-xs text-subtle-foreground">
+      <span className="truncate text-xs text-muted-foreground">
         {props.count > 1 ? "send" : "sends"} when the agent is free
       </span>
     </li>
+  );
+}
+
+/** The agent tree: a tree widget, one Tab stop, with folding branches. */
+function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[] }) {
+  const [active, setActive] = useState<string>();
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const first = props.nodes[0]?.id;
+  const state = useMemo<TreeState>(
+    () => ({
+      // The root holds the Tab stop until another row has had focus.
+      active: active ?? first,
+      setActive,
+      collapsed,
+      fold: (id, open) =>
+        setCollapsed((previous) => {
+          const next = new Set(previous);
+          if (open) next.delete(id);
+          else next.add(id);
+          return next;
+        }),
+    }),
+    [active, first, collapsed],
+  );
+  return (
+    <Tree value={state}>
+      <ul role="tree" aria-label="Agent tree" onKeyDown={treeKeys(state)}>
+        <Branch threadId={props.threadId} nodes={props.nodes} depth={0} />
+      </ul>
+    </Tree>
   );
 }
 
@@ -123,11 +216,20 @@ function Branch(props: { threadId: string; nodes: readonly AgentTreeNode[]; dept
 /** One agent and its subtree; a subagent spawned while the tab is open rises in. */
 function BranchNode(props: { threadId: string; node: AgentTreeNode; depth: number }) {
   const { node } = props;
+  const tree = use(Tree);
+  const parent = node.children.length > 0;
+  const open = parent && !tree.collapsed.has(node.id);
   return (
-    <li className={useArrival()}>
-      <AgentRow threadId={props.threadId} agentId={node.id} depth={props.depth} />
-      {node.children.length > 0 && (
-        <ul>
+    <li role="none" className={useArrival()}>
+      <AgentRow
+        threadId={props.threadId}
+        agentId={node.id}
+        depth={props.depth}
+        expanded={parent ? open : undefined}
+        subagents={countSubagents(node)}
+      />
+      {open && (
+        <ul role="group">
           <Branch threadId={props.threadId} nodes={node.children} depth={props.depth + 1} />
         </ul>
       )}
@@ -135,7 +237,15 @@ function BranchNode(props: { threadId: string; node: AgentTreeNode; depth: numbe
   );
 }
 
-function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
+function AgentRow(props: {
+  threadId: string;
+  agentId: string;
+  depth: number;
+  /** Has subagents: whether they show. */
+  expanded: boolean | undefined;
+  subagents: number;
+}) {
+  const tree = use(Tree);
   const agent = useAgent(props.threadId, props.agentId);
   const thread = useThreadMeta(props.threadId);
   const workspace = useWorkspaceActions(props.threadId);
@@ -169,13 +279,13 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
       <span className="shrink-0 font-medium whitespace-nowrap">{name}</span>
       <span
         className={cn(
-          "min-w-0 flex-1 truncate text-xs text-subtle-foreground",
+          "min-w-0 flex-1 truncate text-xs text-muted-foreground",
           status.state === "failed" && "text-status-failed",
         )}
       >
         {activity}
       </span>
-      <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
         {formatSpan(agent.createdAt, end)}
       </span>
       <ProviderIconTip
@@ -185,34 +295,49 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
       />
     </>
   );
-  const row =
-    "relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg pr-2 text-left text-ui";
+  const open = () => {
+    if (!root) workspace.open({ kind: "agent", id: agent.id, title: name });
+  };
+  const stopName = stopLabel(name, props.subagents);
   return (
-    <div
-      role="group"
-      aria-label={`${root ? "Main agent" : name}: ${label}`}
-      className="group/agent flex items-center gap-1 rounded-lg hover:bg-accent"
-    >
-      {root ? (
-        <div style={{ paddingLeft: 8 + props.depth * 22 }} className={row}>
-          {body}
-        </div>
-      ) : (
-        <button
-          type="button"
-          aria-label={`Open ${name}`}
-          onClick={() => workspace.open({ kind: "agent", id: agent.id, title: name })}
-          style={{ paddingLeft: 8 + props.depth * 22 }}
-          className={cn(row, "outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]")}
-        >
-          {body}
-        </button>
-      )}
+    <div className="group/agent flex items-center gap-1 rounded-lg hover:bg-accent">
+      {/* The row is the tree item: Enter or a click opens the agent as its own tab. */}
+      <div
+        role="treeitem"
+        data-agent={agent.id}
+        aria-level={props.depth + 1}
+        aria-expanded={props.expanded}
+        aria-label={`${root ? "Main agent" : name}: ${label}`}
+        aria-description={root ? undefined : `Opens ${name}`}
+        tabIndex={tree.active === agent.id ? 0 : -1}
+        onFocus={() => tree.setActive(agent.id)}
+        onClick={open}
+        style={{ paddingLeft: 8 + props.depth * 22 }}
+        className={cn(
+          "focus-ring-inset relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg pr-2 text-left text-ui",
+          !root && "cursor-pointer",
+        )}
+      >
+        {body}
+      </div>
       {running && !root && thread && (
         <Button
           size="sm"
           variant="ghost"
-          className="mr-1 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex"
+          data-stop
+          tabIndex={-1}
+          aria-label={stopName}
+          title={stopName}
+          className="mr-1 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex"
+          onKeyDown={(event) => {
+            // Back to the row it belongs to.
+            if (event.key === "Escape" || event.key === "ArrowLeft") {
+              event.preventDefault();
+              event.currentTarget.parentElement
+                ?.querySelector<HTMLElement>('[role="treeitem"]')
+                ?.focus();
+            }
+          }}
           onClick={() =>
             void stop.send({
               type: "thread.interrupt",
@@ -247,12 +372,12 @@ function TaskRow(props: { threadId: string; taskId: string }) {
       <span
         className={cn(
           "min-w-0 shrink truncate",
-          task.kind === "shell" ? "font-mono text-[12px]" : "font-medium",
+          task.kind === "shell" ? "font-mono text-sm" : "font-medium",
         )}
       >
         {task.title}
       </span>
-      <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
+      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
         {formatSpan(task.startedAt, end)} · {taskState(task)}
       </span>
       {running && task.stoppable && (

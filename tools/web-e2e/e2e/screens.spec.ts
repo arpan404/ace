@@ -159,7 +159,7 @@ const screens: Record<string, Setup> = {
   "thread-agent-tab": async (page) => {
     await rightTab("/t/thread-cold-start", "Agents")(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
-    await panel.getByRole("button", { name: "Open resume-sweep" }).click();
+    await panel.getByRole("treeitem", { name: /^resume-sweep:/ }).click();
     await panel.getByRole("region", { name: "Delegation" }).waitFor();
   },
   // ace's risk policy approving, denying and escalating, the denial opened to its target.
