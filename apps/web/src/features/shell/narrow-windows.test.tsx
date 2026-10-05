@@ -273,7 +273,8 @@ test("in a wide window the panel sits beside the thread and Escape leaves it ope
 test("the sheet closes when its link to the page already open is tapped", async () => {
   windowWidth(390);
   await openThread();
-  await userEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+  // On a phone the header's way to the list is "Back to threads" (#126).
+  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   const threads = within(sheet).getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /^Cap cold-start replay/ }));
@@ -283,7 +284,8 @@ test("the sheet closes when its link to the page already open is tapped", async 
 test("Search in the sheet opens the palette in the sheet's place", async () => {
   windowWidth(390);
   await openThread();
-  await userEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+  // On a phone the header's way to the list is "Back to threads" (#126).
+  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   await userEvent.click(within(sheet).getByRole("button", { name: "Search and commands" }));
   expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeTruthy();
