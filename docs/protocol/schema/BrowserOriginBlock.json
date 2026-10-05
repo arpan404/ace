@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserOriginBlock.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "origin": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "reason": {
+      "enum": [
+        "approval_required",
+        "denied",
+        "read_only",
+        "timeout",
+        "invalid_origin"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "origin",
+    "reason"
+  ],
+  "type": "object"
+}

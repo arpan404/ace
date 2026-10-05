@@ -10,6 +10,7 @@ import {
 } from "@ace/protocol";
 import { commandCatalog, listCommands } from "./services/commands.ts";
 import { FakeFilesWire } from "./files-wire.ts";
+import { bindFakeBrowserOrigins } from "./browser-origins.ts";
 import { FakeBrowser } from "./browser.ts";
 import { fakeBrowserSession } from "./browser-wire.ts";
 import { FakeTerminalStream } from "./terminal-stream.ts";
@@ -58,10 +59,12 @@ export class FakeServicesWire {
   readonly files: FakeFilesWire;
   private planning: FakePlanningWire;
   private plugins = new FakePluginsWire();
+  private connectionSequence = 0;
   private host: FakeServiceContext;
   private settings: FakeSettings;
   constructor(context: FakeServiceContext, settings: FakeSettings) {
     this.host = context;
+    bindFakeBrowserOrigins(this.browser, context, settings);
     this.files = new FakeFilesWire(context);
     this.settings = settings;
     this.context = new FakeContextWire(context);
@@ -112,7 +115,12 @@ export class FakeServicesWire {
         emit(message);
     });
     const files = this.files.session(emit);
-    const browser = fakeBrowserSession(this.browser, this.host, emit);
+    const browser = fakeBrowserSession(
+      this.browser,
+      this.host,
+      emit,
+      `fake-browser-${++this.connectionSequence}`,
+    );
     return {
       authenticated: (device) => {
         owner = device;

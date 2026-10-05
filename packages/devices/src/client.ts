@@ -32,10 +32,13 @@ export interface DeviceClientOptions {
 export class DeviceClientError extends Error {
   readonly code: string;
   readonly hint: string;
-  constructor(code: string, message: string, hint = "") {
+  /** The macOS permission the daemon's screen helper lacks, when that is the cause. */
+  readonly permission: DeviceFailure["permission"];
+  constructor(code: string, message: string, hint = "", permission?: DeviceFailure["permission"]) {
     super(message);
     this.code = code;
     this.hint = hint;
+    this.permission = permission;
   }
 }
 export interface DeviceClientSnapshot {
@@ -43,6 +46,8 @@ export interface DeviceClientSnapshot {
   devices: readonly Device[];
   states: readonly DeviceState[];
   issues: readonly DeviceFailure[];
+  /** Devices are on for the daemon's machine, once the daemon has said either way. */
+  enabled?: boolean;
   error?: DeviceClientError;
 }
 export type DeviceLogBatch = Extract<DeviceServerMessage, { type: "devices.logs" }>;
@@ -53,7 +58,12 @@ type Pending = {
   operation: DeviceOperation;
 };
 const inventory = DeviceInventory;
-const statesResult = z.object({ states: z.array(DeviceState).max(32) });
+const statesResult = z.object({
+  states: z.array(DeviceState).max(32),
+  /** Older daemons leave it out; their states carry it instead. */
+  enabled: z.boolean().optional(),
+});
+const enableResult = z.object({ enabled: z.boolean() });
 
 /** No credentials, automatic reapproval or replayed input. The host owns reconnect. */
 export class DeviceClient {
@@ -73,6 +83,7 @@ export class DeviceClient {
   private readonly logListeners = new Map<string, Set<(batch: DeviceLogBatch) => void>>();
   private devices: Device[] = [];
   private issues: DeviceFailure[] = [];
+  private enabled: boolean | undefined;
   private connected = false;
   private transport: DeviceTransport | undefined;
   private error: DeviceClientError | undefined;
@@ -95,6 +106,7 @@ export class DeviceClient {
       devices: this.devices,
       issues: this.issues,
       states: [...this.states.values()],
+      ...(this.enabled === undefined ? {} : { enabled: this.enabled }),
       ...(this.error ? { error: this.error } : {}),
     };
   }
@@ -152,6 +164,7 @@ export class DeviceClient {
     this.states.clear();
     this.devices = [];
     this.issues = [];
+    this.enabled = undefined;
     this.reader.reset();
     this.screenshots.clear();
     for (const entry of this.frameHubs.values()) entry.hub.discardPending();
@@ -285,9 +298,26 @@ export class DeviceClient {
           throw new DeviceClientError("limit", "Device message exceeds limit");
         data = JSON.parse(data);
       }
+      // Another feature's message (a daemon pushing screen state to every connection, say)
+      // is skipped, never fatal: only devices messages are held to this schema.
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "type" in data &&
+        typeof data.type === "string" &&
+        !data.type.startsWith("devices.")
+      )
+        return;
       const message = DeviceServerMessage.parse(data);
       if (message.type === "devices.state") {
         this.putState(message.state);
+        this.notify();
+      } else if (message.type === "devices.enabled") {
+        this.enabled = message.enabled;
+        this.notify();
+      } else if (message.type === "devices.inventory") {
+        this.devices = message.devices;
+        this.issues = message.issues;
         this.notify();
       } else if (message.type === "devices.logs") {
         for (const listener of this.logListeners.get(message.deviceId) ?? []) listener(message);
@@ -315,8 +345,13 @@ export class DeviceClient {
             this.issues = found.issues;
             this.notify();
           }
+          if (pending.operation.op === "enable") {
+            this.enabled = enableResult.parse(message.data).enabled;
+            this.notify();
+          }
           if (pending.operation.op === "states") {
             const result = statesResult.parse(message.data);
+            if (result.enabled !== undefined) this.enabled = result.enabled;
             this.states.clear();
             this.streams.clear();
             for (const state of result.states) this.putState(state);
@@ -343,7 +378,7 @@ export class DeviceClient {
   }
   private failure(error: DeviceFailure | undefined): DeviceClientError {
     return error
-      ? new DeviceClientError(error.code, error.message, error.hint)
+      ? new DeviceClientError(error.code, error.message, error.hint, error.permission)
       : new DeviceClientError("command_failed", "Device request failed");
   }
   private fail(error: unknown): void {

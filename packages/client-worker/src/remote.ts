@@ -2,6 +2,7 @@ import {
   deferredProjectsApi,
   downloadFile,
   uploadFile,
+  type AttachmentInput,
   type FileDownloadInput,
   type FileUploadInput,
 } from "@ace/client";
@@ -268,8 +269,9 @@ export class RemoteClient implements ClientApi {
     if (this.closed || this.current !== "ready") throw new ClientError("offline");
     this.post({ t: "send", message });
   }
-  attachmentBytes(input: import("@ace/client").AttachmentInput, options: RequestOptions = {}) {
-    return import("@ace/client").then(({ attachmentBytes }) =>
+  attachmentBytes(input: AttachmentInput, options: RequestOptions = {}) {
+    // A subpath keeps the validating reader (and zod) out of the page's first paint.
+    return import("@ace/client/attachments").then(({ attachmentBytes }) =>
       attachmentBytes(this, input, options),
     );
   }

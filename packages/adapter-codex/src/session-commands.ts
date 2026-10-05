@@ -1,6 +1,7 @@
+import { CodexInteractionUnavailable } from "./interaction-lifecycle.ts";
 import { z } from "zod";
 import type { ProviderSession, SessionContext } from "@ace/engine-api";
-import type { ContentPart } from "@ace/protocol";
+import type { ContentPart, InteractionId, Question, PermissionMode } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
 import type { TurnStartParams } from "./generated/v2/TurnStartParams.ts";
 import type { TurnSteerParams } from "./generated/v2/TurnSteerParams.ts";
@@ -30,15 +31,19 @@ export type Pending = {
 };
 export type SessionCommandsContext = {
   nativeSessionId: string;
-  getLaunchOptions?(): Pick<
-    TurnStartParams,
-    "effort" | "serviceTier" | "approvalPolicy" | "sandboxPolicy" | "approvalsReviewer"
-  >;
+  getLaunchOptions?(threadId: string): Promise<{
+    mode: PermissionMode;
+    options: Pick<
+      TurnStartParams,
+      "effort" | "serviceTier" | "approvalPolicy" | "sandboxPolicy" | "approvalsReviewer"
+    >;
+  }>;
   active: Map<string, string>;
   parents: Map<string, string>;
   shells: Map<string, string>;
   pending: Map<string, Pending>;
-  asyncQuestions: Map<string, string>;
+  asyncQuestions: Map<string, { thread: string; questions: Question[] }>;
+  interactionId?: ((key: string) => InteractionId | undefined) | undefined;
   plans: Map<string, { thread: string; markdown: string }>;
   assertOpen(): void;
   request(method: string, params: unknown, interactive?: boolean): Promise<unknown>;
@@ -63,6 +68,18 @@ export function createSessionCommands(
     request,
     emit,
   } = config;
+  async function startTurn(
+    threadId: string,
+    params: Omit<TurnStartParams, "threadId">,
+  ): Promise<unknown> {
+    const launch = await config.getLaunchOptions?.(threadId);
+    if (launch) emit("note", { event: "permission-turn-submitting", threadId, mode: launch.mode });
+    return request(
+      "turn/start",
+      { ...params, ...launch?.options, threadId } satisfies TurnStartParams,
+      true,
+    );
+  }
   async function sendTo(
     threadId: string,
     parts: ContentPart[],
@@ -93,33 +110,27 @@ export function createSessionCommands(
         } satisfies TurnSteerParams,
         true,
       );
-    else {
-      await request(
-        "turn/start",
-        {
-          threadId,
-          input: origin === "ace" ? [] : input(parts),
-          ...(clientUserMessageId ? { clientUserMessageId } : {}),
-          ...(origin === "ace"
-            ? {
-                turnTrigger: "subagent_result",
-                additionalContext: {
-                  "ace.delegation": {
-                    kind: "untrusted" as const,
-                    value: parts
-                      .filter((part) => part.type === "text")
-                      .map((part) => part.text)
-                      .join("\n"),
-                  },
+    else
+      await startTurn(threadId, {
+        input: origin === "ace" ? [] : input(parts),
+        ...(clientUserMessageId ? { clientUserMessageId } : {}),
+        ...(origin === "ace"
+          ? {
+              turnTrigger: "subagent_result",
+              additionalContext: {
+                "ace.delegation": {
+                  kind: "untrusted" as const,
+                  value: parts
+                    .filter((part) => part.type === "text")
+                    .map((part) => part.text)
+                    .join("\n"),
                 },
-              }
-            : {}),
-          ...config.getLaunchOptions?.(),
-        } satisfies TurnStartParams,
-        true,
-      );
-    }
+              },
+            }
+          : {}),
+      });
   }
+
   async function stopShells(threadId: string, itemId?: string): Promise<void> {
     let cursor: string | undefined;
     const cursors = new Set<string>();
@@ -196,6 +207,27 @@ export function createSessionCommands(
     if (failures.length)
       throw new AggregateError(failures, "Could not completely interrupt Codex agent tree");
   }
+  async function sendAnswer(
+    thread: string,
+    key: string,
+    text: string,
+    send: () => Promise<unknown>,
+  ): Promise<void> {
+    const interactionId = config.interactionId?.(key);
+    emit("note", {
+      event: "interaction-answer",
+      threadId: thread,
+      interaction: key,
+      text,
+      ...(interactionId ? { interactionId } : {}),
+    });
+    try {
+      await send();
+    } catch (error) {
+      emit("note", { event: "interaction-answer-failed", threadId: thread, interaction: key });
+      throw error;
+    }
+  }
   return {
     send: (parts, delivery, commandId, origin) =>
       sendTo(nativeSessionId, parts, delivery, origin, commandId),
@@ -216,7 +248,11 @@ export function createSessionCommands(
       await stopShells(thread, item);
     },
     async resolve(key, resolution) {
-      assertOpen();
+      try {
+        assertOpen();
+      } catch {
+        throw new CodexInteractionUnavailable(key);
+      }
       const entry = pending.get(key);
       if (entry) {
         const result = approvalResult(entry.request, resolution);
@@ -224,53 +260,65 @@ export function createSessionCommands(
         entry.answer(result);
         return;
       }
-      const thread = asyncQuestions.get(key);
-      if (thread && resolution.kind === "question") {
+      const question = asyncQuestions.get(key);
+      if (question && resolution.kind === "question") {
+        asyncQuestions.delete(key);
         const text = resolution.dismissed
           ? "Continue without answers."
-          : Object.values(resolution.answers)
-              .map((answers) => answers.join(", "))
+          : Object.entries(resolution.answers)
+              .map(([id, answers]) =>
+                answers
+                  .map(
+                    (answer) =>
+                      question.questions
+                        .find((q) => q.id === id)
+                        ?.options.find((option) => option.id === answer)?.label ?? answer,
+                  )
+                  .join(", "),
+              )
               .join("; ");
-        await sendTo(thread, [{ type: "text", text }], "steer");
-        asyncQuestions.delete(key);
+        await sendAnswer(question.thread, key, text, () =>
+          sendTo(question.thread, [{ type: "text", text }], "steer"),
+        );
         emit("note", { event: "interaction-resolved", interaction: key });
         return;
       }
       const plan = plans.get(key);
       if (plan && resolution.kind === "plan_review") {
+        plans.delete(key);
         if (
           resolution.decision !== "cancel" &&
           (resolution.decision === "approve" || resolution.feedback)
         )
-          await request(
-            "turn/start",
-            {
-              threadId: plan.thread,
-              input: input([
-                {
-                  type: "text",
-                  text:
-                    resolution.decision === "approve"
-                      ? "Implement the plan."
-                      : (resolution.feedback ?? ""),
+          await sendAnswer(
+            plan.thread,
+            key,
+            resolution.decision === "approve" ? "Implement the plan." : (resolution.feedback ?? ""),
+            async () =>
+              startTurn(plan.thread, {
+                input: input([
+                  {
+                    type: "text",
+                    text:
+                      resolution.decision === "approve"
+                        ? "Implement the plan."
+                        : (resolution.feedback ?? ""),
+                  },
+                ]),
+                collaborationMode: {
+                  mode: resolution.decision === "approve" ? "default" : "plan",
+                  settings: {
+                    model: config.getModel(),
+                    reasoning_effort: null,
+                    developer_instructions: null,
+                  },
                 },
-              ]),
-              collaborationMode: {
-                mode: resolution.decision === "approve" ? "default" : "plan",
-                settings: {
-                  model: config.getModel(),
-                  reasoning_effort: null,
-                  developer_instructions: null,
-                },
-              },
-            } satisfies TurnStartParams,
-            true,
+              }),
           );
-        plans.delete(key);
         emit("note", { event: "interaction-resolved", interaction: key });
         return;
       }
-      throw new Error("Unknown or already resolved Codex interaction");
+      throw new CodexInteractionUnavailable(key);
     },
   };
 }

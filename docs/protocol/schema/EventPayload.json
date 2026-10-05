@@ -86,6 +86,15 @@
         "title": {
           "type": "string"
         },
+        "titleSource": {
+          "enum": [
+            "provisional",
+            "provider",
+            "person",
+            "agent"
+          ],
+          "type": "string"
+        },
         "type": {
           "const": "thread.updated",
           "type": "string"
@@ -252,6 +261,9 @@
         "endedAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "error": {
+          "$ref": "https://ace.local/protocol/v1/AgentError.json"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -383,6 +395,10 @@
         },
         "closedAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "expirationReason": {
+          "const": "provider_disconnected",
+          "type": "string"
         },
         "interactionId": {
           "$ref": "https://ace.local/protocol/v1/InteractionId.json"

@@ -109,7 +109,7 @@ test.each(["success", "failure", "process-exit"] as const)(
       release.resolve();
       await creating;
       expect(interaction()?.state).toBe(
-        outcome === "success" ? "resolved" : outcome === "failure" ? "cancelled" : "expired",
+        outcome === "success" ? "resolved" : outcome === "failure" ? "pending" : "expired",
       );
       expect(interaction()?.review).toMatchObject({
         decision: "approve",
@@ -489,6 +489,102 @@ test("an exact ordinary regular-file read earns one-shot automatic permission", 
     });
     expect(interaction?.resolution).toMatchObject({ optionId: "once" });
     expect(h.store.getThread(id)?.status.state).toBe("done");
+  } finally {
+    await h.close();
+  }
+});
+
+test.each(["ask", "read-only", "auto-review"] as const)(
+  "an older Codex approval retains its %s authority after Full access is applied",
+  async (mode) => {
+    const frames = scriptFrames();
+    const fact = approval("echo mutation");
+    if (fact.type !== "interaction.opened") throw new Error("No approval");
+    fact.raw = [{ type: "ace.permission-policy", data: { mode } }];
+    const h = await harness([{ on: "send", frames: [frames.frame(start, fact)] }], frames, {
+      permissionSettings: async () => "full-access",
+    });
+    try {
+      const id = await h.create();
+      const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+      expect(interaction?.state).toBe(mode === "read-only" ? "resolved" : "pending");
+      if (mode !== "ask") expect(interaction?.review?.mode).toBe(mode);
+      else expect(interaction?.review).toBeUndefined();
+    } finally {
+      await h.close();
+    }
+  },
+);
+
+test("a child's applied ancestry-limited override stops showing pending after its ancestor tightens", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [{ on: "send", frames: [frames.frame(start, end)] }, { on: "close" }],
+    frames,
+    { permissionSettings: async () => "full-access" },
+  );
+  try {
+    const parent = await h.create();
+    const child = h.engine.spawn(
+      Command.parse({
+        id: "limited-child",
+        deviceId: "host",
+        payload: {
+          type: "thread.prepare",
+          threadId: "limited-child-thread",
+          workspaceId: h.workspace,
+          provider: "codex",
+          title: "Child",
+        },
+      }),
+      { parentThreadId: parent, permissionMode: "full-access" },
+    );
+    expect(child.ok).toBe(true);
+    if (!child.threadId) throw new Error("No child thread");
+    expect(
+      h.command({ type: "thread.permission.set", threadId: parent, permissionMode: "ask" }).ok,
+    ).toBe(true);
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: parent,
+        input: [{ type: "text", text: "tighten" }],
+      }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    expect(h.store.getThread(parent)?.permission?.effective).toBe("ask");
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: child.threadId,
+        input: [{ type: "text", text: "continue" }],
+      }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    expect(h.store.getThread(child.threadId)?.permission).toEqual({
+      override: "full-access",
+      effective: "ask",
+      pending: false,
+    });
+  } finally {
+    await h.close();
+  }
+});
+
+test("invalid Codex turn authority cannot borrow Full access from the composer", async () => {
+  const frames = scriptFrames();
+  const fact = approval("pwd");
+  if (fact.type !== "interaction.opened") throw new Error("No approval");
+  fact.raw = [{ type: "ace.permission-policy", data: { mode: "unverified" } }];
+  const h = await harness([{ on: "send", frames: [frames.frame(start, fact)] }], frames, {
+    permissionSettings: async () => "full-access",
+  });
+  try {
+    const id = await h.create();
+    expect(Object.values(h.store.snapshotThread(id).interactions)[0]).toMatchObject({
+      state: "pending",
+    });
+    expect(Object.values(h.store.snapshotThread(id).interactions)[0]?.review).toBeUndefined();
   } finally {
     await h.close();
   }

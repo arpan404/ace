@@ -51,6 +51,9 @@ test("Claude model rejection renders readable notices and retains codes and prov
     expect(notices).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining('Claude could not use the selected model "opus-5.5"'),
+        code: "unrecognized_model",
+        title: "Model not recognised",
+        detail: warning,
         details: { code: "unrecognized_model", provider: "claude", model: "opus-5.5" },
         raw: [expect.objectContaining({ data: warning })],
       }),
@@ -58,6 +61,9 @@ test("Claude model rejection renders readable notices and retains codes and prov
     expect(notices).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining("Claude could not use the selected model"),
+        code: "model_not_found",
+        title: expect.stringContaining("Claude Code"),
+        detail: "Selected model is unavailable.",
         details: expect.objectContaining({ code: "model_not_found", provider: "claude" }),
       }),
     );
@@ -75,6 +81,7 @@ test("Claude model rejection renders readable notices and retains codes and prov
           state: "failed",
           error: expect.objectContaining({
             message: expect.stringContaining("Claude could not use the selected model"),
+            code: "model_not_found",
             details: { code: "model_not_found", provider: "claude", model: "opus-5.5" },
           }),
         },

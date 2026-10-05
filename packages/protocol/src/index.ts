@@ -76,6 +76,8 @@ export {
   DeviceSettings,
   DeviceFailure,
   DeviceInventory,
+  DevicePermission,
+  DevicePermissions,
   DeviceState,
   DeviceOperation,
   DeviceClientMessage,
