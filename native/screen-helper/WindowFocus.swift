@@ -4,6 +4,12 @@ import ScreenCaptureKit
 
 /// Keyboard events go to an application's focused window. Refuse a different one.
 @MainActor func requireFocusedWindow(_ target: SCWindow, candidates: [SCWindow]) throws {
+    _ = try focusedWindowElement(target, candidates: candidates)
+}
+
+/// The application's focused Accessibility window, proven to be `target`. Reachable even when the
+/// window is on another Space, where the application's window list is empty.
+@MainActor func focusedWindowElement(_ target: SCWindow, candidates: [SCWindow]) throws -> AXUIElement {
     guard let app = target.owningApplication else { throw HelperError("Missing target application") }
     let application = AXUIElementCreateApplication(app.processID)
     var value: CFTypeRef?
@@ -30,6 +36,36 @@ import ScreenCaptureKit
         return abs(frame.minX - bounds.minX) < 1 && abs(frame.minY - bounds.minY) < 1 && abs(frame.width - bounds.width) < 1 && abs(frame.height - bounds.height) < 1
     }
     guard matches.count == 1, matches.first?.windowID == target.windowID else { throw HelperError("Captured window must be the application's focused window") }
+    return focused
+}
+
+/// The first button in `window` whose accessibility description or title is `name`, searched
+/// breadth first through a bounded part of the tree (Simulator's toolbar and side buttons).
+func windowButton(_ window: AXUIElement, named name: String) -> AXUIElement? {
+    var queue = [(window, 0)]
+    var visited = 0
+    // Each call is bounded; the whole search is too, well inside the helper's command deadline.
+    let deadline = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
+    while !queue.isEmpty, visited < 256, DispatchTime.now().uptimeNanoseconds < deadline {
+        let (element, depth) = queue.removeFirst()
+        visited += 1
+        if (axAttribute(element, kAXRoleAttribute) as? String) == (kAXButtonRole as String),
+           [kAXDescriptionAttribute, kAXTitleAttribute].contains(where: { (axAttribute(element, $0) as? String) == name }) { return element }
+        if depth < 4 { queue += axChildren(element, maximum: 64).map { ($0, depth + 1) } }
+    }
+    return nil
+}
+
+/// The windows among `candidates` stacked in front of `target`, front to back. Windows on another
+/// Space keep their stacking order, so this holds when the captured window isn't on screen. When
+/// the order can't be read, every other candidate counts as in front.
+func windowsInFront(of target: SCWindow, among candidates: [SCWindow]) -> [SCWindow] {
+    let others = candidates.filter { $0.windowID != target.windowID }
+    guard let rows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else { return others }
+    let order = rows.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
+    guard let position = order.firstIndex(of: target.windowID) else { return others }
+    let front = Set(order.prefix(position))
+    return others.filter { front.contains($0.windowID) }
 }
 
 /// Query one current window, verifying its owner before using its geometry.

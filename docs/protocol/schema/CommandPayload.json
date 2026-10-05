@@ -1368,6 +1368,9 @@
         "options": {
           "$ref": "https://ace.local/protocol/v1/ThreadCreateOptions.json"
         },
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
+        },
         "permissionMode": {
           "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
         },
@@ -1422,6 +1425,9 @@
         "options": {
           "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json"
         },
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -1448,6 +1454,9 @@
         "cascade": {
           "default": true,
           "type": "boolean"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
