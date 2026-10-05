@@ -8,7 +8,7 @@
   ],
   "maxLength": 4096,
   "minLength": 1,
-  "pattern": "^(?:https:\\/\\/|ssh:\\/\\/|git@)[^\\s]+$",
+  "pattern": "^(?:(?:https:\\/\\/|ssh:\\/\\/|git@)[^\\s]+|[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+)$",
   "type": "string",
-  "x-ace-constraint": "HTTPS, SSH or scp-style git@ URL with a host; no passwords, HTTPS usernames, whitespace or control bytes."
+  "x-ace-constraint": "GitHub owner/repo shorthand, HTTPS, SSH or scp-style git@ URL with a host and repository path; no passwords, HTTPS usernames, whitespace or control bytes."
 }
