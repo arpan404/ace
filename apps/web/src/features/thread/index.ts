@@ -2,7 +2,7 @@
 export { Composer, type Draft } from "./composer/composer.tsx";
 export { useDraftScope } from "./composer/draft-scope.ts";
 /** A thread New thread just started reads this title until the daemon titles it. */
-export { rememberAttachments, rememberTitle } from "./composer/send-store.ts";
+export { rememberAttachments, rememberTitle, startedTitle } from "./composer/send-store.ts";
 /** The composer's footer pieces New thread reuses: the approvals chip and the chip style. */
 export { PermissionPicker } from "./composer/permission-picker.tsx";
 export { usePermissionCapabilities } from "./composer/permission-hooks.ts";

@@ -2,7 +2,8 @@ import { ChatsIcon } from "@phosphor-icons/react";
 import { useClient, useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import { useParams } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useLayout } from "@/lib/layout.tsx";
@@ -16,6 +17,11 @@ import { ThreadList } from "./thread-list.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { rememberThread } from "./last-thread.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
+
+/** Threads started here that the list doesn't show yet; its code loads after first paint. */
+const DeferredStartedRows = deferredComponent(() =>
+  import("./started-rows.tsx").then((module) => module.StartedRows),
+);
 
 /**
  * Home's list in the sidebar: pinned threads, then a folder per project with its threads in the
@@ -36,6 +42,11 @@ export function HomeSidebar() {
     <>
       <SidebarHeader title="Threads" actions={<ThreadsActions />} />
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
+        {loaded && (
+          <Suspense fallback={null}>
+            <DeferredStartedRows.Component />
+          </Suspense>
+        )}
         {!loaded ? (
           <ListSkeleton label="threads" shape="card" className="px-2" />
         ) : empty ? (

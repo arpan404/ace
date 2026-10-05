@@ -353,6 +353,9 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
   expect(screen.getByRole("status", { name: /^(Preparing worktree|Starting .+)…$/ })).toBeTruthy();
   expect(listed(made)).toHaveLength(workbench().length);
+  // The sidebar has it at the top already, dimmed until the daemon accepts it.
+  const starting = await screen.findByRole("list", { name: "Starting threads" });
+  expect(within(starting).getByRole("link", { name: /^Trace the reconnect storm/ })).toBeTruthy();
 
   // Once the daemon has it, the real thread opens on the same message, shown once.
   act(() => made.daemon.refuseConnections(false));

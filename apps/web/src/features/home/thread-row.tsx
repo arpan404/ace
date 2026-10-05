@@ -9,6 +9,7 @@ import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
 import { ThreadLine, threadDetails } from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
+import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
 const line =
@@ -24,8 +25,12 @@ export function ThreadRow(props: { threadId: string; pinned?: boolean }) {
   // A rename the daemon refused opens the field again, with what was typed.
   const refused = useRefusedTitle(props.threadId);
   const renaming = editing || refused !== undefined;
+  const started = useStartedTitle(props.threadId);
   if (!row) return null;
-  const { entry, card } = row;
+  const { entry } = row;
+  // A thread this window started reads its provisional title until the daemon titles it.
+  const card =
+    started && row.card.title === "New thread" ? { ...row.card, title: started } : row.card;
   const indent = props.pinned ? "pl-[11px]" : "pl-9";
   const content = (
     <>
