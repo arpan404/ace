@@ -154,6 +154,10 @@ export class Subscriptions {
         this.send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
         this.reject(message.subscriptionId, error);
       }
+      // A complete snapshot finishes initialization itself. Keep replay paced by its
+      // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.
+      this.starting.delete(message.subscriptionId);
+      this.pump();
       return;
     }
     entry.snapshotAllowed = false;
