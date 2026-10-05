@@ -93,9 +93,9 @@ export function createDevicesSession(context: SocketContext): SocketService {
               reject(new Error("Device socket revoked"));
               return;
             }
-            if (context.socket.bufferedAmount > 8 * 1024 * 1024) {
-              context.socket.close(4009, "Device backpressure");
-              reject(new Error("Device backpressure"));
+            // Never add stale video to a congested socket. Decoder sequence gaps request an IDR.
+            if (context.socket.bufferedAmount > 128 * 1024) {
+              resolve();
               return;
             }
             context.socket.send(packet, { binary: true }, (error) =>

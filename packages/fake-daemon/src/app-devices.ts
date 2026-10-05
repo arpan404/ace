@@ -348,6 +348,11 @@ export class FakeAppDevices {
         channel.streams.add(session.device.id);
         if (session.lifecycle === "live") channel.events.message(this.frame(session));
         return this.state(session);
+      case "stream.configure":
+        return { codec: "jpeg" };
+      case "stream.keyframe":
+        this.paint(session);
+        return { completed: true };
       case "unsubscribe":
         channel.streams.delete(session.device.id);
         return this.state(session);
@@ -358,7 +363,11 @@ export class FakeAppDevices {
         this.inputs.push({ deviceId: session.device.id, input: operation.input });
         if (operation.input.kind === "key" && operation.input.key === "home")
           session.screen = "home";
-        else if (operation.input.kind === "tap") session.screen = "app";
+        else if (
+          operation.input.kind === "tap" ||
+          (operation.input.kind === "pointer" && operation.input.phase === "up")
+        )
+          session.screen = "app";
         this.log(session, `input ${operation.input.kind}`);
         this.paint(session);
         return { completed: true };

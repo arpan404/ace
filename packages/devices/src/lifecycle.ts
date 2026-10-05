@@ -107,7 +107,7 @@ export async function startDevice(
         session.latest = frame;
         firstResolve?.();
         session.hub.publish(frame);
-        session.recording?.push(frame);
+        if (frame.header.codec === "jpeg") session.recording?.push(frame);
       },
       failure(error) {
         if (session.generation !== generation) return;
@@ -166,6 +166,8 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
   session.generation++;
   session.cancelStart?.();
   delete session.cancelStart;
+  session.leaseExpiry?.();
+  delete session.leaseExpiry;
   session.lease.release();
   session.hub.clear();
   delete session.latest;
@@ -177,6 +179,8 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
   // strand a log subprocess or an open recording file.
   const stopping = Promise.resolve().then(async () => {
     const cleanupCapture = async () => {
+      await session.streamControl?.close().catch(() => {});
+      delete session.streamControl;
       let owned = capture;
       if (!owned && startup) {
         try {

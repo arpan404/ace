@@ -46,6 +46,11 @@ import Darwin
                       (request.version == 1 || request.version == 2), !request.id.isEmpty, request.id.count <= 64 else { exit(2) }
                 do {
                     switch request.op {
+                    case "stream.configure":
+                        guard let settings = request.settings else { throw HelperError("Stream settings required", code: "bounds") }
+                        try await capture.configureStream(settings); reply(request, data: ["codec": settings.codec])
+                    case "stream.keyframe": capture.requestKeyframe(); reply(request)
+                    case "stream.image": capture.requestImage(); reply(request)
                     case "metrics": reply(request, data: capture.metrics)
                     case "hello": reply(request, data: capabilities())
                     case "permissions": reply(request, data: permissions())

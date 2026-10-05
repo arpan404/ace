@@ -274,7 +274,8 @@ it("without an open Devices view nothing reads the inventory in the background",
   await view.client.request({ op: "inventory.watch", watching: true });
   await vi.waitFor(async () => expect(await f.readCount()).toBeGreaterThan(idle + 2));
   view.client.disconnect();
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  // A read already dispatched before disconnect can finish on a loaded host.
+  await f.service.settleInventory();
   const closed = await f.readCount();
   await new Promise((resolve) => setTimeout(resolve, 300));
   expect(await f.readCount()).toBe(closed);

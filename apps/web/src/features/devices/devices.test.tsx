@@ -6,6 +6,18 @@ import { harness } from "@/test/harness.tsx";
 
 // jsdom has no object URLs; each frame gets a distinct address the way a browser's would.
 beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+    () => ({ drawImage: () => {} }) as unknown as CanvasRenderingContext2D,
+  );
+  vi.stubGlobal("createImageBitmap", async () => ({ close: () => {} }));
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
   let urls = 0;
   vi.stubGlobal(
     "URL",
@@ -15,7 +27,10 @@ beforeEach(() => {
     }),
   );
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 async function openDevices() {
   // Control leases expire on the daemon's clock; here it is the page's.
@@ -76,7 +91,7 @@ test("booting an emulator shows its live screen, which takes keys and text while
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
 
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
-  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+  await waitFor(() => expect(screenImage.getAttribute("data-frame")).not.toBeNull());
   expect(statusLine(pixel)).toBe("Pixel 9 · Live · You're in control");
 
   await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
@@ -102,7 +117,7 @@ test("a running simulator shows its screen as soon as its tab opens, and only wa
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
-  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+  await waitFor(() => expect(screenImage.getAttribute("data-frame")).not.toBeNull());
   expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(true);
 
   // The control bar over the screen hands the device to you, and back.
@@ -208,19 +223,19 @@ test("while the window is hidden the device screen decodes nothing, and shows th
   const pixel = await openDevice(panel, "Pixel 9");
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
-  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+  await waitFor(() => expect(screenImage.getAttribute("data-frame")).not.toBeNull());
 
   try {
     visibility("hidden");
-    const before = screenImage.getAttribute("src");
+    const before = screenImage.getAttribute("data-frame");
     // Each key press repaints the device's screen.
     await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
     await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screenImage.getAttribute("src")).toBe(before);
+    expect(screenImage.getAttribute("data-frame")).toBe(before);
 
     act(() => visibility("visible"));
-    await waitFor(() => expect(screenImage.getAttribute("src")).not.toBe(before));
+    await waitFor(() => expect(screenImage.getAttribute("data-frame")).not.toBe(before));
   } finally {
     visibility("visible");
   }
@@ -265,7 +280,7 @@ test("when macOS hasn't allowed screen recording, the simulator tab says how to 
   app.daemon.appDevices.permissions.screenRecording = true;
   await userEvent.click(within(guide).getByRole("button", { name: "Try again" }));
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
-  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+  await waitFor(() => expect(screenImage.getAttribute("data-frame")).not.toBeNull());
   expect(within(iphone).queryByRole("alert", { name: /permission needed/ })).toBeNull();
 });
 

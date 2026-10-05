@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { ScreenStreamSettings } from "@ace/protocol";
 import { ScreenStopError } from "./stop-error.ts";
 import { ScreenAgentScope } from "@ace/protocol";
 import { agentOwner } from "./agent-binding.ts";
@@ -155,7 +157,7 @@ export class ScreenManager {
   async start(input: ScreenTarget, fps = 10): Promise<ScreenState> {
     const target = ScreenTarget.parse(input);
     this.authorize(target);
-    if (!Number.isInteger(fps) || fps < 1 || fps > 30) throw new Error("Invalid frame rate");
+    if (!Number.isInteger(fps) || fps < 1 || fps > 60) throw new Error("Invalid frame rate");
     if (this.sessions.size >= 1 || this.starting) throw new Error("Session limit");
     this.starting = true;
     this.reservations++;
@@ -205,7 +207,7 @@ export class ScreenManager {
         op: "start" as const,
         sessionId: id,
         target,
-        fps,
+        fps: helper.capabilities?.platform === "macos" ? fps : Math.min(30, fps),
         capture: helper.capabilities?.platform !== "macos",
         allowlist: this.policy.allowlist(),
       };
@@ -297,11 +299,37 @@ export class ScreenManager {
     if (!session.latest) throw new Error("No captured frame yet");
     return session.latest;
   }
+  async configureStream(
+    id: string,
+    raw: ScreenStreamSettings,
+  ): Promise<{ codec: "jpeg" | "h264" }> {
+    const settings = ScreenStreamSettings.parse(raw);
+    const session = this.live(id);
+    this.authorize(session.state.target);
+    if (
+      session.helper.capabilities?.platform !== "macos" ||
+      !session.helper.capabilities.codecs.includes("h264")
+    )
+      return { codec: "jpeg" };
+    return z
+      .object({ codec: z.enum(["jpeg", "h264"]) })
+      .parse(await session.helper.request({ op: "stream.configure", settings }));
+  }
+  async requestKeyframe(id: string): Promise<void> {
+    const session = this.live(id);
+    this.authorize(session.state.target);
+    if (session.helper.capabilities?.platform === "macos")
+      await session.helper.request({ op: "stream.keyframe" });
+  }
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
     this.authorize(session.state.target);
     if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux"))
       return this.screenshot(id);
+    if (session.latest?.header.codec === "h264") {
+      session.pixels.invalidateImage();
+      await session.helper.request({ op: "stream.image" });
+    }
     return session.pixels.screenshot(
       this.options.scheduler ?? nodeScheduler,
       this.options.timeoutMs ?? 10_000,
@@ -374,6 +402,9 @@ export class ScreenManager {
     await this.execute(id, actor, owner, (session) => {
       if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
       beforeDispatch?.();
+      if (input.kind === "pointer.down") session.pointerDown = true;
+      if (input.kind === "pointer.up" || input.kind === "pointer.cancel")
+        session.pointerDown = false;
       return session.helper.request({ op: "input", input });
     });
   }
@@ -439,6 +470,16 @@ export class ScreenManager {
     binding?: ControllerBinding,
   ): void {
     const session = this.live(id);
+    if (
+      session.pointerDown &&
+      session.helper.capabilities?.platform === "macos" &&
+      (session.state.controller !== controller || session.owner !== owner)
+    ) {
+      session.pointerDown = false;
+      void session.helper
+        .request({ op: "input", input: { kind: "pointer.cancel" } })
+        .catch(() => {});
+    }
     if (session.controllerBinding) {
       // No old input remains authorized if an external release callback fails.
       Object.assign(session, takeControl(session, "none", owner));

@@ -55,14 +55,16 @@ export function attachRelayService(
         options.store?.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !== undefined,
       send,
       frame: (packet) =>
-        sendDeviceFrame(
-          packet,
-          (chunk) => channel.sendBinary(chunk),
-          () => authorize("admin"),
-        ).catch((error: unknown) => {
-          channel.close();
-          throw error;
-        }),
+        channel.bufferedBytes > 128 * 1024
+          ? Promise.resolve()
+          : sendDeviceFrame(
+              packet,
+              (chunk) => channel.sendBinary(chunk),
+              () => authorize("admin"),
+            ).catch((error: unknown) => {
+              channel.close();
+              throw error;
+            }),
     });
     return {
       accept(message: ClientMessage) {

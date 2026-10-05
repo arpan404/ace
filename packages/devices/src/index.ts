@@ -11,3 +11,8 @@ export type { AppDevice as Device } from "@ace/protocol/devices";
 
 export { renderDeviceVideo } from "./video.ts";
 export { startCapture, type DeviceCapture } from "./capture.ts";
+
+export { DeviceStreamControl, commonDeviceStream } from "./stream-control.ts";
+export { H264AccessUnits } from "./h264.ts";
+
+export { watchDeviceLease } from "./lease-expiry.ts";

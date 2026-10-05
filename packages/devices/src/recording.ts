@@ -1,3 +1,4 @@
+import { deviceImageStream } from "./stream-control.ts";
 import { Recording } from "@ace/screen";
 import { DeviceError } from "./sdk.ts";
 import type { DeviceSession } from "./session.ts";
@@ -30,6 +31,7 @@ export async function recordDevice(
   const epoch = session.approvalEpoch;
   let recording: Recording | undefined;
   try {
+    await session.capture?.configure?.(deviceImageStream);
     const opening = Recording.open(
       options.recordingDirectory,
       options.runtime.id(),
@@ -57,7 +59,7 @@ export async function recordDevice(
       throw new DeviceError("busy", "Capture stopped during recording startup", "Restart capture.");
     }
     session.recording = recording;
-    if (session.latest) recording.push(session.latest);
+    if (session.latest?.header.codec === "jpeg") recording.push(session.latest);
   } finally {
     delete session.recordingOpening;
     session.recordingStarting = false;

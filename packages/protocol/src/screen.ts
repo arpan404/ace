@@ -24,6 +24,15 @@ import {
   ScreenTarget,
   ScreenAction,
 } from "./screen-base.ts";
+/** Negotiated live preview. JPEG remains the default for screenshots and older clients. */
+export const ScreenStreamSettings = z.object({
+  codec: z.enum(["jpeg", "h264"]),
+  maxWidth: z.number().int().min(64).max(3840),
+  maxHeight: z.number().int().min(64).max(2160),
+  fps: z.number().int().min(1).max(60),
+  bitrate: z.number().int().min(128000).max(20000000),
+});
+export type ScreenStreamSettings = z.infer<typeof ScreenStreamSettings>;
 export const ScreenLegacyFrameHeader = z.object({
   version: z.literal(1),
   sessionId: ScreenId,
@@ -31,7 +40,12 @@ export const ScreenLegacyFrameHeader = z.object({
   timestamp: z.number().finite().nonnegative(),
   width: z.number().int().positive().max(3840),
   height: z.number().int().positive().max(2160),
-  codec: z.literal("jpeg"),
+  codec: z.enum(["jpeg", "h264"]),
+  keyframe: z.boolean().optional(),
+  videoCodec: z
+    .string()
+    .regex(/^avc1\.[0-9a-fA-F]{6}$/)
+    .optional(),
   scale: z.number().finite().positive().optional(),
   captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   bytes: z
@@ -49,7 +63,12 @@ export const ScreenV2FrameHeader = z.object({
   width: z.number().int().positive().max(3840),
   height: z.number().int().positive().max(2160),
   scale: z.number().finite().positive().max(8),
-  codec: z.literal("jpeg"),
+  codec: z.enum(["jpeg", "h264"]),
+  keyframe: z.boolean().optional(),
+  videoCodec: z
+    .string()
+    .regex(/^avc1\.[0-9a-fA-F]{6}$/)
+    .optional(),
   dirtyRects: z.array(ScreenRect).max(64).optional(),
   bytes: z
     .number()
@@ -108,7 +127,7 @@ export const ScreenOperation = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("start"),
     target: ScreenTarget,
-    fps: z.number().int().min(1).max(30).default(10),
+    fps: z.number().int().min(1).max(60).default(10),
   }),
   z.object({ op: z.literal("stop"), sessionId: ScreenId }),
   z.object({
@@ -151,6 +170,9 @@ const HelperEnvelope = z.object({ version: z.union([z.literal(1), z.literal(2)])
 export const ScreenHelperRequest = z.discriminatedUnion("op", [
   HelperEnvelope.extend({ op: z.literal("hello") }),
   HelperEnvelope.extend({ op: z.literal("metrics") }),
+  HelperEnvelope.extend({ op: z.literal("stream.configure"), settings: ScreenStreamSettings }),
+  HelperEnvelope.extend({ op: z.literal("stream.keyframe") }),
+  HelperEnvelope.extend({ op: z.literal("stream.image") }),
   HelperEnvelope.extend({ op: z.literal("capture"), enabled: z.boolean() }),
   HelperEnvelope.extend({ op: z.literal("input"), input: ScreenInput }),
   HelperEnvelope.extend({
@@ -187,7 +209,7 @@ export const ScreenHelperRequest = z.discriminatedUnion("op", [
     sessionId: ScreenId,
     target: ScreenTarget,
     allowlist: z.array(ScreenBundle).max(64),
-    fps: z.number().int().min(1).max(30),
+    fps: z.number().int().min(1).max(60),
     capture: z.boolean().optional(),
   }),
 ]);

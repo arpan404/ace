@@ -127,6 +127,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
             if (!operation.watching) {
               inventoryView?.();
               inventoryView = undefined;
+              await service.settleInventory();
             } else inventoryView ??= service.holdInventoryView();
           }
           const data =

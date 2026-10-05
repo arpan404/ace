@@ -1,3 +1,4 @@
+import type { DeviceStreamControl } from "./stream-control.ts";
 import { FrameHub, type Frame, type Recording, type RecordingArtifact } from "@ace/screen";
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
 import { ControllerLease } from "./lease.ts";
@@ -10,10 +11,12 @@ export interface DeviceSession {
   streamId?: string;
   error?: DeviceFailure;
   capture?: DeviceCapture;
+  streamControl?: DeviceStreamControl;
   latest?: Frame;
   hub: FrameHub;
   logs: DeviceLogs;
   lease: ControllerLease;
+  leaseExpiry?: () => void;
   tail: Promise<void>;
   pending: number;
   generation: number;

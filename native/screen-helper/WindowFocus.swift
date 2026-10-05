@@ -79,3 +79,30 @@ func currentWindowBounds(_ window: SCWindow) throws -> CGRect {
           x.isFinite, y.isFinite, w.isFinite, h.isFinite, w > 0, h > 0 else { throw HelperError("Target window is gone", code: "target_gone") }
     return CGRect(x: x, y: y, width: w, height: h)
 }
+
+/// Read the target and onscreen windows above it, never the full desktop history.
+/// Only windows in front can intercept a pointer; the included target verifies its live owner.
+struct PointerGeometry {
+    let bounds: CGRect
+    let front: [CGRect]
+}
+func pointerGeometry(_ window: SCWindow) throws -> PointerGeometry {
+    guard let app = window.owningApplication,
+          let rows = CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .optionIncludingWindow], window.windowID) as? [[String: Any]] else {
+        throw HelperError("Cannot verify pointer target", code: "target_gone")
+    }
+    var front: [CGRect] = []
+    for row in rows {
+        guard let id = row[kCGWindowNumber as String] as? NSNumber else { continue }
+        let owner = (row[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
+        guard let values = row[kCGWindowBounds as String] as? [String: Any],
+              let bounds = CGRect(dictionaryRepresentation: values as CFDictionary),
+              bounds.width > 0, bounds.height > 0 else { continue }
+        if id.uint32Value == window.windowID {
+            guard owner == app.processID else { throw HelperError("Pointer target owner changed", code: "target_gone") }
+            return PointerGeometry(bounds: bounds, front: front)
+        }
+        if owner == app.processID { front.append(bounds) }
+    }
+    throw HelperError("Pointer target disappeared", code: "target_gone")
+}
