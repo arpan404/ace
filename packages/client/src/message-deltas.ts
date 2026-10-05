@@ -24,7 +24,7 @@ function shell(item: Message, parts: ContentPart[]): Message {
 /** Immutable tails keep application O(append); materialize the full parts array on read.
  * Prefixes are shared, never chained through previous items. Weak keys do not retain history. */
 export class MessageDeltas {
-  private tails = new WeakMap<Message, Tail>();
+  private tails = new WeakMap<object, Tail>();
   append(
     item: Message,
     append: string,
@@ -76,5 +76,14 @@ export class MessageDeltas {
     });
     this.tails.set(next, { prefix, tail: last, prefixUnits });
     return next;
+  }
+  /**
+   * Whether appends alone made `next` from `previous`, so its last text part is the earlier
+   * one's text plus what was appended. A run of appends shares one prefix array; every clip
+   * makes a new one.
+   */
+  appended(previous: object, next: object): boolean {
+    const run = this.tails.get(previous)?.prefix;
+    return !!run && run === this.tails.get(next)?.prefix;
   }
 }
