@@ -1076,11 +1076,17 @@
     },
     {
       "properties": {
+        "code": {
+          "type": "string"
+        },
         "commandId": {
           "$ref": "https://ace.local/protocol/v1/CommandId.json"
         },
         "commit": {
           "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        },
+        "detail": {
           "type": "string"
         },
         "editor": {
@@ -1117,6 +1123,9 @@
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "title": {
+          "type": "string"
         },
         "type": {
           "const": "commandResult",

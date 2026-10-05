@@ -277,7 +277,7 @@ test("a provider intent failure becomes a visible notice and is never resent", a
       (item) =>
         item.type === "notice" &&
         item.level === "error" &&
-        item.text.includes("expected interrupt, got send"),
+        item.detail?.includes("expected interrupt, got send"),
     ),
   ).toBe(true);
   await h.engine.flush();

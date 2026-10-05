@@ -28,7 +28,7 @@ export function validateCreation(
   } catch {
     return fail("message_too_large");
   }
-  let deliveryCommand = command;
+  const deliveryCommand = command;
   const identity = p.provider === "acp" ? AcpIdentity.safeParse(p) : undefined;
   if (p.provider === "acp" && !identity?.success) return fail("acp_identity_required");
   const acpIdentity = identity?.success ? identity.data : undefined;
@@ -70,11 +70,6 @@ export function validateCreation(
       page.items,
       { maxBytes: 65536, maxItems: 100, historyTruncated: page.itemsBefore !== null },
     );
-    if (p.type === "thread.create")
-      deliveryCommand = {
-        ...command,
-        payload: { ...p, input: [{ type: "text", text: handoff.text }, ...p.input] },
-      };
   }
   try {
     boundedJson(deliveryCommand, maxMessageBytes);

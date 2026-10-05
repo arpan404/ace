@@ -27,7 +27,6 @@ export function createAcpTranslator(
 class AcpTranslator implements Translator {
   readonly state: TranslationState;
   private inputNativeId: string | undefined;
-  private promptAceInput = false;
   constructor(state: TranslationState) {
     this.state = state;
   }
@@ -43,7 +42,6 @@ class AcpTranslator implements Translator {
       if (data["event"] === "stop") s.stopped = true;
       if (data["event"] === "process-start") {
         this.inputNativeId = undefined;
-        this.promptAceInput = false;
         s.resetProcess();
         s.stopped = false;
         s.processDead = false;
@@ -61,7 +59,6 @@ class AcpTranslator implements Translator {
         facts.push({ type: "queue.changed", count: data["count"] });
       if (data["event"] === "input-sending") {
         this.inputNativeId = string(data["nativeId"]);
-        this.promptAceInput = data["origin"] === "ace";
         return facts;
       }
       s.notice(facts, frame.data, "recorder");
@@ -96,10 +93,11 @@ class AcpTranslator implements Translator {
         agent.terminal = false;
         s.promptOpen = true;
         s.start(agent, facts, "user");
+        agent.inputKey = s.key("input");
         facts.push({
           type: "item.upsert",
           agent: agent.key,
-          item: s.key("input"),
+          item: agent.inputKey,
           draft: {
             type: "message",
             role: "user",
@@ -172,7 +170,6 @@ class AcpTranslator implements Translator {
         )
           s.end(s.root, facts, "completed");
         if (sent.method === "session/prompt") {
-          this.promptAceInput = false;
           const agent = s.agent(string(sent.params["sessionId"]), facts);
           endPrompt(s, agent, string(result["stopReason"]), object(data["error"]), now, facts);
         }
@@ -184,6 +181,27 @@ class AcpTranslator implements Translator {
   update(agent: AgentState, update: Data, frame: unknown, facts: Fact[]): boolean {
     const s = this.state;
     const kind = string(update["sessionUpdate"]);
+    if (
+      kind === "session_info_update" &&
+      agent.key === s.root.key &&
+      typeof update["title"] === "string"
+    ) {
+      facts.push({
+        type: "item.upsert",
+        agent: agent.key,
+        item: "provider:title",
+        draft: {
+          type: "notice",
+          code: "thread_title",
+          title: update["title"],
+          text: update["title"],
+          level: "info",
+          complete: true,
+        },
+      });
+      s.notice(facts, frame, "session/update", "Session metadata", agent);
+      return true;
+    }
     if (childUpdate(s, agent, update, frame, facts)) return true;
     if (kind === "tool_call" || kind === "tool_call_update") {
       const id = string(update["toolCallId"]);
@@ -314,14 +332,14 @@ class AcpTranslator implements Translator {
       return true;
     }
     if (["agent_message_chunk", "agent_thought_chunk", "user_message_chunk"].includes(kind)) {
-      if (kind === "user_message_chunk" && agent === s.root && this.promptAceInput) {
-        s.notice(
-          facts,
-          frame,
-          "ace.input.echo",
-          "Delegated-agent context echoed by the provider.",
-          agent,
-        );
+      if (kind === "user_message_chunk" && agent.inputKey && s.promptOpen) {
+        // The outgoing prompt is authoritative; streamed echoes retain raw data only.
+        facts.push({
+          type: "item.reconciled",
+          agent: agent.key,
+          item: agent.inputKey,
+          draft: { type: "message", role: "user", raw: [raw(frame, "session/update")] },
+        });
         return true;
       }
       if (!agent.suspended && kind !== "user_message_chunk")

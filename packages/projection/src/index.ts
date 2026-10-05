@@ -148,6 +148,7 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.execution !== undefined) thread.execution = structuredCopy(payload.execution);
     if (payload.switch !== undefined) thread.switch = structuredCopy(payload.switch);
     if (payload.title !== undefined) thread.title = payload.title;
+    if (payload.titleSource !== undefined) thread.titleSource = payload.titleSource;
     if (payload.effectiveCapabilities !== undefined)
       thread.effectiveCapabilities = structuredCopy(payload.effectiveCapabilities);
     if (payload.acpSupport !== undefined) thread.acpSupport = structuredCopy(payload.acpSupport);
@@ -234,6 +235,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       if (run) {
         run.state = p.state;
         run.endedAt = p.endedAt;
+        if (p.error) run.error = structuredCopy(p.error);
         if (p.trigger !== undefined) run.trigger = p.trigger;
       }
       break;
@@ -272,6 +274,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       if (interaction) {
         interaction.state = p.state;
         interaction.closedAt = p.closedAt;
+        if (p.expirationReason !== undefined) interaction.expirationReason = p.expirationReason;
         if (p.resolution !== undefined) interaction.resolution = structuredCopy(p.resolution);
         if (p.resolvedBy !== undefined) interaction.resolvedBy = p.resolvedBy;
         if (p.autoReviewed !== undefined) interaction.autoReviewed = p.autoReviewed;
@@ -301,7 +304,10 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       put(view.contextMeters, p.meter.agentId, structuredCopy(p.meter));
       break;
     case "input.admitted":
-      // Queue ownership is reconciled by the host; admission creates no transcript/run.
+      if (p.commandId) {
+        const item = get(view.items, `input:${p.commandId}`);
+        if (item?.type === "message" && item.agentId === p.agentId) item.nativeId = p.nativeInputId;
+      }
 
       break;
     case "usage.updated":
