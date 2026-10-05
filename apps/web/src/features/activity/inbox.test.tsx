@@ -191,7 +191,7 @@ test("filtering by project counts that project and shows a chip that clears it",
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "billing-api" }));
   // The menu closes on a choice.
   await waitFor(() => expect(screen.queryByRole("menuitemradio")).toBeNull());
-  expect(await header.findByText("1 need you · billing-api")).toBeTruthy();
+  expect(await header.findByText("1 needs you · billing-api")).toBeTruthy();
   expect(
     within(within(sidebar).getByRole("tab", { name: /Needs you/ })).getByText("1"),
   ).toBeTruthy();
@@ -373,8 +373,9 @@ test("a deck worker's question still shows after Activity is left and opened aga
   await openActivity();
   const name = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
   expect(await main().findByRole("article", { name })).toBeTruthy();
-  const app = within(screen.getByRole("navigation", { name: "Views" }));
-  await userEvent.click(app.getByRole("link", { name: /^Home/ }));
+  const rail = within(screen.getByRole("navigation", { name: "Views" }));
+  await userEvent.click(rail.getByRole("link", { name: /^Home/ }));
+  const app = within(await screen.findByRole("navigation", { name: "App" }));
   await userEvent.click(app.getByRole("link", { name: /^Activity/ }));
   expect(await main().findByRole("article", { name })).toBeTruthy();
 });

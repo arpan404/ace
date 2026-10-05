@@ -501,3 +501,30 @@ test("closing the window with unsaved changes asks the browser to confirm", asyn
   await userEvent.type(field("Name"), "Half-written");
   expect(leave()).toBe(true);
 });
+
+test("on a phone, Automations opens on its list rather than the first automation", async () => {
+  const original = globalThis.matchMedia;
+  // A 390px window: every min-width query fails, every max-width one holds.
+  globalThis.matchMedia = (query: string) =>
+    ({
+      matches: query.includes("max-width"),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) satisfies MediaQueryList;
+  try {
+    await open("/automations");
+    expect(
+      within(screen.getByRole("main")).getByRole("link", { name: /Nightly dependency audit/ }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "Nightly dependency audit" }),
+    ).toBeNull();
+  } finally {
+    globalThis.matchMedia = original;
+  }
+});

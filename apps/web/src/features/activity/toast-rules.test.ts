@@ -2,7 +2,7 @@ import type { AutomationRun } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { runStatusLine, runToasts } from "./toast-rules.ts";
 
-const prefs = { needsYou: true, failures: true, automations: true, browser: false };
+const prefs = { needsYou: true, failures: true, automations: true, limits: true, browser: false };
 const run = (id: string, finishedAt: number | undefined): AutomationRun => ({
   id,
   automationId: "auto",

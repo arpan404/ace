@@ -2,7 +2,7 @@ import { ClockIcon } from "@phosphor-icons/react";
 import { Link, Navigate } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { Screen } from "@/features/shell/index.ts";
+import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useAutomations } from "./use-automations.ts";
 
@@ -13,12 +13,18 @@ import { useAutomations } from "./use-automations.ts";
 export function AutomationsEmptyScreen() {
   const list = useAutomations();
   const first = list.data?.[0];
+  // A narrow window shows the list as the page; a wide one opens the first automation.
   if (first)
     return (
-      <Navigate
-        to="/automations/$automationId"
-        params={{ automationId: first.automation.id }}
-        replace
+      <ViewListPage
+        title="Automations"
+        fallback={
+          <Navigate
+            to="/automations/$automationId"
+            params={{ automationId: first.automation.id }}
+            replace
+          />
+        }
       />
     );
   if (list.isError && !list.data)

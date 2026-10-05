@@ -1,3 +1,4 @@
+import { needYouPhrase } from "@ace/ui-core/counts";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Screen } from "@/features/shell/index.ts";
@@ -19,7 +20,7 @@ export function ActivityScreen() {
   const count = useNeedsYouCount({ project });
   const projectName = useProjectName();
   const [prefsOpen, setPrefsOpen] = useState(false);
-  const subtitle = [count ? `${count} need you` : undefined, project && projectName(project)]
+  const subtitle = [count ? needYouPhrase(count) : undefined, project && projectName(project)]
     .filter(Boolean)
     .join(" · ");
   return (

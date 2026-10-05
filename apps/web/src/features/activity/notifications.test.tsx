@@ -80,8 +80,8 @@ test("while the window is in the background no toast is raised", async () => {
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
   try {
     checkout.runThrough("approval-requested");
-    const views = screen.getByRole("navigation", { name: "Views" });
-    await within(views).findByLabelText("1 need you");
+    const views = screen.getByRole("navigation", { name: "App" });
+    await within(views).findByLabelText("1 needs you");
     expect(within(toasts()).queryByText(request)).toBeNull();
     expect(within(toasts()).queryByText(/needs you/)).toBeNull();
   } finally {

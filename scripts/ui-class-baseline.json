@@ -66,43 +66,15 @@
   "apps/web/src/features/accounts/usage-section.tsx": {
     "radius": 1
   },
-  "apps/web/src/features/activity/activity-sidebar.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/activity/card-frame.tsx": {
-    "text-size": 2,
-    "radius": 1
-  },
   "apps/web/src/features/activity/escalation-card.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/activity/feed-row.tsx": {
-    "text-size": 1,
-    "radius": 2
-  },
   "apps/web/src/features/activity/interaction-card.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/activity/needs-you-page.tsx": {
     "text-size": 1
   },
   "apps/web/src/features/activity/question-card.tsx": {
     "text-size": 2,
     "radius": 1
-  },
-  "apps/web/src/features/automations/automation-form.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/automations/automations-sidebar.tsx": {
-    "text-size": 2,
-    "radius": 1,
-    "bare-outline": 1
-  },
-  "apps/web/src/features/automations/form-row.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/automations/recent-runs.tsx": {
-    "text-size": 1
   },
   "apps/web/src/features/connect/connect-card.tsx": {
     "radius": 1
