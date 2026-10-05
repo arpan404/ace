@@ -1,4 +1,7 @@
 import { fileURLToPath } from "node:url";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
@@ -7,6 +10,7 @@ import { harness } from "../replay.ts";
 import { object } from "../data.ts";
 export const cli = fileURLToPath(new URL("./cli-v2.mjs", import.meta.url));
 const owners: ReturnType<typeof createOpenCodeAdapter>[] = [];
+const homes: string[] = [];
 export function deferred<T>() {
   return Promise.withResolvers<T>();
 }
@@ -25,10 +29,13 @@ export class Clock {
   }
 }
 export async function setup(extra: ServerOptions = {}) {
+  const home = await mkdtemp(join(tmpdir(), "ace-opencode-session-"));
+  homes.push(home);
   let origin = "",
     authorization = "";
   const frames: Frame[] = [],
     projection = harness();
+  const inputMessages: { commandId: string; nativeId: string; beforeFrame: number }[] = [];
   const waiters = new Set<{ predicate(frame: Frame): boolean; resolve(frame: Frame): void }>();
   const seen = (predicate: (frame: Frame) => boolean, after = 0) => {
     const old = frames.slice(after).find(predicate);
@@ -48,6 +55,7 @@ export async function setup(extra: ServerOptions = {}) {
   const network = extra.runtime?.fetch ?? fetch;
   const options: ServerOptions = {
     ...extra,
+    discovery: { ...extra.discovery, env: { ...extra.discovery?.env, HOME: home } },
     runtime: {
       wallTime: () => 0,
       monotonic: () => 0,
@@ -92,6 +100,7 @@ export async function setup(extra: ServerOptions = {}) {
       model: "opencode-go/muse-spark-1.3-contributor",
       signal: controller.signal,
       onFrame,
+      onInputMessage: (identity) => inputMessages.push({ ...identity, beforeFrame: frames.length }),
       onExit: (exit) => exits.push(exit),
       ...(resume ? { resume: { nativeSessionId: resume } } : {}),
     });
@@ -118,6 +127,7 @@ export async function setup(extra: ServerOptions = {}) {
     options,
     transport: () => ({ url: origin, authorization, version }),
     frames,
+    inputMessages,
     projection,
     exits,
     controller,
@@ -131,4 +141,5 @@ export async function setup(extra: ServerOptions = {}) {
 }
 afterEach(async () => {
   for (const owner of owners.splice(0)) await owner.close();
+  for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true });
 });

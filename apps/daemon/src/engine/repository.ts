@@ -5,6 +5,8 @@ import { foldProviderFacts } from "./provider-facts.ts";
 import { indexTitleInputs } from "./title-input.ts";
 import { InteractionLedger } from "./interaction-ledger.ts";
 import { InputJournal } from "./input-journal.ts";
+import { attributeAceAction } from "./ace-approvals.ts";
+import { AceInputs } from "./ace-inputs.ts";
 import { Permissions } from "./permissions.ts";
 import { ProviderRecovery } from "./provider-recovery.ts";
 import type { ProviderBackend, Frame } from "@ace/engine-api";
@@ -28,7 +30,9 @@ import { migrateEngine } from "./migrations.ts";
 import { IntentStore, type IntentHeader } from "./intents.ts";
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
+  private aceAction: typeof import("@ace/mcp-server").aceToolAction | undefined;
   readonly store: Store;
+  readonly aceInputs: AceInputs;
   readonly permissions: Permissions;
   readonly recovery: ProviderRecovery;
   private capture: StatementSync;
@@ -57,12 +61,15 @@ export class EngineRepository {
     ids: IdSource = { next: () => randomUUID() },
     capacity = 64,
     commandId: () => string = randomUUID,
+    aceAction?: typeof import("@ace/mcp-server").aceToolAction,
   ) {
+    this.aceAction = aceAction;
     this.capacity = capacity;
     this.commandId = commandId;
     this.ids = ids;
     this.store = store;
     this.metadata = new SessionMetadata(this);
+    this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
     indexTitleInputs(store);
     store.atomic((db) =>
@@ -203,6 +210,9 @@ export class EngineRepository {
       const oldest = this.snapshots.keys().next().value;
       if (oldest !== undefined) this.snapshots.delete(oldest);
     }
+  }
+  attributeAction(state: ThreadState, fact: Fact): Fact {
+    return attributeAceAction(state, fact, this.aceAction);
   }
   apply(id: ThreadId, facts: Fact[], now: number, generation?: number): ThreadState {
     try {

@@ -23,14 +23,21 @@ export async function harness(
   resume?: string,
   rootKey = "root",
   options: ClaudeOptions = {},
-  execution: Pick<SessionContext, "fork" | "options" | "aceMcp" | "permissionMode"> = {},
+  execution: Pick<
+    SessionContext,
+    "fork" | "options" | "aceMcp" | "permissionMode" | "onInputMessage"
+  > = {},
 ) {
   const frames: Frame[] = [];
   const waiters: { predicate(frame: Frame): boolean; resolve(frame: Frame): void }[] = [];
   const exit = Promise.withResolvers<{ deliberate: boolean; message?: string }>();
   const exits: { deliberate: boolean; message?: string }[] = [];
   const controller = new AbortController();
-  const adapter = createClaudeAdapter({ executable, ...options });
+  const adapter = createClaudeAdapter({
+    executable,
+    ...options,
+    env: { ...options.env, HOME: directory },
+  });
   const session = await adapter.openSession({
     rootKey,
     threadId: ThreadId.parse("session-test"),

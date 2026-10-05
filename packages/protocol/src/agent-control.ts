@@ -66,6 +66,7 @@ export const DelegationRecord = z.object({
   phase: z.enum(["created", "running", "cancelling", "settled"]),
   generation: z.number().int().nonnegative().default(0),
   outcome: DelegationOutcome.optional(),
+  resolvedModel: z.string().min(1).max(256).optional(),
   resultDelivery: z.enum(["parent", "owner"]).optional(),
 });
 export type DelegationRecord = z.infer<typeof DelegationRecord>;

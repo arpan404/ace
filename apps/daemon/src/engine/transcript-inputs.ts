@@ -44,16 +44,21 @@ export function admitInput(
 ): void {
   const p = command.payload;
   if (p.type !== "thread.create" && p.type !== "thread.send") return;
+  const key = `input:${command.id}`;
+  const origin = repo.inputs.origin(id, key) ?? inputOrigin(command);
   const thread = repo.store.getThread(id);
-  if (thread?.titleSource === "provisional" && thread.title === "New thread")
+  if (
+    (origin.kind === "person" || origin.kind === "queue") &&
+    thread?.titleSource === "provisional" &&
+    thread.title === "New thread"
+  )
     repo.store.appendEvents(
       id,
       [{ type: "thread.updated", title: provisionalTitle(p.input), titleSource: "provisional" }],
       at,
     );
-  const key = `input:${command.id}`;
-  const origin = inputOrigin(command);
   repo.inputs.register(id, key, p.input, origin);
+  if (origin.kind === "subagent_result" && repo.aceInputs.get(id, command.id)) return;
   repo.apply(
     id,
     [

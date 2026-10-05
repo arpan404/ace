@@ -1,3 +1,4 @@
+import { cancelDelegatedInputs } from "./stop-intents.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { nameWorktreeBranch, runWorktreeGit, type WorktreeGit } from "./worktree-title.ts";
@@ -14,7 +15,7 @@ import {
 import type { PermissionSettings } from "./permissions.ts";
 import { z } from "zod";
 import { changeEngineWorkspace } from "./workspace-change.ts";
-import { ProviderKind, ThreadId } from "@ace/protocol";
+import { CommandId, ProviderKind, ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
@@ -63,6 +64,7 @@ export interface EngineOptions {
   silenceMs?: number;
   onError?: (error: unknown) => void;
   onProviderDiagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void;
+  aceToolAction?: typeof import("@ace/mcp-server").aceToolAction;
   mcp?: (
     threadId: ThreadId,
     agentId: string,
@@ -116,6 +118,7 @@ export class Engine {
       options.ids,
       this.limits.maxActiveThreads,
       options.commandId,
+      options.aceToolAction,
     );
     this.admissions = new CreationAdmissions(this.repo, this.nextThreadId);
     this.selectInstance = options.selectInstance;
@@ -439,6 +442,87 @@ export class Engine {
     );
     this.wake(parentId);
   }
+  /** One stable parent item follows each independently owned child thread. */
+  delegationStarted(record: import("@ace/protocol").DelegationRecord, child: Thread) {
+    const state = this.repo.requireState(record.parentId);
+    const agent = state.indexes.agentKeysById[record.parentAgentId];
+    if (!agent) throw new Error("Unknown delegation parent");
+    const selection = this.repo.session(child.id);
+    this.repo.apply(
+      record.parentId,
+      [
+        {
+          type: "item.upsert",
+          agent,
+          item: `ace-delegation:${child.id}`,
+          draft: {
+            type: "delegation.started",
+            origin: "ace",
+            childThreadId: child.id,
+            provider: child.provider,
+            ...(selection.model ? { model: selection.model } : {}),
+            ...(selection.instanceId ? { accountId: selection.instanceId } : {}),
+            title: child.title,
+            role: record.request.role,
+            phase: record.phase,
+            status: child.status,
+            updatedAt: this.clock.now(),
+            generation: record.generation,
+            complete: record.phase === "settled",
+            outcome: record.outcome ?? null,
+          },
+        },
+      ],
+      this.clock.now(),
+    );
+  }
+  /** Host-only result attribution; ordinary wire sends cannot impersonate ace. */
+  delegationSettled(
+    parentId: ThreadId,
+    parentAgentId: AgentId,
+    commandId: string,
+    results: import("@ace/protocol").DelegationOutcome[],
+    delivery: "tool" | "ace-input",
+    text?: string,
+  ) {
+    const state = this.repo.requireState(parentId);
+    const agent = state.indexes.agentKeysById[parentAgentId];
+    if (!agent) throw new Error("Unknown delegation parent");
+    const item = `ace-results:${commandId}`;
+    const summaries = results.map((result) => ({
+      ...result,
+      result: result.result.slice(0, 128),
+      truncated: result.truncated || result.result.length > 128,
+    }));
+    this.repo.store.atomic(() => {
+      if (text) {
+        this.repo.inputs.register(parentId, `input:${commandId}`, [{ type: "text", text }], {
+          kind: "subagent_result",
+          commandId: CommandId.parse(commandId),
+          threadIds: results.map((result) => result.threadId),
+        });
+        this.repo.aceInputs.record(parentId, commandId, { agent, item, results: summaries });
+      }
+      this.repo.apply(
+        parentId,
+        [
+          {
+            type: "item.upsert",
+            agent,
+            item,
+            draft: {
+              type: "delegation.settled",
+              origin: "ace",
+              delivery,
+              results: summaries,
+              complete: true,
+            },
+          },
+        ],
+        this.clock.now(),
+      );
+    });
+  }
   /** On-demand metrics visit bounded live actors and indexed outstanding intents only. */
   workload(): { activeSessions: number; queues: Record<string, number> } {
     let activeSessions = 0;
@@ -503,9 +587,12 @@ export class Engine {
       )
       .map((value) => row.parse(value));
   }
-  /** Host suspension captures the engine-owned continuation before interrupting work. */
+  /** Permanent subtree cancellation discards resumable work. */
   discardRecovery(id: ThreadId): void {
     this.recovery.discard(id);
+  }
+  cancelDelegatedInputs(id: ThreadId): void {
+    cancelDelegatedInputs(this.repo, id, this.clock.now());
   }
   captureContinuation(id: ThreadId): void {
     this.recovery.capture(id);

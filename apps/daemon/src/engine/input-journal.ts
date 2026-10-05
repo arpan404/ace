@@ -2,9 +2,20 @@ import { piInput } from "@ace/adapter-pi";
 import { claudeInputContent } from "@ace/adapter-claude";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { MessageOrigin, type Command, type ContentPart, type ThreadId } from "@ace/protocol";
+import {
+  CommandId,
+  MessageOrigin,
+  type Command,
+  type ContentPart,
+  type ThreadId,
+} from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import type { Store } from "../store.ts";
+
+const MessageIdentity = z.object({
+  commandId: CommandId,
+  nativeId: z.string().min(1).max(256),
+});
 
 export function inputOrigin(command: Command): MessageOrigin {
   const p = command.payload;
@@ -58,6 +69,25 @@ export class InputJournal {
         PRIMARY KEY(thread_id,native_key));`),
     );
     store.atomic((db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS engine_input_identities (
+        thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+        native_id TEXT NOT NULL, command_id TEXT NOT NULL,
+        PRIMARY KEY(thread_id,native_id))`);
+      // Upgrade #116's durable native identities into the one host origin journal.
+      if (
+        db
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_input_messages'",
+          )
+          .get()
+      ) {
+        db.exec(`INSERT OR IGNORE INTO engine_input_identities SELECT thread_id,native_id,command_id FROM engine_input_messages;
+          INSERT OR IGNORE INTO engine_inputs(thread_id,item_key,signature,origin)
+          SELECT thread_id,'input:'||command_id,'',json_object('kind','subagent_result','commandId',command_id) FROM engine_ace_inputs;
+          DROP TABLE engine_input_messages;`);
+      }
+    });
+    store.atomic((db) => {
       if (
         !db
           .prepare("PRAGMA table_info(engine_inputs)")
@@ -84,6 +114,28 @@ export class InputJournal {
           DELETE FROM engine_input_echoes WHERE thread_id=OLD.id;
           DELETE FROM engine_inputs WHERE thread_id=OLD.id;
         END;`);
+    });
+  }
+  origin(thread: ThreadId, key: string): MessageOrigin | undefined {
+    const row = this.store
+      .statement("SELECT origin FROM engine_inputs WHERE thread_id=? AND item_key=?")
+      .get(thread, key);
+    return row ? MessageOrigin.parse(JSON.parse(z.string().parse(row.origin))) : undefined;
+  }
+  /** Native metadata supplies identity only; the admitted host command supplies origin. */
+  identify(thread: ThreadId, identity: unknown): void {
+    const { commandId, nativeId } = MessageIdentity.parse(identity);
+    this.store.atomic(() => {
+      const previous = this.store
+        .statement(
+          "SELECT command_id FROM engine_input_identities WHERE thread_id=? AND native_id=?",
+        )
+        .get(thread, nativeId);
+      if (previous && previous.command_id !== commandId)
+        throw new Error("Provider reused an input message identity for a different command");
+      this.store
+        .statement("INSERT OR IGNORE INTO engine_input_identities VALUES (?,?,?)")
+        .run(thread, nativeId, commandId);
     });
   }
   attachRun(thread: ThreadId, key: string, run: string): void {
@@ -135,13 +187,33 @@ export class InputJournal {
       fact.draft.role === "assistant"
     )
       return fact;
-    const alias = this.store
-      .statement(
-        "SELECT e.item_key FROM engine_input_echoes e JOIN engine_inputs i ON i.thread_id=e.thread_id AND i.item_key=e.item_key WHERE e.thread_id=? AND e.native_key=? AND (? IS NULL OR i.generation=?)",
-      )
-      .get(thread, fact.item, generation ?? null, generation ?? null);
+    const identity = fact.draft.nativeId
+      ? this.store
+          .statement(
+            "SELECT command_id FROM engine_input_identities WHERE thread_id=? AND native_id=?",
+          )
+          .get(thread, fact.draft.nativeId)
+      : undefined;
+    const commandId = identity ? CommandId.parse(identity.command_id) : undefined;
+    if (commandId && !this.origin(thread, `input:${commandId}`))
+      return {
+        ...fact,
+        draft: { ...fact.draft, origin: { kind: "person", commandId }, synthetic: false },
+      };
+    const alias = commandId
+      ? { item_key: `input:${commandId}` }
+      : this.store
+          .statement(
+            "SELECT e.item_key FROM engine_input_echoes e JOIN engine_inputs i ON i.thread_id=e.thread_id AND i.item_key=e.item_key WHERE e.thread_id=? AND e.native_key=? AND (? IS NULL OR i.generation=?)",
+          )
+          .get(thread, fact.item, generation ?? null, generation ?? null);
     if (fact.draft.role !== "user" && !alias) return fact;
-    if (fact.draft.origin && fact.draft.origin.kind !== "person" && !fact.draft.origin.commandId)
+    if (
+      !identity &&
+      fact.draft.origin &&
+      fact.draft.origin.kind !== "person" &&
+      !fact.draft.origin.commandId
+    )
       return fact;
     if (!alias && !fact.draft.parts) return fact;
     const row =

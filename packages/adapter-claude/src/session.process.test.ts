@@ -4,6 +4,42 @@ import { object } from "./native.ts";
 import { apply, createThreadState } from "@ace/core";
 import { createTranslator } from "./index.ts";
 import { ThreadId } from "@ace/protocol";
+test("multi-part ace input is correlated before its native SDK echo", async () => {
+  const identities: { commandId: string; nativeId: string }[] = [];
+  const h = await harness(
+    undefined,
+    "root",
+    {},
+    { onInputMessage: (identity) => identities.push(identity) },
+  );
+  try {
+    await h.session.send(
+      [
+        { type: "text", text: "Handoff" },
+        { type: "text", text: "Result" },
+      ],
+      "queue",
+      "ace-wake",
+      "ace",
+    );
+    const frame = await h.wait(
+      (candidate) => candidate.dir === "send" && object(candidate.data)["type"] === "user",
+    );
+    expect(identities).toEqual([{ commandId: "ace-wake", nativeId: object(frame.data)["uuid"] }]);
+    expect(object(frame.data)["isSynthetic"]).toBe(true);
+    const translator = createTranslator({ rootKey: "root" });
+    const facts = translator.translate(frame, frame.t);
+    const echoes = facts.flatMap((fact) =>
+      fact.type === "item.upsert" && fact.draft.type === "message" && fact.draft.role === "user"
+        ? [fact.draft]
+        : [],
+    );
+    expect(echoes).toHaveLength(2);
+    expect(echoes.every((draft) => draft.nativeId === identities[0]?.nativeId)).toBe(true);
+  } finally {
+    await h.session.close("user");
+  }
+});
 test("the installed executable handshakes and receives queued input with a native session id", async () => {
   const h = await harness();
   try {

@@ -1,3 +1,4 @@
+import { delegationModel } from "./models.ts";
 import { callerThread } from "./authorization.ts";
 import { admitDelegation, delegationBudget } from "@ace/orchestrator";
 import { pickInstance } from "@ace/accounts";
@@ -58,6 +59,7 @@ export class DelegationAdmission {
     caller: McpAttribution,
     value: DelegationRequest,
     resultDelivery?: "owner",
+    configuredModel?: string,
   ): DelegationReservation {
     const input = DelegationRequest.parse(value);
     return this.deps.store.atomic(() => {
@@ -100,6 +102,13 @@ export class DelegationAdmission {
         : undefined;
       if (provider.success && (input.accountId || candidates.length > 0) && !selected)
         throw new Error("Account unavailable or quota exhausted");
+      const resolvedModel = delegationModel(
+        this.deps.models,
+        input,
+        callerThread(this.deps.store, caller),
+        selected?.id ?? input.instanceId ?? `${input.provider}-cli-default`,
+        configuredModel,
+      );
       const reservation: DelegationReservation = {
         record: {
           childId: ThreadId.parse(this.deps.id()),
@@ -108,6 +117,7 @@ export class DelegationAdmission {
           rootId: tree.root,
           requestId: input.requestId,
           request: input,
+          ...(resolvedModel ? { resolvedModel } : {}),
           depth: tree.depth + 1,
           createdAt: now,
           phase: "created",
@@ -187,7 +197,7 @@ export class DelegationAdmission {
             ...identity,
             title: r.request.role.slice(0, 256),
             titleSource: "agent",
-            ...(r.request.model ? { model: r.request.model } : {}),
+            ...(r.resolvedModel ? { model: r.resolvedModel } : {}),
             ...(r.request.options ? { options: r.request.options } : {}),
             ...(current.accountId ? { accountId: current.accountId } : {}),
           },
@@ -208,6 +218,7 @@ export class DelegationAdmission {
         r.request.role,
         !r.request.wait,
       );
+      this.deps.engine.delegationStarted(r, child);
       return r;
     });
   }

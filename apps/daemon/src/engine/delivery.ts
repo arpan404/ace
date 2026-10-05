@@ -150,6 +150,9 @@ export async function executeIntent(
           ? "steer"
           : "queue",
         intent.command.id,
+        repo.inputs.origin(actor.id, `input:${intent.command.id}`)?.kind === "subagent_result"
+          ? "ace"
+          : undefined,
       );
       await repo.store.writable();
       transitions.delivered(actor.id);

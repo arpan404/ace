@@ -25,10 +25,8 @@ export function ViewFrame(props: { label: string; sidebar: ReactNode; children: 
 /** The heading of a view's list in the sidebar, with an optional filter or actions. */
 export function SidebarHeader(props: { title: string; actions?: ReactNode }) {
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1.5 pt-1 pr-2.5 pl-4">
-      <h2 className="min-w-0 flex-1 truncate text-[11.5px] font-medium tracking-[0.01em] text-subtle-foreground">
-        {props.title}
-      </h2>
+    <div className="group/heading flex h-10 shrink-0 items-center gap-1.5 pt-1 pr-2.5 pl-4">
+      <h2 className="min-w-0 flex-1 truncate text-ui text-subtle-foreground">{props.title}</h2>
       {props.actions}
     </div>
   );

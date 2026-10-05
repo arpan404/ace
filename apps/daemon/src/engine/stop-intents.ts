@@ -74,3 +74,20 @@ export function cancelPending(repo: EngineRepository, id: ThreadId, now: number)
     return [...released];
   });
 }
+
+/** Cancelling a delegated task retires its work; ordinary Stop retains the queue. */
+export function cancelDelegatedInputs(repo: EngineRepository, id: ThreadId, now: number): void {
+  repo.store.atomic(() => {
+    repo.cancelPending(id, now);
+    for (const intent of repo.pending.headers(id)) {
+      if (
+        !["thread.send", "thread.create", "thread.fork"].includes(intent.kind) ||
+        (!["pending", "queued", "running"].includes(intent.status) && !intent.awaiting)
+      )
+        continue;
+      repo.mark(intent, "failed", "Cancelled before delivery");
+      repo.queue.prune(intent.id);
+    }
+    repo.queue.set(id, {}, now);
+  });
+}

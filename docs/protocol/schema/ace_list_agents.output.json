@@ -334,6 +334,38 @@
                       "detail": {
                         "type": "string"
                       },
+                      "details": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "code": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "model": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "provider": {
+                            "enum": [
+                              "claude",
+                              "codex",
+                              "opencode",
+                              "cursor",
+                              "antigravity",
+                              "acp",
+                              "pi"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "provider"
+                        ],
+                        "type": "object"
+                      },
                       "kind": {
                         "enum": [
                           "provider",

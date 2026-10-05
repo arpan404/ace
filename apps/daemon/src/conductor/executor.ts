@@ -120,22 +120,20 @@ export class NativeConductorExecutor {
           if (used + preparing >= this.delegations.policy.maxConcurrent)
             throw new Error("deck_capacity_wait");
         }
-        const reservation = this.delegations.reserve(
-          caller,
-          {
-            requestId,
-            role: `Deck ${effect.lane.role}: ${effect.lane.workstream ?? "plan"}`,
-            task: `Execute Deck lane ${effect.lane.id}`,
-            provider: effect.lane.model.provider,
-            model: effect.lane.model.model,
-            ...(effect.lane.account === `local.${effect.lane.model.provider}`
-              ? {}
-              : { accountId: effect.lane.account }),
-            wait: false,
-            estimatedLoad: 0,
-          },
-          "owner",
-        );
+        const request = {
+          requestId,
+          role: `Deck ${effect.lane.role}: ${effect.lane.workstream ?? "plan"}`,
+          task: `Execute Deck lane ${effect.lane.id}`,
+          provider: effect.lane.model.provider,
+          model: effect.lane.model.model,
+          ...(effect.lane.account === `local.${effect.lane.model.provider}`
+            ? {}
+            : { accountId: effect.lane.account }),
+          wait: false,
+          estimatedLoad: 0,
+        };
+        const model = await this.delegations.prepareModels(caller, request);
+        const reservation = this.delegations.reserve(caller, request, "owner", model);
         if (!binding) {
           binding = {
             run: state.id,

@@ -60,3 +60,17 @@ engine boundary. The merge-only `apps/daemon/bench/ux-inputs.ts` reports title a
 admission/echo p50/p95 latency and RSS for 0, 1,000, 10,000 and 50,000 historical
 items. No benchmark numbers are claimed in this round: the owner prohibits
 execution outside the merge gate. Measurements need run at merge.
+
+## Delegation merge
+
+The same input journal also accepts native message identities reported at the
+provider boundary. Native identities select a durable host command; adapter origin
+metadata and copied wake text cannot change its admitted `MessageOrigin`. Identity
+correlation survives replay across provider generations. Existing delegation
+identity records migrate into this journal. Delegation summaries remain separate
+data: wakes with `subagent_result` origin fold into their `delegation.settled` item
+instead of adding a user message. Ordinary person inputs retain their admitted ID.
+
+Provider failures pass through one daemon normalizer. Known native codes produce
+readable text, notice/error `code`, `title` and `detail`, and provider `details`;
+raw evidence and unknown codes remain available. Assistant prose is unchanged.

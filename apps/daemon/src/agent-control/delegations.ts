@@ -33,6 +33,9 @@ export interface DelegationDependencies {
   clock: EngineClock;
   id(): string;
   accounts?: AccountRegistry;
+  models: import("@ace/models").ModelCatalogApi;
+  modelsReady?: Promise<void>;
+  configuredModel?(caller: McpAttribution, request: DelegationRequest): Promise<string | undefined>;
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
   journalCapacity?: number;
   policy?: Partial<DelegationPolicy>;
@@ -136,11 +139,40 @@ export class DelegationService {
     this.arm();
     return result;
   }
-  prepare(caller: McpAttribution, value: DelegationRequest): DelegationRecord {
+  async prepareModels(caller: McpAttribution, request: DelegationRequest) {
+    await this.deps.modelsReady;
+    const catalog = this.deps.models;
+    const filter = {
+      provider: request.provider,
+      ...(request.provider === "acp"
+        ? {
+            acpAgentId: request.acpAgentId,
+            installationId: request.installationId,
+            instanceId: request.instanceId,
+          }
+        : request.accountId
+          ? { instance: request.accountId }
+          : {}),
+    };
+    const page = catalog.list(filter);
+    // Auto-selection can choose an account whose catalog is still cold.
+    if (
+      !page.models.length ||
+      page.instances.some((instance) => instance.refreshedAt === undefined)
+    )
+      await catalog.refresh(filter);
+    return this.deps.configuredModel?.(caller, request);
+  }
+  prepare(
+    caller: McpAttribution,
+    value: DelegationRequest,
+    configuredModel?: string,
+  ): DelegationRecord {
     return this.prepareInWorkspace(
       caller,
       value,
       callerThread(this.deps.store, caller).workspaceId,
+      configuredModel,
     );
   }
   /** Host-only workspace selection for Deck/worktree owners; never exposed as tool input. */
@@ -148,6 +180,7 @@ export class DelegationService {
     caller: McpAttribution,
     value: DelegationRequest,
     workspace: WorkspaceId,
+    configuredModel?: string,
   ): DelegationRecord {
     const input = DelegationRequest.parse(value);
     return this.deps.store.atomic(() => {
@@ -157,14 +190,19 @@ export class DelegationService {
         this.admission.match(caller, input, receipt);
         return receipt;
       }
-      const reservation = this.reserve(caller, input);
+      const reservation = this.reserve(caller, input, undefined, configuredModel);
       const record = this.prepareReserved(caller, reservation, workspace);
       this.arm();
       return record;
     });
   }
-  reserve(caller: McpAttribution, value: DelegationRequest, resultDelivery?: "owner") {
-    const reservation = this.admission.reserve(caller, value, resultDelivery);
+  reserve(
+    caller: McpAttribution,
+    value: DelegationRequest,
+    resultDelivery?: "owner",
+    configuredModel?: string,
+  ) {
+    const reservation = this.admission.reserve(caller, value, resultDelivery, configuredModel);
     this.arm();
     return reservation;
   }
@@ -187,9 +225,13 @@ export class DelegationService {
     this.deps.store.atomic(() => this.journal.release(reservation));
     this.arm();
   }
-  delegate(caller: McpAttribution, value: DelegationRequest): DelegationRecord {
+  delegate(
+    caller: McpAttribution,
+    value: DelegationRequest,
+    configuredModel?: string,
+  ): DelegationRecord {
     return this.deps.store.atomic(() => {
-      const record = this.prepare(caller, value);
+      const record = this.prepare(caller, value, configuredModel);
       this.launch(record, `Role: ${record.request.role}\n\nTask:\n${record.request.task}`);
       return record;
     });
@@ -242,6 +284,8 @@ export class DelegationService {
       if (own && own.phase !== "settled") {
         own.phase = "cancelling";
         this.journal.save(own);
+        const child = this.deps.store.getThread(own.childId);
+        if (child) this.deps.engine.delegationStarted(own, child);
       }
       const children = this.journal
         .family(tree.root)
@@ -251,10 +295,14 @@ export class DelegationService {
         .toSorted((a, b) => b.depth - a.depth);
       for (const child of children) {
         this.journal.stop(child.childId);
-        if (this.deps.store.getThread(child.childId))
+        if (this.deps.store.getThread(child.childId)) {
           this.deps.engine.discardRecovery(child.childId);
+          this.deps.engine.cancelDelegatedInputs(child.childId);
+        }
         child.phase = "cancelling";
         this.journal.save(child);
+        const childThread = this.deps.store.getThread(child.childId);
+        if (childThread) this.deps.engine.delegationStarted(child, childThread);
         const result = this.command(
           controlCommandId(child.childId, `${request}:${child.generation}`, "cascade.interrupt"),
           {
@@ -307,9 +355,13 @@ export class DelegationService {
     if (!thread) return;
     this.deps.store.atomic(() => {
       this.deps.engine.updateChild(edge.parentId, thread);
-      if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) return;
+      if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) {
+        this.deps.engine.delegationStarted(edge, thread);
+        return;
+      }
       const outcome = threadOutcome(this.deps.store, thread, edge.phase === "cancelling");
       this.journal.settle(edge, outcome, this.deps.clock.now() + this.policy.coalesceMs);
+      this.deps.engine.delegationStarted(edge, thread);
       this.waiters.deliver(thread.id, outcome);
     });
   }
@@ -322,9 +374,23 @@ export class DelegationService {
     if (!this.authorize(caller, threadId, false)) throw new Error("Forbidden thread");
     const thread = this.deps.store.getThread(threadId);
     if (!thread) throw new Error("Unknown thread");
-    if (["done", "failed"].includes(thread.status.state))
-      return this.journal.get(threadId)?.outcome ?? threadOutcome(this.deps.store, thread);
-    return this.waiters.wait(threadId, signal);
+    const outcome = ["done", "failed"].includes(thread.status.state)
+      ? (this.journal.get(threadId)?.outcome ?? threadOutcome(this.deps.store, thread))
+      : await this.waiters.wait(threadId, signal);
+    const edge = this.journal.get(threadId);
+    if (edge && edge.parentId === caller.threadId && edge.resultDelivery !== "owner") {
+      this.deps.store.atomic(() => {
+        this.deps.engine.delegationSettled(
+          edge.parentId,
+          edge.parentAgentId,
+          controlCommandId(edge.parentId, `${edge.childId}:${edge.generation}`, "tool-result"),
+          [outcome],
+          "tool",
+        );
+        this.journal.consumeChild(threadId);
+      });
+    }
+    return outcome;
   }
   private arm() {
     this.cancelTimer?.();
@@ -415,10 +481,14 @@ export class DelegationService {
             pending.map((edge) => `${edge.childId}:${edge.generation}`).join(","),
             "wake",
           );
+          const text = `[ace-origin:delegation.settled:${id}]\n${childResultPrompt(results)}`;
+          const agent = pending[0]?.parentAgentId;
+          if (!agent) throw new Error("Missing delegation owner");
+          this.deps.engine.delegationSettled(next.parent_id, agent, id, results, "ace-input", text);
           const result = this.command(id, {
             type: "thread.send",
             threadId: next.parent_id,
-            input: [{ type: "text", text: childResultPrompt(results) }],
+            input: [{ type: "text", text }],
             delivery: "queue",
             trigger: "subagent_result",
             origin: { kind: "subagent_result", threadIds: pending.map((edge) => edge.childId) },

@@ -1,6 +1,7 @@
 import { claudeError } from "./provider-error.ts";
 import { raw } from "./native.ts";
 import { ClaudeState } from "./state.ts";
+import { ProviderErrorDetails } from "@ace/protocol";
 import { list, number, object, string, text, type Data } from "./native.ts";
 import { matchBlock, type MessageIndex } from "./blocks.ts";
 import { childUsage } from "./usage.ts";
@@ -66,6 +67,12 @@ export function message(
   if (role === "assistant") childUsage(state, agent, id, m);
   if (typeof data["error"] === "string") {
     const error = claudeError(data["error"], text(m["content"]), state.model);
+    const details = ProviderErrorDetails.safeParse({
+      code: data["error"],
+      provider: "claude",
+      model: state.model,
+    });
+    if (details.success) error.details = details.data;
     state.errors.set(agent, error);
     state.emit({
       type: "item.upsert",
@@ -77,6 +84,7 @@ export function message(
         code: error.code,
         title: error.title,
         detail: error.detail,
+        details: error.details,
         text: error.message,
         complete: true,
         raw: [raw(data)],
@@ -101,7 +109,9 @@ export function message(
         role: "user",
         parts: userText.map((block) => ({ type: "text" as const, text: string(block["text"]) })),
         complete: true,
-        ...(string(data["uuid"]) ? { nativeId: string(data["uuid"]) } : {}),
+        ...(string(data["uuid"]) && string(data["uuid"]).length <= 256
+          ? { nativeId: string(data["uuid"]) }
+          : {}),
         ...state.keepMessageRaw(item, data, agent),
       },
     });
@@ -184,7 +194,9 @@ export function message(
         item,
         draft: {
           type: "message",
-          ...(list(m["content"]).length === 1 && string(data["uuid"])
+          ...(list(m["content"]).length === 1 &&
+          string(data["uuid"]) &&
+          string(data["uuid"]).length <= 256
             ? { nativeId: string(data["uuid"]) }
             : {}),
           role,

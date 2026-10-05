@@ -209,7 +209,11 @@ for (const interruption of ["exit", "crash"] as const) {
     await engine.flush();
     const sent = replacement.commands.filter((command) => command.type === "send");
     expect(sent).toHaveLength(1);
-    expect(sent[0]).not.toEqual(oldInput);
+    expect(store.snapshotThread(id).items["input:restart-admitted-work"]).toMatchObject({
+      synthetic: true,
+      origin: { kind: "restart", commandId: "restart-admitted-work" },
+      nativeId: "fresh-restart",
+    });
     expect(sent[0]).toMatchObject({
       input: [{ type: "text", text: "continue" }],
     });

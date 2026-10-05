@@ -1,3 +1,4 @@
+import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadLineage } from "./thread-transitions.ts";
 import { z } from "zod";
 import { AgentId, ItemId, ThreadId, Timestamp } from "./ids.ts";
@@ -35,6 +36,7 @@ export const AgentError = z.object({
   code: z.string().optional(),
   title: z.string().optional(),
   detail: z.string().optional(),
+  details: ProviderErrorDetails.optional(),
 });
 export type AgentError = z.infer<typeof AgentError>;
 

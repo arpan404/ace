@@ -223,7 +223,7 @@ test.each([false, true])(
     const delivered = replacement.commands.filter((command) => command.type === "send");
     expect(delivered[0]?.input[0]).toMatchObject({
       type: "text",
-      text: expect.stringContaining("Background build"),
+      text: "continue",
     });
     expect(delivered.slice(1).map((command) => command.input)).toEqual([text("b"), text("a")]);
     expect(
@@ -232,7 +232,7 @@ test.each([false, true])(
   },
 );
 
-test("native restart continuation records lost shells monitors and subagents once", async () => {
+test("native restart settles lost shells monitors and subagents and sends one continuation", async () => {
   const frames = scriptFrames();
   const h = await fixture(
     [
@@ -287,23 +287,25 @@ test("native restart continuation records lost shells monitors and subagents onc
   expect(continuationItems).toHaveLength(1);
   expect(continuationItems[0]).toMatchObject({
     synthetic: true,
-    parts: [{ type: "text", text: expect.stringContaining("shell: Background build") }],
+    origin: { kind: "restart" },
+    parts: [{ type: "text", text: "continue" }],
   });
-  expect(JSON.stringify(continuationItems[0])).toContain("monitor: Watch tests");
-  expect(JSON.stringify(continuationItems[0])).toContain("subagent: Research");
-
+  const view = recovered.store.snapshotThread(id);
+  expect(Object.values(view.backgroundTasks)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ title: "Background build", status: "unknown" }),
+      expect.objectContaining({ title: "Watch tests", status: "unknown" }),
+    ]),
+  );
+  expect(Object.values(view.agents)).toContainEqual(
+    expect.objectContaining({
+      name: "Research",
+      status: expect.objectContaining({ state: "failed" }),
+    }),
+  );
   expect(sends(replacement)).toHaveLength(1);
   const continuation = replacement.commands.find((command) => command.type === "send");
-  expect(continuation?.type === "send" ? continuation.input : []).toEqual([
-    { type: "text", text: expect.stringContaining("shell: Background build") },
-  ]);
-  if (continuation?.type !== "send") throw new Error("Missing continuation");
-  expect(continuation.input).toEqual([
-    { type: "text", text: expect.stringContaining("monitor: Watch tests") },
-  ]);
-  expect(continuation.input).toEqual([
-    { type: "text", text: expect.stringContaining("subagent: Research") },
-  ]);
+  expect(continuation).toMatchObject({ input: [{ type: "text", text: "continue" }] });
 });
 
 test("an unacknowledged send is never replayed automatically and must be removed before resuming", async () => {

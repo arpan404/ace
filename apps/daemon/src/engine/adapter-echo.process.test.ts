@@ -66,12 +66,14 @@ test("ACP outgoing prompt and streamed user chunks reconcile to one admitted ite
       {
         on: "send",
         frames: [
-          frame(1, "send", {
+          frame(0, "send", { id: 0, method: "session/new", params: { cwd: "/repo" } }),
+          frame(1, "recv", { id: 0, result: { sessionId: "native-1" } }),
+          frame(2, "send", {
             id: 1,
             method: "session/prompt",
             params: { sessionId: "native-1", prompt: [{ type: "text", text: "Read this" }] },
           }),
-          frame(2, "recv", {
+          frame(3, "recv", {
             method: "session/update",
             params: {
               sessionId: "native-1",
@@ -81,7 +83,7 @@ test("ACP outgoing prompt and streamed user chunks reconcile to one admitted ite
               },
             },
           }),
-          frame(3, "recv", {
+          frame(4, "recv", {
             method: "session/update",
             params: {
               sessionId: "native-1",
@@ -91,7 +93,7 @@ test("ACP outgoing prompt and streamed user chunks reconcile to one admitted ite
               },
             },
           }),
-          frame(4, "recv", { id: 1, result: { stopReason: "end_turn" } }),
+          frame(5, "recv", { id: 1, result: { stopReason: "end_turn" } }),
         ],
       },
     ],

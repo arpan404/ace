@@ -248,7 +248,10 @@ test("migration refusal retains the source binding and exposes an actionable hel
   expect(sends(replacement)).toHaveLength(0);
   expect(
     Object.values(h.store.snapshotThread(id).items).some(
-      (item) => item.type === "notice" && item.text.includes("Writer exclusion unavailable"),
+      (item) =>
+        item.type === "notice" &&
+        item.title === "Action failed" &&
+        item.detail?.includes("Writer exclusion unavailable"),
     ),
   ).toBe(true);
 });

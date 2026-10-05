@@ -72,10 +72,15 @@ export function foldProviderFacts(
       ports.opening ? undefined : generation,
     );
     if (!correlated) return [];
-    let fact = capFact(
-      (raw) => repo.store.capRaw(raw, id),
-      shapeProviderError(correlated, state.config.provider),
-    );
+    let fact = repo.attributeAction(state, repo.aceInputs.attribute(id, correlated));
+    if (
+      ((fact.type === "item.upsert" || fact.type === "item.reconciled") &&
+        fact.draft.type === "notice") ||
+      (fact.type === "turn.ended" && fact.error) ||
+      (fact.type === "process.exited" && fact.message)
+    )
+      fact = shapeProviderError(fact, state.config.provider, repo.session(id).model);
+    fact = capFact((raw) => repo.store.capRaw(raw, id), fact);
     if (
       (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
       fact.agent === (state.rootKey ?? "root") &&
@@ -91,6 +96,7 @@ export function foldProviderFacts(
           draft: { ...fact.draft, origin: { kind: trigger }, synthetic: true },
         };
     }
+
     if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
       const pending = repo.pending.awaiting(id);
       if (

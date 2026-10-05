@@ -131,7 +131,7 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
     const source = store.getThread(operation.threadId),
       repo = source && store.getWorkspacePath(source.workspaceId);
     if (!source || !repo) return { ok: false, code: "not_found" };
-    const reservation = delegations.reserve(caller, {
+    const request = {
       requestId,
       provider: source.provider,
       ...(source.provider === "acp" ? AcpIdentity.parse(source) : {}),
@@ -139,7 +139,10 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
       task,
       wait: false,
       estimatedLoad: 0,
-    });
+    };
+    const model = await delegations.prepareModels(caller, request);
+    signal.throwIfAborted();
+    const reservation = delegations.reserve(caller, request, undefined, model);
     const watched = delegations.watchReservation(reservation);
     signal = AbortSignal.any([callerSignal, watched.signal]);
     let path = join(config.dataDir, "agent-worktrees", key);
