@@ -86,6 +86,34 @@ export class ProjectStorage {
         .map((row) => Project.parse(row)),
     );
   }
+  recentHints(limit: number) {
+    return this.store.atomic((db) =>
+      db
+        .prepare(`SELECT w.path,r.opened_at FROM workspace_recent r
+      JOIN workspaces w ON w.id=r.workspace_id WHERE NOT EXISTS
+      (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
+      ORDER BY r.opened_at DESC,w.id LIMIT ?`)
+        .all(limit)
+        .map((row, index) => ({
+          path: Project.shape.path.parse(row.path),
+          lastOpened: Number(row.opened_at),
+          recentScore: 1 / (index + 1),
+        })),
+    );
+  }
+  folderFacts(path: string) {
+    const row = this.store.atomic((db) =>
+      db
+        .prepare(`SELECT r.opened_at FROM workspaces w
+      LEFT JOIN workspace_recent r ON r.workspace_id=w.id WHERE w.path=? AND NOT EXISTS
+      (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id) LIMIT 1`)
+        .get(path),
+    );
+    return {
+      isProject: Boolean(row),
+      ...(row?.opened_at == null ? {} : { lastOpened: Number(row.opened_at) }),
+    };
+  }
   rename(id: WorkspaceId, name: string): Project {
     const workspace = this.store.atomic((db) => {
       this.get(id);

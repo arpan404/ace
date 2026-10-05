@@ -1,3 +1,5 @@
+import { parseCloneUrl } from "@ace/project-picker";
+import { ProjectPicker } from "./project-picker.ts";
 import { projectRemotes } from "./project-git.ts";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -29,6 +31,8 @@ import type { Store } from "./store.ts";
 
 export interface ProjectsOptions {
   home?: string;
+  /** Monotonic clock at the filesystem I/O boundary, for scan budgets and cache expiry. */
+  pickerClock?: () => number;
   roots?: () => Promise<readonly string[]>;
   git?: GitOptions;
   /** Host-injected test fixture only; no client can set transport policy. */
@@ -44,6 +48,7 @@ type CloneFlight = {
 export class Projects {
   readonly catalog: ProjectStorage;
   private paths: ProjectPaths;
+  private picker: ProjectPicker;
   private git: GitService;
   private store: Store;
   private options: ProjectsOptions;
@@ -61,6 +66,11 @@ export class Projects {
     this.paths = new ProjectPaths(this.home, options.roots ?? (async () => []));
     this.git = new GitService({ timeoutMs: 600_000, ...options.git });
     this.catalog = new ProjectStorage(store, now);
+    this.picker = new ProjectPicker(
+      this.paths,
+      this.catalog,
+      options.pickerClock ?? (() => performance.now()),
+    );
     this.commands = new AsyncCommands(store);
     this.stopRevocation = store.devices.onRevoke((device) => this.cancelDevice(device));
   }
@@ -177,8 +187,19 @@ export class Projects {
         let directory: ProjectDirectory | undefined;
         try {
           this.check(allowed);
-          if (p.type === "workspace.clone")
-            (this.options.gitPolicy?.validateUrl ?? validateCloneUrl)(p.url);
+          let cloneUrl: string | undefined;
+          try {
+            cloneUrl =
+              p.type === "workspace.clone"
+                ? this.options.gitPolicy?.validateUrl
+                  ? p.url
+                  : parseCloneUrl(p.url).url
+                : undefined;
+          } catch {
+            throw new ProjectError("git_invalid_argument");
+          }
+          if (cloneUrl !== undefined)
+            (this.options.gitPolicy?.validateUrl ?? validateCloneUrl)(cloneUrl);
           this.store.workspaceReservations.assertAvailable(path);
           directory = await parentDirectory.destination(p.name);
           this.check(allowed);
@@ -199,7 +220,7 @@ export class Projects {
               {
                 parent,
                 path,
-                url: p.url,
+                url: cloneUrl ?? p.url,
                 directoryFd: directory.handle.fd,
                 signal: controller.signal,
                 progress: (value) => {
@@ -270,6 +291,7 @@ export class Projects {
     input: ProjectsRequest,
     device: string,
     allowed: () => boolean = () => true,
+    signal: AbortSignal = new AbortController().signal,
   ): Promise<ProjectsResult> {
     const request = ProjectsRequest.parse(input);
     const wrap = (result: ProjectsResult["result"]): ProjectsResult => ({
@@ -281,7 +303,16 @@ export class Projects {
       this.check(allowed);
       const op = request.operation;
       let result: ProjectsResult["result"];
-      if (op.op === "workspace.clone.cancel") {
+      if (op.op === "fs.search") result = await this.picker.search(op, signal, allowed);
+      else if (op.op === "fs.complete")
+        result = await this.picker.complete(op, this.home, signal, allowed);
+      else if (op.op === "workspace.clone.validate") {
+        try {
+          result = { kind: "cloneUrl", ...parseCloneUrl(op.url) };
+        } catch {
+          throw new ProjectError("git_invalid_argument");
+        }
+      } else if (op.op === "workspace.clone.cancel") {
         const clone = this.clones.get(op.commandId);
         if (!clone) throw new ProjectError("clone_not_running");
         if (clone.device !== device) throw new ProjectError("forbidden");
@@ -311,11 +342,14 @@ export class Projects {
         }
         result = { kind: "recentFolders", folders };
       } else result = await browseProjects(this.paths, op);
-      if (result.kind !== "home" && result.kind !== "cancelled") {
+      if (result.kind !== "home" && result.kind !== "cancelled" && result.kind !== "cloneUrl") {
         const roots = await this.paths.roots();
         if (result.kind === "recentFolders")
           for (const folder of result.folders) assertProjectPath(folder.path, roots);
-        else {
+        else if (result.kind === "search" || result.kind === "completion") {
+          for (const entry of result.kind === "search" ? result.entries : result.candidates)
+            assertProjectPath(entry.path, roots);
+        } else {
           assertProjectPath(result.path, roots);
           if (result.kind === "directories")
             for (const entry of result.entries) assertProjectPath(entry.path, roots);
@@ -323,6 +357,8 @@ export class Projects {
         }
       }
       this.check(allowed);
+      if ((op.op === "fs.search" || op.op === "fs.complete") && signal.aborted)
+        throw new ProjectError("search_cancelled");
       return wrap(result);
     } catch (error) {
       return wrap({ kind: "error", code: projectErrorCode(error) });

@@ -52,6 +52,7 @@
     "@ace/orchestrator": "workspace:*",
     "@ace/plugins": "workspace:*",
     "@ace/preview": "workspace:*",
+    "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",

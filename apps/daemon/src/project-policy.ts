@@ -56,7 +56,7 @@ export class ProjectPaths {
   }
   async roots(): Promise<string[]> {
     const configured = await this.configured();
-    const roots = configured.length ? configured : [this.home];
+    const roots = [...new Set(configured.length ? configured : [this.home])].slice(0, 32);
     return Promise.all(
       roots.map(async (root) => {
         absoluteProjectPath(root);

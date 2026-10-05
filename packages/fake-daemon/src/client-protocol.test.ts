@@ -915,3 +915,55 @@ test("provider discovery keeps native CLI login separate from ace account record
     await f.client.close();
   }
 });
+
+test("fake picker uses the machine's roots, completion and clone contract", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.projects.seedFolders("/home/person", [
+      { path: "/home/person/Code", git: true },
+      { path: "/home/person/Configs" },
+      { path: "/home/person/node_modules/Code" },
+      { path: "/home/person/Library/Code" },
+      { path: "/home/person/.hidden/Code" },
+    ]);
+    expect(await f.client.projects.add({ path: "/home/person/Code" })).toMatchObject({ ok: true });
+    expect(await f.client.projects.search({ query: "Code" })).toMatchObject({
+      result: {
+        kind: "search",
+        entries: [
+          { name: "Code", isGitRepo: true, isProject: true, lastOpened: 1000, recentScore: 1 },
+        ],
+      },
+    });
+    expect(await f.client.projects.complete({ path: "~/Co", limit: 1 })).toMatchObject({
+      result: {
+        kind: "completion",
+        commonPrefix: "~/Co",
+        candidates: [{ path: "/home/person/Code", completion: "~/Code/" }],
+        truncated: true,
+      },
+    });
+    expect(await f.client.projects.validateCloneUrl("arpan404/ace")).toMatchObject({
+      result: { kind: "cloneUrl", name: "ace", url: "https://github.com/arpan404/ace.git" },
+    });
+    expect(
+      await f.client.projects.clone({
+        parent: "/home/person",
+        name: "copied",
+        url: "arpan404/ace",
+      }),
+    ).toMatchObject({
+      ok: true,
+      inspection: { git: { remotes: [{ fetchUrls: ["https://github.com/arpan404/ace.git"] }] } },
+    });
+    f.daemon.projects.seedFolders("/home/person", [], { roots: ["/restricted"] });
+    expect(await f.client.projects.search({ query: "Code" })).toMatchObject({
+      result: { entries: [] },
+    });
+    expect(await f.client.projects.complete({ path: "~/Co" })).toMatchObject({
+      result: { kind: "error", code: "outside_project_roots" },
+    });
+  } finally {
+    await f.client.close();
+  }
+});

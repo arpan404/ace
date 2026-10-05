@@ -20,6 +20,7 @@ export function startProjects({ store, services, options, now, resources }: Serv
 export function createProjectsSession(context: SocketContext): SocketService {
   const { options, authorize, connected, device, send, tasks } = context;
   let reads = 0;
+  let search: AbortController | undefined;
   let stops: (() => void)[] = [];
   const allowed = () => connected() && authorize("projects");
   return {
@@ -35,6 +36,7 @@ export function createProjectsSession(context: SocketContext): SocketService {
       ];
     },
     close() {
+      search?.abort();
       for (const stop of stops) stop();
     },
     command: {
@@ -66,6 +68,9 @@ export function createProjectsSession(context: SocketContext): SocketService {
     handle(message) {
       if (message.type !== "projects.request") return false;
       const owner = device();
+      const pickerRequest =
+        message.operation.op === "fs.search" || message.operation.op === "fs.complete";
+      if (allowed() && owner && options.projects && pickerRequest) search?.abort();
       if (!allowed() || !owner || !options.projects || reads >= 8) {
         send({
           type: "projects.result",
@@ -77,14 +82,17 @@ export function createProjectsSession(context: SocketContext): SocketService {
         });
         return true;
       }
+      const controller = new AbortController();
+      if (pickerRequest) search = controller;
       reads++;
       const task = options.projects
-        .read(message, owner, allowed)
+        .read(message, owner, allowed, controller.signal)
         .then((result) => {
           if (connected()) send(ProjectsResult.parse(result));
         })
         .finally(() => {
           reads--;
+          if (search === controller) search = undefined;
         });
       tasks.add(task);
       void task.finally(() => tasks.delete(task));

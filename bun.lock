@@ -52,6 +52,7 @@
         "@ace/orchestrator": "workspace:*",
         "@ace/plugins": "workspace:*",
         "@ace/preview": "workspace:*",
+        "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
@@ -436,6 +437,7 @@
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/core": "workspace:*",
+        "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/search": "workspace:*",
@@ -569,6 +571,12 @@
         "@types/ws": "^8.18.1",
         "tough-cookie": "^6.0.0",
         "ws": "^8.18.3",
+      },
+    },
+    "packages/project-picker": {
+      "name": "@ace/project-picker",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
       },
     },
     "packages/projection": {
@@ -842,6 +850,8 @@
     "@ace/plugins": ["@ace/plugins@workspace:packages/plugins"],
 
     "@ace/preview": ["@ace/preview@workspace:packages/preview"],
+
+    "@ace/project-picker": ["@ace/project-picker@workspace:packages/project-picker"],
 
     "@ace/projection": ["@ace/projection@workspace:packages/projection"],
 

@@ -54,6 +54,9 @@ export function deferredProjectsApi(
     home: (...args) => call((ready) => ready.home(...args)),
     recentFolders: (...args) => call((ready) => ready.recentFolders(...args)),
     browse: (...args) => call((ready) => ready.browse(...args)),
+    search: (...args) => call((ready) => ready.search(...args)),
+    complete: (...args) => call((ready) => ready.complete(...args)),
+    validateCloneUrl: (...args) => call((ready) => ready.validateCloneUrl(...args)),
     cancelClone: (...args) => call((ready) => ready.cancelClone(...args)),
     ...projectEvents(client),
   };
