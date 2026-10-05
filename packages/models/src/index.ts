@@ -23,3 +23,5 @@ export { OpenCodeParser, normalizeOpenCodeV2 } from "./open-code.ts";
 
 export { modelDisplayName } from "./display-name.ts";
 export { providerConfiguration, modelVisibility, configuredModels } from "./preferences.ts";
+
+export { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";

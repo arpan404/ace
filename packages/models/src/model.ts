@@ -13,7 +13,10 @@ export function base(
     id,
     displayName: modelDisplayName(
       id,
-      displayName === id || displayName === id.slice(id.indexOf("/") + 1) ? undefined : displayName,
+      displayName.toLowerCase() === id.toLowerCase() ||
+        displayName.toLowerCase() === id.slice(id.indexOf("/") + 1).toLowerCase()
+        ? undefined
+        : displayName,
     ).displayName,
     nativeModelId: id,
     provider: instance.provider,

@@ -10,5 +10,6 @@ export function freezeCatalogModel(model: CatalogModel): CatalogModel {
   Object.freeze(model.reasoningEfforts);
   Object.freeze(model.inputModalities);
   Object.freeze(model.raw);
+  if (model.aliases) Object.freeze(model.aliases);
   return Object.freeze(model);
 }

@@ -152,15 +152,11 @@ export async function executeIntent(
   const state = repo.requireState(actor.id);
   if (p.type === "thread.model.set") {
     if (!actor.session.setModel) throw new Error("Provider model selection unavailable");
-    await actor.session.setModel(p.model);
+    const model = await sessions.selectModel(actor, p.model);
+    await actor.session.setModel(model);
     await actor.flush();
-    const confirmed = repo.requireState(actor.id);
     try {
-      repo.store.atomic((db) => {
-        if (confirmed.rootKey)
-          actor.apply([{ type: "agent.linked", agent: confirmed.rootKey, model: p.model }]);
-        db.prepare("UPDATE engine_sessions SET model=? WHERE thread_id=?").run(p.model, actor.id);
-      });
+      sessions.confirmModel(actor, model);
     } catch (error) {
       // The outer transaction can fail after fact folding mutated the hot state.
       repo.evict(actor.id);

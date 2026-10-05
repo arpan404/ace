@@ -64,6 +64,11 @@ function options(config: z.infer<typeof SelectConfigOption>) {
       ? z
           .array(z.object({ value: z.string(), name: z.string() }).passthrough())
           .parse(option.options)
+          .map((value) =>
+            /legacy|deprecated|retired/i.test(`${option.group} ${option.name ?? ""}`)
+              ? Object.assign(value, { legacy: true })
+              : value,
+          )
       : [option],
   );
 }

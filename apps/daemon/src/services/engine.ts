@@ -168,6 +168,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ...acp,
     ...engineOptions,
     registry,
+    ...(services.models ? { models: services.models } : {}),
     providerEnabled: (provider, instance) =>
       services.providerConfigurations?.for(provider, instance).enabled !== false,
     ...(aceAction ? { aceToolAction: aceAction } : {}),

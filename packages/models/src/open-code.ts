@@ -80,6 +80,7 @@ export function normalizeOpenCodeV2(
       .filter(([, enabled]) => enabled)
       .map(([name]) => name);
     model.reasoningEfforts = native.variants.map((variant) => variant.id);
+    model.isDefault = `${native.providerID}/${native.modelID}` === parsed.configuredDefault;
     model.hidden = !native.enabled;
     model.deprecated = native.status === "deprecated" || native.status === "legacy";
     model.legacy = native.status === "legacy";
@@ -107,5 +108,6 @@ const V2Catalog = z
   .object({
     location: z.object({ directory: z.string() }),
     data: z.array(z.unknown()).max(8192),
+    configuredDefault: z.string().min(1).max(256).optional(),
   })
   .passthrough();

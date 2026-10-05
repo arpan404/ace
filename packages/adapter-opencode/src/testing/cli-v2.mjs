@@ -53,6 +53,7 @@ const operations = [
   "shell.get",
   "shell.remove",
   "model.list",
+  "model.default",
 ];
 const publish = (type, data, directory = "/one", extra = {}) => {
   const e = {
@@ -253,6 +254,17 @@ const server = createServer(async (req, res) => {
   if (path === "/api/shell") {
     const directory = url.searchParams.get("location[directory]");
     json({ location: { directory }, data: shells.filter((s) => s.cwd === directory) });
+    return;
+  }
+  if (path === "/api/model/default") {
+    json({
+      location: { directory: url.searchParams.get("location[directory]") },
+      data: {
+        providerID: "opencode-go",
+        modelID: "muse-spark-1.3-contributor",
+        id: "opencode-go/muse-spark-1.3-contributor",
+      },
+    });
     return;
   }
   if (path === "/api/model") {

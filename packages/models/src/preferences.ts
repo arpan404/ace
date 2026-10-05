@@ -5,6 +5,7 @@ import type {
   ProviderKind,
 } from "@ace/protocol";
 import { modelDisplayName } from "./display-name.ts";
+import { cleanCatalog, defaultModel } from "./catalog-cleanup.ts";
 import { freezeCatalogModel } from "./freeze.ts";
 
 /** Account fields replace provider fields only when explicitly supplied. */
@@ -45,14 +46,15 @@ function indexedVisibility(
   config: ReturnType<typeof indexModelPreferences>,
 ): CatalogModel {
   const group = model.nativeProviderId;
-  const favourite = config.favourites.has(model.id);
-  const explicitShow = config.shownModels.has(model.id);
+  const ids = [model.id, ...(model.aliases ?? [])];
+  const favourite = ids.some((id) => config.favourites.has(id));
+  const explicitShow = ids.some((id) => config.shownModels.has(id));
   const groupHidden = group && config.hiddenGroups.has(group) && !config.shownGroups.has(group);
   const reason = !config.enabled
     ? "provider_disabled"
     : groupHidden
       ? "group_hidden"
-      : config.hiddenModels.has(model.id)
+      : ids.some((id) => config.hiddenModels.has(id))
         ? "model_hidden"
         : explicitShow
           ? undefined
@@ -89,38 +91,54 @@ export function createModelView(
   instance: string,
   config: ProviderConfiguration,
 ) {
+  models = cleanCatalog(models);
   const index = indexModelPreferences(config);
   const found = config.customModels?.length
-    ? new Set(models.map((model) => model.id))
+    ? new Set(models.flatMap((model) => [model.id, ...(model.aliases ?? [])]))
     : new Set<string>();
-  const custom: CatalogModel[] = (config.customModels ?? [])
-    .filter((model) => !found.has(model.id))
-    // oxlint-disable-next-line oxc/no-map-spread -- Each custom row is a fresh catalog value.
-    .map((model) => {
-      const name = modelDisplayName(model.id, model.displayName);
-      return {
-        ...model,
-        provider,
-        instance,
-        nativeModelId: name.upstreamProvider ? model.id.slice(model.id.indexOf("/") + 1) : model.id,
-        ...(name.upstreamProvider ? { nativeProviderId: name.upstreamProvider } : {}),
-        reasoningEfforts: [],
-        serviceTiers: [],
-        inputModalities: [],
-        isDefault: false,
-        hidden: false,
-        deprecated: false,
-        custom: true,
-        raw: { json: "{}", truncated: false },
-      };
-    });
+  const custom: CatalogModel[] = cleanCatalog(
+    (config.customModels ?? [])
+      .filter((model) => !found.has(model.id))
+      // oxlint-disable-next-line oxc/no-map-spread -- Each custom row is a fresh catalog value.
+      .map((model) => {
+        const name = modelDisplayName(model.id, model.displayName);
+        return {
+          ...model,
+          provider,
+          instance,
+          nativeModelId: name.upstreamProvider
+            ? model.id.slice(model.id.indexOf("/") + 1)
+            : model.id,
+          ...(name.upstreamProvider ? { nativeProviderId: name.upstreamProvider } : {}),
+          reasoningEfforts: [],
+          serviceTiers: [],
+          inputModalities: [],
+          isDefault: false,
+          hidden: false,
+          deprecated: false,
+          custom: true,
+          raw: { json: "{}", truncated: false },
+        };
+      }),
+  );
+  const selection = defaultModel(
+    [...models, ...custom].map((row) => indexedVisibility(row, index)),
+    provider,
+    config.defaultModel ?? undefined,
+  );
   const decorated = new Map<number, CatalogModel>();
   const at = (position: number): CatalogModel | undefined => {
     const previous = decorated.get(position);
     if (previous) return previous;
     const row = position < models.length ? models[position] : custom[position - models.length];
     if (!row) return undefined;
-    const value = freezeCatalogModel(indexedVisibility(row, index));
+    const visible = indexedVisibility(row, index);
+    const { defaultSource: _source, ...rest } = visible;
+    const value = freezeCatalogModel({
+      ...rest,
+      isDefault: row.id === selection?.model.id,
+      ...(row.id === selection?.model.id ? { defaultSource: selection.source } : {}),
+    });
     decorated.set(position, value);
     return value;
   };

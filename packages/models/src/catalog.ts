@@ -1,3 +1,4 @@
+import { cleanCatalog } from "./catalog-cleanup.ts";
 import { createModelView, providerConfiguration } from "./preferences.ts";
 import type { ProviderConfigurations } from "@ace/protocol";
 import { createHash } from "node:crypto";
@@ -198,7 +199,7 @@ export class ModelCatalog implements ModelCatalogApi {
       instance: instance.id,
       revision: this.#revision(instance),
       refreshedAt: this.#options.now(),
-      models,
+      models: cleanCatalog(models),
     });
     const previous = this.#sessionTails.get(instance.id) ?? Promise.resolve();
     const write = previous
@@ -420,7 +421,7 @@ export class ModelCatalog implements ModelCatalogApi {
             instance: state.config.id,
             revision,
             refreshedAt: this.#options.now(),
-            models,
+            models: cleanCatalog(models),
           });
           try {
             // Only this instance's deletion is a prerequisite. Unrelated failures retain
