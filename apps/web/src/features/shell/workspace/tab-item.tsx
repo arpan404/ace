@@ -265,7 +265,15 @@ export function TabItem(props: {
           </MenuItem>
         )}
         {canMove && (
-          <MenuItem onClick={() => actions.moveToDock(tab.key, other)}>
+          <MenuItem
+            onClick={() => {
+              actions.moveToDock(tab.key, other);
+              // Keyboard users carry on from the tab where it now sits.
+              requestAnimationFrame(() =>
+                document.getElementById(tabDomId(other, tab.key, "tab"))?.focus(),
+              );
+            }}
+          >
             {other === "bottom" ? "Move to bottom panel" : "Move to side panel"}
           </MenuItem>
         )}

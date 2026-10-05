@@ -1,5 +1,6 @@
 /** The workspace docks' model, store and tab-kind registry. See apps/web/README.md. */
 export type { OpenTab, WorkspaceActions } from "./actions.ts";
+export { useWorkspaceCommands, type WorkspaceCommand } from "./commands.ts";
 export {
   docks,
   findTab,

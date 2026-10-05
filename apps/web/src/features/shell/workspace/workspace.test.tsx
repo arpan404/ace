@@ -143,10 +143,52 @@ test("hidden, the side panel's tabs are counted in the header and listed there",
   await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 
-  await userEvent.click(screen.getByRole("button", { name: "3 open tabs" }));
+  // The count is what you opened (Preview), not the tools every thread has; the name lists all.
+  const count = screen.getByRole("button", { name: "Open tabs: Changes, Agents, Preview" });
+  expect(count.textContent).toBe("1");
+  await userEvent.click(count);
   const list = await screen.findByRole("list", { name: "Open tabs" });
+  expect(within(list).getByRole("button", { name: /^Preview\s*Showing$/ })).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: "Agents" }));
   expect(selected(await sidePanel()).textContent).toBe("Agents");
+});
+
+test("with only the tools every thread has, the header shows no tab count", async () => {
+  await openColdStart();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  await sidePanel();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(screen.queryByRole("button", { name: /^Open tabs/ })).toBeNull();
+});
+
+test("from the keyboard alone: Shift+F10 opens a tab's menu, and a tab moves to the side panel with focus", async () => {
+  await openColdStart();
+  await userEvent.keyboard("{Meta>}j{/Meta}");
+  const bottom = await screen.findByRole("region", { name: "Bottom panel" });
+  await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
+  const logs = await within(bottom).findByRole("tab", { name: "Logs", selected: true });
+  logs.focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Move to side panel" }));
+  const panel = await sidePanel();
+  await waitFor(() => expect(selected(panel).textContent).toBe("Logs"));
+  await waitFor(() => expect(document.activeElement).toBe(selected(panel)));
+});
+
+test("a closed tab comes back where it was with Reopen closed tab", async () => {
+  await openColdStart();
+  await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
+  const panel = await sidePanel();
+  await launch(panel, "Devices");
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Preview", "Devices"]);
+  within(panel).getByRole("tab", { name: "Preview" }).focus();
+  await userEvent.keyboard("{Delete}");
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Devices"]);
+
+  await userEvent.keyboard("{Control>}{Alt>}{Shift>}t{/Shift}{/Alt}{/Control}");
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Preview", "Devices"]);
+  expect(selected(panel).textContent).toBe("Preview");
 });
 
 test("full view gives the panel the work area; the way back restores the conversation", async () => {
