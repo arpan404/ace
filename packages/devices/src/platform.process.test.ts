@@ -133,7 +133,7 @@ it("reuses simulator discovery and boot then installs and launches a Simulator a
   const f = await fixture("darwin");
   expect(await f.manager.list()).toContainEqual({
     ...ios(),
-    runtime: "com.apple.CoreSimulator.SimRuntime.iOS-18-0",
+    runtime: "iOS 18.0",
   });
   await f.manager.boot(ios());
   await f.manager.install(ios(), join(f.home, "Example.app"));
@@ -146,7 +146,7 @@ it("reuses simulator discovery and boot then installs and launches a Simulator a
   const commands = await f.commands();
   expect(commands).toContainEqual({
     tool: "open",
-    args: ["-a", "Simulator", "--args", "-CurrentDeviceUDID", udid],
+    args: ["-g", "-a", "Simulator", "--args", "-CurrentDeviceUDID", udid],
   });
   expect(commands).toContainEqual({
     tool: "xcrun",
@@ -529,7 +529,7 @@ for (const operation of ["install", "openApp", "boot"] as const) {
     expect(commands).not.toContainEqual({ tool: "xcrun", args: ["simctl", "boot", udid] });
     expect(commands).not.toContainEqual({
       tool: "open",
-      args: ["-a", "Simulator", "--args", "-CurrentDeviceUDID", udid],
+      args: ["-g", "-a", "Simulator", "--args", "-CurrentDeviceUDID", udid],
     });
   });
 }

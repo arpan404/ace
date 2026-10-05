@@ -75,6 +75,7 @@
         "@ace/adapter-testkit": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
+        "@ace/perf-kit": "workspace:*",
         "@modelcontextprotocol/sdk": "1.31.0",
         "@types/ws": "^8.18.1",
         "jsqr": "1.4.0",
@@ -215,6 +216,7 @@
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/redaction": "workspace:*",
         "zod": "^4.6.5",
       },
       "devDependencies": {
@@ -395,6 +397,7 @@
       "dependencies": {
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
     },
@@ -702,6 +705,12 @@
         "zod": "^4.6.5",
       },
     },
+    "tools/perf-kit": {
+      "name": "@ace/perf-kit",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
+    },
     "tools/protocol-docs": {
       "name": "@ace/protocol-docs",
       "dependencies": {
@@ -771,6 +780,9 @@
         "@ace/protocol": "workspace:*",
         "@playwright/test": "1.63.0",
         "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/perf-kit": "workspace:*",
       },
     },
   },
@@ -848,6 +860,8 @@
     "@ace/notify": ["@ace/notify@workspace:packages/notify"],
 
     "@ace/orchestrator": ["@ace/orchestrator@workspace:packages/orchestrator"],
+
+    "@ace/perf-kit": ["@ace/perf-kit@workspace:tools/perf-kit"],
 
     "@ace/plugins": ["@ace/plugins@workspace:packages/plugins"],
 

@@ -35,6 +35,7 @@ const active = new Map<string, string>();
 const terminals = new Map<string, { itemId: string; processId: string }[]>();
 let pendingKind = "";
 let queued = 0;
+let policyTurn = 0;
 let discoveryFailed = false;
 const sourceHistory = [
   { id: "prior-turn", text: "private native earlier context" },
@@ -100,6 +101,33 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/start" || method === "thread/resume") {
+    if (process.env["ACE_FAKE_RESUME"] === "historical-interactions") {
+      respond({
+        thread: {
+          id: "native",
+          cwd: process.cwd(),
+          status: { type: "idle" },
+          turns: [
+            {
+              id: "old",
+              status: "completed",
+              items: [
+                ...["answered-a", "answered-b"].map((questionId) => ({
+                  type: "agentMessage",
+                  id: questionId,
+                  delivery: "async",
+                  text: "Previously answered",
+                  questions: [{ title: "Continue?", options: ["yes"] }],
+                })),
+                { type: "plan", id: "old-plan", text: "Old resolved plan" },
+              ],
+            },
+          ],
+        },
+        model: "fake-model",
+      });
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "resume-completed") {
       process.stdout.write(
         `${JSON.stringify({ id, result: { thread: { id: "native", status: { type: "active" }, turns: [{ id: "resumed", status: "inProgress", items: [] }] } } })}\n${JSON.stringify({ method: "turn/completed", params: { threadId: "native", turn: { id: "resumed", status: "completed" } } })}\n`,
@@ -140,6 +168,103 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (process.env["ACE_FAKE_RESUME"] === "overlap-policy") {
+      if (p["threadId"] === "child") {
+        respond({ turn: { id: "child-next" } });
+        active.set("child", "child-next");
+        notify("turn/started", { threadId: "child", turn: { id: "child-next" } });
+        end("child");
+        continue;
+      }
+      const turnId = `overlap-${++policyTurn}`;
+      const approve = (requestId: number, threadId: string, turn: string, itemId: string) =>
+        write({
+          id: requestId,
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId,
+            turnId: turn,
+            itemId,
+            command: "pwd",
+            availableDecisions: ["accept", "decline"],
+          },
+        });
+      if (policyTurn === 2) approve(typeof id === "number" ? id : 101, "native", turnId, "pre-ack");
+      respond({ turn: { id: turnId } });
+      active.set("native", turnId);
+      notify("turn/started", { threadId: "native", turn: { id: turnId } });
+      if (policyTurn === 1) {
+        item("native", turnId, {
+          id: "spawn",
+          type: "subAgentActivity",
+          kind: "started",
+          agentThreadId: "child",
+          agentPath: "/root/worker",
+        });
+        active.set("child", "child-turn");
+        notify("turn/started", { threadId: "child", turn: { id: "child-turn" } });
+        item("child", "child-turn", {
+          type: "agentMessage",
+          id: "child-question",
+          delivery: "async",
+          text: "Continue?",
+          questions: [{ title: "Continue?", options: ["yes"] }],
+        });
+        item(
+          "native",
+          turnId,
+          {
+            id: "old-shell",
+            type: "commandExecution",
+            command: "loop",
+            commandActions: [],
+            status: "inProgress",
+          },
+          false,
+        );
+      } else {
+        approve(102, "child", "child-turn", "child-approval");
+        approve(103, "native", "overlap-1", "old-shell");
+      }
+      end();
+      continue;
+    }
+    if (process.env["ACE_FAKE_RESUME"] === "policy-boundary") {
+      if (text === "invalid-policy") {
+        respond({ turn: {} });
+        continue;
+      }
+      if (text === "reject-policy") {
+        write({ id, error: { code: -32000, message: "Turn rejected" } });
+        continue;
+      }
+      const turnId = `policy-${++policyTurn}`;
+      respond({ turn: { id: turnId } });
+      active.set("native", turnId);
+      notify("turn/started", { threadId: "native", turn: { id: turnId } });
+      item("native", turnId, {
+        type: "agentMessage",
+        id: `policy-proof-${policyTurn}`,
+        text: JSON.stringify(p),
+      });
+      if (policyTurn === 1) {
+        terminals.set("native", [{ itemId: "policy-shell", processId: "policy-process" }]);
+        item(
+          "native",
+          turnId,
+          {
+            type: "commandExecution",
+            id: "policy-shell",
+            command: "loop",
+            commandActions: [],
+            status: "inProgress",
+          },
+          false,
+        );
+      }
+      end();
+      continue;
+    }
     if (p["threadId"] === "fork-native") {
       respond({ turn: { id: "fork-continuation" } });
       notify("turn/started", { threadId: "fork-native", turn: { id: "fork-continuation" } });
@@ -158,6 +283,12 @@ for await (const line of createInterface({ input: process.stdin })) {
       write({ id, error: { message: "active turn must be steered" } });
       continue;
     }
+    if (text === "Implement the plan.")
+      item(str(p["threadId"]), "turn", {
+        type: "userMessage",
+        id: "plan-answer-echo",
+        content: p["input"],
+      });
     pendingKind = text;
     if (text === "same-chunk") {
       process.stdout.write(
@@ -169,7 +300,17 @@ for await (const line of createInterface({ input: process.stdin })) {
     active.set("native", "turn");
     if (process.env["ACE_FAKE_RESUME"] !== "reply-before-start")
       notify("turn/started", { threadId: "native", turn: { id: "turn" } });
-    if (text === "two-questions") {
+    if (text === "replay-answered") {
+      for (const questionId of ["answered-a", "answered-b"])
+        item("native", "old", {
+          type: "agentMessage",
+          id: questionId,
+          delivery: "async",
+          text: "Previously answered",
+          questions: [{ title: "Continue?", options: ["yes"] }],
+        });
+      end();
+    } else if (text === "two-questions") {
       for (const questionId of ["q", "q2"])
         item("native", "turn", {
           id: questionId,
@@ -182,7 +323,15 @@ for await (const line of createInterface({ input: process.stdin })) {
         id: "q",
         type: "agentMessage",
         delivery: "async",
-        questions: [{ title: "Tabs?", options: ["Tabs", "Spaces"] }],
+        questions: [
+          {
+            title: "Tabs?",
+            options: [
+              { id: "tabs", label: "Tabs" },
+              { id: "spaces", label: "Spaces" },
+            ],
+          },
+        ],
         text: "",
       });
     else if (text === "plan") {
@@ -300,8 +449,13 @@ for await (const line of createInterface({ input: process.stdin })) {
         });
       }
       end();
-    } else if (text === "exit") process.exit(7);
-    else if (text === "terminal-proof") {
+    } else if (text === "exit") {
+      if (process.env["ACE_FAKE_RESUME"] === "exit-diagnostic") {
+        process.stderr.write("x".repeat(10000) + "\n");
+        process.stderr.write("offline app-server failure api_key=super-secret-test-token\n");
+      }
+      process.exit(7);
+    } else if (text === "terminal-proof") {
       message(JSON.stringify([...terminals.values()].flat()), "terminal-proof");
       end();
     } else if (text === "finish") end();
@@ -314,6 +468,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       write({ id, error: { message: "stale turn" } });
     else {
       respond({ turnId: p["expectedTurnId"] });
+      item(str(p["threadId"]), str(p["expectedTurnId"]), {
+        type: "userMessage",
+        id: "answer-echo",
+        content: p["input"],
+      });
       message(`steered: ${str(obj(list(p["input"])[0])["text"])}`);
       if (pendingKind === "question") end();
     }
