@@ -17,7 +17,17 @@ export const CachedEntry = z
       ) && new Set(entry.models.map((model) => model.id)).size === entry.models.length,
   )
   .transform((entry) => {
-    for (const model of entry.models) freezeCatalogModel(model);
+    for (const model of entry.models) {
+      // Before the execution-ID fix, OpenCode caches stored the bare model component.
+      // Repair only that proven old shape, including fresh caches restored at startup.
+      if (
+        model.provider === "opencode" &&
+        model.nativeProviderId &&
+        model.id === `${model.nativeProviderId}/${model.nativeModelId}`
+      )
+        model.nativeModelId = model.id;
+      freezeCatalogModel(model);
+    }
     Object.freeze(entry.models);
     return entry;
   });

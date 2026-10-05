@@ -102,8 +102,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           !accountRegistry.get(session.instanceId)
         )
           return adapter.openSession(session);
+        // Listing the normal CLI home must not enroll existing local sessions
+        // in registered-account scheduling. Explicit selection still binds it.
         return session.instanceId ||
-          accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+          accountRegistry.selectedProvider(adapter.provider) ||
+          accountRegistry
+            .list()
+            .some(({ instance }) => instance.provider === adapter.provider && !instance.implicit)
           ? bound.openSession(session)
           : adapter.openSession(session);
       },
@@ -245,6 +250,20 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           ]),
         );
       }),
+    onSessionOpenFailure: (thread, details) => {
+      log.log(
+        "warn",
+        "Provider session opening failed",
+        logFields([
+          ["thread", thread],
+          ["provider", details.provider],
+          ["code", details.code],
+          ["title", details.title],
+          ["detail", details.detail],
+        ]),
+      );
+      return engineOptions.onSessionOpenFailure?.(thread, details);
+    },
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());

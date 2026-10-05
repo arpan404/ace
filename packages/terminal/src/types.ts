@@ -1,6 +1,8 @@
 export interface OpenTerminalOptions {
   cwd: string;
   shell?: string | undefined;
+  /** Explicit executable arguments; omitted for a login shell. */
+  args?: string[] | undefined;
   env?: Record<string, string | undefined> | undefined;
   cols: number;
   rows: number;

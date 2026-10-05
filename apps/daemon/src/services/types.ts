@@ -45,6 +45,7 @@ export interface Services {
   screen?: ScreenManager;
   devices?: DevicesService;
   accounts?: AccountService;
+  accountManagement?: import("../account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
   providerActivation?: Promise<void>;
   accountRegistry?: AccountRegistry;

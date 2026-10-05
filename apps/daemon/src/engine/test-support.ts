@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import type { Fact } from "@ace/core";
 import type { Frame, SessionContext, ProviderAdapter } from "@ace/engine-api";
+import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import {
   Command,
@@ -104,6 +105,8 @@ export async function harness(
     provider?: ProviderKind;
     capabilities?: Capabilities;
     nativeAdapter?: ProviderAdapter;
+    discovery?: DiscoveryResult;
+    onSessionOpenFailure?: EngineOptions["onSessionOpenFailure"];
     createTranslator?: ProviderAdapter["createTranslator"];
   } = {},
 ) {
@@ -171,7 +174,7 @@ export async function harness(
         return session;
       },
     },
-    { installed: true, auth: "logged_in", loginHint: "unused" },
+    options.discovery ?? { installed: true, auth: "logged_in", loginHint: "unused" },
   );
   const errors: unknown[] = [];
   const engine = new Engine(store, {
@@ -188,6 +191,7 @@ export async function harness(
     idleMs: options.idleMs ?? 30_000,
     silenceMs: 100,
     onError: (error) => errors.push(error),
+    ...(options.onSessionOpenFailure ? { onSessionOpenFailure: options.onSessionOpenFailure } : {}),
   });
   const server = await startServer({
     port: 0,

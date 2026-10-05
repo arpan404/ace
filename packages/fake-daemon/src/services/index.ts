@@ -3,6 +3,7 @@ import { ProviderConfigurations } from "@ace/protocol";
 import { z } from "zod";
 import { ProviderKind } from "@ace/protocol";
 const zGroup = z.tuple([ProviderKind, z.string()]);
+import { AccountManagementRequest } from "@ace/protocol/accounts";
 import type { AccountSummary as Summary } from "@ace/protocol/accounts";
 import type { CatalogModel, ClientMessage, PaletteCommand, ServerMessage } from "@ace/protocol";
 import { FakeUsage } from "../catalog/usage.ts";
@@ -31,6 +32,11 @@ export interface ServiceHost {
  */
 export class FakeServices {
   accounts: AccountSummary[];
+  readonly authTerminals = new Map<
+    string,
+    { instanceId: string; action: "login" | "logout"; owner: Push }
+  >();
+  private accountCounter = 0;
   models: CatalogModel[];
   providerStatuses: import("@ace/protocol").ProviderStatus[];
   commands: PaletteCommand[];
@@ -97,7 +103,24 @@ export class FakeServices {
     if (reply) push(reply);
     return reply !== undefined;
   }
+  completeAuthTerminal(id: string): void {
+    const flow = this.authTerminals.get(id);
+    const account = this.accounts.find((entry) => entry.id === flow?.instanceId);
+    if (!flow || !account) return;
+    account.quota.auth = flow.action === "login" ? "logged_in" : "logged_out";
+    account.availability = flow.action === "login" ? "available" : "logged_out";
+    this.models = this.models.filter((entry) => entry.instance !== account.id);
+    if (flow.action === "login") {
+      const templates = modelCatalog().filter((entry) => entry.provider === account.provider);
+      this.models.push(
+        ...templates.map((entry) => Object.assign({}, entry, { instance: account.id })),
+      );
+    }
+    this.authTerminals.delete(id);
+  }
   release(push: Push): void {
+    for (const [id, flow] of this.authTerminals)
+      if (flow.owner === push) this.authTerminals.delete(id);
     this.settings.release(push);
   }
   private modelResult(
@@ -158,6 +181,77 @@ export class FakeServices {
     });
   }
   private reply(message: ClientMessage, push: Push): ServerMessage | undefined {
+    const mutation = AccountManagementRequest.safeParse(message);
+    if (mutation.success) {
+      const request = mutation.data;
+      const fail = (): ServerMessage => ({
+        type: "error",
+        requestId: request.requestId,
+        code: "accounts_failed",
+        message: "Account unavailable or immutable",
+      });
+      let account =
+        "instanceId" in request
+          ? this.accounts.find((entry) => entry.id === request.instanceId)
+          : undefined;
+      if (request.type === "accounts.add") {
+        account = {
+          id: `account-fake-${++this.accountCounter}`,
+          provider: request.provider,
+          label: request.label,
+          implicit: false,
+          isDefault: false,
+          availability: "unknown",
+          quota: {
+            auth: "unknown",
+            observedAt: this.host.clock(),
+            windows: {},
+            blockers: {},
+            usage: {},
+          },
+        };
+        this.accounts.push(account);
+      } else {
+        if (!account || (account.implicit && request.type !== "accounts.setDefault")) return fail();
+        if (request.type === "accounts.rename") account.label = request.label;
+        if (request.type === "accounts.setDefault") {
+          if (account.provider !== request.provider) return fail();
+          for (const entry of this.accounts)
+            if (entry.provider === request.provider) entry.isDefault = entry.id === account.id;
+        }
+        if (request.type === "accounts.remove") {
+          this.accounts = this.accounts.filter((entry) => entry !== account);
+          if (account.isDefault) {
+            const provider = account.provider;
+            const fallback = this.accounts.find(
+              (entry) => entry.provider === provider && entry.implicit,
+            );
+            if (fallback) fallback.isDefault = true;
+          }
+          const removedId = account.id;
+          this.models = this.models.filter((entry) => entry.instance !== removedId);
+          return { type: "accounts.changed", requestId: request.requestId, account: null };
+        }
+        if (request.type === "accounts.login" || request.type === "accounts.logout") {
+          const terminalId = `auth-fake-${++this.accountCounter}`;
+          this.authTerminals.set(terminalId, {
+            instanceId: account.id,
+            action: request.type === "accounts.login" ? "login" : "logout",
+            owner: push,
+          });
+          return {
+            type: "accounts.auth",
+            requestId: request.requestId,
+            instanceId: account.id,
+            terminalId,
+            ...(account.provider === "pi"
+              ? { instruction: request.type === "accounts.login" ? "/login" : "/logout" }
+              : {}),
+          };
+        }
+      }
+      return { type: "accounts.changed", requestId: request.requestId, account: account ?? null };
+    }
     switch (message.type) {
       case "registry.list":
         return {

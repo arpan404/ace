@@ -20,7 +20,10 @@ export async function activateCursorProvider(
   )
     return;
   const fallback = daemonCursorInstance(context);
-  if (!registry.list().some(({ instance }) => instance.provider === "cursor"))
+  if (
+    !registry.get(fallback.id) &&
+    !registry.list().some(({ instance }) => instance.provider === "cursor" && !instance.implicit)
+  )
     await registry.register(
       createInstance({ ...fallback, provider: "cursor", label: "Cursor SDK" }),
     );

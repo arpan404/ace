@@ -81,7 +81,6 @@ export async function discoverOpenCodeCatalog(
         CatalogModel.parse({
           ...base(instance, id, id, { id }),
           nativeProviderId: id.slice(0, separator),
-          nativeModelId: id.slice(separator + 1),
         }),
       );
       seen.add(id);

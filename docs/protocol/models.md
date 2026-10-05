@@ -50,22 +50,20 @@ Example:
 
 ```json
 {
-  "aliases": [],
-  "defaultTier": "example",
+  "acpAgentId": "example",
+  "defaultSource": "built-in",
   "deprecated": true,
   "displayName": "example",
-  "hidden": true,
+  "group": "current",
+  "hidden": false,
   "id": "example",
   "inputModalities": [],
-  "installationId": "example",
   "instance": "example",
-  "instanceId": "example",
-  "isDefault": true,
+  "isDefault": false,
   "isNew": false,
   "legacy": true,
   "nativeModelId": "example",
-  "nativeProviderId": "example",
-  "provider": "cursor",
+  "provider": "claude",
   "raw": {
     "json": "example",
     "truncated": true
@@ -165,8 +163,7 @@ Example:
 ```json
 {
   "instances": [],
-  "models": [],
-  "nextOffset": 7
+  "models": []
 }
 ```
 
@@ -262,7 +259,6 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
   "effort": "example",
   "imageInput": true,
   "model": "example",

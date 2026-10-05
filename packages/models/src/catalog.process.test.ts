@@ -241,19 +241,30 @@ test("shutdown aborts discovery and closes only after pending flights settle", a
 
 test("removing an instance cancels its refresh and deletes its persisted choices", async () => {
   const started = deferred<void>();
+  const aborted = deferred<void>();
   const late = deferred<readonly CatalogModel[]>();
   let calls = 0;
-  const { catalog, path } = await setup(async () => {
+  const { catalog, path } = await setup(async (_instance, signal) => {
     if (++calls === 1) return models();
+    signal.addEventListener("abort", () => aborted.resolve(), { once: true });
     started.resolve();
     return late.promise;
   });
   await catalog.refresh();
   const flight = catalog.refresh();
   await started.promise;
-  await catalog.removeInstance("codex");
-  late.resolve(models("removed"));
-  await flight;
+  const removal = catalog.removeInstance("codex");
+  try {
+    await aborted.promise;
+    expect(catalog.list().models).toEqual([]);
+    // Abort acknowledgement is the barrier: removal owns cleanup until the
+    // cancelled discoverer releases its process, even if it returns late rows.
+    late.resolve(models("removed"));
+    await removal;
+    await flight;
+  } finally {
+    late.resolve([]);
+  }
   await catalog.close();
   const stored = openModelStorage(path);
   expect(stored.load()).toEqual([]);

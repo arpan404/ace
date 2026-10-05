@@ -1,5 +1,6 @@
 import { isDefaultSelection } from "@ace/models";
 import type { EngineModels } from "./models.ts";
+import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
@@ -32,6 +33,7 @@ interface SessionDependencies {
   closing(): boolean;
   wake(id: ThreadId): void;
   expireDelivery(actor: ThreadActor): void;
+  openFailed?(id: ThreadId, details: import("@ace/protocol").ProviderErrorDetails): void;
   released(id: ThreadId): void;
   mcp?(
     threadId: ThreadId,
@@ -87,6 +89,9 @@ export class Sessions {
     const lifetime = new AbortController();
     actor.lifetime = lifetime;
     const generation = ++actor.generation;
+    let opening = true;
+    let errorEnvironment: NodeJS.ProcessEnv | undefined;
+    let errorSecrets: readonly string[] = [];
     try {
       const state = this.dependencies.repo.requireState(actor.id);
       let metadata = this.dependencies.repo.session(actor.id);
@@ -139,6 +144,8 @@ export class Sessions {
           ? this.dependencies.mcp?.(actor.id, rootAgent.id, lifetime.signal)
           : undefined;
       const context = await this.dependencies.context?.(actor.id, lifetime.signal);
+      errorEnvironment = context?.env;
+      errorSecrets = [...(context?.mcp?.secrets ?? []), ...(aceMcp ? [aceMcp.bearer] : [])];
       await this.dependencies.repo.store.writable();
       this.dependencies.repo.store.workspaceReservations.assertAvailable(metadata.cwd);
       const codexContext = {
@@ -258,7 +265,8 @@ export class Sessions {
             this.turnPermissions.delete(actor.id);
             lifetime.abort();
             actor.generation++;
-            this.dependencies.expireDelivery(actor);
+            // No input can have been consumed until open returns a usable session.
+            if (!opening) this.dependencies.expireDelivery(actor);
             actor.apply([
               { type: "process.exited", ...exit },
               { type: "queue.changed", source: "provider", count: 0 },
@@ -308,7 +316,32 @@ export class Sessions {
         );
       });
       this.dependencies.wake(actor.id);
+      opening = false;
     } catch (error) {
+      const failure = new SessionOpenError(
+        `${stateBefore.config.provider} session opening failed`,
+        error,
+        { env: { ...process.env, ...errorEnvironment } },
+        (value) =>
+          typeof value === "string"
+            ? errorSecrets.reduce(
+                (text, secret) => (secret ? text.replaceAll(secret, "[redacted]") : text),
+                value,
+              )
+            : value,
+      );
+      try {
+        const diagnostic = this.dependencies.openFailed?.(actor.id, {
+          provider: stateBefore.config.provider,
+          code: failure.code,
+          title: failure.title,
+          detail: failure.detail,
+        });
+        void Promise.resolve(diagnostic).catch(() => {});
+      } catch {
+        // Diagnostics are optional; their failure cannot replace the sanitized
+        // provider error or prevent lifetime/capacity cleanup below.
+      }
       await actor.flush();
       if (generation === actor.generation) {
         const session = actor.session;
@@ -333,7 +366,7 @@ export class Sessions {
           this.dependencies.released(actor.id);
         }
       }
-      throw error;
+      throw failure;
     } finally {
       this.dependencies.repo.finishSessionOpen(actor.id);
     }
