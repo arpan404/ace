@@ -19,8 +19,8 @@ type AccountSummary = z.infer<typeof Summary>;
 
 export interface ServiceHost {
   clock(): number;
-  /** Sends to every authenticated connection, as the daemon's pushes do. */
-  broadcast(message: ServerMessage): void;
+  /** Sends to every authenticated connection, as the daemon's pushes do (none when absent). */
+  broadcast?(message: ServerMessage): void;
   /** The thread's project and provider, or undefined when the thread doesn't exist. */
   thread(threadId: string): { workspaceId: string; provider: ProviderKind } | undefined;
 }
@@ -80,7 +80,7 @@ export class FakeServices {
     this.usage = new FakeUsage(now);
     this.activityReads = new FakeActivityReads(
       () => host.clock(),
-      (message) => host.broadcast(message),
+      (message) => host.broadcast?.(message),
     );
     this.settings = new FakeSettings(
       settingsValues(),
