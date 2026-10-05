@@ -88,9 +88,13 @@ extension Capture {
                 if action.kind == "click" { event.setIntegerValueField(.mouseEventClickState, value: 1) }
             }
             guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess(), let pid = inputWindow.owningApplication?.processID, NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == bundle else { throw HelperError("macOS permission denied or target unavailable", code: "permission_denied") }
+            if ["type", "key", "paste"].contains(action.kind) { try destination().requireConsent(secureInputAllowed) }
             synthesizedInput = true
-            try NativeInputPost.perform(permission: runtime.inputAllowed) {
-                if mode == "foreground" { event.location = location; event.post(tap: .cghidEventTap) } else { event.postToPid(pid) }
+            try deliverInput(event, mode: mode, pid: pid, permission: runtime.inputAllowed) { event, destination in
+                switch destination {
+                case .foreground: event.location = location; event.post(tap: .cghidEventTap)
+                case let .process(targetPid): event.postToPid(targetPid)
+                }
             }
         }
         func pointer(_ type: NSEvent.EventType) throws -> CGEvent {
@@ -101,14 +105,14 @@ extension Capture {
             guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: runtime.uptime(), windowNumber: Int(inputWindow.windowID), context: nil, eventNumber: 0, clickCount: 1, pressure: 1)?.cgEvent else { throw HelperError("Cannot create targeted pointer event") }
             return event
         }
-        var focused: AXUIElement?
-        if ["key", "type", "paste"].contains(action.kind) {
+        func destination() throws -> TextDestination {
             guard let pid = inputWindow.owningApplication?.processID,
                   let value = axAttribute(AXUIElementCreateApplication(pid), kAXFocusedUIElementAttribute),
-                  CFGetTypeID(value) == AXUIElementGetTypeID() else { throw HelperError("Cannot inspect focused text destination", code: "foreground_required") }
-            focused = (value as! AXUIElement)
-            if let focused, axMetadata(focused, ref: "input").secure, !secureInputAllowed { throw HelperError("Secure text requires session consent", code: "secure_input_required") }
+                  CFGetTypeID(value) == AXUIElementGetTypeID() else { throw HelperError("Cannot inspect focused text destination", code: "secure_input_required") }
+            let focused = value as! AXUIElement
+            return TextDestination(element: focused, security: textSecurity(focused))
         }
+        if ["key", "type", "paste"].contains(action.kind) { try destination().requireConsent(secureInputAllowed) }
         switch action.kind {
         case "click":
             guard action.button == "left" || action.button == "right" else { throw HelperError("Invalid mouse button") }
@@ -124,20 +128,18 @@ extension Capture {
             if action.kind == "down" || action.kind == "drag" {
                 guard let pid = inputWindow.owningApplication?.processID,
                       let app = NSRunningApplication(processIdentifier: pid) else { throw HelperError("Pointer target unavailable", code: "target_gone") }
-                heldPointer.hold(PointerPress(window: inputWindow, application: app, button: action.button ?? "left", location: location))
+                heldPointer.hold(PointerPress(window: inputWindow, application: app, button: action.button ?? "left", location: location, mode: mode))
             }
             if action.kind == "up" { heldPointer.targetDestroyed() }
         case "type":
             guard let text = action.text, text.utf16.count <= 4096 else { throw HelperError("Text exceeds limit", code: "bounds") }
-            if text.isEmpty { return }
-            if let focused, AXUIElementSetAttributeValue(focused, kAXSelectedTextAttribute as CFString, text as CFString) == .success { return }
-            // One key per character. Mac apps read the Unicode string; Simulator and other apps
-            // that read the hardware key need its key code and Shift, so both are set.
-            for character in text {
+            let typing = ValidatedTextInput(destination: destination, replaceSelection: { element, value in
+                AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, value as CFString) == .success
+            }, postCharacter: { character in
                 let units = Array(String(character).utf16)
                 let key = usKeys[character]
                 // Simulator follows Shift's own key events, not just the flag on the character.
-                func shift(_ down: Bool) throws {
+                @MainActor func shift(_ down: Bool) throws {
                     guard key?.shift == true, let event = CGEvent(keyboardEventSource: nil, virtualKey: 56, keyDown: down) else { return }
                     event.type = .flagsChanged
                     event.flags = down ? .maskShift : []
@@ -153,7 +155,10 @@ extension Capture {
                     }
                     try post(event)
                 }
-            }
+            })
+            // The event boundary also rechecks key-down/key-up and modifier events so a
+            // destination switch during a character cannot send the remainder to a password.
+            try typing.type(text, secureAllowed: secureInputAllowed)
         case "paste":
             guard let text = action.text, text.utf16.count <= 4096 else { throw HelperError("Text exceeds limit", code: "bounds") }
             try await clipboardPaste(text) {

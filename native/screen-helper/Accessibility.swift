@@ -167,6 +167,7 @@ import AppKit
         let snapshot = axMetadata(entry.element, ref: ref)
         let node = snapshot.node
         if node.states.contains("disabled") { throw HelperError("Element is disabled", code: "bounds") }
+        if ["setValue", "selectText"].contains(action) { try TextDestination(element: entry.element, security: textSecurity(entry.element)).requireConsent(request.secureInputAllowed == true) }
         if snapshot.secure && request.secureInputAllowed != true { throw HelperError("Secure fields require session consent", code: "secure_input_required") }
         if (action == "focus" && node.states.contains("focused")) || (action == "select" && node.states.contains("selected")) || (action == "expand" && node.states.contains("expanded")) { return false }
         if action == "setValue" && request.value == nil && request.booleanValue == nil { throw HelperError("setValue requires a value", code: "bounds") }
@@ -175,6 +176,7 @@ import AppKit
             guard AXUIElementPerformAction(entry.element, kAXRaiseAction as CFString) == .success else { throw HelperError("Cannot raise window", code: "not_supported") }
             invalidate(); return false
         }
+        if action == "focus", request.mode != "foreground", NSWorkspace.shared.frontmostApplication?.processIdentifier == entry.pid { throw HelperError("Background focus cannot change the human's focused field", code: "foreground_required") }
         let result: AXError
         switch action {
         case "performSecondaryAction":
@@ -209,16 +211,9 @@ import AppKit
     /// Event-driven invalidation plus a short quiet interval; no timer while idle.
     func settle(_ request: Request) async throws -> UITree {
         invalidate()
-        var previous = generation, quiet = 0
-        for _ in 0..<8 {
-            try await Task.sleep(nanoseconds: 50_000_000)
-            serviceNotifications()
-            if generation == previous { quiet += 1 } else { quiet = 0 }
-            if quiet >= 3 { break }
-            previous = generation
-        }
-        invalidate()
-        return try tree(request)
+        return try await settledObservation(wait: { try await Task.sleep(nanoseconds: 50_000_000) },
+            revision: { self.serviceNotifications(); return self.generation },
+            observe: { self.invalidate(); return try self.tree(request) })
     }
 
 }

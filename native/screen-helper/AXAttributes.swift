@@ -50,7 +50,7 @@ func axMetadata(_ element: AXUIElement, ref: String) -> AXSnapshot {
     let values = copied as? [CFTypeRef] ?? []
     func value(_ index: Int) -> CFTypeRef? { index < values.count ? values[index] : nil }
     let role = axText(value(0), cap: 128) ?? "AXUnknown"
-    let secure = role == "AXSecureTextField" || axText(value(2), cap: 128) == "AXSecureTextField"
+    let secure = textSecurity(element) != .ordinary
     let bounds = axBounds(value(4), value(5))
     var states: [String] = []
     for (index, name) in [(6, "focused"), (7, "selected"), (9, "expanded")] { if (value(index) as? Bool) == true { states.append(name) } }

@@ -11,7 +11,7 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     func drain() async { await withCheckedContinuation { continuation in queue.async { continuation.resume() } } }
     private lazy var encoder = JPEGEncoder(context: CIContext(options: [.cacheIntermediates: false]))
     private lazy var video: VideoEncoder = VideoEncoder(sessionId: sessionId, version: version,
-        publish: { [weak self] packet in self?.writer.publish(packet) },
+        publish: { [weak self] packet in if let self { self.writer.publish(packet, sessionId: self.sessionId) } },
         completed: { [weak self] in self?.queue.async { [weak self] in self?.pendingVideo.completed() } })
     private struct ChangedImage { let image: CVPixelBuffer; let timestamp: Double; let scale: Double; let damage: [CGRect]? }
     private lazy var pendingVideo: LatestVideoFrames<ChangedImage> = LatestVideoFrames<ChangedImage> { [weak self] changed in
@@ -27,7 +27,7 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         guard let packet = encoder.packet(image: changed.image, sessionId: sessionId, sequence: nextSequence,
             timestamp: changed.timestamp, version: version, scale: changed.scale, dirtyRects: changed.damage) else { return }
         lock.lock(); sequence += 1; initial = false; encodeNanos += runtime.nanos() - started; lock.unlock()
-        writer.publish(packet)
+        writer.publish(packet, sessionId: sessionId)
     }
     private var codec = "jpeg"
     func configure(_ settings: StreamSettings, targetWidth: Double) async {
@@ -111,7 +111,7 @@ struct ShareableContent {
     private var captureDensity = 1.0
     private var settings: StreamSettings?
     private var cachedContent: (at: UInt64, content: ShareableContent)?
-    struct PointerPress { let window: SCWindow; let application: NSRunningApplication; let button: String; let location: CGPoint }
+    struct PointerPress { let window: SCWindow; let application: NSRunningApplication; let button: String; let location: CGPoint; let mode: String }
     let heldPointer = HeldPointer<PointerPress>()
     var pointerAction: PointerPress? { heldPointer.target }
     private(set) var captureWindow: SCWindow?
@@ -250,7 +250,6 @@ struct ShareableContent {
               window.frame.width > 0, window.frame.height > 0,
               abs(window.frame.width - frame.width) >= 1 || abs(window.frame.height - frame.height) >= 1 else { return }
         let density = Self.pixelDensity(of: window.frame, on: content.displays)
-        captureDensity = density
         captureDensity = density
         let scale = min(density, min(Double(settings?.maxWidth ?? 3840) / window.frame.width, Double(settings?.maxHeight ?? 2160) / window.frame.height))
         let config = configuration.config
