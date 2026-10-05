@@ -15,6 +15,7 @@ import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
+import { ThreadStatusDot } from "./header/status-dot.tsx";
 import {
   PinnedSummary,
   SummaryToggle,
@@ -120,6 +121,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
       <Screen
         title={title ?? "Loading thread…"}
         subtitle={meta && projectName(meta.workspaceId)}
+        status={meta && <ThreadStatusDot status={meta.status} />}
         menu={
           thread && (
             <Suspense fallback={null}>
