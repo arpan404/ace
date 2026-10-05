@@ -93,7 +93,7 @@ function LaneRow(props: { card: DeckCard; run: DeckRun; open: boolean; onToggle(
                 icon={CaretDownIcon}
                 size={12}
                 className={cn(
-                  "mt-1 shrink-0 text-muted-foreground transition-transform duration-(--dur-2) motion-reduce:transition-none",
+                  "mt-1 shrink-0 text-muted-foreground transition-transform duration-(--dur-2)",
                   !props.open && "-rotate-90",
                 )}
               />
@@ -108,7 +108,7 @@ function LaneRow(props: { card: DeckCard; run: DeckRun; open: boolean; onToggle(
               </span>
             </span>
             {/* Who works and who reviews, always in full; the round summary wraps instead. */}
-            <span className="flex min-w-0 flex-wrap items-center gap-1.5 pl-[18px] text-sm text-muted-foreground sm:flex-nowrap sm:pl-0 sm:whitespace-nowrap">
+            <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
               {lane ? (
                 <>
                   {lane.worker?.provider && <ProviderIconTip provider={lane.worker.provider} />}
@@ -124,7 +124,7 @@ function LaneRow(props: { card: DeckCard; run: DeckRun; open: boolean; onToggle(
             {/* The summary wraps to two lines; the full text is in the tooltip and the lane. */}
             <span
               title={summary}
-              className="line-clamp-2 pl-[18px] text-sm leading-[1.4] text-muted-foreground sm:pl-0"
+              className="line-clamp-2 text-sm leading-[1.4] text-muted-foreground"
             >
               {latest ? (
                 <>

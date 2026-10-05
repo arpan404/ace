@@ -202,7 +202,7 @@ export function CardGraph(props: {
   const width = stages > fixedAfter ? "220px" : "minmax(150px, 1fr)";
   return (
     // Narrow windows and long plans scroll sideways; the merge column stays in view.
-    <div ref={scroller} className="mt-3.5 scroll-px-4 overflow-x-auto pb-1">
+    <div ref={scroller} className="mt-3.5 overflow-x-auto pb-1">
       <div
         ref={container}
         role="grid"
@@ -229,7 +229,7 @@ export function CardGraph(props: {
               className={
                 edge.hot
                   ? "stroke-[color-mix(in_oklab,var(--ring)_55%,transparent)]"
-                  : "stroke-[color-mix(in_oklab,var(--border)_50%,transparent)]"
+                  : "stroke-border opacity-50"
               }
             />
           ))}
@@ -283,7 +283,7 @@ export function CardGraph(props: {
             {overflow && (
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 -left-6 w-6 bg-linear-to-l from-background"
+                className="pointer-events-none absolute inset-y-0 -left-4 w-4 bg-linear-to-l from-background"
               />
             )}
             <div role="rowheader">
@@ -338,10 +338,10 @@ function CardTile(props: {
       className={cn(
         "w-full rounded-card bg-card px-3.5 py-3 text-left shadow-[inset_0_0_0_1px_var(--border)] outline-none transition-[box-shadow,background-color] duration-(--dur-2)",
         "hover:bg-[color-mix(in_oklab,var(--card),var(--foreground)_3%)]",
-        // WP-1: focus-ring. Focus is a ring outside the card; selection is inside it, tinted.
-        "focus-visible:shadow-[inset_0_0_0_1px_var(--border),0_0_0_2px_var(--background),0_0_0_4px_var(--ring)]",
-        props.selected &&
-          "bg-[color-mix(in_oklab,var(--card),var(--ring)_6%)] shadow-[inset_0_0_0_1.5px_color-mix(in_oklab,var(--ring)_70%,transparent)] focus-visible:shadow-[inset_0_0_0_1.5px_color-mix(in_oklab,var(--ring)_70%,transparent),0_0_0_2px_var(--background),0_0_0_4px_var(--ring)]",
+        // WP-1: focus-ring. Focus is a full ring around the card; selection is a tint and an
+        // inner line, so the two never look alike.
+        "focus-visible:shadow-[0_0_0_2px_var(--ring)]",
+        props.selected && "bg-accent shadow-[inset_0_0_0_1.5px_var(--ring)]",
       )}
     >
       <span className="line-clamp-2 text-ui leading-[1.3] font-medium tracking-[-0.005em]">

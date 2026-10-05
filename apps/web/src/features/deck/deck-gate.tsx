@@ -158,7 +158,7 @@ function GateNav(props: {
     if (next) props.onPick(next);
   };
   return (
-    <div className="mt-3 border-t border-[color-mix(in_oklab,var(--status-needs-you)_22%,transparent)] pt-2.5">
+    <div className="mt-3 border-t pt-2.5">
       <div className="flex flex-wrap items-center gap-1.5">
         <IconButton
           icon={CaretLeftIcon}
@@ -195,7 +195,7 @@ function GateNav(props: {
                 type="button"
                 aria-current={at === index || undefined}
                 onClick={() => props.onPick(gate)}
-                className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-md px-2 py-1.5 text-left text-ui outline-none hover:bg-accent focus-visible:shadow-[inset_0_0_0_2px_var(--ring)] aria-[current]:font-medium"
+                className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-md px-2 py-1.5 text-left text-ui outline-none hover:bg-accent focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]"
               >
                 {/* WP-1: focus-ring-inset */}
                 <span className="min-w-0 truncate">
@@ -227,12 +227,12 @@ function AgentQuestion(props: {
 }) {
   return (
     <section aria-label={props.gate.title} className={gateFrame}>
-      <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
+      <div className="flex flex-wrap items-center gap-3.5">
         {!props.compact && (
           <Icon icon={ChatCircleDotsIcon} size={20} className="text-status-needs-you" />
         )}
         <div className="min-w-0 flex-1 basis-48">
-          <h2 className="mb-0.5 text-base font-medium text-pretty">{props.gate.title}</h2>
+          <h2 className="mb-0.5 text-base font-medium">{props.gate.title}</h2>
           <GateMeta gate={props.gate} />
         </div>
         <Link
@@ -346,15 +346,15 @@ function DeckDecision(props: {
   return (
     <section
       aria-label={gate.title}
-      className={cn(gateFrame, "flex flex-wrap items-start gap-x-3.5 gap-y-3")}
+      className={cn(gateFrame, "flex flex-wrap items-start gap-3.5")}
     >
       {!props.compact && (
         <Icon icon={WarningIcon} size={20} className="mt-0.5 text-status-needs-you" />
       )}
       <div className="min-w-0 flex-1 basis-[min(100%,360px)]">
-        <h2 className="mb-0.5 text-base font-medium text-pretty">{gate.title}</h2>
+        <h2 className="mb-0.5 text-base font-medium">{gate.title}</h2>
         <GateMeta gate={gate} />
-        <p className="mt-1 text-ui leading-[1.45] text-pretty text-muted-foreground">{gate.body}</p>
+        <p className="mt-1 text-ui leading-[1.45] text-muted-foreground">{gate.body}</p>
         {gate.detail && (
           <details className="group mt-1.5 text-sm">
             <summary className="w-fit cursor-pointer rounded-xs text-muted-foreground outline-none hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]">
@@ -363,7 +363,7 @@ function DeckDecision(props: {
             </summary>
             <pre
               className={cn(
-                "mt-1.5 overflow-x-auto rounded-md bg-background/60 px-2.5 py-2 font-mono text-xs leading-[1.5] whitespace-pre-wrap text-muted-foreground",
+                "mt-1.5 overflow-x-auto rounded-md bg-background px-2.5 py-2 font-mono text-xs leading-[1.5] whitespace-pre-wrap text-muted-foreground",
                 gate.ask === "destructive" && "text-foreground",
               )}
             >
@@ -407,7 +407,6 @@ function DeckDecision(props: {
               value={extension}
               options={extensions}
               onValueChange={setExtension}
-              className="min-w-28"
             />
           </div>
         )}
@@ -544,7 +543,7 @@ function PlanReview(props: {
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       {/* WP-1: DialogContent size="lg" with a max height and a scrolling body. */}
-      <DialogContent className="flex max-h-[min(86vh,760px)] w-[min(640px,calc(100vw-2rem))] max-w-none flex-col sm:max-w-none">
+      <DialogContent className="flex max-h-[86vh] w-[min(640px,calc(100vw-2rem))] flex-col">
         <DialogHeader>
           <DialogTitle>The deck&apos;s plan</DialogTitle>
           <DialogDescription>
@@ -560,7 +559,7 @@ function PlanReview(props: {
             <li key={workstream.id} className="border-t py-3 text-ui first:border-t-0">
               <p className="font-medium">{workstream.title}</p>
               {workstream.objective !== workstream.title && (
-                <p className="mt-0.5 text-pretty text-muted-foreground">{workstream.objective}</p>
+                <p className="mt-0.5 text-muted-foreground">{workstream.objective}</p>
               )}
               {workstream.acceptance.length > 0 && (
                 <ul

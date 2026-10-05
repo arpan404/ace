@@ -65,12 +65,12 @@ export function LaneDetail(props: {
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <div className="min-w-0 flex-1 basis-48">
-          <h3 className="text-md font-medium text-pretty">{card.title}</h3>
+          <h3 className="text-md font-medium">{card.title}</h3>
           <CardTimes card={card} />
         </div>
         <StatusPill tone={lane ? pillTone[status.tone] : "idle"} label={status.label} />
         {threadId && threadId !== props.scope && (
-          <span className="flex items-center gap-1 max-sm:basis-full">
+          <span className="flex items-center gap-1">
             <OpenThread
               threadId={threadId}
               lane={props.beside === false ? undefined : { run: props.run, card }}
@@ -127,7 +127,7 @@ function RoundRow(props: { round: Round }) {
           <span className="font-medium">{round.verdict}</span>
         )}
         {round.summary && (
-          <span className="mt-1 block text-sm leading-[1.45] text-pretty text-muted-foreground">
+          <span className="mt-1 block text-sm leading-[1.45] text-muted-foreground">
             {round.summary}
           </span>
         )}
@@ -142,7 +142,7 @@ function MergeResult(props: { card: DeckCard; run: DeckRun }) {
   const revision = /^Merged at ([0-9a-f]{7})/.exec(props.card.note)?.[1];
   const thread = changesThread(props.card);
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-ui text-muted-foreground">
+    <div className="mt-3 flex flex-wrap items-center gap-2 text-ui text-muted-foreground">
       <span className="min-w-0">
         Merged
         {revision && (

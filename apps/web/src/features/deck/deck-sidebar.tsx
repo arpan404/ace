@@ -125,7 +125,7 @@ export function DeckSidebar() {
             <button
               type="button"
               onClick={older}
-              className="mx-[11px] mt-2 rounded-xs text-sm font-medium text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+              className="mt-2 px-[11px] rounded-xs text-sm font-medium text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:shadow-[0_0_0_2px_var(--ring)]"
             >
               {/* WP-1: focus-ring */}
               Show older decks

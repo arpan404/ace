@@ -38,7 +38,7 @@ function AgentRow(props: { agent: DeckAgent }) {
         agent.nested && "pl-5",
       )}
     >
-      <span className="flex min-w-0 flex-1 basis-44 items-center gap-2 text-ui">
+      <span className="flex min-w-0 flex-1 basis-48 items-center gap-2 text-ui">
         {agent.provider && <ProviderIconTip provider={agent.provider} />}
         <span className="shrink-0 font-medium">{agent.label}</span>
         <span className="min-w-0 truncate text-muted-foreground">{agent.account}</span>

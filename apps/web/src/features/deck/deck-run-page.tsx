@@ -184,7 +184,7 @@ function RunScreen(props: {
       }
     >
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-[1120px] px-4 pt-8 pb-20 sm:px-9 sm:pt-10">
+        <div className="mx-auto max-w-[1120px] px-4 pt-10 pb-20 sm:px-9">
           <PageTitle
             title={run.title}
             lede={brief || undefined}
@@ -197,7 +197,7 @@ function RunScreen(props: {
               />
             }
           />
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <div className="flex flex-wrap items-center gap-x-4">
             <RunTimes run={run} />
             <Budget run={run} />
           </div>
@@ -237,7 +237,7 @@ function RunScreen(props: {
                   </Button>
                 )}
               </div>
-              <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start xl:gap-6">
+              <div className="gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
                 <div className="min-w-0">
                   {run.cards.length ? (
                     <CardGraph
@@ -252,7 +252,7 @@ function RunScreen(props: {
                   )}
                 </div>
                 {selected && (
-                  <div ref={lane} className="mt-[26px] scroll-mt-4 xl:sticky xl:top-4 xl:mt-3.5">
+                  <div ref={lane} className="mt-3.5 xl:sticky xl:top-4">
                     <LaneDetail key={selected.id} card={selected} run={run} />
                   </div>
                 )}
@@ -316,12 +316,12 @@ function GateArea(props: { run: DeckRun; onOpenCard(cardId: string): void }) {
       aria-hidden={leaving || undefined}
       inert={leaving}
       className={cn(
-        "grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-exit motion-reduce:transition-none",
+        "grid transition-[grid-template-rows,opacity] duration-(--dur-3) ease-exit",
         leaving ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]",
       )}
     >
       <div className="min-h-0 overflow-hidden">
-        <div className="pt-[22px]">
+        <div className="pt-5">
           <DeckGates run={open ? props.run : shown} onOpenCard={props.onOpenCard} />
         </div>
       </div>
@@ -363,8 +363,8 @@ function Budget(props: { run: DeckRun }) {
       >
         <span
           className={cn(
-            "block h-full rounded-full transition-[width] duration-(--dur-3) motion-reduce:transition-none",
-            near ? "bg-status-needs-you" : "bg-muted-foreground",
+            "block h-full rounded-full",
+            near ? "bg-status-needs-you" : "bg-subtle-foreground",
           )}
           style={{ width: `${share * 100}%` }}
         />
@@ -415,7 +415,7 @@ function RunNotice(props: { run: DeckRun; onRetry(): void; onCancel(): void }) {
           className={cn("mt-0.5 shrink-0", failed && "text-status-failed")}
         />
       )}
-      <p className="min-w-0 flex-1 basis-60">
+      <p className="min-w-0 flex-1 basis-48">
         <span className="font-medium text-foreground">{notice.title}</span> {notice.body}
       </p>
       {failed &&

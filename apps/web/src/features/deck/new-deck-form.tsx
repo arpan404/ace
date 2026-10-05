@@ -372,7 +372,7 @@ export function NewDeckForm() {
           <Icon
             icon={CaretDownIcon}
             size={12}
-            className="text-muted-foreground transition-transform duration-(--dur-2) group-not-data-panel-open:-rotate-90 motion-reduce:transition-none"
+            className="text-muted-foreground transition-transform duration-(--dur-2)"
           />
           Advanced
         </CollapsibleTrigger>
