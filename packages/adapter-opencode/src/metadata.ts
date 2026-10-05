@@ -20,7 +20,7 @@ export async function discoverOpenCodeModels(
     const validated = z
       .object({
         location: z.object({ directory: z.literal(directory) }),
-        data: z.array(z.unknown()).max(512),
+        data: z.array(z.unknown()).max(8192),
       })
       .passthrough()
       .parse(payload);

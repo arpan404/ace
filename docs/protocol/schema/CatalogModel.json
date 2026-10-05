@@ -12,6 +12,9 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
+    "custom": {
+      "type": "boolean"
+    },
     "defaultEffort": {
       "maxLength": 256,
       "minLength": 1,
@@ -29,6 +32,9 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "favourite": {
+      "type": "boolean"
     },
     "hidden": {
       "type": "boolean"
@@ -68,6 +74,9 @@
     "isNew": {
       "type": "boolean"
     },
+    "legacy": {
+      "type": "boolean"
+    },
     "modelConfigId": {
       "maxLength": 256,
       "minLength": 1,
@@ -85,6 +94,9 @@
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "providerEnabled": {
+      "type": "boolean"
     },
     "raw": {
       "properties": {
@@ -130,6 +142,17 @@
       },
       "maxItems": 32,
       "type": "array"
+    },
+    "visibilityReason": {
+      "enum": [
+        "provider_disabled",
+        "group_hidden",
+        "model_hidden",
+        "deprecated",
+        "not_favourite",
+        "provider_hidden"
+      ],
+      "type": "string"
     }
   },
   "required": [

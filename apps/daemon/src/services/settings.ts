@@ -1,3 +1,4 @@
+import { ProviderConfigurationsState } from "../provider-configurations.ts";
 import { SettingsService } from "@ace/settings";
 import type { ServiceContext } from "./types.ts";
 export async function startSettings(context: ServiceContext): Promise<void> {
@@ -6,6 +7,9 @@ export async function startSettings(context: ServiceContext): Promise<void> {
   const settings = new SettingsService({ dataDir: config.dataDir });
   resources.own(() => settings.close());
   services.settings = settings;
+  const configurations = new ProviderConfigurationsState();
+  resources.own(await configurations.start(settings));
+  services.providerConfigurations = configurations;
 }
 
 import { settingsSession } from "../settings.ts";
@@ -18,8 +22,11 @@ export function createSettingsSession(context: SocketContext): SocketService {
     subscriptions,
     send,
     authorize: (request) =>
-      request.type === "settings.set" && request.key === "projects.roots"
-        ? request.layer.kind === "global" && authorize("projects") && authorize("admin")
+      request.type === "settings.set" &&
+      (request.key === "projects.roots" || request.key === "providers.configuration")
+        ? request.layer.kind === "global" &&
+          authorize("admin") &&
+          (request.key !== "projects.roots" || authorize("projects"))
         : authorize(request.type === "settings.set" ? "operate" : "read"),
   });
   return {

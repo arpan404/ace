@@ -36,7 +36,8 @@ export class OpenCodeParser {
       .filter(([, enabled]) => enabled)
       .map(([id]) => id);
     model.reasoningEfforts = Object.keys(native.variants);
-    model.deprecated = native.status === "deprecated";
+    model.deprecated = native.status === "deprecated" || native.status === "legacy";
+    model.legacy = native.status === "legacy";
     this.#rows.push(CatalogModel.parse(model));
     if (this.#rows.length > 512) throw new Error("Too many models");
     this.#heading = undefined;
@@ -49,11 +50,23 @@ export class OpenCodeParser {
 }
 
 /** The v2 network catalog is location-scoped and has array-valued variants. */
-export function normalizeOpenCodeV2(payload: unknown, instance: ModelInstance): CatalogModel[] {
+export function normalizeOpenCodeV2(
+  payload: unknown,
+  instance: ModelInstance,
+  connected?: ReadonlySet<string>,
+): CatalogModel[] {
   const parsed = V2Catalog.parse(payload);
   if (parsed.location.directory !== instance.cwd)
     throw new Error("OpenCode model location mismatch");
-  return parsed.data.map((native) => {
+  const seen = new Set<string>();
+  const available = parsed.data.filter((native) => {
+    const id = `${native.providerID}/${native.modelID}`;
+    if ((connected && !connected.has(native.providerID)) || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  if (available.length > 512) throw new Error("Too many connected models");
+  return available.map((native) => {
     const model = base(instance, `${native.providerID}/${native.modelID}`, native.name, native);
     model.nativeProviderId = native.providerID;
     model.nativeModelId = native.modelID;
@@ -63,7 +76,8 @@ export function normalizeOpenCodeV2(payload: unknown, instance: ModelInstance): 
       .map(([name]) => name);
     model.reasoningEfforts = native.variants.map((variant) => variant.id);
     model.hidden = !native.enabled;
-    model.deprecated = native.status === "deprecated";
+    model.deprecated = native.status === "deprecated" || native.status === "legacy";
+    model.legacy = native.status === "legacy";
     return CatalogModel.parse(model);
   });
 }
@@ -89,6 +103,6 @@ const V2Catalog = z
           })
           .passthrough(),
       )
-      .max(512),
+      .max(8192),
   })
   .passthrough();

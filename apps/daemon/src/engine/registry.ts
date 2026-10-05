@@ -50,6 +50,7 @@ export class AdapterRegistry {
     bind: (adapter: ProviderAdapter) => ProviderAdapter & { close?(): Promise<void> },
   ): void {
     for (const entry of new Set([...this.entries.values(), ...this.backends.values()])) {
+      if (entry.adapter !== entry.source) continue;
       const original = entry.source;
       const bound = bind(original);
       entry.adapter = {

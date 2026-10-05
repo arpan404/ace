@@ -6,6 +6,7 @@ export const ProviderStatus = z.object({
   provider: ProviderKind,
   runtime: z.enum(["cli", "cursor-sdk"]),
   installed: z.boolean().nullable(),
+  enabled: z.boolean().optional(),
   path: z.string().min(1).max(4096).optional(),
   version: z.string().min(1).max(256).optional(),
   auth: z.enum(["logged_in", "logged_out", "unknown"]),

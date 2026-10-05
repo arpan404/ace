@@ -152,8 +152,11 @@ export class SettingsService {
 
   async set<K extends SettingsKey>(key: K, value: SettingsValues[K], layer: Layer): Promise<void> {
     SettingsKey.parse(key);
-    if (key === "browser.allowedOrigins" && layer.kind !== "global")
-      throw new SettingsError("validation", "Browser allowlist is a global user setting");
+    if (
+      (key === "browser.allowedOrigins" || key === "providers.configuration") &&
+      layer.kind !== "global"
+    )
+      throw new SettingsError("validation", "Setting is global only");
     const parsed = validateValue(key, value);
     const lease = await this.file(layer);
     try {

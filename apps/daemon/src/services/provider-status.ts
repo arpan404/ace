@@ -27,6 +27,8 @@ export function startProviderStatuses(context: ServiceContext): void {
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
+      configuration: (provider) =>
+        context.services.providerConfigurations?.for(provider) ?? { provider },
       cursorSdk:
         context.options.providerStatus?.cursorSdk ??
         (async (signal) => {

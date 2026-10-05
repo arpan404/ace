@@ -31,9 +31,20 @@ export async function openCodexSession(
     throw new Error("Codex supports native turn boundaries only");
   if (ctx.signal.aborted) throw ctx.signal.reason;
   const io = { ...runtime, ...options.runtime };
-  const cli =
-    options.cli ??
-    (await io.discover({ ...options.discovery, ...(ctx.env ? { env: ctx.env } : {}) })).codex;
+  const discovery = {
+    ...options.discovery,
+    ...(ctx.env ? { env: ctx.env } : {}),
+    signal: ctx.signal,
+  };
+  const cli = ctx.executable
+    ? await io.discoverProvider("codex", {
+        ...discovery,
+        overrides: { ...discovery.overrides, codex: ctx.executable },
+      })
+    : (options.cli ??
+      (options.runtime?.discover
+        ? (await io.discover(discovery)).codex
+        : await io.discoverProvider("codex", discovery)));
   if (!cli.installed || !cli.path)
     throw new Error("Codex is not installed. Install it or configure its path.");
   if (!codexCapabilities(cli).steer)

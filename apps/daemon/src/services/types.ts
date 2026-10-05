@@ -68,6 +68,7 @@ export interface Services {
   context: ContextService;
   settings: SettingsService;
   models: ModelCatalog;
+  providerConfigurations: import("../provider-configurations.ts").ProviderConfigurationsState;
   /** Filesystem admission completes separately from lazy metadata discovery. */
   modelsReady?: Promise<void>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;

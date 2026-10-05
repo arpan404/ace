@@ -10,7 +10,6 @@ import { z } from "zod";
 import { cursorSessionOptions, isMissingMethod } from "./cursor.ts";
 import { discoverListedModels } from "./list-discovery.ts";
 import { discoverOpenCodeCatalog } from "./opencode-discovery.ts";
-import { normalizeOpenCodeV2 } from "./open-code.ts";
 import { CodexPage } from "./native-schemas.ts";
 import { normalizeAcp, normalizeClaude, normalizeCodex, normalizeCursorSdk } from "./normalize.ts";
 import type { DiscoverModels, ModelInstance } from "./types.ts";
@@ -63,12 +62,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         instance,
       );
     if (instance.provider === "pi") return discoverListedModels(instance, signal, spawn);
-    if (instance.provider === "opencode") {
-      if (!options.opencode) return discoverOpenCodeCatalog(instance, signal, spawn);
-      const payload = await options.opencode(instance, signal);
-      signal.throwIfAborted();
-      return normalizeOpenCodeV2(payload, instance);
-    }
+    if (instance.provider === "opencode")
+      return discoverOpenCodeCatalog(instance, signal, spawn, options.opencode);
     const args = [...instance.args];
     switch (instance.provider) {
       case "codex":

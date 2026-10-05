@@ -2,7 +2,7 @@ import type { LaunchPlan } from "@ace/agent-registry";
 import { randomUUID } from "node:crypto";
 import { createTranslatorIdentity, type TranslatorIdentity } from "./identity.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
-import { discoverProviders, findExecutable } from "@ace/provider-kit/discovery";
+import { discoverProvider, findExecutable } from "@ace/provider-kit/discovery";
 import { cursorQuirks } from "./quirks/cursor.ts";
 import { antigravityQuirks } from "./quirks/antigravity.ts";
 import { genericQuirks } from "./quirks/generic.ts";
@@ -50,24 +50,23 @@ export function createAcpAdapter(
       if (options.resolveLaunch) {
         const plan = await options.resolveLaunch(ctx);
         return openAcpSession(ctx, quirks, {
-          command: plan.command,
+          command: ctx.executable ?? plan.command,
           args: [...plan.args],
           env: { ...ctx.env, ...plan.env },
           version: plan.version,
           ...(plan.profile ? { profile: plan.profile } : {}),
         });
       }
-      const command = options.command ?? quirks.command;
+      const command = ctx.executable ?? options.command ?? quirks.command;
       if (!command) throw new Error("A generic ACP adapter requires a user-installed command");
       let path: string | undefined;
       let version: string | undefined;
       if (quirks.provider === "cursor") {
-        const cli = (
-          await discoverProviders({
-            overrides: { cursor: command },
-            env,
-          })
-        ).cursor;
+        const cli = await discoverProvider("cursor", {
+          overrides: { cursor: command },
+          env,
+          signal: ctx.signal,
+        });
         path = cli.path;
         version = cli.version;
       } else {
