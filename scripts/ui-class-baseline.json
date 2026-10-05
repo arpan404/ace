@@ -1,0 +1,348 @@
+{
+  "apps/web/src/components/attachment-artifact.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/components/attachment-lightbox.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/components/attachment-markdown.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/components/attachment-message.tsx": {
+    "radius": 2
+  },
+  "apps/web/src/components/attachment-tiles.tsx": {
+    "radius": 3
+  },
+  "apps/web/src/components/attachment-unavailable.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/components/diff-stat.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/components/inline-markdown.tsx": {
+    "text-size": 1,
+    "radius": 1
+  },
+  "apps/web/src/components/markdown/code-block.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/components/markdown/markdown.tsx": {
+    "text-size": 4
+  },
+  "apps/web/src/components/permission-review.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/components/setting-row.tsx": {
+    "text-size": 2
+  },
+  "apps/web/src/components/status-pill.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/components/ui/command.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/components/ui/dot.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/components/ui/filter-menu.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/components/ui/input.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/components/ui/scroll-area.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/components/ui/step-slider.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/accounts/account-card.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/accounts/scheduling-policy.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/accounts/usage-section.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/features/activity/activity-sidebar.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/activity/card-frame.tsx": {
+    "text-size": 2,
+    "radius": 1
+  },
+  "apps/web/src/features/activity/escalation-card.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/activity/feed-row.tsx": {
+    "text-size": 1,
+    "radius": 2
+  },
+  "apps/web/src/features/activity/interaction-card.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/activity/needs-you-page.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/activity/question-card.tsx": {
+    "text-size": 2,
+    "radius": 1
+  },
+  "apps/web/src/features/automations/automation-form.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/automations/automations-sidebar.tsx": {
+    "text-size": 2,
+    "radius": 1,
+    "bare-outline": 1
+  },
+  "apps/web/src/features/automations/form-row.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/automations/recent-runs.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/connect/connect-card.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/features/devices/device-screen.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/features/files/files-page.tsx": {
+    "text-size": 3
+  },
+  "apps/web/src/features/home/new-thread/context-bar.tsx": {
+    "text-size": 2,
+    "bare-outline": 1
+  },
+  "apps/web/src/features/home/project-filter.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/home/rename-field.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/home/row-parts.tsx": {
+    "text-size": 3,
+    "radius": 1
+  },
+  "apps/web/src/features/home/thread-list.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/home/thread-row.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/models/model-picker-panel.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/more/more-sidebar.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/panels/agents/agent-tab.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/panels/agents/agents-tab.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/panels/changes/changes-toolbar.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/panels/changes/file-diff.tsx": {
+    "text-size": 4,
+    "radius": 1
+  },
+  "apps/web/src/features/panels/changes/file-tree.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/panels/changes/line-comment.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/panels/changes/review-bar.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/panels/files/file-tab.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/panels/files/file-toolbar.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/features/panels/files/file-tree.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/panels/files/quick-open.tsx": {
+    "text-size": 2,
+    "bare-outline": 1
+  },
+  "apps/web/src/features/panels/launcher/launcher-tab.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/panels/logs/daemon-log.tsx": {
+    "text-size": 3
+  },
+  "apps/web/src/features/panels/logs/logs-tab.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/panels/terminal/find-bar.tsx": {
+    "text-size": 1,
+    "bare-outline": 1
+  },
+  "apps/web/src/features/panels/terminal/sessions-menu.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/panels/terminal/shell-resource.tsx": {
+    "text-size": 1,
+    "radius": 1
+  },
+  "apps/web/src/features/panels/terminal/terminal-view.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/features/projects/form-parts.tsx": {
+    "text-size": 2
+  },
+  "apps/web/src/features/projects/manage-dialogs.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/search/search-page.tsx": {
+    "radius": 1,
+    "bare-outline": 1
+  },
+  "apps/web/src/features/settings/add-acp-agent.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/settings/appearance-page.tsx": {
+    "text-size": 3
+  },
+  "apps/web/src/features/settings/daemon-settings.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/settings/keyboard-page.tsx": {
+    "text-size": 3
+  },
+  "apps/web/src/features/settings/notifications-page.tsx": {
+    "text-size": 2
+  },
+  "apps/web/src/features/settings/pair-device.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/settings/providers-page.tsx": {
+    "text-size": 3
+  },
+  "apps/web/src/features/settings/theme-card.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/settings/theme-editor/theme-editor.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/settings/theme-editor/token-row.tsx": {
+    "text-size": 3
+  },
+  "apps/web/src/features/shell/screen.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/shell/workspace/count-mark.tsx": {
+    "text-size": 1,
+    "radius": 1
+  },
+  "apps/web/src/features/shell/workspace/open-tabs.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/shell/workspace/tab-content.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/shell/workspace/tab-item.tsx": {
+    "radius": 2,
+    "bare-outline": 1
+  },
+  "apps/web/src/features/shell/workspace/workspace.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/features/skills/install-plugin.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/skills/skill-page.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/skills/skills-sidebar.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/thread/composer/composer.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/thread/composer/context-bar.tsx": {
+    "text-size": 2,
+    "bare-outline": 1
+  },
+  "apps/web/src/features/thread/composer/suggestion-list.tsx": {
+    "text-size": 2
+  },
+  "apps/web/src/features/thread/header/header-actions.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/header/summary-body.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/header/summary-menu.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/interactions/interaction-card.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/interactions/question-form.tsx": {
+    "text-size": 2,
+    "radius": 1
+  },
+  "apps/web/src/features/thread/items/agent-row.tsx": {
+    "text-size": 1,
+    "radius": 1
+  },
+  "apps/web/src/features/thread/items/background-task.tsx": {
+    "text-size": 3,
+    "radius": 2
+  },
+  "apps/web/src/features/thread/items/changed-files.tsx": {
+    "text-size": 4
+  },
+  "apps/web/src/features/thread/items/error-row.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/items/model-facing.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/items/step-detail.tsx": {
+    "text-size": 6
+  },
+  "apps/web/src/features/thread/items/subagents.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/items/task-card.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/items/user-message.tsx": {
+    "text-size": 1,
+    "radius": 1
+  },
+  "apps/web/src/features/thread/items/work-log-steps.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/items/work-log-view.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/long/search-bar.tsx": {
+    "text-size": 1,
+    "radius": 1,
+    "bare-outline": 2
+  },
+  "apps/web/src/features/thread/long/timeline.tsx": {
+    "bare-outline": 1
+  },
+  "apps/web/src/features/thread/thread-view.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/features/thread/transcript/live-footer.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/transcript/turn-end.tsx": {
+    "text-size": 1
+  }
+}

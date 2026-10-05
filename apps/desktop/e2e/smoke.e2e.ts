@@ -85,9 +85,9 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
       await show.waitFor();
       expect((await show.boundingBox())?.x).toBeGreaterThanOrEqual(68);
       // The rail stays, and Home on it still works.
-      await views.getByRole("link", { name: /^Activity/ }).click();
+      await views.getByRole("link", { name: /^Deck/ }).click();
       await home.click();
-      await expect.poll(() => new URL(page.url()).pathname).not.toBe("/activity");
+      await expect.poll(() => new URL(page.url()).pathname).not.toBe("/deck");
       await show.click();
       await title.waitFor();
     },

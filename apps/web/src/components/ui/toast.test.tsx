@@ -32,6 +32,15 @@ function Buttons() {
       </button>
       <button
         type="button"
+        onClick={() => {
+          for (const name of ["one", "two", "three", "four"])
+            toast.add({ title: `Archived ${name}`, actionProps: { children: "Undo" } });
+        }}
+      >
+        Archive four
+      </button>
+      <button
+        type="button"
         onClick={() =>
           toast.error({
             title: "Couldn't save",
@@ -86,6 +95,18 @@ test("a plain toast goes after 4 s and one with an action after 8 s, not before"
   expect(screen.getByText("Archived")).toBeTruthy();
   await act(() => vi.advanceTimersByTimeAsync(51));
   expect(screen.queryByText("Archived")).toBeNull();
+});
+
+test("an Undo waiting behind a full stack keeps its whole time for when it shows", async () => {
+  vi.useFakeTimers();
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "Archive four" }));
+  await act(() => vi.advanceTimersByTimeAsync(8_050));
+  // The three shown ran out at 8 s; the one that waited shows now, with its 8 s ahead.
+  expect(screen.queryByText("Archived two")).toBeNull();
+  expect(screen.getByText("Archived one")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(7_900));
+  expect(screen.getByText("Archived one")).toBeTruthy();
 });
 
 test("an error toast's Retry and Dismiss can be found by role and used", async () => {
