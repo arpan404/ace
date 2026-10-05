@@ -1,15 +1,28 @@
 import { useItem } from "@ace/client-react";
 import { FileIcon } from "@phosphor-icons/react";
 import { formatClock } from "@ace/ui-core";
+import { inputText, SendStatus, useLocalSend } from "./send-status.tsx";
 
-/** The person's message: a right-aligned bubble; its time shows on hover, keeping the column quiet. */
+/**
+ * The person's message: a right-aligned bubble; its time shows on hover, keeping the column
+ * quiet. The same bubble is drawn from the moment Enter is pressed (from the outbox, or held
+ * while its files upload) until the daemon's item takes over under the same key, with a quiet
+ * "Sending…" under it meanwhile and "Not sent" with Retry and Edit if it doesn't go.
+ */
 export function UserMessage(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
-  if (item?.type !== "message") return null;
-  const text = item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
-  const files = item.parts.flatMap((part) => (part.type === "file" ? [part.path] : []));
+  const local = useLocalSend(props.threadId, props.itemId);
+  const message = item?.type === "message" ? item : undefined;
+  const parts = message?.parts ?? local.send?.payload.input;
+  const text = message
+    ? inputText(message.parts)
+    : local.send
+      ? inputText(local.send.payload.input)
+      : (local.staged?.text ?? "");
+  if (!message && !local.send && !local.staged) return null;
+  const files = (parts ?? []).flatMap((part) => (part.type === "file" ? [part.path] : []));
   // Images come from the daemon; only inline data, blobs and web URLs are loaded.
-  const images = item.parts.flatMap((part) =>
+  const images = (parts ?? []).flatMap((part) =>
     part.type === "image" && /^(data:image\/|blob:|https?:)/.test(part.url) ? [part] : [],
   );
   return (
@@ -42,9 +55,19 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
           </span>
         )}
       </div>
-      <span className="mt-[5px] pr-1 text-xs text-subtle-foreground opacity-0 transition-opacity duration-(--dur-1) group-focus-within/bubble:opacity-100 group-hover/bubble:opacity-100">
-        {formatClock(item.createdAt)}
-      </span>
+      {/* One line under the bubble: how its sending goes, else its time on hover. Both are
+          the same height, so the row doesn't move when "Sending…" goes. */}
+      <SendStatus
+        threadId={props.threadId}
+        itemId={props.itemId}
+        send={local.send}
+        staged={local.staged}
+        otherwise={
+          <span className="mt-[5px] pr-1 text-xs text-subtle-foreground opacity-0 transition-opacity duration-(--dur-1) group-focus-within/bubble:opacity-100 group-hover/bubble:opacity-100">
+            {message ? formatClock(message.createdAt) : "\u00a0"}
+          </span>
+        }
+      />
     </div>
   );
 }

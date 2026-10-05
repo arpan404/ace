@@ -30,6 +30,7 @@ import {
   DeferredTurnKeys,
 } from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
+import { useTranscriptBlocks } from "../items/pending-sends.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
@@ -151,7 +152,8 @@ export function Feed(props: FeedProps) {
   const { threadId, nav, jump, pager } = props;
   const window = jump.window;
   const detached = !!window && !jump.joined;
-  const blocks = useBlocks(threadId);
+  // The person's messages on their way join the live tail as the bubbles their items become.
+  const blocks = useTranscriptBlocks(threadId, useBlocks(threadId), !detached);
   const order = useItemOrder(threadId) ?? none;
   const runOrdinals = useRunOrdinals(threadId);
   const { seqTurns } = props;
