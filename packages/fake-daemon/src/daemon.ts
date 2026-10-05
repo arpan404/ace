@@ -1,3 +1,4 @@
+import { automaticTarget } from "@ace/accounts/availability";
 import {
   resolvePermissionMode,
   limitPermissionMode,
@@ -715,11 +716,11 @@ export class FakeDaemon implements Host {
     const thread = host.view.thread;
     const current = thread.live?.account ?? thread.execution?.instanceId;
     const from = this.services.accounts.find((account) => account.id === current);
-    return this.services.accounts.find(
-      (account) =>
-        account.id !== current &&
-        account.provider === (from?.provider ?? thread.provider) &&
-        account.availability !== "exhausted",
+    // The daemon's own pick, so a fake move lands where a real one would.
+    return automaticTarget(
+      this.services.accounts,
+      { id: current ?? "", provider: from?.provider ?? thread.provider },
+      Date.now(),
     )?.id;
   }
   private execute(command: Command): CommandResult {

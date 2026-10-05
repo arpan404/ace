@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ace/accounts": "workspace:*",
     "@ace/automations": "workspace:*",
     "@ace/browser": "workspace:*",
     "@ace/client": "workspace:*",

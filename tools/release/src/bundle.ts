@@ -124,7 +124,12 @@ export async function bundleDaemon(
   const daemon = await build({
     ...options,
     entryPoints: [daemonEntry],
-    outfile: join(root, "ace.mjs"),
+    // Keep first-use imports in separate files so idle startup does not parse their SDKs.
+    splitting: true,
+    outdir: root,
+    entryNames: "ace",
+    chunkNames: "chunk-[hash]",
+    outExtension: { ".js": ".mjs" },
   });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
