@@ -27,6 +27,7 @@ export type Agent = {
   failureText?: string;
 };
 export interface TranslationContext {
+  answerEchoes: ReturnType<typeof import("./answer-echo.ts").answerEchoes>;
   agents: Map<string, Agent>;
   tasks: Set<string>;
   asyncOwners: Map<string, { agent: Agent; item: string }>;

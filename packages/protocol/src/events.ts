@@ -47,6 +47,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     capabilities: Thread.shape.capabilities,
     permission: PermissionState.optional(),
     title: z.string().optional(),
+    titleSource: Thread.shape.titleSource,
     provider: ExecutionSelection.shape.provider.optional(),
     lineage: ThreadLineage.optional(),
     execution: ExecutionSelection.optional(),
@@ -89,6 +90,7 @@ export const EventPayload = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("run.ended"),
     runId: RunId,
+    error: Run.shape.error,
     state: z.enum(["completed", "interrupted", "failed"]),
     /** Corrected trigger, when the provider only reveals it at the end. */
     trigger: RunTrigger.optional(),
@@ -114,6 +116,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     type: z.literal("interaction.closed"),
     interactionId: InteractionId,
     state: InteractionState.exclude(["pending"]),
+    expirationReason: Interaction.shape.expirationReason,
     resolution: InteractionResolution.optional(),
     resolvedBy: DeviceId.optional(),
     /** Explicit canonical automatic review fact; absence means unknown. */

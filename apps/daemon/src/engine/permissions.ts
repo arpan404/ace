@@ -21,7 +21,7 @@ import {
 } from "@ace/core";
 import { z } from "zod";
 import type { EngineRepository } from "./repository.ts";
-import { permissionPaths } from "./permission-paths.ts";
+import { permissionPaths, permissionShells } from "./permission-paths.ts";
 
 const Record = z.object({
   override: PermissionMode.nullable(),
@@ -73,7 +73,9 @@ export class Permissions {
     return {
       override: record.override,
       effective: record.effective,
-      pending: record.override !== null && record.override !== record.effective,
+      pending:
+        record.override !== null &&
+        limitPermissionMode(record.override, this.ceiling(id)) !== record.effective,
     };
   }
   /** Host-only relationship. Never accept parent identity from an ordinary wire command. */
@@ -126,6 +128,34 @@ export class Permissions {
       [{ type: "thread.updated", permission: { ...this.state(id), pending: true } }],
       at,
     );
+    const state = this.repo.requireState(id);
+    if (state.config.provider !== "codex" && state.hasRun && !this.repo.quiescent(state))
+      this.repo.apply(
+        id,
+        [
+          {
+            type: "item.upsert",
+            agent: state.rootKey ?? "root",
+            item: `permission-change:${this.repo.nextCommandId()}`,
+            draft: {
+              type: "notice",
+              level: "info",
+              code: "permission_change_pending",
+              title: "Permission change queued",
+              text: "Applies when the running command finishes",
+              detail: "This provider needs a new session to apply its permission policy.",
+              complete: true,
+              raw: [
+                {
+                  type: "permission.pending",
+                  data: { pending_reason: "busy", permissionMode: mode },
+                },
+              ],
+            },
+          },
+        ],
+        at,
+      );
     return undefined;
   }
   async resolve(id: ThreadId, settings?: PermissionSettings): Promise<PermissionMode> {
@@ -147,7 +177,7 @@ export class Permissions {
       );
       this.repo.store.appendEvents(
         id,
-        [{ type: "thread.updated", permission: { ...this.state(id), pending: false } }],
+        [{ type: "thread.updated", permission: this.state(id) }],
         at,
       );
     });
@@ -162,12 +192,23 @@ export class Permissions {
       // than walking every pending approval for each newly opened approval.
       const key = this.repo.nativeEntity(state.threadId, "interactions", interaction.id);
       if (key === undefined || state.interactions[key]?.state !== "pending") continue;
-      const mode = this.effective(state.threadId);
+      const attributed = interaction.raw.find((raw) => raw.type === "ace.permission-policy");
+      const parsed = z
+        .object({ mode: PermissionMode })
+        .safeParse(attributed && "data" in attributed ? attributed.data : undefined);
+      // Only adapter-owned attribution can grant Full access to a Codex approval.
+      const mode =
+        state.config.provider === "codex"
+          ? limitPermissionMode(
+              parsed.success ? parsed.data.mode : "ask",
+              this.ceiling(state.threadId),
+            )
+          : this.effective(state.threadId);
+      const target =
+        interaction.request.kind === "approval" ? interaction.request.target : undefined;
       if (
-        mode === "full-access" ||
-        (mode === "ask" &&
-          (interaction.request.kind !== "approval" ||
-            interaction.request.target?.riskClass !== "read-only"))
+        (mode === "full-access" && state.config.provider !== "codex") ||
+        (mode === "ask" && (target?.origin !== "ace" || target.riskClass !== "read-only"))
       )
         continue;
       if (this.repo.reserved(interaction.id)) continue;
@@ -177,12 +218,11 @@ export class Permissions {
           .get(interaction.id),
       );
       if (previous) continue;
-      const target =
-        interaction.request.kind === "approval" ? interaction.request.target : undefined;
       let decision = reviewPermission({
         mode,
         ...(target ? { target } : {}),
         paths: permissionPaths(this.repo.session(state.threadId).cwd, target),
+        trustedShells: permissionShells(this.repo.session(state.threadId).cwd, target),
       });
       const option = permissionDecisionOption(interaction.request, decision.decision);
       if (decision.decision !== "escalate" && !option)
@@ -210,7 +250,10 @@ export class Permissions {
         draft: {
           type: "notice",
           level: decision.decision === "approve" ? "info" : "warning",
-          text: `Permission review ${decision.decision}: ${decision.reason}`,
+          text:
+            mode === "full-access" && decision.decision === "approve"
+              ? "Approved · Full access"
+              : `Permission review ${decision.decision}: ${decision.reason}`,
           complete: true,
           raw: [{ type: "permission.reviewed", data: review }],
         },

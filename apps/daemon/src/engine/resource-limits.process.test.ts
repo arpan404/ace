@@ -38,7 +38,7 @@ test("a full mailbox drains accepted frames before reporting overload and closin
     );
   await h.engine.flush();
   const items = Object.values(view(h.store, id).items);
-  expect(items.find((item) => item.type === "message")).toMatchObject({
+  expect(items.find((item) => item.type === "message" && item.role === "assistant")).toMatchObject({
     parts: [{ type: "text", text: "accepted one accepted two" }],
   });
   expect(
@@ -72,7 +72,9 @@ test("one stdout read worth of streamed deltas is folded without failing the thr
   expect(ctx.signal.aborted).toBe(false);
   expect(h.store.getThread(id)?.status.state).not.toBe("failed");
   expect(
-    Object.values(view(h.store, id).items).find((item) => item.type === "message"),
+    Object.values(view(h.store, id).items).find(
+      (item) => item.type === "message" && item.role === "assistant",
+    ),
   ).toMatchObject({ parts: [{ type: "text", text: burst.join("") }] });
 });
 
@@ -184,9 +186,11 @@ test.each([{ maxFrameBytes: 200 }, { maxQueuedBytes: 200 }])(
         (item) => item.type === "notice" && item.text.includes("capacity exceeded"),
       ),
     ).toBe(true);
-    expect(Object.values(view(h.store, id).items).some((item) => item.type === "message")).toBe(
-      false,
-    );
+    expect(
+      Object.values(view(h.store, id).items).some(
+        (item) => item.type === "message" && item.role === "assistant",
+      ),
+    ).toBe(false);
   },
 );
 

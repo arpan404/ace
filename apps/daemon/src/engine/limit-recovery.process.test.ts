@@ -73,6 +73,15 @@ test("limits stay distinct from failures after provider exit and manual resume p
   expect(
     Object.values(h.store.snapshotThread(id).runs).some((run) => run.trigger === "limit_resume"),
   ).toBe(true);
+  expect(Object.values(h.store.snapshotThread(id).items)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: "message",
+        synthetic: true,
+        origin: expect.objectContaining({ kind: "limit_resume" }),
+      }),
+    ]),
+  );
   expect(
     replacement.commands
       .filter((command) => command.type === "send")
@@ -239,7 +248,10 @@ test("migration refusal retains the source binding and exposes an actionable hel
   expect(sends(replacement)).toHaveLength(0);
   expect(
     Object.values(h.store.snapshotThread(id).items).some(
-      (item) => item.type === "notice" && item.text.includes("Writer exclusion unavailable"),
+      (item) =>
+        item.type === "notice" &&
+        item.title === "Action failed" &&
+        item.detail?.includes("Writer exclusion unavailable"),
     ),
   ).toBe(true);
 });
