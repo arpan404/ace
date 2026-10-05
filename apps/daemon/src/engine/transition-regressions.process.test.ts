@@ -162,6 +162,19 @@ test("merge context admission rejects an escaped summary before changing git fil
   const items = h.store.readItemPage(source, h.store.headSeq() + 1, 50).items;
   expect(items.some((item) => item.type === "message" && item.mergedContext)).toBe(false);
   expect(
-    items.some((item) => item.type === "notice" && item.text.startsWith("thread.merge:")),
+    items.some(
+      (item) =>
+        item.type === "notice" &&
+        item.title === "Action failed" &&
+        item.raw.some(
+          (raw) =>
+            raw.type === "delivery_error" &&
+            "data" in raw &&
+            typeof raw.data === "object" &&
+            raw.data !== null &&
+            "operation" in raw.data &&
+            raw.data.operation === "thread.merge",
+        ),
+    ),
   ).toBe(true);
 });

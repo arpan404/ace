@@ -21,7 +21,7 @@ function ScrollArea({
         orientation="vertical"
         className="flex w-2.5 justify-center p-[3px] opacity-0 transition-opacity duration-(--dur-1) data-hovering:opacity-100 data-scrolling:opacity-100"
       >
-        <ScrollAreaPrimitive.Thumb className="w-full rounded-full bg-[color-mix(in_oklab,var(--foreground)_18%,transparent)]" />
+        <ScrollAreaPrimitive.Thumb className="w-full rounded-full bg-foreground/18" />
       </ScrollAreaPrimitive.Scrollbar>
     </ScrollAreaPrimitive.Root>
   );

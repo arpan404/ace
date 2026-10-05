@@ -234,11 +234,7 @@ export function CardGraph(props: {
               d={edge.d}
               fill="none"
               strokeWidth={1.5}
-              className={
-                edge.hot
-                  ? "stroke-[color-mix(in_oklab,var(--ring)_55%,transparent)]"
-                  : "stroke-border opacity-50"
-              }
+              className={edge.hot ? "stroke-ring/55" : "stroke-border/50"}
             />
           ))}
         </svg>
@@ -295,8 +291,7 @@ export function CardGraph(props: {
             {overflow && (
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 -left-4 w-4"
-                style={{ background: "linear-gradient(to left, var(--background), transparent)" }}
+                className="pointer-events-none absolute inset-y-0 -left-4 w-4 bg-linear-to-l from-background"
               />
             )}
             <div role="rowheader">

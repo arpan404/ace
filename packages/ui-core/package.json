@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./provider-icons": "./src/provider-icons.ts",
-    "./deck": "./src/deck.ts"
+    "./deck": "./src/deck.ts",
+    "./step-labels": "./src/tool-labels.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

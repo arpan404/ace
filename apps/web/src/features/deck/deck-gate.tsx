@@ -48,7 +48,7 @@ import { changesThread, ViewChanges } from "./lane-detail.tsx";
 type Approval = Extract<ConductorCommandPayload, { type: "conductor.approve" }>["approval"];
 
 const gateFrame =
-  "rounded-lg bg-[color-mix(in_oklab,var(--status-needs-you)_9%,transparent)] py-3.5 pr-4 pl-[18px] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--status-needs-you)_30%,transparent)]";
+  "rounded-lg bg-status-needs-you/9 py-3.5 pr-4 pl-[18px] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--status-needs-you)_30%,transparent)]";
 
 /** Focus never sits in a field when a shortcut answers for the person. */
 function typing(): boolean {
@@ -543,10 +543,7 @@ function PlanReview(props: {
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       {/* WP-1: DialogContent size="lg" with a max height and a scrolling body. */}
-      <DialogContent
-        className="flex flex-col"
-        style={{ maxHeight: "86vh", width: "min(640px, calc(100vw - 2rem))" }}
-      >
+      <DialogContent className="flex max-h-[86vh] w-[min(640px,calc(100vw-2rem))] flex-col">
         <DialogHeader>
           <DialogTitle>The deck&apos;s plan</DialogTitle>
           <DialogDescription>

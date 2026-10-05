@@ -97,7 +97,7 @@ test("daemon delivers budgeted thread context with paging pointers and denies a 
       f.daemon.store
         .readItemPage(f.caller.threadId, f.daemon.store.headSeq() + 1, 20)
         .items.some(
-          (item) => item.type === "notice" && item.text.includes("Thread context access denied"),
+          (item) => item.type === "notice" && item.detail?.includes("Thread context access denied"),
         ),
     ).toBe(true);
   } finally {

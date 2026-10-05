@@ -691,7 +691,7 @@ function NewActivity() {
     <div
       role="separator"
       aria-label="New activity"
-      className="mt-2 mb-6 flex items-center gap-3 text-xs font-medium tracking-[0.01em] text-[color-mix(in_oklab,var(--ring)_80%,var(--foreground))] before:h-px before:flex-1 before:bg-[color-mix(in_oklab,var(--ring)_28%,transparent)] after:h-px after:flex-1 after:bg-[color-mix(in_oklab,var(--ring)_28%,transparent)]"
+      className="mt-2 mb-6 flex items-center gap-3 text-xs font-medium tracking-[0.01em] text-[color-mix(in_oklab,var(--ring)_80%,var(--foreground))] before:h-px before:flex-1 before:bg-ring/28 after:h-px after:flex-1 after:bg-ring/28"
     >
       New activity
     </div>

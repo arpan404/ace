@@ -25,7 +25,7 @@ export const TerminalRequest = z.object({
     }),
     z.object({
       op: z.literal("subscribe"),
-      threadId: ThreadId,
+      threadId: ThreadId.optional(),
       terminalId: id,
       subscriptionId: id,
       fromOffset: offset.default(0),
@@ -33,18 +33,18 @@ export const TerminalRequest = z.object({
     z.object({ op: z.literal("unsubscribe"), subscriptionId: id }),
     z.object({
       op: z.literal("write"),
-      threadId: ThreadId,
+      threadId: ThreadId.optional(),
       terminalId: id,
       data: z.string().max(8192),
     }),
     z.object({
       op: z.literal("resize"),
-      threadId: ThreadId,
+      threadId: ThreadId.optional(),
       terminalId: id,
       cols: z.number().int().min(1).max(500),
       rows: z.number().int().min(1).max(500),
     }),
-    z.object({ op: z.literal("close"), threadId: ThreadId, terminalId: id }),
+    z.object({ op: z.literal("close"), threadId: ThreadId.optional(), terminalId: id }),
   ]),
 });
 export type TerminalRequest = z.infer<typeof TerminalRequest>;

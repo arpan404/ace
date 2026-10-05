@@ -36,7 +36,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|history-publisher|fork|pty)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|history-publisher|fork|pty|account-management)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -58,6 +58,11 @@ export async function bundleDaemon(
                 contents = contents.replace(
                   '"./history-publish-worker.ts"',
                   '"./history-publish-worker.mjs"',
+                );
+              if (args.path.endsWith("/daemon/src/account-management.ts"))
+                contents = contents.replace(
+                  '"./cursor-account-terminal.ts"',
+                  '"./cursor-account-terminal.mjs"',
                 );
               if (args.path.endsWith("/adapter-claude/src/fork.ts"))
                 contents = contents.replace('"./fork-worker.ts"', '"./claude-fork-worker.mjs"');
@@ -135,6 +140,7 @@ export async function bundleDaemon(
     stageTerminalGuardian(repo, root, target);
   const helpers = [
     ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
+    ["apps/daemon/src/cursor-account-terminal.ts", "cursor-account-terminal.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
     ["packages/adapter-cursor/src/host-entry.ts", "cursor-sdk-host.mjs"],
     ["packages/mcp-server/src/stdio-entry.ts", "acp-mcp-bridge.mjs"],
