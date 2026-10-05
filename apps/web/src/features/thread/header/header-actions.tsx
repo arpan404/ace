@@ -146,16 +146,18 @@ function ScriptRows(props: {
             aria-label={`${script.command}${index === 0 ? ", default" : ""}${running ? ", running: shows its terminal" : ""}`}
             onClick={() => props.onRun(script)}
           >
-            <span className="min-w-0 truncate font-mono text-sm">{script.command}</span>
-            <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-3 text-xs text-muted-foreground">
-              {index === 0 && "default"}
-              {running && (
-                <>
-                  {index === 0 && <span aria-hidden>·</span>}
-                  <Dot tone="done" />
-                  running
-                </>
-              )}
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="min-w-0 flex-1 truncate font-mono text-sm">{script.command}</span>
+              <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                {index === 0 && "default"}
+                {running && (
+                  <>
+                    {index === 0 && <span aria-hidden>·</span>}
+                    <Dot tone="done" />
+                    running
+                  </>
+                )}
+              </span>
             </span>
           </MenuItem>
         );
