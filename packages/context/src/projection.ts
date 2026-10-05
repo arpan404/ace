@@ -43,7 +43,7 @@ export type ClaudeInput =
     };
 export type CodexInput =
   | { type: "text"; text: string; text_elements: [] }
-  | { type: "localImage"; path: string };
+  | { type: "localImage"; path: string; mimeType?: string };
 export type OpenCodeInput = Text | { type: "file"; mime: string; filename: string; url: string };
 export type AcpInput =
   | Text
@@ -101,11 +101,13 @@ export function projectAttachments(
     diagnostics.push(
       ContextDiagnostic.parse({
         code: "unsupported",
-        path: attachment.path,
-        message: `Attachment sent as a path reference: ${attachment.mimeType} is unavailable or unsupported by ${capabilities.provider}`,
+        message: `Provider ${capabilities.provider} cannot take attachment "${attachment.name}" (${attachment.mimeType}) within its media capabilities and size limits.`,
       }),
     );
-    return { type: "text", text: `Attachment: ${attachment.path}` };
+    return {
+      type: "text",
+      text: `Provider ${capabilities.provider} cannot take attachment "${attachment.name}" (${attachment.mimeType}) within its media capabilities and size limits.`,
+    };
   }
   switch (capabilities.provider) {
     case "claude": {
@@ -140,7 +142,8 @@ export function projectAttachments(
     case "codex": {
       const input: CodexInput[] = attachments.map((a) => {
         if (a.text !== undefined) return { type: "text", text: a.text, text_elements: [] };
-        if (capabilities.images.includes(a.mimeType)) return { type: "localImage", path: a.path };
+        if (capabilities.images.includes(a.mimeType))
+          return { type: "localImage", path: a.path, mimeType: a.mimeType };
         return { ...fallback(a), text_elements: [] };
       });
       return { provider: "codex", input, diagnostics };
@@ -148,7 +151,17 @@ export function projectAttachments(
     case "opencode": {
       const input: OpenCodeInput[] = attachments.map((a) => {
         if (a.text !== undefined) return { type: "text", text: a.text };
-        if (capabilities.images.includes(a.mimeType) || capabilities.documents.includes(a.mimeType))
+        if (capabilities.images.includes(a.mimeType)) {
+          const encoded = data(a);
+          if (encoded === undefined) return fallback(a);
+          return {
+            type: "file",
+            mime: a.mimeType,
+            filename: a.name,
+            url: `data:${a.mimeType};base64,${encoded}`,
+          };
+        }
+        if (capabilities.documents.includes(a.mimeType))
           return { type: "file", mime: a.mimeType, filename: a.name, url: fileUri(a.path) };
         return fallback(a);
       });

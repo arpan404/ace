@@ -1,7 +1,7 @@
 import { budgets } from "./budgets.ts";
 import { retryTiming } from "@ace/perf-kit";
 import { reportBrowser } from "./browser-budgets.ts";
-import { observe, readRecord, resetRecord } from "./measure.ts";
+import { observe, readRecord, resetRecord, streamedRate } from "./measure.ts";
 import { open, withPerfApp } from "./perf-app.ts";
 
 /*
@@ -44,9 +44,6 @@ async function measureBrowser(): Promise<void> {
         throw new Error(
           "The long-task detector did not see a 120 ms task after resetting its window",
         );
-      const startEvents = await page.evaluate(
-        () => Reflect.get(globalThis, "acePerf")?.events ?? 0,
-      );
       const start = await resetRecord(page);
       const feed = page.getByRole("feed", { name: "Transcript" });
       const until = Date.now() + seconds * 1000;
@@ -63,10 +60,7 @@ async function measureBrowser(): Promise<void> {
         await page.keyboard.press("Backspace");
       }
       const result = await readRecord(page, start);
-      const streamed =
-        ((await page.evaluate(() => Reflect.get(globalThis, "acePerf")?.events ?? 0)) -
-          startEvents) /
-        result.seconds;
+      const streamed = streamedRate(result);
       process.stdout.write(`  typed ${typed} characters while streaming\n`);
       reportBrowser(streamed, result);
     }

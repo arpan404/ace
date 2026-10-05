@@ -97,7 +97,7 @@ export function queueCommand(
         return {
           ok: true,
           facts: [
-            ...admissionFacts(host, edited.key, edited.input),
+            ...admissionFacts(host, edited.key, edited.input, edited.attachments),
             ...steerFacts(host, edited.key, edited.text),
             { type: "queue.changed", count: host.queued.length },
           ],

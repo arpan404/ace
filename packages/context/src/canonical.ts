@@ -5,7 +5,10 @@ import type { Projection } from "./projection.ts";
 export function canonicalContext(projection: Projection): ContentPart[] {
   return projection.input.map((part) => {
     if (part.type === "text") return { type: "text", text: part.text };
-    if (part.type === "localImage") return { type: "file", path: part.path, mimeType: "image/*" };
+    if (part.type === "localImage")
+      return { type: "file", path: part.path, mimeType: part.mimeType };
+    if (part.type === "file" && part.url.startsWith("data:"))
+      return { type: "image", mimeType: part.mime, url: part.url };
     if (part.type === "file")
       return { type: "file", path: fileURLToPath(part.url), mimeType: part.mime };
     if (part.type === "image") {

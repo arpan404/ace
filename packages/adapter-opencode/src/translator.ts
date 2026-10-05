@@ -119,7 +119,7 @@ export class OpenCodeTranslator implements Translator {
         state.admissionPending.add(string(body.id));
         return [
           ...state.input(string(body.id), string(prompt[1])),
-          ...projected(state, string(prompt[1]), { id: body.id, type: "user", text: body.text }),
+          ...projected(state, string(prompt[1]), { ...body, type: "user" }),
         ];
       }
       if (prompt && frame.dir === "recv" && data.status === 200) {

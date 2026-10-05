@@ -33,16 +33,17 @@ function AgentRow(props: { agent: DeckAgent }) {
     <li
       aria-label={`${agent.label}: ${agent.account}`}
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t py-2.5 first:border-t-0",
+        // In a narrow lane column the status and its thread link wrap under the agent.
+        "flex flex-wrap items-center gap-x-3 gap-y-1 border-t py-2.5 first:border-t-0",
         agent.nested && "pl-5",
       )}
     >
-      <span className="flex min-w-0 items-center gap-2 text-ui">
+      <span className="flex min-w-0 flex-1 basis-48 items-center gap-2 text-ui">
         {agent.provider && <ProviderIconTip provider={agent.provider} />}
         <span className="shrink-0 font-medium">{agent.label}</span>
         <span className="min-w-0 truncate text-muted-foreground">{agent.account}</span>
       </span>
-      <span className="flex items-center gap-3 text-sm text-muted-foreground">
+      <span className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
         {status && (
           <span className="inline-flex items-center gap-1.5">
             {status.tone === "working" && <Spinner />}
@@ -54,7 +55,7 @@ function AgentRow(props: { agent: DeckAgent }) {
         )}
         {!status && <span>{agent.live ? "Running" : "Finished"}</span>}
         {updated !== undefined && (
-          <span className="w-8 text-right text-subtle-foreground tabular-nums">
+          <span className="w-8 text-right text-muted-foreground tabular-nums">
             {formatAge(updated, now)}
           </span>
         )}

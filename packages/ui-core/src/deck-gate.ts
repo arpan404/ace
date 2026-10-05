@@ -7,7 +7,6 @@ import type { Gate } from "./deck.ts";
  */
 
 type View = ConductorRunView;
-type Node = View["dag"][number];
 type NeedsUser = View["needsUser"][number];
 
 /** "Make every relay stream resumable": the goal's first sentence, short enough for a title. */
@@ -38,7 +37,7 @@ function gateTitle(gate: NeedsUser, card: string | undefined): string {
     case "merge":
       return card ? `Merge needs your approval: ${card}` : "Merge needs your approval";
     case "budget":
-      return "The deck reached its budget";
+      return "The deck used its budget";
     case "deadline":
       return "The deck passed its deadline";
     case "destructive":
@@ -58,20 +57,85 @@ const providerAsks: Record<string, string> = {
   elicitation: "A tool the agent uses needs input from you.",
 };
 
-/** The daemon's own sentence, unless it is a machine line a person can't act on. */
-function gateBody(gate: NeedsUser, card: string | undefined): string {
-  if (gate.kind === "provider") {
-    const kind = /^(\w+) needs your answer$/.exec(gate.message)?.[1];
-    return (kind && providerAsks[kind]) ?? gate.message;
-  }
-  const merge = gate.kind === "merge" ? /^Merge \S+ at ([0-9a-f]{7,64})$/.exec(gate.message) : null;
-  if (merge?.[1])
-    return `${card ?? "The card"} passed review at ${merge[1].slice(0, 7)}. Approve to merge it into the deck's branch.`;
-  return gate.message;
+const roleNames: Record<string, string> = {
+  planner: "planner",
+  worker: "worker",
+  reviewer: "reviewer",
+  integrator: "fix",
+};
+
+/** The conductor's machine lines for an escalation (lane-status.ts, reducer.ts), in words. */
+function escalationBody(message: string, card: string, role: string): string | undefined {
+  const lane = /^Lane \S+ is (unresponsive|failed|limited)$/.exec(message)?.[1];
+  if (lane === "unresponsive") return `${card}'s ${role} stopped responding.`;
+  if (lane === "failed") return `${card}'s ${role} failed.`;
+  if (lane === "limited") return `${card}'s ${role} hit its account's limit.`;
+  if (/^Lane \S+ stalled$/.test(message)) return `${card}'s ${role} stopped making progress.`;
+  if (/^Lane \S+ is done without its \w+ artifact$/.test(message))
+    return `${card}'s ${role} finished without reporting its result.`;
+  if (/retention limit reached/.test(message))
+    return "This card has had too many review rounds. Start a new deck for it.";
+  if (message === "Deck PR head or CI did not pass")
+    return `${card} merged, but CI didn't pass at the reviewed revision.`;
+  if (message === "Deck integration revision or worktree changed")
+    return `${card} merged, but the deck's branch changed before it could be checked.`;
+  return undefined;
 }
 
-function gateOf(gate: NeedsUser, nodes: readonly Node[]): Gate {
-  const card = nodes.find((node) => node.id === gate.workstream)?.title;
+/** The gate in words; the daemon's own line stays as `detail` whenever it is reworded. */
+function gateText(
+  gate: NeedsUser,
+  card: string | undefined,
+  view: GateView,
+): { body: string; detail: string | undefined } {
+  const raw = { body: gate.message, detail: undefined };
+  switch (gate.kind) {
+    case "provider": {
+      const kind = /^(\w+) needs your answer$/.exec(gate.message)?.[1];
+      return { body: (kind && providerAsks[kind]) ?? gate.message, detail: undefined };
+    }
+    case "merge": {
+      const merge = /^Merge \S+ at ([0-9a-f]{7,64})$/.exec(gate.message);
+      if (!merge?.[1]) return raw;
+      return {
+        body: `${card ?? "The card"} passed review at ${merge[1].slice(0, 7)}. Approve to merge it into the deck's branch.`,
+        detail: gate.message,
+      };
+    }
+    case "budget":
+      return view.budget > 0
+        ? {
+            body: `${view.spent} of ${view.budget} lane starts used. Raise the budget to keep going.`,
+            detail: gate.message,
+          }
+        : raw;
+    case "deadline":
+      return {
+        body: "The deck stops starting work at its deadline. Extend it to keep going.",
+        detail: undefined,
+      };
+    case "destructive":
+      return {
+        body: `An agent${card ? ` on ${card}` : ""} wants to make a change that can't be undone.`,
+        detail: gate.message,
+      };
+    case "escalation": {
+      const lane = view.lanes?.find((entry) => entry.id === gate.lane);
+      const role = roleNames[lane?.role ?? "worker"] ?? "lane";
+      const body = escalationBody(gate.message, card ?? "The card", role);
+      return body ? { body, detail: gate.message } : raw;
+    }
+    case "plan":
+      return raw;
+  }
+}
+
+/** What a gate needs from the view: card titles, spend for a budget, lanes for an escalation. */
+type GateView = Pick<View, "needsUser" | "dag"> &
+  Partial<Pick<View, "lanes">> & { spent: number; budget: number };
+
+function gateOf(gate: NeedsUser, view: GateView): Gate {
+  const card = view.dag.find((node) => node.id === gate.workstream)?.title;
   const kind =
     gate.kind === "plan" || gate.kind === "merge" || gate.kind === "provider"
       ? gate.kind
@@ -79,8 +143,9 @@ function gateOf(gate: NeedsUser, nodes: readonly Node[]): Gate {
   return {
     id: gate.id,
     kind,
+    ask: gate.kind,
     title: gateTitle(gate, card),
-    body: gateBody(gate, card),
+    ...gateText(gate, card, view),
     workstream: gate.workstream,
     gatedAt: gate.gatedAt,
     interaction:
@@ -94,15 +159,23 @@ function gateOf(gate: NeedsUser, nodes: readonly Node[]): Gate {
  * Every decision a deck waits on, in the order to take them; within a kind, the one waiting
  * longest first.
  */
-export function deckGates(view: Pick<View, "needsUser" | "dag">): Gate[] {
+export function deckGates(view: GateView): Gate[] {
   return view.needsUser
     .toSorted((a, b) => gateOrder[a.kind] - gateOrder[b.kind] || a.gatedAt - b.gatedAt)
-    .map((gate) => gateOf(gate, view.dag));
+    .map((gate) => gateOf(gate, view));
 }
 
 /** The decision a deck waits on first. */
-export function deckGate(view: Pick<View, "needsUser" | "dag">): Gate | null {
+export function deckGate(view: GateView): Gate | null {
   return deckGates(view)[0] ?? null;
+}
+
+/**
+ * What raising a budget gate offers: the budget plus half again, and at least ten more lane
+ * starts.
+ */
+export function raisedBudget(budget: number): number {
+  return budget + Math.max(10, Math.ceil(budget / 2));
 }
 
 const executionErrors: Record<string, string> = {
@@ -113,11 +186,89 @@ const executionErrors: Record<string, string> = {
   deck_lane_binding_missing: "The daemon lost track of one of the deck's lanes.",
   deck_engine_unavailable: "The daemon's agent engine isn't running.",
   deck_migration_pending: "A lane is still moving to another account.",
-  deck_capacity_wait: "Every account the deck may use is busy. It starts when one frees up.",
+  deck_capacity_wait: "Every account the deck may use is busy. It carries on when one frees up.",
   conductor_execution_failed: "The daemon couldn't run the deck's next step.",
 };
 
 /** Why a deck stopped executing, as a sentence; the code stays visible for unknown cases. */
 export function deckErrorText(code: string): string {
   return executionErrors[code] ?? `The daemon couldn't run the deck's next step (${code}).`;
+}
+
+/** Rejecting what stops the whole deck, as `conductor.cancel` does. */
+const stopDeck = {
+  label: "Stop the deck…",
+  title: "Reject and cancel this deck?",
+  body: "Every lane stops and nothing else merges. Cards already merged stay on the deck's branch.",
+  confirm: "Cancel deck",
+  toast: "Stopping the deck",
+  stopsDeck: true,
+};
+
+export interface GateDecision {
+  /** The one-click answer; null when the deck needs a value first (a budget, a deadline). */
+  approve: { label: string; toast: string } | null;
+  /** What rejecting does, as the conductor applies it (packages/conductor approval.ts). */
+  reject: {
+    label: string;
+    title: string;
+    body: string;
+    confirm: string;
+    toast: string;
+    /** It cancels the deck, rather than dropping one plan or declining one card. */
+    stopsDeck: boolean;
+  };
+}
+
+/**
+ * How a conductor gate is answered, in words: approving a plan starts it, approving an escalation
+ * retries its card; rejecting redrafts a plan, declines the card a gate is about, and otherwise
+ * stops the deck. `card` is the title of the card the gate is about.
+ */
+export function gateDecision(gate: Pick<Gate, "ask" | "workstream">, card?: string): GateDecision {
+  const name = card ?? "this card";
+  const decline = {
+    label: "Decline card…",
+    title: `Decline ${name}?`,
+    body: "It won't merge, and cards that depend on it won't start. The rest of the deck carries on.",
+    confirm: "Decline card",
+    toast: `Declined ${name} · the deck carries on`,
+    stopsDeck: false,
+  };
+  const onCard = gate.workstream !== null;
+  switch (gate.ask) {
+    case "plan":
+      return {
+        approve: { label: "Approve plan", toast: "Deck plan approved · lanes are starting" },
+        reject: {
+          label: "Draft a new plan…",
+          title: "Draft a new plan?",
+          body: "The deck drops this plan and the planner drafts another. No lane has started yet.",
+          confirm: "Draft again",
+          toast: "Drafting a new plan",
+          stopsDeck: false,
+        },
+      };
+    case "merge":
+      return {
+        approve: { label: "Approve merge", toast: `Merging ${name}` },
+        reject: onCard ? decline : stopDeck,
+      };
+    case "destructive":
+      return {
+        approve: { label: "Allow this change", toast: "Change allowed" },
+        reject: onCard ? decline : stopDeck,
+      };
+    case "escalation":
+    case "provider":
+      return {
+        approve: onCard
+          ? { label: "Retry card", toast: `Retrying ${name}: a new round starts` }
+          : { label: "Retry", toast: "Retrying" },
+        reject: onCard ? decline : stopDeck,
+      };
+    case "budget":
+    case "deadline":
+      return { approve: null, reject: stopDeck };
+  }
 }

@@ -29,19 +29,25 @@ Example:
 
 ```json
 {
-  "concurrency": 10,
+  "concurrency": 2,
   "enabled": false,
   "id": "example",
-  "jitterMs": 7,
+  "jitterMs": 9,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "acp",
+  "provider": "cursor",
   "title": "example",
   "trigger": {
-    "kind": "manual"
+    "kind": "schedule",
+    "schedule": {
+      "expression": "example",
+      "kind": "cron",
+      "startAt": 0,
+      "timezone": "example"
+    }
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -98,19 +104,22 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 7,
-    "enabled": false,
+    "concurrency": 1,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 2,
+    "jitterMs": 1,
     "missedRun": "skip",
     "prompt": "example",
-    "provider": "codex",
+    "provider": "pi",
     "title": "example",
     "trigger": {
-      "event": "issue_labelled",
-      "kind": "github",
-      "pollIntervalMs": 60003,
-      "repository": "Oz/U"
+      "kind": "schedule",
+      "schedule": {
+        "expression": "example",
+        "kind": "cron",
+        "startAt": 0,
+        "timezone": "example"
+      }
     },
     "workspace": "example",
     "worktree": false
@@ -187,7 +196,7 @@ Example:
 
 ```json
 {
-  "limit": 5,
+  "limit": 8,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -212,10 +221,10 @@ Example:
 
 ```json
 {
+  "automations": [],
   "error": "example",
-  "ok": false,
+  "ok": true,
   "requestId": "example",
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -243,12 +252,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 7,
+  "finishedAt": 5,
   "id": "example",
-  "startedAt": 9,
+  "startedAt": 5,
   "status": "running",
   "title": "example",
-  "trigger": "file"
+  "trigger": "manual"
 }
 ```
 
@@ -268,7 +277,7 @@ Example:
 ```json
 {
   "expression": "example",
-  "kind": "rrule",
+  "kind": "cron",
   "startAt": 0,
   "timezone": "example"
 }
@@ -306,7 +315,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -328,11 +337,11 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "review_comment",
   "kind": "github",
   "label": "example",
-  "pollIntervalMs": 60003,
-  "repository": "L21w/tKG3Cg9Rw"
+  "pollIntervalMs": 60001,
+  "repository": "cTYYA/hQzO9AUX"
 }
 ```
 

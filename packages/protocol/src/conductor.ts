@@ -255,7 +255,10 @@ export const ConductorSpec = z
 export type ConductorSpec = z.infer<typeof ConductorSpec>;
 export const ConductorApproval = z.object({
   gateId: Id,
-  decision: z.enum(["approve", "reject"]),
+  decision: z.enum(["approve", "reject"]).meta({
+    "x-ace-constraint":
+      "Reject answers the gate, never bypasses it. plan: the plan is dropped and the planner drafts another. merge, escalation and destructive gates on a card: that card is declined (its lanes stop, it never merges, its dependants never start) and the rest of the run continues. budget, deadline and any gate not about a card: the run is cancelled. A budget approval needs a larger budget; a deadline approval needs a future deadline.",
+  }),
   plan: ConductorPlan.optional(),
   budget: z.number().finite().nonnegative().optional(),
   deadline: z.number().int().nonnegative().optional(),

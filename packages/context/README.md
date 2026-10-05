@@ -36,7 +36,7 @@ Other operations are `upload.cancel`, `attachment.list`, `attachment.release`, `
 
 Local token-file clients have admin rights. Remote `read` permits status, attachment listings, mention completion and resolution; `operate` permits upload mutations and attachment release; `admin` includes both. A normal composer needs both read and operate. Every operation also checks thread access. Remote transport uses the merged pairing/ticket/pinned-TLS service. There is no separate upload HTTP endpoint.
 
-Errors and diagnostics use `ContextErrorCode`: quota, busy, forbidden, not_found, offset, hash_mismatch, invalid_image, outside_workspace, ignored, binary, truncated, unsupported and invalid_request. Unsupported provider input becomes a text path reference with a diagnostic. Binary mentions produce a diagnostic and validated path reference during composition.
+Errors and diagnostics use `ContextErrorCode`: quota, busy, forbidden, not_found, offset, hash_mismatch, invalid_image, outside_workspace, ignored, binary, truncated, unsupported and invalid_request. Unsupported provider input produces a diagnostic naming the file and provider. Unsupported binary mentions produce a diagnostic naming the provider limitation without a daemon path.
 
 ## Bounds and durability
 
@@ -46,7 +46,7 @@ Mentions read at most 64 KiB per file, emit at most 256 KiB total context and ex
 
 Each chunk is synced before SQLite records the acknowledged offset. Startup/retry truncates unacknowledged trailing bytes. Commit streams sha256 and renames bytes into `blobs/<sha256>`; a crash between rename and the reference transaction can be recovered. GC preserves blobs pinned by pending uploads, thread references and active composition leases. At most 128 leases of 64 references are admitted; excess work returns `busy`. Leases are process local and must be released after consumption. Shutdown ends their lifetime. The injected `syncChunk` storage boundary defaults to file fsync, and must resolve only after durability. Metadata uses a separate SQLite database and byte counters, so upload chunks do not enter the event log.
 
-Image-size 2.0.2 is accepted under MIT for bounded header dimension parsing; see NOTICE. Limits are 16,384 pixels per side and 40 million pixels total. Header input is capped at 64 KiB, so JPEG files needing longer metadata fail conservatively. PNG/GIF/WebP container walks cap at 4,096 metadata reads, validate framing, and reject animation. GIF frame rectangles must fit the validated canvas. VP8 and VP8L frame dimensions must equal the validated WebP canvas, including its pixel limits. PNG checks IHDR CRC. This is metadata/container validation, not proof that every compressed pixel decodes successfully. No raster decode runs in this package. SVG and unknown binary files remain opaque attachments.
+Image-size 2.0.2 is accepted under MIT for bounded header dimension parsing; see NOTICE. Limits are 16,384 pixels per side and 40 million pixels total. Header input is capped at 64 KiB, so JPEG files needing longer metadata fail conservatively. PNG/GIF/WebP container walks cap at 4,096 metadata reads, validate framing, and reject animation. GIF frame rectangles must fit the validated canvas. VP8 and VP8L frame dimensions must equal the validated WebP canvas, including its pixel limits. PNG checks IHDR CRC. This is metadata/container validation, not proof that every compressed pixel decodes successfully. Original upload validation does not raster decode; bounded preview reads use Sharp. SVG and unknown binary files remain opaque attachments.
 
 ## Verification and measurement
 
@@ -57,3 +57,25 @@ The repo owner's current rule permits only static checks before merge. Behavior 
 The original mutation runner describes 16 cases, the review runner describes 28 cases, and `packages/context/bench/verify-mutations.ts` describes 19 verifier-round cases. They require behavior assertions rather than compilation errors or timeouts. Their execution is reserved for the merge-time owner.
 
 The context benchmark creates a real 50,000-file Git repository and measures indexing, completion, incremental updates, autonomous recovery, mentions, upload throughput, projection and GC, plus peak RSS. The daemon benchmark measures the real loopback WebSocket; both stream a 16 MiB payload as 64 KiB chunks. `packages/context/bench/delivery.ts` measures native delivery and lease lifetime for 64 references. These are non-gating and need run at merge; no new benchmark is run under the current policy.
+
+## Reading images
+
+Message items carry `attachments` metadata. Resolve each `sha256` through the
+client connection that owns its thread. `client.attachmentBytes({threadId, sha256})`
+returns a bounded preview and MIME; use `{variant:"original", maxBytes: attachment.bytes}`
+for originals. The read request works on paired WSS and the relay files channel.
+HTTP readers use bearer-authenticated `/v1/attachments/<threadId>/<sha256>/thumbnail`
+or `/original`; never put a token in the URL. Single ranges are limited to 1 MiB.
+Both conditional and ordinary reads require current thread read permission.
+
+Original PNG/JPEG/WebP/GIF bytes, alpha and colour profiles are retained exactly.
+Providers receive MIME-derived local filenames or native inline image content.
+HEIC and animated images fail explicitly. Unsupported provider media produce a
+visible diagnostic instead of a path reference. Previews alone use a bounded Sharp
+raster decode, with dimensions, concurrency, byte and cache limits documented in ADR 0034.
+
+Native user image echoes retain metadata across restart through the daemon’s
+indexed input correlations. Matched raw attachment payload fields become content
+ids; unrelated provider fields are preserved. HTTP downloads have a 30-second
+response deadline, covering storage waits and backpressure. WSS reads recheck
+current thread permission after asynchronous storage/decoding.
