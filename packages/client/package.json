@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./attachments": "./src/attachments.ts",
     "./devices": "./src/devices.ts",
+    "./files": "./src/files.ts",
     "./project-calls": "./src/project-calls.ts",
     "./machines": "./src/machines.ts"
   },

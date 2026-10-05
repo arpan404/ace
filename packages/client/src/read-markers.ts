@@ -13,10 +13,11 @@ interface Batch {
   cancel(): void;
 }
 
-/** Only unsent read marks are combined. Durable command ownership stays with Intents. */
+/** Coalesced ephemeral read cursors. Only the latest cursor is retried after reconnect. */
 export class ReadMarkers {
   private pending = new Map<string, Batch>();
   private count = 0;
+  private retry = new Map<string, number>();
   private closed = false;
   private scheduler: Scheduler;
   private limit: number;
@@ -82,7 +83,11 @@ export class ReadMarkers {
     for (const waiter of batch.waiters) lastSeenSeq = Math.max(lastSeenSeq, waiter.seq);
     void this.send({ threadId, lastSeenSeq }).then(
       (result) => this.settle(batch, (waiter) => waiter.resolve(result)),
-      (error: unknown) => this.settle(batch, (waiter) => waiter.reject(error)),
+      (error: unknown) => {
+        if (error instanceof ClientError && error.code === "offline")
+          this.remember(threadId, lastSeenSeq);
+        this.settle(batch, (waiter) => waiter.reject(error));
+      },
     );
   }
   private settle(batch: Batch, finish: (waiter: Waiter) => void): void {
@@ -92,8 +97,23 @@ export class ReadMarkers {
     }
     batch.waiters.clear();
   }
+  private remember(threadId: string, seq: number): void {
+    if (this.closed) return;
+    if (!this.retry.has(threadId) && this.retry.size >= this.limit) return;
+    this.retry.set(threadId, Math.max(seq, this.retry.get(threadId) ?? 0));
+  }
+  reconnect(): void {
+    for (const [threadId, lastSeenSeq] of this.retry) {
+      this.retry.delete(threadId);
+      void this.send({ threadId, lastSeenSeq }).catch((error: unknown) => {
+        if (error instanceof ClientError && error.code === "offline")
+          this.remember(threadId, lastSeenSeq);
+      });
+    }
+  }
   disconnect(): void {
-    for (const batch of this.pending.values()) {
+    for (const [threadId, batch] of this.pending) {
+      for (const waiter of batch.waiters) this.remember(threadId, waiter.seq);
       batch.cancel();
       this.settle(batch, (waiter) => waiter.reject(new ClientError("offline")));
     }
@@ -101,6 +121,7 @@ export class ReadMarkers {
   }
   close(): void {
     this.closed = true;
+    this.retry.clear();
     this.disconnect();
   }
 }

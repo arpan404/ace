@@ -10,7 +10,13 @@ import {
   ServerMessage,
   type ServerMessage as Message,
 } from "@ace/protocol";
-import { settingsFixture, FakeDaemon, fakeTransport } from "./index.ts";
+import {
+  ScenarioPlayer,
+  flakyCheckout,
+  settingsFixture,
+  FakeDaemon,
+  fakeTransport,
+} from "./index.ts";
 
 async function fixture(daemon = new FakeDaemon({ clock: () => 1000 })) {
   let saved: string | null = null,
@@ -993,6 +999,44 @@ test("fake draft images appear as attachment metadata and serve fixture bytes on
       bytes,
     );
     await expect(f.client.attachmentBytes({ threadId: "other-thread", sha256 })).rejects.toThrow();
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("a queued follow-up is visible before a held queue read returns", async () => {
+  const f = await fixture();
+  new ScenarioPlayer(f.daemon, flakyCheckout()).runUntilBlocked();
+  const threadId = ThreadId.parse("thread-checkout");
+  try {
+    f.daemon.holdRequests("queue.get");
+    const controller = new AbortController();
+    const queue = f.client.request({ type: "queue.get", threadId }, { signal: controller.signal });
+    const aborted = expect(queue).rejects.toMatchObject({ code: "aborted" });
+    const sent = f.client.enqueue(
+      {
+        type: "thread.send",
+        threadId,
+        delivery: "queue",
+        input: [{ type: "text", text: "Visible before queue.get" }],
+      },
+      "queued-pill",
+    );
+    expect(f.client.pendingSends(threadId).getSnapshot()).toMatchObject([
+      {
+        commandId: "queued-pill",
+        itemId: "input:queued-pill",
+        state: "saving",
+        payload: { delivery: "queue" },
+      },
+    ]);
+    await sent;
+    controller.abort();
+    await aborted;
+    f.daemon.restoreRequests();
+    expect(await f.client.request({ type: "queue.get", threadId })).toMatchObject({
+      queue: { messages: [{ id: "queued-pill" }] },
+    });
   } finally {
     await f.client.close();
   }

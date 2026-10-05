@@ -363,6 +363,7 @@
       "devDependencies": {
         "@ace/fake-daemon": "workspace:*",
         "@ace/projection": "workspace:*",
+        "@playwright/test": "1.63.0",
       },
     },
     "packages/commands": {

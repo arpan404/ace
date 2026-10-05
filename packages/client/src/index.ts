@@ -8,6 +8,7 @@ export type {
   Transport,
   TransportEvents,
   Storage,
+  IntentRecords,
   Scheduler,
   Limits,
   RequestOptions,
@@ -80,3 +81,7 @@ export type {
 } from "./long-thread.ts";
 
 export { attachmentBytes, type AttachmentInput } from "./attachments.ts";
+export { pendingSend, pendingSendsEqual, matchesPendingThread } from "./pending-sends.ts";
+export type { PendingSend, SendPayload } from "./pending-sends.ts";
+
+export { fitsUtf8 } from "./bounds.ts";
