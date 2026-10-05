@@ -81,12 +81,16 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
     const f = await fixture({ evaluatePolicy: () => false });
     await f.navigate();
     await expect(f.evaluate("1+1")).rejects.toThrow("requires approval");
-    await expect(f.execute({ action: "navigate", url: "file:///etc/passwd" })).rejects.toThrow(
-      "requires approval",
-    );
-    await expect(f.execute({ action: "navigate", url: "https://example.invalid" })).rejects.toThrow(
-      "requires approval",
-    );
+    await expect(
+      f.execute({ action: "navigate", url: "file:///etc/passwd" }),
+    ).rejects.toMatchObject({
+      blocked: { reason: "invalid_origin", origin: "file:///etc/passwd" },
+    });
+    await expect(
+      f.execute({ action: "navigate", url: "https://example.invalid" }),
+    ).rejects.toMatchObject({
+      blocked: { reason: "approval_required", origin: "https://example.invalid" },
+    });
     await expect(f.execute({ action: "navigate", url: `${f.url}/redirect` })).rejects.toThrow();
   }, 60_000);
 

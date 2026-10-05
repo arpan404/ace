@@ -1,3 +1,4 @@
+import { createHostIdentitySession } from "./host-identity.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
 import { createLongThreadSession } from "./long-thread.ts";
@@ -37,6 +38,7 @@ import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
+  createHostIdentitySession,
   createLongThreadSession,
   createPreviewClientSession,
   createConductorSession,

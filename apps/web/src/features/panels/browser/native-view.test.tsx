@@ -166,7 +166,7 @@ test("a click on the agent's page takes control, and the page takes input once i
   await within(panel).findByText("have control", { exact: false });
   // The connection the daemon's take-control reply named, which the desktop checks the lease
   // against before any input reaches the page.
-  await waitFor(() => expect(last()?.owner).toBe("fake-connection"));
+  await waitFor(() => expect(last()?.owner).toBe("fake-browser-1"));
   // Taking control changes the placement in place: the page is never hidden meanwhile.
   expect(placed.slice(count).every((placement) => placement.visible)).toBe(true);
 });
@@ -174,7 +174,7 @@ test("a click on the agent's page takes control, and the page takes input once i
 test("handing control back stops claiming the page", async () => {
   const { panel } = await openEmbeddedBrowser();
   await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
-  await waitFor(() => expect(last()?.owner).toBe("fake-connection"));
+  await waitFor(() => expect(last()?.owner).toBe("fake-browser-1"));
   await userEvent.click(within(panel).getAllByRole("button", { name: "Hand back" })[0]!);
   await within(panel).findByText("is using this page", { exact: false });
   await waitFor(() => expect(last()?.owner).toBeUndefined());
@@ -184,9 +184,12 @@ test("handing control back stops claiming the page", async () => {
 test("while another device holds the page, this one claims nothing and a click takes nothing", async () => {
   const { panel, browser } = await openEmbeddedBrowser();
   await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
-  await waitFor(() => expect(last()?.owner).toBe("fake-connection"));
+  await waitFor(() => expect(last()?.owner).toBe("fake-browser-1"));
   // The daemon gives the page to another device's connection (this one's dropped meanwhile).
-  await act(async () => browser.takeover("thread-cold-start", "phone-connection"));
+  await act(async () => {
+    browser.disconnect("fake-browser-1");
+    await browser.takeover("thread-cold-start", "phone-connection");
+  });
   await waitFor(() => expect(last()?.owner).toBeUndefined());
   await within(panel).findByText("have control", { exact: false });
   await waitFor(() => expect(last()?.visible).toBe(true));
