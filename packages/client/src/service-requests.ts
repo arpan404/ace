@@ -19,24 +19,24 @@ export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "host.
   : Q["type"] extends "activity.reads" | "activity.markRead"
     ? Replies<"activity.reads.result">
     : Q["type"] extends "entities.page"
-    ? Replies<"entities.page">
-    : Q["type"] extends "queue.get"
-      ? Extract<Reply, { type: "queue.result" }>
-      : Q["type"] extends "permissions.capabilities"
-        ? Replies<"permissions.capabilities.result">
-        : Q["type"] extends "providers.request"
-          ? Replies<"providers.result">
-          : Q["type"] extends "projects.request"
-            ? Replies<"projects.result">
-            : Q["type"] extends "accounts.login" | "accounts.logout"
-              ? Replies<"accounts.auth">
-              : Q["type"] extends
-                    | "accounts.add"
-                    | "accounts.rename"
-                    | "accounts.remove"
-                    | "accounts.setDefault"
-                ? Replies<"accounts.changed">
-                : ExistingServiceResponse<Q>;
+      ? Replies<"entities.page">
+      : Q["type"] extends "queue.get"
+        ? Extract<Reply, { type: "queue.result" }>
+        : Q["type"] extends "permissions.capabilities"
+          ? Replies<"permissions.capabilities.result">
+          : Q["type"] extends "providers.request"
+            ? Replies<"providers.result">
+            : Q["type"] extends "projects.request"
+              ? Replies<"projects.result">
+              : Q["type"] extends "accounts.login" | "accounts.logout"
+                ? Replies<"accounts.auth">
+                : Q["type"] extends
+                      | "accounts.add"
+                      | "accounts.rename"
+                      | "accounts.remove"
+                      | "accounts.setDefault"
+                  ? Replies<"accounts.changed">
+                  : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"

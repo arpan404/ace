@@ -22,6 +22,8 @@ type AccountSummary = z.infer<typeof Summary>;
 
 export interface ServiceHost {
   clock(): number;
+  /** Sends to every authenticated connection, as the daemon's pushes do. */
+  broadcast(message: ServerMessage): void;
   /** The thread's project and provider, or undefined when the thread doesn't exist. */
   thread(threadId: string): { workspaceId: string; provider: ProviderKind } | undefined;
 }
@@ -75,7 +77,10 @@ export class FakeServices {
     }));
     this.commands = commandCatalog();
     this.usage = new FakeUsage(now);
-    this.activityReads = new FakeActivityReads(() => host.clock());
+    this.activityReads = new FakeActivityReads(
+      () => host.clock(),
+      (message) => host.broadcast(message),
+    );
     this.settings = new FakeSettings(
       settingsValues(),
       (threadId) => host.thread(threadId)?.workspaceId,
@@ -106,7 +111,6 @@ export class FakeServices {
     for (const [id, flow] of this.authTerminals)
       if (flow.owner === push) this.authTerminals.delete(id);
     this.settings.release(push);
-    this.activityReads.release(push);
   }
   private reply(message: ClientMessage, push: Push): ServerMessage | undefined {
     const mutation = AccountManagementRequest.safeParse(message);
@@ -278,7 +282,7 @@ export class FakeServices {
         };
       case "activity.reads":
       case "activity.markRead":
-        return this.activityReads.handle(message, push);
+        return this.activityReads.handle(message);
       case "settings.get":
       case "settings.set":
       case "settings.subscribe":

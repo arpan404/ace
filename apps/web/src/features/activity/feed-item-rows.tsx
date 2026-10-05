@@ -59,7 +59,7 @@ function ItemMenu(props: {
     <>
       <MenuItem
         icon={<Icon icon={props.read ? EnvelopeSimpleIcon : EnvelopeOpenIcon} />}
-        keys={props.read ? "u" : "e"}
+        shortcut={props.read ? "activity.unread" : "activity.read"}
         onClick={() =>
           props.read ? source.markUnread([props.readId]) : source.markRead([props.readId])
         }

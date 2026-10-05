@@ -1,4 +1,4 @@
-import type { AutomationSchedule } from "@ace/protocol";
+import type { Automation, AutomationSchedule } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   describeSchedule,
@@ -7,6 +7,7 @@ import {
   scheduleToPreset,
   upcomingRuns,
 } from "./schedule.ts";
+import { automationFromForm, formFromAutomation, scheduleFromForm } from "./automation-values.ts";
 
 // 2026-10-02T14:45:00Z: a start instant whose wall clock differs by zone.
 const startAt = Date.UTC(2026, 9, 2, 14, 45);
@@ -64,4 +65,62 @@ test("the next starts follow the daemon's rules, in the schedule's own zone", ()
   const schedule = rrule("FREQ=DAILY;BYHOUR=9;BYMINUTE=0", "Europe/London");
   const runs = upcomingRuns(schedule, startAt).map((at) => formatRunInZone(at, "Europe/London"));
   expect(runs).toEqual(["Sat 3 Oct 09:00", "Sun 4 Oct 09:00", "Mon 5 Oct 09:00"]);
+});
+
+test("the read-back previews the schedule that will be saved, from its own start", () => {
+  const anchored: Automation = {
+    id: "auto-every-6",
+    title: "Every six hours",
+    enabled: true,
+    workspace: "ace",
+    provider: "claude",
+    prompt: "Check",
+    worktree: true,
+    missedRun: "skip",
+    concurrency: 1,
+    jitterMs: 0,
+    trigger: {
+      kind: "schedule",
+      schedule: {
+        kind: "rrule",
+        expression: "FREQ=HOURLY;INTERVAL=6;BYMINUTE=0",
+        timezone: "UTC",
+        startAt: Date.UTC(2026, 9, 5, 0, 0),
+      },
+    },
+  };
+  const now = Date.UTC(2026, 9, 5, 13, 10);
+  const form = formFromAutomation(anchored, "UTC");
+  const saved = automationFromForm(form, { id: anchored.id, now, previous: anchored });
+  const preview = upcomingRuns(scheduleFromForm(form, now), now);
+  if (saved.trigger.kind !== "schedule") throw new Error("not a schedule");
+  expect(preview).toEqual(upcomingRuns(saved.trigger.schedule, now));
+  expect(preview[0]).toBe(Date.UTC(2026, 9, 5, 18, 0));
+});
+
+test("a schedule with a COUNT or UNTIL survives an edit that only renames it", () => {
+  const limited: Automation = {
+    id: "auto-three",
+    title: "Three mornings",
+    enabled: true,
+    workspace: "ace",
+    provider: "claude",
+    prompt: "Check",
+    worktree: true,
+    missedRun: "skip",
+    concurrency: 1,
+    jitterMs: 0,
+    trigger: {
+      kind: "schedule",
+      schedule: {
+        kind: "rrule",
+        expression: "FREQ=DAILY;COUNT=3;BYHOUR=9;BYMINUTE=0",
+        timezone: "UTC",
+        startAt,
+      },
+    },
+  };
+  const form = { ...formFromAutomation(limited, "UTC"), title: "Three mornings only" };
+  const saved = automationFromForm(form, { id: limited.id, now: startAt, previous: limited });
+  expect(saved.trigger).toEqual(limited.trigger);
 });

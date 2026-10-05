@@ -5,8 +5,9 @@
  * (`read-state.ts`).
  */
 import type { SidebarReader } from "@ace/client";
-import { useClient, useConnectionState, useSidebarAll } from "@ace/client-react";
-import { isActivityRead, type AutomationRun } from "@ace/protocol";
+import { useClient, useConnectionState, useSidebarAll, useSidebarLoaded } from "@ace/client-react";
+import type { AutomationRun } from "@ace/protocol";
+import { isActivityRead } from "@ace/projection/activity-reads";
 import { useQueries } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { useAutomationRuns } from "@/features/automations/index.ts";
@@ -27,6 +28,11 @@ export interface FeedSnapshot {
   read: ReadonlySet<string>;
   /** False until the read cursor has arrived: nothing is called unread before then. */
   readLoaded: boolean;
+  /** Every pull request's events have been read (or failed): absence now means gone. */
+  eventsSettled: boolean;
+  /** A pull request couldn't be read; `retryEvents` reads it again. */
+  eventsFailed: boolean;
+  retryEvents(): void;
 }
 
 export interface FeedSource {
@@ -102,11 +108,20 @@ function useLinkedThreads(): LinkedThread[] {
   return useSidebarAll(readLinked, sameList) ?? [];
 }
 
-/** The forge's view of each linked PR: checks and comments, read again every two minutes. */
-function usePullRequestEvents(): FeedEvent[] {
+/**
+ * The forge's view of each linked PR: checks and comments, read again every two minutes.
+ * `settled` once every read has answered or failed; `retry` reads the failed ones again.
+ */
+function usePullRequestEvents(): {
+  events: FeedEvent[];
+  settled: boolean;
+  failed: boolean;
+  retry(): void;
+} {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const threads = useLinkedThreads();
+  const loaded = useSidebarLoaded();
   const statuses = useQueries({
     queries: threads.map((thread) => ({
       queryKey: ["feed", "pr", thread.id, thread.pr.number, thread.pr.state],
@@ -122,9 +137,16 @@ function usePullRequestEvents(): FeedEvent[] {
       },
     })),
   });
-  return threads.flatMap((thread, index) =>
-    pullRequestEvents(thread, statuses[index]?.data ?? null),
-  );
+  return {
+    events: threads.flatMap((thread, index) =>
+      pullRequestEvents(thread, statuses[index]?.data ?? null),
+    ),
+    settled: loaded && ready && statuses.every((status) => !status.isPending),
+    failed: statuses.some((status) => status.isError),
+    retry: () => {
+      for (const status of statuses) if (status.isError) void status.refetch();
+    },
+  };
 }
 
 /** When a run counts as happening: when it finished, else when it started. */
@@ -134,7 +156,8 @@ export function useFeed(): FeedSnapshot {
   const reads = useReadState();
   const cursor = useReadCursor();
   const escalations = useEscalations();
-  const forge = usePullRequestEvents();
+  const pulls = usePullRequestEvents();
+  const forge = pulls.events;
   const runsQuery = useAutomationRuns();
   const runs = runsQuery.data;
   const events = useMemo(() => [...escalations, ...forge], [escalations, forge]);
@@ -157,5 +180,8 @@ export function useFeed(): FeedSnapshot {
     runsSettled: runs !== undefined || runsQuery.isError,
     read,
     readLoaded: cursor !== undefined,
+    eventsSettled: pulls.settled,
+    eventsFailed: pulls.failed,
+    retryEvents: pulls.retry,
   };
 }

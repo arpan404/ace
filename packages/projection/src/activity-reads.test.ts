@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { applyActivityReads, isActivityRead, type ActivityReadCursor } from "./activity.ts";
+import type { ActivityReadCursor } from "@ace/protocol";
+import { applyActivityReads, isActivityRead } from "./activity-reads.ts";
 
 const start: ActivityReadCursor = { before: 100, read: [], unread: [], revision: 0 };
 const old = { id: "old", at: 50 };

@@ -34,12 +34,13 @@ export function NewAutomationScreen() {
               Cancel
             </Link>
           }
-          onSave={async (form) => {
+          onSave={async (form, committed) => {
             const automation = automationFromForm(form, {
               id: `auto-${crypto.randomUUID()}`,
               now: Date.now(),
             });
             await save(automation);
+            committed();
             toast.add({ title: `Created · ${automation.title}` });
             await navigate({
               to: "/automations/$automationId",
@@ -109,13 +110,14 @@ export function EditAutomationScreen(props: { id: string }) {
               Cancel
             </Link>
           }
-          onSave={async (form) => {
+          onSave={async (form, committed) => {
             const automation = automationFromForm(form, {
               id: previous.id,
               now: Date.now(),
               previous,
             });
             await save(automation);
+            committed();
             toast.add({ title: `Saved · ${automation.title}` });
             await navigate(back);
           }}

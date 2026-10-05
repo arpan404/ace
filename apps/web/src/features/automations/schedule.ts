@@ -76,6 +76,8 @@ export function presetToSchedule(
 
 interface Rule {
   freq: string;
+  /** Parts besides FREQ, INTERVAL, BYDAY, BYHOUR and BYMINUTE (COUNT, UNTIL, BYMONTHDAY…). */
+  other: boolean;
   interval: number;
   days: string[] | undefined;
   hours: number[] | undefined;
@@ -91,8 +93,10 @@ function readRule(expression: string): Rule | undefined {
   const freq = fields.get("FREQ");
   if (!freq) return undefined;
   const numbers = (key: string) => fields.get(key)?.split(",").map(Number);
+  const presetParts = new Set(["FREQ", "INTERVAL", "BYDAY", "BYHOUR", "BYMINUTE"]);
   return {
     freq,
+    other: [...fields.keys()].some((key) => !presetParts.has(key)),
     interval: Number(fields.get("INTERVAL") ?? 1),
     days: fields.get("BYDAY")?.split(","),
     hours: numbers("BYHOUR"),
@@ -108,7 +112,8 @@ export function scheduleToPreset(schedule: AutomationSchedule): SchedulePreset {
   };
   if (schedule.kind !== "rrule") return custom;
   const rule = readRule(schedule.expression);
-  if (!rule) return custom;
+  // A preset can't carry COUNT, UNTIL or the like: such a rule stays exactly as written.
+  if (!rule || rule.other) return custom;
   const single = rule.hours?.length === 1 && rule.minutes?.length === 1;
   const time = single ? clock(rule.hours?.[0] ?? 0, rule.minutes?.[0] ?? 0) : undefined;
   if (rule.freq === "DAILY" && rule.interval === 1 && !rule.days && time)

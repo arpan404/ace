@@ -15,6 +15,7 @@ import { EventItemRow, RunItemRow } from "./feed-item-rows.tsx";
 import { timeGroup, useFeedItems, type FeedItem } from "./feed-items.ts";
 import { ThreadNeedsRows } from "./feed-rows.tsx";
 import { useFeedSource } from "./feed-source.ts";
+import { useReadMode } from "./read-state.ts";
 import { useMarkAllRead } from "./use-mark-all-read.ts";
 import { useNeedsYou, useNeedsYouCount } from "./use-needs-you.ts";
 
@@ -114,6 +115,7 @@ function FeedList(props: { id: string }) {
   const source = useFeedSource();
   const now = useNow();
   const keys = useViewListKeys<HTMLUListElement>();
+  const readMode = useReadMode();
   const panelId = `${props.id}-panel`;
   const panel = { id: panelId, role: "tabpanel", "aria-labelledby": tabId(props.id, tab) };
   // Esc from a card or an item's page comes back to the list, on the row it left.
@@ -164,6 +166,11 @@ function FeedList(props: { id: string }) {
   };
   return (
     <div {...panel}>
+      {readMode === "refused" && (
+        <p className="px-[11px] pt-1 pb-2 text-sm text-muted-foreground">
+          This device can't change read marks on the daemon, so they last only until you leave.
+        </p>
+      )}
       <ul {...keys} onKeyDown={onKeyDown} aria-label="Activity" className="flex flex-col gap-px">
         <ArrivalScope>
           {showNeeds &&

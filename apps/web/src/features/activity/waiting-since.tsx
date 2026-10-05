@@ -40,19 +40,36 @@ export function WaitingSinceProvider(props: { children: ReactNode }) {
       ),
     [],
   );
+  // A thread that stops waiting unmounts its reporter, which drops its entry: the map holds
+  // only what waits now.
+  const forget = useCallback(
+    (threadId: string) =>
+      setSince((current) => {
+        if (!current.has(threadId)) return current;
+        const next = new Map(current);
+        next.delete(threadId);
+        return next;
+      }),
+    [],
+  );
   return (
     <Context.Provider value={since}>
       {ids.map((id) => (
-        <Reporter key={id} threadId={id} report={report} />
+        <Reporter key={id} threadId={id} report={report} forget={forget} />
       ))}
       {props.children}
     </Context.Provider>
   );
 }
 
-function Reporter(props: { threadId: string; report(threadId: string, at: number): void }) {
+function Reporter(props: {
+  threadId: string;
+  report(threadId: string, at: number): void;
+  forget(threadId: string): void;
+}) {
   const at = useThread(props.threadId, ["interactions"], oldestPending);
-  const { threadId, report } = props;
+  const { threadId, report, forget } = props;
+  useEffect(() => () => forget(threadId), [threadId, forget]);
   useEffect(() => {
     if (at !== undefined) report(threadId, at);
   }, [threadId, at, report]);

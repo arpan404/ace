@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { questionOptions } from "@ace/ui-core";
 import { useHotkey } from "@/lib/hotkeys.ts";
+import { keymap } from "@/lib/keymap.ts";
 import {
   ButtonKey,
   CardActions,
@@ -106,8 +107,14 @@ export function PlanBody(props: { interaction: Interaction; cardKey: string }) {
     answer({ kind: "plan_review", decision: "approve" }, confirmations.planApproved);
   const reject = () =>
     answer({ kind: "plan_review", decision: "reject" }, confirmations.planRejected);
-  useHotkey("a", approve, { enabled: focused && !sending });
-  useHotkey("d", reject, { enabled: focused && !sending });
+  useHotkey(keymap["activity.approve"].keys, approve, {
+    id: "activity.approve",
+    enabled: focused && !sending,
+  });
+  useHotkey(keymap["activity.deny"].keys, reject, {
+    id: "activity.deny",
+    enabled: focused && !sending,
+  });
   return (
     <>
       <p className="line-clamp-4 text-[13.5px] leading-normal whitespace-pre-line text-muted-foreground">

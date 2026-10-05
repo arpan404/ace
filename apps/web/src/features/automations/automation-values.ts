@@ -1,4 +1,4 @@
-import { ProviderKind, type Automation } from "@ace/protocol";
+import { ProviderKind, type Automation, type AutomationSchedule } from "@ace/protocol";
 import { z } from "zod";
 import { presetToSchedule, scheduleToPreset, weekdays, type SchedulePreset } from "./schedule.ts";
 
@@ -30,6 +30,8 @@ export const AutomationForm = z
       .min(1, "Enter whole hours from 1 to 23.")
       .max(23, "Enter whole hours from 1 to 23."),
     timezone: z.string().refine(isTimeZone, "Choose a time zone from the list."),
+    /** An existing schedule's DTSTART, which anchors its recurrence; new ones start now. */
+    startAt: z.number().optional(),
     syntax: z.enum(["rrule", "cron"]),
     expression: z.string().trim(),
     repository: z.string().trim(),
@@ -131,6 +133,7 @@ export function formFromAutomation(automation: Automation, localZone: string): A
     trigger: "schedule" as const,
     cadence: preset.kind,
     timezone: trigger.schedule.timezone,
+    startAt: trigger.schedule.startAt,
   };
   switch (preset.kind) {
     case "custom":
@@ -158,6 +161,14 @@ export function presetFromForm(form: AutomationForm): SchedulePreset {
   }
 }
 
+/**
+ * The schedule the form describes, anchored where it will be saved: the existing DTSTART when
+ * editing, else `now`. The read-back and the save both use this, so the preview is what runs.
+ */
+export function scheduleFromForm(form: AutomationForm, now: number): AutomationSchedule {
+  return presetToSchedule(presetFromForm(form), form.timezone, form.startAt ?? now);
+}
+
 /** The trigger a submitted form describes, keeping what the form doesn't show. */
 function triggerFromForm(
   form: AutomationForm,
@@ -183,14 +194,7 @@ function triggerFromForm(
       };
     }
     case "schedule":
-      return {
-        kind: "schedule",
-        schedule: presetToSchedule(
-          presetFromForm(form),
-          form.timezone,
-          previous?.kind === "schedule" ? previous.schedule.startAt : now,
-        ),
-      };
+      return { kind: "schedule", schedule: scheduleFromForm(form, now) };
   }
 }
 

@@ -5,11 +5,10 @@ import { Select } from "@/components/ui/select.tsx";
 import { useNow } from "@/lib/time.ts";
 import { Row, invalidProps, visible } from "./form-row.tsx";
 import type { AutomationFormApi } from "./use-automation-form.ts";
-import { AutomationForm, hourSteps, presetFromForm } from "./automation-values.ts";
+import { AutomationForm, hourSteps, scheduleFromForm } from "./automation-values.ts";
 import {
   describeSchedule,
   formatRunInZone,
-  presetToSchedule,
   timeZones,
   upcomingRuns,
   weekdayName,
@@ -215,7 +214,7 @@ function ScheduleReadBack(props: { values: AutomationForm }) {
   const issues = AutomationForm.safeParse(props.values).error?.issues ?? [];
   if (issues.some((issue) => scheduleFields.has(String(issue.path[0])))) return null;
   const { timezone } = props.values;
-  const schedule = presetToSchedule(presetFromForm(props.values), timezone, now);
+  const schedule = scheduleFromForm(props.values, now);
   const next = upcomingRuns(schedule, now).map((at) => formatRunInZone(at, timezone));
   return (
     <p aria-live="polite" className="-mt-1 mb-4 text-sm text-muted-foreground">

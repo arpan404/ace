@@ -1,13 +1,18 @@
-import { useInteraction } from "@ace/client-react";
+import {
+  useConnectionState,
+  useInteraction,
+  useThreadError,
+  useThreadMeta,
+} from "@ace/client-react";
 import type { AutomationRun } from "@ace/protocol";
 import { CheckCircleIcon, TrayIcon, XCircleIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Suspense, lazy, useEffect, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
-import { automationRunSummary } from "@/features/automations/index.ts";
+import { automationRunSummary, useAutomationRuns } from "@/features/automations/index.ts";
 import { Page } from "@/features/shell/index.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -36,14 +41,37 @@ export function ItemDetail(props: { itemKey: string }) {
   useEffect(() => focusCard(itemKey), [focusCard, itemKey]);
   if (itemKey.startsWith("interaction:")) {
     const [, threadId = "", interactionId = ""] = itemKey.split(":");
-    return <RequestDetail threadId={threadId} interactionId={interactionId} itemKey={itemKey} />;
+    return (
+      <RequestDetailRetry threadId={threadId} interactionId={interactionId} itemKey={itemKey} />
+    );
   }
   return <FeedDetailPage itemKey={itemKey} />;
 }
 
-function RequestDetail(props: { threadId: string; interactionId: string; itemKey: string }) {
+/** A failed thread read is tried again by reading the thread afresh. */
+function RequestDetailRetry(props: { threadId: string; interactionId: string; itemKey: string }) {
+  const [attempt, setAttempt] = useState(0);
+  return <RequestDetail key={attempt} {...props} onRetry={() => setAttempt((n) => n + 1)} />;
+}
+
+function RequestDetail(props: {
+  threadId: string;
+  interactionId: string;
+  itemKey: string;
+  onRetry(): void;
+}) {
   const interaction = useInteraction(props.threadId, props.interactionId);
-  if (interaction === undefined) return <DetailLoading />;
+  const thread = useThreadMeta(props.threadId);
+  const error = useThreadError(props.threadId);
+  const ready = useConnectionState() === "ready";
+  if (interaction === undefined) {
+    if (error?.code === "daemon" && error.message === "not_found")
+      return <Gone title="This thread is gone" />;
+    if (error) return <Unavailable onRetry={props.onRetry} />;
+    // The thread has loaded and has no such request: the link is stale.
+    if (thread) return <Gone title="This request is no longer open" />;
+    return ready ? <DetailLoading /> : <Unavailable />;
+  }
   if (interaction.state !== "pending") return <Gone title="This request was answered" />;
   return (
     <Page>
@@ -58,16 +86,24 @@ function RequestDetail(props: { threadId: string; interactionId: string; itemKey
 
 function FeedDetailPage(props: { itemKey: string }) {
   const feed = useFeed();
+  const runs = useAutomationRuns();
+  const ready = useConnectionState() === "ready";
   const { itemKey } = props;
   if (itemKey.startsWith("run:")) {
     const id = itemKey.slice("run:".length);
     const run = feed.runs?.find((candidate) => candidate.id === id);
     if (run) return <RunDetail run={run} />;
-    return feed.runsSettled ? <Gone title="This run is no longer listed" /> : <DetailLoading />;
+    if (runs.isError) return <Unavailable onRetry={() => void runs.refetch()} />;
+    if (feed.runs !== undefined) return <Gone title="This run is no longer listed" />;
+    return ready ? <DetailLoading /> : <Unavailable />;
   }
   const id = itemKey.slice("event:".length);
   const event = feed.events.find((candidate) => candidate.id === id);
-  if (!event) return <Gone title="This item is no longer in Activity" />;
+  if (!event) {
+    if (feed.eventsFailed) return <Unavailable onRetry={feed.retryEvents} />;
+    if (feed.eventsSettled) return <Gone title="This item is no longer in Activity" />;
+    return ready ? <DetailLoading /> : <Unavailable />;
+  }
   if (event.kind === "escalation")
     return (
       <Page>
@@ -86,6 +122,28 @@ function DetailLoading() {
         <SkeletonText lines={4} className="mt-6" />
       </LoadingRegion>
     </Page>
+  );
+}
+
+/** Not readable now: offline, or the daemon didn't answer. */
+function Unavailable(props: { onRetry?: () => void }) {
+  return (
+    <EmptyState
+      icon={TrayIcon}
+      title="Couldn't load this item"
+      description={
+        props.onRetry
+          ? "The daemon didn't answer."
+          : "Not connected to the daemon. It loads once the connection is back."
+      }
+      action={
+        props.onRetry ? (
+          <Button size="sm" onClick={props.onRetry}>
+            Try again
+          </Button>
+        ) : undefined
+      }
+    />
   );
 }
 

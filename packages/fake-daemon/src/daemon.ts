@@ -116,7 +116,7 @@ export class FakeDaemon implements Host {
   private resolvedListeners = new Set<ResolvedListener>();
   private outputs = new FakeOutputStore();
   private longThreads: FakeLongThreadWire;
-  private faults = new Map<string, "fail" | "hold">();
+  private faults = new Map<string, "fail" | "hold" | { code: string }>();
   private refusals = new Map<string, string>();
   private refusing = false;
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
@@ -144,6 +144,10 @@ export class FakeDaemon implements Host {
     this.appDevices = new FakeAppDevices(options.clock);
     this.services = new FakeServices({
       clock: options.clock,
+      broadcast: (message) => {
+        for (const connection of this.connections)
+          if (connection.authenticated) connection.push(message);
+      },
       thread: (threadId) => {
         const host = this.threads.get(threadId);
         return (
@@ -477,6 +481,10 @@ export class FakeDaemon implements Host {
   failRequests(...types: ClientMessage["type"][]): void {
     for (const type of types) this.faults.set(type, "fail");
   }
+  /** Refuse these requests with the daemon error `code` ("forbidden", "activity_unavailable"). */
+  refuseRequests(code: string, ...types: ClientMessage["type"][]): void {
+    for (const type of types) this.faults.set(type, { code });
+  }
   /** Never answer these requests, so the page stays on its loading state. */
   holdRequests(...types: ClientMessage["type"][]): void {
     for (const type of types) this.faults.set(type, "hold");
@@ -497,7 +505,7 @@ export class FakeDaemon implements Host {
     this.faults.clear();
     this.refusals.clear();
   }
-  fault(type: ClientMessage["type"]): "fail" | "hold" | undefined {
+  fault(type: ClientMessage["type"]): "fail" | "hold" | { code: string } | undefined {
     return this.faults.get(type);
   }
   /** While on, every connection is dropped as it opens, as a stopped daemon would. */

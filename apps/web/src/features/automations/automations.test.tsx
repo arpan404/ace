@@ -470,3 +470,34 @@ test("while the list loads, the main pane doesn't claim nothing is selected", as
   expect(await within(aside).findByRole("status", { name: "Loading automations" })).toBeTruthy();
   expect(screen.queryByText("No automation selected")).toBeNull();
 });
+
+test("while a save is on its way the form is locked and leaving still asks", async () => {
+  const { app, sidebar } = await open("/automations/new");
+  await heading("New automation");
+  await userEvent.type(field("Name"), "Slow save");
+  await userEvent.type(field("What should the agent do?"), "Summarise the night's CI.");
+  app.daemon.holdRequests("automation.put");
+  await userEvent.click(screen.getByRole("button", { name: "Create automation" }));
+
+  // Nothing typed now could be left out of the save.
+  await waitFor(() => expect(field("Name").matches(":disabled")).toBe(true));
+  await userEvent.click(sidebar.getByRole("link", { name: /Flaky test triage/ }));
+  expect(
+    await screen.findByRole("dialog", { name: "Discard changes to this automation?" }),
+  ).toBeTruthy();
+});
+
+/** Whether closing the window now would be stopped to ask. */
+function leave() {
+  const event = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+test("closing the window with unsaved changes asks the browser to confirm", async () => {
+  await open("/automations/new");
+  await heading("New automation");
+  expect(leave()).toBe(false);
+  await userEvent.type(field("Name"), "Half-written");
+  expect(leave()).toBe(true);
+});

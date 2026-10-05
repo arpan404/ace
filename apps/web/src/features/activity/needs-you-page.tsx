@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
-import { keymap } from "@/lib/keymap.ts";
+import { keymap, type KeymapId } from "@/lib/keymap.ts";
 import { Page, PageTitle } from "@/features/shell/index.ts";
 import { useActivityState } from "./activity-state.tsx";
 import { EscalationCard } from "./escalation-card.tsx";
@@ -140,24 +140,29 @@ function useFocusFollowsCards() {
   return [watch, list] as const;
 }
 
-const legend: [string, string][] = [
-  [keymap["activity.next"].keys, "next"],
-  [keymap["activity.prev"].keys, "previous"],
-  [keymap["activity.approve"].keys, "approve"],
-  [keymap["activity.deny"].keys, "deny"],
-  ["1", "choose"],
-  ["o", "open thread"],
-  ["h", "snooze"],
-  ["x", "pick"],
+/** The card keys: shortcuts with an id follow their rebinding, the rest are fixed keys. */
+const legend: { label: string; shortcut?: KeymapId; keys?: string }[] = [
+  { label: "next", shortcut: "activity.next" },
+  { label: "previous", shortcut: "activity.prev" },
+  { label: "approve", shortcut: "activity.approve" },
+  { label: "deny", shortcut: "activity.deny" },
+  { label: "choose", keys: "1" },
+  { label: "open thread", keys: "o" },
+  { label: "snooze", keys: "h" },
+  { label: "pick", keys: "x" },
 ];
 
 function KeyLegend() {
   return (
     <p className="mt-[22px] flex flex-wrap gap-4 text-sm text-muted-foreground">
-      {legend.map(([keys, label]) => (
-        <span key={label} className="inline-flex items-center gap-[5px]">
-          <Kbd keys={keys} />
-          {label}
+      {legend.map((entry) => (
+        <span key={entry.label} className="inline-flex items-center gap-[5px]">
+          {entry.shortcut ? (
+            <Kbd shortcut={entry.shortcut} />
+          ) : (
+            <Kbd keys={entry.keys ?? ""} resolve={false} />
+          )}
+          {entry.label}
         </span>
       ))}
     </p>

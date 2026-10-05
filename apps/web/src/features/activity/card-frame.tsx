@@ -85,7 +85,15 @@ function CardMenu(props: { threadId: string; focused: boolean }) {
   return (
     <Menu open={open} onOpenChange={setOpen}>
       <MenuTrigger
-        render={<IconButton icon={DotsThreeIcon} size="sm" label="Card actions" keys="h" />}
+        render={
+          <IconButton
+            icon={DotsThreeIcon}
+            size="sm"
+            label="Card actions"
+            keys="h"
+            resolve={false}
+          />
+        }
       />
       <MenuContent align="end">
         <SnoozeItems entry={thread} actions={actions} snoozed={(thread.snoozedUntil ?? 0) > now} />

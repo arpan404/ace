@@ -1,17 +1,11 @@
-import {
-  ActivityReadCursor,
-  applyActivityReads,
-  type ActivityItemRef,
-  type ActivityReadsChanged,
-} from "@ace/protocol";
+import { ActivityReadCursor, type ActivityReadsChanged } from "@ace/protocol";
+import { applyActivityReads, type ActivityReadChange } from "@ace/projection/activity-reads";
 import type { DatabaseSync } from "@ace/provider-kit/sqlite";
+import { z } from "zod";
 import type { Store } from "./store.ts";
 
-export interface ActivityReadChange {
-  read?: readonly ActivityItemRef[];
-  unread?: readonly ActivityItemRef[];
-  allBefore?: number;
-}
+export type { ActivityReadChange };
+const Row = z.object({ cursor: z.string() });
 
 /**
  * The Activity read cursor (protocol `activity.reads`): one per host, in the event store, so
@@ -56,10 +50,10 @@ export class ActivityReads {
   }
 
   private read(db: DatabaseSync): ActivityReadCursor {
-    const row = db.prepare("SELECT cursor FROM activity_read_cursor WHERE id = 1").get() as
-      | { cursor: string }
-      | undefined;
-    const stored = row ? ActivityReadCursor.safeParse(parse(row.cursor)) : undefined;
+    const row = Row.safeParse(
+      db.prepare("SELECT cursor FROM activity_read_cursor WHERE id = 1").get(),
+    );
+    const stored = row.success ? ActivityReadCursor.safeParse(parse(row.data.cursor)) : undefined;
     if (stored?.success) return stored.data;
     const fresh: ActivityReadCursor = { before: this.now(), read: [], unread: [], revision: 0 };
     db.prepare("INSERT OR REPLACE INTO activity_read_cursor (id, cursor) VALUES (1, ?)").run(

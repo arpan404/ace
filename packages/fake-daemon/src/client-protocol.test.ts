@@ -959,3 +959,21 @@ test("a queued follow-up is visible before a held queue read returns", async () 
     await f.client.close();
   }
 });
+
+test("an Activity read mark reaches every connected device, even one that never read the cursor", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const laptop = await fixture(daemon);
+  const phone = await fixture(daemon);
+  const heard: Message[] = [];
+  phone.client.onMessage((message) => heard.push(message));
+  await laptop.client.request({
+    type: "activity.markRead",
+    read: [{ id: "ci:thread:sha", at: 5000 }],
+  });
+  expect(heard).toContainEqual(
+    expect.objectContaining({
+      type: "activity.reads.changed",
+      cursor: expect.objectContaining({ read: [{ id: "ci:thread:sha", at: 5000 }] }),
+    }),
+  );
+});

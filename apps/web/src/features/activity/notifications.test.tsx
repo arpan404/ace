@@ -54,7 +54,7 @@ test("a thread that starts needing you raises a toast naming the request, and Re
   expect(screen.getAllByRole("article")).toHaveLength(1);
 });
 
-test("a needs-you toast goes once the request is answered elsewhere", async () => {
+test("a needs-you toast goes once the request is answered", async () => {
   const app = harness();
   const checkout = app.play(flakyCheckout());
   checkout.runThrough("watcher-started");

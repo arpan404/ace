@@ -5,7 +5,7 @@ import { useAutomationRuns } from "@/features/automations/index.ts";
 import { notifyInBrowser } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
-import { runToasts } from "./toast-rules.ts";
+import { runStatusLine, runToasts } from "./toast-rules.ts";
 
 /** A failed run's toast stays as long as a request's: it wants a look. */
 const failedTimeout = 10_000;
@@ -29,6 +29,9 @@ export default function RunNotifier() {
   useEffect(() => {
     if (!runs) return;
     const { prefs: current, toast: toasts, navigate: go } = latest.current;
+    // Only runs still in the inbox can come back; forget the rest.
+    const listed = new Set(runs.map((run) => run.id));
+    for (const id of toasted.current) if (!listed.has(id)) toasted.current.delete(id);
     for (const cause of runToasts(runs, current, since, toasted.current)) {
       if (cause.kind !== "automation") continue;
       const { run } = cause;
@@ -37,7 +40,9 @@ export default function RunNotifier() {
         void go({ to: "/activity", search: { item: `run:${run.id}` } satisfies { item: string } });
       const title = run.status === "failed" ? `${run.title} failed` : `${run.title} finished`;
       if (!documentVisibility.visible()) {
-        if (current.browser) notifyInBrowser({ title, body: run.result ?? "", tag: run.id, open });
+        // No run output on a lock screen: the system notification says only what happened.
+        if (current.browser)
+          notifyInBrowser({ title, body: runStatusLine(run), tag: run.id, open });
         continue;
       }
       toasts.add({

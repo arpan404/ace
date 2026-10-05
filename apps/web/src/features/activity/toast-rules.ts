@@ -50,3 +50,11 @@ export function runToasts(
     )
     .map((run) => ({ kind: "automation", run }));
 }
+
+/**
+ * What a system notification may say about a run: its outcome, never its output (ADR 0012
+ * keeps previews off lock screens unless asked for).
+ */
+export function runStatusLine(run: Pick<AutomationRun, "status">): string {
+  return run.status === "failed" ? "The automation run failed" : "The automation run finished";
+}

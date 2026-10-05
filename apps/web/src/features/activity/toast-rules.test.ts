@@ -1,6 +1,6 @@
 import type { AutomationRun } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { runToasts } from "./toast-rules.ts";
+import { runStatusLine, runToasts } from "./toast-rules.ts";
 
 const prefs = { needsYou: true, failures: true, automations: true, browser: false };
 const run = (id: string, finishedAt: number | undefined): AutomationRun => ({
@@ -28,4 +28,11 @@ test("runs that finished before the app opened, or are still going, raise nothin
   expect(
     runToasts([run("quick", 1_500)], { ...prefs, automations: false }, 1_000, new Set()),
   ).toEqual([]);
+});
+
+test("a system notification about a run says what happened, never what it printed", () => {
+  const failed = { ...run("secret", 1_500), status: "failed" as const, result: "token=abc123" };
+  expect(runStatusLine(failed)).toBe("The automation run failed");
+  expect(runStatusLine(failed)).not.toContain("abc123");
+  expect(runStatusLine(run("ok", 1_500))).toBe("The automation run finished");
 });

@@ -71,7 +71,7 @@ test("Mentions and Runs ask for a choice rather than showing the request cards",
   expect(main().queryByRole("article", { name: "Install @fontsource/noto-sans-jp?" })).toBeNull();
 });
 
-test("read marks are the daemon's: they're sent there and come back on another open", async () => {
+test("read marks go to the daemon, and another device's marks arrive at once", async () => {
   const { app, feed } = await openActivity();
   await userEvent.click(feed.getByText("Checks failed on #74"));
   await waitFor(() =>
@@ -217,11 +217,18 @@ test("what needs you is listed oldest first, the same in the sidebar and the car
   expect(order(rows).map((row) => row.slice(0, 12))).toEqual(
     order(cards.map((card) => card ?? "")).map((card) => card.slice(0, 12)),
   );
+  // Oldest first: each card has waited at least as long as the one below it.
+  const minutes = (await main().findAllByRole("article")).map((card) => {
+    const age = within(card).getByText(/^(now|\d+[mhdw])$/).textContent ?? "";
+    const unit = { m: 1, h: 60, d: 1440, w: 10080 }[age.slice(-1)] ?? 0;
+    return (Number.parseInt(age, 10) || 0) * unit;
+  });
+  expect(minutes).toEqual(minutes.toSorted((a, b) => b - a));
   // The rest of the feed sits under day headings.
   expect(feed.getByRole("heading", { level: 3, name: "Today" })).toBeTruthy();
 });
 
-test("H snoozes the focused card's thread, which leaves Needs you until it wakes", async () => {
+test("H snoozes the focused card's thread, which leaves Needs you", async () => {
   await openActivity();
   const cards = await main().findAllByRole("article");
   const first = cards[0];
@@ -281,4 +288,93 @@ test("the list never says it's empty before the runs arrive", async () => {
   const sidebar = await screen.findByRole("complementary", { name: "Activity" });
   expect(await within(sidebar).findByRole("status", { name: "Loading activity" })).toBeTruthy();
   expect(within(sidebar).queryByText("No activity yet")).toBeNull();
+});
+
+test("a mark the daemon couldn't take is kept and sent with the next one", async () => {
+  const { app, feed } = await openActivity();
+  app.daemon.failRequests("activity.markRead");
+  await userEvent.click(feed.getByText("Checks failed on #74"));
+  // Still shown as read here, and not given up on.
+  await waitFor(() =>
+    expect(within(rowOf(feed, "Checks failed on #74")).queryByText("Unread")).toBeNull(),
+  );
+  app.daemon.restoreRequests();
+  await userEvent.click(screen.getByRole("tab", { name: "Runs" }));
+  await userEvent.click(feed.getByText("Nothing flaky across 3 runs"));
+  await waitFor(() => {
+    const read = app.daemon.services.activityReads.get().read.map((entry) => entry.id);
+    expect(read).toContain("run-flaky-1");
+    expect(read.some((id) => id.startsWith("ci:"))).toBe(true);
+  });
+});
+
+test("a device that may not change read marks says so, and marks still apply here", async () => {
+  const { app, feed } = await openActivity();
+  app.daemon.refuseRequests("forbidden", "activity.markRead");
+  await userEvent.click(feed.getByText("Checks failed on #74"));
+  expect(await screen.findByText(/This device can't change read marks/)).toBeTruthy();
+  expect(within(rowOf(feed, "Checks failed on #74")).queryByText("Unread")).toBeNull();
+});
+
+test("a daemon without the read cursor keeps marks for this session, quietly", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  app.daemon.refuseRequests("activity_unavailable", "activity.reads", "activity.markRead");
+  await app.open("/activity");
+  const sidebar = await screen.findByRole("complementary", { name: "Activity" });
+  const feed = within(await within(sidebar).findByRole("list", { name: "Activity" }));
+  await feed.findByText("Checks failed on #74");
+  expect(screen.queryByText(/This device can't change read marks/)).toBeNull();
+});
+
+test("a link to a request that's no longer open says so instead of loading", async () => {
+  await openActivity(
+    `/activity?item=${encodeURIComponent("interaction:thread-retry-budget:not-a-request")}`,
+  );
+  expect(await main().findByText("This request is no longer open")).toBeTruthy();
+});
+
+test("a link to an event the feed doesn't have says it's gone once the feed has loaded", async () => {
+  await openActivity(`/activity?item=${encodeURIComponent("event:mention:gone:issue:1")}`);
+  expect(await main().findByText("This item is no longer in Activity")).toBeTruthy();
+});
+
+test("a run that can't be read offers to try again", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  app.daemon.failRequests("automation.inbox");
+  await app.open(`/activity?item=${encodeURIComponent("run:run-flaky-1")}`);
+  await screen.findByRole("main");
+  expect(await main().findByText("Couldn't load this item", {}, { timeout: 4000 })).toBeTruthy();
+  app.daemon.restoreRequests();
+  await userEvent.click(main().getByRole("button", { name: "Try again" }));
+  expect(await main().findByRole("article", { name: "Flaky test triage" })).toBeTruthy();
+});
+
+test("a rebound Next key moves between cards", async () => {
+  const { app } = await openActivity();
+  await app.client.request({
+    type: "settings.set",
+    key: "clients.keybindings",
+    value: { "activity.next": "n" },
+    layer: { kind: "global" },
+  });
+  const cards = await main().findAllByRole("article");
+  await waitFor(() => expect(cards[0]?.getAttribute("aria-current")).toBe("true"));
+  await waitFor(async () => {
+    await userEvent.keyboard("n");
+    expect(main().getAllByRole("article")[1]?.getAttribute("aria-current")).toBe("true");
+  });
+});
+
+test("a deck worker's question still shows after Activity is left and opened again", async () => {
+  await openActivity();
+  const name = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
+  expect(await main().findByRole("article", { name })).toBeTruthy();
+  const app = within(screen.getByRole("navigation", { name: "Views" }));
+  await userEvent.click(app.getByRole("link", { name: /^Home/ }));
+  await userEvent.click(app.getByRole("link", { name: /^Activity/ }));
+  expect(await main().findByRole("article", { name })).toBeTruthy();
 });
