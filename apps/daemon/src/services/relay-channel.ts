@@ -1,4 +1,9 @@
-import { connectDevices, sendDeviceFrame, type DevicesService } from "@ace/devices";
+import {
+  connectDevices,
+  sendDeviceFrame,
+  devicePacketDelivery,
+  type DevicesService,
+} from "@ace/devices";
 import { connectBrowser, type BrowserService } from "@ace/browser";
 import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
 import { chunkFilesChannel, attachFilesRelay, type FilesService } from "@ace/files";
@@ -55,15 +60,19 @@ export function attachRelayService(
       agentExists: (threadId, agentId) =>
         options.store?.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !== undefined,
       send,
-      frame: (packet) =>
-        sendDeviceFrame(
-          packet,
-          (chunk) => channel.sendBinary(chunk),
-          () => authorize("admin"),
-        ).catch((error: unknown) => {
-          channel.close();
-          throw error;
-        }),
+      ...devicePacketDelivery({
+        bufferedBytes: () => channel.bufferedBytes,
+        authorize: () => authorize("admin"),
+        write: (packet) =>
+          sendDeviceFrame(
+            packet,
+            (chunk) => channel.sendBinary(chunk),
+            () => authorize("admin"),
+          ).catch((error: unknown) => {
+            channel.close();
+            throw error;
+          }),
+      }),
     });
     return {
       accept(message: ClientMessage) {

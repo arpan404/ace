@@ -33,6 +33,8 @@ export class FrameDecoder {
               width: wire.width,
               height: wire.height,
               codec: wire.codec,
+              keyframe: wire.keyframe,
+              videoCodec: wire.videoCodec,
               bytes: wire.bytes,
               scale: wire.scale,
               ...(wire.captureGeneration ? { captureGeneration: wire.captureGeneration } : {}),
