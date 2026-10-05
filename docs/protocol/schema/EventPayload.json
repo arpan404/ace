@@ -396,6 +396,10 @@
         "closedAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "expirationReason": {
+          "const": "provider_disconnected",
+          "type": "string"
+        },
         "interactionId": {
           "$ref": "https://ace.local/protocol/v1/InteractionId.json"
         },

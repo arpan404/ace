@@ -126,9 +126,84 @@ test("provider exit expires unanswered requests and returns a typed expired rece
         interactionId: interaction.id,
         resolution: { kind: "approval", optionId: "yes" },
       }),
-    ).toMatchObject({ ok: false, error: "interaction_expired", code: "interaction_expired", title: "Question expired", detail: expect.stringContaining("provider disconnected") });
+    ).toMatchObject({
+      ok: false,
+      error: "interaction_expired",
+      code: "interaction_expired",
+      title: "Question expired",
+      detail: expect.stringContaining("provider disconnected"),
+    });
     expect(h.adapter.commands.filter((command) => command.type === "resolve")).toEqual([]);
   } finally {
+    await h.close();
+  }
+});
+
+test("an answer racing process exit expires and cannot resolve on a replacement session", async () => {
+  const frames = scriptFrames();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, question)] }], frames, {
+    permissionSettings: async () => "ask",
+  });
+  const base = h.registry.get("codex");
+  h.registry.register(
+    {
+      ...base.adapter,
+      async openSession(ctx) {
+        const session = await base.adapter.openSession(ctx);
+        const resolve = session.resolve.bind(session);
+        session.resolve = async (key, resolution) => {
+          entered.resolve();
+          await release.promise;
+          return resolve(key, resolution);
+        };
+        return session;
+      },
+    },
+    base.discovery,
+  );
+  try {
+    const id = await h.create();
+    const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+    const context = h.contexts[0];
+    if (!interaction || !context) throw new Error("No live request");
+    h.command(
+      {
+        type: "interaction.resolve",
+        interactionId: interaction.id,
+        resolution: { kind: "approval", optionId: "yes" },
+      },
+      "device",
+      "racing-answer",
+    );
+    const flushing = h.engine.flush();
+    try {
+      await entered.promise;
+      context.onExit({ deliberate: false });
+    } finally {
+      release.resolve();
+    }
+    await flushing;
+    const view = h.store.snapshotThread(id);
+    expect(view.interactions[interaction.id]).toMatchObject({
+      state: "expired",
+      expirationReason: "provider_disconnected",
+    });
+    const failures = Object.values(view.items).filter(
+      (item) => item.type === "notice" && item.commandId === "racing-answer",
+    );
+    expect(failures).toEqual([
+      expect.objectContaining({
+        code: "interaction_expired",
+        interactionId: interaction.id,
+        text: expect.stringContaining("expired"),
+        title: "This question is no longer active",
+      }),
+    ]);
+    expect(h.contexts).toHaveLength(1);
+  } finally {
+    release.resolve();
     await h.close();
   }
 });

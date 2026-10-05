@@ -27,13 +27,19 @@ export class InteractionLedger {
   }
   private store: Store;
   outcome(id: ThreadId, interaction: string): import("@ace/protocol").InteractionState | undefined {
-    const row = this.store.statement("SELECT state FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=?").get(id, interaction);
+    const row = this.store
+      .statement(
+        "SELECT state FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=?",
+      )
+      .get(id, interaction);
     return row ? InteractionState.parse(row.state) : undefined;
   }
   bind(id: ThreadId): void {
     const binding = this.binding(id);
     const provider = binding.slice(0, binding.indexOf(":"));
-    this.store.statement("UPDATE engine_interaction_requests SET binding=? WHERE thread_id=? AND binding=?").run(binding, id, `${provider}:`);
+    this.store
+      .statement("UPDATE engine_interaction_requests SET binding=? WHERE thread_id=? AND binding=?")
+      .run(binding, id, `${provider}:`);
   }
   latestGeneration(id: ThreadId): number {
     return z

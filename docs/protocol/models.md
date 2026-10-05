@@ -42,6 +42,7 @@ Example:
 
 ```json
 {
+  "defaultTier": "example",
   "deprecated": false,
   "displayName": "example",
   "hidden": true,
@@ -49,15 +50,15 @@ Example:
   "inputModalities": [],
   "instance": "example",
   "instanceId": "example",
-  "isDefault": true,
+  "isDefault": false,
+  "modelConfigId": "example",
   "nativeModelId": "example",
-  "provider": "acp",
+  "provider": "cursor",
   "raw": {
     "json": "example",
     "truncated": true
   },
   "reasoningEfforts": [],
-  "resolvedModelId": "example",
   "serviceTiers": []
 }
 ```
@@ -78,6 +79,7 @@ Example:
 
 ```json
 {
+  "acpAgentId": "example",
   "instance": "example"
 }
 ```
@@ -102,12 +104,12 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
+  "error": "persistence_failed",
+  "installationId": "example",
   "instance": "example",
-  "provider": "opencode",
-  "refreshedAt": 6,
+  "provider": "claude",
   "refreshing": true,
-  "stale": false
+  "stale": true
 }
 ```
 
@@ -129,7 +131,8 @@ Example:
 
 ```json
 {
-  "limit": 10
+  "acpAgentId": "example",
+  "offset": 1
 }
 ```
 
@@ -171,26 +174,30 @@ Example:
 
 ```json
 {
+  "effort": "example",
   "model": {
+    "defaultTier": "example",
     "deprecated": true,
     "displayName": "example",
     "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
-    "isDefault": true,
+    "isDefault": false,
+    "isNew": true,
     "nativeModelId": "example",
-    "provider": "opencode",
+    "provider": "pi",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "reasoningEfforts": [],
+    "selectorMethod": "session/set_model",
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": true
+  "stale": false
 }
 ```
 
@@ -233,10 +240,10 @@ Example:
 
 ```json
 {
-  "effort": "example",
+  "acpAgentId": "example",
   "instance": "example",
-  "provider": "antigravity",
   "role": "example",
+  "selection": "default",
   "tier": "example"
 }
 ```
@@ -296,6 +303,8 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "imageInput": true,
+    "installationId": "example",
+    "instanceId": "example",
     "role": "example"
   },
   "type": "models.resolve"
@@ -318,8 +327,9 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": false,
-    "reason": "example"
+    "instances": [],
+    "models": [],
+    "nextOffset": 0
   },
   "type": "models.result"
 }
@@ -341,7 +351,6 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example",
-  "parameters": {}
+  "name": "example"
 }
 ```

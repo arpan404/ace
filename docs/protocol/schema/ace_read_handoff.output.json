@@ -1393,6 +1393,10 @@
                 "minLength": 1,
                 "type": "string"
               },
+              "interactionId": {
+                "minLength": 1,
+                "type": "string"
+              },
               "level": {
                 "enum": [
                   "info",

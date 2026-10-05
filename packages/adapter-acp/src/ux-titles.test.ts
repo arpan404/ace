@@ -17,3 +17,34 @@ test("ACP and Cursor session info titles are available to the daemon", () => {
     ]),
   );
 });
+
+test("adopting an ACP title retains unknown fields in a separate raw item", () => {
+  const h = harness();
+  h.ready();
+  const events = h.update({
+    sessionUpdate: "session_info_update",
+    title: "A readable title",
+    futureMetadata: { providerExtension: "retain this" },
+  });
+  expect(events).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: "item.created",
+        item: expect.objectContaining({
+          type: "notice",
+          raw: expect.arrayContaining([
+            expect.objectContaining({
+              data: expect.objectContaining({
+                params: expect.objectContaining({
+                  update: expect.objectContaining({
+                    futureMetadata: { providerExtension: "retain this" },
+                  }),
+                }),
+              }),
+            }),
+          ]),
+        }),
+      }),
+    ]),
+  );
+});

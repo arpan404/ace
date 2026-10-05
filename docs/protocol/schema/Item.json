@@ -200,6 +200,9 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
         "level": {
           "enum": [
             "info",

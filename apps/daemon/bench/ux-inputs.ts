@@ -16,7 +16,7 @@ const clock: EngineClock = {
   },
 };
 const percentile = (values: number[], fraction: number) =>
-  [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) * fraction)];
+  values.toSorted((a, b) => a - b)[Math.floor((values.length - 1) * fraction)];
 for (const history of [0, 1_000, 10_000, 50_000]) {
   const home = await mkdtemp(join(tmpdir(), "ace-ux-bench-"));
   const bundles = new Map<number, Fact[]>();
