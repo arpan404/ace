@@ -3,6 +3,7 @@ import { z } from "zod";
 import { expect, test } from "vitest";
 import { Client } from "@ace/client";
 import {
+  Project,
   DeviceId,
   ProviderKind,
   WorkspaceId,
@@ -916,6 +917,98 @@ test("provider discovery keeps native CLI login separate from ace account record
       path: "/display/home",
       canonicalPath: "/canonical/home",
       roots: ["/canonical/home"],
+    });
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("fake picker uses the machine's roots, completion and clone contract", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.projects.seedFolders("/home/person", [
+      { path: "/home/person/Code", git: true },
+      { path: "/home/person/Configs" },
+      { path: "/home/person/node_modules/Code" },
+      { path: "/home/person/Library/Code" },
+      { path: "/home/person/.hidden/Code" },
+    ]);
+    expect(await f.client.projects.add({ path: "/home/person/Code" })).toMatchObject({ ok: true });
+    expect(await f.client.projects.search({ query: "Code" })).toMatchObject({
+      result: {
+        kind: "search",
+        entries: [
+          { name: "Code", isGitRepo: true, isProject: true, lastOpened: 1000, recentScore: 1 },
+        ],
+      },
+    });
+    expect(await f.client.projects.complete({ path: "~/Co", limit: 1 })).toMatchObject({
+      result: {
+        kind: "completion",
+        commonPrefix: "~/Co",
+        candidates: [{ path: "/home/person/Code", completion: "~/Code/" }],
+        truncated: true,
+      },
+    });
+    expect(await f.client.projects.validateCloneUrl("arpan404/ace")).toMatchObject({
+      result: { kind: "cloneUrl", name: "ace", url: "https://github.com/arpan404/ace.git" },
+    });
+    expect(
+      await f.client.projects.clone({
+        parent: "/home/person",
+        name: "copied",
+        url: "arpan404/ace",
+      }),
+    ).toMatchObject({
+      ok: true,
+      inspection: { git: { remotes: [{ fetchUrls: ["https://github.com/arpan404/ace.git"] }] } },
+    });
+    f.daemon.projects.seedFolders("/home/person", [], { roots: ["/restricted"] });
+    expect(await f.client.projects.search({ query: "Code" })).toMatchObject({
+      result: { entries: [] },
+    });
+    expect(await f.client.projects.complete({ path: "~/Co" })).toMatchObject({
+      result: { kind: "error", code: "outside_project_roots" },
+    });
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("removed fake projects lose project and last-opened hints while their folders remain searchable", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.projects.seedFolders("/home/person", [{ path: "/home/person/opened-folder" }]);
+    const receipt = await f.client.projects.add({ path: "/home/person/opened-folder" });
+    const project = Project.parse(receipt.workspace);
+    expect(await f.client.projects.search({ query: "opened-folder" })).toMatchObject({
+      result: { entries: [{ isProject: true, lastOpened: 1000 }] },
+    });
+    expect(await f.client.projects.remove({ workspaceId: project.id })).toMatchObject({ ok: true });
+    const result = await f.client.projects.search({ query: "opened-folder" });
+    expect(result).toMatchObject({
+      result: { entries: [{ name: "opened-folder", isProject: false, recentScore: 0 }] },
+    });
+    if (result.result.kind !== "search") throw new Error("Expected search");
+    expect(result.result.entries[0]).not.toHaveProperty("lastOpened");
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("fake completion refuses final traversal and NUL segments and preserves literal backslashes", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.projects.seedFolders("/host/home", [{ path: "/host/home/literal\\Library" }]);
+    for (const path of ["~/..", "~/bad\0name", "/host/home/..", "/host/home/bad\0name"])
+      expect(await f.client.projects.complete({ path })).toMatchObject({
+        result: { kind: "error", code: "invalid_path" },
+      });
+    expect(await f.client.projects.search({ query: "literal" })).toMatchObject({
+      result: { entries: [{ name: "literal\\Library" }] },
+    });
+    expect(await f.client.projects.complete({ path: "~/literal" })).toMatchObject({
+      result: { candidates: [{ name: "literal\\Library", completion: "~/literal\\Library/" }] },
     });
   } finally {
     await f.client.close();
