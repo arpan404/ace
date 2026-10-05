@@ -1,11 +1,13 @@
 import { effortLabel } from "@ace/ui-core";
 import { CaretDownIcon, LightningIcon } from "@phosphor-icons/react";
-import { Suspense, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { anchorAbove } from "@/lib/popover-anchor.ts";
 import type { ModelControlActions, ModelControlView } from "./control-view.ts";
 
 /** The popover's effort, speed, account and model picker: loaded on hover, focus or idle. */
@@ -21,7 +23,7 @@ const warm = () => void preloadModelControl();
 /**
  * The composer's model chip, "◆ Opus 4.1 · High ▾": the provider's mark, the model and its
  * effort (the model alone when the composer is narrow). It opens a small popover with effort,
- * speed, the account and the way to another model.
+ * speed, the account and the way to another model, above the composer rather than over it.
  */
 export function ModelControl(props: {
   view: ModelControlView;
@@ -32,20 +34,28 @@ export function ModelControl(props: {
 }) {
   const { view } = props;
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Tip label={view.offline ?? view.tip} side="top">
         <PopoverTrigger
+          ref={trigger}
           disabled={view.disabled}
           aria-label={view.ariaLabel}
           onPointerEnter={warm}
           onFocus={warm}
           className={cn(props.className, "max-w-64", view.offline && "opacity-60")}
         >
-          {view.provider && <ProviderIcon provider={view.provider} size={14} decorative />}
+          {view.provider ? (
+            <ProviderIcon provider={view.provider} size={14} decorative />
+          ) : (
+            view.catalog === "loading" && <Spinner />
+          )}
           <span className="min-w-0 truncate">{view.label ?? view.placeholder}</span>
           {!props.compact && view.label && view.effort && (
-            <span className="shrink-0 text-subtle-foreground">· {effortLabel(view.effort)}</span>
+            <span className="shrink-0 font-normal text-subtle-foreground">
+              · {effortLabel(view.effort)}
+            </span>
           )}
           {view.fast && <LightningIcon aria-hidden size={12} weight="fill" className="shrink-0" />}
           <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
@@ -55,8 +65,9 @@ export function ModelControl(props: {
         side="top"
         align="start"
         sideOffset={8}
+        anchor={() => anchorAbove(trigger.current, "[data-slot=composer]")}
         aria-label="Model and effort"
-        className="p-0"
+        className="overflow-hidden p-0 duration-(--dur-1)"
       >
         <Suspense
           fallback={

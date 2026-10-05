@@ -1,8 +1,8 @@
-import type { KeyboardEvent, PointerEvent } from "react";
+import { useState, type KeyboardEvent, type PointerEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 
 /** Half the thumb: its centre never leaves the track, so the dots sit where it can stop. */
-const inset = 12;
+const inset = 13;
 
 /** Where step `index` of `count` sits along the track. */
 const at = (index: number, count: number) =>
@@ -15,12 +15,16 @@ function tickStyle(index: number, count: number) {
   return { left: at(index, count), transform: "translateX(-50%)" };
 }
 
+/** Moves the thumb and the fill together, quick and without overshoot past a stop. */
+const glide = "transition-[left,width,scale] duration-(--dur-1) ease-smooth";
+
 /**
  * A slider over a few named steps (Default · Low · Medium · High): a pill track with a dot per
- * step, the accent filling up to a 24px thumb, and each step's name under its dot (the current
- * one at full strength). Arrow keys, Home and End move a step at a time; a press or drag on the
- * track lands on the nearest step. Drawn by hand rather than with Base UI's slider, which would
- * pull its shared code into the first paint's chunks.
+ * step, the accent filling up to a 26px thumb that stands a little proud of the track, and each
+ * step's name under its dot (the current one at full strength). Arrow keys, Page keys, Home and
+ * End move it; a press or drag on the track lands on the nearest step, the thumb gliding there.
+ * Drawn by hand rather than with Base UI's slider, which would pull its shared code into the
+ * first paint's chunks.
  */
 function StepSlider(props: {
   label: string;
@@ -33,6 +37,7 @@ function StepSlider(props: {
   disabled?: boolean | undefined;
   className?: string | undefined;
 }) {
+  const [dragging, setDragging] = useState(false);
   const count = props.steps.length;
   const last = count - 1;
   const value = Math.min(last, Math.max(0, props.value));
@@ -46,12 +51,19 @@ function StepSlider(props: {
     if (span <= 0) return;
     set(Math.round(((event.clientX - box.left - inset) / span) * last));
   };
+  const release = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    setDragging(false);
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const moves: Record<string, number> = {
       ArrowRight: value + 1,
       ArrowUp: value + 1,
+      PageUp: value + 1,
       ArrowLeft: value - 1,
       ArrowDown: value - 1,
+      PageDown: value - 1,
       Home: 0,
       End: last,
     };
@@ -61,7 +73,7 @@ function StepSlider(props: {
     set(next);
   };
   return (
-    <div className={cn("flex flex-col gap-1.5", props.className)}>
+    <div className={cn("flex flex-col gap-2", props.className)}>
       <div
         role="slider"
         tabIndex={props.disabled ? -1 : 0}
@@ -72,41 +84,54 @@ function StepSlider(props: {
         aria-valuetext={props.stepLabel(props.steps[value] ?? "")}
         aria-disabled={props.disabled ? true : undefined}
         data-disabled={props.disabled ? "" : undefined}
+        data-dragging={dragging ? "" : undefined}
         onKeyDown={onKeyDown}
         onPointerDown={(event) => {
-          if (props.disabled) return;
-          event.currentTarget.setPointerCapture(event.pointerId);
+          if (props.disabled || event.button !== 0) return;
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+          setDragging(true);
           fromPointer(event);
         }}
         onPointerMove={(event) => {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) fromPointer(event);
+          if (dragging) fromPointer(event);
         }}
-        className="relative h-6 w-full cursor-pointer touch-none rounded-full bg-secondary outline-none select-none focus-visible:shadow-[0_0_0_3px_color-mix(in_oklab,var(--ring)_45%,transparent)] data-disabled:opacity-50"
+        onPointerUp={release}
+        onPointerCancel={release}
+        className="group relative h-[22px] w-full cursor-pointer touch-none rounded-full bg-secondary outline-none select-none data-disabled:cursor-default data-disabled:opacity-50 data-dragging:cursor-grabbing"
       >
         <span
           aria-hidden
-          className="absolute inset-y-0 left-0 rounded-full bg-ring"
+          className={cn("absolute inset-y-0 left-0 rounded-full bg-ring", glide)}
           style={{ width: `calc(${at(value, count)} + ${inset}px)` }}
         />
         {props.steps.map((step, index) => (
           <span
             key={step}
             aria-hidden
-            className="absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current opacity-40"
+            className={cn(
+              "absolute top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full",
+              index < value ? "bg-white/70" : "bg-current opacity-30",
+            )}
             style={{ left: at(index, count) }}
           />
         ))}
         <span
           aria-hidden
-          className="absolute top-0 size-6 -translate-x-1/2 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.3),0_0_0_0.5px_rgb(0_0_0/0.1)]"
+          className={cn(
+            "absolute top-1/2 size-[26px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.3),0_0_0_0.5px_rgb(0_0_0/0.12)] group-focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--ring)] group-data-dragging:scale-110",
+            glide,
+          )}
           style={{ left: at(value, count) }}
         />
       </div>
-      <div aria-hidden className="relative h-4 text-2xs text-subtle-foreground">
+      <div aria-hidden className="relative h-4 text-xs leading-4 text-subtle-foreground">
         {props.steps.map((step, index) => (
           <span
             key={step}
-            className={cn("absolute top-0 whitespace-nowrap", index === value && "text-foreground")}
+            className={cn(
+              "absolute top-0 whitespace-nowrap transition-colors duration-(--dur-1)",
+              index === value && "font-medium text-foreground",
+            )}
             style={tickStyle(index, count)}
           >
             {props.stepLabel(step)}
