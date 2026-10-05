@@ -142,8 +142,8 @@ test("New thread offers only installed CLIs, each on its default model when the 
 
   expect(options.models.map((m) => [m.label, m.fromCatalog])).toEqual([
     ["auto", true],
-    ["Codex default", false],
-    ["OpenCode default", false],
+    ["Codex · Default", false],
+    ["OpenCode · Default", false],
   ]);
 });
 
@@ -201,7 +201,7 @@ test("a thread on a provider the catalog doesn't list never shows another provid
 
   expect(currentModelChoice(choices, { provider: "claude" })).toBeUndefined();
   expect(currentModelChoice(choices, { provider: "claude", model: "opus" })).toBeUndefined();
-  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code default");
+  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code · Default");
   expect(currentModelChoice(choices, { provider: "codex" })?.id).toBe("codex-team:gpt-5");
 });
 
@@ -278,6 +278,6 @@ test("offline, a thread's model reads from its own record, claiming no account o
     account: "",
     used: undefined,
   });
-  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code default");
+  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code · Default");
   expect(recordedChoice(undefined)).toBeUndefined();
 });

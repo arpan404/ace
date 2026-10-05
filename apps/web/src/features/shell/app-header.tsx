@@ -25,12 +25,14 @@ export interface HeaderProps {
   summary?: ReactNode;
   /** Right-hand actions (Run, Open, Commit, Mark all read, …). */
   actions?: ReactNode;
+  /** A status mark after the title (a thread's dot), shown on a phone, where no list shows it. */
+  status?: ReactNode;
 }
 
 /**
  * The sidebar toggle, then history back and forward: always the first controls of the window's
  * top row, in the same place whether the sidebar shows or not (and in full view, where the
- * side panel's strip carries them).
+ * side panel's strip carries them). On a phone it is one back caret to the list (CMP-7).
  */
 export function HeaderNav() {
   const frame = useViewFrame();
@@ -43,14 +45,23 @@ export function HeaderNav() {
       data-slot="header-nav"
       className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
     >
-      {frame.hasSidebar && (
-        <IconButton
-          icon={SidebarSimpleIcon}
-          label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
-          shortcut="toggleSidebar"
-          onClick={frame.sidebarShown ? frame.hideSidebar : frame.showSidebar}
-        />
-      )}
+      {frame.hasSidebar &&
+        (phone && !frame.sidebarShown ? (
+          // A phone's list is the sidebar sheet: going back to it is the header's first control.
+          <IconButton
+            icon={CaretLeftIcon}
+            label="Back to threads"
+            shortcut="toggleSidebar"
+            onClick={frame.showSidebar}
+          />
+        ) : (
+          <IconButton
+            icon={SidebarSimpleIcon}
+            label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
+            shortcut="toggleSidebar"
+            onClick={frame.sidebarShown ? frame.hideSidebar : frame.showSidebar}
+          />
+        ))}
       {!phone && (
         <>
           <IconButton
@@ -77,7 +88,8 @@ export function HeaderNav() {
  * The one header every screen uses: sidebar toggle and history, then the title, its project,
  * the ⋯ menu and the summary; actions and the dock toggles on the right. 50px, a drag region in
  * Electron, hairline only once the content scrolls. Every control is a 30px box on one centre
- * line.
+ * line. On a phone it keeps the sidebar toggle, the title (two lines if need be), the status
+ * mark and one ⋯; the summary tools, the dock toggles and their count move into that ⋯.
  */
 export function AppHeader(
   props: HeaderProps & {
@@ -97,6 +109,13 @@ export function AppHeader(
   // Folded, the title menu joins the actions behind one ⋯: a header never shows two.
   const folded = !wide && !!props.actions;
   const titleMenu = props.menu && !phone && !folded;
+  // A phone moves the summary tools and the dock toggles into the one ⋯.
+  const tools = phone && (props.summary || props.trailing) && (
+    <>
+      {props.summary}
+      {props.trailing}
+    </>
+  );
   return (
     <header
       ref={header}
@@ -108,16 +127,22 @@ export function AppHeader(
     >
       <HeaderNav />
       <div className="ml-1.5 flex min-w-0 flex-1 items-center gap-2">
-        <h1 className="min-w-0 truncate text-base font-semibold tracking-[-0.005em]">
+        <h1
+          className={cn(
+            "min-w-0 text-base font-semibold tracking-[-0.005em]",
+            phone ? "line-clamp-2 leading-[18px] break-words" : "truncate",
+          )}
+        >
           {props.title}
         </h1>
+        {phone && props.status}
         {props.subtitle && (
           // The title keeps the room: a long subtitle (a Deck lane's branch) truncates first.
           <span className="hidden min-w-0 shrink-[3] truncate text-base font-normal text-muted-foreground md:inline @max-[45rem]/header:hidden">
             {props.subtitle}
           </span>
         )}
-        {(titleMenu || props.summary) && (
+        {(titleMenu || (props.summary && !phone)) && (
           <span className="flex shrink-0 items-center gap-0.5">
             {titleMenu && (
               <Menu>
@@ -125,17 +150,21 @@ export function AppHeader(
                 <MenuContent>{props.menu}</MenuContent>
               </Menu>
             )}
-            {props.summary}
+            {!phone && props.summary}
           </span>
         )}
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {props.actions && wide && props.actions}
         {/* Narrower, the actions and the title menu fold into one ⋯. */}
-        {(folded || (phone && props.menu)) && (
-          <Overflow actions={props.actions} menu={titleMenu ? undefined : props.menu} />
+        {(folded || (phone && (props.menu || tools))) && (
+          <Overflow
+            actions={props.actions}
+            tools={tools || undefined}
+            menu={titleMenu ? undefined : props.menu}
+          />
         )}
-        {props.trailing && (
+        {props.trailing && !phone && (
           <>
             {props.actions && wide && <span aria-hidden className="mx-1 h-4 w-px bg-border" />}
             {props.trailing}
@@ -162,22 +191,23 @@ const DeferredOverflow = deferredComponent(() =>
  * the header, so the title keeps the room. Until the popover's code has arrived the ⋯ is a
  * plain button, and a click on it opens the popover once it has.
  */
-function Overflow(props: { actions: ReactNode; menu: ReactNode }) {
+function Overflow(props: { actions: ReactNode; tools?: ReactNode; menu: ReactNode }) {
   const [wanted, setWanted] = useState(false);
-  if (!props.actions && props.menu)
+  if (!props.actions && !props.tools && props.menu)
     return (
       <Menu>
         <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
         <MenuContent align="end">{props.menu}</MenuContent>
       </Menu>
     );
-  const label = props.menu ? "More actions" : "Actions";
+  const label = props.menu || props.tools ? "More actions" : "Actions";
   return (
     <Suspense
       fallback={<IconButton icon={DotsThreeIcon} label={label} onClick={() => setWanted(true)} />}
     >
       <DeferredOverflow.Component
         actions={props.actions}
+        tools={props.tools}
         menu={props.menu}
         label={label}
         defaultOpen={wanted}
