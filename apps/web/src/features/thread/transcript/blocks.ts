@@ -302,6 +302,10 @@ export function buildBlocks(source: BlockSource): Block[] {
       const own = markOf(known, id);
       own.runs.add(known);
       own.lastBlock = blocks.length - 1;
+    } else if (person && known === undefined && !turns.has(`ask:${id}`)) {
+      // An ask the daemon admitted before its turn started (SY-1) has no run yet: it is still
+      // the newest turn's, so the one before it is history.
+      markOf(`ask:${id}`, id).lastBlock = blocks.length - 1;
     }
     for (const interactionId of asked ?? [])
       push(
