@@ -47,6 +47,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     capabilities: Thread.shape.capabilities,
     permission: PermissionState.optional(),
     title: z.string().optional(),
+    titleSource: Thread.shape.titleSource,
     provider: ExecutionSelection.shape.provider.optional(),
     lineage: ThreadLineage.optional(),
     execution: ExecutionSelection.optional(),

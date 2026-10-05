@@ -3,6 +3,9 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "check": "node src/bundle.ts && node --expose-gc src/soak.ts && node src/browser.ts && node src/memory.ts && node src/long-thread.ts",
     "check:static": "node src/bundle.ts && node --expose-gc src/soak.ts",
@@ -20,5 +23,8 @@
     "@ace/protocol": "workspace:*",
     "@playwright/test": "1.63.0",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/perf-kit": "workspace:*"
   }
 }

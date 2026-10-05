@@ -149,6 +149,105 @@
                 "maxLength": 256,
                 "type": "string"
               },
+              "origin": {
+                "additionalProperties": false,
+                "properties": {
+                  "commandId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "from": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "model": {
+                        "type": "string"
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "opencode",
+                          "cursor",
+                          "antigravity",
+                          "acp",
+                          "pi"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "provider"
+                    ],
+                    "type": "object"
+                  },
+                  "interactionId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "person",
+                      "interaction_answer",
+                      "subagent_result",
+                      "handoff",
+                      "spawn",
+                      "parent_agent",
+                      "restart",
+                      "limit_resume",
+                      "queue",
+                      "automation",
+                      "schedule",
+                      "background_completion"
+                    ],
+                    "type": "string"
+                  },
+                  "lossy": {
+                    "type": "boolean"
+                  },
+                  "parentThreadId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "threadIds": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "to": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "model": {
+                        "type": "string"
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "opencode",
+                          "cursor",
+                          "antigravity",
+                          "acp",
+                          "pi"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "provider"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
               "parts": {
                 "items": {
                   "oneOf": [
@@ -1263,6 +1362,9 @@
                               "truncated"
                             ],
                             "type": "object"
+                          },
+                          "rawCommand": {
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -1852,6 +1954,9 @@
                 "minLength": 1,
                 "type": "string"
               },
+              "code": {
+                "type": "string"
+              },
               "complete": {
                 "type": "boolean"
               },
@@ -1859,6 +1964,9 @@
                 "maximum": 9007199254740991,
                 "minimum": 0,
                 "type": "integer"
+              },
+              "detail": {
+                "type": "string"
               },
               "details": {
                 "additionalProperties": false,
@@ -2066,6 +2174,9 @@
                 "type": "object"
               },
               "text": {
+                "type": "string"
+              },
+              "title": {
                 "type": "string"
               },
               "toolCallId": {

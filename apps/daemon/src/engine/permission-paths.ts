@@ -1,3 +1,4 @@
+import { unwrapShellCommand } from "@ace/provider-kit/shell-command";
 import { realpathSync, statSync } from "node:fs";
 import { resolve, relative, dirname, basename, isAbsolute } from "node:path";
 import { containsSecretReference, type PathRisk } from "@ace/core";
@@ -48,4 +49,26 @@ export function permissionPaths(workspace: string, target?: ApprovalTarget): Pat
   const cwdRisk = check(cwd);
   if (cwdRisk !== "workspace") results.push(cwdRisk);
   return results;
+}
+
+/** Only root-owned, non-writable system shells outside the workspace can shed their wrapper. */
+export function permissionShells(workspace: string, target?: ApprovalTarget): string[] {
+  const wrapper = target?.command && unwrapShellCommand(target.command);
+  if (!wrapper || !/^\/(?:usr\/)?bin\/(?:sh|bash|zsh|dash|fish)$/.test(wrapper.shell)) return [];
+  try {
+    const path = realpathSync(wrapper.shell);
+    if (!/^\/(?:usr\/)?bin\/(?:sh|bash|zsh|dash|fish)$/.test(path)) return [];
+    const root = realpathSync(workspace);
+    const diff = relative(root, path);
+    if (diff === "" || (!isAbsolute(diff) && diff !== ".." && !diff.startsWith("../"))) return [];
+    if (!statSync(path).isFile()) return [];
+    for (let cursor = path; ; cursor = dirname(cursor)) {
+      const info = statSync(cursor);
+      if (info.uid !== 0 || (info.mode & 0o022) !== 0) return [];
+      if (dirname(cursor) === cursor) break;
+    }
+    return [wrapper.shell];
+  } catch {
+    return [];
+  }
 }
