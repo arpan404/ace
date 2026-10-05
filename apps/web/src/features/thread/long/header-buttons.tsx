@@ -14,7 +14,8 @@ export function LongThreadButtons() {
     nav.setSearchOpen(true);
     nav.searchFocus.set(nav.searchFocus.get() + 1);
   };
-  useHotkey(keymap.findInThread.keys, find);
+  // "mod+f" is also the terminal's find: name the shortcut so its rebinding applies.
+  useHotkey(keymap.findInThread.keys, find, { id: "findInThread" });
   useHotkey(keymap.turns.keys, () => nav.setTurnsOpen(!nav.turnsOpen));
   return (
     <>

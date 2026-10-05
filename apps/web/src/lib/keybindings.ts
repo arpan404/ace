@@ -124,7 +124,27 @@ export function scopesOverlap(a: KeyScope, b: KeyScope): boolean {
   return a === "global" || b === "global" || a === b;
 }
 
-/** The shortcut that already uses `keys` where `except` works, other than `except`. */
+/**
+ * Every binding `useHotkey` listens for: the resolved one, the fixed extras, and in a browser
+ * tab, while the shortcut keeps its shipped binding, the desktop default too (harmless where
+ * the browser keeps it, handy where it doesn't).
+ */
+export function bindingsFor(
+  id: KeymapId,
+  resolved: ResolvedKeymap,
+  env: KeyboardEnv = keyboardEnv(),
+): string[] {
+  const entry = keymapEntry(id);
+  const list = [resolved[id], ...(entry.also ?? [])];
+  if (env.web && entry.web && resolved[id] === defaultKeys(id, env)) list.push(entry.keys);
+  return [...new Set(list)];
+}
+
+/**
+ * The shortcut that would also answer `keys` if `except` were bound to them: every binding
+ * live where `except` works counts (each shortcut's own keys, its fixed extras and its browser
+ * alias), so a saved binding never shares a key press with another shortcut.
+ */
 export function conflictFor(
   keys: string,
   except: KeymapId,
@@ -137,35 +157,20 @@ export function conflictFor(
     (id) =>
       id !== except &&
       scopesOverlap(scope, scopeOf(id)) &&
-      [bindings[id], ...(keymapEntry(id).also ?? [])].some(
-        (bound) => normalizeKeys(bound, env) === wanted,
-      ),
+      bindingsFor(id, bindings, env).some((bound) => normalizeKeys(bound, env) === wanted),
   );
-}
-
-/**
- * Every binding `useHotkey` listens for: the resolved one, the fixed extras, and in a browser
- * tab the desktop default too (harmless where the browser keeps it, handy where it doesn't).
- */
-export function bindingsFor(
-  id: KeymapId,
-  resolved: ResolvedKeymap,
-  overrides: Keybindings = {},
-  env: KeyboardEnv = keyboardEnv(),
-): string[] {
-  const entry = keymapEntry(id);
-  const list = [resolved[id], ...(entry.also ?? [])];
-  if (env.web && entry.web && !(id in overrides)) list.push(entry.keys);
-  return [...new Set(list)];
 }
 
 /*
  * Call sites pass `keymap.x.keys`; this maps a default spelling back to its id so a rebinding
- * reaches them unchanged. Defaults two ids share ("mod+f": search a thread, find in a
- * terminal) are ambiguous: those call sites pass the id instead.
+ * reaches them unchanged. Only global, rebindable shortcuts are in it: a key that means
+ * something only in one context ("enter" in Activity, "j" on a deck) or that the platform owns
+ * would otherwise capture every literal hint that happens to spell it. Those call sites, and
+ * defaults two ids share ("mod+f"), pass the id instead.
  */
 const byDefault = new Map<string, KeymapId | null>();
 for (const id of keymapIds) {
+  if (scopeOf(id) !== "global" || !isRebindable(id)) continue;
   const keys = keymap[id].keys;
   byDefault.set(keys, byDefault.has(keys) ? null : id);
 }
@@ -235,9 +240,8 @@ export function useResolvedKeys(keys: string | undefined): string | undefined {
 /** What `useHotkey` listens for: by id when given, else by the reverse map, else literal. */
 export function useHotkeyBindings(keys: string, id?: KeymapId): readonly string[] {
   const resolved = useResolvedKeymap();
-  const stored = useKeybindingOverrides();
   const target = id ?? keymapIdFor(keys);
-  const list = target ? bindingsFor(target, resolved, stored) : [keys];
+  const list = target ? bindingsFor(target, resolved) : [keys];
   const signature = list.join("\n");
   // A stable array per distinct binding set, so listeners re-register only on a real change.
   return useMemo(() => signature.split("\n"), [signature]);
@@ -273,10 +277,16 @@ const codeKeys: Record<string, string> = {
   Space: "space",
 };
 
-function keyName(event: Pick<KeyboardEvent, "key" | "code">): string {
-  if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3).toLowerCase();
-  if (/^Digit\d$/.test(event.code)) return event.code.slice(5);
-  return codeKeys[event.code] ?? event.key.toLowerCase();
+/**
+ * A key press's name in keymap notation, from the physical key where it has one, so the
+ * recorder and the matcher agree whatever Shift or ⌥ did to the character ("/" not "?",
+ * "space" not " ", "p" not "π").
+ */
+export function keyNameOf(event: Pick<KeyboardEvent, "key" | "code">): string {
+  const code = event.code ?? "";
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
+  if (/^Digit\d$/.test(code)) return code.slice(5);
+  return codeKeys[code] ?? (event.key === " " ? "space" : event.key.toLowerCase());
 }
 
 export type Recorded =
@@ -305,7 +315,7 @@ export function recordChord(
     event.altKey && "alt",
     event.shiftKey && "shift",
     mod && "mod",
-    keyName(event),
+    keyNameOf(event),
   ];
   return { kind: "chord", keys: parts.filter(Boolean).join("+") };
 }
