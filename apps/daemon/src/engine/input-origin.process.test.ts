@@ -1,3 +1,4 @@
+import type { Fact } from "@ace/core";
 import { afterEach, expect, test } from "vitest";
 import { applyEvent, createThreadView } from "@ace/projection";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
@@ -20,7 +21,7 @@ test("a sent message appears once before provider startup and keeps its id when 
       synthetic: false,
       nativeId: "native-first",
     },
-  } as const;
+  } satisfies Fact;
   const h = await harness([{ on: "send", frames: [frames.frame(start, echo, end)] }], frames);
   close.push(h.close);
   const receipt = h.command(
@@ -108,6 +109,6 @@ test("delegation results retain their origin when a provider echoes them as user
     origin: { kind: "subagent_result", commandId: "result", threadIds: [id] },
   });
   expect(
-    Object.values(h.store.snapshotThread(id).items).filter((item) => item.type === "message"),
+    Object.values(h.store.snapshotThread(id).items).filter((message) => message.type === "message"),
   ).toHaveLength(2);
 });
