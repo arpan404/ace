@@ -16,7 +16,7 @@ ADR 0045 set budgets but left them unenforced. This ADR records where each kind 
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Socket, frame decode (Zod), projection, intents outbox | The client worker: one `SharedWorker` per origin; a dedicated `Worker` per tab where SharedWorker is missing; in the page where neither exists (tests) |
 | Store reads by selectors, React rendering              | The page, against mirrors of the worker's stores                                                                                                       |
-| Markdown lexing and code highlighting                  | The markdown worker (dedicated), cached by content hash                                                                                                |
+| Markdown lexing and code highlighting                  | The markdown worker (dedicated); a streaming message is lexed from its last settled block on, highlighting cached by content hash                      |
 | File diffs (an LCS per file)                           | The diff worker (dedicated), cached in memory and IndexedDB by content key                                                                             |
 | Very large diffs (flag `gpuText`)                      | The GPU: WebGPU, else WebGL2, else the virtualized DOM view                                                                                            |
 | Terminal drawing                                       | xterm.js with its WebGL renderer; the accessible DOM line screen where WebGL2 is missing                                                               |
@@ -55,7 +55,7 @@ Nothing grows with history. Every cache is an `LruCache` (`@ace/ui-core`, bounde
 | Thread list order                        | Deleted threads leave it                                                                                                              |
 | A hidden tab's backlog in the worker     | 1,024 changed keys, then one copy of the store when shown                                                                             |
 | Sent commands nobody watches (tab)       | The newest 64                                                                                                                         |
-| Markdown documents / blocks              | 400 documents and 16 MB / 4,000 blocks and 16 MB (page); highlight 512 and 4 MB (worker); a streaming draft is not kept               |
+| Markdown documents                       | 400 unwatched documents and 16 MB (page); 64 open streams and 8 MB of text, highlight 512 and 4 MB (worker)                           |
 | File diffs                               | 600 diffs and 200,000 rows in memory, shown diffs held; 2,000 entries and 128 MB in IndexedDB, oldest use pruned                      |
 | Terminal                                 | 1 M characters of raw output per watched PTY; unwatched ones released on exit, after 5 idle minutes or past 4; xterm scrollback 5,000 |
 | Preview and device frames                | One object URL per view, revoked when replaced; nothing decoded or acked while hidden; 8 unwatched threads' state                     |
@@ -67,7 +67,7 @@ The month-long soak found the first unbounded holder: every run stayed in the th
 
 ### Markdown and highlighting
 
-Markdown becomes top-level blocks keyed by the hash of their source (`contentHash`, a fast non-cryptographic hash, in `@ace/ui-core`), built in the markdown worker with highlighting cached per (language, code). The page interns blocks by key, so an unchanged block keeps its object and skips rendering; while a message streams only its last block changes. Each mounted message asks for at most one document at a time, always for its newest text, and keeps its previous document on screen until the next is ready. No HTML string is ever produced; blocks render through the same safe React renderer as before.
+Markdown becomes top-level blocks, built in the markdown worker with highlighting cached per (language, code). An assistant message is a stream named by its id: the page sends the worker only the text appended since its last job, the worker keeps a settled head of finished blocks (each lexed once) and lexes only the open tail, and a reply carries the blocks that settled and the open ones, never the whole document. Blocks are keyed by position, so a settled block keeps its object and never renders again, and the open block keeps its key when it settles. Other prose (a file preview, a task prompt) is a stream named by the hash of its text, built once. Each stream has at most one job in flight, always for its newest text, and keeps its previous document on screen until the next is ready. No HTML string is ever produced; blocks render through the same safe React renderer as before. See the amendment of 2026-10-05.
 
 ### Diffs
 
@@ -98,6 +98,11 @@ Where WebGL2 exists, PTY terminals use xterm.js (loaded on first show) with its 
 | DOM nodes at any point (streaming, or a 1,000,000-item thread paged back)                     | ≤ 1,500   | 840 peak                                 |
 | Retained page heap growth while streaming at 5,000 events/s, or paging back through 1 M items | ≤ 4 MB    | 0.8 MB in 5 minutes (was 12.4 in 10)     |
 | Retained client worker heap growth while streaming                                            | ≤ 3 MB    | 0.4 MB                                   |
+| One 40 KB markdown answer streaming: input to next paint, p95 (2026-10-05)                    | ≤ 100 ms  | 40–56 ms                                 |
+| Same: longest main-thread task                                                                | ≤ 50 ms   | none over 50 ms                          |
+| Same: markdown worker ms per update, last quarter of the answer over the first (median)       | ≤ 3×      | 1.0× (4.7× before)                       |
+| Same: main-thread busy ms per drawn frame                                                     | ≤ 4 ms    | 2.6 ms (3.9 before)                      |
+| Same: markdown blocks whose DOM node was replaced                                             | ≤ 20      | 9–10 (430–462 before)                    |
 | Long thread (1,000,000 items, 2,000 turns): transcript and composer usable after navigation   | ≤ 3 s     | 0.39 s (measured 2026-10-04)             |
 | Long thread: input to next paint, p95, over jumps, window scrolling, search and Jump to live  | ≤ 100 ms  | 56 ms, no long tasks                     |
 | Long thread: DOM nodes at any sample (a jumped window, search open, the live tail)            | ≤ 1,500   | 1,038 peak                               |
@@ -127,3 +132,31 @@ CI runs the bundle and soak budgets in the `check` job and the browser and memor
 - Browser budgets depend on the runner; a budget failure on a loaded machine is re-run before it is believed.
 
 Long-thread follow-up (2026-10-03): daemon snapshots window settled entity history independently of items and expose `entities.page`. Historical count no longer causes client failure. Item deletion also removes creation/hydration metadata, notifies item/order readers, and journals a tombstone so an in-flight older page cannot resurrect it.
+
+## Amendment, 2026-10-05: hybrid streaming markdown
+
+A streaming answer used to cost work proportional to the whole answer on every frame: the page hashed the full text on each render, the worker lexed the whole message for each job and cloned the whole token tree back, and the growing last block got a new key (the hash of its source) on each update, so React remounted its DOM. A 40 KB answer remounted 430 blocks and the worker's time per update grew 4.7× from the start of the answer to its end.
+
+Streaming markdown is now parsed paragraph-wise:
+
+- **Settling.** `BlockStream` (`components/markdown/block-stream.ts`) keeps a settled head and an open tail. Each append is block-lexed from the tail's start; every block before the last one settles, and so does the last one's predecessor once the last block's first line is complete (`#` can still become `#tag`, which continues the paragraph above). A link reference definition settles only after a blank line, since its title can continue on the following lines. A fence left open, a list that may continue after a blank line, a table still growing and a setext heading all stay in the last block until another block has begun, so they stay open. When the text is final everything settles.
+- **References.** Settled blocks resolve references against the definitions settled before or with them. A settled definition with a new label, after a settled block containing `[`, re-lexes the head once. An open definition never resolves a settled block, since its URL may still be growing.
+- **Equivalence.** The settled blocks of a final text equal one lex of the whole text, token for token. A property test streams agent-shaped samples (fences with blank lines and nested fences, loose and nested lists, setext headings, tables interrupting paragraphs, quotes with lazy lines, HTML blocks, late and duplicate definitions, multi-line titles, CRLF) at every chunk size from one character to whole lines and at seeded random sizes. It checks the final blocks against the full parse, and checks that a settled block is never revised.
+- **Protocol.** A job is `{stream, at, append, final}`. The worker holds one parser per open stream (`StreamRegistry`, 64 streams and 8 MB) and answers `{from, settled, open}`, or `resync` when it holds the stream at another length (evicted, restarted) so the page sends the text whole. Settled blocks are lexed and highlighted once and cross to the page once; they are keyed by stream and position. No per-block source hash is kept: the parser guarantees a settled block never changes, so a hash would only cost time. A final job ends the stream in the worker.
+- **Rendering.** Keys are positions. Settled blocks keep their objects, so `TopBlock` skips them. Open blocks are patched in place and keep their key when they settle. An open code block shows plain text in the same frame and is highlighted when it settles, so settling changes colour only, never layout.
+- **Cadence.** `MarkdownStore` paces jobs for a streaming message at 50–100 ms: four times the last round trip within that range, and 100 ms under `prefers-reduced-motion`. The first job of a message and its final job go at once, and the plain text shows until the first document is ready, so time to first text is unchanged. The virtualizer measures rows through a ResizeObserver, so a row is re-measured only when its markdown changes, at this cadence, and no longer every frame. No fade or typing animation was added.
+- **The client worker.** `ThreadReader.appended(previous, next)` says whether the client's delta path made `next` from `previous` by appending alone. A run of appends shares one prefix array, and every clip makes a new one. The host's `appendedText` uses it to take the gained text without comparing the whole message each frame. Text it did not build, such as an adapter upserting whole messages, still falls back to the comparison. The client worker with its lazy chunks went from 72.981 to 72.989 KB.
+
+`tools/web-perf/src/markdown-stream.ts` streams a ~40 KB answer (prose, nested and task lists, fenced code, tables) at 4 KB/s in 20-character deltas while a person types. It enforces the budgets above. Before and after on the same machine:
+
+| Measure                                       | Before    | After           |
+| --------------------------------------------- | --------- | --------------- |
+| Worker ms per update, median (first → last ¼) | 0.3 → 1.4 | 0.1 → 0.1       |
+| Worker ms per update, p95                     | 1.6–1.7   | 0.2             |
+| Markdown updates over the answer              | 376–399   | 187–189 (paced) |
+| Main-thread busy ms per frame                 | 3.7–4.0   | 2.6             |
+| Block remounts                                | 430–462   | 9–10            |
+| Input to next paint, p95                      | 56 ms     | 40–56 ms        |
+| Long tasks                                    | none      | none            |
+
+The remaining remounts are open blocks that change kind as they grow, such as a table's header line, which is a paragraph until its delimiter row arrives.
