@@ -6213,6 +6213,18 @@ Example:
 "example"
 ```
 
+## EventSequence
+
+[JSON Schema](schema/EventSequence.json), input validation.
+
+Type: integer. See JSON Schema for constraints.
+
+Example:
+
+```json
+4
+```
+
 ## ExecutionOptions
 
 [JSON Schema](schema/ExecutionOptions.json), input validation.
@@ -6242,7 +6254,7 @@ Example:
 
 ```json
 {
-  "options": {},
+  "instanceId": "example",
   "provider": "cursor"
 }
 ```
@@ -6262,8 +6274,8 @@ Example:
 {
   "nativeSessionId": "example",
   "selection": {
-    "instanceId": "example",
-    "provider": "pi"
+    "model": "example",
+    "provider": "antigravity"
   }
 }
 ```
@@ -6286,10 +6298,9 @@ Example:
 ```json
 {
   "diff": "example",
-  "kind": "move",
+  "kind": "add",
   "movePath": "example",
   "newText": "example",
-  "oldText": null,
   "path": "example"
 }
 ```

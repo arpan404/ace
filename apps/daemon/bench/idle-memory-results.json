@@ -1,0 +1,426 @@
+{
+  "runtime": "v26.8.1",
+  "platform": "darwin-arm64",
+  "baseCommit": "aa6dc3134f243c5fc3af6a31bcb231edc2d3d5d1",
+  "idleSampleMs": 7000,
+  "idleRssLimitBytes": 268435456,
+  "originalGate": {
+    "idleRss": 269926400,
+    "violations": ["idle RSS: 269926400 exceeds 268435456"]
+  },
+  "controlledBefore": {
+    "startupMs": 3769.3205420000004,
+    "idle10": {
+      "runtime": "v26.8.1",
+      "memory": {
+        "rss": 261242880,
+        "heapUsed": 60569952,
+        "heapTotal": 71958528,
+        "external": 8262807,
+        "arrayBuffers": 166344
+      },
+      "cpu": {
+        "user": 741874,
+        "system": 118180
+      },
+      "threads": 14,
+      "workers": [
+        {
+          "threadId": 3,
+          "memory": {
+            "rss": 261242880,
+            "heapUsed": 12381688,
+            "heapTotal": 28246016,
+            "external": 3523056,
+            "arrayBuffers": 137513
+          },
+          "collection": ""
+        }
+      ]
+    },
+    "eventsPerSecond": 402.36493353455785,
+    "p99Ms": 4.73193359375,
+    "shutdownMs": 119.97458299999926,
+    "retainedStart": {
+      "rss": 294420480,
+      "heapUsed": 50898624,
+      "heapTotal": 54149120,
+      "external": 8300845,
+      "arrayBuffers": 281962
+    },
+    "retainedEnd": {
+      "rss": 276348928,
+      "heapUsed": 48375504,
+      "heapTotal": 51003392,
+      "external": 8300845,
+      "arrayBuffers": 281962
+    }
+  },
+  "finalGate": {
+    "startupMs": 317.015209,
+    "idle10": {
+      "memory": {
+        "rss": 225067008,
+        "heapUsed": 50910656
+      },
+      "threads": 14,
+      "workers": [
+        {
+          "threadId": 3,
+          "memory": {
+            "rss": 225067008,
+            "heapUsed": 11898232,
+            "heapTotal": 21233664,
+            "external": 3523056,
+            "arrayBuffers": 137513
+          },
+          "collection": ""
+        }
+      ]
+    },
+    "eventsPerSecond": 399.4887809184702,
+    "p99Ms": 5.8974609375,
+    "shutdownMs": 85.89362500000061,
+    "retainedStart": {
+      "rss": 250396672,
+      "heapUsed": 45448712
+    },
+    "retainedEnd": {
+      "rss": 239026176,
+      "heapUsed": 44026720
+    }
+  },
+  "finalGateViolations": [],
+  "timingAttempts": [
+    {
+      "eventsPerSecond": 129.24543521853627,
+      "p99Ms": 80.205322265625,
+      "violations": ["p99 ms: 80.205322265625 exceeds 50", "events/s: 129.24543521853627 below 300"]
+    },
+    {
+      "eventsPerSecond": 191.33601963415842,
+      "p99Ms": 15.8837890625,
+      "violations": ["events/s: 191.33601963415842 below 300"]
+    },
+    {
+      "eventsPerSecond": 267.443581355719,
+      "p99Ms": 14.80615234375,
+      "violations": ["events/s: 267.443581355719 below 300"]
+    },
+    {
+      "eventsPerSecond": 399.4887809184702,
+      "p99Ms": 5.8974609375,
+      "violations": []
+    }
+  ],
+  "diagnosticProfile": {
+    "method": "Separate instrumented 6.5-second isolate snapshots with process.memoryUsage, V8 heap/code statistics, process.report sharedObjects, live SQLite PRAGMAs and vmmap summaries. These are diagnostic samples, not gate measurements. Worker RSS is process-wide and must not be added to main RSS. Array buffers are included in external memory.",
+    "before": {
+      "mainMemory": {
+        "heapTotal": 73793536,
+        "heapUsed": 57629808,
+        "external": 8262786,
+        "arrayBuffers": 166344
+      },
+      "notificationMemory": {
+        "heapTotal": 29556736,
+        "heapUsed": 13253560,
+        "external": 3555076,
+        "arrayBuffers": 137697
+      },
+      "mainCode": {
+        "code_and_metadata_size": 1759264,
+        "bytecode_and_metadata_size": 2768520,
+        "external_script_source_size": 11749004,
+        "cpu_profiler_metadata_size": 0
+      },
+      "sqlite": [
+        {
+          "file": "daemon-lock.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 2
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "events.sqlite",
+          "cache": {
+            "cache_size": -2048
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 323
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "accounts.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 5
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "files.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 4
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "registry.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 8
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "context.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 16
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "automations.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 13
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "notifications.sqlite",
+          "cache": {
+            "cache_size": -512
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 27
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        }
+      ],
+      "nativeAddons": ["koffi.node", "pty.node", "descriptor.node"],
+      "vmmap": ["Physical footprint:         228.3M", "Physical footprint (peak):  232.0M"]
+    },
+    "after": {
+      "mainMemory": {
+        "heapTotal": 67911680,
+        "heapUsed": 51356136,
+        "external": 6297632,
+        "arrayBuffers": 231799
+      },
+      "notificationMemory": {
+        "heapTotal": 22282240,
+        "heapUsed": 12616976,
+        "external": 3555076,
+        "arrayBuffers": 137697
+      },
+      "mainCode": {
+        "code_and_metadata_size": 1709752,
+        "bytecode_and_metadata_size": 2455312,
+        "external_script_source_size": 6087563,
+        "cpu_profiler_metadata_size": 0
+      },
+      "sqlite": [
+        {
+          "file": "daemon-lock.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 2
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "events.sqlite",
+          "cache": {
+            "cache_size": -2048
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 323
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "accounts.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 5
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "files.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 4
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "registry.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 8
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "context.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 16
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "automations.sqlite",
+          "cache": {
+            "cache_size": -2000
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 13
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        },
+        {
+          "file": "notifications.sqlite",
+          "cache": {
+            "cache_size": -512
+          },
+          "mmap": {
+            "mmap_size": 0
+          },
+          "pages": {
+            "page_count": 27
+          },
+          "pageSize": {
+            "page_size": 4096
+          }
+        }
+      ],
+      "nativeAddons": ["koffi.node", "pty.node", "descriptor.node"],
+      "vmmap": ["Physical footprint:         187.4M", "Physical footprint (peak):  196.4M"]
+    }
+  },
+  "moduleLoads": {
+    "method": "Node synchronous registerHooks load traces in source startup and its workers.",
+    "eagerSdkPackagesBefore": [
+      "@agentclientprotocol/sdk",
+      "@modelcontextprotocol/client",
+      "@modelcontextprotocol/server",
+      "@modelcontextprotocol/node"
+    ],
+    "eagerSdkPackagesAfter": [],
+    "notificationProtocolModulesBefore": 73,
+    "notificationProtocolModulesAfter": 7
+  },
+  "validation": {
+    "focusedFiles": 10,
+    "focusedTestsPassed": 667,
+    "packagingTestsPassed": 2,
+    "finalGatePassed": true,
+    "fullSuiteRun": false
+  }
+}
