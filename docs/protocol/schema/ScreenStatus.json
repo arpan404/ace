@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "permissions": {
+      "$ref": "https://ace.local/protocol/v1/ScreenPermissions.json"
+    },
+    "sessions": {
+      "maximum": 8,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "enabled",
+    "permissions",
+    "sessions"
+  ],
+  "type": "object"
+}

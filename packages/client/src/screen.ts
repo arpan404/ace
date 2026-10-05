@@ -1,4 +1,6 @@
 import {
+  ScreenStatus,
+  ScreenPermissions,
   ScreenGrant,
   ScreenOperation,
   ScreenServerMessage,
@@ -37,6 +39,25 @@ export class ScreenClient {
       throw new ClientError("protocol", "Expected screen result");
     if (!response.ok) throw new ScreenClientError(response);
     return response.data;
+  }
+  async status(options?: RequestOptions): Promise<ScreenStatus> {
+    return ScreenStatus.parse(await this.call({ op: "status" }, options));
+  }
+  async permissions(options?: RequestOptions): Promise<ScreenPermissions> {
+    return ScreenPermissions.parse(await this.call({ op: "permissions" }, options));
+  }
+  async requestPermission(
+    permission: "screenRecording" | "accessibility",
+    options?: RequestOptions,
+  ): Promise<ScreenPermissions> {
+    return ScreenPermissions.parse(
+      await this.call({ op: "permissions.request", permission }, options),
+    );
+  }
+  watchEnabled(listener: (enabled: boolean) => void): () => void {
+    return this.client.onMessage((message) => {
+      if (message.type === "screen.enabled") listener(message.enabled);
+    });
   }
   async enable(enabled: boolean, options?: RequestOptions): Promise<void> {
     await this.call({ op: "enable", enabled }, options);

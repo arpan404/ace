@@ -4,6 +4,22 @@
   "oneOf": [
     {
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "type": {
+          "const": "screen.enabled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "state": {
           "$ref": "https://ace.local/protocol/v1/ScreenState.json"
         },
@@ -26,6 +42,7 @@
         },
         "errorCode": {
           "enum": [
+            "forbidden",
             "permission_denied",
             "approval_required",
             "screen_disabled",

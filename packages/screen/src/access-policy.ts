@@ -13,6 +13,7 @@ type AccessPorts = {
   stop(id: string): Promise<void>;
   revalidate(): Promise<void>;
   resumeAgents(): void;
+  enabledChanged(enabled: boolean): void;
 };
 /** Human grants and enablement. Capture and action lifetimes are delegated through ports. */
 export class ScreenAccessPolicy {
@@ -24,6 +25,7 @@ export class ScreenAccessPolicy {
   private readonly stop: AccessPorts["stop"];
   private readonly revalidate: AccessPorts["revalidate"];
   private readonly resumeAgents: () => void;
+  private readonly enabledChanged: (enabled: boolean) => void;
   constructor(ports: AccessPorts) {
     this.sessions = ports.sessions;
     this.policy = ports.policy;
@@ -32,12 +34,15 @@ export class ScreenAccessPolicy {
     this.stop = ports.stop;
     this.revalidate = ports.revalidate;
     this.resumeAgents = ports.resumeAgents;
+    this.enabledChanged = ports.enabledChanged;
   }
   async enable(enabled: boolean): Promise<void> {
     if (!enabled) this.launches.invalidate();
     if (enabled) this.resumeAgents();
     this.access?.enable(enabled);
+    const changed = this.policy.enabled !== enabled;
     this.policy.enable(enabled);
+    if (changed) this.enabledChanged(enabled);
     if (!enabled) {
       const sessions = [...this.sessions.values()];
       const results = Promise.allSettled(

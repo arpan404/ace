@@ -25,6 +25,9 @@ export function screenConnection(
   const unwatch = manager.watch((state) => {
     if (!closed) peer.send({ type: "screen.state", state });
   });
+  const unwatchEnabled = manager.watchEnabled((enabled) => {
+    if (!closed) peer.send({ type: "screen.enabled", enabled });
+  });
   return {
     async request(input) {
       const { requestId, operation } = ScreenClientMessage.parse(input);
@@ -42,6 +45,16 @@ export function screenConnection(
       try {
         let data: unknown;
         switch (operation.op) {
+          case "status":
+            data = {
+              enabled: manager.isEnabled(),
+              permissions: await manager.currentPermissions(),
+              sessions: manager.states().length,
+            };
+            break;
+          case "permissions.request":
+            data = await manager.requestPermission(operation.permission);
+            break;
           case "enable":
             await manager.enable(operation.enabled);
             break;
@@ -182,6 +195,7 @@ export function screenConnection(
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       unwatch();
+      unwatchEnabled();
       manager.releaseController(owner);
     },
   };

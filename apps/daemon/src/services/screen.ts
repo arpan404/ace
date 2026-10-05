@@ -134,14 +134,33 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
     handle(message) {
       if (message.type !== "screen.request") return false;
       if (!context.authorize("admin"))
-        context.fail("forbidden", "Admin scope required for screen access");
-      else if (!channel) context.fail("screen_disabled", "Screen capability is not configured");
+        context.send({
+          type: "screen.result",
+          requestId: message.requestId,
+          ok: false,
+          errorCode: "forbidden",
+          error: "Admin scope required for screen access",
+        });
+      else if (!channel)
+        context.send({
+          type: "screen.result",
+          requestId: message.requestId,
+          ok: false,
+          errorCode: "screen_disabled",
+          error: "Screen capability is not configured",
+        });
       else {
         const task = channel
           .request(message)
           .catch((error: unknown) => {
             context.options.log?.(error);
-            context.fail("screen_failed", "Screen request failed");
+            context.send({
+              type: "screen.result",
+              requestId: message.requestId,
+              ok: false,
+              errorCode: "internal",
+              error: "Screen request failed",
+            });
           })
           .finally(() => context.tasks.delete(task));
         context.tasks.add(task);
