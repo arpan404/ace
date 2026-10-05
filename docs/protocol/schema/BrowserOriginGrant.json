@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserOriginGrant.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "grantedAt": {
+      "type": "number"
+    },
+    "origin": {
+      "$ref": "https://ace.local/protocol/v1/BrowserOrigin.json"
+    }
+  },
+  "required": [
+    "origin",
+    "grantedAt"
+  ],
+  "type": "object"
+}

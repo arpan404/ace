@@ -1,5 +1,9 @@
 /** Approval hooks may wait on external I/O. Shutdown must not wait on them. */
-export function callPolicy<T>(signal: AbortSignal, work: () => T | Promise<T>): Promise<T> {
+export function callPolicy<T>(
+  signal: AbortSignal,
+  work: () => T | Promise<T>,
+  timeoutMs = 10_000,
+): Promise<T> {
   if (signal.aborted) return Promise.reject(new Error("Browser service shutting down"));
   return new Promise<T>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -17,7 +21,7 @@ export function callPolicy<T>(signal: AbortSignal, work: () => T | Promise<T>): 
     };
     const abort = () => fail(new Error("Browser service shutting down"));
     signal.addEventListener("abort", abort, { once: true });
-    timer = setTimeout(() => fail(new Error("Browser policy timed out")), 10_000);
+    timer = setTimeout(() => fail(new Error("Browser policy timed out")), timeoutMs);
     Promise.resolve().then(work).then(pass, fail);
   });
 }
@@ -26,7 +30,7 @@ export function callPolicy<T>(signal: AbortSignal, work: () => T | Promise<T>): 
  * slot until they settle, even after their caller's deadline or cancellation. */
 export class PolicyGate {
   private active = 0;
-  run<T>(signal: AbortSignal, work: () => T | Promise<T>): Promise<T> {
+  run<T>(signal: AbortSignal, work: () => T | Promise<T>, timeoutMs = 10_000): Promise<T> {
     if (signal.aborted) return Promise.reject(new Error("Browser service shutting down"));
     if (this.active >= 32) return Promise.reject(new Error("Browser policy admission limit"));
     this.active++;
@@ -38,6 +42,6 @@ export class PolicyGate {
       .finally(() => {
         this.active--;
       });
-    return callPolicy(signal, () => task);
+    return callPolicy(signal, () => task, timeoutMs);
   }
 }
