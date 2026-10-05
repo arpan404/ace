@@ -12,7 +12,8 @@ import {
   CursorSdkAuth,
 } from "@ace/protocol/accounts";
 import { object } from "./quota-decode.ts";
-import { initialQuota, ingestQuota, availability, type QuotaFact } from "./quota.ts";
+import { availability } from "./availability.ts";
+import { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
 import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
 import { assertManagedHome } from "./managed-home.ts";

@@ -1,5 +1,6 @@
 import { Client } from "@ace/client";
 import {
+  accountLimit,
   FakeDaemon,
   ScenarioPlayer,
   facts,
@@ -7,14 +8,16 @@ import {
   flakyCheckout,
   type Scenario,
 } from "@ace/fake-daemon";
-import { DeviceId, InteractionId } from "@ace/protocol";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { DeviceId, InteractionId, type ThreadListEntry } from "@ace/protocol";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import {
   ClientProvider,
   useAgentTree,
   useInteractions,
+  useItemInteraction,
   useItem,
+  useSidebarIndex,
   type AgentTreeNode,
 } from "./index.ts";
 
@@ -193,4 +196,96 @@ test("the agent tree re-nests a subagent when it is linked under another parent"
   await act(async () => script.step());
   await act(async () => {});
   expect(screen.getByLabelText("tree").textContent).toBe("[[[[]]]]");
+});
+
+test("an index over the thread list re-reads only the threads a change names", async () => {
+  const { daemon, client } = setup();
+  new ScenarioPlayer(daemon, accountLimit("thread-a", "A")).runThrough("limited");
+  const b = new ScenarioPlayer(daemon, accountLimit("thread-b", "B"));
+  b.step();
+  await client.start();
+  const picked: string[] = [];
+  const limited = (entry: ThreadListEntry) => {
+    picked.push(entry.id);
+    return entry.status.state === "limited" ? entry.id : undefined;
+  };
+  function Limited() {
+    const ids = useSidebarIndex(limited);
+    return <output aria-label="limited">{(ids ?? []).join(",")}</output>;
+  }
+  render(
+    <ClientProvider client={client}>
+      <Limited />
+    </ClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByLabelText("limited").textContent).toBe("thread-a"));
+
+  picked.length = 0;
+  await act(async () => b.step());
+  await waitFor(() =>
+    expect(screen.getByLabelText("limited").textContent).toBe("thread-a,thread-b"),
+  );
+  // Thread A didn't change, so it wasn't read again.
+  expect(new Set(picked)).toEqual(new Set(["thread-b"]));
+});
+
+test("an answered question remains attached to its loaded item", async () => {
+  const { daemon, client } = setup();
+  daemon.createThread({
+    id: "thread-question",
+    workspaceId: "ws",
+    title: "Question",
+    provider: "codex",
+  });
+  daemon.apply("thread-question", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.tool("root", "ask", { kind: "ask_user", title: "Choose", detail: { kind: "ask_user" } }),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "question",
+      item: "ask",
+      blocking: false,
+      request: {
+        kind: "question",
+        questions: [
+          {
+            id: "q",
+            text: "Which material?",
+            multiSelect: false,
+            allowOther: false,
+            options: [{ id: "steel", label: "Steel" }],
+          },
+        ],
+      },
+    },
+  ]);
+  await client.start();
+  const lease = client.thread("thread-question");
+  await act(async () => {});
+  const itemId = lease.store.order.find((id) => lease.store.item(id)?.type === "tool_call");
+  if (!itemId) throw new Error("Missing question item");
+  function Question() {
+    const interaction = useItemInteraction("thread-question", itemId ?? "");
+    return <output aria-label="question-state">{interaction?.state}</output>;
+  }
+  render(
+    <ClientProvider client={client}>
+      <Question />
+    </ClientProvider>,
+  );
+  await screen.findByText("pending");
+  await act(async () => {
+    daemon.apply("thread-question", [
+      {
+        type: "interaction.closed",
+        interaction: "question",
+        state: "resolved",
+        resolution: { kind: "question", answers: { q: ["steel"] } },
+      },
+    ]);
+  });
+  await screen.findByText("resolved");
+  lease.release();
 });

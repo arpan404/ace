@@ -1,3 +1,9 @@
+import {
+  pendingSend,
+  matchesPendingThread,
+  pendingSendsEqual,
+  type PendingSend,
+} from "./pending-sends.ts";
 import { projectCalls } from "./project-calls.ts";
 import { projectEvents } from "./projects.ts";
 import type { ProjectsApi } from "./projects-types.ts";
@@ -12,15 +18,13 @@ import type {
 import { ReadMarkers } from "./read-markers.ts";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { HistoryScanStatus, HistoryListRequest } from "@ace/protocol/history";
-import {
-  decodeServiceResponse,
-  type ServiceRequest,
-  type ServiceResponse,
-} from "./service-requests.ts";
+import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
+  type Item,
   ThreadId,
+  CommandId,
   ThreadMarkReadCommand,
   CoreClientMessage,
   CoreServerMessage,
@@ -36,8 +40,8 @@ import {
   type SettingsScope,
   type SettingsLayer,
 } from "@ace/protocol";
-import type { ClientApi, RegistryQuery } from "./api.ts";
-import { Connection } from "./connection.ts";
+import type { ClientApi, ConnectionControl, RegistryQuery } from "./api.ts";
+import { Connection, sameConnectionInfo } from "./connection.ts";
 import { WireCodec, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
@@ -51,6 +55,7 @@ import {
   defaultLimits,
   type ClientOptions,
   type RequestOptions,
+  type ConnectionInfo,
   type ConnectionState,
 } from "./types.ts";
 
@@ -58,7 +63,12 @@ export type { RegistryQuery } from "./api.ts";
 type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
 
-export class Client implements ClientApi {
+export class Client implements ClientApi, ConnectionControl {
+  attachmentBytes(input: import("./attachments.ts").AttachmentInput, options: RequestOptions = {}) {
+    return import("./attachments.ts").then(({ attachmentBytes }) =>
+      attachmentBytes(this, input, options),
+    );
+  }
   /** Project calls forward through `command`/`request`; pushes arrive through `onMessage`. */
   readonly projects: ProjectsApi = { ...projectCalls(this), ...projectEvents(this) };
   private options: ClientOptions;
@@ -75,6 +85,8 @@ export class Client implements ClientApi {
   private readMarkers: ReadMarkers;
   private serviceListeners = new Set<(message: ServerMessage) => void>();
   private hostId: string | undefined;
+  private pendingSendEntries = new Map<string, PendingSend>();
+  private waitingHints = new Map<string, () => void>();
   constructor(options: ClientOptions) {
     this.options = options;
     const limits = { ...defaultLimits, ...options.limits };
@@ -88,7 +100,7 @@ export class Client implements ClientApi {
       options.scheduler,
       limits.requests,
       limits.requestMs,
-      (input) => this.command(ThreadMarkReadCommand.parse({ type: "thread.markRead", ...input })),
+      (input) => this.readMark(input),
     );
     this.connection = new Connection(
       options,
@@ -119,6 +131,7 @@ export class Client implements ClientApi {
             this.subscriptions.reconnect();
             this.sidebar.reconnect();
             this.intents.replay();
+            this.readMarkers.reconnect();
             break;
           case "commandResult":
             this.requests.resolve(message.commandId, message);
@@ -144,7 +157,6 @@ export class Client implements ClientApi {
           case "cursor.auth.changed":
           case "cursor.auth.error":
           case "registry.result":
-          case "items.page":
           case "output.data":
             // Resolved above with every other correlated reply.
             break;
@@ -167,12 +179,13 @@ export class Client implements ClientApi {
           default:
             this.subscriptions.receive(message);
             this.sidebar.receive(message);
+            this.observeInputs(message);
         }
       },
       () => this.notifications.emit(["connection"]),
       () => {
         this.readMarkers.disconnect();
-        this.requests.clear(new ClientError("offline"));
+        this.requests.disconnect();
         this.subscriptions.disconnect();
         this.intents.disconnect();
         this.sidebar.disconnect();
@@ -190,22 +203,67 @@ export class Client implements ClientApi {
       options.id,
       () => this.state === "ready",
     );
-    this.intents = new Intents(
-      options.storage,
-      options.deviceId,
-      limits.intents,
-      limits.outboxBytes,
-      limits.sendBytes,
-      (id) => this.notifications.emit([`intent:${id}`]),
-      (command) => {
+    this.intents = new Intents({
+      storage: options.storage,
+      device: options.deviceId,
+      limit: limits.intents,
+      bytes: limits.outboxBytes,
+      frameBytes: limits.sendBytes,
+      changed: (id) => {
+        const intent = this.intents.get(id);
+        if (intent?.state === "pending" && !this.waitingHints.has(id))
+          this.waitingHints.set(
+            id,
+            options.scheduler.set(5_000, () => this.intents.waiting(id)),
+          );
+        else if (intent?.state !== "pending") {
+          this.waitingHints.get(id)?.();
+          this.waitingHints.delete(id);
+        }
+        if (intent?.state === "failed" && !intent.localFailure)
+          this.requests.resolve(id, { commandId: id, ok: false, error: intent.error });
+        const hadEntry = this.pendingSendEntries.has(id);
+        const entry = intent && pendingSend(intent);
+        if (entry) this.pendingSendEntries.set(id, entry);
+        else this.pendingSendEntries.delete(id);
+        this.notifications.emit([
+          `intent:${id}`,
+          ...(entry || hadEntry ? [`pendingSend:${id}`, "pendingSends"] : []),
+        ]);
+      },
+      send: (command) => {
         if (this.state === "ready") this.connection.send({ type: "command", command });
       },
-      (attempt, run) =>
+      retryAfter: (attempt, run) =>
         options.scheduler.set(
           retryDelay(attempt, limits.retryBaseMs, limits.retryCapMs, options.random()),
           run,
         ),
-    );
+    });
+  }
+  private observeInputs(message: ServerMessage): void {
+    const observe = (item: Item) => {
+      if (item.type === "notice" && item.commandId && item.level === "error") {
+        void this.intents
+          .deliveryFailed(item.commandId, item.detail ?? item.text)
+          .catch(() => this.connection.fail(new ClientError("storage")));
+        return;
+      }
+      if (item.type !== "message" || item.role !== "user") return;
+      const id =
+        item.origin?.commandId ?? (item.id.startsWith("input:") ? item.id.slice(6) : undefined);
+      if (id)
+        void this.intents.observe(id).catch(() => this.connection.fail(new ClientError("storage")));
+    };
+    if (message.type === "snapshot" && message.view.kind === "thread")
+      for (const item of Object.values(message.view.items)) observe(item);
+    else if (message.type === "items.page" || message.type === "items.window")
+      for (const item of message.items) observe(item);
+    else if (message.type === "events")
+      for (const event of message.events) {
+        if (event.payload.type === "item.created" || event.payload.type === "item.updated")
+          observe(event.payload.item);
+      }
   }
   get state(): ConnectionState {
     return this.connection.state;
@@ -216,9 +274,43 @@ export class Client implements ClientApi {
   connectionState(): Selection<ConnectionState> {
     return this.notifications.select(["connection"], () => this.state);
   }
+  connectionInfo(): Selection<ConnectionInfo> {
+    return this.notifications.select(
+      ["connection"],
+      () => this.connection.info(),
+      sameConnectionInfo,
+    );
+  }
+  reconnectNow(): void {
+    this.connection.reconnectNow();
+  }
+  /** Worker-owned allocation also supplies tab prefixes; no tab reaches for randomness. */
+  commandId(): string {
+    return CommandId.parse(this.options.id());
+  }
+  pendingSend(id: string): PendingSend | undefined {
+    return this.pendingSendEntries.get(id);
+  }
+  observePendingSends(listener: (id: string) => void): () => void {
+    return this.notifications.tap((keys) => {
+      if (keys === "all") return;
+      for (const key of keys) if (key.startsWith("pendingSend:")) listener(key.slice(12));
+    });
+  }
   intent(id: string): Selection<Intent | undefined> {
     return this.notifications.select([`intent:${id}`], () => this.intents.get(id));
   }
+  pendingSends(threadId?: string): Selection<readonly PendingSend[]> {
+    return this.notifications.select(
+      ["pendingSends"],
+      () =>
+        [...this.pendingSendEntries.values()].filter((entry) =>
+          matchesPendingThread(entry, threadId),
+        ),
+      pendingSendsEqual,
+    );
+  }
+
   async start(): Promise<void> {
     // Usually loaded before the socket's welcome; a service frame that beats it waits for it.
     void this.codec.load().catch(() => {});
@@ -232,7 +324,10 @@ export class Client implements ClientApi {
   }
   close(): Promise<void> {
     this.closed = true;
+    this.requests.clear(new ClientError("offline"));
     this.readMarkers.close();
+    for (const cancel of this.waitingHints.values()) cancel();
+    this.waitingHints.clear();
     this.serviceListeners.clear();
     this.connection.stop();
     return this.intents.settled();
@@ -253,11 +348,34 @@ export class Client implements ClientApi {
     await this.intents.enqueue(id, payload);
     return id;
   }
+  /** Read cursors are last-write-wins hints, never durable outbox payloads. */
+  private readMark(input: ThreadMarkReadInput): Promise<CommandResult> {
+    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
+    const id = this.options.id();
+    return this.requests.wait(id, CommandResult.parse, {}, () => {
+      this.connection.send({
+        type: "command",
+        command: {
+          id: CommandId.parse(id),
+          deviceId: this.options.deviceId,
+          payload: ThreadMarkReadCommand.parse({ type: "thread.markRead", ...input }),
+        },
+      });
+    });
+  }
   command(
     payload: CommandPayload,
     options: RequestOptions = {},
     id = this.options.id(),
   ): Promise<CommandResult> {
+    if (payload.type === "thread.markRead")
+      return this.markThreadRead(
+        {
+          threadId: payload.threadId,
+          lastSeenSeq: payload.lastSeenSeq,
+        },
+        options,
+      );
     if (payload.type === "diagnostics.health")
       return this.request({ type: "diagnostics.health" }, options).then(({ ok, health, error }) =>
         CommandResult.parse({
@@ -267,8 +385,8 @@ export class Client implements ClientApi {
           ...(error ? { error } : {}),
         }),
       );
-    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
-    return this.requests.wait(id, CommandResult.parse, options, () => {
+    if (this.closed) return Promise.reject(new ClientError("offline"));
+    return this.requests.waitDurable(id, CommandResult.parse, options, () => {
       void this.enqueue(payload, id).catch((error: unknown) =>
         this.requests.reject(
           id,
@@ -298,7 +416,7 @@ export class Client implements ClientApi {
     return this.requests
       .wait(
         id,
-        (value) => decodeServiceResponse(wire.ServerMessage, input, id, value),
+        (value) => wire.decodeServiceResponse(wire.ServerMessage, input, id, value),
         options,
         () => {
           sent = this.connection.send(parsed.data);

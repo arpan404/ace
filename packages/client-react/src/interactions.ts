@@ -32,3 +32,14 @@ export function useInteraction(threadId: string | undefined, interactionId: stri
   );
   return useThread(threadId, [`interaction:${interactionId}`], selector);
 }
+
+/** Pending and historical interactions stay attached to the item that asked for them. */
+export function useItemInteraction(threadId: string | undefined, itemId: string) {
+  const find = useCallback(
+    (reader: ThreadReader) =>
+      reader.interactionIds().find((id) => reader.interaction(id)?.toolCallId === itemId),
+    [itemId],
+  );
+  const id = useThread(threadId, membership, find);
+  return useInteraction(threadId, id ?? "");
+}

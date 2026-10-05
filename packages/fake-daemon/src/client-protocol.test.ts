@@ -10,7 +10,13 @@ import {
   ServerMessage,
   type ServerMessage as Message,
 } from "@ace/protocol";
-import { settingsFixture, FakeDaemon, fakeTransport } from "./index.ts";
+import {
+  ScenarioPlayer,
+  flakyCheckout,
+  settingsFixture,
+  FakeDaemon,
+  fakeTransport,
+} from "./index.ts";
 
 async function fixture(daemon = new FakeDaemon({ clock: () => 1000 })) {
   let saved: string | null = null,
@@ -913,6 +919,126 @@ test("provider discovery keeps native CLI login separate from ace account record
       path: "/display/home",
       canonicalPath: "/canonical/home",
       roots: ["/canonical/home"],
+    });
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("fake draft images appear as attachment metadata and serve fixture bytes on their owning connection", async () => {
+  const f = await fixture();
+  try {
+    const bytes = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
+      ),
+      (c) => c.charCodeAt(0),
+    );
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const draft = await f.client.request({
+      type: "context.request",
+      operation: { op: "draft.create", workspaceId: WorkspaceId.parse("workspace") },
+    });
+    if (draft.result.kind !== "draft") throw new Error("Expected draft");
+    const begin = await f.client.request({
+      type: "context.request",
+      operation: {
+        op: "draft.upload.begin",
+        draftId: draft.result.draftId,
+        sha256,
+        bytes: bytes.length,
+        name: "screen.txt",
+      },
+    });
+    if (begin.result.kind !== "upload") throw new Error("Expected upload");
+    await f.client.request({
+      type: "context.request",
+      operation: {
+        op: "upload.chunk",
+        uploadId: begin.result.uploadId,
+        offset: 0,
+        data: btoa(String.fromCharCode(...bytes)),
+      },
+    });
+    await f.client.request({
+      type: "context.request",
+      operation: { op: "upload.commit", uploadId: begin.result.uploadId },
+    });
+    const created = await f.client.command({
+      type: "thread.create",
+      workspaceId: WorkspaceId.parse("workspace"),
+      provider: "codex",
+      input: [{ type: "text", text: "inspect" }],
+      context: { draftId: draft.result.draftId, mentions: [], attachments: [{ sha256 }] },
+    });
+    if (!created.threadId) throw new Error("Expected thread");
+    const page = await f.client.itemsPage({ threadId: created.threadId, limit: 20 });
+    expect(
+      page.items.find((item) => item.type === "message" && item.role === "user"),
+    ).toMatchObject({
+      attachments: [
+        {
+          sha256,
+          name: "screen.txt",
+          mimeType: "image/png",
+          bytes: bytes.length,
+          width: 1,
+          height: 1,
+          thumbnailAvailable: true,
+        },
+      ],
+    });
+    expect(
+      (
+        await f.client.attachmentBytes({
+          threadId: created.threadId,
+          sha256,
+          variant: "original",
+          maxBytes: bytes.length,
+        })
+      ).bytes,
+    ).toEqual(bytes);
+    expect((await f.client.attachmentBytes({ threadId: created.threadId, sha256 })).bytes).toEqual(
+      bytes,
+    );
+    await expect(f.client.attachmentBytes({ threadId: "other-thread", sha256 })).rejects.toThrow();
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("a queued follow-up is visible before a held queue read returns", async () => {
+  const f = await fixture();
+  new ScenarioPlayer(f.daemon, flakyCheckout()).runUntilBlocked();
+  const threadId = ThreadId.parse("thread-checkout");
+  try {
+    f.daemon.holdRequests("queue.get");
+    const controller = new AbortController();
+    const queue = f.client.request({ type: "queue.get", threadId }, { signal: controller.signal });
+    const aborted = expect(queue).rejects.toMatchObject({ code: "aborted" });
+    const sent = f.client.enqueue(
+      {
+        type: "thread.send",
+        threadId,
+        delivery: "queue",
+        input: [{ type: "text", text: "Visible before queue.get" }],
+      },
+      "queued-pill",
+    );
+    expect(f.client.pendingSends(threadId).getSnapshot()).toMatchObject([
+      {
+        commandId: "queued-pill",
+        itemId: "input:queued-pill",
+        state: "saving",
+        payload: { delivery: "queue" },
+      },
+    ]);
+    await sent;
+    controller.abort();
+    await aborted;
+    f.daemon.restoreRequests();
+    expect(await f.client.request({ type: "queue.get", threadId })).toMatchObject({
+      queue: { messages: [{ id: "queued-pill" }] },
     });
   } finally {
     await f.client.close();

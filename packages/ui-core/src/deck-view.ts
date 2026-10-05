@@ -28,12 +28,20 @@ type View = ConductorRunView;
 type ViewLane = View["lanes"][number];
 type Node = View["dag"][number];
 
-function phaseOf(run: ConductorSummary, nodes: readonly Node[], error: string | undefined) {
+/** Executor waits the daemon retries by itself: the deck isn't stopped, it is waiting. */
+const transient = new Set(["deck_capacity_wait", "deck_migration_pending"]);
+
+function phaseOf(
+  run: ConductorSummary,
+  nodes: readonly Node[],
+  error: string | undefined,
+): DeckPhase {
+  const stuck = error && (transient.has(error) ? "waiting" : "failed");
   switch (run.phase) {
     case "planning":
-      return error ? "failed" : "planning";
+      return stuck || "planning";
     case "running":
-      if (error) return "failed";
+      if (stuck) return stuck;
       return nodes.length > 0 && nodes.every((node) => node.state === "integrated")
         ? "merging"
         : "dealing";
@@ -44,7 +52,7 @@ function phaseOf(run: ConductorSummary, nodes: readonly Node[], error: string | 
     case "cancelled":
       return "cancelled";
     case "done":
-      return "merged";
+      return nodes.some((node) => node.state === "declined") ? "finished" : "merged";
   }
 }
 
@@ -67,6 +75,8 @@ function cardState(node: Node): CardState {
       return "escalated";
     case "integrated":
       return "merged";
+    case "declined":
+      return "declined";
     default:
       return "planned";
   }
@@ -81,38 +91,78 @@ function latest(lanes: readonly ViewLane[], workstream: string, kind: ViewLane["
   return found;
 }
 
-/** A role's live lane, else the agent that last held it (named by account, without a model). */
+/**
+ * A role's live lane, else the agent that last held it (named by account, without a model):
+ * still running, cut short by a cancel, or finished.
+ */
 function roleOf(
   lane: ViewLane | undefined,
   agent: DeckAgent | undefined,
   accounts: DeckAccounts,
+  cancelled: boolean,
 ): LaneRole | null {
   if (lane) return laneRole(lane.account, lane.model, accounts);
   if (!agent) return null;
-  return { account: agent.account, provider: agent.provider, detail: "Finished" };
+  const detail = agent.live ? "Running" : cancelled ? "Cancelled" : "Finished";
+  return { account: agent.account, provider: agent.provider, detail };
 }
 
-/** Every fix round followed a review that asked for changes; the last round is the current one. */
-function rounds(fixRounds: number, state: CardState): Round[] {
-  const done: Round[] = Array.from({ length: fixRounds }, (_, index) => ({
-    label: `Round ${index + 1}`,
-    verdict: "Changes required",
-  }));
-  if (state === "planned") return done;
-  const current = {
-    working: "Working",
-    fixing: "Fixing",
-    in_review: "In review",
-    merging: "Approved",
-    escalated: "Escalated",
-    merged: "Approved",
-  }[state];
-  return [...done, { label: `Round ${fixRounds + 1}`, verdict: current }];
+const currentVerdict: Record<CardState, string> = {
+  planned: "Planned",
+  working: "Working",
+  fixing: "Fixing",
+  in_review: "In review",
+  merging: "Approved",
+  escalated: "Escalated",
+  declined: "Declined",
+  merged: "Approved",
+};
+
+/**
+ * Review rounds, oldest first. The daemon reports a card's latest reviews; earlier rounds of a
+ * long card are known only to have asked for changes. A round still under way follows them.
+ */
+function rounds(node: Node, state: CardState): Round[] {
+  const round = (node.fixRounds ?? 0) + 1;
+  const reviews = node.reviews ?? [];
+  const reviewed = Math.max(round - 1, reviews.length);
+  const first = reviewed - reviews.length;
+  const done: Round[] = Array.from({ length: reviewed }, (_, index) => {
+    const review = index >= first ? reviews[index - first] : undefined;
+    const passed = review?.verdict === "pass";
+    return {
+      label: `Round ${index + 1}`,
+      verdict: passed ? "Approved" : "Changes required",
+      summary: review?.summary,
+      tone: passed ? "done" : "needs-you",
+    };
+  });
+  // Not dealt yet, or the current round already has its review.
+  if (state === "planned" || reviewed >= round) return done;
+  const tone = state === "merged" || state === "merging" ? "done" : "working";
+  return [
+    ...done,
+    { label: `Round ${round}`, verdict: currentVerdict[state], summary: undefined, tone },
+  ];
 }
 
-function note(node: Node, state: CardState, nodes: readonly Node[], approved: boolean): string {
-  if (state === "merged")
-    return node.revision ? `Merged at ${node.revision.slice(0, 7)}.` : "Merged.";
+function note(
+  node: Node,
+  state: CardState,
+  nodes: readonly Node[],
+  approved: boolean,
+  branch: string | null,
+): string {
+  if (state === "merged") {
+    const into = branch ? ` into ${branch}` : "";
+    return node.revision ? `Merged at ${node.revision.slice(0, 7)}${into}.` : `Merged${into}.`;
+  }
+  if (state === "declined") return "You declined this card. It won't merge.";
+  const declined = node.dependencies.flatMap((id) => {
+    const other = nodes.find((entry) => entry.id === id);
+    return other?.state === "declined" ? [other.title] : [];
+  });
+  if (declined.length) return `Won't start: you declined ${declined.join(", ")}.`;
   const waits = node.dependencies.flatMap(
     (id) => nodes.find((other) => other.id === id)?.title ?? [],
   );
@@ -133,8 +183,9 @@ function cardOf(
     reviewer: latest(view.lanes, node.id, "reviewer"),
   };
   const held = (role: DeckAgent["role"]) => agents.find((agent) => agent.role === role);
-  const worker = roleOf(lanes.worker, held("worker") ?? held("integrator"), accounts);
-  const reviewer = roleOf(lanes.reviewer, held("reviewer"), accounts);
+  const cancelled = view.phase === "cancelled" || view.phase === "cancelling";
+  const worker = roleOf(lanes.worker, held("worker") ?? held("integrator"), accounts, cancelled);
+  const reviewer = roleOf(lanes.reviewer, held("reviewer"), accounts, cancelled);
   const live = lanes.worker ?? lanes.reviewer;
   const current = agents.find((agent) => !agent.nested);
   const lane: Lane | null =
@@ -144,7 +195,7 @@ function cardOf(
           reviewer,
           threadId: current?.threadId ?? null,
           status: live?.status ?? null,
-          rounds: rounds(fixRounds, state),
+          rounds: rounds(node, state),
         }
       : null;
   return {
@@ -154,7 +205,7 @@ function cardOf(
     state,
     round: state === "planned" ? 0 : fixRounds + 1,
     lane,
-    note: note(node, state, view.dag, view.planApproved),
+    note: note(node, state, view.dag, view.planApproved, view.branch ?? null),
     agents,
     ...agentTimes(agents),
   };
@@ -184,6 +235,11 @@ export function deckFromSummary(summary: ConductorSummary): DeckRun {
     error: undefined,
     partial: true,
     plan: null,
+    branch: null,
+    baseBranch: null,
+    planApproval: undefined,
+    merge: undefined,
+    deadline: null,
   };
 }
 
@@ -200,6 +256,7 @@ export function deckFromView(
 ): DeckRun {
   const agents = deckAgents(view, accounts, threads);
   const gates = deckGates(view);
+  const branch = view.branch ?? null;
   return {
     ...base(view),
     phase: phaseOf(view, view.dag, view.executionError),
@@ -222,6 +279,11 @@ export function deckFromView(
         dependencies: workstream.dependencies,
       })),
     },
+    branch,
+    baseBranch: view.baseBranch ?? null,
+    planApproval: view.planApproval,
+    merge: view.merge,
+    deadline: view.deadline ?? null,
   };
 }
 

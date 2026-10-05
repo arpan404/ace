@@ -403,7 +403,7 @@ const screens: Record<string, Setup> = {
     await visit("/deck/mobile-cold-start", "Mobile cold start under 1s")(page);
     await page
       .getByRole("region", { name: "Escalated: Defer the first relay sync" })
-      .getByRole("button", { name: "Approve" })
+      .getByRole("button", { name: "Retry card" })
       .click();
     await page
       .getByRole("region", { name: "Precompile Hermes bytecode needs your answer" })
@@ -436,7 +436,24 @@ const screens: Record<string, Setup> = {
     'daemon.failDeck("mobile-cold-start", "deck_workspace_not_found");',
     async (page) => {
       await visit("/deck/mobile-cold-start", "Mobile cold start under 1s")(page);
-      await page.getByText("The deck stopped.").waitFor();
+      await page.getByText("The deck can't take its next step.").waitFor();
+    },
+  ),
+  // Decks the design's world doesn't hold, staged on the fake conductor.
+  "deck-budget": staged(
+    'daemon.servicesWire.planning.conductor.stage("budget");',
+    visit("/deck/settings-sync", "Sync settings across devices"),
+  ),
+  "deck-unresponsive": staged(
+    'daemon.servicesWire.planning.conductor.stage("unresponsive");',
+    visit("/deck/export-threads", "Export threads as Markdown"),
+  ),
+  "deck-plan-review": staged(
+    'daemon.servicesWire.planning.conductor.stage("planning");',
+    async (page) => {
+      await visit("/deck/search-ranking", "Rank search results by recency")(page);
+      await page.getByRole("button", { name: "Review plan" }).click();
+      await page.getByRole("dialog", { name: "The deck's plan" }).waitFor();
     },
   ),
   // Skills opens on the first catalog entry.

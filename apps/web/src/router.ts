@@ -1,4 +1,5 @@
 import { createRouter, type RouterHistory } from "@tanstack/react-router";
+import { RouteError, RouteNotFound } from "./app/route-fallbacks.tsx";
 import type { RouterContext } from "./routes/__root.tsx";
 import { routeTree } from "./routeTree.gen.ts";
 
@@ -8,6 +9,9 @@ export function createAppRouter(context: RouterContext, history?: RouterHistory)
     context,
     ...(history ? { history } : {}),
     defaultPreload: "intent",
+    // Inside the shell: an unknown address or a failing route keeps the header and sidebar.
+    defaultNotFoundComponent: RouteNotFound,
+    defaultErrorComponent: RouteError,
   });
 }
 

@@ -130,6 +130,20 @@ describe("window.ace bridge", () => {
     expect(createBridge(fakeIpc().ipc, info).files.pathForFile(folder)).toBeNull();
   });
 
+  it("shows the daemon's logs and quits through the main process", async () => {
+    const main = fakeIpc({
+      [requestChannel("daemon.showLogs")]: false,
+      [requestChannel("app.quit")]: undefined,
+    });
+    const ace = createBridge(main.ipc, info);
+    await expect(ace.daemon.showLogs()).resolves.toBe(false);
+    await expect(ace.app.quit()).resolves.toBeUndefined();
+    expect(main.sent.map((entry) => entry.channel)).toEqual([
+      requestChannel("daemon.showLogs"),
+      requestChannel("app.quit"),
+    ]);
+  });
+
   it("delivers well-formed events and drops malformed ones", () => {
     const main = fakeIpc();
     const ace = createBridge(main.ipc, info);
@@ -144,10 +158,26 @@ describe("window.ace bridge", () => {
   });
 });
 
-/** A page whose history pushes and dispatched events are recorded. */
-function page(path: string) {
+/** A page whose history pushes, dispatched events and `<html>` attributes are recorded. */
+function page(path: string, options: { parsed?: boolean } = {}) {
   const pushed: string[] = [];
   const events: string[] = [];
+  const attributes = new Set<string>();
+  const root = {
+    toggleAttribute(name: string, force?: boolean) {
+      const on = force ?? !attributes.has(name);
+      if (on) attributes.add(name);
+      else attributes.delete(name);
+      return on;
+    },
+  };
+  let loaded: (() => void) | undefined;
+  const document = {
+    documentElement: options.parsed === false ? null : root,
+    addEventListener: (_type: "DOMContentLoaded", listener: () => void) => {
+      loaded = listener;
+    },
+  };
   const window: PageWindow = {
     history: { pushState: (_state, _title, url) => void pushed.push(String(url)) },
     location: { pathname: path, search: "" },
@@ -155,9 +185,18 @@ function page(path: string) {
       events.push(event.type);
       return true;
     },
+    document,
   };
-  return { window, pushed, events };
+  /** The parser created `<html>` and finished the document. */
+  const parse = () => {
+    document.documentElement = root;
+    loaded?.();
+  };
+  return { window, pushed, events, attributes, parse };
 }
+
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const windowState = (fullScreen: boolean) => ({ focused: true, maximized: false, fullScreen });
 
 describe("page hooks", () => {
   it("routes a deep link through history so the router follows it", () => {
@@ -184,6 +223,37 @@ describe("page hooks", () => {
     attachPageHooks(createBridge(main.ipc, info), target.window, deepLinkRoute);
     main.emit(eventChannel("deep-link"), { kind: "deck" });
     expect(target.pushed).toEqual([]);
+  });
+
+  it("marks <html> while the window is full screen", async () => {
+    const main = fakeIpc({ [requestChannel("window.state")]: windowState(true) });
+    const target = page("/");
+    attachPageHooks(createBridge(main.ipc, info), target.window, deepLinkRoute);
+    await settle();
+    expect(target.attributes.has("data-fullscreen")).toBe(true);
+    main.emit(eventChannel("window.changed"), windowState(false));
+    expect(target.attributes.has("data-fullscreen")).toBe(false);
+    main.emit(eventChannel("window.changed"), windowState(true));
+    expect(target.attributes.has("data-fullscreen")).toBe(true);
+  });
+
+  it("marks full screen once <html> exists when the window starts full screen", async () => {
+    const main = fakeIpc({ [requestChannel("window.state")]: windowState(true) });
+    const target = page("/", { parsed: false });
+    attachPageHooks(createBridge(main.ipc, info), target.window, deepLinkRoute);
+    await settle();
+    expect(target.attributes.has("data-fullscreen")).toBe(false);
+    target.parse();
+    expect(target.attributes.has("data-fullscreen")).toBe(true);
+  });
+
+  it("keeps a full-screen change that arrives before the starting state", async () => {
+    const main = fakeIpc({ [requestChannel("window.state")]: windowState(false) });
+    const target = page("/");
+    attachPageHooks(createBridge(main.ipc, info), target.window, deepLinkRoute);
+    main.emit(eventChannel("window.changed"), windowState(true));
+    await settle();
+    expect(target.attributes.has("data-fullscreen")).toBe(true);
   });
 
   it("tells the page it is online again after the machine wakes", () => {

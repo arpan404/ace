@@ -10,7 +10,7 @@ import { Icon, type IconGlyph } from "@/components/icon.tsx";
 export const viewRowClass = cn(
   "group grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-card px-[11px] py-[9px] text-left outline-none transition-colors duration-(--dur-1)",
   "hover:bg-sidebar-accent focus-visible:shadow-[inset_0_0_0_1.5px_color-mix(in_oklab,var(--ring)_60%,transparent)]",
-  "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] aria-[current=page]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+  "data-[status=active]:bg-foreground/8 aria-[current=page]:bg-foreground/8",
 );
 
 export function ViewRowBody(props: {

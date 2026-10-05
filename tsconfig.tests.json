@@ -4,6 +4,7 @@
     "vitest.config.ts",
     "scripts/test-home*.ts",
     "scripts/test-project-isolation*.ts",
-    "scripts/process-test-setup.ts"
+    "scripts/process-test-setup.ts",
+    "scripts/check-ui-values.ts"
   ]
 }

@@ -2,12 +2,14 @@ import { createHash } from "node:crypto";
 import {
   WebContentsView,
   session as sessions,
+  webContents,
   type BaseWindow,
   type Session,
   type WebContents,
 } from "electron";
 import type { BrowserOpen } from "@ace/protocol";
 import type { BrowserPlacement } from "../../shared/contract.ts";
+import { appChord, replayChord } from "../shortcuts.ts";
 import type { ViewHost, ViewPage } from "./backend.ts";
 import { parseChord } from "./keys.ts";
 import { PartitionPool } from "./partition-pool.ts";
@@ -109,6 +111,7 @@ export class EmbeddedViews implements ViewHost {
       window,
       platform: this.options.platform,
       log: this.options.log,
+      forward: (accelerator) => this.forward(threadId, accelerator),
       forget: () => {
         if (this.pages.get(threadId) === page) {
           this.pages.delete(threadId);
@@ -159,6 +162,14 @@ export class EmbeddedViews implements ViewHost {
   forgetHost(id: number): void {
     this.hosts.delete(id);
     for (const threadId of this.placements.forgetHost(id)) this.apply(threadId);
+  }
+
+  /** An app shortcut pressed in a thread's view goes to the app page showing that view. */
+  private forward(threadId: string, accelerator: string): void {
+    const host = this.placements.resolve(threadId).host;
+    const contents = host === undefined ? undefined : webContents.fromId(host);
+    if (contents && !contents.isDestroyed())
+      replayChord(contents, accelerator, this.options.platform);
   }
 
   private apply(threadId: string): void {
@@ -232,6 +243,8 @@ interface PageOptions {
   window: BaseWindow;
   platform: NodeJS.Platform;
   log(message: string): void;
+  /** Replays an app shortcut the person pressed in the page into the app's own page. */
+  forward(accelerator: string): void;
   forget(): void;
 }
 
@@ -265,6 +278,14 @@ class EmbeddedPage implements ViewPage {
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     contents.on("will-attach-webview", (event) => event.preventDefault());
     contents.on("before-input-event", (event, input) => {
+      // The app's shortcuts keep working while the page has focus, whoever controls it; keys
+      // an agent sends are the page's.
+      const chord = this.injecting > 0 ? undefined : appChord(input, options.platform);
+      if (chord) {
+        event.preventDefault();
+        if (input.type === "keyDown" && !input.isAutoRepeat) options.forward(chord);
+        return;
+      }
       if (this.allowInput()) return;
       event.preventDefault();
       if (input.type === "keyDown") this.reportBlocked();

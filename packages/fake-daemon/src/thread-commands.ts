@@ -1,5 +1,5 @@
 import { deriveThreadStatus, type Fact } from "@ace/core";
-import type { ContentPart, MessageContext } from "@ace/protocol";
+import { CommandId, type ContentPart, type MessageContext } from "@ace/protocol";
 import type { ThreadHost } from "./thread-host.ts";
 
 /**
@@ -30,33 +30,44 @@ export function busy(host: ThreadHost): boolean {
   );
 }
 
-/** A user message that starts a fresh root turn. */
-export function startTurn(host: ThreadHost, key: string, text: string): Fact[] {
+/** Admission owns the user bubble. Provider delivery reuses this exact item key. */
+export function admissionFacts(
+  host: ThreadHost,
+  key: string,
+  input: readonly ContentPart[],
+  attachments: readonly import("@ace/protocol").Attachment[] = [],
+): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined) return [];
   return [
-    { type: "turn.started", agent: root, nativeTurnId: `turn-${key}`, trigger: "user" },
     {
       type: "item.upsert",
       agent: root,
-      item: `input-${key}`,
-      draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }] },
+      item: `input:${key}`,
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        synthetic: false,
+        parts: [...input],
+        origin: { kind: "person", commandId: CommandId.parse(key) },
+        // The admitted bubble owns attachment metadata, as in the daemon (ADR 0065).
+        ...(attachments.length ? { attachments: [...attachments] } : {}),
+      },
     },
   ];
 }
-
-/** A user message delivered into the running turn without ending it. */
-export function steerFacts(host: ThreadHost, key: string, text: string): Fact[] {
+/** A provider turn starts after input admission, without creating another bubble. */
+export function startTurn(host: ThreadHost, key: string, _text: string): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined) return [];
-  return [
-    {
-      type: "item.upsert",
-      agent: root,
-      item: `input-${key}`,
-      draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }] },
-    },
-  ];
+  return [{ type: "turn.started", agent: root, nativeTurnId: `turn-${key}`, trigger: "user" }];
+}
+/** Steering acknowledges an admitted input without fabricating an echo item. */
+export function steerFacts(host: ThreadHost, key: string, _text: string): Fact[] {
+  const root = host.state.rootKey;
+  if (root === undefined) return [];
+  return [{ type: "input.admitted", agent: root, nativeInputId: key, commandId: key }];
 }
 
 export function sendFacts(
@@ -68,6 +79,7 @@ export function sendFacts(
     input: readonly ContentPart[];
     context?: MessageContext | undefined;
     delivery: "steer" | "queue";
+    attachments?: import("@ace/protocol").Attachment[];
   },
 ): ThreadCommandOutcome {
   const root = host.state.rootKey;
@@ -79,7 +91,13 @@ export function sendFacts(
       ...(payload.model ? { model: payload.model } : {}),
       ...(payload.options ? { options: payload.options } : {}),
     };
-    return { ok: true, facts: startTurn(host, commandId, text) };
+    return {
+      ok: true,
+      facts: [
+        ...admissionFacts(host, commandId, payload.input, payload.attachments),
+        ...startTurn(host, commandId, text),
+      ],
+    };
   }
   if (
     payload.delivery === "steer" &&
@@ -87,12 +105,19 @@ export function sendFacts(
     payload.model === undefined &&
     payload.options === undefined
   )
-    return { ok: true, facts: steerFacts(host, commandId, text) };
+    return {
+      ok: true,
+      facts: [
+        ...admissionFacts(host, commandId, payload.input, payload.attachments),
+        ...steerFacts(host, commandId, text),
+      ],
+    };
   if (host.queued.length >= 256) return { ok: false, error: "queue_limit" };
   host.queued.push({
     key: commandId,
     text,
     input: [...payload.input],
+    ...(payload.attachments ? { attachments: payload.attachments } : {}),
     ...(payload.context ? { context: payload.context } : {}),
     delivery: payload.delivery,
     state: "queued",
@@ -100,7 +125,13 @@ export function sendFacts(
     ...(payload.options ? { options: payload.options } : {}),
   });
   host.queueDirty = true;
-  return { ok: true, facts: [{ type: "queue.changed", count: host.queued.length }] };
+  return {
+    ok: true,
+    facts: [
+      ...admissionFacts(host, commandId, payload.input, payload.attachments),
+      { type: "queue.changed", count: host.queued.length },
+    ],
+  };
 }
 
 /** Once the root agent is free, the oldest queued message starts the next turn. */

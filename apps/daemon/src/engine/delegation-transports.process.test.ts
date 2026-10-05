@@ -262,6 +262,7 @@ test.each([
         commandId,
       ).ok,
     ).toBe(true);
+    assertTranscript(parent);
     await h.engine.flush();
     const sent = latest;
     expect(h.errors).toEqual([]);

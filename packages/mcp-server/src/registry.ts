@@ -2,7 +2,7 @@ import { describeAceAction } from "./actions.ts";
 import { z } from "zod";
 import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
 import type { McpAttribution, McpCapability } from "@ace/protocol";
-import { specTypeSchemas, type CallToolResult, type Tool } from "@modelcontextprotocol/server";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
 import type { Principal } from "./credentials.ts";
 
@@ -30,6 +30,7 @@ export const nodeScheduler: Scheduler = {
     return () => clearTimeout(timer);
   },
 };
+const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
 function noop(): void {}
 interface Entry {
   descriptor: Tool;
@@ -132,7 +133,9 @@ export class ToolRegistry {
     if (this.entries.size >= this.maxTools) throw new Error("Tool capacity reached");
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000)
       throw new Error("Invalid tool timeout");
-    const parsed = specTypeSchemas.Tool["~standard"].validate({
+    // Descriptors are built from trusted definitions and Zod-generated JSON schemas.
+    // The SDK validates the wire representation when an MCP client connects.
+    return {
       name,
       description,
       ...(riskClass
@@ -145,13 +148,19 @@ export class ToolRegistry {
           }
         : {}),
       _meta: { "ace/timeoutMs": timeoutMs, "ace/riskClass": riskClass ?? "external-effect" },
-      inputSchema: { ...z.toJSONSchema(input, { io: "input" }), type: "object" },
+      inputSchema: JsonObjectSchema.parse({
+        ...z.toJSONSchema(input, { io: "input" }),
+        type: "object",
+      }),
       ...(output
-        ? { outputSchema: { ...z.toJSONSchema(output, { io: "output" }), type: "object" } }
+        ? {
+            outputSchema: JsonObjectSchema.parse({
+              ...z.toJSONSchema(output, { io: "output" }),
+              type: "object",
+            }),
+          }
         : {}),
-    });
-    if (parsed.issues) throw new Error("Invalid tool descriptor");
-    return parsed.value;
+    };
   }
   action(name: string, input: unknown) {
     const tool = name.startsWith("mcp__ace__") ? name.slice("mcp__ace__".length) : name;

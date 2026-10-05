@@ -1,6 +1,7 @@
 import { providerCommandDisabled } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { ProviderConfigurations } from "@ace/protocol";
+import { automaticTarget } from "@ace/accounts/availability";
 import {
   resolvePermissionMode,
   limitPermissionMode,
@@ -599,6 +600,15 @@ export class FakeDaemon implements Host {
     this.connections.delete(connection);
     this.services.release(connection.push);
   }
+  /** Scripted metadata changes use the same event stream as command effects. */
+  updateThread(
+    id: string,
+    changes: Omit<Extract<EventPayload, { type: "thread.updated" }>, "type">,
+    agoMs = 0,
+  ): void {
+    const now = this.at(agoMs);
+    this.append(this.thread(id), [{ type: "thread.updated", ...changes }], now);
+  }
   /** Drop every socket, as a daemon restart or network loss would. */
   disconnectAll(code = 1006): void {
     // Deleting the current entry during Set iteration is safe.
@@ -735,11 +745,11 @@ export class FakeDaemon implements Host {
     const thread = host.view.thread;
     const current = thread.live?.account ?? thread.execution?.instanceId;
     const from = this.services.accounts.find((account) => account.id === current);
-    return this.services.accounts.find(
-      (account) =>
-        account.id !== current &&
-        account.provider === (from?.provider ?? thread.provider) &&
-        account.availability !== "exhausted",
+    // The daemon's own pick, so a fake move lands where a real one would.
+    return automaticTarget(
+      this.services.accounts,
+      { id: current ?? "", provider: from?.provider ?? thread.provider },
+      Date.now(),
     )?.id;
   }
   private execute(command: Command): CommandResult {
@@ -975,7 +985,7 @@ export class FakeDaemon implements Host {
             payload.workspaceId,
             id,
           );
-        const started = startedThread(id, payload);
+        const started = startedThread(id, payload, commandId);
         this.createThread({
           ...started.thread,
           ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),
@@ -1007,6 +1017,18 @@ export class FakeDaemon implements Host {
         });
         if (payload.context?.draftId)
           this.servicesWire.context.adopt(command.deviceId, payload.context.draftId, id);
+        const attachments = this.servicesWire.context.messageAttachments(
+          id,
+          payload.context?.attachments.map((a) => a.sha256) ?? [],
+        );
+        for (const fact of started.facts)
+          if (
+            fact.type === "item.upsert" &&
+            fact.draft.type === "message" &&
+            fact.draft.role === "user" &&
+            attachments.length
+          )
+            fact.draft.attachments = attachments;
         this.apply(id, started.facts);
         return { commandId, ok: true, threadId: ThreadId.parse(id) };
       }
@@ -1014,6 +1036,10 @@ export class FakeDaemon implements Host {
         return this.run(commandId, payload.threadId, (host) =>
           sendFacts(host, commandId, {
             ...payload,
+            attachments: this.servicesWire.context.messageAttachments(
+              payload.threadId,
+              payload.context?.attachments.map((a) => a.sha256) ?? [],
+            ),
             // An omitted delivery resolves the person's follow-up setting, as the daemon does.
             delivery:
               payload.delivery ??

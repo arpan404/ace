@@ -5,9 +5,11 @@ export { ClientError, defaultLimits } from "./types.ts";
 export type {
   ClientOptions,
   ConnectionState,
+  ConnectionInfo,
   Transport,
   TransportEvents,
   Storage,
+  IntentRecords,
   Scheduler,
   Limits,
   RequestOptions,
@@ -18,6 +20,7 @@ export type { Selection, ChangeTap } from "./observable.ts";
 export { Notifications } from "./observable.ts";
 export type {
   ClientApi,
+  ConnectionControl,
   ThreadSource,
   SidebarSource,
   Lease,
@@ -81,3 +84,9 @@ export type {
 
 export { ModelClient } from "./models.ts";
 export type { ModelScope, ModelServicePort } from "./models.ts";
+
+export { attachmentBytes, type AttachmentInput } from "./attachments.ts";
+export { pendingSend, pendingSendsEqual, matchesPendingThread } from "./pending-sends.ts";
+export type { PendingSend, SendPayload } from "./pending-sends.ts";
+
+export { fitsUtf8 } from "./bounds.ts";
