@@ -67,6 +67,9 @@ test("a first visit follows the OS: light on a light system, dark on a dark one"
 test("themes and accents are radio groups: arrow keys move and choose", async () => {
   await harness().open("/settings/appearance");
   const system = await screen.findByRole("radio", { name: "System" });
+  // A navigation moves focus to the view's title a frame after it renders (app-shell's route
+  // focus); start from there, as a keyboard user would, so that move can't take focus back.
+  await waitFor(() => expect(document.activeElement?.tagName).toBe("H1"));
   system.focus();
   await userEvent.keyboard("{ArrowRight}");
   expect(root.getAttribute("data-theme")).toBe("light");
@@ -132,7 +135,10 @@ test("a white custom accent on Light keeps links and button labels readable", as
 
 test("density and glass apply to the document", async () => {
   await harness().open("/settings/appearance");
-  await userEvent.click(await screen.findByRole("button", { name: "Compact" }));
+  const compact = await screen.findByRole("button", { name: "Compact" });
+  // Let the route's focus move to the title land first (see the radio-group test).
+  await waitFor(() => expect(document.activeElement?.tagName).toBe("H1"));
+  await userEvent.click(compact);
   expect(root.getAttribute("data-density")).toBe("compact");
 
   const glass = screen.getByRole("slider", { name: "Glass intensity" });
