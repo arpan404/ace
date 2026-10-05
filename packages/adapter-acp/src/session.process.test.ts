@@ -1,5 +1,8 @@
 import { fileURLToPath } from "node:url";
-import { it, expect } from "vitest";
+import { it, expect, afterEach } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Frame, ProviderSession } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { openAcpSession } from "./index.ts";
@@ -13,8 +16,15 @@ import { spawnSupervised } from "@ace/provider-kit/process";
 import type { SessionRuntime } from "./index.ts";
 import { object } from "./data.ts";
 const fake = fileURLToPath(new URL("./testing/acp-server.ts", import.meta.url));
+const homes: string[] = [];
+afterEach(async () => {
+  for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true });
+});
 async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRuntime) {
+  const home = await mkdtemp(join(tmpdir(), "ace-acp-session-"));
+  homes.push(home);
   const frames: Frame[] = [];
+  const inputMessages: { commandId: string; nativeId: string; beforeFrame: number }[] = [];
   const watchers = new Set<() => void>();
   const controller = new AbortController();
   const threadId = ThreadId.parse("session-test");
@@ -23,7 +33,8 @@ async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRun
   }>();
   const ctx = {
     threadId,
-    cwd: process.cwd(),
+    cwd: home,
+    env: { HOME: home },
     model: "test-model",
     signal: controller.signal,
     ...(resume ? { resume: { nativeSessionId: "native-root" } } : {}),
@@ -32,6 +43,8 @@ async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRun
       for (const watcher of watchers) watcher();
     },
     onExit: exitResolve,
+    onInputMessage: (identity: { commandId: string; nativeId: string }) =>
+      inputMessages.push({ ...identity, beforeFrame: frames.length }),
   };
   const session: ProviderSession =
     quirks === genericQuirks
@@ -59,10 +72,56 @@ async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRun
       check();
     });
   }
-  return { session, frames, controller, exited, wait };
+  return { session, frames, inputMessages, controller, exited, wait };
 }
 const input = (text: string) => [{ type: "text" as const, text }];
 const method = (f: Frame, name: string) => object(f.data)["method"] === name;
+it("ACP fallback correlates ace input before the native prompt is logged", async () => {
+  const h = await setup(genericQuirks);
+  try {
+    await h.session.send(input("user-echo"), "queue", "ace-wake", "ace");
+    const identity = h.inputMessages[0];
+    if (!identity) throw new Error("Missing ACP command correlation");
+    expect(identity).toMatchObject({ commandId: "ace-wake", nativeId: "ace-wake" });
+    expect(h.frames[identity.beforeFrame]).toMatchObject({
+      dir: "note",
+      data: { event: "input-sending", nativeId: "ace-wake" },
+    });
+    const translator = createAcpAdapter(genericQuirks, {
+      command: process.execPath,
+      args: [fake],
+    }).createTranslator({ threadId: ThreadId.parse("session-test"), rootKey: "root" });
+    const facts = h.frames.flatMap((frame) => translator.translate(frame, frame.t));
+    expect(facts).toContainEqual(
+      expect.objectContaining({
+        type: "item.upsert",
+        draft: expect.objectContaining({ type: "message", role: "user", nativeId: "ace-wake" }),
+      }),
+    );
+    expect(
+      facts.some((fact) => fact.type === "item.delta" && fact.append === "echoed context"),
+    ).toBe(false);
+    expect(facts).toContainEqual(
+      expect.objectContaining({
+        type: "item.upsert",
+        draft: expect.objectContaining({
+          type: "notice",
+          text: "Delegated-agent context echoed by the provider.",
+        }),
+      }),
+    );
+    const after = h.frames.length;
+    await h.session.send(input("user-echo"), "queue", "copied-user-command");
+    const userFacts = h.frames
+      .slice(after)
+      .flatMap((frame) => translator.translate(frame, frame.t));
+    expect(userFacts).toContainEqual(
+      expect.objectContaining({ type: "item.delta", append: "echoed context" }),
+    );
+  } finally {
+    await h.session.close("user");
+  }
+});
 it("queues reprompts until the current turn settles and forwards extension responses", async () => {
   const h = await setup();
   try {

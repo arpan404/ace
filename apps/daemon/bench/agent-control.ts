@@ -7,6 +7,8 @@ import { randomUUID } from "node:crypto";
 import { summarizeThreadReference } from "@ace/context";
 import { Store, Engine, AdapterRegistry, DelegationService } from "@ace/daemon";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
+import { ModelCatalog, openModelStorage } from "@ace/models";
+import { scriptedModelInstance, scriptedModelDiscovery } from "../src/testing/models.ts";
 import {
   Item,
   ThreadRefContextItem,
@@ -58,10 +60,18 @@ registry.register(
   { installed: true, auth: "logged_in", loginHint: "unused" },
 );
 const engine = new Engine(store, { registry, clock });
+const models = new ModelCatalog({
+  storage: openModelStorage(join(home, "models.sqlite")),
+  instances: [scriptedModelInstance("codex", home)],
+  discover: scriptedModelDiscovery(),
+  now: () => clock.now(),
+  deadline: clock.setTimer,
+});
 const service = new DelegationService({
   store,
   engine,
   clock,
+  models,
   id: randomUUID,
   policy: { maxConcurrent: 32 },
   onError: (error) => {
@@ -69,6 +79,7 @@ const service = new DelegationService({
   },
 });
 try {
+  await models.refresh();
   const historicalReceipts = z.coerce
     .number()
     .int()
@@ -205,6 +216,7 @@ try {
 } finally {
   service.close();
   await engine.close();
+  await models.close();
   store.close();
   rmSync(home, { recursive: true, force: true });
 }

@@ -1,3 +1,6 @@
+import { readableProviderFact } from "./provider-errors.ts";
+import { attributeAceAction } from "./ace-approvals.ts";
+import { AceInputs } from "./ace-inputs.ts";
 import { coalesceFacts } from "./delta-batch.ts";
 import { Permissions } from "./permissions.ts";
 import { ProviderRecovery } from "./provider-recovery.ts";
@@ -23,7 +26,9 @@ import { IntentStore, type IntentHeader } from "./intents.ts";
 import { AttachmentCorrelations } from "./attachment-correlations.ts";
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
+  private aceAction: typeof import("@ace/mcp-server").aceToolAction | undefined;
   readonly store: Store;
+  readonly aceInputs: AceInputs;
   readonly permissions: Permissions;
   readonly recovery: ProviderRecovery;
   private capture: StatementSync;
@@ -50,11 +55,14 @@ export class EngineRepository {
     ids: IdSource = { next: () => randomUUID() },
     capacity = 64,
     commandId: () => string = randomUUID,
+    aceAction?: typeof import("@ace/mcp-server").aceToolAction,
   ) {
+    this.aceAction = aceAction;
     this.capacity = capacity;
     this.commandId = commandId;
     this.ids = ids;
     this.store = store;
+    this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
     this.attachments = new AttachmentCorrelations(store);
     store.atomic((db) =>
@@ -211,7 +219,15 @@ export class EngineRepository {
             this.recoveryAcknowledgement(id)
           )
             input = { ...input, trigger: queue.trigger };
-          let fact = capFact((raw) => this.store.capRaw(raw, id), input);
+          let fact = attributeAceAction(state, this.aceInputs.attribute(id, input), this.aceAction);
+          if (
+            ((fact.type === "item.upsert" || fact.type === "item.reconciled") &&
+              fact.draft.type === "notice") ||
+            (fact.type === "turn.ended" && fact.error) ||
+            (fact.type === "process.exited" && fact.message)
+          )
+            fact = readableProviderFact(state.config.provider, fact, this.session(id).model);
+          fact = capFact((raw) => this.store.capRaw(raw, id), fact);
           if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
             const pending = this.pending.awaiting(id);
             if (

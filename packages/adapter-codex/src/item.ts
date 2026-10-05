@@ -58,6 +58,9 @@ export function itemDraft(item: Obj, complete: boolean): ItemDraft {
       return {
         type: "message",
         role: "user",
+        ...(str(item["clientId"]) && str(item["clientId"]).length <= 256
+          ? { nativeId: str(item["clientId"]) }
+          : {}),
         parts: content(item["content"]),
         complete,
         raw: raw(type, item),

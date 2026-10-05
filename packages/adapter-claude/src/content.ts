@@ -1,4 +1,5 @@
 import { ClaudeState } from "./state.ts";
+import { ProviderErrorDetails } from "@ace/protocol";
 import { list, number, object, string, text, type Data } from "./native.ts";
 import { matchBlock, type MessageIndex } from "./blocks.ts";
 import { childUsage } from "./usage.ts";
@@ -165,7 +166,9 @@ export function message(
         item,
         draft: {
           type: "message",
-          ...(list(m["content"]).length === 1 && string(data["uuid"])
+          ...((role === "user" || list(m["content"]).length === 1) &&
+          string(data["uuid"]) &&
+          string(data["uuid"]).length <= 256
             ? { nativeId: string(data["uuid"]) }
             : {}),
           role,
@@ -191,6 +194,11 @@ export function message(
   }
   if (typeof data["error"] === "string") {
     const error = data["error"];
+    const details = ProviderErrorDetails.safeParse({
+      code: error,
+      provider: "claude",
+      model: state.model,
+    });
     // Provider error metadata is authoritative. Ordinary prose mentioning auth is not.
     state.errors.set(agent, {
       kind:
@@ -200,6 +208,7 @@ export function message(
             ? "quota"
             : "provider",
       message: text(m["content"]) || error,
+      ...(details.success ? { details: details.data } : {}),
     });
     state.notice(data, `error:${seq}`, agent, "error", error);
   }

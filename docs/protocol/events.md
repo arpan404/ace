@@ -399,23 +399,12 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "call": {
-      "agentId": "example",
-      "detail": {
-        "kind": "file.read",
-        "path": "example"
-      },
-      "id": "example",
-      "kind": "todo",
-      "raw": [],
-      "startedAt": 5,
-      "status": "pending",
-      "title": "example"
-    },
     "complete": true,
     "createdAt": 1,
     "id": "example",
-    "type": "tool_call"
+    "summary": true,
+    "text": "example",
+    "type": "reasoning"
   },
   "type": "item.created"
 }
@@ -437,7 +426,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "reasoning",
+  "field": "output",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -457,30 +446,25 @@ Example:
   "item": {
     "agentId": "example",
     "complete": true,
-    "createdAt": 2,
+    "createdAt": 3,
+    "details": {
+      "code": "example",
+      "model": "example",
+      "provider": "antigravity"
+    },
     "executionSource": {
       "nativeSessionId": "example",
       "selection": {
         "instanceId": "example",
-        "provider": "claude"
+        "model": "example",
+        "options": {},
+        "provider": "cursor"
       }
     },
     "id": "example",
-    "mergedContext": {
-      "citations": [
-        {
-          "itemId": "example",
-          "threadId": "example"
-        }
-      ],
-      "patchApplied": false,
-      "sourceThreadId": "example",
-      "summary": "example"
-    },
-    "nativeId": "example",
-    "parts": [],
-    "role": "assistant",
-    "type": "message"
+    "level": "warning",
+    "text": "example",
+    "type": "notice"
   },
   "type": "item.updated"
 }
@@ -516,31 +500,37 @@ Example:
   "interaction": {
     "agentId": "example",
     "blocking": false,
-    "closedAt": 8,
-    "createdAt": 8,
+    "createdAt": 6,
     "id": "example",
+    "raw": [],
     "request": {
-      "description": "example",
       "kind": "elicitation",
       "message": "example",
-      "nativeId": "example",
-      "server": "example"
+      "server": "example",
+      "url": "example"
     },
-    "resolvedBy": "example",
+    "resolution": {
+      "decision": "cancel",
+      "feedback": "example",
+      "kind": "plan_review"
+    },
     "review": {
       "decision": "approve",
       "interactionId": "example",
-      "mode": "auto-review",
+      "mode": "full-access",
       "reason": "example",
       "reviewer": "ace-risk-policy",
       "target": {
-        "access": "unknown",
+        "access": "execute",
+        "command": "example",
         "cwd": "example",
-        "paths": [],
+        "description": "example",
+        "input": null,
+        "riskClass": "agent-execution",
         "tool": "example"
       }
     },
-    "state": "pending",
+    "state": "expired",
     "threadId": "example",
     "toolCallId": "example"
   },
@@ -564,9 +554,8 @@ Example:
 
 ```json
 {
-  "closedAt": 8,
+  "closedAt": 9,
   "interactionId": "example",
-  "resolvedBy": "example",
   "state": "cancelled",
   "type": "interaction.closed"
 }
@@ -587,9 +576,9 @@ Example:
     "agentId": "example",
     "id": "example",
     "kind": "monitor",
-    "startedAt": 1,
-    "status": "stopped",
-    "stoppable": true,
+    "startedAt": 6,
+    "status": "completed",
+    "stoppable": false,
     "title": "example",
     "toolCallId": "example"
   },
@@ -633,7 +622,7 @@ Example:
   "paused": false,
   "reason": null,
   "resumeAt": null,
-  "revision": 4,
+  "revision": 6,
   "type": "queue.updated"
 }
 ```
@@ -651,7 +640,7 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 6,
+    "epoch": 2,
     "model": "example",
     "source": "catalog",
     "usedTokens": null,
@@ -678,8 +667,7 @@ Example:
 {
   "agentId": "example",
   "type": "context.sampled",
-  "usedTokens": 5,
-  "windowTokens": 6
+  "usedTokens": 3
 }
 ```
 
@@ -713,12 +701,13 @@ Example:
 ```json
 {
   "agentId": "example",
-  "cacheWrite1hTokens": 4,
-  "contextTokens": 8,
-  "contextWindow": 8,
-  "counterMode": "cumulative",
-  "inputTokens": 9,
-  "outputTokens": 7,
+  "billingMode": "api",
+  "cacheWriteTokens": 7,
+  "costUsd": 0,
+  "inputTokens": 1,
+  "model": "example",
+  "outputTokens": 6,
+  "reasoningTokens": 1,
   "type": "usage.updated"
 }
 ```
@@ -736,6 +725,7 @@ Example:
 ```json
 {
   "change": {
+    "destination": "example",
     "id": "example",
     "op": "example",
     "path": "example",

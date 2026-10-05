@@ -14,6 +14,7 @@ import {
 export const handoffToolCatalog = [
   {
     name: "ace_read_handoff",
+    riskClass: "read-only",
     description:
       "Page cited handoff history. Use sourceThreadId from the manifest and itemsBefore for earlier pages.",
     input: HandoffPageInput,
@@ -23,6 +24,7 @@ export const handoffToolCatalog = [
   },
   {
     name: "ace_read_handoff_chunk",
+    riskClass: "read-only",
     description:
       "Read a bounded text or shell-output stream from handoff history. Bytes are base64; decode with the returned encoding. Continue at nextOffset until eof.",
     input: HandoffChunkInput,
@@ -49,6 +51,7 @@ export const AgentPage = z.strictObject({
 export const builtinToolCatalog = [
   {
     name: "ace_thread_info",
+    riskClass: "read-only",
     description: "Read this thread and its canonical status.",
     input: z.strictObject({}),
     output: z.strictObject({ thread: Thread }),
@@ -57,6 +60,7 @@ export const builtinToolCatalog = [
   },
   {
     name: "ace_list_agents",
+    riskClass: "read-only",
     description: "Read a page of this thread's agent tree; status includes live descendants.",
     input: AgentPageInput,
     output: AgentPage,
@@ -65,6 +69,7 @@ export const builtinToolCatalog = [
   },
   {
     name: "ace_notify_user",
+    riskClass: "external-effect",
     description: "Post a notice and request a user notification.",
     input: McpNoticeInput,
     output: accepted,
@@ -73,6 +78,7 @@ export const builtinToolCatalog = [
   },
   {
     name: "ace_spawn_agent",
+    riskClass: "agent-execution",
     description:
       "Request a child agent. Acceptance is not completion; inspect the tree for progress.",
     input: McpSpawnInput,

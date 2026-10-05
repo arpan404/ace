@@ -78,6 +78,8 @@ describe("recorded replay", () => {
       reasoning: 0,
       tool_call: 0,
       compaction: 0,
+      "delegation.started": 0,
+      "delegation.settled": 0,
     });
     expect(result.final.interactions).toEqual({
       resolved: 1,
