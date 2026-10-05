@@ -219,7 +219,7 @@
     "text-size": 1
   },
   "apps/web/src/features/settings/keyboard-page.tsx": {
-    "text-size": 2
+    "text-size": 3
   },
   "apps/web/src/features/settings/notifications-page.tsx": {
     "text-size": 2
@@ -295,6 +295,7 @@
     "radius": 1
   },
   "apps/web/src/features/thread/items/agent-row.tsx": {
+    "text-size": 1,
     "radius": 1
   },
   "apps/web/src/features/thread/items/background-task.tsx": {
@@ -332,6 +333,9 @@
     "radius": 1
   },
   "apps/web/src/features/thread/transcript/live-footer.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/features/thread/transcript/turn-end.tsx": {
     "text-size": 1
   }
 }
