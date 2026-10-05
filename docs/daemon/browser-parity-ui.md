@@ -54,7 +54,8 @@ before agent dialog tools, while `browser.dialog.answer` selects its specified t
 
 Evaluate approvals arrive through the existing canonical `interaction.opened`
 path and thread approval UI, not a separate browser popup. The target tool is
-`browser.evaluate`, with `origin`, `url` and `mode` in `target.input`. Options are
+`browser.evaluate`, with `origin`, `url`, `mode` and the proposed `expression` in `target.input`.
+Show the expression in the approval review. Options are
 `allow_once`, `deny`, and for read-only mode, `allow_site`. Resolve using the existing
 `interaction.resolve` command. Download approvals use `browser.downloads` and
 Allow once / Deny. Outside-file uploads use `browser.upload`, include exact resolved

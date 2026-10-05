@@ -314,6 +314,9 @@ it("engine browser approvals keep the tree needing a human and resolve without n
         entry.request.target?.tool === "browser.evaluate",
     );
     if (!approval) throw new Error("Evaluate approval unavailable");
+    expect(approval.request).toMatchObject({
+      target: { tool: "browser.evaluate", input: { expression: "1", mode: "unrestricted" } },
+    });
     expect(h.store.getThread(threadId)?.status.state).toBe("needs_you");
     expect(
       h.engine.handler.handle(

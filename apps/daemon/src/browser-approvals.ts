@@ -103,8 +103,9 @@ export class BrowserApprovals {
     url: string,
     signal?: AbortSignal,
     mode: "read-only" | "unrestricted" = "unrestricted",
+    expression?: string,
   ) {
-    return this.request(threadId, url, "evaluate", signal, mode);
+    return this.request(threadId, url, "evaluate", signal, mode, undefined, expression);
   }
   downloads(threadId: string, url: string, signal?: AbortSignal) {
     return this.request(threadId, url, "downloads", signal);
@@ -124,6 +125,7 @@ export class BrowserApprovals {
     signal?: AbortSignal,
     mode?: "read-only" | "unrestricted",
     paths?: string[],
+    expression?: string,
   ): Promise<boolean> {
     const threadId = ThreadId.parse(rawThreadId),
       origin = kind === "upload" ? "" : browserOrigin(url);
@@ -170,7 +172,7 @@ export class BrowserApprovals {
             origin: "ace",
             access: kind === "evaluate" && mode === "read-only" ? "read" : "execute",
             riskClass: "external-effect",
-            input: { origin, url, mode, paths },
+            input: { origin, url, mode, paths, expression },
           },
           options: [
             { id: "allow_once", kind: "allow_once", label: "Allow once" },

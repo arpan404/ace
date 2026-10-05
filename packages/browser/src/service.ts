@@ -349,10 +349,12 @@ export class BrowserService {
                 threadId: string,
                 url: string,
                 mode?: "read-only" | "unrestricted",
+                expression?: string,
               ) =>
                 this.policyGate.run(
                   signal,
-                  () => this.options.evaluatePolicy?.(threadId, url, signal, mode) ?? false,
+                  () =>
+                    this.options.evaluatePolicy?.(threadId, url, signal, mode, expression) ?? false,
                   65_000,
                 ),
             }

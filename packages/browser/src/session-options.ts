@@ -21,6 +21,7 @@ export interface SessionOptions {
     threadId: string,
     url: string,
     mode?: "read-only" | "unrestricted",
+    expression?: string,
   ) => boolean | Promise<boolean>;
   artifactAllowed?: (path: string) => boolean | Promise<boolean>;
   workspaceRoot?: () => string | Promise<string>;

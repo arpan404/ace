@@ -191,7 +191,8 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     },
     evaluatePolicy:
       options.browser?.evaluatePolicy ??
-      ((threadId, url, signal, mode) => approvals.evaluate(threadId, url, signal, mode)),
+      ((threadId, url, signal, mode, expression) =>
+        approvals.evaluate(threadId, url, signal, mode, expression)),
     evaluateGrants: approvals,
     downloadPolicy:
       options.browser?.downloadPolicy ??

@@ -99,7 +99,7 @@ An action already dispatched into Chromium may finish after takeover.
 ## Evaluate and inspection safety
 
 Origin approval never grants evaluation. Evaluate is a blocking engine host
-interaction in Ask/Auto-review. Choices are Allow once, Deny, and for read-only
+interaction in Ask/Auto-review, including the proposed expression for review. Choices are Allow once, Deny, and for read-only
 mode, Allow read-only JS for this site in this thread. Only the latter creates a
 persistent exact-origin grant. It never permits unrestricted evaluation. The UI
 can list/revoke these grants without opening Chromium. Revocation expires pending

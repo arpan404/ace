@@ -28,6 +28,7 @@ export interface BrowserServiceOptions {
     url: string,
     signal?: AbortSignal,
     mode?: "read-only" | "unrestricted",
+    expression?: string,
   ) => boolean | Promise<boolean>;
   evaluateGrants?: {
     list(threadId: string): import("@ace/protocol").BrowserEvaluateGrant[];

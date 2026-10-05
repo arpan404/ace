@@ -312,7 +312,7 @@ export async function executeBrowserCommand(
       return { ok: true };
     case "evaluate": {
       const document = context.refs.documentGuard();
-      if (!(await evaluatePolicy?.(threadId, page.url(), command.mode)))
+      if (!(await evaluatePolicy?.(threadId, page.url(), command.mode, command.expression)))
         throw new BrowserActionError("evaluate_approval_required");
       context.check(actor, signal, generation);
       document();
