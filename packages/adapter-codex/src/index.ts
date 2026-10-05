@@ -18,3 +18,5 @@ export const adapter = createCodexAdapter();
 export default adapter;
 
 export { CodexInteractionUnavailable } from "./interaction-lifecycle.ts";
+
+export { CodexExitDiagnostic } from "./exit-diagnostic.ts";

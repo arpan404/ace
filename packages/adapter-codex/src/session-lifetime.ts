@@ -1,3 +1,4 @@
+import { CodexExitDiagnostic } from "./exit-diagnostic.ts";
 import { createTextRedactor } from "@ace/redaction";
 import type { SupervisedProcess } from "@ace/provider-kit/process";
 import type { CodexSessionContext } from "./session-context.ts";
@@ -52,7 +53,7 @@ export function sessionLifetime(config: {
     config.cleanup();
     ctx.signal.removeEventListener("abort", abort);
     const deliberate = retirement !== null && retirement !== "open_failed";
-    const diagnostic = {
+    const diagnostic = CodexExitDiagnostic.parse({
       event: "codex-session-exit",
       generation: config.generation,
       deliberate,
@@ -61,7 +62,9 @@ export function sessionLifetime(config: {
       code: exit.code,
       signal: exit.signal,
       stderr,
-    };
+      stderrSummary: stderr.slice(-1024),
+      ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
+    });
     config.emit("note", diagnostic);
     ctx.onExit({
       deliberate,

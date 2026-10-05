@@ -1,3 +1,4 @@
+import { CodexExitDiagnostic } from "./exit-diagnostic.ts";
 import { PermissionMode } from "@ace/protocol";
 import { answerEchoes } from "./answer-echo.ts";
 import { confirmModel } from "./model.ts";
@@ -445,7 +446,12 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     },
     translate(frame, now) {
       diagnosticFrame = frame.data;
-      diagnostics = raw(str(obj(frame.data)["method"], "codex.frame"), frame.data);
+      diagnostics = raw(
+        frame.dir === "note" && CodexExitDiagnostic.safeParse(frame.data).success
+          ? "codex.session-exit"
+          : str(obj(frame.data)["method"], "codex.frame"),
+        frame.data,
+      );
       try {
         return handle(frame, now);
       } catch {
