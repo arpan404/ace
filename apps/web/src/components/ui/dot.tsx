@@ -1,11 +1,12 @@
 import { cn } from "@/lib/cn.ts";
 
 /**
- * The only colour a list row carries: a 6px dot when a thread needs you or failed, a hollow
- * grey dot when unresponsive. Always paired with text for assistive tech (`label`).
+ * A 6px status dot in its tone's hue (`data-tone`, see index.css): needs you, working, failed,
+ * done, idle; a hollow ring when unresponsive. Always paired with text for assistive tech
+ * (`label`).
  */
 function Dot(props: {
-  tone: "needs-you" | "failed" | "unresponsive" | "idle" | "done";
+  tone: "needs-you" | "working" | "failed" | "unresponsive" | "idle" | "done";
   label?: string;
   className?: string;
 }) {
@@ -16,11 +17,7 @@ function Dot(props: {
       {...(props.label ? { role: "img", "aria-label": props.label } : { "aria-hidden": true })}
       className={cn(
         "inline-block size-1.5 shrink-0 rounded-full",
-        props.tone === "needs-you" && "bg-status-needs-you",
-        props.tone === "failed" && "bg-status-failed",
-        props.tone === "done" && "bg-status-done",
-        props.tone === "idle" && "bg-subtle-foreground",
-        props.tone === "unresponsive" && "shadow-[inset_0_0_0_1.5px_var(--subtle-foreground)]",
+        props.tone === "unresponsive" ? "shadow-[inset_0_0_0_1.5px_var(--tone)]" : "bg-(--tone)",
         props.className,
       )}
     />

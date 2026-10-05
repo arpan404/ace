@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 import { useArrival } from "@/lib/arrival.tsx";
 
 /**
- * One Activity sidebar row: a 26px icon tile, the title (13/500) with its context under it,
- * the age at the bottom right, and optional inline actions. Read rows drop to the muted
- * grey; the selected row carries the 7% ink fill.
+ * One Activity sidebar row: a 26px icon tile (amber while it needs you), the title (13/500) with
+ * its context under it, the age at the bottom right, and optional inline actions. Read rows drop
+ * to the muted grey; the selected row carries the 7% ink fill.
  */
 export function FeedRow(props: {
   /** A 16px glyph, or a spinner for running work. */
@@ -25,8 +25,7 @@ export function FeedRow(props: {
       className={cn(
         "relative rounded-[10px] transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
         arrival,
-        props.selected &&
-          "bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] hover:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+        props.selected && "bg-selected hover:bg-selected",
       )}
     >
       <button
@@ -36,9 +35,14 @@ export function FeedRow(props: {
         className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-[10px] px-[11px] pt-[9px] pb-2 pr-12 text-left outline-none focus-visible:shadow-[inset_0_0_0_2px_color-mix(in_oklab,var(--ring)_45%,transparent)]"
       >
         <span
+          data-tone={props.mark === "needs-you" ? "needs-you" : undefined}
           className={cn(
-            "mt-px grid size-[26px] place-items-center rounded-sm bg-secondary",
-            props.mark ? "text-foreground" : "text-muted-foreground",
+            "mt-px grid size-[26px] place-items-center rounded-sm",
+            props.mark === "needs-you"
+              ? "bg-[color-mix(in_oklab,var(--tone)_14%,transparent)] text-(--tone)"
+              : "bg-secondary",
+            props.mark === "unread" && "text-foreground",
+            !props.mark && "text-muted-foreground",
           )}
         >
           {props.icon}

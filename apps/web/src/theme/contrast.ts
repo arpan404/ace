@@ -1,4 +1,4 @@
-import type { ThemeTokens, TokenName } from "./tokens.ts";
+import { tokenNames, type ThemeTokens, type TokenName } from "./tokens.ts";
 
 type Rgb = readonly [number, number, number];
 
@@ -44,7 +44,8 @@ const checks: readonly { token: TokenName; against: TokenName; minimum: number; 
   [
     { token: "--foreground", against: "--background", minimum: 4.5, label: "Text on background" },
     { token: "--muted-foreground", against: "--background", minimum: 4.5, label: "Secondary text" },
-    { token: "--subtle-foreground", against: "--background", minimum: 3, label: "Subtle text" },
+    { token: "--subtle-foreground", against: "--background", minimum: 4.5, label: "Subtle text" },
+    { token: "--accent-theme", against: "--background", minimum: 3, label: "Accent" },
     {
       token: "--primary-foreground",
       against: "--primary",
@@ -63,6 +64,15 @@ const checks: readonly { token: TokenName; against: TokenName; minimum: number; 
       minimum: 3,
       label: "Status unresponsive",
     },
+    // A badge's letters are drawn in its tint.
+    ...tokenNames
+      .filter((token) => token.startsWith("--project-"))
+      .map((token) => ({
+        token,
+        against: "--background" as const,
+        minimum: 4.5,
+        label: `Project tint ${token.slice("--project-".length)}`,
+      })),
   ];
 
 /** WCAG checks the Theme editor lists above the token groups. */

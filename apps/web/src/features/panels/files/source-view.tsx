@@ -40,7 +40,7 @@ function Marked(props: { text: string; query: string; current: number | undefine
       <mark
         key={at}
         className={cn(
-          "rounded-xs bg-[color-mix(in_oklab,var(--foreground)_18%,transparent)] text-foreground",
+          "rounded-xs bg-selected text-foreground",
           at === props.current && "bg-[color-mix(in_oklab,var(--ring)_55%,transparent)]",
         )}
       >
@@ -121,9 +121,8 @@ export function SourceView(props: {
               data-line={index}
               className={cn(
                 "flex min-h-[22px]",
-                hit?.line === index && "bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)]",
-                props.line === index + 1 &&
-                  "bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)]",
+                hit?.line === index && "bg-wash",
+                props.line === index + 1 && "bg-wash",
               )}
             >
               <span

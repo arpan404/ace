@@ -1,4 +1,5 @@
 import { FolderOpenIcon, FolderSimpleIcon, FolderPlusIcon } from "@phosphor-icons/react";
+import { projectTint } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
@@ -58,10 +59,9 @@ export function FolderRow(props: {
       onClick={props.onToggle}
       className="flex h-[30px] w-full items-center gap-[9px] rounded-md px-[11px] text-left text-base text-sidebar-foreground outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]"
     >
-      <Icon
-        icon={props.open ? FolderOpenIcon : FolderSimpleIcon}
-        className="text-muted-foreground"
-      />
+      <span className="flex" style={{ color: `var(--project-${projectTint(props.project)})` }}>
+        <Icon icon={props.open ? FolderOpenIcon : FolderSimpleIcon} />
+      </span>
       <span className="min-w-0 flex-1 truncate">{name}</span>
       {waiting && <Dot tone="needs-you" label="A thread here needs you" />}
     </button>

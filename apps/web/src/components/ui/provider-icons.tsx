@@ -1,6 +1,6 @@
 import type { ProviderKind } from "@ace/protocol";
-import { providerDisplayName, type Brand, type BrandArt } from "@ace/ui-core";
-import { useEffect, useSyncExternalStore } from "react";
+import { providerDisplayName, type Brand, type BrandArt, type BrandPath } from "@ace/ui-core";
+import { useEffect, useId, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn.ts";
 import { Tip } from "./tooltip.tsx";
 
@@ -9,6 +9,10 @@ import { Tip } from "./tooltip.tsx";
  * drawing here and it changes everywhere. Which brand stands for what lives in
  * `@ace/ui-core/provider-icons` (`providerIcon`, `providerBrands`, `acpAgentBrands`,
  * `modelFamily`), shared with mobile.
+ *
+ * Marks draw in their brand's colours by default (Claude's orange, Codex's blue gradient); a
+ * brand whose mark is black and white (OpenAI, Cursor, OpenCode) draws in the text colour at full
+ * strength. `variant="mono"` draws any mark in the surrounding text colour, for a tiny inline mark.
  *
  * The marks are LobeHub Icons (MIT, see NOTICE) as path data. The brand tables and each mark load
  * as small chunks the first time a mark is on screen, so none of them weighs on the first paint;
@@ -67,7 +71,7 @@ export interface ProviderIconProps {
   model?: string | undefined;
   /** 12 dense rows · 14 menus and chips · 16 headings · 20 settings and empty states. */
   size?: 12 | 14 | 16 | 20;
-  /** `mono` draws in the text colour and suits every theme; `color` uses the brand's colours. */
+  /** `color` (the default) uses the brand's colours; `mono` draws in the surrounding text colour. */
   variant?: "mono" | "color";
   /** Overrides the name read to assistive tech. */
   label?: string | undefined;
@@ -81,11 +85,16 @@ export function ProviderIcon(props: ProviderIconProps) {
   // Reads module state that only grows, by version; nothing worth memoising.
   "use no memo";
   useSyncExternalStore(subscribe, () => version);
+  const gradientId = useId();
   const choice = catalog?.providerIcon(props);
   const size = props.size ?? 12;
-  // At row sizes a detailed mark draws as its maker's simpler one (Codex → OpenAI).
-  const brand = choice?.brand && catalog ? catalog.brandAtSize(choice.brand, size) : choice?.brand;
+  const color = props.variant !== "mono";
+  // In mono, at row sizes a detailed mark draws as its maker's simpler one (Codex → OpenAI); in
+  // colour the brand's own colours keep it legible.
+  const brand =
+    choice?.brand && catalog && !color ? catalog.brandAtSize(choice.brand, size) : choice?.brand;
   const art = brand && marks.get(brand);
+  const paths = art ? (color ? (art.color ?? art.mono) : art.mono) : undefined;
   const label =
     props.label ?? choice?.label ?? providerDisplayName(props.provider, props.acpAgentId);
   useEffect(() => load(brand), [brand]);
@@ -94,20 +103,30 @@ export function ProviderIcon(props: ProviderIconProps) {
       viewBox={art ? art.viewBox : "0 0 24 24"}
       width={size}
       height={size}
-      className={cn("inline-block shrink-0", props.className)}
+      // A black-and-white brand is drawn at full strength, like the coloured ones.
+      className={cn(
+        "inline-block shrink-0",
+        color && art && !art.color && "text-foreground",
+        props.className,
+      )}
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": label })}
     >
-      {art ? (
-        (props.variant === "color" ? (art.color ?? art.mono) : art.mono).map((path) => (
-          <path
-            key={path.d}
-            d={path.d}
-            fill={path.fill ?? "currentColor"}
-            fillRule={path.fillRule}
-            clipRule={path.clipRule}
-            opacity={path.opacity}
-          />
-        ))
+      {paths ? (
+        <>
+          {paths.some((path) => path.gradient) && (
+            <defs>{paths.map((path, index) => gradientDef(path, `${gradientId}g${index}`))}</defs>
+          )}
+          {paths.map((path, index) => (
+            <path
+              key={path.d}
+              d={path.d}
+              fill={path.gradient ? `url(#${gradientId}g${index})` : (path.fill ?? "currentColor")}
+              fillRule={path.fillRule}
+              clipRule={path.clipRule}
+              opacity={path.opacity}
+            />
+          ))}
+        </>
       ) : choice && !brand ? (
         // ace's own mark for an agent without a brand of its own: a ring around a point.
         <>
@@ -116,6 +135,26 @@ export function ProviderIcon(props: ProviderIconProps) {
         </>
       ) : null}
     </svg>
+  );
+}
+
+function gradientDef(path: BrandPath, id: string) {
+  const gradient = path.gradient;
+  if (!gradient) return null;
+  const Gradient = gradient.type === "radial" ? "radialGradient" : "linearGradient";
+  return (
+    <Gradient key={id} id={id} {...gradient.attributes}>
+      {gradient.stops.map((stop, index) => (
+        <stop
+          // Stops never reorder.
+          // oxlint-disable-next-line react/no-array-index-key
+          key={index}
+          offset={stop.offset}
+          stopColor={stop.color}
+          stopOpacity={stop.opacity}
+        />
+      ))}
+    </Gradient>
   );
 }
 

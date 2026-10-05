@@ -1,3 +1,4 @@
+import { oklchToHex } from "./colour.ts";
 import type { ThemeTokens, TokenName } from "./tokens.ts";
 
 export type Scheme = "light" | "dark";
@@ -23,6 +24,8 @@ interface ThemeSeed {
   popover: string;
   primaryForeground: string;
   destructive: string;
+  /** The preset's own accent: focus, selection, primary actions and links. */
+  accent: string;
   /** "r g b" triples; alpha comes from glass intensity. */
   reading: string;
   sidebar: string;
@@ -41,20 +44,21 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "light",
     background: "#F4F4F7",
     foreground: "#1C1C22",
-    mutedForeground: "#66666F",
-    subtleForeground: "#84848D",
+    mutedForeground: "#56565F",
+    subtleForeground: "#6E6E78",
     popover: "#FFFFFF",
     primaryForeground: "#FFFFFF",
     destructive: "#D23F3F",
+    accent: "#3269D4",
     reading: "255 255 255",
-    sidebar: "247 247 250",
+    sidebar: "243 243 247",
     rail: "238 238 243",
     glass: "255 255 255",
     code: "rgb(28 28 34 / 0.04)",
     wall: "#E6E6EA",
     washes: [
       "rgb(255 255 255 / 0.9)",
-      "rgb(205 207 214 / 0.7)",
+      "rgb(196 210 240 / 0.6)",
       "rgb(222 222 228 / 0.9)",
       "rgb(255 255 255 / 0.6)",
     ],
@@ -65,11 +69,12 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "dark",
     background: "#0F0F0F",
     foreground: "#ECECEC",
-    mutedForeground: "#9A9A9A",
-    subtleForeground: "#6E6E6E",
+    mutedForeground: "#A6A6A6",
+    subtleForeground: "#808080",
     popover: "#1B1B1B",
     primaryForeground: "#0F0F0F",
     destructive: "#F07171",
+    accent: "#7AA2F7",
     reading: "17 17 17",
     sidebar: "24 24 24",
     rail: "16 16 16",
@@ -78,7 +83,7 @@ const seeds: readonly ThemeSeed[] = [
     wall: "#0A0A0A",
     washes: [
       "rgb(255 255 255 / 0.05)",
-      "rgb(140 140 140 / 0.1)",
+      "rgb(122 162 247 / 0.07)",
       "rgb(90 90 90 / 0.12)",
       "rgb(255 255 255 / 0.03)",
     ],
@@ -89,11 +94,12 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "dark",
     background: "#0B0D14",
     foreground: "#E6E8F0",
-    mutedForeground: "#9397A8",
-    subtleForeground: "#666B7E",
+    mutedForeground: "#A0A4B5",
+    subtleForeground: "#7A7F93",
     popover: "#161925",
     primaryForeground: "#0B0D14",
     destructive: "#F07A86",
+    accent: "#8C9EFF",
     reading: "14 16 23",
     sidebar: "20 23 33",
     rail: "12 14 21",
@@ -113,11 +119,12 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "dark",
     background: "#1A1917",
     foreground: "#ECE9E4",
-    mutedForeground: "#A39E96",
-    subtleForeground: "#76716A",
+    mutedForeground: "#ADA89F",
+    subtleForeground: "#89837B",
     popover: "#262421",
     primaryForeground: "#1A1917",
     destructive: "#F08070",
+    accent: "#5EBFC6",
     reading: "28 27 25",
     sidebar: "36 34 31",
     rail: "24 23 21",
@@ -137,11 +144,12 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "light",
     background: "#F6F3EC",
     foreground: "#26231E",
-    mutedForeground: "#6E6860",
-    subtleForeground: "#878078",
+    mutedForeground: "#5E5850",
+    subtleForeground: "#736C63",
     popover: "#FFFDF8",
     primaryForeground: "#FFFDF8",
     destructive: "#C8423A",
+    accent: "#17766E",
     reading: "253 251 246",
     sidebar: "243 239 230",
     rail: "236 232 222",
@@ -161,11 +169,12 @@ const seeds: readonly ThemeSeed[] = [
     scheme: "dark",
     background: "#22272E",
     foreground: "#DDE3EA",
-    mutedForeground: "#9AA5B1",
-    subtleForeground: "#6C7883",
+    mutedForeground: "#A7B1BC",
+    subtleForeground: "#919CA7",
     popover: "#2C323B",
     primaryForeground: "#22272E",
     destructive: "#E8818A",
+    accent: "#88B4E8",
     reading: "36 41 48",
     sidebar: "44 50 58",
     rail: "30 35 42",
@@ -197,6 +206,7 @@ const seeds: readonly ThemeSeed[] = [
     popover: "#000000",
     primaryForeground: "#000000",
     destructive: "#FF6B6B",
+    accent: "#7CC0FF",
     reading: "0 0 0",
     sidebar: "10 10 10",
     rail: "0 0 0",
@@ -270,14 +280,38 @@ const accentSets: Record<Scheme, Record<AccentName, string>> = {
     graphite: "#B7B7C2",
   },
   light: {
-    blue: "#3B74E0",
+    blue: "#3269D4",
     violet: "#7A5BD6",
-    teal: "#1E9C86",
-    amber: "#C9711A",
-    rose: "#D04A74",
+    teal: "#167A6A",
+    amber: "#A65B10",
+    rose: "#C23C68",
     graphite: "#5A5A66",
   },
 };
+
+/**
+ * Project badge tints: twelve hues around the wheel at one perceptual lightness per scheme, so
+ * no project looks louder than another. Each reads as text on the theme's background (AA); a
+ * badge draws its letters in the tint on a wash of it.
+ */
+const projectHues = [25, 55, 85, 125, 150, 178, 205, 240, 268, 295, 325, 355] as const;
+const projectLightness: Record<Scheme, { l: number; c: number }> = {
+  dark: { l: 0.79, c: 0.12 },
+  light: { l: 0.52, c: 0.15 },
+};
+type ProjectToken = Extract<TokenName, `--project-${number}`>;
+function projectTints(scheme: Scheme): Record<ProjectToken, string> {
+  const { l, c } = projectLightness[scheme];
+  return Object.fromEntries(
+    projectHues.map((hue, index) => [`--project-${index + 1}`, oklchToHex(l, c, hue)]),
+  ) as Record<ProjectToken, string>;
+}
+const projectSets: Record<Scheme, Record<ProjectToken, string>> = {
+  dark: projectTints("dark"),
+  light: projectTints("light"),
+};
+/** How many project tints a theme has; `--project-1` to `--project-${projectTintCount}`. */
+export const projectTintCount = projectHues.length;
 
 /** "#RRGGBB" or "#RGB" to "r g b". */
 export function hexToRgbTriple(hex: string): string {
@@ -298,11 +332,11 @@ function expand(seed: ThemeSeed): Theme {
     "--sidebar-rgb": seed.sidebar,
     "--rail-rgb": seed.rail,
     "--popover": seed.popover,
-    "--card": dark ? ink(0.035) : "rgb(255 255 255 / 0.55)",
+    "--card": dark ? ink(0.045) : "rgb(255 255 255 / 0.7)",
     "--secondary": ink(dark ? 0.07 : 0.06),
     "--muted": ink(dark ? 0.05 : 0.045),
     "--accent": ink(dark ? 0.06 : 0.05),
-    "--border": ink(dark ? 0.075 : 0.08),
+    "--border": ink(dark ? 0.09 : 0.09),
     "--input": ink(dark ? 0.12 : 0.14),
     "--code": seed.code,
     "--bubble": ink(dark ? 0.07 : 0.06),
@@ -314,8 +348,9 @@ function expand(seed: ThemeSeed): Theme {
     "--destructive": seed.destructive,
     "--sidebar-foreground": `color-mix(in oklab, ${seed.foreground} 90%, ${seed.background})`,
     "--sidebar-accent": ink(dark ? 0.06 : 0.055),
-    "--sidebar-border": ink(dark ? 0.06 : 0.07),
+    "--sidebar-border": ink(dark ? 0.07 : 0.08),
     ...statusSets[seed.scheme],
+    "--accent-theme": seed.accent,
     "--accent-blue": accents.blue,
     "--accent-violet": accents.violet,
     "--accent-teal": accents.teal,
@@ -333,8 +368,9 @@ function expand(seed: ThemeSeed): Theme {
     "--glass-shadow": dark
       ? "0 12px 40px rgb(0 0 0 / 0.42), 0 1px 4px rgb(0 0 0 / 0.25)"
       : "0 12px 40px rgb(20 20 30 / 0.12), 0 1px 4px rgb(20 20 30 / 0.05)",
-    "--diff-add": dark ? "rgb(108 196 143 / 0.13)" : "rgb(46 154 94 / 0.12)",
-    "--diff-del": dark ? "rgb(240 113 113 / 0.12)" : "rgb(210 63 63 / 0.1)",
+    "--diff-add": dark ? "rgb(108 196 143 / 0.16)" : "rgb(46 154 94 / 0.14)",
+    "--diff-del": dark ? "rgb(240 113 113 / 0.15)" : "rgb(210 63 63 / 0.12)",
+    ...projectSets[seed.scheme],
     "--wall": seed.wall,
     "--w1": seed.washes[0],
     "--w2": seed.washes[1],

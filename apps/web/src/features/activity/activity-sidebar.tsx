@@ -51,8 +51,7 @@ function FeedTabs() {
           onClick={() => setTab(entry.id)}
           className={cn(
             "h-[26px] rounded-sm px-[7px] text-[12px] font-medium whitespace-nowrap text-muted-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground",
-            tab === entry.id &&
-              "bg-[color-mix(in_oklab,var(--foreground)_10%,transparent)] text-foreground hover:bg-[color-mix(in_oklab,var(--foreground)_10%,transparent)]",
+            tab === entry.id && "bg-selected text-foreground hover:bg-selected",
           )}
         >
           {entry.label}

@@ -53,8 +53,25 @@ test("a custom accent hex becomes the ring colour; status colours are untouched"
     "#ff8800",
   );
   expect(root.getAttribute("data-accent")).toBe("custom");
-  expect(root.style.getPropertyValue("--accent-custom")).toBe("#ff8800");
+  expect(root.style.getPropertyValue("--ring")).toBe("#ff8800");
   expect(root.style.getPropertyValue("--status-working")).toBe("");
+});
+
+const ring = () => root.style.getPropertyValue("--ring");
+
+test("by default the accent follows the theme; a pinned accent stays through a theme change", async () => {
+  await harness().open("/settings/appearance");
+  const dark = ring();
+  await userEvent.click(await screen.findByRole("radio", { name: "Paper" }));
+  const paper = ring();
+  expect(paper).not.toBe(dark);
+
+  await userEvent.click(screen.getByRole("radio", { name: "violet" }));
+  const violet = ring();
+  expect(violet).not.toBe(paper);
+  await userEvent.click(screen.getByRole("radio", { name: "Light" }));
+  await userEvent.click(screen.getByRole("radio", { name: "Paper" }));
+  expect(ring()).toBe(violet);
 });
 
 test("density and glass apply to the document", async () => {

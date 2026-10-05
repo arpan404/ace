@@ -67,9 +67,9 @@ export function AddressBar(props: {
       <div
         className={cn(
           "flex h-8 min-w-0 items-center gap-2 rounded-full px-3 transition-[background-color,box-shadow] duration-(--dur-1)",
-          "bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] hover:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+          "bg-wash hover:bg-selected",
           // Focus lightens the capsule, never an accent ring.
-          "focus-within:bg-[color-mix(in_oklab,var(--foreground)_9%,transparent)]",
+          "focus-within:bg-selected",
           error && "shadow-[0_0_0_1px_var(--destructive)]",
         )}
       >

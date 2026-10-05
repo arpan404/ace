@@ -143,7 +143,21 @@ Rules:
 - Provider, ACP agent and model marks are `ProviderIcon` / `ProviderIconTip` from
   `components/ui/provider-icons.tsx`, never an inline logo. Which brand stands for what is
   `@ace/ui-core/provider-icons`; the marks are LobeHub Icons, regenerated with `bun run icons:providers`.
-- Colour only for diff +/− and the needs-you and failed dots. Use `text-muted-foreground` / `text-subtle-foreground` for hierarchy, and weights 400/500 (600 for titles only).
+  They draw in brand colour (gradients included); black-and-white brands draw in the text colour
+  at full strength. `variant="mono"` is for a tiny inline mark in the surrounding text colour.
+- Colour has jobs, never decoration:
+  - **Accent** (`--ring`; `bg-tint text-tint-foreground` as a fill, `text-tint` as text): primary
+    actions, checked controls, sliders, links, focus, selection and the current rail view. Each
+    theme has its own (`--accent-theme`); Appearance can pin another.
+  - **Status** through `data-tone="working | needs-you | waiting | failed | done | idle"`, which
+    sets `--tone` (`styles/index.css`): `StatusPill`, `Dot`, the Activity tiles and the spinner
+    (working blue) read it. Words always carry the status too.
+  - **Diff**: green added, red removed (`--diff-add`, `--diff-del`, `text-status-done/failed` for counts).
+  - **Projects**: `var(--project-${projectTint(id)})` from `@ace/ui-core`, twelve tints per theme
+    that read as text at AA; a badge draws its letters in the tint on a wash of it.
+- Greys: `text-muted-foreground` / `text-subtle-foreground` for hierarchy (both AA), `bg-wash` for
+  hover and quiet fills, `bg-selected` for the selected row or tab; no other ink percentages.
+  Weights 400/500 (600 for titles only).
 - Keep files under ~400 lines (hard limit 1,500, `bun run check:size`).
 
 ## Workspace tabs (side and bottom docks)

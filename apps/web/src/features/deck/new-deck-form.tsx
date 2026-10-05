@@ -313,7 +313,7 @@ export function NewDeckForm() {
           {(submitting) => (
             <Button type="submit" variant="primary" disabled={submitting || !choices?.length}>
               {submitting ? "Starting…" : "Start deck"}
-              <Kbd keys="mod+enter" variant="bare" className="text-primary-foreground/60" />
+              <Kbd keys="mod+enter" variant="bare" className="text-tint-foreground/60" />
             </Button>
           )}
         </form.Subscribe>

@@ -66,7 +66,7 @@ export function PrimaryAction(props: {
           iconControl,
           blocked
             ? "cursor-default bg-secondary text-subtle-foreground hover:bg-secondary hover:text-subtle-foreground"
-            : "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground active:scale-95",
+            : "bg-tint text-tint-foreground hover:bg-tint hover:text-tint-foreground active:scale-95",
           props.off && "opacity-40",
         )}
       >

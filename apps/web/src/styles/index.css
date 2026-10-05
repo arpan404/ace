@@ -33,7 +33,13 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* The accent as a fill (primary actions, checked controls) and the text on it. */
+  --color-tint: var(--ring);
+  --color-tint-foreground: var(--ring-foreground);
   --color-code: var(--code);
+  /* Ink washes: one for hover and quiet fills, one for the selected row or tab. */
+  --color-wash: var(--wash);
+  --color-selected: var(--selected);
   --color-bubble: var(--bubble);
   --color-reading: var(--reading);
   --color-panel: var(--panel);
@@ -48,7 +54,10 @@
   --color-diff-add: var(--diff-add);
   --color-diff-del: var(--diff-del);
 
-  /* Status hues: dots, the activity badge and diff counts only (DESIGN-fable.md, Principle 2). */
+  /*
+   * Status hues: working blue, needs you amber, waiting and limited violet, failed red, done
+   * green. Pills, dots, rings and badges read them through `data-tone` (below) as --tone.
+   */
   --color-status-needs-you: var(--status-needs-you);
   --color-status-working: var(--status-working);
   --color-status-waiting: var(--status-waiting);
@@ -163,6 +172,31 @@
   }
 }
 
+@layer base {
+  /* One status vocabulary: any element with `data-tone` gets its hue as --tone. */
+  [data-tone="working"] {
+    --tone: var(--status-working);
+  }
+  [data-tone="needs-you"] {
+    --tone: var(--status-needs-you);
+  }
+  [data-tone="waiting"] {
+    --tone: var(--status-waiting);
+  }
+  [data-tone="failed"] {
+    --tone: var(--status-failed);
+  }
+  [data-tone="done"] {
+    --tone: var(--status-done);
+  }
+  [data-tone="unresponsive"] {
+    --tone: var(--status-unresponsive);
+  }
+  [data-tone="idle"] {
+    --tone: var(--subtle-foreground);
+  }
+}
+
 @layer components {
   /* Floating glass: popovers, menus, palette, composer, toasts. */
   .glass {
@@ -198,7 +232,7 @@
       radial-gradient(50% 55% at 76% 90%, var(--w3), transparent 70%),
       radial-gradient(40% 45% at 16% 92%, var(--w4), transparent 70%), var(--wall);
   }
-  /* Spinner ring: grey on rows, tinted only where status words are allowed. */
+  /* Spinner ring in the current colour: the working blue unless a caller sets another. */
   .spin-ring {
     display: inline-block;
     flex: none;

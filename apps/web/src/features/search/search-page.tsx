@@ -172,7 +172,7 @@ export function SearchPage(props: {
                   aria-selected={index === active}
                   className={cn(
                     "rounded-md transition-colors duration-(--dur-1)",
-                    index === active && "bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)]",
+                    index === active && "bg-wash",
                   )}
                 >
                   <Link

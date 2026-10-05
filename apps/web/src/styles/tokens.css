@@ -35,32 +35,18 @@
   --reading: rgb(var(--reading-rgb) / calc(1 - 0.1 * var(--glass-k)));
   --glass-bg: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * var(--glass-k)));
   --panel: color-mix(in oklab, var(--reading), var(--background) 30%);
+  /* The two ink washes every list, tab and toolbar uses, so greys stay consistent. */
+  --wash: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --selected: color-mix(in oklab, var(--foreground) 8%, transparent);
 
-  /* The accent drives focus, selection, comment gutters, switches and resize handles. */
-  --ring: var(--accent-blue);
+  /*
+   * The accent: focus, selection, primary actions, checked controls, sliders and links. The theme
+   * provider sets --ring and --ring-foreground (the text on an accent fill) from the theme and the
+   * Appearance choice (src/theme/accent.ts); these are the values before it runs.
+   */
+  --ring: var(--accent-theme, var(--accent-blue));
+  --ring-foreground: #fff;
   --sidebar-ring: var(--ring);
-}
-
-[data-accent="blue"] {
-  --ring: var(--accent-blue);
-}
-[data-accent="violet"] {
-  --ring: var(--accent-violet);
-}
-[data-accent="teal"] {
-  --ring: var(--accent-teal);
-}
-[data-accent="amber"] {
-  --ring: var(--accent-amber);
-}
-[data-accent="rose"] {
-  --ring: var(--accent-rose);
-}
-[data-accent="graphite"] {
-  --ring: var(--accent-graphite);
-}
-[data-accent="custom"] {
-  --ring: var(--accent-custom, var(--accent-blue));
 }
 
 @media (prefers-reduced-transparency: reduce) {

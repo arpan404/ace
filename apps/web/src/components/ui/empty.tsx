@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 
 /**
- * Empty state: a duotone glyph, a plain sentence and at most one action. Calm, never
- * celebratory.
+ * Empty state: a duotone glyph on a soft wash of the accent, a plain sentence and at most one
+ * action. Calm, never celebratory.
  */
 function EmptyState(props: {
   icon?: IconGlyph;
@@ -25,7 +25,9 @@ function EmptyState(props: {
       )}
     >
       {props.icon && (
-        <Icon icon={props.icon} size={36} empty className="mb-1 text-muted-foreground" />
+        <span className="mb-2 grid size-16 place-items-center rounded-full bg-[color-mix(in_oklab,var(--ring)_12%,transparent)] text-tint">
+          <Icon icon={props.icon} size={36} empty />
+        </span>
       )}
       <Title className="text-md font-medium text-foreground">{props.title}</Title>
       {props.description && (
