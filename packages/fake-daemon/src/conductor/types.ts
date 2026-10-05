@@ -107,6 +107,8 @@ export interface FakeDeckRun {
   /** Lane starts reserved so far, and the most the deck may use. */
   spent: number;
   budget: number;
+  /** When the deck stops starting work and asks; null or missing for no limit. */
+  deadline?: number | null;
   createdAt: number;
   updatedAt: number;
   /** Why the conductor couldn't run the deck's next step; cleared when it resumes. */

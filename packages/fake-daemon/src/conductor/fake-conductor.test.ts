@@ -193,3 +193,91 @@ describe("the fake answers gates as the real conductor does", () => {
     expect(fake("budget", "approve", 10)).toEqual(real("budget", "approve", 10));
   });
 });
+
+/** A fake conductor on a clock the test moves, with one deck started from `config`. */
+function started(
+  constraints: { budget?: number; deadline?: number | null },
+  planApproval: "auto" | "required",
+) {
+  let now = 1_000_000;
+  const conductor = new FakeConductor({ clock: () => now, runs: [] });
+  const base = spec({ planApproval });
+  const result = conductor.command({
+    type: "conductor.start",
+    runId: "deck",
+    spec: { ...base, constraints: { ...base.constraints, ...constraints } },
+  });
+  expect(result).toEqual({ ok: true });
+  const view = () => {
+    const run = conductor.runs().find((entry) => entry.id === "deck");
+    if (!run) throw new Error("Deck missing");
+    return runView(run);
+  };
+  const decide = (
+    decision: "approve" | "reject",
+    extra: { budget?: number; deadline?: number } = {},
+  ) =>
+    conductor.command({
+      type: "conductor.approve",
+      runId: "deck",
+      approval: { gateId: view().needsUser[0]?.id ?? "", decision, ...extra },
+    });
+  return { conductor, view, decide, at: (time: number) => (now = time), now: () => now };
+}
+const working = (view: ReturnType<typeof runView>) =>
+  view.dag.filter((node) => node.state === "working").map((node) => node.id);
+
+describe("the fake schedules within the deck's budget, deadline and pause", () => {
+  test("a deadline is published, reached, and extended to the value approved", () => {
+    const deck = started({ deadline: 1_005_000 }, "required");
+    expect(deck.view().deadline).toBe(1_005_000);
+    deck.at(1_006_000);
+    expect(deck.decide("approve")).toEqual({ ok: true });
+    // Past its deadline the approved plan starts nothing; the deck asks for more time.
+    expect(deck.view().needsUser.map((gate) => gate.kind)).toEqual(["deadline"]);
+    expect(working(deck.view())).toEqual([]);
+    expect(deck.decide("approve", { deadline: 1_000 })).toEqual({
+      ok: false,
+      error: "deadline_must_be_future",
+    });
+    expect(deck.decide("approve", { deadline: 1_020_000 })).toEqual({ ok: true });
+    expect(deck.view().deadline).toBe(1_020_000);
+    expect(working(deck.view())).toEqual(["map"]);
+  });
+
+  test("a card starts only when the budget admits its lane, and raising it lets it start", () => {
+    // The planner's lane uses the only lane start.
+    const deck = started({ budget: 1 }, "auto");
+    expect(deck.view()).toMatchObject({ spent: 1, budget: 1 });
+    expect(deck.view().needsUser.map((gate) => gate.kind)).toEqual(["budget"]);
+    expect(working(deck.view())).toEqual([]);
+    expect(deck.decide("approve", { budget: 1 })).toEqual({
+      ok: false,
+      error: "budget_must_increase",
+    });
+    expect(deck.decide("approve", { budget: 3 })).toEqual({ ok: true });
+    expect(deck.view()).toMatchObject({ spent: 2, budget: 3, needsUser: [] });
+    expect(working(deck.view())).toEqual(["map"]);
+  });
+
+  test("a deck with no budget can't even start its planner", () => {
+    const deck = started({ budget: 0 }, "auto");
+    expect(deck.view()).toMatchObject({ phase: "planning", spent: 0, dag: [] });
+    expect(deck.view().needsUser.map((gate) => gate.kind)).toEqual(["budget"]);
+  });
+
+  test("a paused deck takes a decision but starts nothing until it resumes", () => {
+    const deck = started({}, "required");
+    expect(deck.conductor.command({ type: "conductor.pause", runId: "deck" })).toEqual({
+      ok: true,
+    });
+    expect(deck.decide("approve")).toEqual({ ok: true });
+    expect(deck.view()).toMatchObject({ phase: "paused", planApproved: true, needsUser: [] });
+    expect(working(deck.view())).toEqual([]);
+    expect(deck.conductor.command({ type: "conductor.resume", runId: "deck" })).toEqual({
+      ok: true,
+    });
+    expect(deck.view().phase).toBe("running");
+    expect(working(deck.view())).toEqual(["map"]);
+  });
+});

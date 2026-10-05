@@ -1,4 +1,5 @@
 import type { ConductorCommandPayload, ConductorSpec } from "@ace/protocol";
+import { heldCards } from "@ace/ui-core/deck";
 import { deckRuns, stagedDeck } from "./decks.ts";
 import type { FakeDeckCard, FakeDeckRun, FakeDeckScenario, FakeGate } from "./types.ts";
 
@@ -48,12 +49,21 @@ export class FakeConductor {
       case "conductor.approve": {
         const gate = run.gate;
         if (!gate || gate.id !== payload.approval.gateId) return { ok: false, error: "stale_gate" };
+        // A paused deck takes the decision but schedules nothing until it resumes.
+        const held = run.phase === "paused";
+        const base = held ? { ...run, phase: this.paused.get(run.id) ?? "dealing" } : run;
         const next =
           payload.approval.decision === "approve"
-            ? approve(run, gate, payload.approval, now)
-            : reject(run, gate, now);
+            ? approve(base, gate, payload.approval, now, held)
+            : reject(base, gate, now, held);
         if (typeof next === "string") return { ok: false, error: next };
-        this.replace(next);
+        if (held && next.phase !== "cancelled" && next.phase !== "merged") {
+          this.paused.set(run.id, next.phase);
+          this.replace({ ...next, phase: "paused" });
+        } else {
+          this.paused.delete(run.id);
+          this.replace(next);
+        }
         return { ok: true };
       }
       case "conductor.pause":
@@ -70,7 +80,7 @@ export class FakeConductor {
         const phase = this.paused.get(run.id);
         if (run.phase !== "paused" || !phase) return { ok: false, error: "not_paused" };
         this.paused.delete(run.id);
-        this.replace(logged({ ...run, phase }, now, "You resumed the deck."));
+        this.replace(schedule(logged({ ...run, phase }, now, "You resumed the deck."), now));
         return { ok: true };
       }
       case "conductor.cancel":
@@ -124,12 +134,36 @@ function logged(run: FakeDeckRun, at: number, text: string): FakeDeckRun {
   return { ...run, updatedAt: at, log: [...run.log.slice(-255), { at, text }] };
 }
 
-/** Cards with every dependency merged start working; each new lane is one lane start spent. */
-function deal(run: FakeDeckRun, cards: FakeDeckCard[]): Pick<FakeDeckRun, "cards" | "spent"> {
-  const merged = new Set(cards.filter((c) => c.state === "merged").map((c) => c.id));
+/**
+ * The conductor's scheduling pass: nothing moves while the deck is paused, planning or held by
+ * a plan, budget or deadline gate. A passed deadline raises its gate; otherwise each card whose
+ * dependencies merged starts a lane while the budget admits one more lane start, and the first
+ * that doesn't fit raises the budget gate.
+ */
+function schedule(run: FakeDeckRun, now: number): FakeDeckRun {
+  if (run.phase !== "dealing" && run.phase !== "merging") return run;
+  if (
+    !run.planApproved ||
+    (run.gate && run.gate.kind !== "escalation" && run.gate.kind !== "merge")
+  )
+    return run;
+  if (run.deadline !== undefined && run.deadline !== null && now >= run.deadline)
+    return run.gate
+      ? run
+      : logged(
+          { ...run, gate: fakeGate(run, "deadline", "Project deadline reached") },
+          now,
+          "The deck reached its deadline.",
+        );
+  const merged = new Set(run.cards.filter((c) => c.state === "merged").map((c) => c.id));
   let spent = run.spent;
-  const next = cards.map((c) => {
+  let blocked = false;
+  const cards = run.cards.map((c) => {
     if (c.state !== "planned" || !c.dependencies.every((dep) => merged.has(dep))) return c;
+    if (spent + 1 > run.budget) {
+      blocked = true;
+      return c;
+    }
     spent++;
     return {
       ...c,
@@ -138,28 +172,28 @@ function deal(run: FakeDeckRun, cards: FakeDeckCard[]): Pick<FakeDeckRun, "cards
       note: "Worker is starting in a fresh worktree.",
     };
   });
-  return { cards: next, spent };
+  const next = { ...run, cards, spent };
+  return blocked && !next.gate ? overBudget(next, now) : next;
+}
+
+/** One more lane start doesn't fit: the deck waits on its budget, as the conductor's does. */
+function overBudget(run: FakeDeckRun, now: number): FakeDeckRun {
+  return logged(
+    {
+      ...run,
+      gate: fakeGate(run, "budget", `Reserved cost ${run.spent + 1} exceeds budget ${run.budget}`),
+    },
+    now,
+    "The deck used its budget.",
+  );
+}
+
+function fakeGate(run: FakeDeckRun, kind: "budget" | "deadline", body: string): FakeGate {
+  return { id: `${run.id}-${kind}-${run.log.length}`, kind, body, cardId: null, revision: 1 };
 }
 
 const settledCard = (card: FakeDeckCard) =>
   card.kind === "merge" || card.state === "merged" || card.state === "declined";
-
-/**
- * Cards that can never run: declined ones and every planned card waiting on one. A deck whose
- * other cards are merged has finished, as the conductor's does.
- */
-export function heldCards(cards: readonly FakeDeckCard[]): Set<string> {
-  const held = new Set(cards.filter((c) => c.state === "declined").map((c) => c.id));
-  for (let changed = held.size > 0; changed;) {
-    changed = false;
-    for (const c of cards)
-      if (!held.has(c.id) && c.state === "planned" && c.dependencies.some((d) => held.has(d))) {
-        held.add(c.id);
-        changed = true;
-      }
-  }
-  return held;
-}
 
 /** The deck merged everything it still could: its merge card is done, or it ended without one. */
 function settle(run: FakeDeckRun, now: number): FakeDeckRun {
@@ -189,27 +223,31 @@ function approve(
   gate: FakeGate,
   approval: Approval,
   now: number,
+  held = false,
 ): FakeDeckRun | string {
   const open = { ...run, gate: null };
+  const next = (deck: FakeDeckRun) => (held ? deck : schedule(deck, now));
   switch (gate.kind) {
     case "plan":
-      return logged(
-        { ...open, phase: "dealing", planApproved: true, ...deal(run, run.cards) },
-        now,
-        `You approved plan revision ${gate.revision}.`,
+      return next(
+        logged(
+          { ...open, phase: "dealing", planApproved: true },
+          now,
+          `You approved plan revision ${gate.revision}.`,
+        ),
       );
     case "merge": {
       const card = run.cards.find((c) => c.id === gate.cardId);
       if (!card || card.state !== "approved") return "merge_not_ready";
-      const dealt = deal(
-        run,
-        withCard(run, card.id, (c) => ({
-          ...c,
-          state: "merged",
-          note: `Merged into ${run.branch}.`,
-        })),
+      const cards = withCard(run, card.id, (c) => ({
+        ...c,
+        state: "merged",
+        note: `Merged into ${run.branch}.`,
+      }));
+      return settle(
+        next(logged({ ...open, cards }, now, `You approved merging ${card.title}.`)),
+        now,
       );
-      return settle(logged({ ...open, ...dealt }, now, `You approved merging ${card.title}.`), now);
     }
     case "escalation": {
       const cards = withCard(run, gate.cardId, (c) => ({
@@ -218,31 +256,34 @@ function approve(
         round: c.round + 1,
         note: "A new round starts.",
       }));
-      return logged(
-        { ...open, cards, spent: run.spent + 1 },
-        now,
-        "You asked the deck to retry the card.",
-      );
+      const retried = logged({ ...open, cards }, now, "You asked the deck to retry the card.");
+      // The retry is a new lane start; without room for it the deck waits on its budget.
+      if (run.spent + 1 > run.budget) return overBudget(retried, now);
+      return next({ ...retried, spent: run.spent + 1 });
     }
     case "budget":
       if (approval.budget === undefined || approval.budget <= run.budget)
         return "budget_must_increase";
-      return logged(
-        { ...open, budget: approval.budget },
-        now,
-        `You raised the budget to ${approval.budget} lane starts.`,
+      return next(
+        logged(
+          { ...open, budget: approval.budget },
+          now,
+          `You raised the budget to ${approval.budget} lane starts.`,
+        ),
       );
     case "deadline":
       if (approval.deadline === undefined || approval.deadline <= now)
         return "deadline_must_be_future";
-      return logged(open, now, "You extended the deadline.");
+      return next(
+        logged({ ...open, deadline: approval.deadline }, now, "You extended the deadline."),
+      );
     case "destructive":
       return logged(open, now, "You allowed the change.");
   }
 }
 
 /** The conductor's reject (packages/conductor approval.ts), never a silent bypass. */
-function reject(run: FakeDeckRun, gate: FakeGate, now: number): FakeDeckRun {
+function reject(run: FakeDeckRun, gate: FakeGate, now: number, held = false): FakeDeckRun {
   if (gate.kind === "plan") {
     const revision = gate.revision + 1;
     return logged(
@@ -264,7 +305,8 @@ function reject(run: FakeDeckRun, gate: FakeGate, now: number): FakeDeckRun {
     state: "declined",
     note: "You declined this card. It won't merge.",
   }));
-  return settle(logged({ ...run, gate: null, cards }, now, `You declined ${card.title}.`), now);
+  const declined = logged({ ...run, gate: null, cards }, now, `You declined ${card.title}.`);
+  return settle(held ? declined : schedule(declined, now), now);
 }
 
 function redraft(run: FakeDeckRun, revision: number): string {
@@ -332,8 +374,15 @@ function draft(id: string, spec: ConductorSpec, now: number): FakeDeckRun {
     // The planner's lane is the first start.
     spent: 1,
     budget: spec.constraints.budget,
+    deadline: spec.constraints.deadline,
     createdAt: now,
     updatedAt: now,
   };
-  return auto ? { ...run, ...deal(run, cards) } : run;
+  // Not even the planner fits: the deck waits on its budget before any plan exists.
+  if (spec.constraints.budget < 1)
+    return overBudget(
+      { ...run, phase: "planning", planApproved: false, gate: null, cards: [], spent: 0 },
+      now,
+    );
+  return schedule(run, now);
 }
