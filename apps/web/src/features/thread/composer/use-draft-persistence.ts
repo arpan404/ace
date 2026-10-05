@@ -10,14 +10,15 @@ const settleMs = 300;
  * Keep the composer's unsent draft under `key` on this device: written once typing settles, and
  * at once when the composer goes away or the page is hidden (`visibilitychange`, `pagehide`), so
  * navigating, switching apps or reloading never loses it. An empty draft removes the key;
- * `discard()` removes it at once, for a message just sent. When another window writes the same
+ * `discard()` removes it at once, for a message just sent; `drop()` lets a newer stored one win. When another window writes the same
  * key, `onExternal` gets that draft (UX audit SY-12); drafts stay per device.
  */
 export function useDraftPersistence(
   key: string | undefined,
   draft: ComposerDraft,
-  onExternal?: (draft: ComposerDraft | undefined) => void,
-): { discard(): void } {
+  /** Return "replace" when the composer takes the stored draft over its own unsaved copy. */
+  onExternal?: (draft: ComposerDraft | undefined) => "replace" | void,
+): { discard(): void; drop(): void } {
   const { storage } = useLayout();
   const pending = useRef<string | undefined>(undefined);
   const serial = JSON.stringify(draft);
@@ -46,7 +47,7 @@ export function useDraftPersistence(
     if (!key || event.key !== draftsKey) return;
     const theirs = readDraft(storage, key);
     if (JSON.stringify(theirs ?? empty) === serial) return;
-    onExternal?.(theirs);
+    if (onExternal?.(theirs) === "replace") pending.current = undefined;
   });
   useEffect(() => {
     if (!key) return;
@@ -58,6 +59,10 @@ export function useDraftPersistence(
     discard() {
       pending.current = undefined;
       if (key) writeDraft(storage, key, undefined);
+    },
+    /** Forget this composer's unsaved copy without writing it: the stored draft wins. */
+    drop() {
+      pending.current = undefined;
     },
   };
 }

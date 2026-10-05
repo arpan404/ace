@@ -160,3 +160,41 @@ test("a draft written in another window replaces an idle composer's, and is offe
   await userEvent.click(screen.getByRole("button", { name: "Use that version" }));
   expect(message.value).toBe("Changed again elsewhere");
 });
+
+test("a draft with a file written in another window brings the file, and sends it", async () => {
+  const { app, message } = await open("idle");
+  const sent: unknown[] = [];
+  const receive = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (command) => {
+    if (command.payload.type === "thread.send") sent.push(command.payload.context);
+    return receive(command);
+  };
+  const sha256 = "a".repeat(64);
+  message.blur();
+  app.storage.setItem(
+    "ace.composer.drafts",
+    JSON.stringify([
+      [
+        "thread:thread-router",
+        { text: "Look at this", mentions: [], attachments: [{ sha256, name: "shot.png" }] },
+      ],
+    ]),
+  );
+  act(() => {
+    dispatchEvent(new StorageEvent("storage", { key: "ace.composer.drafts" }));
+  });
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  expect(within(chips).getByText("shot.png")).toBeTruthy();
+  const composer = screen.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement;
+  expect(composer.value).toBe("Look at this");
+  // This window doesn't write its own (older) copy back over the other window's, even when the
+  // page hides and every pending draft is written at once.
+  act(() => {
+    dispatchEvent(new Event("pagehide"));
+  });
+  expect(app.storage.getItem("ace.composer.drafts")).toContain(sha256);
+
+  await userEvent.type(composer, "{Enter}");
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0]).toMatchObject({ attachments: [{ sha256 }] });
+});

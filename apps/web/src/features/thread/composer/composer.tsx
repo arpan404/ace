@@ -166,7 +166,12 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     mentions: [...picked],
     attachments: props.keepsAttachments ? attachments.ready : [],
   };
-  const apply = (next: ComposerDraft) => {
+  // Another window's version of this draft is taken whole, its files too (SY-12). Files can't
+  // be set in place, so a different set remounts the composer on the stored draft: theirs.
+  const otherFiles = (next: ComposerDraft) => {
+    return !!props.keepsAttachments && shas(next.attachments) !== shas(attachments.ready);
+  };
+  const takeText = (next: ComposerDraft) => {
     setTheirs(undefined);
     setText(next.text);
     setCaret(next.text.length);
@@ -174,9 +179,17 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   };
   const saved = useDraftPersistence(props.draftKey, current, (next) => {
     // Another window changed this draft: an idle composer takes it, a focused one offers it.
-    if (document.activeElement === input.current) setTheirs(next ?? emptyDraft);
-    else apply(next ?? emptyDraft);
+    const draft = next ?? emptyDraft;
+    if (document.activeElement === input.current) return void setTheirs(draft);
+    if (!otherFiles(draft)) return void takeText(draft);
+    props.onReplaced();
+    return "replace";
   });
+  const apply = (next: ComposerDraft) => {
+    if (!otherFiles(next)) return takeText(next);
+    saved.drop();
+    props.onReplaced();
+  };
   // Edit on a failed message: its text joins what's here, its files and picks come back.
   const draftKey = props.draftKey;
   const takeReturned = useEffectEvent((returned: ReturnedDraft) => {
@@ -449,3 +462,6 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
 }
 
 const emptyDraft: ComposerDraft = { text: "", mentions: [], attachments: [] };
+
+/** A list of files by what they are, to compare two drafts' files. */
+const shas = (list: readonly { sha256: string }[]) => list.map((file) => file.sha256).join();
