@@ -5,7 +5,13 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { build, type Plugin, type Rolldown } from "vite";
 import type { z } from "zod";
 import { zodWithoutJsonSchema, zodWithoutMetadata } from "../../zod-json-schema.ts";
-import { droppedZodMethods, zodWithoutUnusedMethods } from "../../zod-methods.ts";
+import {
+  droppedZodMethods,
+  droppedWorkerZodMethods,
+  zodWithoutUnusedMethods,
+} from "../../zod-methods.ts";
+import { zodPureSchemas } from "../../zod-pure-schemas.ts";
+import { workerZod } from "../../worker-zod.ts";
 import { protocolCorpus, type ProtocolCorpus } from "./protocol-corpus.ts";
 
 /*
@@ -22,6 +28,7 @@ const entrySource = `
 export { ClientMessage, ServerMessage } from "@ace/protocol";
 export { DaemonTarget } from "@/boot/connection-settings.ts";
 export { WorkerTarget } from "@/boot/worker-target.ts";
+export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
 export { ShellLayout } from "@/lib/layout.tsx";
 export { Choices } from "@/features/home/new-thread/choices.ts";
 export { AutomationForm } from "@/features/automations/automation-values.ts";
@@ -36,13 +43,17 @@ const entry: Plugin = {
   load: (id) => (id === "\0entry" ? entrySource : null),
 };
 
-async function bundle(plugins: Plugin[]): Promise<string> {
+async function bundle(plugins: Plugin[], source = entrySource): Promise<string> {
   const result = await build({
     configFile: false,
     logLevel: "silent",
     root: web,
     resolve: { alias: { "@": join(web, "src") } },
-    plugins: [entry, zodWithoutJsonSchema(), zodWithoutMetadata(), ...plugins],
+    plugins: [
+      { ...entry, load: (id) => (id === "\0entry" ? source : null) },
+      zodWithoutJsonSchema(),
+      ...plugins,
+    ],
     build: {
       write: false,
       target: "es2023",
@@ -186,8 +197,24 @@ const browserInputs: Record<string, unknown[]> = {
     { url: "not a url", token: "" },
   ],
   WorkerTarget: [
+    { url: "  wss://example.com/  ", token: "a".repeat(64), deviceId: "device", seed: null },
     { url: "wss://example.com/", token: "t", deviceId: "d", seed: null },
     { url: "wss://example.com/", token: "t", deviceId: "", seed: 1 },
+  ],
+  TabMessage: [
+    { t: "connect", config: { daemon: "local" } },
+    { t: "lease", lease: 1, scope: { kind: "thread", threadId: "t" } },
+    { t: "call", call: 2, method: "request", args: [{ type: "accounts.list" }] },
+    { t: "lease", lease: -1, scope: { kind: "thread", threadId: "" } },
+    { t: "call", call: 1, method: "unknown", args: [] },
+    { t: "bye", extra: true },
+  ],
+  WorkerMessage: [
+    { t: "connection", state: "ready" },
+    { t: "changes", leases: [{ lease: 1, patches: [{ k: "item:i", append: "tail" }] }] },
+    { t: "failed", call: 1, error: { code: "protocol", message: "Invalid input" } },
+    { t: "reply", call: "wrong" },
+    { t: "changes", leases: [{ lease: 1, patches: "wrong" }] },
   ],
   ShellLayout: [{}, { sidebarOpen: false }, { sidebarOpen: "yes" }],
   Choices: [
@@ -235,17 +262,33 @@ const browserInputs: Record<string, unknown[]> = {
 
 let full: Bundled;
 let trimmed: Bundled;
+let worker: Bundled;
 let sizes: { full: number; trimmed: number };
 let corpus: ProtocolCorpus;
 
 beforeAll(async () => {
-  const [fullCode, trimmedCode, recorded] = await Promise.all([
+  const [fullCode, trimmedCode, workerCode, recorded] = await Promise.all([
     bundle([]),
-    bundle([zodWithoutUnusedMethods()]),
+    bundle([zodWithoutMetadata(), zodWithoutUnusedMethods(), zodPureSchemas(), workerZod()]),
+    bundle(
+      [
+        zodWithoutMetadata(),
+        zodWithoutUnusedMethods(droppedWorkerZodMethods),
+        zodPureSchemas(),
+        workerZod(),
+      ],
+      `
+      export { ClientMessage, ServerMessage } from "@ace/protocol";
+      export { WorkerTarget } from "@/boot/worker-target.ts";
+      export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
+      export { string, object, number } from "zod";
+    `,
+    ),
     protocolCorpus(),
   ]);
   full = load(fullCode);
   trimmed = load(trimmedCode);
+  worker = load(workerCode);
   sizes = { full: gzipSync(fullCode).length, trimmed: gzipSync(trimmedCode).length };
   corpus = recorded;
 }, 120_000);
@@ -262,9 +305,9 @@ function withVariants(frames: unknown[]): unknown[] {
 }
 
 /** Inputs on which the two builds disagree, described for the failure message. */
-function disagreements(name: string, inputs: unknown[]): string[] {
+function disagreements(name: string, inputs: unknown[], actual = trimmed): string[] {
   const left = full[name];
-  const right = trimmed[name];
+  const right = actual[name];
   if (!left || !right) return [`${name} is missing from a bundle`];
   const found: string[] = [];
   for (const input of inputs) {
@@ -306,6 +349,7 @@ describe("zodWithoutUnusedMethods", () => {
     const inputs = withVariants(corpus.server);
     expect(inputs.some((input) => !outcome(full.ServerMessage!, input).ok)).toBe(true);
     expect(disagreements("ServerMessage", inputs)).toEqual([]);
+    expect(disagreements("ServerMessage", inputs, worker)).toEqual([]);
   }, 60_000);
 
   it("decodes every client frame and raw request as the full build does, defaults included", () => {
@@ -314,6 +358,7 @@ describe("zodWithoutUnusedMethods", () => {
     expect(defaulted).toMatchObject({ ok: true, data: { limit: 50 } });
     const inputs = withVariants([...corpus.client, ...rawRequests]);
     expect(disagreements("ClientMessage", inputs)).toEqual([]);
+    expect(disagreements("ClientMessage", inputs, worker)).toEqual([]);
   }, 60_000);
 
   it("decodes the page's and worker's own schemas as the full build does", () => {
@@ -334,10 +379,37 @@ describe("zodWithoutUnusedMethods", () => {
     expect(sizes.trimmed).toBeLessThan(sizes.full - 1_500);
   });
 
+  it("keeps worker port decoding identical while sharing classic schema constructors", () => {
+    for (const name of ["WorkerTarget", "TabMessage", "WorkerMessage"])
+      expect(disagreements(name, browserInputs[name] ?? [], worker)).toEqual([]);
+    expect(() => worker.string().catch("fallback")).toThrow(".catch() is left out");
+    expect(trimmed.Choices?.safeParse({ mode: "bogus" }).success).toBe(true);
+  });
+
+  it("names unsupported worker methods while preserving validation issues", () => {
+    const owners: Record<string, () => object> = {
+      ZodType: () => worker.string(),
+      ZodString: () => worker.string(),
+      _ZodString: () => worker.string(),
+      ZodNumber: () => worker.number(),
+      ZodObject: () => worker.object({}),
+      ZodError: () => worker.string().safeParse(42).error ?? {},
+    };
+    for (const [owner, names] of Object.entries(droppedWorkerZodMethods))
+      for (const name of names) {
+        const schema = owners[owner]?.() as Record<string, (...args: unknown[]) => unknown>;
+        expect(() => schema[name]?.("x")).toThrow(`.${name}() is left out of browser builds`);
+      }
+    expect(worker.string().safeParse(42).error?.issues).toMatchObject([
+      { code: "invalid_type", path: [] },
+    ]);
+  });
+
   it("fails loudly, naming the method, when code calls any dropped method", () => {
     const owners: Record<string, () => object> = {
       ZodType: () => trimmed.string(),
       ZodString: () => trimmed.string(),
+      _ZodString: () => trimmed.string(),
       ZodNumber: () => trimmed.number(),
       ZodObject: () => trimmed.object({}),
     };
