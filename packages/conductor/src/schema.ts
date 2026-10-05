@@ -92,6 +92,8 @@ export const Node = z.object({
     "conflict_pending",
     "escalated",
     "integrated",
+    /** The person rejected its merge or escalation: it never merges and its dependants never start. */
+    "declined",
   ]),
   lane: Key.nullable(),
   worker: Key.nullable(),
@@ -129,6 +131,8 @@ export const State = z
     beforePause: z.enum(["planning", "running"]),
     plan: ConductorPlan.nullable(),
     planApproved: z.boolean(),
+    /** The summary of the last plan the person rejected; the planner's next draft must differ. */
+    rejectedPlan: z.string().max(16_384).nullable().default(null),
     ownershipCase: z.enum(["sensitive", "insensitive"]).default("insensitive"),
     accounts: z.array(Account).max(64),
     lanes: z.record(Key, Lane),

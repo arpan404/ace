@@ -7,7 +7,11 @@ import {
   speedOffTier,
   type PickerModel,
 } from "@ace/ui-core";
-import { ModelControl, type ModelControlView } from "@/features/models/index.ts";
+import {
+  ModelControl,
+  useModelCatalogState,
+  type ModelControlView,
+} from "@/features/models/index.ts";
 import { composerChip, useComposerCompact } from "@/features/thread/index.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import type { NewThreadOptions, Resolved } from "./choices.ts";
@@ -29,6 +33,7 @@ export function ModelPicker(props: {
   const { model, account, effort, fast } = props.resolved;
   const compact = useComposerCompact();
   const statuses = useProviderStatuses();
+  const catalog = useModelCatalogState();
   // Discovery found no provider CLI: say so rather than waiting for models that won't come.
   const none = props.options !== undefined && props.options.models.length === 0;
   const empty = none ? "No provider CLI installed" : "Loading models…";
@@ -81,6 +86,8 @@ export function ModelPicker(props: {
     account: account?.id,
     models,
     providers: pickerProviders(models, statuses.data ?? []),
+    // New thread waits for the catalog before the chip opens; the accounts and providers too.
+    catalog: props.options ? catalog : "loading",
   };
   return (
     <ModelControl

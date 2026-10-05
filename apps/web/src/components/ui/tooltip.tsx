@@ -1,7 +1,7 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 import { cn } from "@/lib/cn.ts";
 import type { ReactElement, ReactNode } from "react";
-import { keymap, type KeymapId } from "@/lib/keymap.ts";
+import type { KeymapId } from "@/lib/keymap.ts";
 import { Kbd } from "./kbd.tsx";
 
 function TooltipProvider({ delay = 500, ...props }: TooltipPrimitive.Provider.Props) {
@@ -37,22 +37,28 @@ function TooltipContent({
 
 /**
  * A tooltip around one trigger element, with the shortcut that does the same thing. Pass a
- * keymap id (`shortcut="agents"`) or literal keys (`keys="mod+enter"`).
+ * keymap id (`shortcut="agents"`) or keys (`keys="mod+enter"`); either follows the user's
+ * rebinding, unless `resolve={false}` marks `keys` as a local command's own (find-bar Enter).
  */
 function Tip(props: {
   label: ReactNode;
   shortcut?: KeymapId;
   keys?: string;
+  /** False: `keys` are this control's own, never a rebindable shortcut's. */
+  resolve?: boolean;
   side?: TooltipPrimitive.Positioner.Props["side"];
   children: ReactElement;
 }) {
-  const keys = props.keys ?? (props.shortcut ? keymap[props.shortcut].keys : undefined);
   return (
     <TooltipPrimitive.Root>
       <TooltipPrimitive.Trigger render={props.children} />
       <TooltipContent side={props.side ?? "bottom"}>
         {props.label}
-        {keys && <Kbd keys={keys} />}
+        {props.shortcut ? (
+          <Kbd shortcut={props.shortcut} />
+        ) : (
+          props.keys && <Kbd keys={props.keys} resolve={props.resolve ?? true} />
+        )}
       </TooltipContent>
     </TooltipPrimitive.Root>
   );

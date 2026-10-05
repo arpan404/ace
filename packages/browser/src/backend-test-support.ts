@@ -21,6 +21,7 @@ afterEach(async () => {
 export class FakePage {
   url = "about:blank";
   text = "";
+  effects: string[] = [];
   lease: BrowserControllerLease = { generation: 0, controller: "agent" };
   events = new EventEmitter();
   readonly cdp = {
@@ -31,6 +32,10 @@ export class FakePage {
   };
   command(method: string, params?: Record<string, unknown>): unknown {
     if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+    if (method === "Page.getLayoutMetrics")
+      return { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 1280, clientHeight: 720 } };
+    if (method === "Runtime.evaluate" && params?.["expression"] === "window.devicePixelRatio")
+      return { result: { value: 1 } };
     if (method === "Page.captureScreenshot") return { data: "AA==" };
     if (method === "Memory.getDOMCounters") return { nodes: 1 };
     if (method === "Accessibility.getFullAXTree")
@@ -46,8 +51,13 @@ export class FakePage {
         ],
       };
     if (method === "DOM.resolveNode") return { object: { objectId: "1" } };
-    if (method === "Runtime.callFunctionOn")
+    if (method === "Runtime.callFunctionOn") {
+      const expression = String(params?.["functionDeclaration"]);
+      if (expression.includes("this.scrollIntoView")) this.effects.push("scroll");
+      if (expression.includes("this.focus()")) this.effects.push("focus");
+      if (expression.includes("this.select()")) this.effects.push("selection");
       return { result: { value: { x: 0, y: 0, width: 100, height: 100 } } };
+    }
     if (method === "Runtime.evaluate") return { result: { value: "1" } };
     if (method === "Input.insertText") this.text += String(params?.["text"]);
     return {};
@@ -70,10 +80,15 @@ export class FakeHeadless implements BrowserBackend {
         request.navigation();
       },
       insertText: async (text: string) => {
+        page.effects.push("text");
         page.text += text;
       },
-      click: async () => {},
-      press: async () => {},
+      click: async () => {
+        page.effects.push("click");
+      },
+      press: async () => {
+        page.effects.push("key");
+      },
       wheel: async () => {},
       screenshot: async () => Buffer.from([0]),
       resize: async (width: number, height: number) => {

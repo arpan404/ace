@@ -1,8 +1,12 @@
 import { z } from "zod";
 import { ScreenStreamSettings } from "@ace/protocol";
+import type { ModelImageRuntime } from "@ace/mcp-server";
+import { captureModelImage } from "./model-capture.ts";
+import { legacyModelAction } from "./model-coordinates.ts";
+import { dispatchLegacyAction } from "./legacy-input.ts";
 import { ScreenStopError } from "./stop-error.ts";
 import { ScreenAgentScope } from "@ace/protocol";
-import { agentOwner } from "./agent-binding.ts";
+import { agentOwner, ScreenDelegationError } from "./agent-binding.ts";
 import {
   ScreenAction,
   ScreenBundle,
@@ -31,6 +35,7 @@ import { nodeScheduler } from "./runtime.ts";
 import { Recording, type RecordingArtifact } from "./recording.ts";
 
 export type ScreenOptions = Omit<HelperOptions, "onFrame" | "onFailure"> & {
+  modelImageRuntime?: ModelImageRuntime;
   recordingDirectory: string;
   recordingLimitBytes?: number;
   publishArtifact: (artifact: RecordingArtifact) => Promise<void>;
@@ -459,7 +464,7 @@ export class ScreenManager {
         candidate.state.controller === "agent" &&
         candidate.owner === owner,
     );
-    if (!session) throw new Error("Screen delegation required");
+    if (!session) throw new ScreenDelegationError();
     session.controllerBinding?.authorize();
     this.authorize(session.state.target);
     return session.state.sessionId;
@@ -546,33 +551,32 @@ export class ScreenManager {
     actor: "human" | "agent",
     input: ScreenAction,
     owner = "local",
+    beforeDispatch?: () => void,
   ): Promise<void> {
     const action = ScreenAction.parse(input);
-    await this.execute(id, actor, owner, async (session) => {
-      if (!session.helper.capabilities?.platform.startsWith("linux"))
-        return session.helper.request({ op: "action", action });
-      const scale = session.latest?.header.scale ?? 1;
-      switch (action.kind) {
-        case "click":
-          return session.helper.requestV2({
-            op: "pointer.click",
-            x: action.x / scale,
-            y: action.y / scale,
-            button: action.button,
-          });
-        case "type":
-          return session.helper.requestV2({ op: "text.type", text: action.text });
-        case "scroll":
-          await session.helper.requestV2({
-            op: "pointer.move",
-            x: action.x / scale,
-            y: action.y / scale,
-          });
-          return session.helper.requestV2({ op: "scroll", dx: action.deltaX, dy: action.deltaY });
-        case "key":
-          throw new Error("Use a named key on protocol v2 helpers");
-      }
-    });
+    await this.execute(id, actor, owner, (session) =>
+      dispatchLegacyAction(session, action, beforeDispatch ?? (() => {})),
+    );
+  }
+  modelScreenshot(id: string, owner: string, signal: AbortSignal) {
+    return captureModelImage(
+      this.live(id),
+      owner,
+      () => this.captureScreenshot(id),
+      signal,
+      this.options.modelImageRuntime,
+    );
+  }
+  async modelAction(
+    id: string,
+    owner: string,
+    input: ScreenAction,
+    beforeDispatch: () => void,
+  ): Promise<void> {
+    const action = ScreenAction.parse(input);
+    await this.execute(id, "agent", owner, (session) =>
+      dispatchLegacyAction(session, legacyModelAction(session, owner, action), beforeDispatch),
+    );
   }
   private async execute(
     id: string,

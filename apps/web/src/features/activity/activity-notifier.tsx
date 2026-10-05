@@ -9,23 +9,24 @@ import { useDeckEvents } from "./escalations.ts";
 import { threadToasts, type ToastCause } from "./toast-rules.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
-// Automation runs are read after first paint: their toasts can wait for the shell to draw.
-const RunNotifier = lazy(() => import("./run-notifier.tsx"));
+// Automation runs and account limits are read after first paint: their toasts can wait.
+const LaterNotifiers = lazy(() => import("./later-notifiers.tsx"));
 
 const separator = "\u0000";
 const readStatuses = (reader: SidebarReader) =>
   reader.ids.map((id) => `${id}${separator}${reader.thread(id)?.status.state ?? "new"}`);
 
 /**
- * Turns live changes into in-app toasts: a thread that starts needing you or fails, and
- * automation runs that finish. Mounted once in the shell; renders nothing.
+ * Turns live changes into in-app toasts: a thread that starts needing you or fails, automation
+ * runs that finish, and accounts nearing, reaching or coming back from a usage limit. Mounted
+ * once in the shell; renders nothing.
  */
 export function ActivityNotifier() {
   return (
     <>
       <ThreadNotifier />
       <Suspense fallback={null}>
-        <RunNotifier />
+        <LaterNotifiers />
       </Suspense>
     </>
   );

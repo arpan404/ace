@@ -9,7 +9,9 @@ export interface ControllerBinding {
   /** Replacing or terminating this controller invalidates its external authority. */
   released(): void;
 }
+import type { ModelCoordinates } from "./model-coordinates.ts";
 export type Session = {
+  modelCoordinates: ModelCoordinates | undefined;
   state: ScreenState;
   helper: Helper;
   hub: FrameHub;
@@ -42,6 +44,7 @@ export function createSession(
 ): Session {
   return {
     helper,
+    modelCoordinates: undefined,
     hub: new FrameHub(),
     latest: undefined,
     epoch: 0,

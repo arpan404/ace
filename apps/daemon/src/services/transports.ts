@@ -5,7 +5,8 @@ import { Resources } from "./resources.ts";
 const transportFactories = [
   async (options: ServerOptions, auth: RemoteAuth) => {
     if (!options.relay) return undefined;
-    if (!options.files && !options.threadFiles) throw new Error("Relay file service unavailable");
+    if (!options.files && !options.threadFiles && !options.context)
+      throw new Error("Relay file service unavailable");
     const relay = await startFilesRelay({
       ...options.relay,
       ...(options.files ? { files: options.files } : {}),
@@ -14,6 +15,7 @@ const transportFactories = [
       ...(options.browser ? { browser: options.browser } : {}),
       ...(options.screen ? { screen: options.screen } : {}),
       ...(options.canReadThread ? { canReadThread: options.canReadThread } : {}),
+      ...(options.context ? { context: options.context } : {}),
       store: options.store,
       auth,
       devices: options.store.devices,

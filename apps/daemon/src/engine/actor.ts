@@ -1,3 +1,4 @@
+import { attachmentEcho } from "./attachment-echo.ts";
 import { type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
@@ -372,7 +373,9 @@ export class ThreadActor {
       // The outer mailbox transaction commits provenance, offsets and facts together.
       this.repo.recovery.commit(this.id, decoded);
     }
-    return facts;
+    return facts.map((fact) =>
+      attachmentEcho(fact, (hash) => this.repo.attachments.get(this.id, hash)),
+    );
   }
   private queueFact(): Extract<Fact, { type: "queue.changed" }> {
     return {

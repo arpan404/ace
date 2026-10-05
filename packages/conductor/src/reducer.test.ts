@@ -208,22 +208,6 @@ describe("review rounds and user gates", () => {
       h.send({ type: "approve", approval: { gateId: g.id, decision: "approve" } }),
     ).toThrow("gate_not_pending");
   });
-  it("rejecting a gate cancels the run and waits for outstanding trees", () => {
-    const h = new Harness();
-    const lane = h.lane("worker");
-    h.send({
-      type: "destructive",
-      laneId: lane.id,
-      generation: 0,
-      description: "Remove a worktree",
-    });
-    const g = progress(h.state).needsUser[0];
-    if (!g) throw new Error("Missing gate");
-    h.send({ type: "approve", approval: { gateId: g.id, decision: "reject" } });
-    expect(progress(h.state).phase).toBe("cancelling");
-    h.send({ type: "status", laneId: lane.id, generation: 0, status: "done", at: h.env.now() });
-    expect(progress(h.state).phase).toBe("cancelled");
-  });
   it("destructive permission requires an explicit answer for the requesting lane", () => {
     const h = new Harness();
     const lane = h.lane("worker");

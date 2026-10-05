@@ -22,7 +22,7 @@ function DeckRun() {
     <DeckRunPage
       key={runId}
       runId={runId}
-      tab={search.tab ?? "plan"}
+      tab={search.tab}
       card={search.card}
       onNavigate={(next) => void navigate({ search: (prev) => ({ ...prev, ...next }) })}
     />

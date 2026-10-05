@@ -62,7 +62,7 @@ it("rich result validation rejects malformed and oversized content before exposi
   });
   expect(await f.call("screen_invalid", { large: false })).toMatchObject({
     isError: true,
-    content: [{ text: "Tool failed validation or execution" }],
+    content: [{ text: expect.stringContaining('"code":"execution_failed"') }],
   });
   expect(await f.call("screen_invalid", { large: true })).toMatchObject({
     isError: true,

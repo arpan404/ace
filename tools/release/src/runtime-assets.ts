@@ -1,3 +1,4 @@
+import { stageSharpRuntime } from "./sharp-runtime-assets.ts";
 import { stageCursorRuntime } from "./cursor-runtime-assets.ts";
 import { cp, mkdir, readFile, realpath } from "node:fs/promises";
 import { join, basename, dirname } from "node:path";
@@ -5,6 +6,7 @@ import { z } from "zod";
 
 /** These packages locate runtime files relative to their installed package roots. */
 export const runtimePackages = [
+  { name: "sharp", workspace: "packages/context" },
   { name: "koffi", workspace: "packages/files" },
   { name: "playwright-core", workspace: "packages/browser" },
   { name: "@anthropic-ai/claude-agent-sdk", workspace: "packages/adapter-claude" },
@@ -25,6 +27,10 @@ export async function stageRuntimePackages(
   const manifests: string[] = [];
   for (const pkg of runtimePackages) {
     const source = await realpath(join(repo, pkg.workspace, "node_modules", pkg.name));
+    if (pkg.name === "sharp") {
+      manifests.push(...(await stageSharpRuntime(source, root, target)));
+      continue;
+    }
     if (pkg.name === "@cursor/sdk") {
       manifests.push(...(await stageCursorRuntime(source, root, target)));
       continue;
