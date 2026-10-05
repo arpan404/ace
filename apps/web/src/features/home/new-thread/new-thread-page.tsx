@@ -28,8 +28,9 @@ import { useCreateThread } from "./use-create-thread.ts";
 
 /**
  * ⌘N: pick a project, a model and account, how actions get approved, a worktree or the local
- * checkout, and describe the work. The thread is created when the message is sent, then opens.
- * Mentions, files and slash commands work before then, in a draft scope on the daemon.
+ * checkout, and describe the work. Enter opens the thread at once, with the message as its
+ * first bubble, while the daemon creates it (and its worktree). Mentions, files and slash
+ * commands work before then, in a draft scope on the daemon.
  */
 export function NewThreadPage(props: { project?: string | undefined; base?: string | undefined }) {
   const { storage } = useLayout();
@@ -40,7 +41,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   const project = pickProject(projects, requested, choices.project, filter);
   const projectName = project === undefined ? undefined : name(project);
   const [baseChoice, setBase] = useState(props.base);
-  const { create, sending, error } = useCreateThread();
+  const { create, error } = useCreateThread();
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
 
   // Until the starting provider is known, show models loading rather than a provider to undo.
@@ -91,10 +92,12 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     [scope.draftId, project, provider, accountId],
   );
   const send = async (draft: Draft) => {
-    if (sending || !project || !resolved.model) return false;
+    if (!project || !resolved.model) return false;
     choose({ project });
     const draftId = scope.draftId;
-    const created = await create({
+    // The new thread takes the draft scope over: keep it when this page closes, which is now.
+    scope.adopt();
+    return create({
       project,
       provider: resolved.model.provider,
       model: resolved.model.fromCatalog ? resolved.model.id : undefined,
@@ -111,8 +114,6 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
         attachments: draft.attachments,
       },
     });
-    if (created) scope.adopt();
-    return created;
   };
 
   // The first run: nothing to start a thread in until a project is added.

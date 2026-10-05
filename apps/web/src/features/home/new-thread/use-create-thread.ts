@@ -8,7 +8,6 @@ import {
 } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
-import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
 
@@ -57,41 +56,43 @@ export function createPayload(request: CreateRequest): CreatePayload {
   };
 }
 
+/** Where a new thread shows until the daemon has started it: its command's own route. */
+export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
+
 /**
- * Send `thread.create` and open the thread the daemon's receipt names. The request is not
- * queued while offline: it fails at once, so the draft stays in the composer. A thread the
- * daemon started makes its provider the last used one, which the next thread starts on.
+ * Start a thread the way a message is sent (UX audit SY-2, SY-4): `thread.create` goes into the
+ * client's durable outbox under a command id made here, and the thread opens at once on its
+ * pending route (`/t/pending:<commandId>`) with the person's message as its first bubble. The
+ * pending view moves to the real thread when the daemon's receipt names it. Offline or slow is
+ * never a failure, and a retry reuses nothing, so one Enter can never start two threads.
  */
 export function useCreateThread(): {
-  /** Resolves false when the daemon didn't create the thread. */
+  /** Resolves false only when this device couldn't save the request. */
   create(request: CreateRequest): Promise<boolean>;
-  sending: boolean;
   error: string | undefined;
 } {
   const client = useClient();
   const navigate = useNavigate();
   const { storage } = useLayout();
-  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
 
   const create = useCallback(
     async (request: CreateRequest) => {
       setError(undefined);
-      setSending(true);
+      const commandId = crypto.randomUUID();
+      // The pending entry is visible before the outbox has saved it: open it now.
+      const saved = client.enqueue(createPayload(request), commandId);
+      rememberProvider(storage, request.provider);
+      void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
       try {
-        const result = await runCommand(client, createPayload(request));
-        if (!result.threadId) throw new Error("The daemon didn't say which thread it started.");
-        rememberProvider(storage, request.provider);
-        void navigate({ to: "/t/$threadId", params: { threadId: result.threadId } });
+        await saved;
         return true;
-      } catch (failure) {
-        setError(`The daemon didn't start the thread. ${failureMessage(failure)}`);
+      } catch {
+        setError("This device couldn't save the new thread. Try again.");
         return false;
-      } finally {
-        setSending(false);
       }
     },
     [client, navigate, storage],
   );
-  return { create, sending, error };
+  return { create, error };
 }

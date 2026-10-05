@@ -1,6 +1,7 @@
 import { useItem } from "@ace/client-react";
 import { FileIcon } from "@phosphor-icons/react";
 import { formatClock } from "@ace/ui-core";
+import { leasable } from "../lib/pending-thread-id.ts";
 import { inputText, SendStatus, useLocalSend } from "./send-status.tsx";
 
 /**
@@ -10,7 +11,7 @@ import { inputText, SendStatus, useLocalSend } from "./send-status.tsx";
  * "Sending…" under it meanwhile and "Not sent" with Retry and Edit if it doesn't go.
  */
 export function UserMessage(props: { threadId: string; itemId: string }) {
-  const item = useItem(props.threadId, props.itemId);
+  const item = useItem(leasable(props.threadId), props.itemId);
   const local = useLocalSend(props.threadId, props.itemId);
   const message = item?.type === "message" ? item : undefined;
   const parts = message?.parts ?? local.send?.payload.input;

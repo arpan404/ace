@@ -53,7 +53,7 @@ function sameFailures(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, str
 const failureKeys = ["order"] as const;
 
 /** Command id → the notice saying its message wasn't delivered. */
-export function useDeliveryFailures(threadId: string): ReadonlyMap<string, string> {
+export function useDeliveryFailures(threadId: string | undefined): ReadonlyMap<string, string> {
   return useThread(threadId, failureKeys, readFailures, sameFailures) ?? noFailures;
 }
 const noFailures: ReadonlyMap<string, string> = new Map();

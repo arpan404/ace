@@ -22,6 +22,7 @@ import {
   type ReturnedDraft,
   type StagedSend,
 } from "../composer/send-store.ts";
+import { leasable } from "../lib/pending-thread-id.ts";
 import { useDeliveryFailures, useStaged } from "./pending-sends.ts";
 
 /** The outbox entry or the staged message behind a bubble, by its transcript key. */
@@ -73,10 +74,10 @@ export function SendStatus(props: {
   otherwise: ReactNode;
 }) {
   const online = useConnectionState() === "ready";
-  const failures = useDeliveryFailures(props.threadId);
+  const failures = useDeliveryFailures(leasable(props.threadId));
   const commandId = props.send?.commandId ?? commandOf(props.itemId);
   const noticeId = commandId === undefined ? undefined : failures.get(commandId);
-  const notice = useItem(props.threadId, noticeId ?? "");
+  const notice = useItem(leasable(props.threadId), noticeId ?? "");
   const { send, staged } = props;
   if (staged)
     return (
@@ -128,7 +129,7 @@ function FailedSend(props: {
   send: PendingSend | undefined;
   reason: string | undefined;
 }) {
-  const item = useItem(props.threadId, props.itemId);
+  const item = useItem(leasable(props.threadId), props.itemId);
   const actions = useSendActions(props.threadId);
   const payload: SendPayload | undefined =
     props.send?.payload ??

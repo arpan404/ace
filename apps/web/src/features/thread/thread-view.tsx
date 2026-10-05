@@ -42,6 +42,9 @@ import {
   preloadDeferred,
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
+import { isPendingThread } from "./lib/pending-thread-id.ts";
+import { useShownTitle } from "./lib/shown-title.ts";
+import { PendingThreadView } from "./pending-thread.tsx";
 import { LongThreadButtons } from "./long/header-buttons.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
 
@@ -58,6 +61,8 @@ export interface ThreadTarget {
  * A long thread adds its turns, search and a catch-up card for the reader who was away.
  */
 export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
+  // Started from New thread a moment ago: shown until the daemon names the real thread.
+  if (isPendingThread(props.threadId)) return <PendingThreadView threadId={props.threadId} />;
   return (
     <ThreadNavProvider threadId={props.threadId}>
       <ThreadScreen threadId={props.threadId} target={props.target} />
@@ -81,7 +86,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   );
   // Step details and interaction cards load once the transcript has painted.
   useEffect(() => whenIdle(() => void preloadDeferred()), []);
-  const title = meta?.title;
+  const title = useShownTitle(id, meta?.title);
   const composer = useRef<ComposerHandle>(null);
   const column = useRef<HTMLDivElement>(null);
   const placement = useSummaryPlacement(column);
