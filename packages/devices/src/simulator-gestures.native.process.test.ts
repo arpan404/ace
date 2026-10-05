@@ -47,7 +47,8 @@ it.skipIf(process.platform !== "darwin" || process.env["ACE_DEVICE_GESTURE_LIVE"
       await app.stop({ graceMs: 0 });
     });
     await once(app.stdout, "line");
-    const window = ScreenInventory.parse(await helper.request({ op: "targets" })).windows.find(
+    const inventory = ScreenInventory.parse(await helper.request({ op: "targets" }));
+    const window = inventory.windows.find(
       (candidate) =>
         candidate.bundleId === "dev.ace.screen-test" &&
         candidate.title === "ace timed gesture test",
@@ -91,6 +92,26 @@ it.skipIf(process.platform !== "darwin" || process.env["ACE_DEVICE_GESTURE_LIVE"
       });
       expect((await activated)[0]).toBe("clicked");
     }
+    await helper.request({ op: "stop" });
+    const display = inventory.displays[0];
+    if (!display) throw new Error("Native fixture display unavailable");
+    // Cancellation carries no coordinates and must also work for an approved app target.
+    await helper.request({
+      op: "start",
+      target: {
+        kind: "app",
+        bundleId: window.bundleId,
+        displayId: display.displayId,
+      },
+      allowlist,
+      sessionId: "native-app-cancel",
+      fps: 1,
+      capture: false,
+    });
+    const released = once(app.stdout, "line");
+    await helper.request({ op: "input", input: { kind: "pointer.down", x, y } });
+    await helper.request({ op: "input", input: { kind: "pointer.cancel" } });
+    expect((await released)[0]).toBe("clicked");
     await helper.request({ op: "stop" });
   },
 );

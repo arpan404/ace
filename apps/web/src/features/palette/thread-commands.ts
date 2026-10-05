@@ -3,7 +3,7 @@ import { arrayEqual, useSidebarAll } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { arrange, isSettled, isUnread, projectCounts } from "@ace/ui-core";
+import { arrange, isSettled, isUnread, projectCounts, projectTint } from "@ace/ui-core";
 import { useThreadActions, useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
@@ -51,11 +51,12 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
         },
       ];
     });
-    const projects = projectCounts(entries, state).map((project): PaletteCommand => ({
+    const projects = projectCounts(entries).map((project): PaletteCommand => ({
       id: `project-${project.id}`,
       label: project.id,
       detail: `${project.threads} thread${project.threads === 1 ? "" : "s"}`,
       icon: "project",
+      tint: projectTint(project.id),
       run: run(() => {
         organizer.setProject(project.id);
         void navigate({ to: "/" });

@@ -24,7 +24,7 @@ type ModelQuery = Extract<
 export interface ModelServicePort {
   request(query: ModelQuery, options?: RequestOptions): Promise<z.infer<typeof ModelsResult>>;
 }
-type CommandSelection = Pick<
+export type CommandSelection = Pick<
   Extract<CommandPayload, { type: "thread.create" }>,
   "provider" | "accountId" | "acpAgentId" | "installationId" | "instanceId" | "model"
 >;
@@ -78,8 +78,18 @@ export class ModelClient {
     const selected = ModelScope.parse(scope);
     const resolution = await this.resolve(selected, model, options);
     if (!resolution.ok) throw new ClientError("daemon", resolution.reason);
-    return selected.provider === "acp"
-      ? { ...selected, model: resolution.model.id }
-      : { provider: selected.provider, accountId: selected.instance, model: resolution.model.id };
+    return scopedSelection(selected, resolution.model.id);
   }
+}
+
+/**
+ * The command fields for a catalog id already listed under `scope` (`list`): provider, account
+ * or ACP identity and that id. Durable commands built offline use it; the daemon resolves the
+ * id again at admission and refuses one the account no longer offers.
+ */
+export function scopedSelection(scope: ModelScope, model: string): CommandSelection {
+  const selected = ModelScope.parse(scope);
+  return selected.provider === "acp"
+    ? { ...selected, model }
+    : { provider: selected.provider, accountId: selected.instance, model };
 }

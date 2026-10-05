@@ -1,6 +1,7 @@
 import { cn } from "@/lib/cn.ts";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
-import { formatKeys, type KeymapId } from "@/lib/keymap.ts";
+import { Fragment } from "react";
+import { formatKeyParts, type KeymapId } from "@/lib/keymap.ts";
 
 /**
  * A key hint. `shortcut` shows what a keymap id is bound to now. `keys` uses the keymap
@@ -30,20 +31,40 @@ function Kbd({
     : keys && resolve
       ? resolveKeys(keys, resolved)
       : keys;
+  const chip = cn(
+    // No keys on a touch screen: hints would only be noise there.
+    "pointer-events-none inline-flex h-4 min-w-[18px] items-center justify-center rounded-xs px-[5px] font-sans text-2xs leading-4 font-medium tracking-[0.02em] text-muted-foreground select-none pointer-coarse:hidden",
+    variant === "default" && "bg-secondary",
+    variant === "outline" && "shadow-[inset_0_0_0_1px_var(--border)]",
+    variant === "on-primary" && "px-0 text-current opacity-55",
+    "in-data-[slot=tooltip-content]:bg-transparent in-data-[slot=tooltip-content]:px-0 in-data-[slot=tooltip-content]:text-current in-data-[slot=tooltip-content]:opacity-55",
+    className,
+  );
+  const parts = shown ? formatKeyParts(shown) : [];
+  // A sequence ("g h") is keys pressed one after another, not together: one chip per key.
+  if (parts.length > 1)
+    return (
+      <kbd
+        data-slot="kbd"
+        className={cn(
+          "inline-flex items-center gap-1 font-sans text-2xs text-muted-foreground pointer-coarse:hidden",
+          "in-data-[slot=tooltip-content]:text-current",
+        )}
+        {...props}
+      >
+        {parts
+          .map((part, position) => ({ part, id: `${position}:${part}`, first: position === 0 }))
+          .map((step) => (
+            <Fragment key={step.id}>
+              {!step.first && <span className="opacity-70">then</span>}
+              <kbd className={chip}>{step.part}</kbd>
+            </Fragment>
+          ))}
+      </kbd>
+    );
   return (
-    <kbd
-      data-slot="kbd"
-      className={cn(
-        "pointer-events-none inline-flex h-4 min-w-[18px] items-center justify-center rounded-xs px-[5px] font-sans text-[11px] leading-4 font-medium tracking-[0.02em] text-subtle-foreground select-none",
-        variant === "default" && "bg-secondary",
-        variant === "outline" && "shadow-[inset_0_0_0_1px_var(--border)]",
-        variant === "on-primary" && "px-0 text-current opacity-55",
-        "in-data-[slot=tooltip-content]:bg-transparent in-data-[slot=tooltip-content]:px-0 in-data-[slot=tooltip-content]:text-current in-data-[slot=tooltip-content]:opacity-55",
-        className,
-      )}
-      {...props}
-    >
-      {shown ? formatKeys(shown) : children}
+    <kbd data-slot="kbd" className={chip} {...props}>
+      {shown ? parts[0] : children}
     </kbd>
   );
 }

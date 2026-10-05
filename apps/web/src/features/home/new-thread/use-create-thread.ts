@@ -1,4 +1,4 @@
-import { ModelClient, type ModelScope } from "@ace/client";
+import { scopedSelection, type ModelScope } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import {
   AgentLaunchOptions,
@@ -8,8 +8,9 @@ import {
   type PermissionMode,
 } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
+import { provisionalTitle } from "@ace/ui-core";
 import { useCallback, useState } from "react";
-import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
+import { rememberTitle } from "@/features/thread/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
 
@@ -17,7 +18,7 @@ export interface CreateRequest {
   project: string;
   /** The account the thread runs on: picked first, before its model. */
   scope: ModelScope;
-  /** The catalog id picked on that account; the daemon resolves it to its canonical id. */
+  /** The catalog id listed on that account (OpenCode's `provider/model`), never a bare native id. */
   model: string;
   mode: "local" | "worktree";
   /** Where a worktree starts; ignored for the local checkout. */
@@ -32,14 +33,13 @@ export interface CreateRequest {
 }
 
 type CreatePayload = Extract<CommandPayload, { type: "thread.create" }>;
-/** Provider, account (or ACP identity) and canonical model, as `ModelClient` resolved them. */
-type Selection = Awaited<ReturnType<ModelClient["commandSelection"]>>;
 
-/** The `thread.create` command for a request on the resolved selection. Pure. */
-export function createPayload(
-  request: Omit<CreateRequest, "scope" | "model">,
-  selection: Selection,
-): CreatePayload {
+/**
+ * The `thread.create` command for a request: the account's provider, account (or ACP identity)
+ * and catalog id, as `ModelClient` would select them. Pure, so it can be saved offline; the
+ * daemon resolves the id again at admission.
+ */
+export function createPayload(request: CreateRequest): CreatePayload {
   const effort = AgentLaunchOptions.shape.effort.safeParse(request.effort);
   const tier = AgentLaunchOptions.shape.serviceTier.safeParse(request.serviceTier);
   const options = {
@@ -49,7 +49,7 @@ export function createPayload(
   return {
     type: "thread.create",
     workspaceId: WorkspaceId.parse(request.project),
-    ...selection,
+    ...scopedSelection(request.scope, request.model),
     mode: request.mode,
     ...(request.mode === "worktree" && request.baseBranch
       ? { baseBranch: request.baseBranch }
@@ -61,45 +61,46 @@ export function createPayload(
   };
 }
 
+/** Where a new thread shows until the daemon has started it: its command's own route. */
+export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
+
 /**
- * Resolve the picked account's model through `ModelClient`, send `thread.create` with that
- * selection and open the thread the daemon's receipt names. The command carries the canonical
- * catalog id (OpenCode's `provider/model`), never a bare native id. The request is not queued
- * while offline: it fails at once, so the draft stays in the composer. A thread the daemon
- * started makes its provider the last used one, which the next thread starts on.
+ * Start a thread the way a message is sent (UX audit SY-2, SY-4): `thread.create` goes into the
+ * client's durable outbox under a command id made here, and the thread opens at once on its
+ * pending route (`/t/pending:<commandId>`) with the person's message as its first bubble. The
+ * pending view moves to the real thread when the daemon's receipt names it. Offline or slow is
+ * never a failure, and a retry reuses nothing, so one Enter can never start two threads.
  */
 export function useCreateThread(): {
-  /** Resolves false when the daemon didn't create the thread. */
+  /** Resolves false only when this device couldn't save the request. */
   create(request: CreateRequest): Promise<boolean>;
-  sending: boolean;
   error: string | undefined;
 } {
   const client = useClient();
   const navigate = useNavigate();
   const { storage } = useLayout();
-  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
 
   const create = useCallback(
     async (request: CreateRequest) => {
       setError(undefined);
-      setSending(true);
+      const commandId = crypto.randomUUID();
+      const payload = createPayload(request);
+      // Its header and row read the provisional title at once (the daemon titles it the same way).
+      rememberTitle(commandId, provisionalTitle(payload.input));
+      // The pending entry is visible before the outbox has saved it: open it now.
+      const saved = client.enqueue(payload, commandId);
+      rememberProvider(storage, payload.provider);
+      void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
       try {
-        const { scope, model, ...rest } = request;
-        const selection = await new ModelClient(client).commandSelection(scope, model);
-        const result = await runCommand(client, createPayload(rest, selection));
-        if (!result.threadId) throw new Error("The daemon didn't say which thread it started.");
-        rememberProvider(storage, selection.provider);
-        void navigate({ to: "/t/$threadId", params: { threadId: result.threadId } });
+        await saved;
         return true;
-      } catch (failure) {
-        setError(`The daemon didn't start the thread. ${failureMessage(failure)}`);
+      } catch {
+        setError("This device couldn't save the new thread. Try again.");
         return false;
-      } finally {
-        setSending(false);
       }
     },
     [client, navigate, storage],
   );
-  return { create, sending, error };
+  return { create, error };
 }

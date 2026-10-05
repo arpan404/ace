@@ -18,6 +18,8 @@ const listed = (made: ReturnType<typeof harness>) => {
   return view?.kind === "threads" ? Object.values(view.threads) : [];
 };
 const model = () => screen.findByRole("button", { name: /^Model: / });
+/** The thread this page started, once its create lands (its id is made from the command's). */
+const isNew = (id: string) => /^thread-[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id);
 
 async function send(text: string) {
   await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), `${text}{Enter}`);
@@ -66,7 +68,7 @@ test("an installed CLI whose catalog lists no models shows an empty state, not a
   const field = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(field, "Explain the restart backoff{Enter}");
   expect((field as HTMLTextAreaElement).value).toBe("Explain the restart backoff");
-  expect(listed(made).some((thread) => thread.title === "Explain the restart backoff")).toBe(false);
+  expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
 });
 
 test("the default provider picked in Settings wins over the last-used one", async () => {

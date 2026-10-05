@@ -1,6 +1,6 @@
 import { workbench } from "@ace/fake-daemon";
 import { CatalogModel } from "@ace/protocol";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -22,6 +22,15 @@ const listed = (made: ReturnType<typeof harness>) => {
   return view?.kind === "threads" ? Object.values(view.threads) : [];
 };
 const prompt = () => screen.findByRole("combobox", { name: "Message" });
+/**
+ * The thread this page started: it opens at once, and the daemon lists it once its create
+ * lands, under an id made from the command's (the daemon titles it from the message).
+ */
+const isNew = (id: string) => /^thread-[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id);
+async function started(made: ReturnType<typeof harness>) {
+  await waitFor(() => expect(listed(made).some((t) => isNew(t.id))).toBe(true));
+  return listed(made).find((t) => isNew(t.id));
+}
 
 test("⌘N, a project, a model and a message start a thread that then opens", async () => {
   const made = app();
@@ -47,7 +56,7 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
     level: 1,
     name: "Log every restart with its backoff delay",
   });
-  const created = listed(made).find((t) => t.title === "Log every restart with its backoff delay");
+  const created = await started(made);
   expect(created).toMatchObject({ workspaceId: "relay", provider: "codex" });
   const nav = screen.getByRole("navigation", { name: "Threads" });
   expect(within(nav).getByRole("link", { name: /Log every restart/ })).toBeTruthy();
@@ -81,7 +90,7 @@ test("a model id two providers share starts the thread on the provider it was pi
 
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
-  const created = listed(made).find((t) => t.title === "Trace the reconnect loop");
+  const created = await started(made);
   expect(created).toMatchObject({ provider: "cursor" });
   expect(created?.live?.model).toBe("gpt-5");
 });
@@ -100,7 +109,7 @@ test("a model remembered as a bare id stays picked on the starting provider and 
   await waitFor(() => expect(savedModel(storage)).toBe("codex\u0000gpt-5"));
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
-  const created = listed(made).find((t) => t.title === "Trace the reconnect loop");
+  const created = await started(made);
   expect(created).toMatchObject({ provider: "codex" });
   expect(created?.live?.model).toBe("gpt-5");
   expect(savedModel(storage)).toBe("codex\u0000gpt-5");
@@ -139,7 +148,7 @@ test("picking the work account launches the work account's own default, not the 
 
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
-  const created = listed(made).find((t) => t.title === "Trace the reconnect loop");
+  const created = await started(made);
   expect(created?.live).toMatchObject({ model: "claude-sonnet-4-5", account: "claude-work" });
 });
 
@@ -153,7 +162,7 @@ test("a remembered account starts on that account's default without a model bein
   expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, work/ })).toBeTruthy();
   await userEvent.type(await prompt(), "Audit the retry budget{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Audit the retry budget" });
-  const created = listed(made).find((t) => t.title === "Audit the retry budget");
+  const created = await started(made);
   expect(created?.live).toMatchObject({ model: "claude-sonnet-4-5", account: "claude-work" });
 });
 
@@ -180,7 +189,7 @@ test("an OpenCode default starts the thread with its qualified provider/model id
   expect(await screen.findByRole("button", { name: /^Model: Muse Spark 1\.3/ })).toBeTruthy();
   await userEvent.type(await prompt(), "Map the session lifecycle{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Map the session lifecycle" });
-  const created = listed(made).find((t) => t.title === "Map the session lifecycle");
+  const created = await started(made);
   expect(created).toMatchObject({ provider: "opencode" });
   expect(created?.live?.model).toBe("opencode-go/muse-spark-1.3-contributor");
 });
@@ -217,7 +226,7 @@ test("the last model, account and work mode are remembered for the next thread",
 
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
-  const created = listed(made).find((t) => t.title === "Trace the reconnect loop");
+  const created = await started(made);
   expect(created).toMatchObject({ provider: "claude", details: { mode: "local" } });
   expect(created?.live).toMatchObject({ model: "claude-sonnet-4-5", account: "claude-work" });
 });
@@ -234,7 +243,7 @@ test("⌘N and the sidebar's New thread start in the project Home is narrowed to
   );
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "relay" }));
   await userEvent.click(
-    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", {
+    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
       name: /^Activity/,
     }),
   );
@@ -243,7 +252,7 @@ test("⌘N and the sidebar's New thread start in the project Home is narrowed to
   await screen.findByRole("heading", { name: "What should we work on in relay?" });
 
   await userEvent.click(
-    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", {
+    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
       name: /^Activity/,
     }),
   );
@@ -269,7 +278,7 @@ test("a worktree thread starts from the chosen branch, on the chosen account and
 
   await userEvent.type(await prompt(), "Add jitter to the retry backoff{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Add jitter to the retry backoff" });
-  const created = listed(made).find((t) => t.title === "Add jitter to the retry backoff");
+  const created = await started(made);
   expect(created?.details).toMatchObject({ mode: "worktree", baseBranch: "develop" });
   expect(created?.live).toMatchObject({ account: "codex-personal", options: { effort: "high" } });
 });
@@ -288,12 +297,13 @@ test("files and @ mentions work before the thread exists and arrive with it", as
     new File(["2026-10-03 resume seq 0"], "relay.log", { type: "text/plain" }),
   );
   const chips = screen.getByRole("list", { name: "Attachments" });
-  await waitFor(() => expect(within(chips).queryByRole("status")).toBeNull());
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   expect(within(chips).queryByText(/couldn't/i)).toBeNull();
 
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
-  const heading = await screen.findByRole("heading", { level: 1, name: /^Explain @/ });
-  const created = listed(made).find((t) => t.title === heading.textContent);
+  // The header reads the provisional title at once: prose only, the mention left out.
+  await screen.findByRole("heading", { level: 1, name: "Explain" });
+  const created = await started(made);
   if (!created) throw new Error("no thread");
   const reply = await made.client.request({
     type: "context.request",
@@ -364,7 +374,7 @@ test("the speed toggle starts the thread on the model's faster tier", async () =
 
   await userEvent.type(await prompt(), "Profile the relay startup{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Profile the relay startup" });
-  const created = listed(made).find((t) => t.title === "Profile the relay startup");
+  const created = await started(made);
   expect(created?.live?.options).toMatchObject({ serviceTier: "priority" });
 });
 
@@ -387,6 +397,38 @@ test("reset puts effort and speed back to the model's defaults", async () => {
 
   await userEvent.type(await prompt(), "Profile the relay startup{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Profile the relay startup" });
-  const created = listed(made).find((t) => t.title === "Profile the relay startup");
+  const created = await started(made);
   expect(created?.live?.options).toEqual({ effort: "medium" });
+});
+
+test("Enter opens the new thread at once with the message as its first bubble, even offline", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  const field = await prompt();
+  act(() => made.daemon.refuseConnections(true));
+  await waitFor(() => expect(made.client.state).not.toBe("ready"));
+
+  await userEvent.type(field, "Trace the **reconnect** storm @src/relay.ts{Enter}");
+  // The header reads the provisional title; the message is the first bubble, on its way.
+  await screen.findByRole("heading", { level: 1, name: "Trace the reconnect storm" });
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  expect(within(feed).getByText("Trace the **reconnect** storm @src/relay.ts")).toBeTruthy();
+  expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
+  expect(screen.getByRole("status", { name: /^(Preparing worktree|Starting .+)…$/ })).toBeTruthy();
+  expect(listed(made)).toHaveLength(workbench().length);
+  // The sidebar has it at the top already, dimmed until the daemon accepts it.
+  const starting = await screen.findByRole("list", { name: "Starting threads" });
+  expect(within(starting).getByRole("link", { name: /^Trace the reconnect storm/ })).toBeTruthy();
+
+  // Once the daemon has it, the real thread opens on the same message, shown once.
+  act(() => made.daemon.refuseConnections(false));
+  const created = await started(made);
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Message" })).toBeTruthy(), {
+    timeout: 8_000,
+  });
+  expect(created).toMatchObject({ workspaceId: "relay" });
+  const opened = screen.getByRole("feed", { name: "Transcript" });
+  expect(within(opened).getAllByText("Trace the **reconnect** storm @src/relay.ts")).toHaveLength(
+    1,
+  );
 });

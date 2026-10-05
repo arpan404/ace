@@ -44,3 +44,21 @@ test("lists, tables and task items render as their elements", () => {
   expect(screen.getByRole("columnheader", { name: "file" })).toBeTruthy();
   expect(screen.getByRole("cell", { name: "replay.ts" })).toBeTruthy();
 });
+
+test("images draw only bytes already on the page; web images become links, local files names", async () => {
+  const dot =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=";
+  const { container } = render(
+    <Markdown
+      text={`Before ![chart](${dot}) then ![logo](https://cdn.example.com/brand/logo.png) and ![diagram](/Users/dev/acme/out/diagram.png)`}
+    />,
+  );
+  expect((await screen.findByRole("img", { name: "chart" })).getAttribute("src")).toBe(dot);
+  // Nothing loads from the web host until the person follows the link.
+  const logo = screen.getByRole("link", { name: /logo/ });
+  expect(logo.getAttribute("href")).toBe("https://cdn.example.com/brand/logo.png");
+  expect(logo.textContent).toContain("cdn.example.com");
+  expect(container.querySelectorAll("img")).toHaveLength(1);
+  expect(screen.getByText("diagram (diagram.png)")).toBeTruthy();
+  expect(container.textContent).not.toContain("/Users/");
+});

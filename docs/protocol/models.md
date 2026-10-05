@@ -51,25 +51,23 @@ Example:
 ```json
 {
   "aliases": [],
-  "defaultSource": "user",
+  "defaultEffort": "example",
   "deprecated": true,
   "displayName": "example",
-  "hidden": true,
+  "hidden": false,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
   "isDefault": true,
-  "modelConfigId": "example",
   "nativeModelId": "example",
-  "provider": "opencode",
-  "providerEnabled": true,
+  "nativeProviderId": "example",
+  "provider": "antigravity",
   "raw": {
     "json": "example",
     "truncated": false
   },
   "reasoningEfforts": [],
-  "serviceTiers": [],
-  "visibilityReason": "provider_hidden"
+  "serviceTiers": []
 }
 ```
 
@@ -88,11 +86,7 @@ Example:
 Example:
 
 ```json
-{
-  "acpAgentId": "example",
-  "instance": "example",
-  "provider": "acp"
-}
+{}
 ```
 
 ## ModelInstanceStatus
@@ -117,10 +111,11 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
+  "enabled": true,
+  "error": "persistence_failed",
   "instance": "example",
-  "provider": "pi",
-  "refreshedAt": 2,
+  "provider": "codex",
+  "refreshedAt": 9,
   "refreshing": true,
   "stale": true
 }
@@ -143,7 +138,12 @@ Example:
 Example:
 
 ```json
-{}
+{
+  "installationId": "example",
+  "instanceId": "example",
+  "limit": 6,
+  "provider": "antigravity"
+}
 ```
 
 ## ModelListResult
@@ -162,7 +162,7 @@ Example:
 {
   "instances": [],
   "models": [],
-  "nextOffset": 0
+  "nextOffset": 4
 }
 ```
 
@@ -186,23 +186,21 @@ Example:
 ```json
 {
   "model": {
-    "acpAgentId": "example",
-    "contextWindow": 7,
+    "defaultSource": "user",
     "deprecated": false,
     "displayName": "example",
+    "favourite": true,
     "hidden": false,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
-    "isDefault": false,
+    "isDefault": true,
     "legacy": false,
-    "modelConfigId": "example",
     "nativeModelId": "example",
-    "nativeProviderId": "example",
-    "provider": "cursor",
+    "provider": "antigravity",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "reasoningEfforts": [],
     "resolvedModelId": "example",
@@ -210,7 +208,7 @@ Example:
   },
   "ok": true,
   "reason": "example",
-  "stale": false
+  "stale": true
 }
 ```
 
@@ -253,10 +251,11 @@ Example:
 
 ```json
 {
-  "effort": "example",
+  "acpAgentId": "example",
   "imageInput": false,
-  "instance": "example",
-  "role": "example"
+  "installationId": "example",
+  "role": "example",
+  "selection": "default"
 }
 ```
 
@@ -293,9 +292,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "instanceId": "example"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -317,9 +313,14 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
-    "model": "example",
-    "role": "example"
+    "acpAgentId": "example",
+    "imageInput": false,
+    "installationId": "example",
+    "instance": "example",
+    "instanceId": "example",
+    "role": "example",
+    "selection": "default",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -341,35 +342,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "effort": "example",
-    "model": {
-      "custom": false,
-      "defaultSource": "built-in",
-      "defaultTier": "example",
-      "deprecated": true,
-      "displayName": "example",
-      "favourite": false,
-      "hidden": false,
-      "id": "example",
-      "inputModalities": [],
-      "instance": "example",
-      "isDefault": true,
-      "isNew": true,
-      "modelConfigId": "example",
-      "nativeModelId": "example",
-      "provider": "pi",
-      "raw": {
-        "json": "example",
-        "truncated": true
-      },
-      "reasoningEfforts": [],
-      "resolvedModelId": "example",
-      "selectorMethod": "session/set_config_option",
-      "serviceTiers": []
-    },
-    "ok": true,
-    "reason": "example",
-    "stale": true
+    "ok": false,
+    "reason": "example"
   },
   "type": "models.result"
 }
@@ -392,6 +366,6 @@ Example:
 {
   "id": "example",
   "name": "example",
-  "parameters": {}
+  "speed": "standard"
 }
 ```

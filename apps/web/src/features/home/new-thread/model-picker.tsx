@@ -3,7 +3,6 @@ import {
   distinctModelOptions,
   modelControlName,
   pickerProviders,
-  providerNames,
   speedControl,
   speedOffTier,
   type PickerModel,
@@ -59,15 +58,14 @@ export function ModelPicker(props: {
     },
     current: fast ? model?.fastTier : speedOffTier(model),
   });
-  const name = model
-    ? modelControlName({
-        model: model.label,
-        account: tag,
-        effort,
-        hasEfforts: efforts.length > 0,
-        fast: speed.on,
-      })
-    : undefined;
+  const details = model && {
+    model: model.label,
+    account: tag,
+    effort,
+    hasEfforts: efforts.length > 0,
+    fast: speed.on,
+  };
+  const name = details && modelControlName(details);
   // One row per model in the list; each account keeps its own default and capabilities.
   const models: PickerModel[] = distinctModelOptions(props.options?.models ?? []).map((option) => ({
     key: option.key,
@@ -81,7 +79,7 @@ export function ModelPicker(props: {
     label: model?.label,
     placeholder: empty.label,
     ariaLabel: `Model: ${name ?? empty.aria}`,
-    tip: model ? [providerNames[model.provider], name].join(" · ") : empty.label,
+    tip: details ? modelControlName({ ...details, provider: model.provider }) : empty.label,
     // An account without models can still move to another model or account.
     disabled: !model && (props.options === undefined || none),
     modelKey: model?.key,

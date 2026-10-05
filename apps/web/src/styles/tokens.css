@@ -36,31 +36,16 @@
   --glass-bg: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * var(--glass-k)));
   --panel: color-mix(in oklab, var(--reading), var(--background) 30%);
 
-  /* The accent drives focus, selection, comment gutters, switches and resize handles. */
-  --ring: var(--accent-blue);
+  /*
+   * The accent: focus, selection, primary actions, checked controls, sliders and links. The theme
+   * provider sets --ring, --ring-foreground (labels on an accent fill) and --ring-text (the accent
+   * as text) from the theme and the
+   * Appearance choice (src/theme/accent.ts); these are the values before it runs.
+   */
+  --ring: var(--accent-theme, var(--accent-blue));
+  --ring-foreground: #fff;
+  --ring-text: var(--ring);
   --sidebar-ring: var(--ring);
-}
-
-[data-accent="blue"] {
-  --ring: var(--accent-blue);
-}
-[data-accent="violet"] {
-  --ring: var(--accent-violet);
-}
-[data-accent="teal"] {
-  --ring: var(--accent-teal);
-}
-[data-accent="amber"] {
-  --ring: var(--accent-amber);
-}
-[data-accent="rose"] {
-  --ring: var(--accent-rose);
-}
-[data-accent="graphite"] {
-  --ring: var(--accent-graphite);
-}
-[data-accent="custom"] {
-  --ring: var(--accent-custom, var(--accent-blue));
 }
 
 @media (prefers-reduced-transparency: reduce) {

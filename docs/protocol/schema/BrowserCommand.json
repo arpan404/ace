@@ -161,15 +161,23 @@
           "type": "string"
         },
         "ref": {
+          "description": "Ref from the latest snapshot. Use only for element visibility waits.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
         },
         "state": {
+          "description": "Required with ref.",
           "enum": [
             "visible",
             "hidden"
           ],
+          "type": "string"
+        },
+        "text": {
+          "description": "Visible page text to wait for, matched as a substring.",
+          "maxLength": 4096,
+          "minLength": 1,
           "type": "string"
         },
         "timeout": {
@@ -177,12 +185,16 @@
           "maximum": 30000,
           "minimum": 1,
           "type": "integer"
+        },
+        "url": {
+          "description": "Exact destination URL. Also waits for DOMContentLoaded. Works before or after navigation commits.",
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
         }
       },
       "required": [
-        "action",
-        "ref",
-        "state"
+        "action"
       ],
       "type": "object"
     },

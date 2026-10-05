@@ -14,7 +14,7 @@ if [ "$release" = 1 ]; then
     exit 1
   fi
 fi
-sources='Responsibility.swift Protocol.swift FrameChanges.swift Metrics.swift AXAttributes.swift Accessibility.swift JPEGEncoder.swift FrameWriter.swift Capture.swift WindowFocus.swift Input.swift InputV2.swift Main.swift'
+sources='Responsibility.swift Protocol.swift Pipeline.swift PointerRelease.swift FrameChanges.swift Metrics.swift AXAttributes.swift Accessibility.swift JPEGEncoder.swift VideoEncoder.swift FrameWriter.swift Capture.swift WindowFocus.swift Input.swift InputV2.swift Main.swift'
 # Cache before compiler, keychain or signing work. Builds are explicit, never a daemon action.
 source_hash=$(cat $sources Info.plist build.sh | shasum -a 256 | cut -d ' ' -f 1)
 app=build/AceScreenHelper.app
@@ -40,7 +40,7 @@ rm -rf "$staging"
 mkdir -p "$staging/Contents/MacOS"
 cp Info.plist "$staging/Contents/Info.plist"
 swiftc -swift-version 5 -O -parse-as-library -target "$(uname -m)-apple-macosx13.0" \
-  -framework AppKit -framework ScreenCaptureKit -framework CoreImage -framework ApplicationServices \
+  -framework AppKit -framework ScreenCaptureKit -framework CoreImage -framework ApplicationServices -framework VideoToolbox \
   $sources -o "$staging/Contents/MacOS/ace-screen-helper"
 unsigned_sha=$(shasum -a 256 "$staging/Contents/MacOS/ace-screen-helper" | cut -d ' ' -f 1)
 if [ -f "$binary" ] && [ -f build/unsigned.hash ] && [ "$(cat build/unsigned.hash)" = "$unsigned_sha" ] && cmp -s "$app/Contents/Info.plist" Info.plist; then

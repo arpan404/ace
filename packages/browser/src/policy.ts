@@ -1,8 +1,10 @@
 import type { BrowserOriginBlock, PermissionMode } from "@ace/protocol";
-export class BrowserOriginError extends Error {
+import { PublicToolError } from "@ace/mcp-server/errors";
+export class BrowserOriginError extends PublicToolError {
   readonly blocked: BrowserOriginBlock;
   constructor(origin: string, reason: BrowserOriginBlock["reason"], message: string) {
-    super(message);
+    super(reason);
+    void message;
     this.blocked = { origin: origin.slice(0, 8192), reason };
   }
 }

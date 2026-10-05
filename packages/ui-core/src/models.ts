@@ -3,6 +3,7 @@ import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
 import { tightestWindow, type AccountView } from "./accounts.ts";
 import { accountLimit } from "./limits.ts";
 import type { ProviderStatus } from "./provider-status.ts";
+import { modelLine, modelName } from "./model-label.ts";
 import { modelLabel, providerNames } from "./providers.ts";
 
 /** One model on one of the person's signed-in accounts, as the composer's picker lists it. */
@@ -120,8 +121,7 @@ export function accountTag(label: string): string {
 
 /** Provider, account and model in one line: "Claude Code · work · Sonnet 4.5". */
 export function choiceLine(choice: ModelChoice): string {
-  const account = choice.account ? ` · ${accountTag(choice.account)}` : "";
-  return `${providerNames[choice.provider]}${account} · ${choice.model}`;
+  return modelLine(choice.provider, choice.model, choice.account && accountTag(choice.account));
 }
 
 function note(account: AccountView | undefined): string {
@@ -172,7 +172,7 @@ export function modelChoices(
           {
             id: rowId(model),
             provider,
-            model: model.displayName,
+            model: modelName(provider, model.displayName),
             modelId: model.id,
             aliases: modelAliases(model),
             account: account?.label ?? "",
@@ -334,7 +334,7 @@ export function newThreadOptions(
       id: model.id,
       account: model.instance,
       scope,
-      label: model.displayName,
+      label: modelName(model.provider, model.displayName),
       provider: model.provider,
       isDefault: model.isDefault,
       efforts: model.reasoningEfforts,

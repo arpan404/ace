@@ -8,8 +8,6 @@ import { createModelDiscovery, ModelCatalog, openModelStorage } from "./index.ts
 import { Clock, instance, workspace } from "./testing/support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
-// Discovery lists only upstreams OpenCode reports as connected.
-const connected = JSON.stringify([{ id: "opencode-go", connections: [{ type: "credential" }] }]);
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
@@ -26,11 +24,7 @@ for (const empty of [false, true])
         executable,
       );
       await chmod(executable, 0o700);
-      const env = {
-        HOME: work.path,
-        ACE_TEST_EMPTY_MODELS: String(empty),
-        ACE_TEST_OPENCODE_CONNECTIONS: connected,
-      };
+      const env = { HOME: work.path, ACE_TEST_EMPTY_MODELS: String(empty) };
       const rows = await createModelDiscovery()(
         { ...instance("opencode"), executable, cwd: work.path, env },
         new AbortController().signal,
@@ -99,7 +93,7 @@ test("a persisted OpenCode choice from before the fix opens after restart withou
     ...instance("opencode"),
     executable,
     cwd: work.path,
-    env: { HOME: work.path, ACE_TEST_OPENCODE_CONNECTIONS: connected },
+    env: { HOME: work.path },
   };
   const path = join(work.path, "models.sqlite");
   const first = new ModelCatalog({

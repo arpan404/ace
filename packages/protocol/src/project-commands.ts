@@ -12,15 +12,22 @@ export const ProjectCloneUrl = z
   .string()
   .min(1)
   .max(4096)
-  .regex(/^(?:https:\/\/|ssh:\/\/|git@)[^\s]+$/)
+  .regex(/^(?:(?:https:\/\/|ssh:\/\/|git@)[^\s]+|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)$/)
   .refine((value) => {
     if ([...value].some((char) => char.charCodeAt(0) < 33 || char.charCodeAt(0) === 127))
       return false;
-    if (value.startsWith("git@")) return /^git@[^/:]+:[^:]+$/.test(value);
+    if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value))
+      return value
+        .split("/")
+        .every((part) => part !== "." && part !== ".." && !part.startsWith("-"));
+    if (value.startsWith("git@")) return /^git@[^/:]+:[^:?#]+$/.test(value);
     try {
       const url = new URL(value);
       return (
         Boolean(url.hostname) &&
+        Boolean(url.pathname && url.pathname !== "/") &&
+        !url.search &&
+        !url.hash &&
         !url.password &&
         (url.protocol === "ssh:" || (url.protocol === "https:" && !url.username))
       );
@@ -30,7 +37,7 @@ export const ProjectCloneUrl = z
   })
   .meta({
     "x-ace-constraint":
-      "HTTPS, SSH or scp-style git@ URL with a host; no passwords, HTTPS usernames, whitespace or control bytes.",
+      "GitHub owner/repo shorthand, HTTPS, SSH or scp-style git@ URL with a host and repository path; no passwords, HTTPS usernames, whitespace or control bytes.",
     examples: [
       "https://example.invalid/repo.git",
       "ssh://git@example.invalid/repo.git",

@@ -15,7 +15,8 @@ socket.on("error", () => process.exit(1));
 let sessionId = "test";
 let sequence = 0;
 let permissionQueries = 0;
-function frame() {
+let codec: "jpeg" | "h264" = "jpeg";
+function frame(imageCodec = codec) {
   const payload = Buffer.from(`jpeg-${sequence}`);
   const packet = framePacket(
     v2
@@ -24,10 +25,10 @@ function frame() {
           sessionId,
           seq: sequence++,
           ts: 1000,
-          scale: 1,
-          width: 100,
-          height: 100,
-          codec: "jpeg",
+          width: Number(process.env.MODEL_FRAME_WIDTH ?? 100),
+          height: Number(process.env.MODEL_FRAME_HEIGHT ?? 100),
+          scale: Number(process.env.MODEL_NATIVE_SCALE ?? 1),
+          codec: imageCodec,
           bytes: payload.length,
           dirtyRects: [{ x: 0, y: 0, w: 100, h: 100 }],
         }
@@ -36,9 +37,10 @@ function frame() {
           sessionId,
           sequence: sequence++,
           timestamp: 1000,
-          width: 100,
-          height: 100,
-          codec: "jpeg",
+          width: Number(process.env.MODEL_FRAME_WIDTH ?? 100),
+          height: Number(process.env.MODEL_FRAME_HEIGHT ?? 100),
+          scale: Number(process.env.MODEL_NATIVE_SCALE ?? 1),
+          codec: imageCodec,
           bytes: payload.length,
         },
     payload,
@@ -54,6 +56,10 @@ let inspectedInput = false;
 const v2 = process.env.FAKE_V2 === "1";
 let capturing = !v2;
 let actions = 0;
+let pointerHeld = false;
+let failedCancel = false;
+let pointerUps = 0;
+let clickedTarget = "none";
 const node = (ref: string, role: string, name: string, value?: string) => ({
   ref,
   role,
@@ -87,10 +93,19 @@ lines.on("line", (line) => {
       input: { pointer: true, keyboard: true, scroll: true, text: true },
       uiTree: true,
       semanticActions: ["press", "focus", "setValue", "scroll", "expand", "select"],
-      codecs: ["jpeg"],
+      codecs: process.env.FAKE_VIDEO === "1" ? ["jpeg", "h264"] : ["jpeg"],
       permissions: { screen: "granted", input: "granted" },
     };
   if (request.op === "hello" && process.env.BAD_CAPABILITIES === "1") data = { version: 99 };
+  if (request.op === "stream.configure") {
+    codec = request.settings.codec;
+    data = { codec };
+  }
+  if (request.op === "stream.image") {
+    if (!capturing) {
+      data = { pending: true };
+    } else frame("jpeg");
+  }
   if (request.op === "capture") {
     data = { afterSeq: sequence };
     capturing = request.enabled;
@@ -160,7 +175,28 @@ lines.on("line", (line) => {
     data = { fallback: request.action === "expand" };
   }
   if (request.op === "input") {
+    if (
+      request.input.kind === "pointer.cancel" &&
+      process.env.FAIL_CANCEL_ONCE === "1" &&
+      !failedCancel
+    ) {
+      failedCancel = true;
+      console.log(
+        JSON.stringify({
+          version: request.version,
+          id: request.id,
+          ok: false,
+          error: { code: "permission_denied", message: "Cleanup permission revoked" },
+        }),
+      );
+      return;
+    }
     actions++;
+    if (request.input.kind === "pointer.down") pointerHeld = true;
+    if (request.input.kind === "pointer.up" || request.input.kind === "pointer.cancel") {
+      if (pointerHeld) pointerUps++;
+      pointerHeld = false;
+    }
     if (capturing) frame();
   }
   if (request.op === "permissions") {
@@ -180,8 +216,10 @@ lines.on("line", (line) => {
           windowId: 1,
           bundleId: "dev.ace.test",
           title: v2
-            ? `capture:${capturing};actions:${actions};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pid:${process.pid}`
-            : "Test",
+            ? `capture:${capturing};actions:${actions};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pointerHeld:${pointerHeld};pointerUps:${pointerUps};pid:${process.pid}`
+            : process.env.MODEL_FRAME_WIDTH
+              ? `Test;clicked:${clickedTarget}`
+              : "Test",
         },
       ],
     };
@@ -195,6 +233,16 @@ lines.on("line", (line) => {
       process.exit(7);
     }
     actions++;
+    if (request.action?.kind === "click") {
+      const nativeScale = Number(process.env.MODEL_NATIVE_SCALE ?? 1);
+      const point = request.action.x / nativeScale;
+      const pointY = request.action.y / nativeScale;
+      clickedTarget =
+        point === Number(process.env.MODEL_FRAME_WIDTH ?? 100) / nativeScale / 2 &&
+        pointY === Number(process.env.MODEL_FRAME_HEIGHT ?? 100) / nativeScale / 2
+          ? "centre"
+          : "wrong";
+    }
     if (capturing) frame();
     data = { action: request.action };
   }

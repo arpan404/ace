@@ -82,8 +82,8 @@ export type {
   ThreadMarkReadInput,
 } from "./long-thread.ts";
 
-export { ModelClient } from "./models.ts";
-export type { ModelScope, ModelServicePort } from "./models.ts";
+export { ModelClient, scopedSelection } from "./models.ts";
+export type { CommandSelection, ModelScope, ModelServicePort } from "./models.ts";
 
 export { attachmentBytes, type AttachmentInput } from "./attachments.ts";
 export { pendingSend, pendingSendsEqual, matchesPendingThread } from "./pending-sends.ts";

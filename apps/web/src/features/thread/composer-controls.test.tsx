@@ -101,8 +101,8 @@ test("a search that finds nothing says so instead of closing", async () => {
 test("approvals show the thread's mode and what the provider gates, and change from the footer", async () => {
   const { app } = await open("busy");
   const chip = await screen.findByRole("button", { name: "Approvals: Auto-review" });
-  // The default mode is the shield alone; the tooltip and name carry it.
-  expect(chip.textContent).toBe("");
+  // The default mode is named, not left to its icon.
+  expect(chip.textContent).toBe("Auto-review");
   await userEvent.click(chip);
   const auto = await screen.findByRole("menuitemradio", { name: "Auto-review" });
   expect(auto.getAttribute("aria-checked")).toBe("true");
@@ -115,18 +115,48 @@ test("approvals show the thread's mode and what the provider gates, and change f
   expect(full.textContent).toContain("Edits, runs and fetches without asking");
 
   await userEvent.click(screen.getByRole("menuitemradio", { name: "Read only" }));
-  // The agent is mid-turn: the new mode waits for the turn to end.
-  const readOnly = await screen.findByRole("button", {
-    name: "Approvals: Read only, applies after this turn",
+  // The agent is mid-turn: the chip keeps the mode in effect and shows the one waiting.
+  const waiting = await screen.findByRole("button", {
+    name: "Approvals: Auto-review, Read only applies at the agent's next turn",
   });
-  // Off the default, the chip says which mode in a word.
-  expect(readOnly.textContent).toBe("Read-only");
+  expect(waiting.textContent).toBe("Auto-review → Read-only");
   expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("read-only");
 
   await menuClosed();
-  await userEvent.click(screen.getByRole("button", { name: /^Approvals: Read only/ }));
+  await userEvent.click(waiting);
+  // The menu marks the choice, not the mode it replaces.
+  expect(
+    (await screen.findByRole("menuitemradio", { name: "Read only" })).getAttribute("aria-checked"),
+  ).toBe("true");
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Use the default/ }));
   await waitFor(() => expect(thread(app, "thread-replay-cursor")?.permission?.override).toBeNull());
+  // Back on the default, which is the mode in effect: nothing waits.
+  expect(await screen.findByRole("button", { name: "Approvals: Auto-review" })).toBeTruthy();
+});
+
+test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
+  const { app, message } = await open("busy");
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto-review" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
+  expect(
+    await screen.findByRole("button", {
+      name: "Approvals: Auto-review, Full access applies at the agent's next turn",
+    }),
+  ).toBeTruthy();
+
+  // The turn ends; the next message starts a turn under the new mode.
+  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
+  app.daemon.apply("thread-replay-cursor", [
+    { type: "background.ended", task: "relay", status: "stopped" },
+  ]);
+  await userEvent.type(message, "Now cap the replay{Enter}");
+  const applied = await screen.findByRole("button", { name: "Approvals: Full access" });
+  expect(applied.textContent).toBe("Full access");
+  expect(thread(app, "thread-replay-cursor")?.permission).toMatchObject({
+    effective: "full-access",
+    pending: false,
+  });
 });
 
 test("the model chip opens effort and speed for the thread's model", async () => {
@@ -214,7 +244,7 @@ test("offline, the model chip keeps the thread's last-known model and says chang
   const { app } = await open("busy");
   await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ });
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline\./);
+  await screen.findByText(/^Offline ·/);
   const chip = screen.getByRole("button", { name: /^Model: Opus 4\.1/ });
   await userEvent.click(chip);
   expect(await screen.findByText("Offline: changes apply when the daemon is back")).toBeTruthy();
@@ -236,11 +266,11 @@ test("a switch queued to a provider with no catalog models keeps showing it acro
   expect(await screen.findByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
 
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline\./);
+  await screen.findByText(/^Offline ·/);
   expect(screen.getByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Model: Opus/ })).toBeNull();
 
   act(() => app.client.networkOnline(true));
-  await waitFor(() => expect(screen.queryByText(/^Offline\./)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/^Offline ·/)).toBeNull());
   expect(screen.getByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
 });

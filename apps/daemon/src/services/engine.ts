@@ -2,6 +2,7 @@ import { configuredAdapter } from "../provider-admission.ts";
 import { configuredDiscovery } from "../provider-discovery.ts";
 import { logFields, logMetadata } from "@ace/diagnostics";
 import { cursorHosts } from "./cursor-hosts.ts";
+import { openCursorMcp } from "./cursor-mcp.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { AgentId } from "@ace/protocol";
 import { withDaemonMcp } from "./provider-mcp.ts";
@@ -30,27 +31,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ...engineOptions.cursor,
     instance: defaultInstance,
     slots: cursorHosts(context),
-    mcp:
-      engineOptions.cursor?.mcp ??
-      (async (
-        session: Parameters<
-          NonNullable<import("@ace/adapter-cursor").CursorAdapterOptions["mcp"]>
-        >[0],
-      ) => {
-        const mcp = services.mcp;
-        const root = store.getThread(session.threadId)?.rootAgentId;
-        if (!mcp || !root) throw new Error("Cursor MCP caller is not available");
-        const lease = mcp.openSession(
-          {
-            sessionId: `${session.instanceId}:${session.threadId}`,
-            threadId: session.threadId,
-            agentId: root,
-            capabilities: [],
-          },
-          session.signal,
-        );
-        return { connection: { url: mcp.url, bearer: lease.bearer }, end: () => lease.end() };
-      }),
+    mcp: engineOptions.cursor?.mcp ?? ((session) => openCursorMcp(context, session)),
   };
   const registry =
     engineOptions.registry ??
@@ -129,7 +110,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           : adapter.openSession(session);
       },
     };
-    // Cursor SDK owns its read-only HTTP lease, including account identity.
+    // Cursor SDK owns its scoped HTTP lease, including account identity.
     return adapter.backend === "cursor-sdk"
       ? configuredAdapter(wrapped, services.providerConfigurations)
       : withDaemonMcp(context, wrapped);
@@ -174,7 +155,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
             registry,
           );
           await registerCursorSdkHome();
-          registry.bindSessions(bindProvider);
+          registry.bindSessions(bindProvider, { unboundOnly: true });
           await activateCursorProvider(context, registry);
         })
         .catch((error: unknown) => log.log("warn", "Provider enable discovery failed", error));

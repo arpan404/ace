@@ -2,6 +2,7 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThreadMeta } from "@ace/client-react";
 import { readTurnActivity, sameActivity, type TurnActivity } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
+import { useStopping } from "../composer/stop-state.ts";
 import { useWatched, type Watched } from "./use-watched.ts";
 
 const off: readonly ThreadKey[] = [];
@@ -24,13 +25,15 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
         : off,
     [enabled, rootId],
   );
+  // A Stop on its way reads "Stopping…" until the turn ends (SY-8, the composer's Stop).
+  const stopping = useStopping(enabled ? threadId : undefined);
   const read = useCallback(
     (reader: ThreadReader): Watched<TurnActivity | undefined> => {
       if (!enabled) return nothing;
-      const reading = readTurnActivity(reader, rootId, { threadStatus: status });
+      const reading = readTurnActivity(reader, rootId, { threadStatus: status, stopping });
       return { value: reading.activity, watch: reading.watch };
     },
-    [enabled, rootId, status],
+    [enabled, rootId, status, stopping],
   );
   return useWatched(threadId, keys, read, sameActivity);
 }

@@ -46,11 +46,16 @@ export class AdapterRegistry {
       );
     return entry;
   }
+  /**
+   * Startup rebinds every source to the current daemon's services. Enable-time discovery passes
+   * `unboundOnly` so adapters already serving sessions keep their binding.
+   */
   bindSessions(
     bind: (adapter: ProviderAdapter) => ProviderAdapter & { close?(): Promise<void> },
+    options: { unboundOnly?: boolean } = {},
   ): void {
     for (const entry of new Set([...this.entries.values(), ...this.backends.values()])) {
-      if (entry.adapter !== entry.source) continue;
+      if (options.unboundOnly && entry.adapter !== entry.source) continue;
       const original = entry.source;
       const bound = bind(original);
       entry.adapter = {

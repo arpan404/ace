@@ -17,6 +17,19 @@ export interface RailView extends View {
   icon: IconGlyph;
 }
 
+/**
+ * Activity: reached from the sidebar's bell (with its needs-you count), `g a` and the palette,
+ * not the rail, so each place has one way in.
+ */
+export const activityView: RailView = {
+  id: "activity",
+  label: "Activity",
+  icon: BellIcon,
+  to: "/activity",
+  matches: ["/activity"],
+  shortcut: "goActivity",
+};
+
 /** The rail's views, top to bottom; More (a menu) follows them. */
 export const railViews: readonly RailView[] = [
   {
@@ -26,14 +39,6 @@ export const railViews: readonly RailView[] = [
     to: "/",
     matches: ["/t/", "/new"],
     shortcut: "goHome",
-  },
-  {
-    id: "activity",
-    label: "Activity",
-    icon: BellIcon,
-    to: "/activity",
-    matches: ["/activity"],
-    shortcut: "goActivity",
   },
   {
     id: "deck",
@@ -64,7 +69,13 @@ export const railViews: readonly RailView[] = [
 /** The less used places, a menu on the rail. */
 const more: View = { id: "more", label: "More", to: "/more", matches: ["/more"] };
 
-export const views: readonly View[] = [...railViews, more];
+/** Every view, in the palette's order. */
+export const views: readonly View[] = [
+  ...railViews.slice(0, 1),
+  activityView,
+  ...railViews.slice(1),
+  more,
+];
 
 export function activeView(pathname: string): View["id"] | "settings" | undefined {
   if (pathname.startsWith("/settings")) return "settings";
