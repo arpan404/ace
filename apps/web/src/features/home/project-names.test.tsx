@@ -38,12 +38,12 @@ function app() {
   return made;
 }
 
-test("Home cards and the thread header name the project, not its id", async () => {
+test("Home's project folders and the thread header name the project, not its id", async () => {
   await app().open("/");
   const nav = await screen.findByRole("navigation", { name: "Threads" });
   const card = await within(nav).findByRole("link", { name: /Rotate the signing keys/ });
-  expect(await within(card).findByText("billing")).toBeTruthy();
-  expect(within(card).queryByText(billing.id)).toBeNull();
+  expect(await within(nav).findByRole("button", { name: "billing" })).toBeTruthy();
+  expect(within(nav).queryByText(billing.id)).toBeNull();
 
   await userEvent.click(card);
   await screen.findByRole("heading", { level: 1, name: "Rotate the signing keys" });

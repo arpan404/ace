@@ -154,7 +154,12 @@ test("returning to a thread marks where the new activity starts", async () => {
   await within(feed).findByText("Running in background");
   expect(screen.queryByRole("separator", { name: "New activity" })).toBeNull();
 
-  await userEvent.click(screen.getByRole("link", { name: /Activity/ }));
+  // The rail's Activity; the sidebar's bell goes there too.
+  await userEvent.click(
+    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", {
+      name: /^Activity/,
+    }),
+  );
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
   await act(async () => script.runThrough("finding"));
 

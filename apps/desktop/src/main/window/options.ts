@@ -2,9 +2,9 @@ import type { BrowserWindowConstructorOptions } from "electron";
 import { minimumSize, type Rectangle } from "./bounds.ts";
 
 /**
- * The approved design is translucent: the sidebar is glass over the desktop.
- * - macOS: sidebar vibrancy, hidden inset title bar, traffic lights over the sidebar's top row
- *   (16 px from the top and left).
+ * The approved design is translucent: the rail and sidebar are glass over the desktop.
+ * - macOS: sidebar vibrancy, hidden inset title bar, traffic lights over the top of the rail
+ *   and the sidebar's top row (16 px from the top and left).
  * - Windows 11: Mica behind a hidden title bar with native caption buttons overlaid.
  * - Linux: solid, with the system frame.
  */
@@ -75,14 +75,15 @@ html, body { background: transparent !important; }
 `;
 
 /**
- * macOS: the traffic lights sit at (16, 16) over the sidebar's top row, which drags the window.
- * Full width, the row's wordmark (the Home link) starts after them; as a 68 px column of icons,
- * the row grows so the wordmark sits below them. With no sidebar beside it (hidden, or a sheet on
- * a narrow window), the header's first controls start after them; the sheet's top row does too.
+ * macOS: the traffic lights sit at (16, 16), over the top of the 40 px rail and the start of the
+ * sidebar's top row; both drag the window. The rail's first view starts below them and the
+ * sidebar's title after them. With the sidebar hidden, the header beside the rail starts its
+ * first controls after them; on a narrow window (no rail beside the header, the rail and sidebar
+ * a sheet) the header clears them from the window's edge.
  */
 export const macTitleBarCss = `
-[data-sidebar="expanded"] [data-slot="sidebar-top"],
-[data-slot="sheet-content"] [data-slot="sidebar-top"] { padding-left: 80px; }
-[data-sidebar="collapsed"] [data-slot="sidebar-top"] { height: auto; padding: 40px 0 6px; }
-[data-sidebar="hidden"] [data-slot="header-nav"] { margin-left: 68px; }
+[data-slot="rail"] { padding-top: 44px; }
+[data-slot="sidebar-top"] { padding-left: 34px; }
+[data-sidebar="hidden"] [data-slot="header-nav"] { margin-left: 24px; }
+[data-sidebar="sheet"] [data-slot="header-nav"] { margin-left: 68px; }
 `;
