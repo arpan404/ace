@@ -8,6 +8,7 @@ function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
       data-slot="switch"
       className={cn(
         "relative inline-flex h-5 w-[34px] shrink-0 rounded-full bg-input p-0.5 transition-colors duration-(--dur-2) data-checked:bg-ring disabled:opacity-50",
+        "focus-ring touch-hit-lg",
         className,
       )}
       {...props}
