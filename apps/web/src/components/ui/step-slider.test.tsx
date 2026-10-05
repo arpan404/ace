@@ -78,3 +78,25 @@ test("a disabled slider ignores keys and the pointer", async () => {
   fireEvent.pointerDown(track, { pointerId: 1, button: 0, clientX: 0 });
   expect(reads()).toBe("Medium");
 });
+
+test("a second pointer can neither move nor end the first one's drag", () => {
+  render(<Effort />);
+  const track = slider();
+  fireEvent.pointerDown(track, { pointerId: 1, button: 0, clientX: 79 });
+  expect(reads()).toBe("Low");
+  fireEvent.pointerDown(track, { pointerId: 2, button: 0, clientX: 213 });
+  fireEvent.pointerMove(track, { pointerId: 2, clientX: 213 });
+  expect(reads()).toBe("Low");
+  fireEvent.pointerUp(track, { pointerId: 2, clientX: 213 });
+  fireEvent.pointerMove(track, { pointerId: 1, clientX: 146 });
+  expect(reads()).toBe("Medium");
+});
+
+test("a drag ends when the slider loses the pointer", () => {
+  render(<Effort />);
+  const track = slider();
+  fireEvent.pointerDown(track, { pointerId: 1, button: 0, clientX: 79 });
+  fireEvent.lostPointerCapture(track, { pointerId: 1 });
+  fireEvent.pointerMove(track, { pointerId: 1, clientX: 213 });
+  expect(reads()).toBe("Low");
+});

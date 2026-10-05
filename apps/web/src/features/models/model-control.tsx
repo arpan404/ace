@@ -71,12 +71,10 @@ export function ModelControl(props: {
       >
         <Suspense
           fallback={
-            <p
-              role="status"
-              className="flex h-8 items-center px-2.5 text-xs text-subtle-foreground"
-            >
-              Loading…
-            </p>
+            // The effort pane's footprint, so the popover doesn't jump when its code arrives.
+            <div className="grid h-32 w-[280px] place-items-center">
+              <Spinner label="Loading" />
+            </div>
           }
         >
           <DeferredModelPopover.Component

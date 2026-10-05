@@ -37,7 +37,8 @@ function StepSlider(props: {
   disabled?: boolean | undefined;
   className?: string | undefined;
 }) {
-  const [dragging, setDragging] = useState(false);
+  // The pointer dragging the thumb, if any: a second finger can neither move nor end its drag.
+  const [pointer, setPointer] = useState<number>();
   const count = props.steps.length;
   const last = count - 1;
   const value = Math.min(last, Math.max(0, props.value));
@@ -52,9 +53,10 @@ function StepSlider(props: {
     set(Math.round(((event.clientX - box.left - inset) / span) * last));
   };
   const release = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerId !== pointer) return;
     if (event.currentTarget.hasPointerCapture?.(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
-    setDragging(false);
+    setPointer(undefined);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const moves: Record<string, number> = {
@@ -84,19 +86,20 @@ function StepSlider(props: {
         aria-valuetext={props.stepLabel(props.steps[value] ?? "")}
         aria-disabled={props.disabled ? true : undefined}
         data-disabled={props.disabled ? "" : undefined}
-        data-dragging={dragging ? "" : undefined}
+        data-dragging={pointer !== undefined ? "" : undefined}
         onKeyDown={onKeyDown}
         onPointerDown={(event) => {
-          if (props.disabled || event.button !== 0) return;
+          if (props.disabled || event.button !== 0 || pointer !== undefined) return;
           event.currentTarget.setPointerCapture?.(event.pointerId);
-          setDragging(true);
+          setPointer(event.pointerId);
           fromPointer(event);
         }}
         onPointerMove={(event) => {
-          if (dragging) fromPointer(event);
+          if (event.pointerId === pointer) fromPointer(event);
         }}
         onPointerUp={release}
         onPointerCancel={release}
+        onLostPointerCapture={release}
         className="group relative h-[22px] w-full cursor-pointer touch-none rounded-full bg-secondary outline-none select-none data-disabled:cursor-default data-disabled:opacity-50 data-dragging:cursor-grabbing"
       >
         <span

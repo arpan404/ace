@@ -7,7 +7,7 @@ import {
   type PickerTab,
 } from "@ace/ui-core";
 import { CheckIcon, MagnifyingGlassIcon, StarIcon } from "@phosphor-icons/react";
-import { useEffect, useId, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { menuItem, menuLabel } from "@/components/ui/menu-styles.ts";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
@@ -23,26 +23,11 @@ import { useFavoriteModels } from "./favorites.ts";
 const numbered = 9;
 
 /**
- * The panel's height, in px: the search, then room for the longest tab's rows (one line in a
- * provider's tab, two where providers mix), so switching tabs never resizes the popover. Longer
- * lists scroll; a short catalog still leaves room for an empty state.
+ * The panel's height, reserved from the moment it opens: loading rows, the catalog arriving or
+ * refreshing, another tab, a search or a new star never move the search field or the list.
+ * Longer lists scroll; the viewport can still make it shorter.
  */
-const chrome = 40 + 12;
-const oneLine = 32;
-const twoLines = 44;
-const legacyLabel = 26;
-const minHeight = 216;
-const maxHeight = 380;
-
-function panelHeight(models: readonly PickerModel[], favorites: number): number {
-  const perProvider = new Map<ProviderKind, number>();
-  for (const model of models)
-    perProvider.set(model.provider, (perProvider.get(model.provider) ?? 0) + 1);
-  const longest = Math.max(0, ...perProvider.values());
-  const legacy = models.some((model) => model.legacy) ? legacyLabel : 0;
-  const content = Math.max(longest * oneLine + legacy, favorites * twoLines);
-  return Math.min(maxHeight, Math.max(minHeight, chrome + content));
-}
+const panelHeight = 340;
 
 const tabButton =
   "grid size-8 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-selected:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] aria-selected:text-foreground data-disabled:opacity-40";
@@ -62,8 +47,6 @@ export function ModelPickerPanel(props: {
   onPick(key: string): void;
 }) {
   const { favorites, toggle } = useFavoriteModels();
-  // Sized for the favorites there were on opening: starring one never resizes the panel.
-  const [favoritesAtOpen] = useState(favorites.length);
   // Until a tab is chosen the picker follows the current model's provider, so a catalog that
   // arrives after the picker opened still lands there.
   const [chosen, setChosen] = useState<PickerTab>();
@@ -88,6 +71,7 @@ export function ModelPickerPanel(props: {
   );
   const active = Math.min(highlight ?? start, Math.max(0, rows.length - 1));
   const listId = useId();
+  const search = useRef<HTMLInputElement>(null);
   // Keyboard moves keep the highlighted row in view inside the scrolling list.
   useEffect(() => {
     document.getElementById(`${listId}-${active}`)?.scrollIntoView?.({ block: "nearest" });
@@ -107,20 +91,22 @@ export function ModelPickerPanel(props: {
     setHighlight(0);
   };
   const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && query) {
+      // Wherever focus is in the panel, the first Escape clears the search and goes back to
+      // it; the popover closes on the next.
+      event.preventDefault();
+      event.stopPropagation();
+      setQuery("");
+      setHighlight(undefined);
+      search.current?.focus();
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
       event.preventDefault();
       pick(rows[Number(event.key) - 1]);
     }
   };
   const onSearchKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape" && query) {
-      // The first Escape clears the search; the popover closes on the next.
-      event.preventDefault();
-      event.stopPropagation();
-      setQuery("");
-      setHighlight(undefined);
-      return;
-    }
     if (!rows.length) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -214,11 +200,10 @@ export function ModelPickerPanel(props: {
 
   return (
     <div
+      data-slot="model-picker"
       onKeyDown={onKeyDown}
       className="flex w-[min(440px,calc(100vw-2rem))]"
-      style={{
-        height: `min(${panelHeight(props.models, favoritesAtOpen)}px, var(--available-height, ${maxHeight}px))`,
-      }}
+      style={{ height: `min(${panelHeight}px, var(--available-height, ${panelHeight}px))` }}
     >
       <div
         role="tablist"
@@ -261,6 +246,7 @@ export function ModelPickerPanel(props: {
         <label className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3 text-subtle-foreground">
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
           <input
+            ref={search}
             autoFocus
             role="combobox"
             aria-label="Search models"
