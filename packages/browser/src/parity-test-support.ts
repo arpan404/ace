@@ -82,7 +82,12 @@ export async function setup(
     <div role="button" aria-label="Drag source" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','dragged')" style="width:100px;height:40px">Drag</div>
     <div role="button" aria-label="Drop target" ondragover="event.preventDefault()" ondrop="event.preventDefault();document.body.dataset.dropped=event.dataTransfer.getData('text/plain')" style="width:100px;height:40px">Drop</div>
     <iframe src="/frame" title="same"></iframe><iframe src="http://localhost:${host.split(":")[1]}/frame" title="cross"></iframe>
-    <script>fetch('/body');console.warn('console-marker');</script></body>`);
+    <script>
+    fetch('/body');console.warn('console-marker');
+    window.addEventListener('load', () => {
+      document.body.insertAdjacentHTML('beforeend', '<p>Fixture ready</p>');
+    });
+    </script></body>`);
   });
   await new Promise<void>((resolve) => server.listen(0, "0.0.0.0", resolve));
   const address = server.address();
@@ -109,6 +114,8 @@ export async function setup(
   await service.open({ threadId: "thread", workspaceId: "workspace", background: true });
   const execute = (command: unknown) => service.execute("thread", command);
   await execute({ action: "navigate", url });
+  // DOMContentLoaded does not wait for iframe documents; their commits invalidate refs.
+  await execute({ action: "wait_for", text: "Fixture ready" });
   return {
     service,
     execute,

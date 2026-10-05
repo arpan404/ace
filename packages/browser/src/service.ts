@@ -221,6 +221,7 @@ export class BrowserService {
         cancelPolicy: () => scope.abort(),
         privatePaused: () => this.options.onPrivatePaused?.(options.threadId),
         privateResumed: () => this.options.onPrivateResumed?.(options.threadId),
+        clearPageGrants: () => this.options.onNavigation?.(options.threadId),
         ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
         ...(ffmpeg ? { ffmpeg } : {}),
         ...policies.session,
@@ -241,6 +242,7 @@ export class BrowserService {
       await session?.close().catch(() => {});
       await context?.close().catch(() => {});
       await release();
+      await profileLease.discard();
       throw error;
     }
   }
