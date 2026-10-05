@@ -144,16 +144,17 @@ export function useQueue(threadId: string): QueueControls {
     },
     acting,
     refresh,
-    remove: (message) => {
-      // Removed by the person: its message never shows as a bubble either.
-      dismissSend(storage, message.id);
+    remove: (message) =>
       void change(
         message.id,
         { kind: "gone", revision, settled: false },
         target && { type: "queue.remove", ...target, messageId: message.id },
         "remove the message",
-      );
-    },
+      ).then((removed) => {
+        // Removed by the person: its message never shows as a bubble either. Only once the
+        // daemon has removed it; a refused removal leaves it to be delivered and shown.
+        if (removed) dismissSend(storage, message.id);
+      }),
     move: (index, step) => {
       const message = messages[index];
       const after = queueMoveAfter(ids, index, step);

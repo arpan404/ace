@@ -113,6 +113,34 @@ test("removing a queued message takes its pill away at once", async () => {
   expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
 });
 
+test("a removal the daemon refuses keeps the message, which shows once it is delivered", async () => {
+  const { app, feed, message } = await open("busy");
+  await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
+  const queue = await screen.findByRole("list", { name: "Queued messages" });
+  await waitFor(() =>
+    expect(within(queue).queryByRole("button", { name: "Remove from queue" })).toBeTruthy(),
+  );
+  app.daemon.refuseCommands("queue_conflict", "queue.remove");
+  await userEvent.click(within(queue).getByRole("button", { name: "Remove from queue" }));
+  expect(await screen.findByText("Couldn't remove the message")).toBeTruthy();
+  app.daemon.restoreRequests();
+  expect(
+    within(await screen.findByRole("list", { name: "Queued messages" })).getByText(
+      "Also check the iOS cold-start path",
+    ),
+  ).toBeTruthy();
+
+  // Once the agent is free the daemon delivers it, and its bubble shows.
+  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
+  act(() =>
+    app.daemon.apply("thread-replay-cursor", [
+      { type: "background.ended", task: "relay", status: "stopped" },
+    ]),
+  );
+  expect(await within(feed).findByText("Also check the iOS cold-start path")).toBeTruthy();
+});
+
 test("Stop reads Stopping… on the button and the live line until the turn ends", async () => {
   const { app } = await open("busy");
   act(() => app.daemon.refuseConnections(true));
