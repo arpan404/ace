@@ -6,6 +6,7 @@ import { DeviceError } from "./sdk.ts";
 import { JpegDecoder } from "./jpeg.ts";
 import type { DevicePlatform } from "./platform.ts";
 import type { Capture, DeviceRuntime } from "./runtime.ts";
+import { permissionDenied } from "./screen-failure.ts";
 
 export interface DeviceCapture extends Capture {
   screenSessionId?: string;
@@ -36,10 +37,14 @@ export async function startCapture(options: {
         "Screen helper is not configured",
         "Configure ACE_SCREEN_HELPER and grant Screen Recording and Accessibility permissions.",
       );
+    // Say plainly when macOS hasn't let the helper see the screen, before looking for windows.
+    const permissions = await screen.currentPermissions();
+    checkAbort();
+    if (!permissions.screenRecording) throw permissionDenied("screenRecording");
     screen.requireApproval("com.apple.iphonesimulator");
     const selected = await options.platform.simulatorCaptureDevice(options.device);
     checkAbort();
-    const inventory = await screen.targets();
+    const window = await simulatorWindow(screen, options, selected.name, checkAbort);
     const confirmed = await options.platform.simulatorCaptureDevice(selected);
     checkAbort();
     if (confirmed.name !== selected.name)
@@ -47,22 +52,6 @@ export async function startCapture(options: {
         "busy",
         "Simulator changed while selecting its window",
         "Refresh the device list and start capture again.",
-      );
-    const windows = inventory.windows.filter(
-      (window) => window.bundleId === "com.apple.iphonesimulator",
-    );
-    const name = selected.name;
-    const exact = windows.filter(
-      (window) =>
-        window.title === name ||
-        [" –", " —", " -", " ("].some((suffix) => window.title.startsWith(`${name}${suffix}`)),
-    );
-    const window = exact.length === 1 ? exact[0] : undefined;
-    if (!window)
-      throw new DeviceError(
-        "not_found",
-        "Simulator window is missing or ambiguous",
-        "Open this Simulator and close other Simulator windows before starting capture.",
       );
     const state = await screen.start(
       { kind: "window", bundleId: window.bundleId, windowId: window.windowId },
@@ -361,6 +350,43 @@ export async function startCapture(options: {
     return restarting;
   };
   return { stop, restart };
+}
+/**
+ * The one Simulator window showing this device. A booted device whose window is closed (booted
+ * from Xcode or the command line, say) gets it opened, then the window list is read again.
+ */
+async function simulatorWindow(
+  screen: ScreenManager,
+  options: { device: Device; platform: DevicePlatform; runtime: DeviceRuntime },
+  name: string,
+  checkAbort: () => void,
+) {
+  for (let attempt = 0; ; attempt++) {
+    const inventory = await screen.targets();
+    checkAbort();
+    const exact = inventory.windows.filter(
+      (window) =>
+        window.bundleId === "com.apple.iphonesimulator" &&
+        (window.title === name ||
+          [" –", " —", " -", " ("].some((suffix) => window.title.startsWith(`${name}${suffix}`))),
+    );
+    if (exact.length === 1 && exact[0]) return exact[0];
+    if (exact.length > 1)
+      throw new DeviceError(
+        "busy",
+        "More than one Simulator window shows this device's name",
+        "Close the extra Simulator window, or rename one of the simulators, then start again.",
+      );
+    if (attempt === 0) await options.platform.showSimulator(options.device);
+    else if (attempt >= 12)
+      throw new DeviceError(
+        "not_found",
+        "The Simulator window for this device isn't open",
+        "Open it from Simulator's Window menu, make sure it isn't minimized, then start again.",
+      );
+    await new Promise<void>((resolve) => options.runtime.after(500, resolve));
+    checkAbort();
+  }
 }
 export async function findExecutable(name: string, env: NodeJS.ProcessEnv): Promise<string> {
   const path = await discoverExecutable(name, env);

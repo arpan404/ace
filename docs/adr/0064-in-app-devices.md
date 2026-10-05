@@ -103,3 +103,41 @@ Primary references: [Android adb](https://developer.android.com/tools/adb),
 [idb UI](https://fbidb.io/docs/idb/ui/), and the installed Xcode simctl interface.
 The t3code release notes were read as a feature reference only. No source code
 from t3code or ace-legacy was read or reused.
+
+## Live view repair (2026-10-04)
+
+The owner booted an iOS Simulator from the Devices tab and saw "Off" with no screen. The
+causes, and the decisions that replace the behaviour:
+
+- A boot or shutdown changed the simulator but not the session's device record, so every
+  pushed state still said "shutdown" until someone listed devices again. Boot and shutdown now
+  re-read the inventory before answering, and every changed device state is pushed.
+- Nothing noticed a simulator booted or shut down outside ace. While devices are enabled and a
+  Devices view holds an `inventory.watch` lease on its connection (released with the view or the
+  connection), the service re-reads the inventory every four seconds and pushes
+  `devices.inventory` when it changed. State observers, such as the main channel, never cause
+  background reads. Lifecycle acknowledgements wait for a read that started after the change
+  rather than joining one already in flight.
+- Turning devices on or off is pushed to every connection as `devices.enabled`, so views with no
+  device sessions follow it.
+- The live view required the device to be approved for a thread, because only thread approval
+  approved the Simulator bundle for capture. A person starting the view now approves the
+  Simulator window for capture themselves; agents still need the thread approval.
+- The daemon pushed `screen.state` and project changes to every authenticated connection,
+  including the dedicated devices channel, whose client rejected them and disconnected. Feature
+  pushes go to the channels that carry that feature, and the devices client skips messages of
+  other features instead of failing.
+- A failed capture startup was reported a second time by cleanup, as "Device resource cleanup
+  failed". Cleanup of a startup that owns nothing is silent; the startup's own error stands.
+- A missing macOS permission surfaced as a generic error, if at all. `DeviceFailure` gains an
+  optional `permission` (`screenRecording` or `accessibility`); `permissions` reports the
+  helper's permissions and `permissions.request` (human only) asks macOS for one on the
+  daemon's Mac. The app shows which permission is missing, where to turn it on, a button that
+  opens that pane, and Try again.
+- The app starts the live view after Boot and when a running device's tab opens, once per
+  device per tab; a failure waits for Try again.
+- Device request and live-view failures go to the daemon's redacting log: refusals a person
+  can act on at `info`, faults at `warn`, inventory read failures once per distinct cause.
+
+macOS-side causes (permission attribution, Simulator windows on another Space, keyboard focus
+and Simulator key codes) are recorded in ADR 0011.

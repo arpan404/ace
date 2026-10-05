@@ -15,6 +15,7 @@ export function createEngineThread(
     permissionMode?: import("@ace/protocol").PermissionMode;
     workspaceId: WorkspaceId;
     title: string;
+    titleSource?: import("@ace/protocol").Thread["titleSource"];
     selection: ExecutionSelection;
     cwd: string;
     workspaceReady?: boolean;
@@ -51,6 +52,7 @@ export function createEngineThread(
     id,
     workspaceId,
     title: input.title,
+    titleSource: input.titleSource ?? "provisional",
     provider: selection.provider,
     execution: selection,
     lineage,

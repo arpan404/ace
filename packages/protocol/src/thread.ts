@@ -1,3 +1,4 @@
+import { AgentError } from "./agent.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { PermissionState } from "./permissions.ts";
 import { ThreadClientFields } from "./thread-client.ts";
@@ -52,6 +53,7 @@ export const Run = z.object({
   state: z.enum(["active", "completed", "interrupted", "failed"]),
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
+  error: AgentError.optional(),
 });
 export type Run = z.infer<typeof Run>;
 

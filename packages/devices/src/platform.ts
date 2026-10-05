@@ -10,9 +10,18 @@ import {
   type DeviceInput,
   DeviceSettings as Settings,
   type DeviceSettings,
+  type DeviceFailure,
 } from "@ace/protocol/devices";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
-import { adbShell, androidInput, simulatorInput, simulatorIdentity, nativeId } from "./commands.ts";
+import {
+  adbShell,
+  androidInput,
+  simulatorButton,
+  simulatorInput,
+  simulatorIdentity,
+  simulatorRuntime,
+  nativeId,
+} from "./commands.ts";
 import { AndroidOperations } from "./android-operations.ts";
 import { AndroidPlatform } from "./android-platform.ts";
 
@@ -41,7 +50,7 @@ export class DevicePlatform {
   private readonly controller = new AbortController();
   private readonly androidUI: AndroidOperations;
   private missingSDKs: DeviceError[] = [];
-  diagnostics(): { code: string; message: string; hint: string }[] {
+  diagnostics(): DeviceFailure[] {
     return this.missingSDKs.map(({ code, message, hint }) => ({ code, message, hint }));
   }
   constructor(options: PlatformOptions) {
@@ -149,7 +158,7 @@ export class DevicePlatform {
           platform: "ios",
           name: device.name,
           state: device.state === "Booted" ? "booted" : "shutdown",
-          runtime: device.runtime,
+          runtime: simulatorRuntime(device.runtime),
         }),
       );
     const outcomes = await Promise.allSettled(
@@ -176,6 +185,10 @@ export class DevicePlatform {
   async boot(device: Device, authorize?: () => void): Promise<void> {
     if (device.platform === "ios") await this.iosSimulators(authorize).boot(nativeId(device));
     else await this.android.boot(device, authorize);
+  }
+  /** Make sure Simulator shows this booted device's window, without taking focus. */
+  async showSimulator(device: Device): Promise<void> {
+    if (device.platform === "ios") await this.iosSimulators().show(nativeId(device));
   }
   async shutdown(device: Device, authorize?: () => void): Promise<void> {
     if (device.platform === "ios") await this.simctl(device, ["shutdown"], authorize);
@@ -316,6 +329,15 @@ export class DevicePlatform {
       } else await this.android.adb(device, androidInput(input), undefined, authorize);
       return;
     }
+    // idb types into a Simulator in the background; window key events need it in front.
+    if (input.kind === "type") {
+      const idb = await findExecutable("idb", this.options.env);
+      if (idb) {
+        authorize?.();
+        await this.run(idb, ["ui", "text", input.text, "--udid", nativeId(device)]);
+        return;
+      }
+    }
     if (
       (input.kind === "swipe" || input.kind === "longPress") &&
       (!binding || !this.options.screen)
@@ -357,6 +379,18 @@ export class DevicePlatform {
         "Simulator window control is required",
         "Start the approved Simulator view and take control.",
       );
+    const button = simulatorButton(input);
+    if (button) {
+      authorize?.();
+      await this.options.screen.pressButton(
+        binding.sessionId,
+        binding.actor,
+        button,
+        binding.owner,
+        authorize,
+      );
+      return;
+    }
     const mapped = simulatorInput(input);
     authorize?.();
     await this.options.screen.input(
