@@ -3,6 +3,7 @@ import { z } from "zod";
 import { expect, test } from "vitest";
 import { Client } from "@ace/client";
 import {
+  Project,
   DeviceId,
   ProviderKind,
   WorkspaceId,
@@ -963,6 +964,27 @@ test("fake picker uses the machine's roots, completion and clone contract", asyn
     expect(await f.client.projects.complete({ path: "~/Co" })).toMatchObject({
       result: { kind: "error", code: "outside_project_roots" },
     });
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("removed fake projects lose project and last-opened hints while their folders remain searchable", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.projects.seedFolders("/home/person", [{ path: "/home/person/opened-folder" }]);
+    const receipt = await f.client.projects.add({ path: "/home/person/opened-folder" });
+    const project = Project.parse(receipt.workspace);
+    expect(await f.client.projects.search({ query: "opened-folder" })).toMatchObject({
+      result: { entries: [{ isProject: true, lastOpened: 1000 }] },
+    });
+    expect(await f.client.projects.remove({ workspaceId: project.id })).toMatchObject({ ok: true });
+    const result = await f.client.projects.search({ query: "opened-folder" });
+    expect(result).toMatchObject({
+      result: { entries: [{ name: "opened-folder", isProject: false, recentScore: 0 }] },
+    });
+    if (result.result.kind !== "search") throw new Error("Expected search");
+    expect(result.result.entries[0]).not.toHaveProperty("lastOpened");
   } finally {
     await f.client.close();
   }

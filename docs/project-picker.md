@@ -64,15 +64,14 @@ cancels client waiting; send a replacement picker request to supersede host work
 The in-memory BFS index admits at most 32 canonical roots, 1,024 directories per root,
 four levels below each root and 128 scan steps per root per call. Each enumeration slice
 examines at most 256 names and yields between directory opens. Search uses a cooperative
-35 ms scan budget; completion uses 50 ms and at most 256 matching directories. OS calls
+35 ms scan budget; completion uses 50 ms and at most 256 metadata lookups for matching entries, including files and rejected links. OS calls
 and result validation can exceed that budget on slow filesystems. No recursive background
 scan, whole-disk traversal or persistent index runs. Indexes refresh lazily after 30 seconds
-and are discarded when roots or hidden mode change. Directory name enumeration has the
-existing descriptor boundary's 10,000-name limit. Warm search validates only the top
-requested matches, so deleted folders and escaping replacements disappear immediately.
+are discarded when roots change, and keep separate hidden-mode views within 32 total cache slots. Directory name enumeration has the
+existing descriptor boundary's 10,000-name limit. Warm search validates the top requested matches and up to 128 extra candidates when stale hits are rejected. Roots are resolved once per request and rechecked before delivery, so deleted folders and escaping replacements disappear immediately.
 
 Search never follows directory symlinks. Completion may offer a symlink whose canonical
-target remains allowed; its insertion text preserves the typed alias. Both check realpath
+target remains allowed and passes the ignored-directory policy; its insertion text preserves the typed alias. Both check realpath
 containment, system-directory policy and pinned directory identity. Home is the default
 root when no roots are configured. Explicit roots can exclude home, and `~` cannot bypass
 them. `node_modules`, `.git` internals, caches, `Library`, build outputs, `vendor`, ace data

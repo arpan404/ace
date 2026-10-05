@@ -1,12 +1,19 @@
 import { basename, join, sep } from "node:path";
 import { ProjectDirectoryName, type ProjectFolderMatch, type ProjectsResult } from "@ace/protocol";
-import { commonPrefix, completionParts, ignoredFolder, rankFolders } from "@ace/project-picker";
+import {
+  commonPrefix,
+  completionParts,
+  ignoredFolder,
+  rankFolders,
+  visibleFolder,
+} from "@ace/project-picker";
 import { ProjectDirectory } from "./project-directory.ts";
-import { ProjectPaths, ProjectError, absoluteProjectPath, within } from "./project-policy.ts";
+import { ProjectPaths, ProjectError, absoluteProjectPath } from "./project-policy.ts";
 import type { ProjectStorage } from "./project-storage.ts";
 
 type Folder = Omit<ProjectFolderMatch, "score">;
 type Index = {
+  root: string;
   refreshed: number;
   folders: Map<string, Folder>;
   queue: { path: string; depth: number; after?: string }[];
@@ -35,15 +42,17 @@ export class ProjectPicker {
     allowed: () => boolean,
   ): Promise<Extract<ProjectsResult["result"], { kind: "search" }>> {
     const roots = await this.paths.roots();
-    const keys = new Set(roots.map((root) => `${input.showHidden}:${root}`));
-    for (const key of this.indexes.keys()) if (!keys.has(key)) this.indexes.delete(key);
+    for (const [key, index] of this.indexes)
+      if (!roots.includes(index.root)) this.indexes.delete(key);
+    const requestIndexes: Index[] = [];
     const deadline = this.now() + 35;
-    const scoped = new ProjectPaths(roots[0] ?? "", async () => roots);
+    const scoped = ProjectPaths.snapshot(roots);
     for (const root of roots) {
       const key = `${input.showHidden}:${root}`;
       let index = this.indexes.get(key);
       if (!index || this.now() - index.refreshed > 30_000) {
         index = {
+          root,
           refreshed: this.now(),
           folders: new Map(),
           queue: [{ path: root, depth: 0 }],
@@ -56,6 +65,7 @@ export class ProjectPicker {
         }
         this.indexes.set(key, index);
       }
+      requestIndexes.push(index);
       if (this.scanning || this.now() >= deadline) continue;
       this.scanning = true;
       try {
@@ -69,6 +79,11 @@ export class ProjectPicker {
           try {
             directory = await ProjectDirectory.open(scoped, next.path);
             this.check(signal, allowed);
+            if (
+              directory.path !== next.path ||
+              !visibleFolder(directory.path, roots, input.showHidden)
+            )
+              continue;
             const folder = folderHint(directory);
             index.folders.set(folder.path, folder);
             if (next.depth >= 4) {
@@ -121,22 +136,13 @@ export class ProjectPicker {
     this.check(signal, allowed);
     const folders = new Map<string, Folder>();
     let truncated = false;
-    for (const [key, index] of this.indexes) {
-      if (!keys.has(key)) continue;
+    for (const index of requestIndexes) {
       truncated ||= index.truncated || index.queue.length > 0;
       for (const [path, folder] of index.folders) folders.set(path, folder);
     }
     // Recent registrations can sit deeper than the index and still be useful picker results.
     for (const recent of this.catalog.recentHints(100)) {
-      const root = roots.find((candidateRoot) => within(candidateRoot, recent.path));
-      if (
-        !root ||
-        recent.path
-          .slice(root.length)
-          .split(sep)
-          .some((name) => ignoredFolder(name, input.showHidden))
-      )
-        continue;
+      if (!visibleFolder(recent.path, roots, input.showHidden)) continue;
       folders.set(recent.path, {
         name: basename(recent.path),
         path: recent.path,
@@ -149,10 +155,11 @@ export class ProjectPicker {
     const ranked = rankFolders(input.query, [...folders.values()], roots);
     const entries: ProjectFolderMatch[] = [];
     // Reopen only ranked candidates, so stale or replaced entries cannot escape containment.
-    for (const match of ranked.slice(0, input.limit)) {
+    for (const match of ranked.slice(0, input.limit + 128)) {
+      if (entries.length >= input.limit) break;
       this.check(signal, allowed);
       try {
-        const directory = await ProjectDirectory.open(this.paths, match.path);
+        const directory = await ProjectDirectory.open(scoped, match.path);
         try {
           if (directory.path !== match.path) continue;
           const hint = folderHint(directory);
@@ -168,13 +175,14 @@ export class ProjectPicker {
         }
       } catch {
         this.check(signal, allowed);
+        for (const index of requestIndexes) index.folders.delete(match.path);
       }
     }
     this.check(signal, allowed);
     return {
       kind: "search",
       query: input.query,
-      indexing: [...this.indexes.values()].some((index) => index.queue.length > 0),
+      indexing: requestIndexes.some((index) => index.queue.length > 0),
       entries,
       truncated: truncated || ranked.length > input.limit,
     };
@@ -187,13 +195,18 @@ export class ProjectPicker {
   ): Promise<Extract<ProjectsResult["result"], { kind: "completion" }>> {
     const parts = completionParts(input.path, home, sep);
     absoluteProjectPath(parts.parent);
-    const directory = await ProjectDirectory.open(this.paths, parts.parent);
+    const roots = await this.paths.roots();
+    const scoped = ProjectPaths.snapshot(roots);
+    const directory = await ProjectDirectory.open(scoped, parts.parent);
     const candidates: (ProjectFolderMatch & { completion: string })[] = [];
     const deadline = this.now() + 50;
     let truncated = false;
     const completions: string[] = [];
     try {
-      const names = directory.handle.names();
+      const names = visibleFolder(directory.path, roots, input.showHidden)
+        ? directory.handle.names()
+        : [];
+      let metadataReads = 0;
       for (const name of names) {
         this.check(signal, allowed);
         if (this.now() >= deadline) {
@@ -206,11 +219,21 @@ export class ProjectPicker {
           !ProjectDirectoryName.safeParse(name).success
         )
           continue;
-        const kind = directory.handle.metadata(name).mode & 0o170000;
+        if (metadataReads++ >= 256) {
+          truncated = true;
+          break;
+        }
+        let kind: number;
+        try {
+          kind = directory.handle.metadata(name).mode & 0o170000;
+        } catch {
+          continue;
+        }
         if (kind !== 0o040000 && kind !== 0o120000) continue;
         try {
-          const child = await ProjectDirectory.open(this.paths, join(directory.path, name));
+          const child = await ProjectDirectory.open(scoped, join(directory.path, name));
           try {
+            if (!visibleFolder(child.path, roots, input.showHidden)) continue;
             const completion = `${parts.display}${name}${sep}`;
             child.verify();
             completions.push(completion);
@@ -227,11 +250,6 @@ export class ProjectPicker {
           }
         } catch {
           this.check(signal, allowed);
-        }
-        // Bound metadata work independently of the number of non-matching names.
-        if (completions.length >= 256) {
-          truncated = true;
-          break;
         }
       }
       directory.verify();

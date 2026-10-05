@@ -49,12 +49,21 @@ export function assertProjectPath(path: string, roots: readonly string[]): void 
 /** Filesystem boundary; all policy decisions use canonical targets. */
 export class ProjectPaths {
   private home: string;
+  private snapshotRoots: readonly string[] | undefined;
   private configured: () => Promise<readonly string[]>;
   constructor(home: string, configured: () => Promise<readonly string[]>) {
     this.home = home;
     this.configured = configured;
   }
+  /** Only already-canonical roots from roots() may enter this request-local policy. */
+  static snapshot(roots: readonly string[]): ProjectPaths {
+    for (const root of roots) absoluteProjectPath(root);
+    const paths = new ProjectPaths("", async () => roots);
+    paths.snapshotRoots = [...roots];
+    return paths;
+  }
   async roots(): Promise<string[]> {
+    if (this.snapshotRoots !== undefined) return [...this.snapshotRoots];
     const configured = await this.configured();
     const roots = [...new Set(configured.length ? configured : [this.home])].slice(0, 32);
     return Promise.all(

@@ -21,6 +21,28 @@ const ignored = new Set([
 export function ignoredFolder(name: string, showHidden: boolean): boolean {
   return ignored.has(name.toLowerCase()) || (!showHidden && name.startsWith("."));
 }
+/** Canonical candidates must pass ignored-folder policy as well as path containment. */
+export function visibleFolder(
+  path: string,
+  roots: readonly string[],
+  showHidden: boolean,
+): boolean {
+  const root = roots
+    .toSorted((a, b) => b.length - a.length)
+    .find(
+      (entry) =>
+        path === entry ||
+        path.startsWith(entry.replace(/[\\/]$/, "") + "/") ||
+        path.startsWith(entry.replace(/[\\/]$/, "") + "\\"),
+    );
+  return (
+    root !== undefined &&
+    !path
+      .slice(root.length)
+      .split(/[\\/]/)
+      .some((name) => ignoredFolder(name, showHidden))
+  );
+}
 /** Name matches win over path matches; recent folders break close matches. */
 export function folderScore(query: string, name: string, path: string): number | undefined {
   const needle = query.trim().toLowerCase();
@@ -72,7 +94,9 @@ export function commonPrefix(values: readonly string[]): string {
     while (length < prefix.length && prefix[length] === value[length]) length++;
     prefix = prefix.slice(0, length);
   }
-  return prefix;
+  // Different astral characters can share a UTF-16 high surrogate, which is not insertable.
+  const last = prefix.charCodeAt(prefix.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? prefix.slice(0, -1) : prefix;
 }
 /** Pure parsing shared by the real and fake host. Never contacts a forge. */
 export function parseCloneUrl(input: string): { url: string; name: string } {
