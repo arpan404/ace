@@ -106,6 +106,7 @@ export function WorkspaceDock(props: {
   // The side panel's strip is the window's top row (a sheet starts below the top edge).
   const topRow = right && !layout.sheet;
   const shownKind = shown && definition.kind(shown.kind);
+  const DockActions = definition.dockActions?.[side];
   const label = right ? definition.label : "Bottom panel";
   return (
     <>
@@ -204,6 +205,11 @@ export function WorkspaceDock(props: {
               </Suspense>
             )}
           </div>
+          {DockActions && (
+            <Suspense fallback={null}>
+              <DockActions scope={props.scope} dock={side} />
+            </Suspense>
+          )}
           {layout.sheet ? (
             // A sheet has one way out, in reach of a thumb; the dock toggles and full view do
             // nothing useful over a phone's whole screen.

@@ -272,7 +272,8 @@ function ShellButtons(props: TabViewProps) {
         shortcut="findInTerminal"
         onClick={() => setTabUi(terminalUi, tab.key, { find: true })}
       />
-      <SessionsMenu scope={scope} dock={dock} />
+      {/* The bottom panel shows the sessions for every tab (`dock-sessions.tsx`). */}
+      {dock === "right" && <SessionsMenu scope={scope} dock={dock} />}
     </>
   );
 }

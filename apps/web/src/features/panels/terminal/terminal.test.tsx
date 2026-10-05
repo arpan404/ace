@@ -384,3 +384,16 @@ test("a tab whose shell the daemon no longer runs says it has ended and starts a
   expect(await selectedTab(panel, "Terminal")).toBeTruthy();
   await waitFor(() => expect(names(app)).toEqual(["tests", "Terminal"]));
 });
+
+test("with Logs showing, the bottom panel still offers the thread's shells and counts the unseen ones", async () => {
+  const { panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
+  expect(await selectedTab(panel, "Logs")).toBeTruthy();
+  // `tests` and the agent's soak relay run in no tab.
+  expect(
+    await within(panel).findByRole("button", { name: "Terminal sessions, 2 not shown" }),
+  ).toBeTruthy();
+  // Once, however many tabs show.
+  expect(within(panel).getAllByRole("button", { name: /^Terminal sessions/ })).toHaveLength(1);
+});

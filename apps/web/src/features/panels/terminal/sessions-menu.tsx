@@ -110,7 +110,7 @@ export function SessionsMenu(props: { scope: string; dock: Dock }) {
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="truncate">{entry.label}</span>
-                <span className="shrink-0 text-xs text-subtle-foreground">
+                <span className="shrink-0 text-xs text-muted-foreground">
                   {entry.terminal.exited ? "exited" : "running"}
                 </span>
                 {entry.open && <CheckIcon aria-label="open" size={12} className="shrink-0" />}
@@ -134,7 +134,7 @@ export function SessionsMenu(props: { scope: string; dock: Dock }) {
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="truncate">{entry.label}</span>
-                <span className="shrink-0 text-xs text-subtle-foreground">
+                <span className="shrink-0 text-xs text-muted-foreground">
                   {shellState[entry.task.status]}
                 </span>
                 {entry.open && <CheckIcon aria-label="open" size={12} className="shrink-0" />}
