@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { readConfig } from "./config.ts";
-import { startDaemon } from "./index.ts";
+import { AdapterRegistry, startDaemon } from "./index.ts";
 import { Client } from "./socket-test-support.ts";
 import { Capabilities, Command, ItemId, ThreadId } from "@ace/protocol";
 
@@ -37,6 +37,7 @@ test("authenticated history import publishes a daemon thread with windowed canon
     config: config,
     toolkits: [],
     modelInstances: [],
+    engine: { registry: new AdapterRegistry() },
     history: {
       instances: [{ id: "account", provider: "claude", homeDir: home }],
     },
@@ -174,6 +175,7 @@ test("native continuation uses the registered home-bound adapter and persists it
     config: readConfig({ ACE_HOME: join(root, "ace"), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     toolkits: [],
     modelInstances: [],
+    engine: { registry: new AdapterRegistry() },
     history: {
       instances: [{ id: "account-two", provider: "claude", homeDir: home }],
       adapters: {

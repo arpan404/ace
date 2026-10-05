@@ -14,6 +14,8 @@ const nodeState: Record<Exclude<FakeDeckCard["state"], "merge">, string> = {
   fixing: "working",
   in_review: "reviewing",
   escalated: "escalated",
+  approved: "approved",
+  declined: "declined",
   merged: "integrated",
 };
 
@@ -23,8 +25,25 @@ const laneStatus: Record<Exclude<FakeDeckCard["state"], "merge">, string> = {
   fixing: "working",
   in_review: "working",
   escalated: "waiting",
+  approved: "done",
+  declined: "done",
   merged: "done",
 };
+
+/** A finished round's verdict, as the conductor records each review. */
+const verdicts: Record<string, "pass" | "changes_required"> = {
+  Approved: "pass",
+  "Request changes": "changes_required",
+};
+
+function reviews(card: FakeDeckCard) {
+  return (card.lane?.rounds ?? []).flatMap((round) => {
+    const verdict = verdicts[round.verdict];
+    if (!verdict) return [];
+    const findings = round.findings.map((finding) => finding.text).join(" ");
+    return [{ verdict, summary: (findings || round.detail).slice(0, 512) }];
+  });
+}
 
 function phase(run: FakeDeckRun): ConductorRunView["phase"] {
   switch (run.phase) {
@@ -83,7 +102,6 @@ export function runView(
 ): ConductorRunView {
   const work = run.cards.filter((card) => card.kind === "work");
   const ids = new Set(work.map((card) => card.id));
-  const escalated = work.find((card) => card.state === "escalated");
   // The fake's goal reads like a person's: its title is the first sentence.
   const goal = run.goal.startsWith(run.title) ? run.goal : `${run.title}. ${run.goal}`;
   return ConductorRunView.parse({
@@ -94,8 +112,13 @@ export function runView(
     workspaceId: run.workspaceId,
     goal,
     phase: phase(run),
-    spent: 0,
-    budget: 0,
+    spent: run.spent,
+    budget: run.budget,
+    branch: run.branch,
+    baseBranch: "main",
+    planApproval: run.planApproval ?? "required",
+    merge: "ask",
+    deadline: run.deadline ?? null,
     plan: work.length
       ? {
           summary: goal,
@@ -105,9 +128,9 @@ export function runView(
             dependencies: card.dependencies.filter((dependency) => ids.has(dependency)),
             priority: 0,
             brief: {
-              objective: card.title,
+              objective: card.brief?.objective ?? card.title,
               instructions: card.note || card.title,
-              acceptance: [card.title],
+              acceptance: card.brief?.acceptance.length ? card.brief.acceptance : [card.title],
               files: [],
               packages: [],
               risks: [],
@@ -122,9 +145,9 @@ export function runView(
             {
               id: run.gate.id,
               kind: run.gate.kind,
-              workstream: run.gate.kind === "escalation" ? (escalated?.id ?? null) : null,
+              workstream: run.gate.cardId,
               lane: null,
-              generation: run.gate.revision,
+              generation: run.gate.kind === "plan" ? run.gate.revision : null,
               message: run.gate.body.slice(0, 2048),
               gatedAt: execution.gatedAt ?? run.updatedAt,
             },
@@ -136,7 +159,8 @@ export function runView(
       ? []
       : lanes(
           run,
-          work.filter((card) => card.state !== "merged"),
+          // Only live lanes are listed: a reviewed, merged or declined card has none.
+          work.filter((card) => !["approved", "merged", "declined"].includes(card.state)),
         ).map((lane) =>
           Object.assign({}, lane, {
             agentId:
@@ -152,6 +176,7 @@ export function runView(
       state: card.state === "merge" ? "pending" : nodeState[card.state],
       fixRounds: Math.max(card.round - 1, 0),
       revision: card.state === "merged" ? "5d1f0c2a9b7e4d3c8a6f0e1b2c3d4e5f6a7b8c9d" : null,
+      reviews: reviews(card).slice(-4),
     })),
     truncated: false,
     ...(run.executionError ? { executionError: run.executionError } : {}),

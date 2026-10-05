@@ -27,11 +27,7 @@ function longThread(): LongThreadSoak {
   return soak;
 }
 
-function pump(
-  source: { pump(count: number): void; readonly head: number },
-  rate: number,
-  report: (events: number) => void,
-): void {
+function pump(source: { pump(count: number): void }, rate: number): void {
   if (pumping) return;
   pumping = true;
   let owed = 0;
@@ -43,7 +39,6 @@ function pump(
     const due = Math.floor(owed);
     owed -= due;
     if (due > 0) source.pump(due);
-    report(source.head);
   }, 8);
 }
 
@@ -67,17 +62,25 @@ if (isPort(scope)) {
             credential: async () => soak.token,
             storage: memoryStorage(),
           });
+          // Count decoded thread deliveries, not the source's generated sequence.
+          // Sidebar subscriptions can receive the same events; count only the transcript.
+          const threads = new Set<string>();
+          let delivered = 0;
+          client.onMessage((message) => {
+            if (message.type === "snapshot" && "thread" in message.view)
+              threads.add(message.subscriptionId);
+            if (message.type !== "events" || !threads.has(message.subscriptionId)) return;
+            delivered += message.events.length;
+            // Client listeners run before projection. Publish after that delivery's task.
+            const events = delivered;
+            queueMicrotask(() => {
+              // A dedicated worker answers its own page; there is no target origin.
+              // oxlint-disable-next-line unicorn/require-post-message-target-origin
+              port.postMessage({ t: "perf", events });
+            });
+          });
           // Stream once the tab is attached and following the thread.
-          if (rate > 0)
-            setTimeout(
-              () =>
-                pump(soak, rate, (events) =>
-                  // A dedicated worker answers its own page; there is no target origin.
-                  // oxlint-disable-next-line unicorn/require-post-message-target-origin
-                  port.postMessage({ t: "perf", events }),
-                ),
-              1_000,
-            );
+          if (rate > 0) setTimeout(() => pump(soak, rate), 1_000);
           return client;
         },
       };

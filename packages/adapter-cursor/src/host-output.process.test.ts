@@ -15,12 +15,19 @@ import {
 } from "./index.ts";
 
 it("the SDK host admits large normal tool results through blobs and output chunks before bounded IPC", async () => {
+  const imageData = (
+    await (
+      await import("node:fs/promises")
+    ).readFile(new URL("../../context/fixtures/colours.jpg", import.meta.url))
+  ).toString("base64");
+
   const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-large-host-")));
   const terminal = Promise.withResolvers<void>(),
     output = "line\n".repeat(209716);
   const threadId = ThreadId.parse("large-host"),
     state = createThreadState({ threadId, config: { provider: "cursor", silenceMs: 90000 } }),
     translator = new CursorTranslator({ threadId, rootKey: "root" });
+  let sdkInput: unknown;
   let seq = 0,
     id = 0,
     largest = 0,
@@ -44,6 +51,7 @@ it("the SDK host admits large normal tool results through blobs and output chunk
       disposed = true;
     },
     async send(...args: Parameters<import("./index.ts").SdkAgentBoundary["send"]>) {
+      sdkInput = args[0];
       const options = args[1];
       for (const update of [
         {
@@ -119,7 +127,14 @@ it("the SDK host admits large normal tool results through blobs and output chunk
       operationId: "operation",
       segment: 0,
       commandId: "command",
-      input: [{ type: "text", text: "synthetic" }],
+      input: [
+        { type: "text", text: "synthetic" },
+        { type: "image", mimeType: "image/jpeg", url: `data:image/jpeg;base64,${imageData}` },
+      ],
+    });
+    expect(sdkInput).toEqual({
+      text: "synthetic",
+      images: [{ url: `data:image/jpeg;base64,${imageData}` }],
     });
     expect(Object.values(state.items).find((item) => item.type === "tool_call")).toMatchObject({
       complete: true,

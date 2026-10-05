@@ -17,7 +17,11 @@ export const SavedWindow = z.object({
 });
 export type SavedWindow = z.infer<typeof SavedWindow>;
 
-export const minimumSize = { width: 760, height: 520 } as const;
+/**
+ * At least the web's sheet breakpoint (768 px), so the narrowest window still gets the desktop
+ * layout at 100% zoom, and tall enough for dialogs.
+ */
+export const minimumSize = { width: 768, height: 560 } as const;
 const preferred = { width: 1440, height: 920 } as const;
 
 /**

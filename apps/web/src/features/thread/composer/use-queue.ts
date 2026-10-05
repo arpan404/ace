@@ -33,7 +33,7 @@ export interface QueueControls {
   /** Deliver into the running turn now instead of waiting. */
   sendNow(message: QueuedMessage): void;
   edit(message: QueuedMessage, text: string): Promise<boolean>;
-  act(action: QueueAction["id"]): void;
+  act(action: QueueAction): void;
 }
 
 /**
@@ -115,11 +115,18 @@ export function useQueue(threadId: string): QueueControls {
     act: (action) => {
       if (!target) return;
       const payload: CommandPayload =
-        action === "resume"
+        action.id === "resume"
           ? { type: page?.reason === "restart" ? "thread.resume" : "queue.resume", ...target }
-          : action === "hold"
+          : action.id === "hold"
             ? { type: "queue.pause", ...target }
-            : { type: "thread.limit", ...target, action };
+            : {
+                type: "thread.limit",
+                ...target,
+                action: action.id,
+                ...("instanceId" in action && action.instanceId
+                  ? { instanceId: action.instanceId }
+                  : {}),
+              };
       void run(payload, "do that");
     },
   };

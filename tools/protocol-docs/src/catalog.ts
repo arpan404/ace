@@ -1,3 +1,8 @@
+import * as ids from "@ace/protocol/ids";
+import * as notifications from "@ace/protocol/notifications";
+import * as threadStatus from "@ace/protocol/thread-status";
+import * as agentStatus from "@ace/protocol/agent-status";
+import * as background from "@ace/protocol/background";
 import * as agentControl from "@ace/protocol/agent-control";
 import * as appDevices from "@ace/protocol/devices";
 import * as transitions from "@ace/protocol/thread-transitions";
@@ -20,6 +25,12 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   Record<string, unknown>
 >([
   [".", protocol],
+  ["./ids", ids],
+  ["./notifications", notifications],
+  ["./thread-status", threadStatus],
+  ["./agent-status", agentStatus],
+  ["./background", background],
+
   ["./queue", queue],
   ["./context-meter", contextMeter],
   ["./forge", forge],

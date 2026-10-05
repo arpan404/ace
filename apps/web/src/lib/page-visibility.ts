@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /**
  * Whether the page is on screen. Services that stream (browser frames, device screens, clocks) pause
  * while it is hidden and catch up when it is shown; they take this so tests can hide the page.
@@ -16,3 +18,12 @@ export const documentVisibility: PageVisibility = {
     return () => document.removeEventListener("visibilitychange", changed);
   },
 };
+
+/** Whether the page is on screen, kept live. */
+export function usePageVisible(): boolean {
+  return useSyncExternalStore(
+    documentVisibility.watch,
+    documentVisibility.visible,
+    documentVisibility.visible,
+  );
+}

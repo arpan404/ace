@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProviderKind } from "./provider.ts";
+import { ProviderKind } from "./provider-data.ts";
 
 export const ProviderErrorDetails = z.object({
   code: z.string().min(1).max(256),

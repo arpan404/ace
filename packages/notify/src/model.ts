@@ -1,11 +1,8 @@
 import { z } from "zod";
-import {
-  ThreadStatus,
-  InteractionId,
-  Notification,
-  type Event,
-  type Interaction,
-} from "@ace/protocol";
+import { ThreadStatus } from "@ace/protocol/thread-status";
+import { InteractionId } from "@ace/protocol/ids";
+import { Notification } from "@ace/protocol/notifications";
+import type { Event, Interaction } from "@ace/protocol";
 import type { MetadataEvent } from "./metadata.ts";
 import { alertStatus } from "./policy.ts";
 

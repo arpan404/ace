@@ -9,6 +9,8 @@ export interface DeckDecision {
   /** The deck's title. */
   deck: string;
   gate: Gate;
+  /** The title of the card the gate is about, when it is about one. */
+  card: string | undefined;
 }
 
 /** The deck a thread works for. */
@@ -50,6 +52,7 @@ export function useDeckDecisions(): DeckDecisions {
       workspaceId: view.workspaceId,
       deck: deckTitle(view.goal),
       gate,
+      card: view.dag.find((node) => node.id === gate.workstream)?.title,
     }));
   });
   return { decisions, threads };
