@@ -11,6 +11,9 @@
     "endedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "error": {
+      "$ref": "https://ace.local/protocol/v1/AgentError.json"
+    },
     "executionSource": {
       "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
     },

@@ -27,7 +27,7 @@ export function organizationDecision(
   const p = command.payload;
   switch (p.type) {
     case "thread.rename":
-      return { type: "thread.updated", title: p.title.trim() };
+      return { type: "thread.updated", title: p.title.trim(), titleSource: "person" };
     case "thread.archive":
       return { type: "thread.updated", archivedAt: at };
     case "thread.unarchive":

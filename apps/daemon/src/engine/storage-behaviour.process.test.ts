@@ -174,7 +174,9 @@ test("a rejected incremental snapshot append cannot commit its delta event or ch
     .filter((event) => event.payload.type === "item.delta");
   expect(deltas).toEqual([]);
   expect(
-    Object.values(view(h.store, id).items).find((item) => item.type === "message"),
+    Object.values(view(h.store, id).items).find(
+      (item) => item.type === "message" && item.role === "assistant",
+    ),
   ).toMatchObject({ parts: [{ type: "text", text: "saved" }] });
   expect(
     h.errors.some((error) => error instanceof Error && error.message.includes("append failure")),
@@ -327,7 +329,9 @@ test("a recovered message can append a new text part whose saved base had none",
     );
     await engine.flush();
     expect(
-      Object.values(view(store, id).items).find((item) => item.type === "message"),
+      Object.values(view(store, id).items).find(
+        (item) => item.type === "message" && item.role === "assistant",
+      ),
     ).toMatchObject({ parts: [{ type: "text", text: "restored part" }] });
   } finally {
     await engine.close();

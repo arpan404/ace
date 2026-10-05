@@ -54,15 +54,18 @@ Example:
   "defaultTier": "example",
   "deprecated": true,
   "displayName": "example",
-  "hidden": false,
+  "hidden": true,
   "id": "example",
   "inputModalities": [],
+  "installationId": "example",
   "instance": "example",
+  "instanceId": "example",
   "isDefault": true,
   "isNew": false,
   "legacy": true,
   "nativeModelId": "example",
-  "provider": "acp",
+  "nativeProviderId": "example",
+  "provider": "cursor",
   "raw": {
     "json": "example",
     "truncated": true
@@ -162,7 +165,8 @@ Example:
 ```json
 {
   "instances": [],
-  "models": []
+  "models": [],
+  "nextOffset": 7
 }
 ```
 
@@ -258,6 +262,7 @@ Example:
 
 ```json
 {
+  "acpAgentId": "example",
   "effort": "example",
   "imageInput": true,
   "model": "example",

@@ -222,7 +222,7 @@ export class Sessions {
         onInputMessage: (messageIdentity) => {
           if (generation !== actor.generation || lifetime.signal.aborted)
             throw new Error("Provider input identity arrived after host admission was fenced");
-          this.dependencies.repo.aceInputs.correlate(actor.id, messageIdentity);
+          this.dependencies.repo.inputs.identify(actor.id, messageIdentity);
         },
         onFrame: (frame) => {
           if (state.config.provider === "codex" && frame.dir === "note") {
