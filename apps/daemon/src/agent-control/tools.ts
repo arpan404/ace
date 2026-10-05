@@ -1,3 +1,5 @@
+import { oldestTitleInput } from "../engine/title-input.ts";
+import { provisionalTitle } from "../engine/thread-title.ts";
 import {
   AgentControlOperation,
   type AgentControlResult,
@@ -90,7 +92,11 @@ export function createAgentControlPort(
       if (owned && extensions.thread) {
         const result = await extensions.thread(caller, owned, signal);
         signal.throwIfAborted();
-        if (result.code !== "unsupported") return result;
+        if (result.code !== "unsupported") {
+          if (result.ok && (owned.op === "thread.rename" || owned.op === "thread.regenerate_title"))
+            store.appendEvents(owned.threadId, [{ type: "thread.updated", titleSource: "agent" }]);
+          return result;
+        }
       }
       switch (operation.op) {
         case "delegate_task": {
@@ -199,21 +205,14 @@ export function createAgentControlPort(
         }
         case "thread.rename":
           store.appendEvents(operation.threadId, [
-            { type: "thread.updated", title: operation.title },
+            { type: "thread.updated", title: operation.title, titleSource: "agent" },
           ]);
           return { ok: true };
         case "thread.regenerate_title": {
-          const page = store.readItemPage(operation.threadId, store.headSeq() + 1, 20, 32 * 1024);
-          const message = page.items.find(
-            (item) => item.type === "message" && item.role === "user",
-          );
-          const title =
-            message?.type === "message"
-              ? message.parts.find((part) => part.type === "text")
-              : undefined;
-          if (!title || title.type !== "text") return { ok: false, code: "not_ready" };
+          const oldest = oldestTitleInput(store, operation.threadId);
+          if (!oldest) return { ok: false, code: "not_ready" };
           store.appendEvents(operation.threadId, [
-            { type: "thread.updated", title: title.text.replace(/\s+/g, " ").slice(0, 80) },
+            { type: "thread.updated", title: provisionalTitle(oldest), titleSource: "agent" },
           ]);
           return { ok: true };
         }

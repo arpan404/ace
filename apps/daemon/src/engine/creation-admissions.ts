@@ -1,4 +1,4 @@
-import { ThreadId, type Command } from "@ace/protocol";
+import { ThreadId, Command } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 
 export interface CreationAdmission {
@@ -22,7 +22,7 @@ export class CreationAdmissions {
     if (this.owners.has(id)) return "thread_creation_in_progress";
     if (this.repo.store.getThread(id)) return "thread_exists";
     if (!this.repo.reserve(id)) return "engine_capacity_exceeded";
-    const normalized = { ...command, payload: { ...p, threadId: id } };
+    const normalized = Command.parse({ ...command, payload: { ...p, threadId: id } });
     const owner = {};
     this.owners.set(id, { owner, command: JSON.stringify(normalized) });
     return {
