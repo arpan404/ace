@@ -1,17 +1,31 @@
-import { MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { cn } from "@/lib/cn.ts";
-import { useDeferredValue, useState } from "react";
+import { ClockCounterClockwiseIcon, MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
+import { useClient } from "@ace/client-react";
+import { formatAge, resultCountLabel } from "@ace/ui-core";
+import { useNavigate, useRouter } from "@tanstack/react-router";
+import { useEffect, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { SearchField } from "@/components/search-field.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
-import { formatAge } from "@ace/ui-core";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
 import { Screen } from "@/features/shell/index.ts";
-import { useNow } from "@/lib/time.ts";
-import { useSearch, type SearchHit, type SearchKind } from "./search-source.ts";
+import { cn } from "@/lib/cn.ts";
+import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
+import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
 import { useProjectName } from "@/lib/projects.ts";
+import { useNow } from "@/lib/time.ts";
+import { useRecentSearches } from "./search-recent.ts";
+import {
+  hitSeq,
+  SearchError,
+  useSearch,
+  type SearchHit,
+  type SearchKind,
+} from "./search-source.ts";
 
 export type KindFilter = "all" | SearchKind;
 const filters = [
@@ -28,6 +42,9 @@ const kindLabel: Record<SearchKind, string> = {
   tool_call: "Command",
   artifact: "File",
 };
+
+/** One key per hit: the item (or the thread, for a title) and what kind of hit it is. */
+const hitKey = (hit: SearchHit) => `${hit.itemId ?? hit.threadId}\u0000${hit.kind}`;
 
 /** Plain text with highlighted ranges (half-open UTF-16 offsets) as <mark>. */
 function Snippet(props: { snippet: SearchHit["snippet"] }) {
@@ -64,8 +81,9 @@ function Snippet(props: { snippet: SearchHit["snippet"] }) {
 }
 
 /**
- * Search every thread. The query and filter live in the URL; ↑ and ↓ move through results
- * and Enter opens the thread.
+ * Search every thread. The query and filter live in the URL; typing settles for 180ms before
+ * a search goes out. ↑ and ↓ move through results, Enter opens the thread at the hit (⌘↵ in a
+ * new tab), and Esc clears the field, then leaves it.
  */
 export function SearchPage(props: {
   query: string;
@@ -73,89 +91,122 @@ export function SearchPage(props: {
   onChange(next: { q?: string | undefined; kind?: KindFilter }): void;
 }) {
   const [text, setText] = useState(props.query);
-  const deferred = useDeferredValue(text);
+  const settled = useDebouncedValue(text, searchSettleMs);
+  // Clearing the field clears the results at once; only typing waits to settle.
+  const query = text.trim() ? settled.trim() : "";
   const [active, setActive] = useState(0);
   const navigate = useNavigate();
+  const router = useRouter();
+  const client = useClient();
   const now = useNow();
   const projectName = useProjectName();
-  const results = useSearch(deferred, props.kind === "all" ? undefined : props.kind);
-  const hits = deferred.trim() ? (results.data ?? []) : [];
-  const open = (hit: SearchHit | undefined) =>
-    hit && void navigate({ to: "/t/$threadId", params: { threadId: hit.threadId } });
+  const recent = useRecentSearches();
+  const results = useSearch(query, props.kind === "all" ? undefined : props.kind);
+  const hits = query ? (results.hits ?? []) : [];
+
+  // The active result stays in view as the arrows move it.
+  useEffect(() => {
+    document.getElementById(`search-hit-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [active]);
+
+  const change = (next: string) => {
+    setText(next);
+    setActive(0);
+    props.onChange({ q: next || undefined });
+  };
+  /** Into the thread at the hit: its sequence when the thread can say, and the words. */
+  const open = async (hit: SearchHit | undefined, newTab = false) => {
+    if (!hit) return;
+    recent.remember(query);
+    const seq = await hitSeq(client, hit, query);
+    const target = {
+      to: "/t/$threadId" as const,
+      params: { threadId: hit.threadId },
+      search: { ...(seq === undefined ? {} : { seq }), ...(query ? { q: query } : {}) },
+    };
+    if (newTab) globalThis.open?.(router.buildLocation(target).href, "_blank", "noopener");
+    else void navigate(target);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActive((index) => Math.min(index + 1, Math.max(hits.length - 1, 0)));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActive((index) => Math.max(index - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      void open(hits[active], event.metaKey || event.ctrlKey);
+    }
+  };
+  const onHitClick = (event: MouseEvent, hit: SearchHit) =>
+    void open(hit, event.metaKey || event.ctrlKey || event.button === 1);
+
   return (
     <Screen title="Search">
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-(--column) px-8 pt-11 pb-20">
-          <label className="flex h-11 items-center gap-2.5 rounded-lg bg-secondary px-3.5 text-base focus-within:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]">
-            <Icon icon={MagnifyingGlassIcon} className="text-subtle-foreground" />
-            <input
-              type="search"
-              role="combobox"
-              aria-label="Search every thread"
-              aria-controls="search-results"
-              aria-expanded={hits.length > 0}
-              aria-activedescendant={hits[active] ? `search-hit-${active}` : undefined}
-              placeholder="Search messages, commands and files"
-              autoFocus
-              value={text}
-              onChange={(event) => {
-                setText(event.target.value);
-                setActive(0);
-                props.onChange({ q: event.target.value || undefined });
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  setActive((index) => Math.min(index + 1, Math.max(hits.length - 1, 0)));
-                } else if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  setActive((index) => Math.max(index - 1, 0));
-                } else if (event.key === "Enter") {
-                  event.preventDefault();
-                  open(hits[active]);
-                }
-              }}
-              className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-subtle-foreground [&::-webkit-search-cancel-button]:appearance-none"
-            />
-            {text && (
-              <IconButton
-                icon={XIcon}
-                label="Clear search"
-                size="sm"
-                className="fx-view-in"
-                onClick={() => {
-                  setText("");
-                  setActive(0);
-                  props.onChange({ q: undefined });
-                }}
-              />
-            )}
-          </label>
-          <SegmentedControl
-            label="Kind"
-            size="sm"
-            value={props.kind}
-            options={filters}
-            onValueChange={(kind) => {
-              setActive(0);
-              props.onChange({ kind });
-            }}
-            className="mt-3"
+        <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
+          <SearchField
+            size="lg"
+            label="Search every thread"
+            role="combobox"
+            aria-controls="search-results"
+            aria-expanded={hits.length > 0}
+            aria-activedescendant={hits[active] ? `search-hit-${active}` : undefined}
+            placeholder="Search messages, commands and files"
+            autoFocus
+            value={text}
+            onValueChange={change}
+            onKeyDown={onKeyDown}
+            trailing={results.updating && query ? <Spinner label="Updating results" /> : null}
           />
-          {!deferred.trim() ? (
-            <EmptyState
-              icon={MagnifyingGlassIcon}
-              title="Search every thread"
-              description="Find a message, command or file across all projects and machines."
-              className="h-auto pt-16"
+          <div className="mt-3 flex items-center gap-3">
+            <SegmentedControl
+              label="Kind"
+              size="sm"
+              value={props.kind}
+              options={filters}
+              onValueChange={(kind) => {
+                setActive(0);
+                props.onChange({ kind });
+              }}
             />
+            {query && hits.length > 0 && !results.isError && (
+              <span role="status" className="ml-auto text-sm text-muted-foreground tabular-nums">
+                {resultCountLabel(hits.length, results.hasMore, false)}
+              </span>
+            )}
+          </div>
+          {!query ? (
+            recent.recent.length ? (
+              <RecentSearches recent={recent.recent} onPick={change} onForget={recent.forget} />
+            ) : (
+              <EmptyState
+                icon={MagnifyingGlassIcon}
+                title="Search every thread"
+                description="Find a message, command or file across all projects and machines."
+                className="h-auto pt-16"
+              />
+            )
           ) : results.isError ? (
             <EmptyState
+              icon={MagnifyingGlassIcon}
               title="Search unavailable"
-              description={results.error.message}
+              description={
+                results.error instanceof SearchError
+                  ? results.error.message
+                  : describeDaemonError(daemonErrorCode(results.error))
+              }
+              action={
+                <Button size="sm" onClick={() => void results.refetch()}>
+                  Try again
+                </Button>
+              }
               className="h-auto pt-16"
             />
-          ) : !results.data ? null : !hits.length ? (
+          ) : !results.hits ? (
+            <ListSkeleton label="results" shape="row" rows={4} className="mt-5" />
+          ) : !hits.length ? (
             <EmptyState
               icon={MagnifyingGlassIcon}
               title="No results"
@@ -163,39 +214,92 @@ export function SearchPage(props: {
               className="h-auto pt-16"
             />
           ) : (
-            <ul id="search-results" role="listbox" aria-label="Results" className="mt-5">
-              {hits.map((hit, index) => (
-                <li
-                  key={`${hit.threadId}-${hit.kind}-${hit.createdAt}`}
-                  id={`search-hit-${index}`}
-                  role="option"
-                  aria-selected={index === active}
-                  className={cn(
-                    "rounded-md transition-colors duration-(--dur-1)",
-                    index === active && "bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)]",
-                  )}
-                >
-                  <Link
-                    to="/t/$threadId"
-                    params={{ threadId: hit.threadId }}
-                    tabIndex={-1}
+            <>
+              <ul
+                id="search-results"
+                role="listbox"
+                aria-label="Results"
+                className={cn(
+                  "mt-4 transition-opacity duration-(--dur-1)",
+                  results.updating && "opacity-60",
+                )}
+              >
+                {hits.map((hit, index) => (
+                  <li
+                    key={hitKey(hit)}
+                    id={`search-hit-${index}`}
+                    role="option"
+                    aria-selected={index === active}
                     onMouseEnter={() => setActive(index)}
-                    className="block px-3 py-2.5"
+                    onClick={(event) => onHitClick(event, hit)}
+                    onAuxClick={(event) => event.button === 1 && onHitClick(event, hit)}
+                    className={cn(
+                      "cursor-pointer scroll-my-2 rounded-md px-3 py-2.5 transition-colors duration-(--dur-1)",
+                      index === active &&
+                        "bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)]",
+                    )}
                   >
-                    <span className="flex items-center gap-2 text-xs text-subtle-foreground">
+                    <span className="flex items-center gap-2 text-xs text-muted-foreground">
                       <ProviderIconTip provider={hit.provider} />
                       {projectName(hit.workspaceId)} · {kindLabel[hit.kind]}
                       <span className="ml-auto tabular-nums">{formatAge(hit.createdAt, now)}</span>
                     </span>
                     <span className="mt-0.5 block text-base font-medium">{hit.threadTitle}</span>
                     <Snippet snippet={hit.snippet} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+              {results.hasMore && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2"
+                  disabled={results.loadingMore}
+                  onClick={results.loadMore}
+                >
+                  {results.loadingMore ? "Loading…" : "Show more results"}
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>
     </Screen>
+  );
+}
+
+function RecentSearches(props: {
+  recent: readonly string[];
+  onPick(query: string): void;
+  onForget(query: string): void;
+}) {
+  return (
+    <section aria-labelledby="search-recent" className="mt-6">
+      <h2 id="search-recent" className="px-3 pb-1.5 text-sm font-medium text-muted-foreground">
+        Recent
+      </h2>
+      <ul className="flex flex-col gap-px">
+        {props.recent.map((query) => (
+          <li key={query} className="group flex items-center gap-1 rounded-md hover:bg-accent">
+            <button
+              type="button"
+              onClick={() => props.onPick(query)}
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-3 py-2 text-left text-ui focus-ring-inset"
+            >
+              <Icon icon={ClockCounterClockwiseIcon} className="text-muted-foreground" />
+              <span className="truncate">{query}</span>
+            </button>
+            <IconButton
+              icon={XIcon}
+              size="sm"
+              label={`Forget "${query}"`}
+              tooltip={false}
+              className="mr-1.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+              onClick={() => props.onForget(query)}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

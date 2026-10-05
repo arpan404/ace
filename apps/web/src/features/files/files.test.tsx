@@ -61,39 +61,54 @@ test("the project picker and the path filter narrow the list", async () => {
   await waitFor(() => expect(within(refunds).getAllByRole("listitem")).toHaveLength(1));
 });
 
-test("a file the agent created downloads as it wrote it; an edited or deleted one cannot", async () => {
+test("any file that still exists downloads; a deleted one says why it can't", async () => {
   await openFiles();
   const refunds = await region("Partial refunds double-count tax");
   await userEvent.click(
     within(refunds).getByRole("button", { name: "Download src/refunds/tax.test.ts" }),
   );
   expect(await screen.findByText("Downloaded tax.test.ts")).toBeTruthy();
-  expect(
-    (
-      within(refunds).getByRole("button", {
-        name: "Download src/refunds/tax.ts",
-      }) as HTMLButtonElement
-    ).disabled,
-  ).toBe(true);
-  expect(
-    (screen.getByRole("button", { name: "Download docs/legacy-install.md" }) as HTMLButtonElement)
-      .disabled,
-  ).toBe(true);
+
+  const edited = within(refunds).getByRole("button", { name: "Download src/refunds/tax.ts" });
+  expect((edited as HTMLButtonElement).disabled).toBe(false);
+
+  const deleted = screen.getByRole("button", { name: "Download docs/legacy-install.md" });
+  expect((deleted as HTMLButtonElement).disabled).toBe(true);
+  await userEvent.hover(deleted.parentElement ?? deleted);
+  expect(await screen.findByText("Deleted in this thread")).toBeTruthy();
 });
 
-test("uploading a file adds it to the chosen project's files", async () => {
+test("each file opens its thread, and More › Files offers no upload the daemon can't take", async () => {
   await openFiles();
-  await region("Retry budget for app-server restarts");
+  const refunds = await region("Partial refunds double-count tax");
+  expect(screen.queryByRole("button", { name: /^Upload/ })).toBeNull();
+  await userEvent.click(within(refunds).getByRole("link", { name: "src/refunds/tax.ts" }));
+  expect(
+    await screen.findByRole("heading", { level: 1, name: /Partial refunds double-count tax/ }),
+  ).toBeTruthy();
+});
 
-  await userEvent.click(screen.getByRole("button", { name: "Upload" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Upload to relay" }));
-  await userEvent.upload(
-    screen.getByLabelText("File to upload"),
-    new File(["line one\nline two\n"], "notes.md", { type: "text/markdown" }),
-  );
+test("a filter that matches nothing says so and can be cleared", async () => {
+  await openFiles();
+  await region("Dedupe thread events after reconnect");
+  await userEvent.type(screen.getByRole("searchbox", { name: "Filter files" }), "zzz");
+  expect(await screen.findByText('No files match "zzz".')).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+  expect(await region("Dedupe thread events after reconnect")).toBeTruthy();
+});
 
-  expect(await screen.findByText("Uploaded uploads/notes.md to relay")).toBeTruthy();
-  const uploads = await region("Uploaded by you");
-  expect(within(uploads).getByText("uploads/notes.md")).toBeTruthy();
-  expect(within(uploads).getByText("relay")).toBeTruthy();
+test("when the daemon can't read the files, the page says so in words and tries again", async () => {
+  const app = harness();
+  for (const thread of devWorld().slice(0, 3)) {
+    const player = new ScenarioPlayer(app.daemon, thread.scenario, { agoMs: thread.agoMs });
+    if (thread.through) player.runThrough(thread.through);
+    else player.runUntilBlocked();
+  }
+  app.daemon.failRequests("items.page");
+  await app.open("/more/files");
+  expect(await screen.findByText("Files unavailable", {}, { timeout: 4000 })).toBeTruthy();
+  expect(screen.queryByText("unavailable")).toBeNull();
+  app.daemon.restoreRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(screen.queryByText("Files unavailable")).toBeNull());
 });
