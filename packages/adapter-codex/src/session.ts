@@ -420,6 +420,7 @@ export async function openCodexSession(
       emit,
       getModel: () => model,
       userMessageId: io.userMessageId,
+      onInputMessage: ctx.onInputMessage,
       refreshQueue,
     }),
   };

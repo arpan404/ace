@@ -63,7 +63,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
           throw new Error(
             "Use thread.handoff for worktrees; automation prompts must fit the delegation budget",
           );
-        const child = delegations.delegate(caller, {
+        const request = {
           requestId: input.idempotencyKey,
           task: input.prompt,
           role: `automation: ${input.automationId}`,
@@ -71,7 +71,10 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
           ...(input.model ? { model: input.model } : {}),
           wait: false,
           estimatedLoad: 0,
-        });
+        };
+        const model = await delegations.prepareModels(caller, request);
+        signal.throwIfAborted();
+        const child = delegations.delegate(caller, request, model);
         const result = await delegations.wait(caller, child.childId, signal);
         return {
           threadId: child.childId,

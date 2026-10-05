@@ -127,6 +127,7 @@ export async function executeIntent(
           ? "steer"
           : "queue",
         intent.command.id,
+        repo.aceInputs.get(actor.id, intent.command.id) ? "ace" : undefined,
       );
       await repo.store.writable();
       transitions.delivered(actor.id);

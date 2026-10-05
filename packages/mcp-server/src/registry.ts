@@ -1,3 +1,4 @@
+import { describeAceAction } from "./actions.ts";
 import { z } from "zod";
 import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
 import type { McpAttribution, McpCapability } from "@ace/protocol";
@@ -11,6 +12,7 @@ export interface ToolContext {
 }
 export interface ToolDefinition<I extends z.ZodObject, O extends z.ZodObject> {
   name: string;
+  riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"];
   description: string;
   input: I;
   output: O;
@@ -31,6 +33,7 @@ export const nodeScheduler: Scheduler = {
 function noop(): void {}
 interface Entry {
   descriptor: Tool;
+  action(input: unknown): import("@ace/protocol").ApprovalTarget | undefined;
   capability: McpCapability | null;
   timeoutMs: number;
   execute(input: unknown, context: ToolContext): Promise<CallToolResult>;
@@ -53,11 +56,25 @@ export class ToolRegistry {
   }
   register<I extends z.ZodObject, O extends z.ZodObject>(definition: ToolDefinition<I, O>): void {
     const { name, description, input, output, capability, timeoutMs } = definition;
-    const descriptor = this.descriptor(name, description, input, capability, timeoutMs, output);
+    const descriptor = this.descriptor(
+      name,
+      description,
+      input,
+      capability,
+      timeoutMs,
+      output,
+      definition.riskClass,
+    );
     this.entries.set(name, {
       descriptor,
       capability,
       timeoutMs,
+      action(value) {
+        const parsed = input.safeParse(value);
+        return parsed.success
+          ? describeAceAction(name, description, definition.riskClass, parsed.data)
+          : undefined;
+      },
       async execute(value, context) {
         if (!withinJsonBudget(value, 64 * 1024)) throw new Error("Input budget exceeded");
         const args = input.parse(value);
@@ -73,11 +90,25 @@ export class ToolRegistry {
   }
   registerContent<I extends z.ZodType>(definition: ContentToolDefinition<I>): void {
     const { name, description, input, capability, timeoutMs } = definition;
-    const descriptor = this.descriptor(name, description, input, capability, timeoutMs);
+    const descriptor = this.descriptor(
+      name,
+      description,
+      input,
+      capability,
+      timeoutMs,
+      undefined,
+      definition.riskClass,
+    );
     this.entries.set(name, {
       descriptor,
       capability,
       timeoutMs,
+      action(value) {
+        const parsed = input.safeParse(value);
+        return parsed.success
+          ? describeAceAction(name, description, definition.riskClass, parsed.data)
+          : undefined;
+      },
       execute: (value, context) => executeContent(definition, value, context),
     });
   }
@@ -88,6 +119,7 @@ export class ToolRegistry {
     capability: McpCapability | null,
     timeoutMs: number,
     output?: z.ZodObject,
+    riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"],
   ): Tool {
     if (
       (name !== "delegate_task" &&
@@ -103,6 +135,16 @@ export class ToolRegistry {
     const parsed = specTypeSchemas.Tool["~standard"].validate({
       name,
       description,
+      ...(riskClass
+        ? {
+            annotations: {
+              readOnlyHint: riskClass === "read-only",
+              destructiveHint: riskClass === "external-effect",
+              openWorldHint: riskClass === "external-effect",
+            },
+          }
+        : {}),
+      _meta: { "ace/timeoutMs": timeoutMs, "ace/riskClass": riskClass ?? "external-effect" },
       inputSchema: { ...z.toJSONSchema(input, { io: "input" }), type: "object" },
       ...(output
         ? { outputSchema: { ...z.toJSONSchema(output, { io: "output" }), type: "object" } }
@@ -110,6 +152,10 @@ export class ToolRegistry {
     });
     if (parsed.issues) throw new Error("Invalid tool descriptor");
     return parsed.value;
+  }
+  action(name: string, input: unknown) {
+    const tool = name.startsWith("mcp__ace__") ? name.slice("mcp__ace__".length) : name;
+    return this.entries.get(tool)?.action(input);
   }
   list(principal: Principal): Tool[] {
     if (principal.signal.aborted) return [];

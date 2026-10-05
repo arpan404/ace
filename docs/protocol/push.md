@@ -29,7 +29,7 @@ Example:
   "id": "example",
   "payload": {
     "agent": {
-      "createdAt": 7,
+      "createdAt": 8,
       "cwd": "example",
       "fidelity": "full",
       "id": "example",
@@ -91,10 +91,10 @@ Example:
 {
   "after": null,
   "before": null,
-  "indexedSeq": 8,
-  "ready": true,
+  "indexedSeq": 0,
+  "ready": false,
   "requestId": "example",
-  "seq": 5,
+  "seq": 8,
   "threadId": "example",
   "turns": [],
   "type": "turns.page"
@@ -121,11 +121,11 @@ Example:
 {
   "itemSeqs": {},
   "items": [],
-  "itemsAfter": 8,
-  "itemsBefore": null,
+  "itemsAfter": null,
+  "itemsBefore": 8,
   "requestId": "example",
-  "seq": 5,
-  "targetSeq": 4,
+  "seq": 4,
+  "targetSeq": 6,
   "threadId": "example",
   "type": "items.window"
 }
@@ -150,10 +150,10 @@ Example:
 ```json
 {
   "cursor": null,
-  "headSeq": 9,
+  "headSeq": 5,
   "hits": [],
-  "indexedSeq": 5,
-  "pending": 5,
+  "indexedSeq": 9,
+  "pending": 8,
   "ready": false,
   "requestId": "example",
   "threadId": "example",
@@ -197,17 +197,16 @@ Example:
     "toolCounts": {},
     "truncated": true
   },
-  "indexedSeq": 0,
+  "indexedSeq": 8,
   "latestAgentMessagePreview": "example",
-  "ready": false,
+  "ready": true,
   "requestId": "example",
-  "seq": 7,
+  "seq": 0,
   "status": {
-    "interactions": 8,
-    "state": "needs_you"
+    "state": "unresponsive"
   },
   "threadId": "example",
-  "turnsCompleted": 4,
+  "turnsCompleted": 0,
   "type": "thread.catchUp"
 }
 ```

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DeviceOperation, AppDeviceId } from "@ace/protocol/devices";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "@ace/protocol";
 import type { Toolkit } from "@ace/mcp-server";
+import type { ApprovalTarget } from "@ace/protocol";
 import { DevicesService, agentOwner, deviceFailure } from "./service.ts";
 
 const target = z.strictObject({ deviceId: AppDeviceId });
@@ -46,10 +47,83 @@ const operations: Record<string, string> = {
   device_record_stop: "record.stop",
   device_install: "install",
 };
+const actions = new Map(
+  Object.entries({
+    device_list: {
+      riskClass: "read-only",
+      description: "List available in-app devices and their current status.",
+    },
+    device_boot: {
+      riskClass: "external-effect",
+      description: "Boot the selected emulator or simulator.",
+    },
+    device_open_app: {
+      riskClass: "external-effect",
+      description: "Launch the selected app on the approved device.",
+    },
+    device_open_url: {
+      riskClass: "external-effect",
+      description: "Open a URL on the approved device.",
+    },
+    device_screenshot: {
+      riskClass: "read-only",
+      description: "Read a screenshot of the approved device.",
+    },
+    device_ui_tree: {
+      riskClass: "read-only",
+      description: "Read the approved device's bounded accessibility tree and semantic refs.",
+    },
+    device_find: {
+      riskClass: "read-only",
+      description: "Find accessible elements on the approved device without changing them.",
+    },
+    device_act: {
+      riskClass: "external-effect",
+      description: "Perform an accessibility action on the approved device element.",
+    },
+    device_tap: {
+      riskClass: "external-effect",
+      description: "Tap or long-press the selected point on the approved device.",
+    },
+    device_swipe: {
+      riskClass: "external-effect",
+      description: "Swipe between selected points on the approved device.",
+    },
+    device_type: {
+      riskClass: "external-effect",
+      description: "Type text into the approved device's focused control.",
+    },
+    device_key: {
+      riskClass: "external-effect",
+      description: "Send a navigation, rotation or power key to the approved device.",
+    },
+    device_logs: {
+      riskClass: "read-only",
+      description: "Read a bounded tail of the approved device's logs.",
+    },
+    device_record_start: {
+      riskClass: "external-effect",
+      description: "Start recording the approved device's screen.",
+    },
+    device_record_stop: {
+      riskClass: "external-effect",
+      description: "Stop the device recording and publish its artifact.",
+    },
+    device_install: {
+      riskClass: "external-effect",
+      description: "Install the selected application package on the approved device.",
+    },
+  } satisfies Record<
+    keyof typeof schemas,
+    { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
+  >),
+);
 export function devicesToolkit(service: DevicesService): Toolkit {
   return {
     register(registry) {
-      for (const [name, input] of Object.entries(schemas))
+      for (const [name, input] of Object.entries(schemas)) {
+        const action = actions.get(name);
+        if (!action) throw new Error("Device action metadata missing");
         registry.registerContent({
           name,
           input,
@@ -62,7 +136,8 @@ export function devicesToolkit(service: DevicesService): Toolkit {
                 : name === "device_install"
                   ? 120000
                   : 30000,
-          description: `Use the approved in-app device: ${name.slice(7).replaceAll("_", " ")}. UI tree and find return bounded semantic refs; actions require a human-delegated lease.`,
+          description: action.description,
+          riskClass: action.riskClass,
           async run(args, { caller, signal }) {
             const owner = agentOwner(caller.threadId, caller.agentId);
             const actor = {
@@ -123,6 +198,7 @@ export function devicesToolkit(service: DevicesService): Toolkit {
             }
           },
         });
+      }
     },
   };
 }
