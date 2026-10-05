@@ -24,6 +24,78 @@
         },
         {
           "properties": {
+            "limit": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "op": {
+              "const": "fs.search",
+              "type": "string"
+            },
+            "query": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "showHidden": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "op",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "limit": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "op": {
+              "const": "fs.complete",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "showHidden": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "op",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "workspace.clone.validate",
+              "type": "string"
+            },
+            "url": {
+              "maxLength": 4096,
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "op": {
               "const": "fs.home",
               "type": "string"

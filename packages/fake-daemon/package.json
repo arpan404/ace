@@ -16,6 +16,7 @@
     "@ace/client": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/models": "workspace:*",
+    "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/search": "workspace:*",

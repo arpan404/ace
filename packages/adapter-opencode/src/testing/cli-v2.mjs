@@ -7,8 +7,11 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 if (args[0] === "auth") {
-  // Credential-free `auth list` shape; tests opt in to connected upstreams.
-  console.log(process.env.ACE_TEST_OPENCODE_CONNECTIONS ?? "[]");
+  // Credential-free `auth list` shape. The served models' upstream is connected by default.
+  console.log(
+    process.env.ACE_TEST_OPENCODE_CONNECTIONS ??
+      JSON.stringify([{ id: "opencode-go", connections: [{ type: "credential" }] }]),
+  );
   process.exit(0);
 }
 if (args[0] === "models") {

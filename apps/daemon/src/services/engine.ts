@@ -155,7 +155,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
             registry,
           );
           await registerCursorSdkHome();
-          registry.bindSessions(bindProvider);
+          registry.bindSessions(bindProvider, { unboundOnly: true });
           await activateCursorProvider(context, registry);
         })
         .catch((error: unknown) => log.log("warn", "Provider enable discovery failed", error));
