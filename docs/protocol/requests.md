@@ -1203,7 +1203,11 @@ Example:
 {
   "operation": {
     "deviceId": "android:Uncj8xqu7gKmZnVp8.asjZo",
-    "op": "screenshot"
+    "input": {
+      "key": "rotate",
+      "kind": "key"
+    },
+    "op": "input"
   },
   "requestId": "7P-_lpiOfZTRDDy-39_kO4Em1BsXDo038RNvr-2U5",
   "type": "devices.request"
@@ -1223,6 +1227,7 @@ Example:
 ```json
 {
   "options": {
+    "profile": "persistent",
     "threadId": "example",
     "workspaceId": "example"
   },
@@ -1321,9 +1326,9 @@ Example:
 ```json
 {
   "command": {
-    "action": "scroll",
-    "x": 1,
-    "y": 4
+    "action": "emulate",
+    "height": 102,
+    "width": 104
   },
   "requestId": "example",
   "threadId": "example",
@@ -1345,6 +1350,7 @@ Example:
 ```json
 {
   "requestId": "example",
+  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.subscribe"
 }
@@ -1383,7 +1389,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sequence": 2,
+  "sequence": 7,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -1439,11 +1445,11 @@ Example:
 ```json
 {
   "input": {
-    "deltaX": 6,
-    "deltaY": 1,
+    "deltaX": 5,
+    "deltaY": 2,
     "kind": "scroll",
-    "x": 9,
-    "y": 8
+    "x": 3,
+    "y": 9
   },
   "requestId": "example",
   "threadId": "example",
@@ -1536,7 +1542,9 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "instance": "example",
-    "role": "example"
+    "preferenceOrder": [],
+    "role": "example",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -1554,7 +1562,7 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 8,
+  "inputAgeMs": 7,
   "threadId": "example",
   "type": "presence.update"
 }
@@ -1591,13 +1599,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "quietHours": {
-      "endMinute": 8,
-      "startMinute": 6,
-      "timeZone": "UTC"
-    }
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -1616,7 +1618,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 7
+  "until": 3
 }
 ```
 
@@ -1640,7 +1642,7 @@ Example:
   "channel": "files",
   "deviceId": "example",
   "protocolVersion": 1,
-  "ticket": "example",
+  "token": "example",
   "type": "hello"
 }
 ```
@@ -1659,8 +1661,10 @@ Example:
 
 ```json
 {
+  "paced": false,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -1698,14 +1702,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "from": {
-        "kind": "working-tree"
-      },
-      "sessionId": "example",
-      "to": {
-        "kind": "working-tree"
-      },
-      "type": "review.refresh"
+      "commentId": "example",
+      "cursor": "example",
+      "type": "review.list"
     }
   },
   "type": "command"
@@ -1726,8 +1725,8 @@ Example:
 
 ```json
 {
-  "limit": 7,
-  "offset": 0,
+  "limit": 10,
+  "offset": 6,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -1748,8 +1747,8 @@ Example:
 
 ```json
 {
-  "before": 8,
-  "limit": 3,
+  "before": 1,
+  "limit": 7,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -1771,9 +1770,9 @@ Example:
 
 ```json
 {
-  "before": 10,
-  "collection": "interactions",
-  "limit": 9,
+  "before": 1,
+  "collection": "agents",
+  "limit": 8,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
