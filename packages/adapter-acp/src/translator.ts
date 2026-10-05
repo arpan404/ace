@@ -30,12 +30,18 @@ class AcpTranslator implements Translator {
   constructor(state: TranslationState) {
     this.state = state;
   }
+  takeDiagnostics() {
+    const pending = this.state.diagnostics;
+    this.state.diagnostics = [];
+    return pending;
+  }
   tick(now: number): Fact[] {
     return this.state.processDead ? [] : expireChildren(this.state, now);
   }
   translate(frame: Frame, now: number): Fact[] {
     const facts: Fact[] = [];
     const s = this.state;
+    s.diagnostics = [];
     s.ensureRoot(facts);
     const data = object(frame.data);
     if (frame.dir === "note") {
@@ -199,7 +205,7 @@ class AcpTranslator implements Translator {
           complete: true,
         },
       });
-      s.notice(facts, frame, "session/update", "Session metadata", agent);
+      s.notice(facts, frame, "session/update", undefined, agent);
       return true;
     }
     if (childUpdate(s, agent, update, frame, facts)) return true;
@@ -272,7 +278,7 @@ class AcpTranslator implements Translator {
         !definitionChanged &&
         priorStatus === tool.status
       ) {
-        s.notice(facts, frame, "session/update", "Tool metadata", agent);
+        s.notice(facts, frame, "session/update", undefined, agent);
         if (toolDetail(tool.data, s.quirks).kind === "shell")
           appendShellOutput(s, tool, update, facts);
         return true;

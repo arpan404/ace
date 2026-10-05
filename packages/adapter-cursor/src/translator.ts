@@ -238,7 +238,7 @@ export class CursorTranslator implements Translator {
             return [{ type: "signal", agent: this.root }];
           if (body.type === "task")
             return [this.notice("SDK task summary has no independent child identity", event)];
-          return [this.notice("Unknown SDK stream message retained", event)];
+          return [];
         }
         case "cancel": {
           if (frame.dir === "send") {
@@ -248,13 +248,7 @@ export class CursorTranslator implements Translator {
           return [];
         }
         case "result": {
-          if (!this.active)
-            return [
-              this.notice(
-                "Repeated SDK terminal result retained; the canonical outcome is unchanged",
-                event,
-              ),
-            ];
+          if (!this.active) return [];
           if (!["finished", "cancelled", "error"].includes(string(body.status) ?? ""))
             return [
               ...this.tools.preserve(),
@@ -342,7 +336,7 @@ export class CursorTranslator implements Translator {
         case "close":
           return this.children.preserve();
         default:
-          return [this.notice("Unknown SDK envelope retained", event)];
+          return [];
       }
     } catch {
       if (this.overflow) return [];

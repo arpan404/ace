@@ -19,6 +19,8 @@ test("final messages preserve unknown native data without multiplying raw bytes 
     },
   };
   const facts = translator.translate({ seq: 1, t: 0, dir: "recv", channel: "stdio", data }, 0);
+  const diagnostics = translator.takeDiagnostics?.() ?? [];
+  expect(diagnostics).toEqual([]);
   const encoded = JSON.stringify(facts);
   expect(encoded.length).toBeLessThan(JSON.stringify(data).length * 3);
   expect(encoded).toContain(data.future);

@@ -360,6 +360,7 @@
       "devDependencies": {
         "@ace/fake-daemon": "workspace:*",
         "@ace/projection": "workspace:*",
+        "@playwright/test": "1.63.0",
       },
     },
     "packages/commands": {
@@ -590,6 +591,7 @@
     "packages/provider-kit": {
       "name": "@ace/provider-kit",
       "dependencies": {
+        "@ace/redaction": "workspace:*",
         "zod": "^4.6.5",
       },
     },

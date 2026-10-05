@@ -45,6 +45,7 @@ export interface Services {
   screen?: ScreenManager;
   devices?: DevicesService;
   accounts?: AccountService;
+  accountManagement?: import("../account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
