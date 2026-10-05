@@ -2,8 +2,9 @@ import { cn } from "@/lib/cn.ts";
 
 /**
  * A 6px status dot in its tone's hue (`data-tone`, see index.css): needs you, working, failed,
- * done, idle; a hollow ring when unresponsive, and a hollow amber one when held at a usage limit.
- * Always paired with text for assistive tech (`label`).
+ * done, idle; a hollow ring when unresponsive. Held at a usage limit, a thread waits on its
+ * provider, not on the person, so its dot is a hollow ring in the waiting tone, the same tone as
+ * its Limited pill. Always paired with text for assistive tech (`label`).
  */
 function Dot(props: {
   tone: "needs-you" | "working" | "failed" | "unresponsive" | "limited" | "idle" | "done";
@@ -13,7 +14,7 @@ function Dot(props: {
   return (
     <span
       data-slot="dot"
-      data-tone={props.tone}
+      data-tone={props.tone === "limited" ? "waiting" : props.tone}
       {...(props.label ? { role: "img", "aria-label": props.label } : { "aria-hidden": true })}
       className={cn(
         "inline-block size-1.5 shrink-0 rounded-full",
