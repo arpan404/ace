@@ -98,6 +98,56 @@
         },
         {
           "properties": {
+            "bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "data": {
+              "maxLength": 87384,
+              "type": "string"
+            },
+            "eof": {
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "attachment.data",
+              "type": "string"
+            },
+            "mimeType": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sha256": {
+              "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+            },
+            "variant": {
+              "enum": [
+                "original",
+                "thumbnail"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "sha256",
+            "variant",
+            "mimeType",
+            "offset",
+            "bytes",
+            "data",
+            "eof"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "attachments": {
               "items": {
                 "$ref": "https://ace.local/protocol/v1/Attachment.json"

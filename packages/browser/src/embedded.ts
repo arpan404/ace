@@ -1,3 +1,4 @@
+import { modelScreenshot } from "./model-screenshot.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import {
@@ -417,10 +418,10 @@ export class EmbeddedBackend implements BrowserBackend {
           });
         },
         async screenshot(format) {
+          if (format === "jpeg") return modelScreenshot(cdp);
           const result = z.object({ data: z.string().max(768 * 1024) }).parse(
             await cdp.send("Page.captureScreenshot", {
               format,
-              ...(format === "jpeg" ? { quality: 70 } : {}),
             }),
           );
           return Buffer.from(result.data, "base64");

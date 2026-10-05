@@ -29,17 +29,21 @@ Example:
 
 ```json
 {
-  "concurrency": 4,
-  "enabled": true,
+  "concurrency": 10,
+  "enabled": false,
   "id": "example",
   "jitterMs": 0,
-  "missedRun": "skip",
-  "model": "example",
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "codex",
+  "provider": "opencode",
   "title": "example",
   "trigger": {
-    "kind": "manual"
+    "event": "pr_changed",
+    "kind": "github",
+    "label": "example",
+    "pollIntervalMs": 60007,
+    "pullRequest": 5,
+    "repository": "oQxmfL6ne/bwc6NWEKky"
   },
   "workspace": "example",
   "worktree": false
@@ -77,7 +81,7 @@ Example:
 
 ```json
 {
-  "before": 10,
+  "before": null,
   "runs": []
 }
 ```
@@ -104,21 +108,17 @@ Example:
     "id": "example",
     "jitterMs": 4,
     "missedRun": "skip",
-    "model": "example",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "cursor",
     "title": "example",
     "trigger": {
-      "kind": "schedule",
-      "schedule": {
-        "expression": "example",
-        "kind": "cron",
-        "startAt": 0,
-        "timezone": "example"
-      }
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -192,8 +192,7 @@ Example:
 
 ```json
 {
-  "before": 8,
-  "limit": 2,
+  "limit": 5,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -250,11 +249,11 @@ Example:
   "eventKey": "example",
   "id": "example",
   "result": "example",
-  "startedAt": 7,
-  "status": "failed",
+  "startedAt": 2,
+  "status": "skipped",
   "threadId": "example",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "github"
 }
 ```
 
@@ -312,7 +311,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -336,9 +335,10 @@ Example:
 {
   "event": "ci_failed",
   "kind": "github",
-  "pollIntervalMs": 60004,
-  "pullRequest": 8,
-  "repository": "OfwpHOzE/5f3Y"
+  "label": "example",
+  "pollIntervalMs": 60002,
+  "pullRequest": 9,
+  "repository": "Dy/-rpOyxXiAph"
 }
 ```
 

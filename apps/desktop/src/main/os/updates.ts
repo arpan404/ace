@@ -1,5 +1,6 @@
 import { checkRelease, isNewer, releaseFetch } from "@ace/service";
 import type { UpdateStatus } from "../../shared/contract.ts";
+import { repositoryUrl } from "../links.ts";
 
 /** Replaced at build time with the release authority's Ed25519 public key (ADR 0041). */
 declare const ACE_RELEASE_PUBLIC_KEY: string;
@@ -25,7 +26,7 @@ export async function checkForUpdate(current: string): Promise<UpdateStatus> {
     return {
       state: "available",
       version: release.manifest.version,
-      url: `https://github.com/arpan404/ace/releases/tag/v${release.manifest.version}`,
+      url: `${repositoryUrl}/releases/tag/v${release.manifest.version}`,
     };
   } catch (error) {
     return { state: "error", message: error instanceof Error ? error.message : String(error) };

@@ -1,4 +1,4 @@
-import { readyWorkstreams, selectAccount } from "./scheduler.ts";
+import { heldWorkstreams, readyWorkstreams, selectAccount } from "./scheduler.ts";
 import type { Context } from "./transition.ts";
 import { assign, canSpend, control, gate, launch } from "./transition.ts";
 
@@ -102,8 +102,9 @@ export function advance(ctx: Context): void {
       break;
     }
   }
+  const held = heldWorkstreams(s);
   if (
-    Object.values(s.nodes).every((n) => n.state === "integrated") &&
+    Object.values(s.nodes).every((n) => n.state === "integrated" || held.has(n.id)) &&
     Object.values(s.lanes).every((l) => !l.live) &&
     Object.keys(s.gates).length === 0 &&
     !s.integration

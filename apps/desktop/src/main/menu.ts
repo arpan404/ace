@@ -1,27 +1,6 @@
 import type { MenuItemConstructorOptions } from "electron";
-import type { MenuCommand } from "../shared/channels.ts";
-
-/** A shortcut from the web keymap (`apps/web/src/lib/keymap.ts`) and its Electron accelerator. */
-interface Shortcut {
-  command: MenuCommand;
-  label: string;
-  accelerator: string;
-}
-
-/** Kept in step with the web keymap; the web app owns the behaviour, the menu shows it. */
-export const shortcuts: readonly Shortcut[] = [
-  { command: "new-thread", label: "New Thread", accelerator: "CmdOrCtrl+N" },
-  { command: "new-deck", label: "New Deck", accelerator: "CmdOrCtrl+Shift+N" },
-  { command: "add-project", label: "Add Project…", accelerator: "CmdOrCtrl+Shift+O" },
-  { command: "palette", label: "Command Palette…", accelerator: "CmdOrCtrl+K" },
-  { command: "back", label: "Back", accelerator: "CmdOrCtrl+[" },
-  { command: "forward", label: "Forward", accelerator: "CmdOrCtrl+]" },
-  { command: "toggle-sidebar", label: "Toggle Sidebar", accelerator: "CmdOrCtrl+\\" },
-  { command: "agents", label: "Agents", accelerator: "CmdOrCtrl+J" },
-  { command: "changes", label: "Changes", accelerator: "CmdOrCtrl+Shift+D" },
-  { command: "bottom-panel", label: "Terminal", accelerator: "Ctrl+`" },
-  { command: "settings", label: "Settings…", accelerator: "CmdOrCtrl+," },
-];
+import { helpUrl, issuesUrl } from "./links.ts";
+import { shortcuts } from "./shortcuts.ts";
 
 /**
  * Menu items show the shortcut but do not capture it (`registerAccelerator: false`): the key
@@ -33,19 +12,26 @@ export function applicationMenu(options: {
   appName: string;
   /** Developer tools are for development builds only. */
   developer: boolean;
-  trigger(command: MenuCommand, accelerator: string): void;
+  trigger(accelerator: string): void;
   checkForUpdates(): void;
+  openUrl(url: string): void;
+  showLogs(): void;
 }): MenuItemConstructorOptions[] {
   const mac = options.platform === "darwin";
-  const item = (command: MenuCommand): MenuItemConstructorOptions => {
-    const shortcut = shortcuts.find((entry) => entry.command === command);
-    if (!shortcut) throw new Error(`No shortcut for ${command}`);
+  const item = (keymapId: string): MenuItemConstructorOptions => {
+    const shortcut = shortcuts.find((entry) => entry.keymapId === keymapId);
+    if (!shortcut?.label) throw new Error(`No menu shortcut for ${keymapId}`);
+    const { accelerator } = shortcut;
     return {
       label: shortcut.label,
-      accelerator: shortcut.accelerator,
+      accelerator,
       registerAccelerator: false,
-      click: () => options.trigger(command, shortcut.accelerator),
+      click: () => options.trigger(accelerator),
     };
+  };
+  const checkForUpdates: MenuItemConstructorOptions = {
+    label: "Check for Updates…",
+    click: () => options.checkForUpdates(),
   };
   const appMenu: MenuItemConstructorOptions[] = mac
     ? [
@@ -53,7 +39,7 @@ export function applicationMenu(options: {
           label: options.appName,
           submenu: [
             { role: "about" },
-            { label: "Check for Updates…", click: options.checkForUpdates },
+            checkForUpdates,
             { type: "separator" },
             item("settings"),
             { type: "separator" },
@@ -73,10 +59,10 @@ export function applicationMenu(options: {
     {
       label: "File",
       submenu: [
-        item("new-thread"),
-        item("new-deck"),
+        item("newThread"),
+        item("newDeck"),
         { type: "separator" },
-        item("add-project"),
+        item("addProject"),
         { type: "separator" },
         ...(mac ? [{ role: "close" } as const] : [item("settings"), { role: "quit" } as const]),
       ],
@@ -86,11 +72,15 @@ export function applicationMenu(options: {
       label: "View",
       submenu: [
         item("palette"),
+        item("findInThread"),
         { type: "separator" },
-        item("toggle-sidebar"),
+        item("toggleSidebar"),
+        item("rightPanel"),
+        item("fullView"),
+        { type: "separator" },
         item("agents"),
         item("changes"),
-        item("bottom-panel"),
+        item("terminal"),
         { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },
@@ -104,23 +94,19 @@ export function applicationMenu(options: {
     { role: "windowMenu" },
     {
       role: "help",
-      submenu: mac ? [] : [{ label: "Check for Updates…", click: options.checkForUpdates }],
+      submenu: [
+        { label: `${options.appName} Help`, click: () => options.openUrl(helpUrl) },
+        { label: "Report an Issue…", click: () => options.openUrl(issuesUrl) },
+        { label: "Show Logs", click: () => options.showLogs() },
+        // macOS keeps About and updates in the app menu.
+        ...(mac
+          ? []
+          : [
+              { type: "separator" } as const,
+              checkForUpdates,
+              { role: "about", label: `About ${options.appName}` } as const,
+            ]),
+      ],
     },
   ];
-}
-
-/** `CmdOrCtrl+Shift+D` → the key event Electron's `sendInputEvent` replays. */
-export function acceleratorToKey(
-  accelerator: string,
-  platform: NodeJS.Platform,
-): { keyCode: string; modifiers: ("meta" | "control" | "shift" | "alt")[] } {
-  const parts = accelerator.split("+");
-  const keyCode = parts.pop() ?? "";
-  const modifiers = parts.map((part) => {
-    if (part === "CmdOrCtrl") return platform === "darwin" ? "meta" : "control";
-    if (part === "Ctrl") return "control";
-    if (part === "Shift") return "shift";
-    return "alt";
-  }) satisfies ("meta" | "control" | "shift" | "alt")[];
-  return { keyCode, modifiers };
 }

@@ -1,7 +1,7 @@
 import { CatalogModel, type ProviderKind } from "@ace/protocol";
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
-import { accountView, blockingReset } from "./accounts.ts";
+import { accountView } from "./accounts.ts";
 import {
   choiceLine,
   choiceSelection,
@@ -67,7 +67,6 @@ test("quota windows read in words and the shortest window comes first", () => {
     ["Weekly", 41],
   ]);
   expect(codex.windows.map((w) => w.label)).toEqual(["5-hour", "Weekly"]);
-  expect(blockingReset(codex)).toBe(3);
 });
 
 test("each model is offered on the account that serves it, with that account's usage", () => {
@@ -77,6 +76,7 @@ test("each model is offered on the account that serves it, with that account's u
       account("claude-personal", "claude", { five_hour: { usedPercent: 62, resetsAt: 5 } }),
       account("claude-work", "claude", { five_hour: { usedPercent: 23, resetsAt: 5 } }),
     ],
+    0,
   );
 
   expect(choices.map((c) => [c.model, c.account, c.note, c.used])).toEqual([
@@ -97,6 +97,7 @@ test("a signed-out account offers nothing and an exhausted one can't be the defa
       account("codex-personal", "codex", { five_hour: { usedPercent: 30, resetsAt: 7 } }),
       account("codex-old", "codex", {}, "logged_out"),
     ],
+    0,
   );
 
   expect(choices.map((c) => c.accountId)).toEqual(["codex-team", "codex-personal"]);
@@ -150,6 +151,7 @@ test("a model choice reads as provider, lower-case account tag and model", () =>
   const [choice] = modelChoices(
     [model("claude", "claude-work", "Sonnet 4.5", true)],
     [account("claude-work", "claude", { five_hour: { usedPercent: 10, resetsAt: 5 } })],
+    0,
   );
   if (!choice) throw new Error("expected a choice");
 
@@ -169,6 +171,7 @@ test("a thread's picker shows what it runs on, or the switch waiting for its nex
       account("claude-work", "claude", {}),
       account("codex-team", "codex", {}),
     ],
+    0,
   );
   expect(
     currentModelChoice(choices, { provider: "claude", model: "opus", instanceId: "claude-work" })
@@ -193,6 +196,7 @@ test("a thread on a provider the catalog doesn't list never shows another provid
   const choices = modelChoices(
     [model("codex", "codex-team", "gpt-5", true)],
     [account("codex-team", "codex", {})],
+    0,
   );
 
   expect(currentModelChoice(choices, { provider: "claude" })).toBeUndefined();
@@ -211,6 +215,7 @@ test("a thread's effort can change only where the provider takes it as a session
       }),
     ],
     [account("claude-personal", "claude", {})],
+    0,
   );
   const sessionOptions = { sessionOptions: true, launchOptions: ["effort" as const] };
 
@@ -239,7 +244,7 @@ test("a thread's effort can change only where the provider takes it as a session
 });
 
 test("a model without effort levels says so instead of offering a choice", () => {
-  const [plain] = modelChoices([model("codex", "codex-personal", "gpt-5")], []);
+  const [plain] = modelChoices([model("codex", "codex-personal", "gpt-5")], [], 0);
   expect(
     threadEffortControl({
       choice: plain,

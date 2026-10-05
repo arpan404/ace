@@ -196,7 +196,7 @@ export async function openSession(
           },
         ],
       },
-      env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: "ace/0.0.0" },
+      env: { ...env, ...injection?.env, CLAUDE_AGENT_SDK_CLIENT_APP: "ace/0.0.0" },
       spawnClaudeCodeProcess: (spawn) =>
         spawnSdkProcess(spawn, {
           ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),

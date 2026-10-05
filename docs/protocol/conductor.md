@@ -13,7 +13,7 @@ See [ADR 0017](../adr/0017-conductor.md). Conductor commands use the authenticat
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | gateId | yes | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
-| decision | yes | ["approve","reject"] |  |
+| decision | yes | ["approve","reject"] | {"x-ace-constraint":"Reject answers the gate, never bypasses it. plan: the plan is dropped and the planner drafts another. merge, escalation and destructive gates on a card: that card is declined (its lanes stop, it never merges, its dependants never start) and the rest of the run continues. budget, deadline and any gate not about a card: the run is cancelled. A budget approval needs a larger budget; a deadline approval needs a future deadline."} |
 | plan | no | [ConductorPlan.json](schema/ConductorPlan.json) |  |
 | budget | no | number | {"minimum":0} |
 | deadline | no | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -22,9 +22,9 @@ Example:
 
 ```json
 {
-  "deadline": 6,
+  "deadline": 4,
   "decision": "reject",
-  "gateId": "ODmPZUi-mZ"
+  "gateId": "2WA2stNFgXlLA7daRG87NsZdWbs0XsXf5p6cdXwnYpS4PlQnlGKdv8n.5.XiBHAk22Y.GMBpqnZZyTQVXNSre90_UlNl"
 }
 ```
 
@@ -71,41 +71,23 @@ Example:
 ```json
 {
   "run": {
-    "budget": 7,
+    "baseBranch": "example",
+    "budget": 3,
     "dag": [],
+    "delegations": [],
     "goal": "example",
-    "id": "cI5Dr18sVQ4r7mS_bkLJ3eXm7aWzAa7w2K39fmLY94NKEUWlVEUh2Anir2_uWu_1DsWkoPrP6GMybty.WRy8BeAdp",
+    "id": "AYZAX4QLR4EOvuU",
     "lanes": [],
     "needsUser": [],
-    "phase": "planning",
-    "plan": {
-      "summary": "Example plan",
-      "workstreams": [
-        {
-          "brief": {
-            "acceptance": [
-              "Example acceptance"
-            ],
-            "files": [],
-            "instructions": "Example instructions",
-            "objective": "Example objective",
-            "packages": [],
-            "risks": []
-          },
-          "dependencies": [],
-          "id": "lane",
-          "priority": 0,
-          "title": "Example workstream"
-        }
-      ]
-    },
-    "planApproved": true,
-    "spent": 6,
-    "startedAt": 2,
+    "phase": "cancelled",
+    "plan": null,
+    "planApproved": false,
+    "spent": 9,
+    "startedAt": 6,
     "truncated": true,
     "workspaceId": "example"
   },
-  "subscriptionId": "zl21WWTkg3cG9rWEfCuYaxHRNg.47ySqTLA2Un3",
+  "subscriptionId": "YlgAIZUggb_HuYe8HamCJ6",
   "type": "conductor.changed"
 }
 ```
@@ -126,7 +108,7 @@ Example:
 
 ```json
 {
-  "runId": "UK8NlQBo3RZItfhh26KmD7nSW5qTNAKJMsM6gQ9R_ct.iDy.bPhOMJALKIYWsSmB0IRRA4wRnzydsQNHMtcoGGyPX",
+  "runId": "9MGtHjgesag5sz0TDflgSOv0utCPLxYVDdiU-O98F",
   "spec": {
     "constraints": {
       "accounts": [
@@ -208,31 +190,10 @@ Example:
 ```json
 {
   "approval": {
-    "decision": "reject",
-    "gateId": "g-p3OH.9uHxiU5R1J75Pes.t-cz",
-    "plan": {
-      "summary": "Example plan",
-      "workstreams": [
-        {
-          "brief": {
-            "acceptance": [
-              "Example acceptance"
-            ],
-            "files": [],
-            "instructions": "Example instructions",
-            "objective": "Example objective",
-            "packages": [],
-            "risks": []
-          },
-          "dependencies": [],
-          "id": "lane",
-          "priority": 0,
-          "title": "Example workstream"
-        }
-      ]
-    }
+    "decision": "approve",
+    "gateId": "3LR8wP2lzw9KFhSfv_wkhwwwMVrG1"
   },
-  "runId": "Cvj.jpeg8EeZlFJ3.c",
+  "runId": "Y42xUDxuX",
   "type": "conductor.approve"
 }
 ```
@@ -248,7 +209,7 @@ Example:
 
 ```json
 {
-  "runId": "DVxAUhr2X.qTldJCtZd9_-48-gg41JiSB92hOyk_XZoorf2ipift9ZurMuUK3.wf4ZxRUIMw3L72PjdhggK7SiG-BwJa8xd2cs.lhQX2pQUZ3HrYN_uXza",
+  "runId": "iF3AGJpR7ga_ZmKmORQFN6ZQr7p5nFzS7A5BccLFS",
   "type": "conductor.pause"
 }
 ```
@@ -264,7 +225,7 @@ Example:
 
 ```json
 {
-  "runId": "E3ebJ8fEfiIZ_Jnk9a.JbPqxE6nmb5WSVl9bn7zM7UR7QB7HJja0k2q8IGmdgO",
+  "runId": "SiM9VGp_ywnOkzukoFNVp92X1Sr9Qe9n9NNzr48Wds-FaWX1pcCDnPNnyBECuokEXts.WrMn",
   "type": "conductor.resume"
 }
 ```
@@ -280,7 +241,7 @@ Example:
 
 ```json
 {
-  "runId": "cgKa_YewmxX.D4Y43-I3CMFpzotFYKT3zxg54RU3YCPWJOqFDa8k6wTY6WOSpn4J.1WXhetOQeezvblG27ajjmYq",
+  "runId": "0jvl_NRKaAgkFbhOizK-pALC3dLWUvqnhD8j9LJrTkAapbC5MprM8JTrPryamFE7df788gFuhrLURZ062PyYPgnu3rbsWJbfjO1jZuPDdulxLSESkSQRn",
   "type": "conductor.cancel"
 }
 ```
@@ -301,11 +262,11 @@ Example:
 
 ```json
 {
-  "cost": 3,
-  "model": "sFydHW3nxAT0Cm3kmzaCG.",
+  "cost": 5,
+  "model": "IzuICAqWkele.5eurgYkfVsuMj-S.aeyP.PtzqIf7Zq.lf59lKg5h.x7tNC.a8eCpeBik",
   "provider": "opencode",
-  "quota": 3,
-  "tier": "normal"
+  "quota": 2,
+  "tier": "fast"
 }
 ```
 
@@ -399,10 +360,10 @@ Example:
 {
   "operation": {
     "op": "subscribe",
-    "runId": "tA1uIMpbDRxQS6Meur89I4tbzuIftfeXSSyopilrcwjGoe0NcQS5H30AauyPGGcFhobYLeu7BlufeG7tmq1pjmLCbiMF",
-    "subscriptionId": "3kqonswB6YflB58-fKnZc-tm49Y_jHszXJ9s-vP5NJFxe.ACXXH2ruRRtfQ_CKLO6"
+    "runId": "tl1._QWzJkYzoHrUyVjczkHubdKT65SgwaYJsJc.9BH65bWlheTUSwmd8KAdi",
+    "subscriptionId": "NaA7tecex1OfSnMtpuepaWte6u2ZgQouf1hv0Y-vZUIxstcIHGWZ0GgojP8tp6pfA9EC3UFA0FMQ.FnumQjb_lPM4SA3cIKHtwagjW3xseXJfzsXZrY3M0s9yjFzzLW"
   },
-  "requestId": "J3E__RfrPCURQmiE59nK",
+  "requestId": "0gYaiAIVfWi7A2QN-QwPPV40m1VHXkSAER5yKd5_4wbgPIPw6xm1awz4eKKfo2fYiyZQiapnZyJuddmd.l5yVjzRVO99MJWw",
   "type": "conductor.request"
 }
 ```
@@ -427,7 +388,7 @@ Example:
 {
   "error": "example",
   "ok": false,
-  "requestId": "OIf8SANJAIZ3SXx-CvuXu3Bf7LYwSbGx.pvJ3OXHSY-8Y.R.tu2YItJ874QL0We9CV",
+  "requestId": "RKV5JJbjDDa4IaYAWDTaXqiaw1yg0BTjGUnecQXU.VvP7NCox3D11ngB6MwuCYJ08HFOWCL.5eVcD1tS1Uhynm00GzPNfSThjpip8dWWOSnHcNOQn3qFHJSXbqI",
   "type": "conductor.result"
 }
 ```
@@ -577,7 +538,12 @@ Example:
 | planApproved | yes | boolean |  |
 | needsUser | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"kind":{"type":"string","enum":["plan","merge","budget","escalation","deadline","destructive","provider"]},"workstream":{"anyOf":[{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},{"type":"null"}]},"lane":{"anyOf":[{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},{"type":"null"}]},"generation":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]},"message":{"type":"string","maxLength":2048},"gatedAt":{"default":0,"type":"integer","minimum":0,"maximum":9007199254740991},"interactionId":{"type":"string"},"threadId":{"type":"string"}},"required":["id","kind","workstream","lane","generation","message"]}} |
 | lanes | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"agentId":{"type":"string"},"role":{"type":"string","enum":["planner","worker","reviewer","integrator"]},"workstream":{"anyOf":[{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},{"type":"null"}]},"account":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"model":{"type":"string","maxLength":256},"generation":{"type":"integer","minimum":0,"maximum":9007199254740991},"status":{"type":"string","enum":["starting","working","waiting","done","failed","unresponsive","limited","migrating"]}},"required":["id","agentId","role","workstream","account","model","generation","status"]}} |
-| dag | yes | array | {"maxItems":256,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"title":{"type":"string","maxLength":256},"dependencies":{"maxItems":256,"type":"array","items":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"state":{"type":"string","maxLength":64},"fixRounds":{"type":"integer","minimum":0,"maximum":9007199254740991},"revision":{"type":["string","null"]}},"required":["id","title","dependencies"]}} |
+| dag | yes | array | {"maxItems":256,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"title":{"type":"string","maxLength":256},"dependencies":{"maxItems":256,"type":"array","items":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"state":{"type":"string","maxLength":64},"fixRounds":{"type":"integer","minimum":0,"maximum":9007199254740991},"revision":{"type":["string","null"]},"reviews":{"maxItems":4,"type":"array","items":{"type":"object","properties":{"verdict":{"type":"string","enum":["pass","changes_required"]},"summary":{"type":"string","maxLength":512}},"required":["verdict","summary"]}}},"required":["id","title","dependencies"]}} |
+| planApproval | no | ["required","auto"] |  |
+| merge | no | ["auto-after-verification","ask","PR-only"] |  |
+| deadline | no | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| branch | no | union | {"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]} |
+| baseBranch | no | union | {"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]} |
 | truncated | yes | boolean |  |
 | executionError | no | string | {"maxLength":128} |
 
@@ -585,14 +551,14 @@ Example:
 
 ```json
 {
-  "budget": 5,
+  "budget": 1,
   "dag": [],
-  "executionError": "example",
+  "deadline": null,
   "goal": "example",
-  "id": "VSXH7DaG2QI52HFRFri7WfcertUQmvcRHWbKjAQG-Y0vJJGUJFb4W.UknLxQmXM_WOJBan72XBdiXxQmU7Atokyb5elGpxl",
+  "id": "TsaHv2.60Sio-GHS_MEB6YWrvW071M9DE3",
   "lanes": [],
   "needsUser": [],
-  "phase": "done",
+  "phase": "cancelling",
   "plan": {
     "summary": "Example plan",
     "workstreams": [
@@ -614,10 +580,11 @@ Example:
       }
     ]
   },
+  "planApproval": "required",
   "planApproved": true,
-  "spent": 5,
-  "startedAt": 3,
-  "truncated": true,
+  "spent": 6,
+  "truncated": false,
+  "updatedAt": 1,
   "workspaceId": "example"
 }
 ```
@@ -723,11 +690,11 @@ Example:
 
 ```json
 {
-  "budget": 3,
+  "budget": 9,
   "goal": "example",
-  "id": "gDZi4KTA84fOMYousc",
-  "phase": "planning",
-  "spent": 7,
+  "id": "suUR-84XA4VllV800MLlWrDo1lu-Q67VO2ei.Ma1mhB0HFu5G7Kv1QJc2BAQE52FJnznOKSF-xgxbFVX2QW",
+  "phase": "paused",
+  "spent": 1,
   "workspaceId": "example"
 }
 ```
@@ -759,8 +726,8 @@ Example:
     "risks": []
   },
   "dependencies": [],
-  "id": "C2Rkl1usGCEw0Fu9ztNz21iDiSir.uTmjvCfRubxo8BQh--gGTBK343i6497Bf37TFnFE.nGO_JLjspXahL",
-  "priority": 3,
+  "id": "A60Fu0MFz10DH80b_FrR-3NXnI7YpO9VstaJz-bhQ-.pwpOPCecV4-G7Ax1EeG4HE6otDe9a5I",
+  "priority": 1,
   "title": "example"
 }
 ```

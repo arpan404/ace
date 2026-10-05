@@ -25,6 +25,9 @@ export async function chooseModel(label: string, provider: string, chip?: RegExp
 
 /** Close the popover and wait for it to leave, so the next control can open. */
 export async function closeModelControl() {
+  // A search clears on the first Escape; the popover closes on the next.
+  const search = screen.queryByRole<HTMLInputElement>("combobox", { name: "Search models" });
+  if (search?.value) await userEvent.keyboard("{Escape}");
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),

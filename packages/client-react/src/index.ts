@@ -25,6 +25,7 @@ export { useInteractions, useInteraction, useItemInteraction } from "./interacti
 export {
   useSidebar,
   useSidebarAll,
+  useSidebarIndex,
   useSidebarIds,
   useSidebarLoaded,
   useSidebarThread,
