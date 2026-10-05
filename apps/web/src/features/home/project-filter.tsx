@@ -1,6 +1,8 @@
-import { CaretDownIcon, FolderSimpleIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, FolderPlusIcon, FolderSimpleIcon } from "@phosphor-icons/react";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { cn } from "@/lib/cn.ts";
 import {
   Menu,
   MenuContent,
@@ -12,7 +14,38 @@ import {
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
-import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts";
+import {
+  AddProjectItem,
+  ManageProjectItems,
+  useProjectDialogs,
+} from "@/features/projects/index.ts";
+
+/**
+ * The Threads heading's project filter and Add project: out of the way until the pointer or
+ * keyboard is on the heading, or a filter narrows the list.
+ */
+export function ThreadsActions() {
+  const { project } = useOrganizerState();
+  const dialogs = useProjectDialogs();
+  return (
+    <span
+      className={cn(
+        "flex items-center gap-0.5 opacity-0 transition-opacity duration-(--dur-1) group-focus-within/heading:opacity-100 group-hover/heading:opacity-100",
+        project !== null && "opacity-100",
+      )}
+    >
+      <ProjectFilter />
+      <IconButton
+        icon={FolderPlusIcon}
+        label="Add project"
+        shortcut="addProject"
+        onClick={() => dialogs.open({ kind: "add", tab: "open" })}
+        onPointerEnter={dialogs.preload}
+        className="size-[26px] rounded-sm hover:bg-sidebar-accent"
+      />
+    </span>
+  );
+}
 
 const all = "\u0000all";
 
