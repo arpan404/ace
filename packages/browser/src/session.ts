@@ -202,16 +202,18 @@ export class BrowserSession {
   }
   private check(actor: Actor, signal?: AbortSignal, generation = this.generation): void {
     signal?.throwIfAborted();
+    // Report what blocks the action now before reporting that it went stale: a person who
+    // still holds control must see "controlled by human", not a generic generation change.
+    if (this.closed) throw new BrowserActionError("browser_closed");
+    if (this.paused) throw new BrowserActionError("browser_paused");
+    if (actor.kind === "agent" && this.controller !== "agent")
+      throw new BrowserActionError("human_controlled");
     if (generation !== this.generation)
       throw new BrowserActionError(
         "controller_changed",
         "Browser control changed while the action was queued",
         "Take a fresh snapshot and retry after control is handed back.",
       );
-    if (this.closed) throw new BrowserActionError("browser_closed");
-    if (this.paused) throw new BrowserActionError("browser_paused");
-    if (actor.kind === "agent" && this.controller !== "agent")
-      throw new BrowserActionError("human_controlled");
     if (
       actor.kind === "human" &&
       (this.controller !== "human" || this.owner !== actor.connectionId)
