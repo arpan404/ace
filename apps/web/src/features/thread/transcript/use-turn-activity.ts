@@ -1,13 +1,17 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useThread, useThreadMeta } from "@ace/client-react";
-import { sameActivity, turnActivity, type TurnActivity } from "@ace/ui-core";
+import { useThreadMeta } from "@ace/client-react";
+import { readTurnActivity, sameActivity, type TurnActivity } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
+import { useWatched, type Watched } from "./use-watched.ts";
 
 const off: readonly ThreadKey[] = [];
+const nothing: Watched<TurnActivity | undefined> = { value: undefined, watch: [] };
 
 /**
  * The turn's one live line (`turnActivity`). The transcript's bottom work log and the live
- * footer both read it, so they never disagree. `enabled: false` subscribes to nothing.
+ * footer both read it, so they never disagree. Besides the thread's membership keys it follows
+ * the step in flight and the agents or tasks it names, so an update to any of them shows.
+ * `enabled: false` subscribes to nothing.
  */
 export function useTurnActivity(threadId: string, enabled = true): TurnActivity | undefined {
   const meta = useThreadMeta(threadId);
@@ -21,9 +25,12 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
     [enabled, rootId],
   );
   const read = useCallback(
-    (reader: ThreadReader) =>
-      enabled ? turnActivity(reader, rootId, { threadStatus: status }) : undefined,
+    (reader: ThreadReader): Watched<TurnActivity | undefined> => {
+      if (!enabled) return nothing;
+      const reading = readTurnActivity(reader, rootId, { threadStatus: status });
+      return { value: reading.activity, watch: reading.watch };
+    },
     [enabled, rootId, status],
   );
-  return useThread(threadId, keys, read, sameActivity);
+  return useWatched(threadId, keys, read, sameActivity);
 }
