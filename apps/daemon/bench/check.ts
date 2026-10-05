@@ -1,3 +1,4 @@
+import { checkIdleImports } from "./idle-imports.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -54,6 +55,7 @@ const limits = {
   shutdownMs: 1500,
 };
 try {
+  await checkIdleImports();
   let builds = 0;
   const entry = await phase("compile", async () => {
     const destination = join(directory, `build-${++builds}`);

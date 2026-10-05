@@ -15,6 +15,7 @@ import {
   BackgroundTaskId,
   DeviceId,
   EventId,
+  EventSequence,
   InteractionId,
   ItemId,
   RunId,
@@ -144,7 +145,7 @@ export type EventType = EventPayload["type"];
  * per host; clients resume a subscription with "everything after seq N".
  */
 export const Event = z.object({
-  seq: z.number().int().nonnegative(),
+  seq: EventSequence,
   id: EventId,
   at: Timestamp,
   threadId: ThreadId,
