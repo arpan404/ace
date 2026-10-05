@@ -24,7 +24,11 @@ const refusals: Record<string, string> = {
   recovery_in_progress: "The thread is already resuming.",
   invalid_queue_position: "That message moved. Here is the latest order.",
   message_too_large: "The message is too large.",
-  thread_transition_in_progress: "The thread is switching. Try again in a moment.",
+  thread_transition_in_progress: "The thread is switching providers; try again in a moment.",
+  workspace_change_in_progress: "The thread is moving to another checkout; try again in a moment.",
+  queue_capacity_exceeded: "The queue is full. Send or remove a queued message first.",
+  queue_limit: "The queue is full. Send or remove a queued message first.",
+  stale_interrupt: "That turn had already ended.",
   fork_point_unavailable: "That turn can't be forked.",
   provider_unavailable: "That provider isn't installed or signed in.",
   not_implemented: "This daemon can't do that yet.",
@@ -35,16 +39,30 @@ export function refusalMessage(code: string): string {
   return refusals[code] ?? `The daemon refused (${code}).`;
 }
 
+/*
+ * Two rules for what a person asks of the daemon (UX audit SY-4):
+ *
+ * - Durable (sends, create, Stop, answers, organize, queue edits, approval mode, model): saved
+ *   in the client's outbox before anything is sent, resent on reconnect, idempotent on the
+ *   daemon by command id. Offline or slow is never a failure: the UI applies the change at once
+ *   and says "Will apply when reconnected", or "Still waiting for the daemon…" after five
+ *   seconds, until the receipt. Only a definite refusal rolls anything back.
+ * - One-shot (reads, previews): `client.request`, never saved and never resent.
+ */
+
 /**
- * Send a command and wait for the daemon's receipt (`Client.command`): correlated, never queued
- * while offline, so the person learns right away whether it happened. Rejects with
- * `CommandRefused` when the daemon says no, or the client's error when it can't be reached.
+ * Send a durable command and wait for the daemon's receipt (`Client.command`). It is saved
+ * before it is sent, survives a reload and goes out when the connection returns, so the wait
+ * has no deadline. Rejects with `CommandRefused` when the daemon says no, or with a
+ * `ClientError` only when this device couldn't save it at all. Pass `id` to retry the same
+ * command: the daemon applies a command id once.
  */
 export async function runCommand(
   client: ClientApi,
   payload: CommandPayload,
+  id?: string,
 ): Promise<CommandResult> {
-  const result = await client.command(payload);
+  const result = await client.command(payload, {}, id);
   if (!result.ok) throw new CommandRefused(result.error ?? "command_failed");
   return result;
 }
@@ -53,8 +71,39 @@ export async function runCommand(
 export function failureMessage(error: unknown): string {
   if (error instanceof CommandRefused) return error.message;
   if (error instanceof Error && error.name === "ClientError")
-    return "Couldn't reach the daemon. Check the connection and try again.";
+    return "This device couldn't save it. Try again.";
   return "Something went wrong. Try again.";
+}
+
+/** The daemon's limit on one message: its command, as JSON. */
+export const messageLimitBytes = 256 * 1024;
+
+const kilobytes = (bytes: number) => `${Math.ceil(bytes / 1024)} KB`;
+
+/**
+ * Why a message wasn't sent, in words for its bubble's "Not sent" line, e.g. "Too long: 312 KB,
+ * the limit is 256 KB" (`payload` lets the size be said). `code` is the daemon's refusal or the
+ * client's own failure (`limit`, `storage`).
+ */
+export function sendFailure(code: string | undefined, payload?: CommandPayload): string {
+  if (code === "message_too_large" && payload) {
+    const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+    return `Too long: ${kilobytes(bytes)}, the limit is ${kilobytes(messageLimitBytes)}`;
+  }
+  if (code === "limit") return "This device has too much waiting to send. Try again in a moment.";
+  if (code === "storage") return "This browser couldn't save the message.";
+  return code ? refusalMessage(code) : "The daemon didn't take it.";
+}
+
+/**
+ * The note under something durable while it waits: offline it applies when the connection
+ * returns; online, five seconds without a receipt means the daemon is slow. Undefined while
+ * nothing needs saying.
+ */
+export function waitingNote(waiting: { online: boolean; slow: boolean }): string | undefined {
+  if (!waiting.online) return "Will apply when reconnected";
+  if (waiting.slow) return "Still waiting for the daemon…";
+  return undefined;
 }
 
 const loadFailures: Record<string, string> = {
