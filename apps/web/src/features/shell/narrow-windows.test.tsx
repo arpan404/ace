@@ -73,8 +73,11 @@ test("on a narrow window the rail and sidebar are a sheet from the header, closi
   expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
   expect(within(sheet).getByRole("button", { name: "Account and connection" })).toBeTruthy();
   await userEvent.click(within(sheet).getByRole("link", { name: /^Automations/ }));
-  await screen.findByRole("heading", { level: 2, name: "Nightly dependency audit" });
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
+  // On a phone a view opens on its list (ViewListPage); a row opens the item.
+  const page = within(screen.getByRole("main"));
+  await userEvent.click(await page.findByRole("link", { name: /Nightly dependency audit/ }));
+  await screen.findByRole("heading", { level: 2, name: "Nightly dependency audit" });
 
   // It covers the header's toggle, so it carries its own.
   await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
