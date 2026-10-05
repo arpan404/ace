@@ -40,6 +40,7 @@ export function fakeComplete(
   roots: readonly string[],
 ): Extract<ProjectsResult["result"], { kind: "completion" }> {
   const parts = completionParts(input.path, home, "/");
+  checked(parts.expanded);
   const parent = checked(parts.parent);
   if (!folders.some((folder) => folder.path === parent)) throw new Error("directory_unavailable");
   const candidates = folders

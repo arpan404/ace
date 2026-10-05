@@ -1301,8 +1301,8 @@
       "sha256": "65da6ec5c6348c9db7054b80e725f5d3a8bad522113a8f977808cc469efba6af"
     },
     "schema/ProjectDirectoryName.json": {
-      "bytes": 272,
-      "sha256": "12a2d2657b4e9a9eb4d9bf2ea3c6ac11bfc601eec177fb5af21f5b1559d924e3"
+      "bytes": 319,
+      "sha256": "98c2309ee05d821a06cf500a6407e7237828c950603817bdfef42cff7dd369d2"
     },
     "schema/ProjectFolderMatch.json": {
       "bytes": 752,
@@ -2413,10 +2413,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 461750,
-      "sha256": "0fb77678db99ea7e8f258b8d461e98ee47be2572fe200d21de3c38e80394f0d9"
+      "bytes": 461797,
+      "sha256": "7e09cd1fa74a51207d8b7a0635f022e9796ea0113c6a50640b1911b6a3c82ce7"
     }
   },
-  "input": "a58c9a7e97d3a9c29c32b7950ead06d16b3969f38af4221c8392999de2368b2e",
+  "input": "94bc349240013f81b1918b6e9fcca221dda9135caf1c3a99c7d1df48037b7a68",
   "version": 1
 }

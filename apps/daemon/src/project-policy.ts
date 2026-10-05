@@ -14,7 +14,11 @@ export function within(root: string, path: string): boolean {
   return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
 }
 export function absoluteProjectPath(path: string): void {
-  if (!isAbsolute(path) || path.includes("\0") || path.split(/[\\/]/).includes(".."))
+  if (
+    !isAbsolute(path) ||
+    path.includes("\0") ||
+    (sep === "\\" ? path.split(/[\\/]/) : path.split("/")).includes("..")
+  )
     throw new ProjectError("invalid_path");
 }
 const system = [

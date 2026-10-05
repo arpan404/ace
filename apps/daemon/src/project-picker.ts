@@ -9,14 +9,25 @@ import {
 } from "@ace/project-picker";
 import { ProjectDirectory } from "./project-directory.ts";
 import { ProjectPaths, ProjectError, absoluteProjectPath } from "./project-policy.ts";
+import {
+  pickerFilesystem,
+  pickerNames,
+  pickerKind,
+  missingEntry,
+  retryDirectory,
+  type PickerFilesystem,
+} from "./project-picker-filesystem.ts";
 import type { ProjectStorage } from "./project-storage.ts";
 
 type Folder = Omit<ProjectFolderMatch, "score">;
+type Enumeration = { names: string[]; offset: number; dev: number; ino: number };
+type Scan = { path: string; depth: number; enumeration?: Enumeration };
 type Index = {
   root: string;
   refreshed: number;
   folders: Map<string, Folder>;
-  queue: { path: string; depth: number; after?: string }[];
+  queue: Scan[];
+  scheduled: Set<string>;
   visited: Set<string>;
   truncated: boolean;
 };
@@ -27,10 +38,17 @@ export class ProjectPicker {
   private paths: ProjectPaths;
   private catalog: ProjectStorage;
   private now: () => number;
-  constructor(paths: ProjectPaths, catalog: ProjectStorage, now: () => number) {
+  private filesystem: PickerFilesystem;
+  constructor(
+    paths: ProjectPaths,
+    catalog: ProjectStorage,
+    now: () => number,
+    filesystem: PickerFilesystem = pickerFilesystem,
+  ) {
     this.paths = paths;
     this.catalog = catalog;
     this.now = now;
+    this.filesystem = filesystem;
   }
   private check(signal: AbortSignal, allowed: () => boolean): void {
     if (!allowed()) throw new ProjectError("forbidden");
@@ -57,6 +75,7 @@ export class ProjectPicker {
           folders: new Map(),
           queue: [{ path: root, depth: 0 }],
           visited: new Set(),
+          scheduled: new Set([root]),
           truncated: false,
         };
         if (this.indexes.size >= 32) {
@@ -73,57 +92,75 @@ export class ProjectPicker {
         while (index.queue.length && visits++ < 128 && this.now() < deadline) {
           this.check(signal, allowed);
           const next = index.queue.shift();
-          if (!next || (next.after === undefined && index.visited.has(next.path))) continue;
+          if (!next || (next.enumeration === undefined && index.visited.has(next.path))) continue;
           index.visited.add(next.path);
           let directory: ProjectDirectory | undefined;
           try {
-            directory = await ProjectDirectory.open(scoped, next.path);
+            directory = await this.filesystem.open(scoped, next.path);
             this.check(signal, allowed);
             if (
               directory.path !== next.path ||
-              !visibleFolder(directory.path, roots, input.showHidden)
+              !visibleFolder(directory.path, roots, input.showHidden, sep)
             )
               continue;
-            const folder = folderHint(directory);
+            const folder = folderHint(this.filesystem, directory);
             index.folders.set(folder.path, folder);
             if (next.depth >= 4) {
               index.truncated = true;
               continue;
             }
-            const names = directory.handle.names();
+            const identity = directory.handle.stat();
+            const enumeration =
+              next.enumeration &&
+              next.enumeration.dev === identity.dev &&
+              next.enumeration.ino === identity.ino
+                ? next.enumeration
+                : {
+                    names: pickerNames(this.filesystem, directory),
+                    offset: 0,
+                    dev: identity.dev,
+                    ino: identity.ino,
+                  };
             let examined = 0;
-            let previous = next.after;
-            for (const name of names) {
-              if (name <= (next.after ?? "")) continue;
+            while (enumeration.offset < enumeration.names.length) {
               if (examined++ >= 256 || this.now() >= deadline) {
-                index.queue.unshift({
-                  ...next,
-                  after: previous ?? "",
-                });
+                index.queue.unshift({ ...next, enumeration });
                 break;
               }
-              previous = name;
+              const name = enumeration.names[enumeration.offset++];
               if (
+                name === undefined ||
                 ignoredFolder(name, input.showHidden) ||
                 !ProjectDirectoryName.safeParse(name).success
               )
                 continue;
+              let kind: number;
+              try {
+                kind = pickerKind(this.filesystem, directory, name);
+              } catch (error) {
+                if (!missingEntry(error)) index.truncated = true;
+                continue;
+              }
               // Links are never traversed by the index, including links back into a root.
-              if ((directory.handle.metadata(name).mode & 0o170000) !== 0o040000) continue;
-              if (index.visited.size + index.queue.length >= 1024) {
+              if (kind !== 0o040000) continue;
+              const childPath = join(directory.path, name);
+              if (index.scheduled.has(childPath)) continue;
+              if (index.scheduled.size >= 1024) {
                 index.truncated = true;
                 break;
               }
-              index.queue.push({ path: join(directory.path, name), depth: next.depth + 1 });
+              index.scheduled.add(childPath);
+              index.queue.push({ path: childPath, depth: next.depth + 1 });
             }
             directory.verify();
           } catch (error) {
-            if (signal.aborted) {
+            if (signal.aborted || retryDirectory(error)) {
               index.visited.delete(next.path);
               index.queue.unshift(next);
             }
             this.check(signal, allowed);
             if (error instanceof ProjectError && error.code === "system_directory") continue;
+            if (retryDirectory(error)) break;
             index.truncated = true;
           } finally {
             await directory?.close();
@@ -142,7 +179,11 @@ export class ProjectPicker {
     }
     // Recent registrations can sit deeper than the index and still be useful picker results.
     for (const recent of this.catalog.recentHints(100)) {
-      if (!visibleFolder(recent.path, roots, input.showHidden)) continue;
+      if (
+        !visibleFolder(recent.path, roots, input.showHidden, sep) ||
+        !ProjectDirectoryName.safeParse(basename(recent.path)).success
+      )
+        continue;
       folders.set(recent.path, {
         name: basename(recent.path),
         path: recent.path,
@@ -155,15 +196,25 @@ export class ProjectPicker {
     const ranked = rankFolders(input.query, [...folders.values()], roots);
     const entries: ProjectFolderMatch[] = [];
     // Reopen only ranked candidates, so stale or replaced entries cannot escape containment.
-    for (const match of ranked.slice(0, input.limit + 128)) {
-      if (entries.length >= input.limit) break;
+    let examined = 0;
+    let hasMore = false;
+    for (const match of ranked) {
+      if (examined >= input.limit + 128) break;
+      examined++;
       this.check(signal, allowed);
       try {
-        const directory = await ProjectDirectory.open(scoped, match.path);
+        const directory = await this.filesystem.open(scoped, match.path);
         try {
-          if (directory.path !== match.path) continue;
-          const hint = folderHint(directory);
+          if (directory.path !== match.path) {
+            for (const index of requestIndexes) index.folders.delete(match.path);
+            continue;
+          }
+          const hint = folderHint(this.filesystem, directory);
           directory.verify();
+          if (entries.length >= input.limit) {
+            hasMore = true;
+            break;
+          }
           entries.push({
             ...match,
             ...hint,
@@ -184,7 +235,7 @@ export class ProjectPicker {
       query: input.query,
       indexing: requestIndexes.some((index) => index.queue.length > 0),
       entries,
-      truncated: truncated || ranked.length > input.limit,
+      truncated: truncated || hasMore || examined < ranked.length,
     };
   }
   async complete(
@@ -194,17 +245,17 @@ export class ProjectPicker {
     allowed: () => boolean,
   ): Promise<Extract<ProjectsResult["result"], { kind: "completion" }>> {
     const parts = completionParts(input.path, home, sep);
-    absoluteProjectPath(parts.parent);
+    absoluteProjectPath(parts.expanded);
     const roots = await this.paths.roots();
     const scoped = ProjectPaths.snapshot(roots);
-    const directory = await ProjectDirectory.open(scoped, parts.parent);
+    const directory = await this.filesystem.open(scoped, parts.parent);
     const candidates: (ProjectFolderMatch & { completion: string })[] = [];
     const deadline = this.now() + 50;
     let truncated = false;
     const completions: string[] = [];
     try {
-      const names = visibleFolder(directory.path, roots, input.showHidden)
-        ? directory.handle.names()
+      const names = visibleFolder(directory.path, roots, input.showHidden, sep)
+        ? pickerNames(this.filesystem, directory)
         : [];
       let metadataReads = 0;
       for (const name of names) {
@@ -225,21 +276,21 @@ export class ProjectPicker {
         }
         let kind: number;
         try {
-          kind = directory.handle.metadata(name).mode & 0o170000;
+          kind = pickerKind(this.filesystem, directory, name);
         } catch {
           continue;
         }
         if (kind !== 0o040000 && kind !== 0o120000) continue;
         try {
-          const child = await ProjectDirectory.open(scoped, join(directory.path, name));
+          const child = await this.filesystem.open(scoped, join(directory.path, name));
           try {
-            if (!visibleFolder(child.path, roots, input.showHidden)) continue;
+            if (!visibleFolder(child.path, roots, input.showHidden, sep)) continue;
             const completion = `${parts.display}${name}${sep}`;
             child.verify();
             completions.push(completion);
             if (candidates.length < input.limit)
               candidates.push({
-                ...folderHint(child),
+                ...folderHint(this.filesystem, child),
                 name,
                 ...this.catalog.folderFacts(child.path),
                 score: 0,
@@ -271,16 +322,16 @@ export class ProjectPicker {
     }
   }
 }
-function folderHint(directory: ProjectDirectory): Folder {
+function folderHint(filesystem: PickerFilesystem, directory: ProjectDirectory): Folder {
   let isGitRepo = false;
   try {
-    const kind = directory.handle.metadata(".git").mode & 0o170000;
+    const kind = pickerKind(filesystem, directory, ".git");
     isGitRepo = kind === 0o040000 || kind === 0o100000;
   } catch {
     /* A folder may have no Git marker. */
   }
   return {
-    name: basename(directory.path),
+    name: ProjectDirectoryName.parse(basename(directory.path)),
     path: directory.path,
     isGitRepo,
     isProject: false,

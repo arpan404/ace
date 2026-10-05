@@ -15,14 +15,12 @@ export const ProjectDirectoryName = z
   .min(1)
   .max(256)
   .refine(
-    (value) =>
-      value !== "." &&
-      value !== ".." &&
-      !value.includes("/") &&
-      !value.includes("\\") &&
-      !value.includes("\0"),
+    (value) => value !== "." && value !== ".." && !value.includes("/") && !value.includes("\0"),
   )
-  .meta({ "x-ace-constraint": "A literal existing directory name; no separators or NUL." });
+  .meta({
+    "x-ace-constraint":
+      "A literal existing directory name; no forward slash or NUL. Host filesystem rules apply to backslashes.",
+  });
 export const ProjectFolderMatch = z.object({
   name: ProjectDirectoryName,
   path,

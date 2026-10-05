@@ -989,3 +989,22 @@ test("removed fake projects lose project and last-opened hints while their folde
     await f.client.close();
   }
 });
+
+test("fake completion refuses final traversal and NUL segments and preserves literal backslashes", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.projects.seedFolders("/host/home", [{ path: "/host/home/literal\\Library" }]);
+    for (const path of ["~/..", "~/bad\0name", "/host/home/..", "/host/home/bad\0name"])
+      expect(await f.client.projects.complete({ path })).toMatchObject({
+        result: { kind: "error", code: "invalid_path" },
+      });
+    expect(await f.client.projects.search({ query: "literal" })).toMatchObject({
+      result: { entries: [{ name: "literal\\Library" }] },
+    });
+    expect(await f.client.projects.complete({ path: "~/literal" })).toMatchObject({
+      result: { candidates: [{ name: "literal\\Library", completion: "~/literal\\Library/" }] },
+    });
+  } finally {
+    await f.client.close();
+  }
+});

@@ -63,7 +63,10 @@ export function createProjectsSession(context: SocketContext): SocketService {
             if (connected()) send({ type: "commandResult", ...result });
           });
         tasks.add(task);
-        void task.finally(() => tasks.delete(task));
+        void task.then(
+          () => tasks.delete(task),
+          () => tasks.delete(task),
+        );
       },
     },
     handle(message) {
@@ -91,12 +94,23 @@ export function createProjectsSession(context: SocketContext): SocketService {
         .then((result) => {
           if (connected()) send(ProjectsResult.parse(result));
         })
+        .catch(() => {
+          if (connected())
+            send({
+              type: "projects.result",
+              requestId: message.requestId,
+              result: { kind: "error", code: "project_failed" },
+            });
+        })
         .finally(() => {
           reads--;
           if (search === controller) search = undefined;
         });
       tasks.add(task);
-      void task.finally(() => tasks.delete(task));
+      void task.then(
+        () => tasks.delete(task),
+        () => tasks.delete(task),
+      );
       return true;
     },
   };
