@@ -111,9 +111,17 @@ const modeLabels: Record<DiffPrefs["mode"], string> = {
 function LayoutMenu(props: {
   mode: DiffPrefs["mode"];
   shown: "unified" | "split";
+  /** Split is chosen but the panel is too narrow for it: unified shows until it widens. */
+  splitTooNarrow: boolean;
   onMode(mode: DiffPrefs["mode"]): void;
 }) {
-  const label = `Diff layout: ${modeLabels[props.mode]}${props.mode === "auto" ? ` (${modeLabels[props.shown]})` : ""}`;
+  const note =
+    props.mode === "auto"
+      ? ` (${modeLabels[props.shown]})`
+      : props.splitTooNarrow
+        ? " (needs a wider panel)"
+        : "";
+  const label = `Diff layout: ${modeLabels[props.mode]}${note}`;
   return (
     <Menu>
       <MenuTrigger
@@ -138,7 +146,7 @@ function LayoutMenu(props: {
             Unified
           </MenuRadioItem>
           <MenuRadioItem closeOnClick value="split">
-            Split
+            Split{props.splitTooNarrow && " · needs a wider panel"}
           </MenuRadioItem>
         </MenuRadioGroup>
       </MenuContent>
@@ -157,6 +165,7 @@ export function ChangesToolbar(props: {
   stat: { additions: number; deletions: number };
   prefs: DiffPrefs;
   shown: "unified" | "split";
+  splitTooNarrow: boolean;
   onPrefs(change: (prefs: DiffPrefs) => DiffPrefs): void;
   allCollapsed: boolean;
   onCollapseAll(folded: boolean): void;
@@ -189,6 +198,7 @@ export function ChangesToolbar(props: {
       <LayoutMenu
         mode={prefs.mode}
         shown={props.shown}
+        splitTooNarrow={props.splitTooNarrow}
         onMode={(mode) => props.onPrefs((value) => ({ ...value, mode }))}
       />
       {props.canShowTree && (

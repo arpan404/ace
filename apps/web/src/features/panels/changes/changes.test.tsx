@@ -1,7 +1,7 @@
 import { coldStartReplay, facts } from "@ace/fake-daemon";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 async function openChanges(through = "turn-2", storage = memoryKeyValue()) {
@@ -19,6 +19,17 @@ const file = (panel: HTMLElement, path: string) =>
 async function pickScope(panel: HTMLElement, name: string) {
   await userEvent.click(within(panel).getByRole("button", { name: /^Scope:/ }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: new RegExp(`^${name}`) }));
+}
+/** Lay the panel out `px` wide (the setup's default is 800) for the rest of the test. */
+function panelWidth(px: number) {
+  const before = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get: () => px,
+  });
+  onTestFinished(() => {
+    if (before) Object.defineProperty(HTMLElement.prototype, "offsetWidth", before);
+  });
 }
 async function pickLayout(panel: HTMLElement, name: "Auto" | "Unified" | "Split") {
   await userEvent.click(within(panel).getByRole("button", { name: /^Diff layout/ }));
@@ -70,6 +81,8 @@ test("folded unchanged lines expand, and a file collapses from its header", asyn
 });
 
 test("split layout puts the removed line beside its replacement, and the choice is remembered", async () => {
+  // Wide enough for two columns beside the files tree.
+  panelWidth(1000);
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   await pickLayout(panel, "Split");
@@ -82,6 +95,48 @@ test("split layout puts the removed line beside its replacement, and the choice 
   await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
   expect(await within(panel).findByRole("button", { name: "Diff layout: Split" })).toBeTruthy();
+});
+
+test("a chosen Split shows unified in a panel too narrow for two columns, and split again once it is wide enough", async () => {
+  // jsdom has no layout: the Changes tab reports `width` px whenever it is told it resized.
+  let width = 520;
+  const resize: (() => void)[] = [];
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    private changed: ResizeObserverCallback;
+    constructor(changed: ResizeObserverCallback) {
+      this.changed = changed;
+    }
+    observe(element: Element) {
+      if (!element.querySelector('[role="toolbar"][aria-label="Changes"]')) return;
+      const entry = { contentRect: { width } } as unknown as ResizeObserverEntry;
+      resize.push(() =>
+        this.changed([{ ...entry, contentRect: { width } } as ResizeObserverEntry], this),
+      );
+    }
+    unobserve() {}
+    disconnect() {}
+  };
+  try {
+    const { panel } = await openChanges();
+    const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
+    act(() => resize.forEach((fire) => fire()));
+    await pickLayout(panel, "Split");
+    // The choice is kept, and the button says why it isn't showing.
+    expect(
+      within(panel).getByRole("button", { name: "Diff layout: Split (needs a wider panel)" }),
+    ).toBeTruthy();
+    const removed = within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/);
+    expect(removed.closest(".grid-cols-2")).toBeNull();
+
+    width = 1000;
+    act(() => resize.forEach((fire) => fire()));
+    expect(within(panel).getByRole("button", { name: "Diff layout: Split" })).toBeTruthy();
+    const again = within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/);
+    expect(again.closest(".grid-cols-2")).toBeTruthy();
+  } finally {
+    globalThis.ResizeObserver = original;
+  }
 });
 
 test("a line comment goes to the agent through review mode and lands in the thread", async () => {
@@ -156,6 +211,7 @@ test("a collapsed file stays collapsed after looking at another tab and coming b
 });
 
 test("a line comment stays on its line when the diff switches between Unified and Split", async () => {
+  panelWidth(1000);
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   const line = within(replay).getByText(/client.send\(\{ type: "resume.ack", headSeq/);
@@ -313,6 +369,7 @@ test("the review's comments list jumps to a comment's file", async () => {
 });
 
 test("comments and the diff layout come back after the page reloads", async () => {
+  panelWidth(1000);
   const storage = memoryKeyValue();
   const first = await openChanges("turn-2", storage);
   await comment(

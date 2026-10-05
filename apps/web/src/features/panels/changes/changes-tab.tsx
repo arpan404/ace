@@ -40,6 +40,10 @@ const virtualRowsAbove = 2_000;
 const splitFrom = 880;
 /** The files tree sits beside the diff from this tab width, above it below. */
 const treeBesideFrom = 600;
+/** The tree's width beside the diff. */
+const treeWidth = 240;
+/** A chosen Split needs this much diff width; narrower it shows unified until there is room. */
+const splitNeeds = 640;
 
 /** The version of a file's diff that "Viewed" remembers: a later edit changes it. */
 const versionOf = (file: FileDiff) => `${file.rows.length}:${file.additions}:${file.deletions}`;
@@ -141,9 +145,20 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   const send = (keys: readonly string[]) => {
     if (thread) void sendDrafts(client, services.drafts, thread, keys);
   };
-  const mode = prefs.mode === "auto" ? (width >= splitFrom ? "split" : "unified") : prefs.mode;
   const showTree = prefs.tree && files.length > 1;
   const beside = width >= treeBesideFrom;
+  // Two columns of code at ~200px each clip mid-token: a chosen Split waits for the room (the
+  // choice is global, so full view's Split mustn't squeeze every 520px panel). 0 is unmeasured.
+  const diffWidth = width - (showTree && beside ? treeWidth : 0);
+  const splitTooNarrow = prefs.mode === "split" && width > 0 && diffWidth < splitNeeds;
+  const mode =
+    prefs.mode === "auto"
+      ? width >= splitFrom
+        ? "split"
+        : "unified"
+      : splitTooNarrow
+        ? "unified"
+        : prefs.mode;
   const allCollapsed = files.length > 0 && files.every((file) => !viewOf(file).open);
 
   const renderFile = (file: FileDiff, index: number) => {
@@ -232,7 +247,8 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         const file = files[index];
         if (file) jump(file.path);
       }}
-      className={beside ? "w-[240px] shrink-0 border-l" : "max-h-[40%] shrink-0 border-b"}
+      style={beside ? { width: treeWidth } : undefined}
+      className={beside ? "shrink-0 border-l" : "max-h-[40%] shrink-0 border-b"}
     />
   );
   return (
@@ -244,6 +260,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         stat={stat}
         prefs={prefs}
         shown={mode}
+        splitTooNarrow={splitTooNarrow}
         onPrefs={(change) => services.diffPrefs.set(change)}
         allCollapsed={allCollapsed}
         onCollapseAll={(folded) =>
