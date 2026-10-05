@@ -4,38 +4,47 @@ import CoreImage
 import AppKit
 
 final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+    let runtime: NativeRuntime
     let writer: FrameWriter
     let sessionId: String
     let queue = DispatchQueue(label: "ace.screen.capture")
     func drain() async { await withCheckedContinuation { continuation in queue.async { continuation.resume() } } }
     private lazy var encoder = JPEGEncoder(context: CIContext(options: [.cacheIntermediates: false]))
-    private lazy var video = VideoEncoder(sessionId: sessionId, version: version, publish: { [weak self] packet in self?.writer.publish(packet) })
+    private lazy var video: VideoEncoder = VideoEncoder(sessionId: sessionId, version: version,
+        publish: { [weak self] packet in self?.writer.publish(packet) },
+        completed: { [weak self] in self?.queue.async { [weak self] in self?.pendingVideo.completed() } })
+    private struct ChangedImage { let image: CVPixelBuffer; let timestamp: Double; let scale: Double; let damage: [CGRect]? }
+    private lazy var pendingVideo: LatestVideoFrames<ChangedImage> = LatestVideoFrames<ChangedImage> { [weak self] changed in
+        guard let self else { return .unavailable }
+        let result = self.video.encode(changed.image, sequence: self.nextSequence, timestamp: changed.timestamp, scale: changed.scale)
+        if result == .submitted { self.lock.lock(); self.sequence += 1; self.initial = false; self.lock.unlock() }
+        if result == .unavailable { self.codec = "jpeg"; self.publishImage(changed) }
+        return result
+    }
+    private let images = CaptureImages<ChangedImage>()
+    private func publishImage(_ changed: ChangedImage) {
+        let started = runtime.nanos()
+        guard let packet = encoder.packet(image: changed.image, sessionId: sessionId, sequence: nextSequence,
+            timestamp: changed.timestamp, version: version, scale: changed.scale, dirtyRects: changed.damage) else { return }
+        lock.lock(); sequence += 1; initial = false; encodeNanos += runtime.nanos() - started; lock.unlock()
+        writer.publish(packet)
+    }
     private var codec = "jpeg"
-    private var latestImage: CVPixelBuffer?
-    private var latestTimestamp = 0.0
     func configure(_ settings: StreamSettings, targetWidth: Double) async {
         await withCheckedContinuation { continuation in queue.async {
-            self.video.close(); self.targetWidth = targetWidth; self.codec = settings.codec; self.video.configure(bitrate: settings.bitrate, fps: settings.fps)
+            self.pendingVideo.clear(); self.video.close(); self.targetWidth = targetWidth; self.codec = settings.codec; self.video.configure(bitrate: settings.bitrate, fps: settings.fps)
             self.markInitial(); continuation.resume()
         } }
     }
     func requestKeyframe() { queue.async {
         self.video.requestKeyframe(); self.markInitial()
-        if self.codec == "h264", let image = self.latestImage,
-           self.video.encode(image, sequence: self.nextSequence, timestamp: self.latestTimestamp,
-               scale: Double(CVPixelBufferGetWidth(image)) / self.targetWidth) == .submitted {
-            self.lock.lock(); self.sequence += 1; self.initial = false; self.lock.unlock()
-        }
+        if self.codec == "h264", let image = self.images.latest { self.pendingVideo.offer(image) }
     } }
     func requestImage() { queue.async {
-        guard let image = self.latestImage else { self.markInitial(); return }
-        self.video.close()
-        if let packet = self.encoder.packet(image: image, sessionId: self.sessionId, sequence: self.nextSequence,
-            timestamp: self.latestTimestamp, version: self.version, scale: Double(CVPixelBufferGetWidth(image)) / self.targetWidth) {
-            self.lock.lock(); self.sequence += 1; self.lock.unlock(); self.writer.publish(packet)
-        }
+        guard let image = self.images.request() else { self.markInitial(); return }
+        self.pendingVideo.clear(); self.video.close(); self.publishImage(image)
     } }
-    func finish() async { await withCheckedContinuation { continuation in queue.async { self.video.close(); self.latestImage = nil; continuation.resume() } } }
+    func finish() async { await withCheckedContinuation { continuation in queue.async { self.pendingVideo.clear(); self.video.close(); self.images.clear(); continuation.resume() } } }
     private var sequence: UInt64 = 0
     private let lock = NSLock()
     private var initial = true
@@ -51,7 +60,7 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     /// or, for a Simulator, rotated. The capture is then reconfigured to the new size.
     var onResize: (() -> Void)?
     private var lastResize: UInt64 = 0
-    init(writer: FrameWriter, sessionId: String, version: Int, scale: Double, targetWidth: Double) { self.targetWidth = targetWidth; self.writer = writer; self.sessionId = sessionId; self.version = version; self.scale = scale }
+    init(writer: FrameWriter, sessionId: String, version: Int, scale: Double, targetWidth: Double, runtime: NativeRuntime) { self.runtime = runtime; self.targetWidth = targetWidth; self.writer = writer; self.sessionId = sessionId; self.version = version; self.scale = scale }
     func stream(_ stream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sample.isValid, let image = sample.imageBuffer else { return }
         guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
@@ -67,32 +76,20 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
             return rect.width >= points - 2 && rect.height >= height - 2
         } ?? true)
         if !fitted {
-            let now = DispatchTime.now().uptimeNanoseconds
+            let now = runtime.nanos()
             if now - lastResize > 500_000_000 { lastResize = now; onResize?() }
         }
         let currentScale = measured.flatMap { $0.isFinite && $0 > 0 && $0 <= 8 ? $0 : nil } ?? Double(CVPixelBufferGetWidth(image)) / targetWidth
-        latestImage = image; latestTimestamp = Date().timeIntervalSince1970 * 1000
-        let seq = nextSequence
+        let changed = ChangedImage(image: image, timestamp: runtime.milliseconds(), scale: currentScale, damage: damage)
+        if let screenshot = images.receive(changed) {
+            pendingVideo.clear(); video.close(); publishImage(screenshot)
+        }
         lock.lock(); let first = initial; lock.unlock()
         var nextChanges = changes
         guard nextChanges.changed(initial: first, dirtyRects: damage, fingerprint: { pixelFingerprint(image) }) else { return }
-        let started = DispatchTime.now().uptimeNanoseconds
-        let timestamp = Date().timeIntervalSince1970 * 1000
-        if codec == "h264" {
-            switch video.encode(image, sequence: seq, timestamp: timestamp, scale: currentScale) {
-            case .submitted:
-                changes = nextChanges
-                lock.lock(); sequence += 1; initial = false; lock.unlock()
-                return
-            case .busy: return
-            case .unavailable: codec = "jpeg"
-            }
-            // A failed hardware encoder emits a JPEG so the viewer can negotiate fallback.
-        }
-        guard let packet = encoder.packet(image: image, sessionId: sessionId, sequence: seq, timestamp: Date().timeIntervalSince1970 * 1000, version: version, scale: currentScale, dirtyRects: damage) else { return }
         changes = nextChanges
-        lock.lock(); sequence += 1; initial = false; encodeNanos += DispatchTime.now().uptimeNanoseconds - started; lock.unlock()
-        writer.publish(packet)
+        if codec == "h264" { pendingVideo.offer(changed) }
+        else { publishImage(changed) }
     }
     func stream(_ stream: SCStream, didStopWithError error: Error) { exit(1) }
 }
@@ -112,7 +109,9 @@ struct ShareableContent {
     private var captureDensity = 1.0
     private var settings: StreamSettings?
     private var cachedContent: (at: UInt64, content: ShareableContent)?
-    var pointerAction: Action?
+    struct PointerPress { let window: SCWindow; let application: NSRunningApplication; let button: String; let location: CGPoint }
+    let heldPointer = HeldPointer<PointerPress>()
+    var pointerAction: PointerPress? { heldPointer.target }
     private(set) var captureWindow: SCWindow?
     private(set) var target: Target?
     private(set) var allowed = Set<String>()
@@ -120,11 +119,12 @@ struct ShareableContent {
     private(set) var width = 0
     private(set) var height = 0
     let writer: FrameWriter
-    init(writer: FrameWriter) { self.writer = writer }
+    let runtime: NativeRuntime
+    init(writer: FrameWriter, runtime: NativeRuntime) { self.writer = writer; self.runtime = runtime }
     var metrics: [String: Any] { var result = resourceMetrics(); result.merge(output?.metrics ?? ["encodedFrames": 0, "encodeNanos": 0]) { _, new in new }; return result }
     func content() async throws -> ShareableContent {
         guard CGPreflightScreenCaptureAccess() else { throw HelperError("Screen Recording permission denied", code: "permission_denied") }
-        let now = DispatchTime.now().uptimeNanoseconds
+        let now = runtime.nanos()
         if let cachedContent, now - cachedContent.at < 250_000_000 { return cachedContent.content }
         // Windows on another Space (a full-screen ace, say) are off screen but still capturable.
         let result = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -174,7 +174,7 @@ struct ShareableContent {
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         config.scalesToFit = true
         config.pixelFormat = kCVPixelFormatType_32BGRA; config.showsCursor = true
-        let output = CaptureOutput(writer: writer, sessionId: session, version: request.version, scale: Double(width) / frame.width, targetWidth: frame.width)
+        let output = CaptureOutput(writer: writer, sessionId: session, version: request.version, scale: Double(width) / frame.width, targetWidth: frame.width, runtime: runtime)
         if target.kind == "window" { output.onResize = { [weak self] in Task { @MainActor in await self?.refit() } } }
         self.output = output; self.configuration = (filter, config); self.target = target
         do { if request.version == 1 || request.capture == true { try await setCapturing(true) } } catch { self.stream = nil; self.configuration = nil; self.output = nil; self.target = nil; throw error }
@@ -231,17 +231,8 @@ struct ShareableContent {
         if let settings { await output?.configure(settings, targetWidth: frame.width) }
         output?.markInitial()
     }
-    func releasePointer() async {
-        guard var release = pointerAction else { return }
-        pointerAction = nil; release.kind = "up"; release.focusFirst = false
-        if release.coordinates == .windowPoints, let captureWindow, let bounds = try? currentWindowBounds(captureWindow) {
-            release.x = min(max(0, release.x ?? 0), max(0, bounds.width - 1))
-            release.y = min(max(0, release.y ?? 0), max(0, bounds.height - 1))
-        }
-        try? await inject(release)
-    }
     func stop() async throws {
-        await releasePointer()
+        try releasePointer()
         if capturing { _ = try await setCapturing(false) }
         stream = nil; configuration = nil; target = nil; captureWindow = nil; output = nil; settings = nil; allowed.removeAll(); cachedContent = nil
     }

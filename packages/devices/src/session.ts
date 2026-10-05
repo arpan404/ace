@@ -23,6 +23,7 @@ export interface DeviceSession {
   approvalEpoch: number;
   changingApproval: boolean;
   startup?: { controller: AbortController; capture: Promise<DeviceCapture | undefined> };
+  recordingRelease?: Promise<void>;
   recordingOpening?: Promise<Recording>;
   recordingClosing?: Promise<RecordingArtifact>;
   recording?: Recording;

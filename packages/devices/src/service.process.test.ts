@@ -21,6 +21,8 @@ import {
   agentOwner,
   connectDevices,
   type Actor,
+  devicePacketDelivery,
+  sendDeviceFrame,
 } from "./index.ts";
 import type { startCapture } from "./capture.ts";
 
@@ -58,7 +60,7 @@ function frame(streamId: string, sequence: number): Frame {
   };
   return { header, payload, packet: framePacket(header, payload) };
 }
-async function harness(withRegistry = false, cancelCapture = false) {
+async function harness(withRegistry = false, cancelCapture = false, recordingDirectory?: string) {
   const root = await mkdtemp(join(tmpdir(), "ace-devices-service-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   for (const path of ["platform-tools/adb", "emulator/emulator"]) {
@@ -81,6 +83,7 @@ async function harness(withRegistry = false, cancelCapture = false) {
     : undefined;
   if (files) cleanups.push(async () => files.close());
   const effects: string[] = [];
+  const profiles: import("@ace/protocol").ScreenStreamSettings[] = [];
   const publications: RecordingArtifact[] = [];
   const published = deferred<void>();
   const publishing = deferred<void>();
@@ -94,7 +97,7 @@ async function harness(withRegistry = false, cancelCapture = false) {
   let inputGate: ReturnType<typeof deferred<void>> | undefined;
   let captureGate: ReturnType<typeof deferred<void>> | undefined;
   const captureEntered = deferred<void>();
-  const inventoryEntered = deferred<void>();
+  let inventoryEntered = deferred<void>();
   let inventoryGate: ReturnType<typeof deferred<void>> | undefined;
   const entered = deferred<void>();
   const platform = new DevicePlatform({
@@ -137,7 +140,7 @@ async function harness(withRegistry = false, cancelCapture = false) {
       return logProcess;
     },
     recordingLimitBytes: 512,
-    recordingDirectory: root,
+    recordingDirectory: recordingDirectory ?? root,
     runtime: {
       now: () => now,
       id: () => `device-stream-${++id}`,
@@ -166,6 +169,10 @@ async function harness(withRegistry = false, cancelCapture = false) {
       }
       options.publish(frame(options.streamId, 0));
       return {
+        async configure(settings) {
+          profiles.push(settings);
+          return { codec: settings.codec };
+        },
         async stop() {
           stopEntered.resolve();
           if (stopGate) await stopGate.promise;
@@ -196,6 +203,7 @@ async function harness(withRegistry = false, cancelCapture = false) {
     service.request(DeviceOperation.parse(raw), actor);
   return {
     service,
+    profiles,
     request,
     effects,
     publications,
@@ -208,8 +216,11 @@ async function harness(withRegistry = false, cancelCapture = false) {
     files,
     entered,
     captureEntered,
-    inventoryEntered,
+    get inventoryEntered() {
+      return inventoryEntered;
+    },
     blockInventory() {
+      inventoryEntered = deferred<void>();
       inventoryGate = deferred<void>();
       return inventoryGate;
     },
@@ -447,6 +458,7 @@ describe("in-app device ownership", () => {
       send: async (msg) => {
         if (msg.type === "devices.logs") seen.push(...msg.lines);
       },
+      image: async () => {},
       frame: async () => {},
     });
     cleanups.push(async () => peer.close());
@@ -629,6 +641,7 @@ describe("in-app device ownership", () => {
       canReadThread: () => true,
       agentExists: () => true,
       send: async () => {},
+      image: async () => {},
       frame: async (packet) => {
         packets.push(packet);
       },
@@ -669,6 +682,7 @@ describe("in-app device ownership", () => {
       send: async (message) => {
         if (message.type === "devices.logs") seen.push(...message.lines);
       },
+      image: async () => {},
       frame: async () => {},
     });
     cleanups.push(async () => peer.close());
@@ -772,4 +786,152 @@ describe("in-app device ownership", () => {
     expect(h.effects).toHaveLength(1);
     credentials.close();
   });
+});
+
+const videoProfile = {
+  codec: "h264",
+  maxWidth: 320,
+  maxHeight: 640,
+  fps: 60,
+  bitrate: 500000,
+} as const;
+for (const op of ["subscribe", "stream.configure"] as const) {
+  it(`${op} racing disconnect cannot retain a JPEG viewer or exhaust viewer capacity`, async () => {
+    const h = await harness();
+    await approve(h);
+    await h.request({ op: "start", deviceId, fps: 60 });
+    await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+    for (let n = 0; n < 70; n++) {
+      const owner = `departed-${n}`;
+      const channel = connectDevices(h.service, owner, {
+        authorize: () => true,
+        canReadThread: () => true,
+        agentExists: () => true,
+        async send() {},
+        async frame() {},
+        async image() {},
+      });
+      const pending = channel.request({
+        type: "devices.request",
+        requestId: `race-${n}`,
+        operation:
+          op === "subscribe"
+            ? { op, deviceId }
+            : { op, deviceId, settings: { ...videoProfile, codec: "jpeg" } },
+      });
+      // Even a cached session lookup yields before the preference insertion.
+      channel.close();
+      await pending;
+    }
+    await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+    expect(h.profiles.at(-1)).toEqual(videoProfile);
+    expect(h.profiles.every((profile) => profile.codec === "h264")).toBe(true);
+  });
+}
+it("recording quota completion restores video without increasing a small viewer's budget", async () => {
+  const h = await harness();
+  await approve(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+  await h.request({ op: "record.start", deviceId });
+  expect(h.profiles.at(-1)).toEqual({ ...videoProfile, codec: "jpeg" });
+  h.publish(1, 1024);
+  await h.published.promise;
+  await h.request({ op: "record.stop", deviceId });
+  expect(h.profiles.at(-1)).toEqual(videoProfile);
+});
+
+for (const relay of [false, true]) {
+  it(`a congested ${relay ? "relay" : "local"} screenshot rejects and can subsequently deliver pixels`, async () => {
+    const h = await harness();
+    await approve(h);
+    await h.request({ op: "start", deviceId, fps: 30 });
+    let buffered = 192 * 1024;
+    const results: import("@ace/protocol/devices").DeviceServerMessage[] = [];
+    const packets: Uint8Array[] = [];
+    const delivery = devicePacketDelivery({
+      bufferedBytes: () => buffered,
+      authorize: () => true,
+      write: async (packet) => {
+        if (relay)
+          await sendDeviceFrame(
+            packet,
+            async (bytes) => {
+              packets.push(bytes);
+            },
+            () => true,
+          );
+        else packets.push(packet);
+      },
+    });
+    const channel = connectDevices(h.service, "congested", {
+      authorize: () => true,
+      canReadThread: () => true,
+      agentExists: () => true,
+      async send(message) {
+        results.push(message);
+      },
+      ...delivery,
+    });
+    const screenshot = (requestId: string) =>
+      channel.request({
+        type: "devices.request",
+        requestId,
+        operation: { op: "screenshot", deviceId },
+      });
+    await screenshot("blocked");
+    expect(packets).toEqual([]);
+    expect(results.at(-1)).toMatchObject({
+      type: "devices.result",
+      requestId: "blocked",
+      ok: false,
+    });
+    buffered = 0;
+    await screenshot("ready");
+    expect(Buffer.concat(packets).includes(Buffer.from("jpeg-0"))).toBe(true);
+    expect(results.at(-1)).toMatchObject({ type: "devices.result", requestId: "ready", ok: true });
+    channel.close();
+  });
+}
+
+it("recording startup failure releases its image lease and permits a later attempt", async () => {
+  const h = await harness(false, false, "/dev/null/ace-recording");
+  await approve(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+  for (let i = 0; i < 2; i++) {
+    await expect(h.request({ op: "record.start", deviceId })).rejects.toBeInstanceOf(Error);
+    expect(h.profiles.at(-1)).toEqual(videoProfile);
+  }
+});
+it("recording quota releases image demand before a stalled publisher completes", async () => {
+  const h = await harness();
+  await approve(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+  const publication = h.blockPublication();
+  await h.request({ op: "record.start", deviceId });
+  h.publish(1, 1024);
+  await h.publishing.promise;
+  // A new settings acknowledgement joins the already-requested image release.
+  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+  expect(h.profiles.at(-1)).toEqual(videoProfile);
+  publication.resolve();
+  await h.request({ op: "record.stop", deviceId });
+});
+
+it("unsubscribing removes its JPEG preference and restores the remaining video viewer", async () => {
+  const h = await harness();
+  await approve(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+  const release = await h.service.subscribe(
+    deviceId,
+    { kind: "human", owner: "image-viewer" },
+    async () => {},
+  );
+  expect(h.profiles.at(-1)?.codec).toBe("jpeg");
+  release();
+  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+  expect(h.profiles.at(-1)).toEqual(videoProfile);
 });

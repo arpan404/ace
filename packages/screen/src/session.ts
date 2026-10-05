@@ -17,6 +17,7 @@ export type Session = {
   epoch: number;
   owner: string | undefined;
   pointerDown: boolean;
+  pointerCleanup?: Promise<void>;
   controllerBinding: ControllerBinding | undefined;
   recording: Recording | undefined;
   completedRecording: Recording | undefined;

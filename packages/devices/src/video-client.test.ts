@@ -30,6 +30,18 @@ function fixture() {
   const drawn: number[] = [];
   const decoded: number[] = [];
   const images: number[] = [];
+  const resources = new Set<object>();
+  const outputs: ((image: DecodedDeviceFrame) => void)[] = [];
+  const decoding = new Map<number, { promise: Promise<void>; resolve(): void }>();
+  const waitDecoded = (sequence: number) => {
+    if (decoded.includes(sequence)) return Promise.resolve();
+    let waiter = decoding.get(sequence);
+    if (!waiter) {
+      waiter = Promise.withResolvers<void>();
+      decoding.set(sequence, waiter);
+    }
+    return waiter.promise;
+  };
   let output: ((image: DecodedDeviceFrame) => void) | undefined;
   let fail: (() => void) | undefined;
   let keys = 0,
@@ -40,13 +52,23 @@ function fixture() {
     schedule: () => () => {},
     decoder: (_, onOutput, onError) => {
       output = onOutput;
+      outputs.push(onOutput);
+      const resource = {};
+      resources.add(resource);
       fail = onError;
       return {
         get decodeQueueSize() {
           return queue;
         },
-        decode: (f) => decoded.push(f.header.version === 1 ? f.header.sequence : f.header.seq),
-        close: () => {},
+        decode: (f) => {
+          if (!resources.has(resource)) throw new Error("Decoder disposed");
+          const seq = f.header.version === 1 ? f.header.sequence : f.header.seq;
+          decoded.push(seq);
+          decoding.get(seq)?.resolve();
+        },
+        close: () => {
+          resources.delete(resource);
+        },
       };
     },
     video: (_, h) => drawn.push(h.version === 1 ? h.sequence : h.seq),
@@ -62,6 +84,9 @@ function fixture() {
     drawn,
     decoded,
     images,
+    resources,
+    waitDecoded,
+    late: (index: number) => outputs[index]?.({ close: () => closes++ }),
     finish: () => output?.({ close: () => closes++ }),
     fail: () => fail?.(),
     queue: (n: number) => {
@@ -78,39 +103,49 @@ function fixture() {
     },
   };
 }
-const tick = async () => {
-  for (let i = 0; i < 12; i++) await Promise.resolve();
-};
-
 it("a blocked decoder retains the newest frame and resumes at an IDR after dropping dependants", async () => {
   const f = fixture();
   const render = createDeviceRenderer(f.ports);
   const hub = new LatestFrameHub<PortableFrame>();
-  hub.subscribe(render.render);
+  const completed = new Set<number>();
+  const waiters = new Map<number, ReturnType<typeof Promise.withResolvers<void>>>();
+  const processed = (seq: number) => {
+    if (completed.has(seq)) return Promise.resolve();
+    const waiter = Promise.withResolvers<void>();
+    waiters.set(seq, waiter);
+    return waiter.promise;
+  };
+  hub.subscribe(async (image) => {
+    await render.render(image);
+    const seq = image.header.version === 1 ? image.header.sequence : image.header.seq;
+    completed.add(seq);
+    waiters.get(seq)?.resolve();
+  });
   hub.publish(frame(0, true));
-  await tick();
+  await f.waitDecoded(0);
   for (let i = 1; i <= 20; i++) hub.publish(frame(i));
   expect(f.decoded).toEqual([0]);
   f.finish();
-  await tick();
+  await processed(20);
   expect(f.drawn).toEqual([0]);
   expect(f.keys).toBe(1);
   expect(f.decoded).toEqual([0]);
   hub.publish(frame(21));
-  await tick();
+  await processed(21);
   expect(f.keys).toBe(1);
   hub.publish(frame(22, true));
-  await tick();
+  await f.waitDecoded(22);
   f.finish();
-  await tick();
+  await processed(22);
   hub.publish(frame(23));
-  await tick();
+  await f.waitDecoded(23);
   f.finish();
-  await tick();
+  await processed(23);
   expect(f.drawn).toEqual([0, 22, 23]);
   expect(f.closes).toBe(3);
   render.close();
   hub.clear();
+  expect(f.resources.size).toBe(0);
 });
 it("a decoder error negotiates image fallback once and displays JPEG frames", async () => {
   const f = fixture();
@@ -146,6 +181,7 @@ it("closing a view releases decoding and ignores its late output", async () => {
   f.finish();
   expect(f.drawn).toEqual([]);
   expect(f.closes).toBe(1);
+  expect(f.resources.size).toBe(0);
 });
 it("decoder overload discards deltas until a fresh keyframe arrives", async () => {
   const f = fixture();
@@ -219,4 +255,32 @@ it("a lost keyframe is requested again even when the source becomes idle", async
   expect(f.keys).toBe(2);
   expect(f.drawn).toEqual([1]);
   render.close();
+});
+
+it("resize and reconnect dispose the previous decoder and ignore its late output", async () => {
+  const f = fixture();
+  const render = createDeviceRenderer(f.ports);
+  const old = render.render(frame(0, true));
+  const resized = frame(1, true);
+  resized.header = { ...resized.header, width: 200 };
+  const next = render.render(resized);
+  await old;
+  expect(f.resources.size).toBe(1);
+  f.late(0);
+  expect(f.drawn).toEqual([]);
+  f.finish();
+  await next;
+  expect(f.drawn).toEqual([1]);
+  const reconnected = frame(0, true);
+  reconnected.header = { ...reconnected.header, sessionId: "reconnected" };
+  const first = render.render(reconnected);
+  expect(f.resources.size).toBe(1);
+  f.late(1);
+  expect(f.drawn).toEqual([1]);
+  f.finish();
+  await first;
+  expect(f.drawn).toEqual([1, 0]);
+  render.close();
+  expect(f.resources.size).toBe(0);
+  expect(f.closes).toBe(4);
 });

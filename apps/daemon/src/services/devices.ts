@@ -1,4 +1,10 @@
-import { DevicesService, DevicePlatform, connectDevices, renderDeviceVideo } from "@ace/devices";
+import {
+  DevicesService,
+  DevicePlatform,
+  connectDevices,
+  renderDeviceVideo,
+  devicePacketDelivery,
+} from "@ace/devices";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { logFields } from "@ace/diagnostics";
 import { ThreadId, AgentId } from "@ace/protocol";
@@ -87,22 +93,16 @@ export function createDevicesSession(context: SocketContext): SocketService {
             ),
           );
         },
-        frame(packet) {
-          return new Promise<void>((resolve, reject) => {
-            if (!context.connected() || !context.authorize("admin")) {
-              reject(new Error("Device socket revoked"));
-              return;
-            }
-            // Never add stale video to a congested socket. Decoder sequence gaps request an IDR.
-            if (context.socket.bufferedAmount > 128 * 1024) {
-              resolve();
-              return;
-            }
-            context.socket.send(packet, { binary: true }, (error) =>
-              error ? reject(error) : resolve(),
-            );
-          });
-        },
+        ...devicePacketDelivery({
+          bufferedBytes: () => context.socket.bufferedAmount,
+          authorize: () => context.connected() && context.authorize("admin"),
+          write: (packet) =>
+            new Promise<void>((resolve, reject) => {
+              context.socket.send(packet, { binary: true }, (error) =>
+                error ? reject(error) : resolve(),
+              );
+            }),
+        }),
       });
     },
     close() {

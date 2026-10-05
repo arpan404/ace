@@ -11,7 +11,6 @@ private final class VideoFrame {
 }
 
 /// Hardware encoder with one outstanding sample. No B frames, lookahead or raw-pixel queue.
-enum VideoEncodeResult { case submitted, busy, unavailable }
 final class VideoEncoder {
     private var session: VTCompressionSession?
     private var size = CGSize.zero
@@ -23,8 +22,9 @@ final class VideoEncoder {
     private let sessionId: String
     private let version: Int
     private let publish: (Data) -> Void
-    init(sessionId: String, version: Int, publish: @escaping (Data) -> Void) {
-        self.sessionId = sessionId; self.version = version; self.publish = publish
+    private let completed: () -> Void
+    init(sessionId: String, version: Int, publish: @escaping (Data) -> Void, completed: @escaping () -> Void) {
+        self.sessionId = sessionId; self.version = version; self.publish = publish; self.completed = completed
     }
     func requestKeyframe() { lock.lock(); keyframe = true; lock.unlock() }
     func configure(bitrate: Int, fps: Int) {
@@ -50,7 +50,7 @@ final class VideoEncoder {
                 let entry = Unmanaged<VideoFrame>.fromOpaque(frame).takeRetainedValue()
                 guard let context else { return }
                 let encoder = Unmanaged<VideoEncoder>.fromOpaque(context).takeUnretainedValue()
-                defer { encoder.lock.lock(); encoder.busy = false; encoder.lock.unlock() }
+                defer { encoder.lock.lock(); encoder.busy = false; encoder.lock.unlock(); encoder.completed() }
                 guard status == noErr, let sample else { encoder.requestKeyframe(); return }
                 encoder.output(sample, entry)
             }, refcon: Unmanaged.passUnretained(self).toOpaque(), compressionSessionOut: &session)

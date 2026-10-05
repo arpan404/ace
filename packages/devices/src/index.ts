@@ -16,3 +16,5 @@ export { DeviceStreamControl, commonDeviceStream } from "./stream-control.ts";
 export { H264AccessUnits } from "./h264.ts";
 
 export { watchDeviceLease } from "./lease-expiry.ts";
+
+export { devicePacketDelivery } from "./packet-delivery.ts";

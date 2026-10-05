@@ -7,7 +7,7 @@ export class DeviceFrameWriter {
   constructor(write: (packet: Buffer) => Promise<void>) {
     this.write = write;
   }
-  send(packet: Buffer, authorize: () => void = () => {}): Promise<void> {
+  send(packet: Buffer, authorize: () => void = () => {}, write = this.write): Promise<void> {
     if (this.closed || this.pending >= 8)
       return Promise.reject(new Error("Device frame writer unavailable or full"));
     this.pending++;
@@ -15,7 +15,7 @@ export class DeviceFrameWriter {
       .then(async () => {
         if (this.closed) throw new Error("Device frame writer closed");
         authorize();
-        await this.write(packet);
+        await write(packet);
       })
       .finally(() => {
         this.pending--;

@@ -326,15 +326,22 @@ export class ScreenManager {
     this.authorize(session.state.target);
     if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux"))
       return this.screenshot(id);
-    if (session.latest?.header.codec === "h264") {
-      session.pixels.invalidateImage();
-      await session.helper.request({ op: "stream.image" });
+    const lease = session.pixels.acquire();
+    try {
+      await lease.ready;
+      if (session.helper.capabilities.platform === "macos") {
+        session.pixels.invalidateImage();
+        await session.helper.request({ op: "stream.image" });
+      }
+      return await session.pixels.screenshot(
+        this.options.scheduler ?? nodeScheduler,
+        this.options.timeoutMs ?? 10_000,
+      );
+    } finally {
+      lease.release();
     }
-    return session.pixels.screenshot(
-      this.options.scheduler ?? nodeScheduler,
-      this.options.timeoutMs ?? 10_000,
-    );
   }
+
   private async readUI<T>(
     id: string,
     read: (session: Session) => Promise<T>,
@@ -403,9 +410,11 @@ export class ScreenManager {
       if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
       beforeDispatch?.();
       if (input.kind === "pointer.down") session.pointerDown = true;
-      if (input.kind === "pointer.up" || input.kind === "pointer.cancel")
-        session.pointerDown = false;
-      return session.helper.request({ op: "input", input });
+      return session.helper.request({ op: "input", input }).then((result) => {
+        if (input.kind === "pointer.up" || input.kind === "pointer.cancel")
+          session.pointerDown = false;
+        return result;
+      });
     });
   }
   /**
@@ -475,10 +484,18 @@ export class ScreenManager {
       session.helper.capabilities?.platform === "macos" &&
       (session.state.controller !== controller || session.owner !== owner)
     ) {
-      session.pointerDown = false;
-      void session.helper
-        .request({ op: "input", input: { kind: "pointer.cancel" } })
-        .catch(() => {});
+      const cleanup = session.helper.request({ op: "input", input: { kind: "pointer.cancel" } });
+      const completion = cleanup.then(() => {
+        if (session.pointerCleanup === completion) {
+          session.pointerDown = false;
+          delete session.pointerCleanup;
+        }
+      });
+      session.pointerCleanup = completion;
+      void session.pointerCleanup.catch((error) => {
+        session.state.error = String(error);
+        this.emit(session);
+      });
     }
     if (session.controllerBinding) {
       // No old input remains authorized if an external release callback fails.
@@ -572,6 +589,7 @@ export class ScreenManager {
     const epoch = session.epoch;
     const execute = session.actionTail
       .then(async () => {
+        await session.pointerCleanup;
         if (session.epoch !== epoch) throw new Error("Controller changed");
         const permissions = ScreenPermissions.parse(
           await session.helper.request({ op: "permissions" }),

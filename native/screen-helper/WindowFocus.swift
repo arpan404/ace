@@ -41,12 +41,12 @@ import ScreenCaptureKit
 
 /// The first button in `window` whose accessibility description or title is `name`, searched
 /// breadth first through a bounded part of the tree (Simulator's toolbar and side buttons).
-func windowButton(_ window: AXUIElement, named name: String) -> AXUIElement? {
+func windowButton(_ window: AXUIElement, named name: String, clock: () -> UInt64) -> AXUIElement? {
     var queue = [(window, 0)]
     var visited = 0
     // Each call is bounded; the whole search is too, well inside the helper's command deadline.
-    let deadline = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
-    while !queue.isEmpty, visited < 256, DispatchTime.now().uptimeNanoseconds < deadline {
+    let deadline = clock() + 3_000_000_000
+    while !queue.isEmpty, visited < 256, clock() < deadline {
         let (element, depth) = queue.removeFirst()
         visited += 1
         if (axAttribute(element, kAXRoleAttribute) as? String) == (kAXButtonRole as String),

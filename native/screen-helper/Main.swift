@@ -17,7 +17,10 @@ import Darwin
         // the six-second default: every Accessibility call gives up after one second.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1)
         do {
-            let capture = Capture(writer: try FrameWriter(path: path))
+            let runtime = NativeRuntime(nanos: { DispatchTime.now().uptimeNanoseconds },
+                milliseconds: { Date().timeIntervalSince1970 * 1000 }, uptime: { ProcessInfo.processInfo.systemUptime },
+                inputAllowed: { AXIsProcessTrusted() && CGPreflightScreenCaptureAccess() })
+            let capture = Capture(writer: try FrameWriter(path: path), runtime: runtime)
             let accessibility = Accessibility(clock: { DispatchTime.now().uptimeNanoseconds })
             defer { accessibility.reset() }
             let commands = AsyncStream<Data>(bufferingPolicy: .bufferingOldest(32)) { continuation in

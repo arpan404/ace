@@ -6,9 +6,10 @@ export function coalescedPointerMoves<T>(
   let pending: T | undefined;
   let busy = false;
   let active = true;
+  let settled: Promise<void> = Promise.resolve();
   const deliver = (value: T) => {
     busy = true;
-    void send(value)
+    settled = send(value)
       .catch(error)
       .finally(() => {
         busy = false;
@@ -17,12 +18,18 @@ export function coalescedPointerMoves<T>(
         if (active && next !== undefined) deliver(next);
       });
   };
+  const settle = async (): Promise<void> => {
+    const current = settled;
+    await current;
+    if (current !== settled) await settle();
+  };
   return {
     move(value: T) {
       if (!active) return;
       if (busy) pending = value;
       else deliver(value);
     },
+    settle,
     discard() {
       pending = undefined;
     },

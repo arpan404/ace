@@ -13,7 +13,7 @@ extension Capture {
         let element: AXUIElement
         if let focused = try? focusedWindowElement(window, candidates: candidates) { element = focused }
         else { try await focusWindow(window); element = try focusedWindowElement(window, candidates: candidates) }
-        guard let button = windowButton(element, named: name) else { throw HelperError("The window has no \(name) button", code: "not_supported") }
+        guard let button = windowButton(element, named: name, clock: runtime.nanos) else { throw HelperError("The window has no \(name) button", code: "not_supported") }
         guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else { throw HelperError("Could not press \(name)", code: "internal") }
     }
     /// Keys and window buttons go to the app's focused window, and a background app (Simulator
@@ -28,6 +28,7 @@ extension Capture {
         try await Task.sleep(nanoseconds: 100_000_000)
     }
     func inject(_ action: Action) async throws {
+        if action.kind == "down", pointerAction != nil { try releasePointer() }
         // Permission is checked immediately before every event is posted below, after any
         // asynchronous focus/discovery. Avoid duplicating the TCC query on the pointer path.
         guard let target, target.kind != "display", let bundle = target.bundleId, allowed.contains(bundle) else { throw HelperError("Approved controllable target required", code: "permission_denied") }
@@ -90,15 +91,15 @@ extension Capture {
                 event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(inputWindow.windowID))
                 if action.kind == "click" { event.setIntegerValueField(.mouseEventClickState, value: 1) }
             }
-            guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess(), let pid = inputWindow.owningApplication?.processID, NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == bundle else { throw HelperError("macOS permission denied or target unavailable", code: "permission_denied") }
-            event.postToPid(pid)
+            guard let pid = inputWindow.owningApplication?.processID, NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == bundle else { throw HelperError("macOS permission denied or target unavailable", code: "permission_denied") }
+            try NativeInputPost.perform(permission: runtime.inputAllowed) { event.postToPid(pid) }
         }
         func pointer(_ type: NSEvent.EventType) throws -> CGEvent {
             // NSEvent cannot look up this foreign NSWindow. Compensate for its screen-to-window Y conversion.
             let current = try pointerBounds ?? currentWindowBounds(inputWindow)
             let local = CGPoint(x: location.x - current.minX, y: current.maxY - location.y)
             let point = CGPoint(x: local.x, y: local.y + CGDisplayBounds(CGMainDisplayID()).height - current.height)
-            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: Int(inputWindow.windowID), context: nil, eventNumber: 0, clickCount: 1, pressure: 1)?.cgEvent else { throw HelperError("Cannot create targeted pointer event") }
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: runtime.uptime(), windowNumber: Int(inputWindow.windowID), context: nil, eventNumber: 0, clickCount: 1, pressure: 1)?.cgEvent else { throw HelperError("Cannot create targeted pointer event") }
             return event
         }
         switch action.kind {
@@ -112,8 +113,12 @@ extension Capture {
             let right = action.button == "right"
             let type: NSEvent.EventType = action.kind == "move" ? .mouseMoved : action.kind == "down" ? (right ? .rightMouseDown : .leftMouseDown) : action.kind == "drag" ? (right ? .rightMouseDragged : .leftMouseDragged) : (right ? .rightMouseUp : .leftMouseUp)
             try post(try pointer(type))
-            if action.kind == "down" || action.kind == "drag" { pointerAction = action }
-            if action.kind == "up" { pointerAction = nil }
+            if action.kind == "down" || action.kind == "drag" {
+                guard let pid = inputWindow.owningApplication?.processID,
+                      let app = NSRunningApplication(processIdentifier: pid) else { throw HelperError("Pointer target unavailable", code: "target_gone") }
+                heldPointer.hold(PointerPress(window: inputWindow, application: app, button: action.button ?? "left", location: location))
+            }
+            if action.kind == "up" { heldPointer.targetDestroyed() }
         case "type":
             guard let text = action.text, text.utf16.count <= 4096 else { throw HelperError("Text exceeds limit", code: "bounds") }
             if text.isEmpty {
