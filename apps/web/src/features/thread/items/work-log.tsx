@@ -11,8 +11,14 @@ const StepDetail = DeferredStepDetail.Component;
  * "Worked for 4m 12s › Explored 6 files · Ran 3 commands · Edited 2 files". The whole tool log
  * at rest; expanding shows each step as a quiet row. Opens by itself when a step needs approval.
  */
-export function WorkLog(props: { threadId: string; itemIds: readonly string[]; live?: boolean }) {
-  const headline = useWorkLog(props.threadId, props.itemIds, props.live);
+export function WorkLog(props: {
+  threadId: string;
+  itemIds: readonly string[];
+  live?: boolean;
+  /** When its stretch closed: its time never runs past it. */
+  until?: number | undefined;
+}) {
+  const headline = useWorkLog(props.threadId, props.itemIds, props.live, props.until);
   const [toggled, setOpen] = useState<boolean>();
   const open = toggled ?? headline?.awaiting ?? false;
   const panel = useId();

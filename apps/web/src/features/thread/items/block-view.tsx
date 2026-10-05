@@ -31,7 +31,14 @@ export const BlockView = memo(function BlockView(props: {
     case "message":
       return <AssistantMessage threadId={threadId} itemId={block.itemId} />;
     case "work":
-      return <WorkLog threadId={threadId} itemIds={block.itemIds} live={props.live ?? false} />;
+      return (
+        <WorkLog
+          threadId={threadId}
+          itemIds={block.itemIds}
+          live={props.live ?? false}
+          until={block.until}
+        />
+      );
     case "subagents":
       return <Subagents threadId={threadId} itemIds={block.itemIds} />;
     case "background":
@@ -44,7 +51,7 @@ export const BlockView = memo(function BlockView(props: {
     case "event":
       return <Event threadId={threadId} itemId={block.itemId} />;
     case "end":
-      return <TurnEnd threadId={threadId} runId={block.runId} askId={block.askId} />;
+      return <TurnEnd threadId={threadId} block={block} />;
   }
 });
 
