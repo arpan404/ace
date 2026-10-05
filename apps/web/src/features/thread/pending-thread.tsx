@@ -3,17 +3,13 @@ import { useConnectionState, useIntent, usePendingSends, useThreadMeta } from "@
 import { providerNames, type TurnActivity } from "@ace/ui-core";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Suspense, useEffect } from "react";
+import { useEffect, type ComponentType, type ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
-import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
 import { startedTitle } from "./composer/send-store.ts";
-import { UserMessage } from "./items/user-message.tsx";
-import { readingColumn } from "./lib/column.ts";
-import { ActivityLine } from "./transcript/live-footer.tsx";
 
 /** What the new thread is doing before it exists: a worktree first, then its provider. */
 function startingLine(payload: PendingSend["payload"], accepted: boolean): TurnActivity {
@@ -32,7 +28,18 @@ function startingLine(payload: PendingSend["payload"], accepted: boolean): TurnA
  * has arrived, the route moves to it in place; the transcript there opens on the same bubble.
  * A refused start keeps the bubble with the reason, Retry and Edit.
  */
-export function PendingThreadView(props: { threadId: string }) {
+export function PendingThreadView(props: {
+  threadId: string;
+  /** The transcript's parts, passed in so this view's code carries none of them. */
+  parts: {
+    /** The reading column's class, so the bubble sits where the thread will have it. */
+    column: string;
+    /** The person's message as the transcript draws it, with its sending state. */
+    bubble: ReactNode;
+    /** The live line as the transcript draws it. */
+    Line: ComponentType<{ activity: TurnActivity }>;
+  };
+}) {
   const commandId = props.threadId.slice("pending:".length);
   const entry = usePendingSends(props.threadId).find((send) => send.commandId === commandId);
   const intent = useIntent(commandId);
@@ -74,7 +81,7 @@ export function PendingThreadView(props: { threadId: string }) {
         {/* The same column, marker and spacing the transcript opens with, so the move to the
             real thread doesn't shift the bubble. */}
         <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
-          <div className={`${readingColumn} pt-6 pb-16`}>
+          <div className={`${props.parts.column} pt-6 pb-16`}>
             <div className="flex justify-center pb-4">
               <Marker variant="separator" className="text-xs text-subtle-foreground">
                 <MarkerContent>Beginning of thread</MarkerContent>
@@ -82,13 +89,10 @@ export function PendingThreadView(props: { threadId: string }) {
             </div>
             <div role="feed" aria-label="Transcript" aria-busy={!failed}>
               <div role="article" className="pb-7">
-                <UserMessage threadId={props.threadId} itemId={`input:${commandId}`} />
+                {props.parts.bubble}
               </div>
             </div>
-            {payload && !failed && <ActivityLine activity={startingLine(payload, !!realId)} />}
-            <Suspense fallback={null}>
-              <DeferredLocalSends.Component threadId={props.threadId} />
-            </Suspense>
+            {payload && !failed && <props.parts.Line activity={startingLine(payload, !!realId)} />}
           </div>
         </div>
       </div>

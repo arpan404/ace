@@ -29,6 +29,9 @@ import { ForkOpener } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
 
 // Loaded on first open, off the route's first paint.
+const PendingThreadView = lazy(() =>
+  import("./pending-thread.tsx").then((m) => ({ default: m.PendingThreadView })),
+);
 const RenameDialog = lazy(() =>
   import("./header/rename-dialog.tsx").then((m) => ({ default: m.RenameDialog })),
 );
@@ -51,9 +54,38 @@ import {
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
-import { PendingThreadView } from "./pending-thread.tsx";
+import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
+import { UserMessage } from "./items/user-message.tsx";
+import { ActivityLine } from "./transcript/live-footer.tsx";
 import { LongThreadButtons } from "./long/header-buttons.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
+
+/**
+ * A thread New thread started a moment ago, until the daemon names it: its view's code loads
+ * on demand, drawing the person's message and the live line as the transcript does.
+ */
+function PendingThread(props: { threadId: string }) {
+  const commandId = props.threadId.slice("pending:".length);
+  return (
+    <Suspense fallback={null}>
+      <PendingThreadView
+        threadId={props.threadId}
+        parts={{
+          column: readingColumn,
+          bubble: (
+            <>
+              <UserMessage threadId={props.threadId} itemId={`input:${commandId}`} />
+              <Suspense fallback={null}>
+                <DeferredLocalSends.Component threadId={props.threadId} />
+              </Suspense>
+            </>
+          ),
+          Line: ActivityLine,
+        }}
+      />
+    </Suspense>
+  );
+}
 
 /** The Agents panel's follow-up composer: its code loads with the composer's other parts. */
 function AgentComposer(props: ComponentProps<typeof DeferredAgentComposer.Component>) {
@@ -78,7 +110,7 @@ export interface ThreadTarget {
  */
 export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
   // Started from New thread a moment ago: shown until the daemon names the real thread.
-  if (isPendingThread(props.threadId)) return <PendingThreadView threadId={props.threadId} />;
+  if (isPendingThread(props.threadId)) return <PendingThread threadId={props.threadId} />;
   return (
     <ThreadNavProvider threadId={props.threadId}>
       <ThreadScreen threadId={props.threadId} target={props.target} />
