@@ -215,6 +215,12 @@ export class Connection {
         this.fail(new ClientError("auth"));
         return;
       }
+      if (
+        message.type === "welcome" &&
+        this.options.expectedHostId !== undefined &&
+        message.hostId !== this.options.expectedHostId
+      )
+        throw new ClientError("auth", "Unexpected daemon identity");
       if (this.state !== "ready") {
         if (message.type !== "welcome") throw new ClientError("protocol");
         this.cancel?.();

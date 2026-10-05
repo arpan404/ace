@@ -18,6 +18,9 @@
       "$ref": "https://ace.local/protocol/v1/ThreadReadStateRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/HostIdentityRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MachinesRequest.json"
     },
     {

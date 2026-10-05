@@ -1,5 +1,5 @@
 import type { Credential } from "./credentials.ts";
-import type { DeviceId } from "@ace/protocol";
+import type { DeviceId, HostId } from "@ace/protocol";
 
 export interface TransportEvents {
   open(): void;
@@ -21,6 +21,8 @@ export interface Scheduler {
 export type ConnectionState = "connecting" | "ready" | "reconnecting" | "offline" | "fatal";
 export interface ClientOptions {
   deviceId: DeviceId;
+  /** Pin a directory entry before subscriptions or durable intents can replay. */
+  expectedHostId?: HostId;
   transport(): Transport;
   credential(): Promise<Credential>;
   storage: Storage;
