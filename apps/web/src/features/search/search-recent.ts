@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { z } from "zod";
 
 /*
  * Recent searches on this device: the last eight, newest first, in localStorage
@@ -6,6 +7,7 @@ import { useCallback, useSyncExternalStore } from "react";
  */
 const storageKey = "ace.search.recent";
 const keep = 8;
+const Recent = z.array(z.string().max(512)).max(64);
 const listeners = new Set<() => void>();
 let cached: { raw: string | null; list: readonly string[] } | undefined;
 
@@ -28,9 +30,8 @@ function read(): readonly string[] {
   if (cached && cached.raw === raw) return cached.list;
   let list: readonly string[] = [];
   try {
-    const parsed: unknown = JSON.parse(raw ?? "[]");
-    if (Array.isArray(parsed))
-      list = parsed.filter((entry): entry is string => typeof entry === "string").slice(0, keep);
+    const parsed = Recent.safeParse(JSON.parse(raw ?? "[]"));
+    list = parsed.success ? parsed.data.slice(0, keep) : [];
   } catch {
     list = [];
   }

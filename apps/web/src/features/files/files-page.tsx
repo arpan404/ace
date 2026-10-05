@@ -17,7 +17,13 @@ import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { fileStatus, formatAge, writtenText } from "@ace/ui-core";
 import { useFileStat } from "@/lib/diffs/use-file-diffs.ts";
-import { threadLimit, useChangedFiles, useDownloadFile, type ChangedFile } from "./files-source.ts";
+import {
+  DownloadTooLarge,
+  threadLimit,
+  useChangedFiles,
+  useDownloadFile,
+  type ChangedFile,
+} from "./files-source.ts";
 
 /** Hand a blob to the browser as a download. Boundary code: DOM and object URLs. */
 function saveAs(name: string, blob: Blob) {
@@ -200,23 +206,28 @@ function FileRow(props: { file: ChangedFile }) {
     } catch (error) {
       toast.error({
         title: `Couldn't download ${name}`,
-        description: describeDaemonError(daemonErrorCode(error)),
+        description:
+          error instanceof DownloadTooLarge
+            ? error.message
+            : describeDaemonError(daemonErrorCode(error)),
       });
     } finally {
       setBusy(false);
     }
   };
   return (
-    <li className="flex items-center gap-3 border-t py-2 text-ui last:border-b">
+    <li className="relative flex items-center gap-3 border-t px-1 py-2 text-ui last:border-b hover:bg-accent">
       <Link
         to="/t/$threadId"
         params={{ threadId: file.threadId }}
         title={file.path}
-        className="min-w-0 flex-1 truncate rounded-xs font-mono text-sm hover:underline focus-ring"
+        className="min-w-0 flex-1 truncate rounded-xs font-mono text-sm focus-ring after:absolute after:inset-0"
       >
         {file.path}
       </Link>
-      <span className="w-16 shrink-0 text-sm text-muted-foreground">{statusWords[status]}</span>
+      <span className="w-16 shrink-0 text-sm text-muted-foreground max-sm:hidden">
+        {statusWords[status]}
+      </span>
       <span className="w-20 shrink-0 text-right font-mono text-sm tabular-nums">
         {/* Only the sides that changed: a new file reads +42, not +42 −0. */}
         {!stat ? (
@@ -229,7 +240,7 @@ function FileRow(props: { file: ChangedFile }) {
           </>
         )}
       </span>
-      <span className="w-8 shrink-0 text-right text-xs text-muted-foreground">
+      <span className="w-8 shrink-0 text-right text-xs text-muted-foreground max-sm:hidden">
         {formatAge(file.updatedAt, now)}
       </span>
       {deleted ? (
@@ -249,6 +260,7 @@ function FileRow(props: { file: ChangedFile }) {
           icon={DownloadSimpleIcon}
           label={`Download ${file.path}`}
           size="sm"
+          className="relative"
           disabled={busy}
           onClick={() => void save()}
         />

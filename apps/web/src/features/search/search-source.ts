@@ -116,24 +116,36 @@ export function useSearch(text: string, kind: SearchKind | undefined) {
   };
 }
 
+/** How many pages of the thread's own search are read to place a hit (100 matches each). */
+export const seqPages = 20;
+
 /**
- * The hit's place in its thread, so the thread opens at it: its item's sequence, found through
- * the thread's own search. Undefined when the hit isn't an item or the thread no longer has it.
+ * The hit's place in its thread, so the thread opens at it: its item's sequence, found by
+ * paging the thread's own search for the same words until that item comes up (at most
+ * `seqPages` pages). Undefined when the hit isn't an item, or the thread no longer has it.
  */
 export async function hitSeq(
-  client: ClientApi,
-  hit: SearchHit,
+  client: Pick<ClientApi, "threadSearch">,
+  hit: Pick<SearchHit, "threadId" | "itemId">,
   query: string,
 ): Promise<number | undefined> {
   if (!hit.itemId || !query) return undefined;
+  let cursor: string | undefined;
   try {
-    const reply = await client.threadSearch({
-      threadId: ThreadId.parse(hit.threadId),
-      text: query,
-      limit: 100,
-    });
-    return reply.hits.find((candidate) => candidate.itemId === hit.itemId)?.seq;
+    for (let page = 0; page < seqPages; page++) {
+      const reply = await client.threadSearch({
+        threadId: ThreadId.parse(hit.threadId),
+        text: query,
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+      });
+      const found = reply.hits.find((candidate) => candidate.itemId === hit.itemId);
+      if (found) return found.seq;
+      if (!reply.cursor) return undefined;
+      cursor = reply.cursor;
+    }
   } catch {
     return undefined;
   }
+  return undefined;
 }

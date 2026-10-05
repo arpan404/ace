@@ -111,7 +111,7 @@ test("a search that was opened is offered again from Recent, and can be forgotte
   await userEvent.click(within(recent).getByRole("button", { name: "retry budget" }));
   expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(0);
 
-  await userEvent.click(screen.getAllByRole("button", { name: "Clear" })[0]!);
+  await userEvent.click(screen.getByRole("button", { name: "Clear" }));
   await userEvent.click(
     within(await screen.findByRole("region", { name: "Recent" })).getByRole("button", {
       name: 'Forget "retry budget"',
