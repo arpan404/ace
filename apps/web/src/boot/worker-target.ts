@@ -2,7 +2,8 @@ import * as z from "zod/mini";
 import { DaemonTarget } from "./connection-settings.ts";
 
 /** What a tab hands the client worker: the daemon to reach and this device's identity. */
-export const WorkerTarget = z.extend(DaemonTarget, {
+export const WorkerTarget = z.object({
+  ...DaemonTarget.shape,
   deviceId: z.string().check(z.minLength(1)),
   /** The outbox an older build kept in localStorage, to carry over once. */
   seed: z.nullable(z.string()),

@@ -60,9 +60,12 @@ transform and opacity only.
 
 The widths the shell adapts at live in `lib/breakpoints.ts` (`usePhone`, `useSidebarInline`, ...),
 in line with Tailwind's `sm` and `md`. Below 640px the header folds its actions and ⋯ menu into
-one and panels open as a sheet over the content. Below 768px the rail and sidebar are one sheet
-opened from the header (it closes once a place is chosen); below 1100px the sidebar steps aside
-while a right panel is open (the rail stays); below 1152px panels float over the content.
+one and panels open as a sheet over the content. Below 768px, and on short touch screens (a phone
+held sideways), the rail and sidebar are one sheet opened from the header (it closes once a place
+is chosen, a link in it is followed, or the palette or a dialog opens from it). From 897px to
+1100px the sidebar steps aside while a right panel is open, so the panel docks beside the column
+(the rail stays); at 896px and below panels float over the content and the sidebar stays as the
+person left it.
 
 ## Rail and sidebar
 
@@ -70,14 +73,16 @@ As in desktop chat apps: a narrow rail of views and, beside it, a sidebar with t
 own list (composed in `app/app-shell.tsx`).
 
 - **Rail** (`features/shell/rail.tsx`, 40px): icons only, each named by a tooltip with its
-  shortcut on hover and keyboard focus. Home (`g h`; a dot while a thread needs you or has news,
-  kept as counts by `AttentionTally` from the changed entries only, and judged against the same
-  first launch as Home's list, `firstLaunch` in `@ace/ui-core`), Activity (`g a`, the needs-you count), Deck (`g d`),
+  shortcut on hover and keyboard focus. Home (`g h`; a dot while a thread has news, kept as
+  counts by `AttentionTally` from the changed entries only, and judged against the same first
+  launch as Home's list, `firstLaunch` in `@ace/ui-core`), Deck (`g d`),
   Automations (`g u`), Skills (`g s`), More (a menu of usage and accounts, files and search);
-  Settings (⌘,) and the account with the connection dot at the foot.
-- **Sidebar** (`features/shell/app-sidebar.tsx`): "ace ▾" (the account and connection menu), the
-  Activity bell and Search (⌘K), New thread (⌘N), then the current view's list, the only part
-  that scrolls. A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the
+  Settings (⌘,) and the account (the person and the app: Settings, Appearance, shortcuts,
+  usage) with the connection dot at the foot.
+- **Sidebar** (`features/shell/app-sidebar.tsx`): "ace ▾" (the daemon: its state and address,
+  pairing, connection settings), the Activity bell (`g a`, with the needs-you count; Activity's
+  only way in outside the palette) and Search and commands (⌘K), New thread (⌘N; Add project
+  while there is none), then the current view's list, the only part that scrolls. A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the
   sidebar's body through a portal, so it keeps the route's providers.
 - **Home's list** (`features/home`): one flat list of tasks across projects, pinned first, then
   Home order (needs you, work in motion, trouble, the rest, most recent first), then the

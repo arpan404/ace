@@ -2,7 +2,7 @@ import { z } from "zod";
 import { CommandId, ThreadId } from "./ids.ts";
 import { ContentPart } from "./items.ts";
 import { MessageContext } from "./context.ts";
-import { AccountId } from "./accounts.ts";
+import { AccountId } from "./account-ids.ts";
 
 export const FollowUpBehavior = z.enum(["steer", "queue"]);
 export type FollowUpBehavior = z.infer<typeof FollowUpBehavior>;

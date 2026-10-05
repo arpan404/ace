@@ -23,8 +23,12 @@ test("⌘K finds a thread by its branch and opens it", async () => {
   await openApp();
   const search = await palette();
   await userEvent.type(search, "perf/fan");
+  // The thread, then the way into full-text search.
   await waitFor(() =>
-    expect(options()).toEqual(["Backpressure on broadcast fan-outrelay · perf/fanout"]),
+    expect(options()).toEqual([
+      "Backpressure on broadcast fan-outrelay · perf/fanoutThreads",
+      "Search all threads for “perf/fan”",
+    ]),
   );
   await userEvent.keyboard("{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });
@@ -45,9 +49,7 @@ test("picking a project narrows Home to it", async () => {
   await openApp("/activity");
   const search = await palette();
   await userEvent.type(search, "billing");
-  const project = within(await screen.findByRole("group", { name: "Projects" })).getByRole(
-    "option",
-  );
+  const project = await screen.findByRole("option", { name: /^billing-api.*Projects$/ });
   await userEvent.click(project);
   expect(await screen.findByRole("button", { name: "Project filter: billing-api" })).toBeTruthy();
   // Home opens the filtered list's top thread.
@@ -76,4 +78,37 @@ test("the palette offers no Settle for a thread that is still working", async ()
   const search = await palette();
   await userEvent.type(search, "settle this");
   expect(screen.queryByRole("option", { name: /Settle this thread/ })).toBeNull();
+});
+
+test("with a query, commands rank by how well they match, letters in order included", async () => {
+  await openApp();
+  const search = await palette();
+  await userEvent.type(search, "nwthr");
+  await waitFor(() => expect(options()[0]).toMatch(/^New thread/));
+  await userEvent.clear(search);
+  await userEvent.type(search, "settings");
+  await waitFor(() => expect(options()[0]).toMatch(/^SettingsGo to/));
+});
+
+test("a query nothing matches falls through to searching every thread", async () => {
+  await openApp();
+  const search = await palette();
+  await userEvent.type(search, "qqqzzz");
+  await waitFor(() => expect(options()).toEqual(["Search all threads for “qqqzzz”"]));
+  await userEvent.keyboard("{Enter}");
+  expect(await screen.findByRole("heading", { level: 1, name: "Search" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull();
+});
+
+test("threads opened lately come first with an empty query, the open one aside", async () => {
+  await openApp("/t/thread-fan-out");
+  await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });
+  const threads = within(screen.getByRole("navigation", { name: "Threads" }));
+  await userEvent.click(threads.getByRole("link", { name: /^Partial refunds double-count tax/ }));
+  await screen.findByRole("heading", { level: 1, name: /^Partial refunds double-count tax/ });
+  await palette();
+  const recent = within(await screen.findByRole("group", { name: "Recent threads" }));
+  expect(recent.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    expect.stringMatching(/^Backpressure on broadcast fan-out/),
+  ]);
 });

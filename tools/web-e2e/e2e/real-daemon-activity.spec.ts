@@ -16,7 +16,9 @@ async function connect(page: Page, path: string) {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   const daemon = encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`);
   await page.goto(`${path}#token=${token}&daemon=${daemon}`);
-  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Account and connection", exact: true }),
+  ).toBeAttached();
 }
 
 test("a plugin installs from a local marketplace through its review, and its skill reads back", async ({
@@ -63,7 +65,9 @@ test("an automation created in the app is stored by the daemon and listed back",
     page.getByRole("heading", { level: 2, name: "Nightly e2e audit", exact: true }),
   ).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Account and connection", exact: true }),
+  ).toBeAttached();
   const aside = page.getByRole("complementary", { name: "Automations" });
   await expect(aside.getByRole("link", { name: /Nightly e2e audit/ })).toBeVisible();
 
