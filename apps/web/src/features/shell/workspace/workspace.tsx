@@ -135,7 +135,7 @@ export function Workspace(props: {
         <button
           type="button"
           onClick={() => withViewTransition(() => actions.setExpanded(false))}
-          className="ml-1 flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-[7px] px-2.5 text-sm font-medium text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] [-webkit-app-region:no-drag]"
+          className="focus-ring ml-1 flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
         >
           <ChatCircleTextIcon aria-hidden size={14} className="shrink-0" />
           <span className="min-w-0 truncate">{props.title}</span>
@@ -178,6 +178,7 @@ export function Workspace(props: {
                 leading={leading}
                 controls={controls("panel")}
                 notice={expanded ? props.notice : undefined}
+                context={props.title}
               />
             </DockWhenReady>
           </Suspense>
@@ -198,6 +199,7 @@ export function Workspace(props: {
                 bounds: bottomBounds(size.height - headerHeight),
                 size: workspace.bottom.size ?? preferred.bottom,
               }}
+              context={props.title}
             />
           </DockWhenReady>
         </Suspense>
