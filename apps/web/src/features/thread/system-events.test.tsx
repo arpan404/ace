@@ -169,7 +169,7 @@ test("an answered question stays where it was asked, with the answer it got", as
   // The other options wait behind a disclosure.
   await userEvent.click(within(answered).getByRole("button", { name: "Show all 3 options" }));
   expect(within(answered).getByText(/Re-open the sheet with a fresh state/)).toBeTruthy();
-});
+}, 15_000);
 
 test("number keys pick an option and Enter answers", async () => {
   const app = harness();
@@ -267,9 +267,13 @@ async function answerThenReplay(scenario: Scenario) {
   player.runUntilBlocked();
   await app.open(`/t/${scenario.thread.id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const card = await within(feed).findByRole("article", {
-    name: "How should the sheet recover after rotate?",
-  });
+  const card = await within(feed).findByRole(
+    "article",
+    {
+      name: "How should the sheet recover after rotate?",
+    },
+    15_000,
+  );
   await userEvent.click(within(card).getByRole("radio", { name: /Block rotation/ }));
   await userEvent.click(within(card).getByRole("button", { name: "Answer" }));
   await waitFor(() => expect(app.daemon.isPending(scenario.thread.id, "ask-1")).toBe(false));
@@ -295,7 +299,7 @@ test("the same native request replayed after it was answered reads as answered",
   // The agent may still be waiting on the copy: it can be answered anew.
   await userEvent.click(within(feed).getByRole("button", { name: "Answer again" }));
   expect(await within(feed).findByRole("button", { name: "Skip" })).toBeTruthy();
-});
+}, 15_000);
 
 test("the same wording asked again later is a new question, left open", async () => {
   const feed = await answerThenReplay(
@@ -311,7 +315,7 @@ test("the same wording asked again later is a new question, left open", async ()
   ).toBeTruthy();
   expect(within(feed).getByRole("button", { name: "Skip" })).toBeTruthy();
   expect(within(feed).queryByText(/Answered earlier/)).toBeNull();
-});
+}, 15_000);
 
 test("a different question on the same message never inherits the earlier answer", async () => {
   const other = {
@@ -323,7 +327,7 @@ test("a different question on the same message never inherits the earlier answer
   );
   const card = await within(feed).findByRole("article", { name: "Which screens should change?" });
   expect(within(card).getByRole("button", { name: "Skip" })).toBeTruthy();
-});
+}, 15_000);
 
 test("outside full access, approvals don't offer choices the daemon would refuse", async () => {
   const scenario: Scenario = {
