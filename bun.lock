@@ -213,6 +213,7 @@
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/redaction": "workspace:*",
         "zod": "^4.6.5",
       },
       "devDependencies": {
@@ -393,6 +394,7 @@
       "dependencies": {
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
     },
