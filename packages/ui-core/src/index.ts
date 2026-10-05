@@ -27,6 +27,7 @@ export * from "./held-order.ts";
 export * from "./inline-markdown.ts";
 export * from "./models.ts";
 export * from "./model-picker.ts";
+export * from "./model-label.ts";
 export * from "./lru.ts";
 export * from "./organizer.ts";
 export * from "./organize-patch.ts";

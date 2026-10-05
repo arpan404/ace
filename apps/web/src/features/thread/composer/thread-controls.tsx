@@ -11,7 +11,6 @@ import {
   permissionLabel,
   pickerModelsFromChoices,
   pickerProviders,
-  providerNames,
   reconcileNextOptions,
   recordedChoice,
   speedControl,
@@ -188,16 +187,15 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
     );
   };
   const account = shown?.account ? accountTag(shown.account) : undefined;
-  const name = shown
-    ? modelControlName({
-        model: shown.model,
-        account,
-        effort: effort.current,
-        effortDefault: !effort.reported,
-        hasEfforts: effort.efforts.length > 0,
-        fast: speed.on,
-      })
-    : undefined;
+  const details = {
+    model: shown?.model ?? "",
+    account,
+    effort: effort.current,
+    effortDefault: !effort.reported,
+    hasEfforts: effort.efforts.length > 0,
+    fast: speed.on,
+  };
+  const name = shown && modelControlName(details);
   const waiting = pending ? "applies with your next message" : undefined;
   const models = pickerModelsFromChoices(choices, limitReached);
   const view: ModelControlView = {
@@ -206,7 +204,9 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
     placeholder: "Model",
     ariaLabel: name ? `Model: ${name}` : "Choose a model",
     tip: shown
-      ? [providerNames[shown.provider], name, waiting].filter(Boolean).join(" · ")
+      ? [modelControlName({ ...details, provider: shown.provider }), waiting]
+          .filter(Boolean)
+          .join(" · ")
       : "Choose a model",
     offline: online ? undefined : offlineNote,
     modelKey: shown?.key,

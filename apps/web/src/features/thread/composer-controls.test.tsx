@@ -233,14 +233,14 @@ test("a switch queued to a provider with no catalog models keeps showing it acro
       selection: { provider: "pi", options: {} },
     },
   });
-  expect(await screen.findByRole("button", { name: /^Model: Pi default/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Model: Pi · Default/ })).toBeTruthy();
 
   act(() => app.client.networkOnline(false));
   await screen.findByText(/^Offline\./);
-  expect(screen.getByRole("button", { name: /^Model: Pi default/ })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^Model: Pi · Default/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Model: Opus/ })).toBeNull();
 
   act(() => app.client.networkOnline(true));
   await waitFor(() => expect(screen.queryByText(/^Offline\./)).toBeNull());
-  expect(screen.getByRole("button", { name: /^Model: Pi default/ })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^Model: Pi · Default/ })).toBeTruthy();
 });

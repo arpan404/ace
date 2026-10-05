@@ -2,7 +2,6 @@ import {
   accountTag,
   modelControlName,
   pickerProviders,
-  providerNames,
   speedControl,
   speedOffTier,
   type PickerModel,
@@ -43,15 +42,14 @@ export function ModelPicker(props: {
     },
     current: fast ? model?.fastTier : speedOffTier(model),
   });
-  const name = model
-    ? modelControlName({
-        model: model.label,
-        account: tag,
-        effort,
-        hasEfforts: efforts.length > 0,
-        fast: speed.on,
-      })
-    : undefined;
+  const details = model && {
+    model: model.label,
+    account: tag,
+    effort,
+    hasEfforts: efforts.length > 0,
+    fast: speed.on,
+  };
+  const name = details && modelControlName(details);
   const models: PickerModel[] = (props.options?.models ?? []).map((option) => ({
     key: option.key,
     provider: option.provider,
@@ -64,7 +62,7 @@ export function ModelPicker(props: {
     label: model?.label,
     placeholder: empty,
     ariaLabel: `Model: ${name ?? (none ? "no provider installed" : "loading")}`,
-    tip: model ? [providerNames[model.provider], name].join(" · ") : empty,
+    tip: details ? modelControlName({ ...details, provider: model.provider }) : empty,
     disabled: !model,
     modelKey: model?.key,
     efforts,

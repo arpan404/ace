@@ -71,9 +71,11 @@ test("on a daemon without a model catalog, New thread starts on the installed CL
   services.installed = new Set(["codex"]);
   await made.open("/new?project=relay");
 
-  expect((await model()).getAttribute("aria-label")).toBe("Model: Codex default");
+  // One name for the provider's default, on the chip and in the picker alike.
+  expect((await model()).getAttribute("aria-label")).toBe("Model: Codex · Default");
   const picker = await openModelPicker(await openModelControl());
-  expect(within(picker).queryByRole("option", { name: /^Claude Code default/ })).toBeNull();
+  expect(within(picker).getByRole("option", { name: /^Codex · Default/ })).toBeTruthy();
+  expect(within(picker).queryByRole("option", { name: /^Claude Code · Default/ })).toBeNull();
   await closeModelControl();
 
   await send("Explain the restart backoff");
