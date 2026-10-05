@@ -96,6 +96,8 @@ export interface FakeDeckRun {
   phase: FakeDeckPhase;
   /** At least one plan revision was approved. */
   planApproved: boolean;
+  /** Whether the plan waits for the person; seeded decks asked for approval. */
+  planApproval?: "required" | "auto";
   gate: FakeGate | null;
   /** Column names by dependency depth (Foundation, Build, …). */
   stages: string[];

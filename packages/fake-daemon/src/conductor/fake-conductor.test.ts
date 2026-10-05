@@ -66,11 +66,12 @@ test("every lane runs on an account the fake accounts.list serves", () => {
  * gate leaves the deck in the same place on both, as the daemon's view reports it. The Deck
  * UI's copy for each decision is written against this.
  */
+/** Cancelling settles to cancelled once lanes stop; the fake has no lanes to wait for. */
+const settled = (phase: string) => (phase === "cancelling" ? "cancelled" : phase);
+
 describe("the fake answers gates as the real conductor does", () => {
   type Kind = FakeGate["kind"];
   type Outcome = { phase: string; card: string | null } | { error: string };
-  /** Cancelling settles to cancelled once lanes stop; the fake has no lanes to wait for. */
-  const settled = (phase: string) => (phase === "cancelling" ? "cancelled" : phase);
 
   function real(kind: Kind, decision: "approve" | "reject", budget?: number): Outcome {
     const base = spec({ planApproval: "required", merge: "ask" });

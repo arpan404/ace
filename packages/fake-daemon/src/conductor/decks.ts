@@ -438,6 +438,16 @@ function codexBump(now: number): FakeDeckRun {
   });
 }
 
+/** A staged deck's lane: a worker on `worker`, reviewed adversarially on Claude Code. */
+function stagedLane(worker: string, provider: FakeLane["worker"]["provider"]): FakeLane {
+  return {
+    worker: { account: worker, provider, detail: "Worktree lane" },
+    reviewer: { account: "claude-work", provider: "claude", detail: "Adversarial" },
+    threadId: null,
+    rounds: [{ label: "Round 1", verdict: "Working", detail: "", findings: [] }],
+  };
+}
+
 /**
  * Decks in states the design's world doesn't hold, added by `deckRuns(now, extra)` or
  * `FakeConductor.stage()`: a first plan waiting for approval, a deck that used its budget, and a
@@ -452,12 +462,6 @@ export function stagedDeck(scenario: FakeDeckScenario, now: number): FakeDeckRun
     updatedAt: now - 6 * minute,
     log: [{ at: createdAt, text: "Deck started from the goal." }],
   };
-  const lane = (worker: string, provider: FakeLane["worker"]["provider"]): FakeLane => ({
-    worker: { account: worker, provider, detail: "Worktree lane" },
-    reviewer: { account: "claude-work", provider: "claude", detail: "Adversarial" },
-    threadId: null,
-    rounds: [{ label: "Round 1", verdict: "Working", detail: "", findings: [] }],
-  });
   switch (scenario) {
     case "planning":
       return {
@@ -524,7 +528,7 @@ export function stagedDeck(scenario: FakeDeckScenario, now: number): FakeDeckRun
           }),
           card("conflicts", "Per-setting conflict rules", ["sync-store"], "fixing", {
             round: 4,
-            lane: lane("codex-personal", "codex"),
+            lane: stagedLane("codex-personal", "codex"),
             brief: brief(
               "Resolve conflicting edits per setting, newest wins unless the setting says otherwise.",
               "Two devices editing different settings both keep their edits.",
@@ -555,7 +559,7 @@ export function stagedDeck(scenario: FakeDeckScenario, now: number): FakeDeckRun
         cards: [
           card("export-writer", "Markdown writer", [], "escalated", {
             round: 1,
-            lane: lane("claude-personal", "claude"),
+            lane: stagedLane("claude-personal", "claude"),
             brief: brief(
               "Write a thread's messages, steps and attachments as Markdown.",
               "Code blocks and images survive a round trip through the export.",
@@ -563,7 +567,7 @@ export function stagedDeck(scenario: FakeDeckScenario, now: number): FakeDeckRun
           }),
           card("export-menu", "Export menu item", [], "working", {
             round: 1,
-            lane: lane("codex-personal", "codex"),
+            lane: stagedLane("codex-personal", "codex"),
             brief: brief("Add Export to the thread menu.", "Export saves a .md file."),
           }),
           card("merge", "Merge to main", ["export-writer", "export-menu"], "merge"),

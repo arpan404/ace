@@ -65,6 +65,10 @@ const run = (patch: Partial<DeckRun>): DeckRun => ({
   error: undefined,
   partial: false,
   plan: null,
+  branch: null,
+  baseBranch: null,
+  planApproval: undefined,
+  deadline: null,
   ...patch,
 });
 const labels = (r: DeckRun) => deckStepper(r).steps.map((s) => `${s.state}:${s.label}`);
@@ -100,8 +104,10 @@ test("the stepper moves from drafting the plan to dealing with merged progress, 
 const gate = (patch: Partial<Gate> = {}): Gate => ({
   id: "g",
   kind: "plan",
+  ask: "plan",
   title: "",
   body: "",
+  detail: undefined,
   workstream: null,
   gatedAt: 0,
   interaction: null,

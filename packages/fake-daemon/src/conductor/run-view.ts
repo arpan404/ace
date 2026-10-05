@@ -116,6 +116,9 @@ export function runView(
     budget: run.budget,
     branch: run.branch,
     baseBranch: "main",
+    planApproval: run.planApproval ?? "required",
+    merge: "ask",
+    deadline: null,
     plan: work.length
       ? {
           summary: goal,

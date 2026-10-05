@@ -320,6 +320,7 @@ function draft(id: string, spec: ConductorSpec, now: number): FakeDeckRun {
     branch: `deck/${id}`,
     phase: auto ? "dealing" : "planning",
     planApproved: auto,
+    planApproval: spec.policies.planApproval,
     gate: auto ? null : gate,
     stages: ["Explore", "Build", "Document", "Ship"],
     cards,
