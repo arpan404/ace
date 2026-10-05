@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenGrant.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bundleId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+    },
+    "grantedAt": {
+      "type": "number"
+    },
+    "scope": {
+      "$ref": "https://ace.local/protocol/v1/ScreenGrantScope.json"
+    },
+    "threadId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "turnId": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "bundleId",
+    "scope",
+    "grantedAt"
+  ],
+  "type": "object"
+}

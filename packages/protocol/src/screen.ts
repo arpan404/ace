@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ScreenAgentScope } from "./screen-ui.ts";
 import {
   ScreenCapabilities,
   ScreenError,
@@ -60,10 +61,23 @@ export const ScreenV2FrameHeader = z.object({
 export const ScreenFrameHeader = z.union([ScreenLegacyFrameHeader, ScreenV2FrameHeader]);
 export type ScreenFrameHeader = z.infer<typeof ScreenFrameHeader>;
 export type ScreenLegacyFrameHeader = z.infer<typeof ScreenLegacyFrameHeader>;
+export const ScreenMode = z.enum(["background", "foreground"]);
+export const ScreenGrantScope = z.enum(["turn", "thread", "always"]);
+export const ScreenGrant = z.object({
+  bundleId: ScreenBundle,
+  scope: ScreenGrantScope,
+  threadId: ScreenAgentScope.shape.threadId.optional(),
+  turnId: z.string().max(256).optional(),
+  grantedAt: z.number(),
+});
+export type ScreenGrant = z.infer<typeof ScreenGrant>;
 export const ScreenState = z.object({
   sessionId: ScreenId,
   lifecycle: z.enum(["starting", "live", "stopping", "stopped", "failed"]),
   controller: z.enum(["agent", "human", "none"]),
+  mode: ScreenMode.default("background"),
+  secureInputAllowed: z.boolean().default(false),
+  holder: ScreenAgentScope.optional(),
   indicator: z.boolean(),
   target: ScreenTarget,
   permissions: ScreenPermissions,
@@ -101,12 +115,29 @@ export const ScreenInventory = z.object({
 });
 export const ScreenOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("enable"), enabled: z.boolean() }),
-  z.object({ op: z.literal("approve"), bundleId: ScreenBundle, allowed: z.boolean() }),
+  z.object({
+    op: z.literal("approve"),
+    bundleId: ScreenBundle,
+    allowed: z.boolean(),
+    scope: ScreenGrantScope.optional(),
+    threadId: ScreenAgentScope.shape.threadId.optional(),
+  }),
+  z.object({ op: z.literal("approvals"), threadId: ScreenAgentScope.shape.threadId.optional() }),
+  z.object({ op: z.literal("stop.all") }),
+  z.object({
+    op: z.literal("mode"),
+    sessionId: ScreenId,
+    mode: ScreenMode,
+    reason: z.string().max(2048).optional(),
+  }),
+  z.object({ op: z.literal("secure.input"), sessionId: ScreenId, allowed: z.boolean() }),
+  z.object({ op: z.literal("open.app"), bundleId: ScreenBundle }),
   z.object({ op: z.literal("permissions") }),
   z.object({ op: z.literal("targets") }),
   z.object({ op: z.literal("sessions") }),
   z.object({
     op: z.literal("start"),
+    threadId: ScreenAgentScope.shape.threadId.optional(),
     target: ScreenTarget,
     fps: z.number().int().min(1).max(30).default(10),
   }),
@@ -115,8 +146,8 @@ export const ScreenOperation = z.discriminatedUnion("op", [
     op: z.literal("controller"),
     sessionId: ScreenId,
     controller: z.enum(["agent", "human", "none"]),
-    agentId: ScreenId.optional(),
-    threadId: ScreenId.optional(),
+    agentId: ScreenAgentScope.shape.agentId.optional(),
+    threadId: ScreenAgentScope.shape.threadId.optional(),
   }),
   z.object({ op: z.literal("action"), sessionId: ScreenId, action: ScreenAction }),
   z.object({ op: z.literal("subscribe"), sessionId: ScreenId }),
@@ -145,12 +176,25 @@ export const ScreenServerMessage = z.discriminatedUnion("type", [
     ok: z.boolean(),
     data: z.unknown().optional(),
     error: z.string().optional(),
+    errorCode: ScreenError.shape.code.optional(),
+    holder: z.object({ sessionId: ScreenId, owner: z.string().max(1024) }).optional(),
   }),
 ]);
-const HelperEnvelope = z.object({ version: z.union([z.literal(1), z.literal(2)]), id: ScreenId });
+const HelperEnvelope = z.object({
+  version: z.union([z.literal(1), z.literal(2)]),
+  id: ScreenId,
+  sessionId: ScreenId.optional(),
+  mode: ScreenMode.optional(),
+  secureInputAllowed: z.boolean().optional(),
+});
 export const ScreenHelperRequest = z.discriminatedUnion("op", [
   HelperEnvelope.extend({ op: z.literal("hello") }),
   HelperEnvelope.extend({ op: z.literal("metrics") }),
+  HelperEnvelope.extend({
+    op: z.literal("open.app"),
+    bundleId: ScreenBundle,
+    allowlist: z.array(ScreenBundle).max(64),
+  }),
   HelperEnvelope.extend({ op: z.literal("capture"), enabled: z.boolean() }),
   HelperEnvelope.extend({ op: z.literal("input"), input: ScreenInput }),
   HelperEnvelope.extend({

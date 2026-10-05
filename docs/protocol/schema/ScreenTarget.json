@@ -19,8 +19,7 @@
       },
       "required": [
         "kind",
-        "bundleId",
-        "displayId"
+        "bundleId"
       ],
       "type": "object"
     },

@@ -4,6 +4,14 @@ import { z } from "zod";
 // This catalog is authored by ace. Error messages, hints and stacks from providers or helpers
 // never become this catalog. Only intentional failures can cross the MCP boundary.
 export const PublicToolCode = z.enum([
+  "screen_disabled",
+  "target_busy",
+  "foreground_required",
+  "focus_changed",
+  "window_minimized",
+  "window_offscreen",
+  "secure_input_required",
+  "clipboard_changed",
   "invalid_arguments",
   "invalid_data",
   "execution_failed",
@@ -41,6 +49,38 @@ export const PublicToolCode = z.enum([
 ]);
 export type PublicToolCode = z.infer<typeof PublicToolCode>;
 const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
+  screen_disabled: {
+    message: "Computer use is disabled",
+    hint: "A human must enable screen access before an agent can use apps.",
+  },
+  target_busy: {
+    message: "App is controlled by another session",
+    hint: "Inspect screen sessions and ask the holder to hand back control.",
+  },
+  foreground_required: {
+    message: "App requires foreground approval",
+    hint: "Call screen_request_foreground with a reason. Do not repeat background input blindly.",
+  },
+  focus_changed: {
+    message: "Background action changed focus or cursor",
+    hint: "Restoration is attempted when no human input was observed. Ask the human to check their desktop.",
+  },
+  window_minimized: {
+    message: "Target window is minimized",
+    hint: "Ask the human to restore the window.",
+  },
+  window_offscreen: {
+    message: "Target window is outside display bounds",
+    hint: "Ask the human to reposition the window.",
+  },
+  secure_input_required: {
+    message: "Secure text needs session consent",
+    hint: "Ask the human to enable secure input for this session.",
+  },
+  clipboard_changed: {
+    message: "Clipboard changed during paste",
+    hint: "The human's new clipboard was retained. Inspect the target before retrying.",
+  },
   invalid_arguments: {
     message: "Invalid tool arguments",
     hint: "Check the advertised tool schema and required fields. Choose exactly one browser wait condition.",

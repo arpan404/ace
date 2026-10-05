@@ -182,6 +182,23 @@
         "dy"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "text.paste",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "type": "object"
     }
   ]
 }
