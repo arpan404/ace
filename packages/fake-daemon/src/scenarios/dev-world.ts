@@ -1,3 +1,4 @@
+import { uxAudit } from "./ux-audit.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
 import { teamAtLimit } from "./account-limit.ts";
@@ -31,6 +32,7 @@ const minute = 60_000;
  */
 export function devWorld(): WorldThread[] {
   return withAccounts([
+    ...uxAudit().map((scenario) => ({ scenario, agoMs: 10 * minute })),
     { scenario: longHistory(120), agoMs: 2 * 24 * 60 * minute },
     { scenario: multiDayDemo(), agoMs: 0 },
     ...homeList().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),

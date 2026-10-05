@@ -111,7 +111,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     if (!session || !idle || autoStarted.current.has(idle)) return;
     autoStarted.current.add(idle);
     void session.client
-      .request({ op: "start", deviceId: idle, fps: 60 })
+      .request({ op: "start", deviceId: idle, fps: 10 })
       .catch((error: unknown) => setFailed(problem(error)));
   }, [session, idle]);
 
@@ -131,10 +131,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     return send(operation);
   };
   const act = (operation: () => Promise<unknown>) => {
-    return operation().then(
-      () => {},
-      (error: unknown) => setFailed(problem(error)),
-    );
+    void operation().catch((error: unknown) => setFailed(problem(error)));
   };
   /** Boot, shutdown and input need a control lease; take it first when it isn't held. */
   const withControl = async (operation: DeviceOperation) => {
@@ -185,10 +182,10 @@ export function useDevices(threadId: string, deviceId?: string) {
       act(async () => {
         autoStarted.current.add(target);
         await withControl({ op: "boot", deviceId: target });
-        await run({ op: "start", deviceId: target, fps: 60 });
+        await run({ op: "start", deviceId: target, fps: 10 });
       }),
     shutdown: () => target && act(() => withControl({ op: "shutdown", deviceId: target })),
-    start: () => target && act(() => run({ op: "start", deviceId: target, fps: 60 })),
+    start: () => target && act(() => run({ op: "start", deviceId: target, fps: 10 })),
     stop: () => target && act(() => run({ op: "stop", deviceId: target })),
     /**
      * Ask macOS for a permission the screen helper lacks: on the Mac running ace this shows the
@@ -198,12 +195,12 @@ export function useDevices(threadId: string, deviceId?: string) {
       // The guidance stays until the person tries again: they still have a switch to turn on.
       act(() => send({ op: "permissions.request", permission })),
     /** Try the live view again, as after granting a permission. */
-    retry: () => target && act(() => run({ op: "start", deviceId: target, fps: 60 })),
+    retry: () => target && act(() => run({ op: "start", deviceId: target, fps: 10 })),
     takeControl: () =>
       target && act(() => run({ op: "controller", deviceId: target, controller: "human" })),
     release: () =>
       target && act(() => run({ op: "controller", deviceId: target, controller: "none" })),
     input: (input: DeviceInput) =>
-      target ? act(() => withControl({ op: "input", deviceId: target, input })) : undefined,
+      target && act(() => withControl({ op: "input", deviceId: target, input })),
   };
 }

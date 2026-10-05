@@ -9,14 +9,14 @@ const pill = cva(
     variants: {
       tone: {
         working:
-          "bg-[color-mix(in_oklab,var(--status-working)_13%,transparent)] text-[color-mix(in_oklab,var(--status-working)_80%,var(--foreground))]",
+          "bg-status-working/13 text-[color-mix(in_oklab,var(--status-working)_80%,var(--foreground))]",
         "needs-you":
-          "bg-[color-mix(in_oklab,var(--status-needs-you)_13%,transparent)] text-[color-mix(in_oklab,var(--status-needs-you)_80%,var(--foreground))]",
+          "bg-status-needs-you/13 text-[color-mix(in_oklab,var(--status-needs-you)_80%,var(--foreground))]",
         waiting:
-          "bg-[color-mix(in_oklab,var(--status-waiting)_13%,transparent)] text-[color-mix(in_oklab,var(--status-waiting)_80%,var(--foreground))]",
+          "bg-status-waiting/13 text-[color-mix(in_oklab,var(--status-waiting)_80%,var(--foreground))]",
         failed:
-          "bg-[color-mix(in_oklab,var(--status-failed)_13%,transparent)] text-[color-mix(in_oklab,var(--status-failed)_80%,var(--foreground))]",
-        done: "bg-[color-mix(in_oklab,var(--status-done)_13%,transparent)] text-[color-mix(in_oklab,var(--status-done)_80%,var(--foreground))]",
+          "bg-status-failed/13 text-[color-mix(in_oklab,var(--status-failed)_80%,var(--foreground))]",
+        done: "bg-status-done/13 text-[color-mix(in_oklab,var(--status-done)_80%,var(--foreground))]",
         idle: "bg-secondary text-muted-foreground",
       },
     },

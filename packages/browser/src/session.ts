@@ -1,8 +1,9 @@
+import { BrowserOriginError, browserOrigin } from "./policy.ts";
 import { z } from "zod";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { BrowserBackendSession, BrowserBackend } from "./backend.ts";
-import type { BrowserControllerLease } from "@ace/protocol";
+import type { BrowserOriginBlock, BrowserControllerLease } from "@ace/protocol";
 import {
   BrowserCommand,
   BrowserInput,
@@ -17,6 +18,7 @@ import { Recording } from "./recording.ts";
 import { evaluatePage } from "./evaluation.ts";
 import { keyEvent } from "./keyboard.ts";
 import type { ProcessSpawner } from "./io.ts";
+import { NavigationTask, type NavigationClock } from "./navigation.ts";
 
 export type Actor = { kind: "agent" } | { kind: "human"; connectionId: string };
 export interface SessionOptions {
@@ -26,10 +28,11 @@ export interface SessionOptions {
   dir: string;
   now: () => number;
   id: () => string;
+  navigationClock: NavigationClock;
   ffmpeg?: string;
   spawn?: ProcessSpawner;
   cancelPolicy: () => void;
-  navigatePolicy: (url: string) => Promise<boolean>;
+  navigatePolicy: (url: string, actor: Actor, signal?: AbortSignal) => Promise<boolean>;
   evaluatePolicy?: (threadId: string, url: string) => boolean | Promise<boolean>;
   artifact: (artifact: BrowserArtifact) => void | Promise<void>;
   state: (state: BrowserState) => void;
@@ -63,6 +66,21 @@ export class BrowserSession {
   private pending = 0;
   private recording: Recording | undefined;
   private paused = false;
+  private blocked: BrowserOriginBlock | undefined;
+  private activeNavigation: NavigationTask | undefined;
+  get navigationTask(): NavigationTask | undefined {
+    return this.activeNavigation;
+  }
+  initiatingHuman(): boolean {
+    return this.activeNavigation?.human ?? this.controller === "human";
+  }
+  blockedNavigation(blocked: BrowserOriginBlock, navigation?: NavigationTask): void {
+    // A cancelled policy may settle after the next queued navigation starts.
+    if (navigation && navigation !== this.activeNavigation) return;
+    if (navigation) navigation.blocked = blocked;
+    this.blocked = blocked;
+    this.emit();
+  }
   private lastUrl: string | undefined;
   private reason: string | undefined;
   private pageStateLost = false;
@@ -82,6 +100,7 @@ export class BrowserSession {
     });
   }
   navigation(): void {
+    this.blocked = undefined;
     this.refs.invalidate();
     this.emit();
   }
@@ -146,6 +165,7 @@ export class BrowserSession {
       status: this.paused ? "paused" : "ready",
       ...(this.reason ? { reason: this.reason } : {}),
       ...(this.pageStateLost ? { pageStateLost: true } : {}),
+      ...(this.blocked ? { blocked: this.blocked } : {}),
       closed: this.closed,
     };
   }
@@ -210,7 +230,13 @@ export class BrowserSession {
         await this.leaseReady;
         this.check(actor, signal);
       }
-      const result = await this.run(command, actor, signal);
+      let result: unknown;
+      try {
+        result = await this.run(command, actor, signal);
+      } catch (error) {
+        if (error instanceof BrowserOriginError) this.blockedNavigation(error.blocked);
+        throw error;
+      }
       if (this.paused || (generation !== this.generation && this.pageStateLost))
         throw new Error("Browser backend changed during command");
       return result;
@@ -233,12 +259,61 @@ export class BrowserSession {
     const { backend: page, dir, id, evaluatePolicy, threadId } = this.options;
     const cdp = page.cdp;
     switch (command.action) {
-      case "navigate":
-        if (!(await this.options.navigatePolicy(command.url)))
-          throw new Error("Browser origin requires approval");
-        this.check(actor, signal);
-        await page.navigate(command.url, command.timeout);
-        return this.state;
+      case "navigate": {
+        if (!/^https?:\/\//i.test(command.url) || !browserOrigin(command.url))
+          throw new BrowserOriginError(
+            command.url,
+            "invalid_origin",
+            "Browser navigation requires an HTTP(S) URL without credentials",
+          );
+        const task = new NavigationTask(
+          actor.kind === "human",
+          command.timeout,
+          this.options.navigationClock,
+          signal,
+        );
+        this.activeNavigation = task;
+        this.blocked = undefined;
+        try {
+          const resume = task.pause();
+          let allowed: boolean;
+          try {
+            allowed = await task.run(() =>
+              this.options.navigatePolicy(command.url, actor, task.signal),
+            );
+          } finally {
+            resume();
+          }
+          if (!allowed)
+            throw new BrowserOriginError(
+              browserOrigin(command.url) ?? command.url,
+              browserOrigin(command.url) ? "approval_required" : "invalid_origin",
+              "Browser origin requires approval",
+            );
+          this.check(actor, task.signal);
+          await task.run(() => page.navigate(command.url, command.timeout + 65_000, task.signal));
+          return this.state;
+        } catch (error) {
+          if (task.blocked)
+            throw new BrowserOriginError(
+              task.blocked.origin,
+              task.blocked.reason,
+              error instanceof Error ? error.message : "Browser navigation blocked",
+            );
+          if (task.deadlineExpired)
+            throw new BrowserOriginError(
+              task.expiredOrigin ?? browserOrigin(command.url) ?? command.url,
+              "timeout",
+              error instanceof Error ? error.message : "Browser navigation timed out",
+            );
+          throw error;
+        } finally {
+          // Only this page is stopped; sibling sessions share no cancellation.
+          if (task.signal.aborted) void page.cdp.send("Page.stopLoading").catch(() => {});
+          task.close();
+          if (this.activeNavigation === task) this.activeNavigation = undefined;
+        }
+      }
       case "snapshot":
         return this.refs.snapshot();
       case "click": {

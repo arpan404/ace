@@ -1,5 +1,5 @@
 import type { Credential } from "./credentials.ts";
-import type { DeviceId } from "@ace/protocol";
+import type { DeviceId, HostId } from "@ace/protocol";
 
 export interface TransportEvents {
   open(): void;
@@ -11,7 +11,13 @@ export interface Transport {
   send(text: string): void;
   close(): void;
 }
+export interface IntentRecords {
+  load(): Promise<readonly string[]>;
+  write(id: string, value: string | null): Promise<void>;
+}
 export interface Storage {
+  /** Record-level persistence. Legacy load/save remain supported for portable hosts. */
+  records?: IntentRecords;
   load(): Promise<string | null>;
   save(value: string): Promise<void>;
 }
@@ -21,6 +27,8 @@ export interface Scheduler {
 export type ConnectionState = "connecting" | "ready" | "reconnecting" | "offline" | "fatal";
 export interface ClientOptions {
   deviceId: DeviceId;
+  /** Pin a directory entry before subscriptions or durable intents can replay. */
+  expectedHostId?: HostId;
   transport(): Transport;
   credential(): Promise<Credential>;
   storage: Storage;

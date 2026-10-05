@@ -4,7 +4,9 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./policy": "./src/policy.ts",
+    "./testing": "./src/backend-test-support.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

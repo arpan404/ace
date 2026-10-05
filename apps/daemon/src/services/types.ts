@@ -45,6 +45,7 @@ export interface Services {
   screen?: ScreenManager;
   devices?: DevicesService;
   accounts?: AccountService;
+  accountManagement?: import("../account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
@@ -64,6 +65,7 @@ export interface Services {
     options: SpawnOptions,
   ): ReturnType<typeof launchPluginProcess>;
   browser: BrowserService;
+  browserOrigins?: import("../browser-origins.ts").BrowserOrigins;
   context: ContextService;
   settings: SettingsService;
   models: ModelCatalog;

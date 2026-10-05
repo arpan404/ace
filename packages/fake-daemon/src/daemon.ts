@@ -67,6 +67,10 @@ import { forkPointError, switchEvents } from "./transitions.ts";
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
   clock(): number;
+  hostId?: string;
+  displayName?: string;
+  version?: string;
+  catalog?: Partial<Pick<FakeServices, "accounts" | "models" | "commands" | "providerStatuses">>;
   deviceScopes?: Readonly<Record<string, readonly import("@ace/protocol").DeviceScope[]>>;
   projectScheduler?: (callback: () => void) => void;
   /** Credential the hello must present. */
@@ -92,7 +96,12 @@ type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionRes
  * `@ace/core`, so thread and agent status are derived exactly as the daemon derives them.
  */
 export class FakeDaemon implements Host {
-  readonly hostId = HostId.parse("fake-host");
+  readonly hostId: HostId;
+  get displayName(): string {
+    const name = this.services.settings.get("host.displayName");
+    return typeof name === "string" && name ? name : (this.options.displayName ?? "Fake machine");
+  }
+  readonly version: string;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
   private options: FakeDaemonOptions;
@@ -120,6 +129,8 @@ export class FakeDaemon implements Host {
   readonly appDevices: FakeAppDevices;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.hostId = HostId.parse(options.hostId ?? "fake-host");
+    this.version = options.version ?? "fake";
     this.longThreads = new FakeLongThreadWire({
       head: () => this.seq,
       thread: (id) => this.threads.get(id),
@@ -140,6 +151,7 @@ export class FakeDaemon implements Host {
         );
       },
     });
+    Object.assign(this.services, options.catalog);
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
@@ -498,6 +510,48 @@ export class FakeDaemon implements Host {
     this.servicesWire.workspace.setScripts(workspaceId, names);
   }
   service(message: ClientMessage, connection: Connection): boolean {
+    if (message.type === "terminal.request" && "terminalId" in message.operation) {
+      const op = message.operation;
+      const flow = this.services.authTerminals.get(op.terminalId);
+      if (flow) {
+        const scopes = this.options.deviceScopes?.[connection.deviceId];
+        const allowed =
+          !this.options.deviceScopes ||
+          scopes?.some((scope) => scope === "accounts" || scope === "desktop");
+        if (!allowed || flow.owner !== connection.push) {
+          connection.push({
+            type: "terminal.result",
+            requestId: message.requestId,
+            ok: false,
+            error: "forbidden",
+          });
+          return true;
+        }
+        connection.push({ type: "terminal.result", requestId: message.requestId, ok: true });
+        if (op.op === "subscribe") {
+          const data = "Complete the provider's own sign-in flow.\r\n";
+          connection.push({
+            type: "terminal.output",
+            subscriptionId: op.subscriptionId,
+            event: {
+              type: "data",
+              offset: 0,
+              endOffset: data.length,
+              data,
+              truncatedBefore: false,
+            },
+          });
+          this.services.completeAuthTerminal(op.terminalId);
+          connection.push({
+            type: "terminal.output",
+            subscriptionId: op.subscriptionId,
+            event: { type: "exit", status: { code: 0, signal: null }, nextOffset: data.length },
+          });
+        }
+        if (op.op === "close") this.services.authTerminals.delete(op.terminalId);
+        return true;
+      }
+    }
     if (this.longThreads.handle(message, connection.deviceId, connection.push)) return true;
     if (message.type === "queue.get") {
       const host = this.threads.get(message.threadId);
@@ -512,11 +566,44 @@ export class FakeDaemon implements Host {
       );
       return true;
     }
+    if (
+      [
+        "accounts.add",
+        "accounts.rename",
+        "accounts.remove",
+        "accounts.setDefault",
+        "accounts.login",
+        "accounts.logout",
+      ].includes(message.type)
+    ) {
+      const scopes = this.options.deviceScopes?.[connection.deviceId];
+      if (
+        this.options.deviceScopes &&
+        !scopes?.some((scope) => scope === "accounts" || scope === "desktop")
+      ) {
+        connection.push({
+          type: "error",
+          code: "forbidden",
+          message: "accounts scope required",
+          ...("requestId" in message ? { requestId: message.requestId } : {}),
+        });
+        return true;
+      }
+    }
     return this.services.handle(message, connection.push);
   }
   release(connection: Connection): void {
     this.connections.delete(connection);
     this.services.release(connection.push);
+  }
+  /** Scripted metadata changes use the same event stream as command effects. */
+  updateThread(
+    id: string,
+    changes: Omit<Extract<EventPayload, { type: "thread.updated" }>, "type">,
+    agoMs = 0,
+  ): void {
+    const now = this.at(agoMs);
+    this.append(this.thread(id), [{ type: "thread.updated", ...changes }], now);
   }
   /** Drop every socket, as a daemon restart or network loss would. */
   disconnectAll(code = 1006): void {
@@ -778,11 +865,22 @@ export class FakeDaemon implements Host {
             return { commandId, ok: false, error: "already_resolved" };
           const pending = host.interaction(key);
           if (!pending) return { commandId, ok: false, error: "not_found" };
-          const error = permissionResolutionError(
-            host.view.thread.permission?.effective ?? "auto-review",
-            pending.request,
-            payload.resolution,
+          const browserOriginApproval = pending.raw.some(
+            (raw) => raw.type === "ace.browser.origin",
           );
+          if (
+            browserOriginApproval &&
+            (payload.resolution.kind !== "approval" ||
+              !["allow_once", "allow_thread", "deny"].includes(payload.resolution.optionId))
+          )
+            return { commandId, ok: false, error: "invalid_resolution" };
+          const error = browserOriginApproval
+            ? undefined
+            : permissionResolutionError(
+                host.view.thread.permission?.effective ?? "auto-review",
+                pending.request,
+                payload.resolution,
+              );
           if (error) return { commandId, ok: false, error };
           this.apply(host.id, [
             {
@@ -857,7 +955,7 @@ export class FakeDaemon implements Host {
             payload.workspaceId,
             id,
           );
-        const started = startedThread(id, payload);
+        const started = startedThread(id, payload, commandId);
         this.createThread({
           ...started.thread,
           ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),
@@ -874,7 +972,7 @@ export class FakeDaemon implements Host {
                 : `/fake/${payload.workspaceId}`,
             branch: payload.baseBranch ?? "main",
             ...(payload.baseBranch ? { baseBranch: payload.baseBranch } : {}),
-            machine: { host: "fake-host", name: "Fake machine" },
+            machine: { host: this.hostId, name: this.displayName },
             diff: { files: 0, additions: 0, deletions: 0 },
           },
           live: {

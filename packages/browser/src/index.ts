@@ -3,8 +3,16 @@ export { detectChromium, installChromium } from "./discovery.ts";
 export { connectBrowser } from "./bridge.ts";
 export { FrameFanout, captureSettings, type FrameSink } from "./fanout.ts";
 export { SessionLogs } from "./logs.ts";
-export { allowedOrigin, type OriginPolicy, type OriginRequest } from "./policy.ts";
+export {
+  originAccess,
+  BrowserOriginError,
+  browserOrigin,
+  allowedOrigin,
+  type OriginPolicy,
+  type OriginRequest,
+} from "./policy.ts";
 export type { Actor } from "./session.ts";
+export type { NavigationClock } from "./navigation.ts";
 
 export type { ContextLauncher, ProcessSpawner } from "./io.ts";
 

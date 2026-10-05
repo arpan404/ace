@@ -19,13 +19,16 @@
     "./idle-worker": "./src/idle-worker.ts",
     "./bounded-cache": "./src/bounded-cache.ts",
     "./flow-control": "./src/flow-control.ts",
-    "./sqlite": "./src/sqlite.ts"
+    "./sqlite": "./src/sqlite.ts",
+    "./open-error": "./src/open-error.ts",
+    "./shell-command": "./src/shell-command.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "doctor": "node src/doctor.ts"
   },
   "dependencies": {
+    "@ace/redaction": "workspace:*",
     "zod": "^4.6.5"
   },
   "engines": {

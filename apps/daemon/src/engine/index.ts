@@ -1,3 +1,8 @@
+import { personCommand } from "./person-command.ts";
+import { cancelDelegatedInputs } from "./stop-intents.ts";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { nameWorktreeBranch, runWorktreeGit, type WorktreeGit } from "./worktree-title.ts";
 import { CreationAdmissions, type CreationAdmission } from "./creation-admissions.ts";
 import { validateCreation } from "./creation-validation.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
@@ -11,7 +16,7 @@ import {
 import type { PermissionSettings } from "./permissions.ts";
 import { z } from "zod";
 import { changeEngineWorkspace } from "./workspace-change.ts";
-import { ProviderKind, ThreadId } from "@ace/protocol";
+import { CommandId, ProviderKind, ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
@@ -34,6 +39,7 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  worktreeGit?: WorktreeGit;
   permissionSettings?: PermissionSettings;
   selectInstance?: (
     provider: string,
@@ -58,6 +64,10 @@ export interface EngineOptions {
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
+  onSessionOpenFailure?: (
+    thread: ThreadId,
+    details: import("@ace/protocol").ProviderErrorDetails,
+  ) => void;
   onProviderDiagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void;
   aceToolAction?: typeof import("@ace/mcp-server").aceToolAction;
   mcp?: (
@@ -68,6 +78,8 @@ export interface EngineOptions {
 }
 export class Engine {
   readonly handler: CommandHandler;
+  /** In-process admission for ace-owned inputs; never installed on the socket. */
+  readonly internalHandler: CommandHandler;
   private limits: EngineLimits;
   private nextThreadId: () => string;
   private admissions: CreationAdmissions;
@@ -102,6 +114,9 @@ export class Engine {
   ) => import("@ace/protocol").CommandResult;
   constructor(store: Store, options: EngineOptions = {}) {
     this.limits = engineLimits(options.limits);
+    const executeGit = promisify(execFile);
+    const worktreeGit =
+      options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, cwd, args));
     this.nextThreadId = options.threadId ?? randomUUID;
     this.repo = new EngineRepository(
       store,
@@ -128,13 +143,14 @@ export class Engine {
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
+      ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
       ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
       ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,
       wake: (id) => this.wake(id),
-      expireDelivery: (actor) => this.delivery.expire(actor),
+      expireDelivery: (actor) => this.delivery.expire(actor, actor.generation - 1),
       released: (id) => {
         this.releaseDormant(id);
         this.wakeQueued();
@@ -175,7 +191,10 @@ export class Engine {
       sessions: this.sessions,
       recovery: this.recovery,
       prepareInput: options.prepareInput,
-      beforeSend: options.beforeSend,
+      beforeSend: async (threadId, commandId) => {
+        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now(), worktreeGit);
+        await options.beforeSend?.(threadId, commandId);
+      },
       transitions: this.transitions,
       invalidateContext: (id) => this.meters.invalidate(id, this.clock.now()),
       releaseGuards: (intent) => {
@@ -222,7 +241,7 @@ export class Engine {
       options.selectInstance,
       options.machine,
     );
-    this.handler = {
+    this.internalHandler = {
       handle: (command, context) =>
         permissionOptions(command)
           ? { commandId: command.id, ok: false, error: "provider_permission_options_forbidden" }
@@ -237,6 +256,9 @@ export class Engine {
                       ? this.commandPolicy(command, () => handler.handle(command, context))
                       : handler.handle(command, context)),
                 ),
+    };
+    this.handler = {
+      handle: (command, context) => this.internalHandler.handle(personCommand(command), context),
     };
     const recover = () =>
       recoverEngine(
@@ -291,6 +313,10 @@ export class Engine {
         this.batchScheduler,
         this.diagnostic,
       );
+      actor.generation = Math.max(
+        this.repo.pending.latestGeneration(id),
+        this.repo.interactions.latestGeneration(id),
+      );
       this.actors.set(id, actor);
     }
     return actor;
@@ -341,7 +367,7 @@ export class Engine {
             return { commandId: command.id, ok: false, error: "permission_mode_unsupported" };
         }
         const payload = { ...p, threadId: id, ...(requested ? { permissionMode: requested } : {}) };
-        const result = this.handler.handle(
+        const result = this.internalHandler.handle(
           CommandSchema.parse({ ...command, payload }),
           commandContext(this.repo.store),
         );
@@ -350,6 +376,9 @@ export class Engine {
         return result;
       }),
     );
+  }
+  permissionAuthority(id: ThreadId): PermissionMode {
+    return this.repo.permissions.authority(id);
   }
   permissionMode(id: ThreadId): PermissionMode {
     return this.repo.permissions.effective(id);
@@ -458,8 +487,14 @@ export class Engine {
       truncated: result.truncated || result.result.length > 128,
     }));
     this.repo.store.atomic(() => {
-      if (text)
+      if (text) {
+        this.repo.inputs.register(parentId, `input:${commandId}`, [{ type: "text", text }], {
+          kind: "subagent_result",
+          commandId: CommandId.parse(commandId),
+          threadIds: results.map((result) => result.threadId),
+        });
         this.repo.aceInputs.record(parentId, commandId, { agent, item, results: summaries });
+      }
       this.repo.apply(
         parentId,
         [
@@ -496,7 +531,8 @@ export class Engine {
   bindHostInteractions(
     handler: (command: Command) => import("@ace/protocol").CommandResult | undefined,
   ): void {
-    this.hostInteractionHandler = handler;
+    const previous = this.hostInteractionHandler;
+    this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
   }
   /**
    * A thread's root agent id. A prepared thread has only its configured root until a fact
@@ -510,7 +546,12 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
-  openHostGate(threadId: ThreadId, key: string, message: string) {
+  openHostApproval(
+    threadId: ThreadId,
+    key: string,
+    request: import("@ace/protocol").InteractionRequest,
+    raw: import("@ace/protocol").RawPayload[],
+  ) {
     const state = this.repo.requireState(threadId);
     this.actor(threadId).apply([
       {
@@ -518,16 +559,35 @@ export class Engine {
         agent: state.rootKey ?? "root",
         interaction: key,
         blocking: true,
-        request: { kind: "plan_review", title: "Deck needs your decision", markdown: message },
-        raw: [{ type: "ace.conductor.gate", data: { key } }],
+        request,
+        raw,
       },
     ]);
     const interaction = this.repo.requireState(threadId).interactions[key];
     if (!interaction) throw new Error("Host interaction was not admitted");
     return interaction.id;
   }
+  resolveHostApproval(
+    threadId: ThreadId,
+    key: string,
+    result: {
+      state: "resolved" | "cancelled" | "expired";
+      resolution?: import("@ace/protocol").InteractionResolution;
+      resolvedBy?: import("@ace/protocol").DeviceId;
+    },
+  ): void {
+    this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, ...result }]);
+  }
+  openHostGate(threadId: ThreadId, key: string, message: string) {
+    return this.openHostApproval(
+      threadId,
+      key,
+      { kind: "plan_review", title: "Deck needs your decision", markdown: message },
+      [{ type: "ace.conductor.gate", data: { key } }],
+    );
+  }
   closeHostGate(threadId: ThreadId, key: string, state: "resolved" | "cancelled"): void {
-    this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, state }]);
+    this.resolveHostApproval(threadId, key, { state });
   }
   activeExecutionSelections() {
     const row = z.object({
@@ -544,9 +604,12 @@ export class Engine {
       )
       .map((value) => row.parse(value));
   }
-  /** Host suspension captures the engine-owned continuation before interrupting work. */
+  /** Permanent subtree cancellation discards resumable work. */
   discardRecovery(id: ThreadId): void {
     this.recovery.discard(id);
+  }
+  cancelDelegatedInputs(id: ThreadId): void {
+    cancelDelegatedInputs(this.repo, id, this.clock.now());
   }
   captureContinuation(id: ThreadId): void {
     this.recovery.capture(id);
@@ -597,6 +660,7 @@ export class Engine {
   }
   /** Validate before Git I/O and hold an engine slot until acceptance or cancellation. */
   admitCreation(command: Command): CreationAdmission | string {
+    command = personCommand(command);
     if (permissionOptions(command)) return "provider_permission_options_forbidden";
     if (this.closing) return "daemon_shutting_down";
     if (!this.readyState) return "engine_starting";
@@ -682,12 +746,12 @@ export class Engine {
     await actor.flush();
     if (actor.poisoned) return;
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
-    if (
+    const pendingControls = this.repo.pending.controls(actor.id);
+    const controls =
       !actor.session &&
       (this.repo.pending.message(actor.id) || this.repo.pending.recovery(actor.id))
-    )
-      return;
-    const controls = this.repo.pending.controls(actor.id);
+        ? pendingControls.filter((intent) => intent.kind === "thread.interrupt")
+        : pendingControls;
     for (const intent of controls) {
       if (this.closing) return;
       const guard = this.repo.transitions.guardOwner(actor.id);

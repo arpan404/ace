@@ -10,7 +10,7 @@ import { startDevices } from "./devices.ts";
 import { startThreadTransitions } from "./thread-transitions.ts";
 import { startAgentRegistry } from "./agent-registry.ts";
 import { startScreen } from "./screen.ts";
-import { startAccounts } from "./accounts.ts";
+import { startAccounts, startAccountManagement } from "./accounts.ts";
 import { startCommands } from "./commands.ts";
 import { startFiles } from "./files.ts";
 import { startRelayKeys } from "./relay.ts";
@@ -102,6 +102,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     after: [],
     start: startCursorAuth,
   },
+  {
+    name: "accountManagement",
+    phase: "listener",
+    requires: ["accounts"],
+    after: ["engine", "models", "cursorAuth"],
+    start: startAccountManagement,
+  },
   { name: "context", phase: "listener", requires: [], after: [], start: startContext },
   { name: "review", phase: "listener", requires: [], after: [], start: startReview },
   { name: "history", phase: "listener", requires: [], after: [], start: startHistory },
@@ -148,6 +155,11 @@ export function requireService<T>(service: T | undefined, name: string): T {
 export function readyServices(
   services: Partial<Services>,
 ): asserts services is Partial<Services> & Pick<Services, "handler"> {
-  requireService(services.handler, "engine");
+  const handler = requireService(services.handler, "engine");
+  services.browserOrigins?.recover();
+  services.handler = {
+    handle: (command, store) =>
+      services.browserOrigins?.resolve(command) ?? handler.handle(command, store),
+  };
 }
 export type { ServiceContext };

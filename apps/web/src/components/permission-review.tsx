@@ -1,4 +1,4 @@
-import type { PermissionReview } from "@ace/protocol";
+import type { Interaction, PermissionReview } from "@ace/protocol";
 import { describeReview, type ReviewTone, type ReviewView } from "@ace/ui-core";
 import {
   CaretRightIcon,
@@ -18,7 +18,7 @@ const glyphs: Record<ReviewTone, IconGlyph> = {
 };
 
 /** Who decided and the exact input judged, as a two-column list. */
-function ReviewFacts(props: { view: ReviewView; className?: string }) {
+export function ReviewFacts(props: { view: ReviewView; className?: string }) {
   const { view } = props;
   return (
     <dl
@@ -55,8 +55,12 @@ function ReviewFacts(props: { view: ReviewView; className?: string }) {
  * line; the reviewer and the exact command, directory and paths it judged open beneath it. A
  * request sent to the person carries the needs-you dot only while it still `waiting` for them.
  */
-export function PermissionReviewNote(props: { review: PermissionReview; waiting: boolean }) {
-  const view = describeReview(props.review);
+export function PermissionReviewNote(props: {
+  review: PermissionReview;
+  interaction?: Interaction | undefined;
+  waiting: boolean;
+}) {
+  const view = describeReview(props.review, props.interaction);
   const [open, setOpen] = useState(false);
   const details = useId();
   return (
@@ -113,6 +117,24 @@ export function PermissionReviewSummary(props: { review: PermissionReview; class
         </span>
       </p>
       <ReviewFacts view={view} className="mt-2" />
+    </section>
+  );
+}
+
+/** A step's review, under its output once the approval is settled: who decided, why, on what. */
+export function PermissionReviewFacts(props: {
+  review: PermissionReview;
+  interaction?: Interaction | undefined;
+  cwd?: string | undefined;
+}) {
+  const view = describeReview(props.review, props.interaction, { cwd: props.cwd });
+  return (
+    <section aria-label="ace's review" className="flex flex-col gap-1.5">
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Icon icon={glyphs[view.tone]} size={14} className="text-subtle-foreground" />
+        <b className="font-medium text-foreground">{view.verdict}</b>
+      </p>
+      <ReviewFacts view={view} />
     </section>
   );
 }

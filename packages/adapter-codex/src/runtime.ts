@@ -6,6 +6,7 @@ export type CodexRuntime = {
   stopGraceMs: number;
   now(): number;
   userMessageId(): string;
+  sessionId(): string;
   spawn: typeof spawnSupervised;
   discover: typeof discoverProviders;
   schedule(callback: () => void, delayMs: number): () => void;
@@ -14,6 +15,7 @@ export const runtime: CodexRuntime = {
   stopGraceMs: 5000,
   now: () => performance.now(),
   userMessageId: randomUUID,
+  sessionId: randomUUID,
   spawn: spawnSupervised,
   discover: discoverProviders,
   schedule(callback, delayMs) {

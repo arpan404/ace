@@ -52,3 +52,119 @@ Public API tests use temporary SQLite homes and executable fake CLIs for account
 - [Claude provider research](../research/providers/claude-code.md) and [fast mode](https://code.claude.com/docs/en/fast-mode).
 - [OpenCode provider research](../research/providers/opencode.md) and [configuration](https://opencode.ai/docs/config/).
 - [Cursor provider research](../research/providers/cursor.md) and [CLI configuration](https://cursor.com/docs/cli/reference/configuration).
+
+## Amendment: accounts managed from Settings
+
+Accepted 2026-10-04 for the owner's multiple-account request. This supersedes the
+host-local registration restriction in "Protocol and wire additions". ADR 0002
+continues to govern authentication. The app opens a terminal for the installed
+provider's own local login flow. ace does not implement OAuth, accept credentials,
+or read provider credential files. Cursor uses the official SDK exception in
+ADR 0002 and the supervised hosts in ADR 0043 when that backend is selected.
+
+`accounts.add` accepts only provider and label. The daemon generates the ID and
+creates a private, mode-0700 home at `<dataDir>/account-homes/<id>`. Persist only
+instance metadata and directory selectors. Managed instances also isolate HOME,
+XDG cache/config/data/state, APPDATA and temporary files so incidental CLI writes
+stay in the private home. Pi uses `PI_CODING_AGENT_DIR`; its sign-in status remains
+unknown because no verified provider-independent status probe exists.
+
+`accounts.rename`, `accounts.remove` and `accounts.setDefault` update the registry.
+Removal unregisters by default. Only `deleteHome: true` permits deleting a
+daemon-created home, after checking the parent and home are direct directories,
+not symlinks. Host-registered homes can be unregistered, but cannot be deleted or
+used for app-initiated auth. Active writers and auth jobs prevent removal and
+other conflicting account changes. Defaults persist per provider and affect new
+assignments. Existing pinned sessions keep their account. Removing a selected
+account falls back to the implicit CLI account.
+
+Every native provider has an implicit `<provider>-cli-default` account labeled
+"Default (your CLI login)". These records use the daemon's launch environment
+and point to the CLI's existing normal home. Registration creates no directory
+there. The app cannot rename, remove, sign into, sign out of, or migrate these
+accounts. The user manages their normal login directly through the CLI.
+
+`accounts.login` and `accounts.logout` return `accounts.auth` with a terminal ID.
+The terminal belongs to the requesting socket. The client subscribes with the
+existing `terminal.request` API and omits `threadId`. Launch waits for that first
+subscription so no browser challenge is lost before the UI is ready. Auth
+terminals use the existing PTY process ownership and shutdown service, with
+explicit executable arguments. They have no scrollback, snapshots, event-log
+entries, or replay. Output is forwarded only to that live authorized socket.
+Disconnect cancels the terminal and awaits process cleanup. Input is never
+written to an ace log or history. Pi requires the client to display the returned
+`/login` or `/logout` instruction in its terminal.
+
+Codex runs `codex login` or `codex logout`; Claude runs `claude auth login/logout`;
+OpenCode runs `opencode auth login/logout`. Cursor ACP runs `agent login/logout`
+only for the already verified isolated CLI release. Cursor SDK auth fences and
+drains the instance's hosts before launching a PTY-owned helper that invokes the
+existing supervised SDK auth driver. The SDK host discards key-bearing returns.
+Only its ephemeral browser URL reaches the terminal. After exit and process
+cleanup, refresh safe sign-in status and replace only that instance's model
+catalog generation. Metadata discovery sends no prompt or inference request.
+
+Account mutations and auth terminal access require the local owner connection,
+a desktop connection, or the explicit `accounts` pairing scope. `operate` and
+remote `admin` alone do not grant this scope. Pairing defaults remain read and
+operate. Existing Cursor browser-auth mutations require the same accounts scope,
+so they cannot bypass this policy. Read-only account listing still requires read.
+
+The backend exposes `accounts.changed` with the updated public summary, or null
+after removal. Public summaries include `implicit` and `isDefault`, never home
+paths or launch environments. The fake daemon implements the same lifecycle and
+catalog behavior. Socket behavior tests use controlled executable CLIs, temporary
+homes and local paired devices. They verify isolation, status/model refresh,
+default persistence, deletion choices, immutable CLI accounts and authorization.
+
+Primary command references: [Claude CLI](https://code.claude.com/docs/en/cli-reference),
+[Codex CLI](https://developers.openai.com/codex/cli/reference),
+[OpenCode auth](https://opencode.ai/v2/docs/cli/commands/),
+[Cursor CLI auth](https://docs.cursor.com/en/cli/reference/authentication), and
+[Pi quickstart](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/quickstart.md).
+
+### Amendment: managed-home admission and cancellation ownership
+
+Managed home identities remain lexical and immutable after registration. Registry
+restart rejects a changed canonical identity instead of adopting a symlink target.
+Before auth, status, SDK auth, session admission or metadata discovery, validate
+the direct child of the injected daemon data root and its directory selectors,
+including HOME/XDG directories. Inspect directory metadata only, never credential
+files. The same accounts-owned validator serves every launch boundary. Filesystem
+validation and process launch are separate system calls; concurrent hostile local
+filesystem mutation is outside this guarantee.
+
+Auth startup is owned from reservation through discovery and fencing. Disconnect
+aborts its per-terminal signal and awaits startup cleanup before releasing the
+account. A cancellation check immediately before terminal admission prevents a
+successful late fence from launching the helper. Model deletion retains a shared
+per-instance removal promise and every discovery generation until cleanup settles.
+Storage failures are reported only after draining processes, remain retryable,
+and cannot authorize home deletion while cleanup is outstanding.
+
+These changes satisfy ADR 0002 through provider-owned auth and directory metadata
+validation. The UTF-8 decoder holds at most an incomplete character; it creates
+no auth history, capture, replay or persisted output. Review regressions and
+mutation cases are written but not executed under the owner's merge-time testing
+rule. Runtime, process-effects and benchmark measurements need run at merge.
+
+### Amendment: implicit accounts and existing execution admission
+
+Adding an implicit account is a catalog operation. Its unknown sign-in status
+must not disable the existing normal CLI execution path or the conductor's
+`local.<provider>` account identity. Without an explicit selection or provider
+default, native execution keeps that path when there are no registered isolated
+accounts. Where registered accounts exist, preserve their quota-aware selection;
+an implicit home with no quota observations cannot displace them. An explicit
+provider default or pinned session still takes precedence. Cursor SDK continues
+to use its separate registered home and cannot use the implicit CLI login.
+Delegation and conductor admission therefore distinguish registered accounts
+from implicit records instead of treating every listed home as a scheduler candidate.
+
+A metadata discovery guard that rejects a changed home also revokes that account's
+cached model choices. Ordinary provider discovery failures may retain stale
+choices for a valid home. Removal waits for cancellation cleanup, so callers and
+test discoverers must release owned I/O before awaiting removal. Session opening
+failure preserves undelivered input in a paused queue with a visible error, as in
+ADR 0053. These admission changes preserve ADR 0002: no new credential inspection
+or provider authentication runs on the implicit home.

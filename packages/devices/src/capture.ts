@@ -444,6 +444,43 @@ async function simulatorWindow(
     checkAbort();
   }
 }
+/**
+ * The one Simulator window showing this device. A booted device whose window is closed (booted
+ * from Xcode or the command line, say) gets it opened, then the window list is read again.
+ */
+async function simulatorWindow(
+  screen: ScreenManager,
+  options: { device: Device; platform: DevicePlatform; runtime: DeviceRuntime },
+  name: string,
+  checkAbort: () => void,
+) {
+  for (let attempt = 0; ; attempt++) {
+    const inventory = await screen.targets();
+    checkAbort();
+    const exact = inventory.windows.filter(
+      (window) =>
+        window.bundleId === "com.apple.iphonesimulator" &&
+        (window.title === name ||
+          [" –", " —", " -", " ("].some((suffix) => window.title.startsWith(`${name}${suffix}`))),
+    );
+    if (exact.length === 1 && exact[0]) return exact[0];
+    if (exact.length > 1)
+      throw new DeviceError(
+        "busy",
+        "More than one Simulator window shows this device's name",
+        "Close the extra Simulator window, or rename one of the simulators, then start again.",
+      );
+    if (attempt === 0) await options.platform.showSimulator(options.device);
+    else if (attempt >= 12)
+      throw new DeviceError(
+        "not_found",
+        "The Simulator window for this device isn't open",
+        "Open it from Simulator's Window menu, make sure it isn't minimized, then start again.",
+      );
+    await new Promise<void>((resolve) => options.runtime.after(500, resolve));
+    checkAbort();
+  }
+}
 export async function findExecutable(name: string, env: NodeJS.ProcessEnv): Promise<string> {
   const path = await discoverExecutable(name, env);
   if (path) return path;

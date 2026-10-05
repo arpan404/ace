@@ -83,7 +83,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     registry.has("cursor") &&
     registry.get("cursor").adapter.backend === "cursor-sdk" &&
     !accountRegistry.get(defaultInstance.id) &&
-    !accountRegistry.list().some(({ instance }) => instance.provider === "cursor")
+    !accountRegistry
+      .list()
+      .some(({ instance }) => instance.provider === "cursor" && !instance.implicit)
   ) {
     // Preserve the SDK adapter's original home when it first enters accounts ownership.
     await accountRegistry.register(
@@ -108,8 +110,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           !accountRegistry.get(session.instanceId)
         )
           return adapter.openSession(session);
+        // Listing the normal CLI home must not enroll existing local sessions
+        // in registered-account scheduling. Explicit selection still binds it.
         return session.instanceId ||
-          accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+          accountRegistry.selectedProvider(adapter.provider) ||
+          accountRegistry
+            .list()
+            .some(({ instance }) => instance.provider === adapter.provider && !instance.implicit)
           ? bound.openSession(session)
           : adapter.openSession(session);
       },
@@ -197,11 +204,27 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           ]),
         );
       }),
+    onSessionOpenFailure: (thread, details) => {
+      log.log(
+        "warn",
+        "Provider session opening failed",
+        logFields([
+          ["thread", thread],
+          ["provider", details.provider],
+          ["code", details.code],
+          ["title", details.title],
+          ["detail", details.detail],
+        ]),
+      );
+      return engineOptions.onSessionOpenFailure?.(thread, details);
+    },
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());
   await engine.ready();
+  engine.bindHostInteractions((command) => services.browserOrigins?.resolve(command));
   services.engine = engine;
+  services.browserOrigins?.recover();
   services.handler = engine.handler;
 }
 
@@ -263,6 +286,21 @@ export function createEngineSession(context: SocketContext): SocketService {
           // An injected handler without the engine admission port keeps its existing late-preparation path.
           if (admission) preparation = await options.workspaceActions?.prepareCreation(accepted);
           if (!context.connected() || !context.authorize("operate")) return;
+          if (payload.type === "interaction.resolve") {
+            const interaction = options.store.getInteraction(payload.interactionId);
+            if (
+              interaction?.raw.some((raw) => raw.type === "ace.browser.origin") &&
+              !canReadThread(interaction.threadId)
+            ) {
+              send({
+                type: "commandResult",
+                commandId: command.id,
+                ok: false,
+                error: "browser_thread_access_denied",
+              });
+              return;
+            }
+          }
           if (
             payload.type === "thread.create" &&
             payload.handoffFrom &&

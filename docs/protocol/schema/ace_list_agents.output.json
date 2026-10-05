@@ -328,12 +328,22 @@
                   "error": {
                     "additionalProperties": false,
                     "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "detail": {
+                        "type": "string"
+                      },
                       "details": {
                         "additionalProperties": false,
                         "properties": {
                           "code": {
                             "maxLength": 256,
                             "minLength": 1,
+                            "type": "string"
+                          },
+                          "detail": {
+                            "maxLength": 2048,
                             "type": "string"
                           },
                           "model": {
@@ -351,6 +361,10 @@
                               "acp",
                               "pi"
                             ],
+                            "type": "string"
+                          },
+                          "title": {
+                            "maxLength": 256,
                             "type": "string"
                           }
                         },
@@ -372,6 +386,9 @@
                         "type": "string"
                       },
                       "message": {
+                        "type": "string"
+                      },
+                      "title": {
                         "type": "string"
                       }
                     },

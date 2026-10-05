@@ -73,7 +73,7 @@ function Inline(props: { token: Token }): ReactNode {
           href={href}
           target="_blank"
           rel="noreferrer noopener"
-          className="underline decoration-[color-mix(in_oklab,var(--foreground)_30%,transparent)] underline-offset-[3px] hover:decoration-foreground"
+          className="underline decoration-foreground/30 underline-offset-[3px] hover:decoration-foreground"
         >
           {inline(token.tokens)}
         </a>

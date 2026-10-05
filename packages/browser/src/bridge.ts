@@ -1,3 +1,4 @@
+import { BrowserOriginError } from "./policy.ts";
 import { ThreadId, BrowserClientMessage, type BrowserServerMessage } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
 
@@ -68,6 +69,17 @@ export function connectBrowser(
         pending++;
         counted = true;
         switch (message.type) {
+          case "browser.origins.list":
+            respond(service.originsList(threadId));
+            break;
+          case "browser.origins.grant":
+            service.originsGrant(threadId, message.origin);
+            respond(service.originsList(threadId));
+            break;
+          case "browser.origins.revoke":
+            service.originsRevoke(threadId, message.origin);
+            respond(service.originsList(threadId));
+            break;
           case "browser.open": {
             const stopProgress = service.downloadProgress((progress) => {
               if (!closed) options.send(progress);
@@ -147,6 +159,7 @@ export function connectBrowser(
             type: "browser.result",
             requestId: message.requestId,
             ok: false,
+            ...(error instanceof BrowserOriginError ? { blocked: error.blocked } : {}),
             error: (error instanceof Error ? error.message : "Browser operation failed").slice(
               0,
               2048,

@@ -59,8 +59,10 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         let info = attachments.first ?? [:]
         let damage = (info[.dirtyRects] as? [CGRect]) ?? (info[.dirtyRects] as? [NSValue])?.map { $0.rectValue }
         let density = (info[.scaleFactor] as? NSNumber)?.doubleValue
+        let contentScale = (info[.contentScale] as? NSNumber)?.doubleValue
+        let measured = density.flatMap { density in contentScale.map { density * $0 } }
         let content = (info[.contentRect] as CFTypeRef?).flatMap { CFGetTypeID($0) == CFDictionaryGetTypeID() ? CGRect(dictionaryRepresentation: $0 as! CFDictionary) : nil }
-        let fitted = (content.map { rect in
+        let fitted = (contentScale.map { abs($0 - 1) < 0.02 } ?? true) && (content.map { rect in
             let points = Double(CVPixelBufferGetWidth(image)) / (density ?? 1), height = Double(CVPixelBufferGetHeight(image)) / (density ?? 1)
             return rect.width >= points - 2 && rect.height >= height - 2
         } ?? true)
@@ -68,7 +70,7 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
             let now = DispatchTime.now().uptimeNanoseconds
             if now - lastResize > 500_000_000 { lastResize = now; onResize?() }
         }
-        let currentScale = Double(CVPixelBufferGetWidth(image)) / targetWidth
+        let currentScale = measured.flatMap { $0.isFinite && $0 > 0 && $0 <= 8 ? $0 : nil } ?? Double(CVPixelBufferGetWidth(image)) / targetWidth
         latestImage = image; latestTimestamp = Date().timeIntervalSince1970 * 1000
         let seq = nextSequence
         lock.lock(); let first = initial; lock.unlock()

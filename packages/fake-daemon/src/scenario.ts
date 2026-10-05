@@ -1,9 +1,14 @@
 import type { Fact, Key } from "@ace/core";
-import type { InteractionResolution } from "@ace/protocol";
+import type { EventPayload, InteractionResolution } from "@ace/protocol";
 import type { FakeDaemon, ThreadInit } from "./daemon.ts";
 import { withCardDetails } from "./scenarios/card-details.ts";
 
 export type Step =
+  | {
+      kind: "update";
+      changes: Omit<Extract<EventPayload, { type: "thread.updated" }>, "type">;
+      label?: string;
+    }
   | {
       kind: "facts";
       facts: Fact[];
@@ -66,6 +71,8 @@ export class ScenarioPlayer {
     this.index++;
     if (step.kind === "facts")
       this.daemon.apply(this.threadId, step.facts, this.agoMs + (step.agoMs ?? 0));
+    else if (step.kind === "update")
+      this.daemon.updateThread(this.threadId, step.changes, this.agoMs);
     else if (step.next)
       this.steps.splice(
         this.index,

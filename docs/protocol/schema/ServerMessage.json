@@ -18,6 +18,9 @@
       "$ref": "https://ace.local/protocol/v1/ThreadReadStateResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/HostIdentityResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MachinesResult.json"
     },
     {
@@ -359,6 +362,68 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/CommandsResolveResult.json"
+    },
+    {
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.changed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "account"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+        },
+        "instruction": {
+          "enum": [
+            "/login",
+            "/logout"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "terminalId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.auth",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "instanceId",
+        "terminalId"
+      ],
+      "type": "object"
     },
     {
       "properties": {
@@ -758,6 +823,9 @@
     },
     {
       "properties": {
+        "blocked": {
+          "$ref": "https://ace.local/protocol/v1/BrowserOriginBlock.json"
+        },
         "error": {
           "maxLength": 2048,
           "type": "string"
@@ -1070,11 +1138,17 @@
     },
     {
       "properties": {
+        "code": {
+          "type": "string"
+        },
         "commandId": {
           "$ref": "https://ace.local/protocol/v1/CommandId.json"
         },
         "commit": {
           "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        },
+        "detail": {
           "type": "string"
         },
         "editor": {
@@ -1111,6 +1185,9 @@
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "title": {
+          "type": "string"
         },
         "type": {
           "const": "commandResult",

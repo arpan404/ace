@@ -42,6 +42,7 @@ export interface ServerOptions {
   screen?: ScreenManager;
   devices?: DevicesService;
   accounts?: AccountService;
+  accountManagement?: import("./account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
   commands?: CommandService;
   files?: FilesService;
@@ -69,6 +70,8 @@ export interface ServerOptions {
   ticketLimits?: Partial<TicketLimits>;
   token: string;
   hostId: string;
+  /** Injected hostname fallback for host.identity. */
+  hostName?: string;
   store: Store;
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
