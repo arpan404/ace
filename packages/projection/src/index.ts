@@ -235,6 +235,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       if (run) {
         run.state = p.state;
         run.endedAt = p.endedAt;
+        if (p.error) run.error = structuredCopy(p.error);
         if (p.trigger !== undefined) run.trigger = p.trigger;
       }
       break;
@@ -273,6 +274,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       if (interaction) {
         interaction.state = p.state;
         interaction.closedAt = p.closedAt;
+        if (p.expirationReason !== undefined) interaction.expirationReason = p.expirationReason;
         if (p.resolution !== undefined) interaction.resolution = structuredCopy(p.resolution);
         if (p.resolvedBy !== undefined) interaction.resolvedBy = p.resolvedBy;
         if (p.autoReviewed !== undefined) interaction.autoReviewed = p.autoReviewed;

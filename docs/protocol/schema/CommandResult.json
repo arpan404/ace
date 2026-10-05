@@ -2,11 +2,17 @@
   "$id": "https://ace.local/protocol/v1/CommandResult.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "code": {
+      "type": "string"
+    },
     "commandId": {
       "$ref": "https://ace.local/protocol/v1/CommandId.json"
     },
     "commit": {
       "pattern": "^[a-f0-9]{40,64}$",
+      "type": "string"
+    },
+    "detail": {
       "type": "string"
     },
     "editor": {
@@ -43,6 +49,9 @@
     },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "title": {
+      "type": "string"
     },
     "workspace": {
       "$ref": "https://ace.local/protocol/v1/Project.json"

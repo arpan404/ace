@@ -69,6 +69,8 @@ test("editing attachments, moving and removing queued messages changes only the 
     h.adapter.commands.filter((command) => command.type === "send").map((command) => command.input),
   ).toEqual([text("first"), text("c"), text("edited")]);
   expect(h.engine.queue(id).messages).toEqual([]);
+  expect(h.store.snapshotThread(id).items["input:a"]).toMatchObject({ parts: text("edited") });
+  expect(h.store.snapshotThread(id).items["input:b"]).toBeUndefined();
 });
 
 test("two devices racing the same revision get one winner and replaying its receipt cannot edit twice", async () => {
@@ -221,7 +223,7 @@ test.each([false, true])(
     const delivered = replacement.commands.filter((command) => command.type === "send");
     expect(delivered[0]?.input[0]).toMatchObject({
       type: "text",
-      text: expect.stringContaining("Background build"),
+      text: "continue",
     });
     expect(delivered.slice(1).map((command) => command.input)).toEqual([text("b"), text("a")]);
     expect(
@@ -230,7 +232,7 @@ test.each([false, true])(
   },
 );
 
-test("crash recovery reports dead shells monitors and subagents before native continuation", async () => {
+test("native restart settles lost shells monitors and subagents and sends one continuation", async () => {
   const frames = scriptFrames();
   const h = await fixture(
     [
@@ -271,12 +273,6 @@ test("crash recovery reports dead shells monitors and subagents before native co
     { on: "send", frames: [frames.frame(start, end)] },
   ]);
   const recovered = await crashCopy(h);
-  const notice = Object.values(recovered.store.snapshotThread(id).items).find(
-    (item) => item.type === "notice" && item.text.includes("background work died"),
-  );
-  expect(notice).toMatchObject({ text: expect.stringContaining("shell: Background build") });
-  expect(notice).toMatchObject({ text: expect.stringContaining("monitor: Watch tests") });
-  expect(notice).toMatchObject({ text: expect.stringContaining("subagent: Research") });
   expect(sends(replacement)).toHaveLength(0);
   dispatch(recovered.store, recovered.engine, {
     type: "thread.resume",
@@ -285,18 +281,31 @@ test("crash recovery reports dead shells monitors and subagents before native co
   });
   await recovered.engine.flush();
   expect(recovered.store.getThread(id)?.status.state).toBe("done");
+  const continuationItems = Object.values(recovered.store.snapshotThread(id).items).filter(
+    (item) => item.type === "message" && item.origin?.kind === "restart",
+  );
+  expect(continuationItems).toHaveLength(1);
+  expect(continuationItems[0]).toMatchObject({
+    synthetic: true,
+    origin: { kind: "restart" },
+    parts: [{ type: "text", text: "continue" }],
+  });
+  const view = recovered.store.snapshotThread(id);
+  expect(Object.values(view.backgroundTasks)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ title: "Background build", status: "unknown" }),
+      expect.objectContaining({ title: "Watch tests", status: "unknown" }),
+    ]),
+  );
+  expect(Object.values(view.agents)).toContainEqual(
+    expect.objectContaining({
+      name: "Research",
+      status: expect.objectContaining({ state: "failed" }),
+    }),
+  );
   expect(sends(replacement)).toHaveLength(1);
   const continuation = replacement.commands.find((command) => command.type === "send");
-  expect(continuation?.type === "send" ? continuation.input : []).toEqual([
-    { type: "text", text: expect.stringContaining("shell: Background build") },
-  ]);
-  if (continuation?.type !== "send") throw new Error("Missing continuation");
-  expect(continuation.input).toEqual([
-    { type: "text", text: expect.stringContaining("monitor: Watch tests") },
-  ]);
-  expect(continuation.input).toEqual([
-    { type: "text", text: expect.stringContaining("subagent: Research") },
-  ]);
+  expect(continuation).toMatchObject({ input: [{ type: "text", text: "continue" }] });
 });
 
 test("an unacknowledged send is never replayed automatically and must be removed before resuming", async () => {

@@ -7,17 +7,15 @@ import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { keymap } from "@/lib/keymap.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { AgentBranch, AgentRow } from "./agent-row.tsx";
+import { AgentBranch } from "./agent-row.tsx";
 
-/** [parent agent, ...children] for a run of spawn calls. */
+/** The agents a run of spawn calls started. */
 function spawned(reader: ThreadReader, itemIds: readonly string[]): string[] {
   const spawns = new Set(itemIds);
   const children: string[] = [];
-  let parent: string | undefined;
   for (const id of itemIds) {
     const item = reader.item(id);
     if (item?.type !== "tool_call") continue;
-    parent ??= item.agentId;
     if (item.call.detail.kind === "agent.spawn" && item.call.detail.childAgentId)
       children.push(item.call.detail.childAgentId);
   }
@@ -25,10 +23,13 @@ function spawned(reader: ThreadReader, itemIds: readonly string[]): string[] {
     const by = reader.agent(agentId)?.spawnedBy;
     if (by && spawns.has(by) && !children.includes(agentId)) children.push(agentId);
   }
-  return parent ? [parent, ...children] : children;
+  return children;
 }
 
-/** "Started 2 subagents ›", expanding inline into that part of the agent tree. */
+/**
+ * "Started 2 subagents ›", expanding inline into the agents it started, one row each (their
+ * own subagents under them). The parent's own state is the turn's live line, not a row here.
+ */
 export function Subagents(props: { threadId: string; itemIds: readonly string[] }) {
   const keys = useMemo<ThreadKey[]>(
     () => ["agents", ...props.itemIds.map((id): ThreadKey => `item:${id}`)],
@@ -38,7 +39,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
     (reader: ThreadReader) => spawned(reader, props.itemIds),
     [props.itemIds],
   );
-  const [parent, ...children] = useThread(props.threadId, keys, read, arrayEqual) ?? [];
+  const children = useThread(props.threadId, keys, read, arrayEqual) ?? [];
   const [open, setOpen] = useState(false);
   const workspace = useWorkspaceActions(props.threadId);
   const tree = useId();
@@ -65,9 +66,8 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
       {open && (
         <div id={tree} className="fx-rise-in mt-1 mb-2 ml-2.5 border-l-2 pl-2.5">
           <div role="tree" aria-label="Subagents">
-            {parent && <AgentRow threadId={props.threadId} agentId={parent} depth={0} />}
             {children.map((child) => (
-              <AgentBranch key={child} threadId={props.threadId} agentId={child} depth={1} />
+              <AgentBranch key={child} threadId={props.threadId} agentId={child} depth={0} />
             ))}
           </div>
           <Button

@@ -9,6 +9,7 @@ export function completeTurn(
   p: Obj,
   ctx: TranslationContext,
   facts: Fact[],
+  actionable = true,
 ): void {
   const { agents, tasks } = ctx;
   const turn = obj(p["turn"]);
@@ -93,7 +94,7 @@ export function completeTurn(
       status: outcome === "failed" ? "failed" : "completed",
     });
   }
-  if (current && outcome === "completed" && agent.mode === "plan" && agent.plan)
+  if (actionable && current && outcome === "completed" && agent.mode === "plan" && agent.plan)
     facts.push({
       type: "interaction.opened",
       agent: agent.key,

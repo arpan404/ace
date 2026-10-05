@@ -19,7 +19,8 @@
     "./idle-worker": "./src/idle-worker.ts",
     "./bounded-cache": "./src/bounded-cache.ts",
     "./flow-control": "./src/flow-control.ts",
-    "./sqlite": "./src/sqlite.ts"
+    "./sqlite": "./src/sqlite.ts",
+    "./shell-command": "./src/shell-command.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
