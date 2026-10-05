@@ -139,8 +139,16 @@ function parseStatus(value: unknown): DesktopDaemonStatus | undefined {
   };
 }
 
+/**
+ * The preload bridge's daemon calls. Fake mode exposes a debugging `ace` object too (the fake
+ * daemon and client), so the bridge is recognised by its own shape: the platform it reports
+ * and a `daemon.connection()` hand-off.
+ */
 function daemonBridge(scope: object): Record<string, unknown> | undefined {
-  return record(record(Reflect.get(scope, "ace"))?.daemon);
+  const ace = record(Reflect.get(scope, "ace"));
+  if (typeof ace?.platform !== "string") return undefined;
+  const daemon = record(ace.daemon);
+  return typeof daemon?.connection === "function" ? daemon : undefined;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

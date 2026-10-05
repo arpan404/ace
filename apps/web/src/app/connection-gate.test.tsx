@@ -8,6 +8,7 @@ import { expect, test } from "vitest";
 import { App, AppFrame } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 import type { DaemonTarget } from "@/boot/connection-settings.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { fakeClient, memoryKeyValue } from "@/test/harness.tsx";
 import { ConnectionGate, firstAttemptMs } from "./connection-gate.tsx";
 
@@ -149,4 +150,57 @@ test("a client that fails to load shows why ace couldn't start, not an endless s
   expect(await screen.findByRole("heading", { name: "ace couldn't start" })).toBeTruthy();
   expect(screen.getByText("Failed to fetch dynamically imported module")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
+});
+
+/** Settings' "Change": point the window at another daemon from inside the app. */
+function SwitchTo(props: { target: DaemonTarget }) {
+  const connection = useDaemonConnection();
+  return (
+    <button type="button" onClick={() => connection.connect(props.target, false)}>
+      Switch daemon
+    </button>
+  );
+}
+
+test("switching daemons never shows the old daemon's app while the new client is loading", async () => {
+  const first = new FakeDaemon({ clock: () => 1, token });
+  new ScenarioPlayer(first, flakyCheckout()).runThrough("explorer-spawned");
+  const second = new FakeDaemon({ clock: () => 1, token });
+  const other = { url: "ws://127.0.0.1:5151/", token };
+  let arrive: ((client: Client) => void) | undefined;
+  render(
+    <AppFrame environment={{}}>
+      <ConnectionGate
+        stores={{ local: memoryKeyValue(), session: memoryKeyValue() }}
+        defaultUrl={url}
+        createClient={(target) =>
+          target.url === other.url
+            ? // The in-page client for B arrives later, once its chunk loads.
+              new Promise<Client>((resolve) => {
+                arrive = resolve;
+              })
+            : fakeClient(first, target.token)
+        }
+      >
+        {(client) => (
+          <>
+            <SwitchTo target={other} />
+            <App client={client} history={createMemoryHistory({ initialEntries: ["/"] })} />
+          </>
+        )}
+      </ConnectionGate>
+    </AppFrame>,
+  );
+  await connect();
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+
+  await userEvent.click(screen.getByRole("button", { name: "Switch daemon" }));
+  // A's app is gone at once and nothing acts for B before B has welcomed the window.
+  expect(shell()).toBeNull();
+  expect(screen.queryByRole("button", { name: "Switch daemon" })).toBeNull();
+  expect(await screen.findByRole("button", { name: "Connecting…" })).toBeTruthy();
+
+  act(() => arrive?.(fakeClient(second, token)));
+  await screen.findByRole("button", { name: "Switch daemon" });
+  expect(shell()).toBeNull();
 });

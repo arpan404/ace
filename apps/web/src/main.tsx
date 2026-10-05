@@ -1,28 +1,38 @@
 import type { ClientApi } from "@ace/client";
 import { frameBatch } from "@ace/client-react";
 import { StrictMode, type ReactNode } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { App, AppFrame } from "./app.tsx";
 import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
 import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient } from "./boot/daemon.ts";
 import { desktopConnection, desktopDaemon, hasDesktopBridge } from "./boot/desktop.ts";
-import { BootFailure, DesktopFailureScreen, StartingScreen } from "./features/connect/index.ts";
+import { webStorage } from "./boot/web-storage.ts";
+import {
+  BareBootFailure,
+  BootFailure,
+  DesktopFailureScreen,
+  StartingScreen,
+} from "./features/connect/index.ts";
 import { markSeen } from "./features/thread/index.ts";
 import { watchKeyboardInset } from "./lib/keyboard-inset.ts";
 import { profileName, setProfileName } from "./lib/profile.ts";
 import "./styles/index.css";
 
+// A browser that denies site data throws on the first touch of storage; ace then starts with
+// storage that lasts for this window instead of failing before it can say anything.
+const local = webStorage(() => localStorage);
+const session = webStorage(() => sessionStorage);
 const environment = {
-  storage: localStorage,
+  storage: local,
   matchMedia: (query: string) => matchMedia(query),
   root: document.documentElement,
 };
-const stores = { local: localStorage, session: sessionStorage };
+const stores = { local, session };
 // Store changes reach React once per animation frame (none while the tab is hidden).
 const batch = frameBatch((flush) => requestAnimationFrame(flush));
-const app = (client: ClientApi) => <App client={client} storage={localStorage} batch={batch} />;
+const app = (client: ClientApi) => <App client={client} storage={local} batch={batch} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 function gate(options: { handed?: DaemonTarget | undefined; desktop?: boolean } = {}) {
@@ -47,7 +57,7 @@ async function content(): Promise<ReactNode> {
     const fake = (await import("./boot/fake.ts")).bootFake();
     const { client, seen } = fake;
     for (const mark of seen) markSeen(mark.threadId, mark.itemId);
-    if (!profileName(localStorage)) setProfileName(localStorage, fake.profileName);
+    if (!profileName(local)) setProfileName(local, fake.profileName);
     await client.start();
     return (
       <DaemonConnectionContext.Provider value={fake.connection}>
@@ -76,9 +86,6 @@ async function content(): Promise<ReactNode> {
 
 const element = document.getElementById("root");
 if (!element) throw new Error("Missing #root");
-const root = createRoot(element);
-// iOS covers the page with its keyboard instead of resizing it; bottom UI reads --kb-inset.
-watchKeyboardInset(window, document.documentElement);
 const daemonMode = import.meta.env.MODE !== "fake" && import.meta.env.MODE !== "perf";
 /** Start over at the connection screen without the stored token (from `BootFailure`). */
 const connectionSettings = daemonMode
@@ -87,31 +94,48 @@ const connectionSettings = daemonMode
       location.reload();
     }
   : undefined;
-const render = (children: ReactNode) =>
-  root.render(
-    <StrictMode>
-      <AppFrame environment={environment} onConnectionSettings={connectionSettings}>
-        {children}
-      </AppFrame>
-    </StrictMode>,
-  );
-// The desktop app hands over its daemon only once it answers; until then, say so calmly.
-// "Connect manually…" takes over from whatever the hand-off later says.
-let manual = false;
-if (hasDesktopBridge())
-  render(
-    <StartingScreen
-      daemon={desktopDaemon()}
-      onConnectManually={() => {
-        manual = true;
-        render(gate({ desktop: true }));
-      }}
-    />,
-  );
+
+async function start(root: Root) {
+  // iOS covers the page with its keyboard instead of resizing it; bottom UI reads --kb-inset.
+  watchKeyboardInset(window, document.documentElement);
+  const render = (children: ReactNode) =>
+    root.render(
+      <StrictMode>
+        <AppFrame environment={environment} onConnectionSettings={connectionSettings}>
+          {children}
+        </AppFrame>
+      </StrictMode>,
+    );
+  // The desktop app hands over its daemon only once it answers; until then, say so calmly.
+  // "Connect manually…" takes over from whatever the hand-off later says.
+  let manual = false;
+  if (hasDesktopBridge())
+    render(
+      <StartingScreen
+        daemon={desktopDaemon()}
+        onConnectManually={() => {
+          manual = true;
+          render(gate({ desktop: true }));
+        }}
+      />,
+    );
+  try {
+    const shown = await content();
+    if (!manual) render(shown);
+  } catch (error) {
+    console.error("ace couldn't start", error);
+    render(<BootFailure error={error} onConnectionSettings={connectionSettings} />);
+  }
+}
+
+// Anything the entry itself throws (before or around the providers) still reaches the screen,
+// without the providers that may be what failed.
+let root: Root | undefined;
 try {
-  const shown = await content();
-  if (!manual) render(shown);
+  root = createRoot(element);
+  await start(root);
 } catch (error) {
   console.error("ace couldn't start", error);
-  render(<BootFailure error={error} onConnectionSettings={connectionSettings} />);
+  if (root) root.render(<BareBootFailure error={error} />);
+  else element.textContent = "ace couldn't start. Reload the page to try again.";
 }

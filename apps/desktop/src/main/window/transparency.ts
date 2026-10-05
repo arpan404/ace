@@ -52,10 +52,14 @@ export class WindowMaterial {
     this.inserted = this.translucent ? this.insert() : undefined;
   }
 
-  /** The system setting may have changed: switch material and CSS if it did. */
+  /** The system setting or scheme may have changed: switch material, CSS and solid colour. */
   update(reducedTransparency: boolean, dark: boolean): void {
     const next = translucentWindow(this.platform, reducedTransparency);
-    if (next === this.translucent) return;
+    if (next === this.translucent) {
+      // An opaque window shows its native background; it follows a light/dark switch too.
+      if (!next) this.window.setBackgroundColor(solidBackground(dark));
+      return;
+    }
     this.translucent = next;
     if (this.platform === "darwin") this.window.setVibrancy(next ? "sidebar" : null);
     if (this.platform === "win32") this.window.setBackgroundMaterial(next ? "mica" : "none");

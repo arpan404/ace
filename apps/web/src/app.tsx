@@ -28,15 +28,18 @@ export function AppFrame(props: {
   children: ReactNode;
 }) {
   return (
-    <ThemeProvider environment={props.environment}>
-      <TooltipProvider>
-        <ToastProvider>
-          <BootErrorBoundary onConnectionSettings={props.onConnectionSettings}>
-            {props.children}
-          </BootErrorBoundary>
-        </ToastProvider>
-      </TooltipProvider>
-    </ThemeProvider>
+    // Outside the providers too: if theme, tooltips or toasts fail, this still says so.
+    <BootErrorBoundary bare>
+      <ThemeProvider environment={props.environment}>
+        <TooltipProvider>
+          <ToastProvider>
+            <BootErrorBoundary onConnectionSettings={props.onConnectionSettings}>
+              {props.children}
+            </BootErrorBoundary>
+          </ToastProvider>
+        </TooltipProvider>
+      </ThemeProvider>
+    </BootErrorBoundary>
   );
 }
 

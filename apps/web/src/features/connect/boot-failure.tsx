@@ -6,8 +6,12 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { ConnectCard } from "./connect-card.tsx";
 
-/** The words of a thrown value, for the person to read and copy. */
+/** The words of a thrown value, for the person to read and copy; never a daemon token. */
 export function errorText(error: unknown): string {
+  return redact(rawText(error));
+}
+
+function rawText(error: unknown): string {
   if (error instanceof Error) return error.message || error.name;
   if (typeof error === "string") return error;
   try {
@@ -15,6 +19,13 @@ export function errorText(error: unknown): string {
   } catch {
     return String(error);
   }
+}
+
+/** Daemon and device tokens are 64 hex characters; a `token=` link carries one too. */
+function redact(text: string): string {
+  return text
+    .replace(/(token=)[^&\s"']+/gi, "$1[hidden]")
+    .replace(/\b[0-9a-f]{64}\b/gi, "[token hidden]");
 }
 
 /**
@@ -72,12 +83,18 @@ export function BootFailure(props: {
 }
 
 /**
- * Catches what throws while the gate, the connection screen (or its chunk) or the shell
- * renders, so a failure shows `BootFailure` instead of a blank page or the endless splash.
- * Route errors inside the shell are the router's (`route-fallbacks.tsx`).
+ * Catches what throws below it and says ace couldn't start, instead of a blank page or the
+ * endless splash. `AppFrame` puts a `bare` one outside its providers (`BareBootFailure`, which
+ * needs none) and one inside them (`BootFailure`). Route errors inside the shell are the
+ * router's.
  */
 export class BootErrorBoundary extends Component<
-  { children: ReactNode; onConnectionSettings?: (() => void) | undefined },
+  {
+    children: ReactNode;
+    /** Outside the providers: plain markup that needs no theme, tooltips or toasts. */
+    bare?: boolean;
+    onConnectionSettings?: (() => void) | undefined;
+  },
   { error: { value: unknown } | undefined }
 > {
   override state: { error: { value: unknown } | undefined } = { error: undefined };
@@ -88,13 +105,68 @@ export class BootErrorBoundary extends Component<
     console.error("ace failed to render", error, info.componentStack);
   }
   override render() {
-    if (this.state.error)
-      return (
-        <BootFailure
-          error={this.state.error.value}
-          onConnectionSettings={this.props.onConnectionSettings}
-        />
-      );
-    return this.props.children;
+    const error = this.state.error;
+    if (!error) return this.props.children;
+    if (this.props.bare) return <BareBootFailure error={error.value} />;
+    return (
+      <BootFailure error={error.value} onConnectionSettings={this.props.onConnectionSettings} />
+    );
   }
+}
+
+/**
+ * `BootFailure` for when the providers themselves failed (theme, tooltips, toasts) or the entry
+ * never got as far as them: plain markup in system colours, light or dark with the OS.
+ */
+export function BareBootFailure(props: { error: unknown }) {
+  useDismissBootSplash();
+  const message = errorText(props.error);
+  return (
+    <div
+      style={{
+        colorScheme: "light dark",
+        background: "Canvas",
+        color: "CanvasText",
+        font: "14px/1.5 system-ui, sans-serif",
+        height: "100%",
+        display: "grid",
+        placeItems: "center",
+        padding: 24,
+      }}
+    >
+      <main
+        aria-labelledby="bare-boot-failure-title"
+        style={{ maxWidth: 420, width: "100%", display: "grid", gap: 12 }}
+      >
+        <h1 id="bare-boot-failure-title" style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>
+          ace couldn't start
+        </h1>
+        <p style={{ margin: 0, opacity: 0.75 }}>
+          Something went wrong before ace could open. Reloading usually fixes it.
+        </p>
+        <pre
+          style={{
+            margin: 0,
+            padding: "10px 12px",
+            borderRadius: 8,
+            background: "color-mix(in srgb, CanvasText 8%, Canvas)",
+            font: "12.5px/1.45 ui-monospace, monospace",
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+            maxHeight: 192,
+            overflow: "auto",
+          }}
+        >
+          {message}
+        </pre>
+        <button
+          type="button"
+          onClick={() => location.reload()}
+          style={{ justifySelf: "start", font: "inherit", padding: "6px 14px", borderRadius: 8 }}
+        >
+          Reload
+        </button>
+      </main>
+    </div>
+  );
 }

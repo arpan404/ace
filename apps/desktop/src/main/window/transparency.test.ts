@@ -64,6 +64,20 @@ describe("Reduce Transparency while ace runs", () => {
     expect(window.seeThrough()).toBe(1);
   });
 
+  it("repaints an opaque window's background when the system switches light and dark", () => {
+    const linux = fakeWindow("linux", false);
+    linux.material.update(false, false);
+    expect(linux.shown.background).toBe("#f6f6f7");
+    linux.material.update(false, true);
+    expect(linux.shown.background).toBe("#0a0a0a");
+
+    const reduced = fakeWindow("darwin", true);
+    reduced.material.update(true, true);
+    expect(reduced.shown.background).toBe("#0a0a0a");
+    reduced.material.update(true, false);
+    expect(reduced.shown.background).toBe("#f6f6f7");
+  });
+
   it("switches Mica on Windows", async () => {
     const window = fakeWindow("win32", false);
     window.material.pageLoaded();

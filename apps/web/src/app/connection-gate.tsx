@@ -44,6 +44,12 @@ interface GateState {
   shown: boolean;
 }
 
+/** One attempt at one target: a client is made for it and shown only while it is current. */
+interface ClientRequest {
+  target: DaemonTarget;
+  attempt: number;
+}
+
 /** Where one client got to before its first welcome. */
 type Progress =
   | { kind: "connecting" }
@@ -106,14 +112,21 @@ export function ConnectionGate(props: {
 
   // Each client gets a fresh app tree (router, caches) keyed by its generation.
   const generation = useRef(0);
-  const [client, setClient] = useState<
-    { client: ClientApi; key: number; progress: Progress } | undefined
+  // Each client is tied to the request it was made for. When the target changes, the old one
+  // is closed and, being for another request, is never shown again, even while the new
+  // client is still loading.
+  const [installed, setClient] = useState<
+    { client: ClientApi; key: number; progress: Progress; request: ClientRequest } | undefined
   >(undefined);
   // An in-page client that failed to load (its chunk never arrived) is a boot failure.
   const [failure, setFailure] = useState<{ error: unknown } | undefined>(undefined);
   // One request per attempt: Try again asks for the same target again, with a fresh client.
   const attempt = state.attempt;
-  const request = useMemo(() => active && { target: active, attempt }, [active, attempt]);
+  const request = useMemo<ClientRequest | undefined>(
+    () => active && { target: active, attempt },
+    [active, attempt],
+  );
+  const client = installed && installed.request === request ? installed : undefined;
   useEffect(() => {
     // The client is an external resource with a start/close lifecycle. Creating it here (not
     // in render) keeps StrictMode's mount-unmount-mount from starting a closed client.
@@ -140,7 +153,7 @@ export function ConnectionGate(props: {
             ? { ...previous, progress: value }
             : previous,
         );
-      setClient({ client: next, key, progress: { kind: "connecting" } });
+      setClient({ client: next, key, progress: { kind: "connecting" }, request });
       let welcomed = false;
       const states = next.connectionState();
       const follow = () => {

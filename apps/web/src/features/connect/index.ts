@@ -2,5 +2,5 @@
 export { ConnectionScreen } from "./lazy-connection-screen.tsx";
 export { DaemonForm } from "./daemon-form.tsx";
 export { StartingScreen } from "./starting-screen.tsx";
-export { BootErrorBoundary, BootFailure } from "./boot-failure.tsx";
+export { BareBootFailure, BootErrorBoundary, BootFailure } from "./boot-failure.tsx";
 export { DesktopFailureScreen } from "./desktop-failure-screen.tsx";
