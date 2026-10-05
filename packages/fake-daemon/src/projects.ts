@@ -48,6 +48,12 @@ export class FakeProjects {
     ["/fake", { empty: true, git: false, modifiedAt: 1, initialBranch: "main" }],
   ]);
   private listeners = new Set<(message: WorkspaceChanged | WorkspaceCloneProgress) => void>();
+  /** Folder reads held until released, or refused with a code (test fault injection). */
+  private readFaults: {
+    match: (operation: ProjectsRequest["operation"]) => boolean;
+    code?: string;
+    held?: Promise<void>;
+  }[] = [];
   private destinations = new Set<string>();
   private clones = new Map<
     string,
@@ -371,11 +377,37 @@ export class FakeProjects {
       finished.resolve();
     }
   }
+  /**
+   * Hold the folder reads `match` picks until `release()`, so a reply can arrive after the
+   * person has moved on (a slow search or completion). Returns the release.
+   */
+  holdReads(match: (operation: ProjectsRequest["operation"]) => boolean): () => void {
+    const gate = Promise.withResolvers<void>();
+    const fault = { match, held: gate.promise };
+    this.readFaults.push(fault);
+    return () => {
+      this.readFaults = this.readFaults.filter((each) => each !== fault);
+      gate.resolve();
+    };
+  }
+  /** Refuse the folder reads `match` picks with `code` until the returned function is called. */
+  refuseReads(code: string, match: (operation: ProjectsRequest["operation"]) => boolean) {
+    const fault = { match, code };
+    this.readFaults.push(fault);
+    return () => {
+      this.readFaults = this.readFaults.filter((each) => each !== fault);
+    };
+  }
   async read(request: ProjectsRequest, device: string): Promise<ProjectsResult> {
     this.seed();
     const wrap = (result: ProjectsResult["result"]) =>
       ProjectsResult.parse({ type: "projects.result", requestId: request.requestId, result });
     const op = request.operation;
+    for (const fault of this.readFaults.filter((each) => each.match(op))) {
+      if (fault.held) await fault.held;
+      if (fault.code) return wrap({ kind: "error", code: fault.code });
+    }
+    this.seed();
     try {
       if (op.op === "workspace.clone.validate") {
         try {

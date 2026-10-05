@@ -56,6 +56,19 @@ export function cloneUrlProblem(url: string): string | undefined {
   return undefined;
 }
 
+/**
+ * `name`, or the first of "name-2", "name-3"… no sibling has, comparing without case as macOS
+ * does: the folder a clone suggests when its repository's name is taken.
+ */
+export function freeName(name: string, siblings: readonly string[]): string {
+  const taken = new Set(siblings.map((sibling) => sibling.toLowerCase()));
+  if (!name || !taken.has(name.toLowerCase())) return name;
+  for (let suffix = 2; ; suffix++) {
+    const candidate = `${name}-${suffix}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
 /** "https://github.com/acme/web-app.git" → "web-app": the folder a clone suggests. */
 export function repositoryName(url: string): string {
   const value = url.trim().replace(/[?#].*$/, "");
@@ -235,6 +248,9 @@ const problems: Record<string, ProjectProblem> = {
   unavailable: { message: "This daemon can't manage projects yet. Update ace on that machine." },
   projects_unavailable: {
     message: "This daemon can't manage projects yet. Update ace on that machine.",
+  },
+  machine_offline: {
+    message: "That machine isn't connected. Pick another, or wait for it to come back.",
   },
   not_implemented: {
     message: "This daemon can't manage projects yet. Update ace on that machine.",

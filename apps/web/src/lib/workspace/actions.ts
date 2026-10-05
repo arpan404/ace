@@ -1,6 +1,5 @@
 import {
   activateTab,
-  closeOtherTabs,
   closeTab,
   cycleTab,
   findTab,
@@ -19,7 +18,9 @@ import {
   type Dock,
   type OpenRequest,
   type ScopeWorkspace,
+  type WorkspaceTab,
 } from "./model.ts";
+import type { ClosingTab } from "./registry.ts";
 import type { WorkspaceStore } from "./store.ts";
 
 /** A request from a feature: the dock defaults to the kind's preferred one. */
@@ -36,8 +37,15 @@ export interface WorkspaceActions {
   /** A new launcher tab in `dock` (default right). */
   newTab(dock?: Dock): void;
   activate(key: string): void;
-  close(key: string): void;
-  closeOthers(key: string): void;
+  /**
+   * Close a tab. One whose kind warns (a terminal's running shell) asks first; resolves whether
+   * it closed. Tabs that don't ask close before this returns.
+   */
+  close(key: string): Promise<boolean>;
+  /** Close the dock's other unpinned tabs, asking once if any of them warn. */
+  closeOthers(key: string): Promise<boolean>;
+  /** Bring back the tab closed most recently, where it was. Returns whether one came back. */
+  reopen(): boolean;
   move(key: string, toIndex: number): void;
   moveToDock(key: string, dock: Dock, index?: number): void;
   setPinned(key: string, pinned: boolean): void;
@@ -89,6 +97,67 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       const fresh = launcher(workspace, dock);
       return fresh ? openTab(workspace, fresh) : workspace;
     });
+  /** After a tab closed: release what it alone held, and keep it for Reopen closed tab. */
+  const closed = (tab: WorkspaceTab, dock: Dock, index: number) => {
+    store.rememberClosed(scope, { tab, dock, index });
+    definition()?.kind(tab.kind)?.onClose?.(scope, tab);
+  };
+  /** What closing these tabs (present now) would stop, if any kind warns (asked once). */
+  const warningFor = (keys: readonly string[]) => {
+    const current = definition();
+    const workspace = store.get(scope);
+    const byKind = new Map<string, ClosingTab[]>();
+    for (const key of keys) {
+      const where = findTab(workspace, key);
+      if (!where) continue;
+      const { tab } = where;
+      const list = byKind.get(tab.kind) ?? [];
+      list.push({ tab, dock: where.dock, title: current?.title(tab) ?? tab.title ?? tab.kind });
+      byKind.set(tab.kind, list);
+    }
+    for (const [kind, closing] of byKind) {
+      const warning = current?.kind(kind)?.closeWarning?.(scope, closing);
+      if (warning) return warning;
+    }
+    return undefined;
+  };
+  /**
+   * Close exactly the tabs `keys` names that are still open, then show `focus` if given. Tabs
+   * opened or replaced meanwhile (a waiting terminal that became a shell) are other resources:
+   * a yes given for these never closes those.
+   */
+  const closeNow = (keys: readonly string[], focus?: string) => {
+    const before = store.get(scope);
+    const gone = keys.flatMap((key) => {
+      const found = findTab(before, key);
+      return found ? [found] : [];
+    });
+    if (!gone.length) return false;
+    change((workspace) => {
+      const next = gone.reduce((each, { tab }) => closeTab(each, tab.key), workspace);
+      return focus && findTab(next, focus) ? activateTab(next, focus) : next;
+    });
+    for (const { tab, dock, index } of gone) closed(tab, dock, index);
+    return true;
+  };
+  /**
+   * Close `keys`, asking first when a kind warns what that would stop. Waits for the kinds when
+   * they haven't loaded (a shortcut pressed as the screen opens): an unknown kind is never
+   * taken to mean "nothing to lose". If they can't load, the tabs stay. Tabs that don't ask
+   * close before this returns.
+   */
+  const guardedClose = (keys: readonly string[], focus?: string): Promise<boolean> => {
+    const attempt = (): boolean | Promise<boolean> => {
+      const present = keys.filter((key) => findTab(store.get(scope), key));
+      if (!present.length) return false;
+      const warning = warningFor(present);
+      if (!warning) return closeNow(present, focus);
+      return store.confirmClose(warning).then((agreed) => agreed && closeNow(present, focus));
+    };
+    const current = definition();
+    if (!current || current.loaded()) return Promise.resolve(attempt());
+    return current.load().then(attempt, () => false);
+  };
   const actions: WorkspaceActions = {
     open: (open) => withKinds(() => change((workspace) => openTab(workspace, request(open)))),
     toggleKind: (kind) =>
@@ -121,18 +190,38 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
         return fresh ? openTab(workspace, fresh) : workspace;
       }),
     activate: (key) => change((workspace) => activateTab(workspace, key)),
-    close: (key) => {
-      const tab = findTab(store.get(scope), key)?.tab;
-      change((workspace) => closeTab(workspace, key));
-      if (tab) definition()?.kind(tab.kind)?.onClose?.(scope, tab);
-    },
+    close: (key) => guardedClose([key]),
     closeOthers: (key) => {
-      const before = store.get(scope);
-      change((workspace) => closeOtherTabs(workspace, key));
-      const after = store.get(scope);
-      for (const dock of ["right", "bottom"] as const)
-        for (const tab of before[dock].tabs)
-          if (!findTab(after, tab.key)) definition()?.kind(tab.kind)?.onClose?.(scope, tab);
+      const found = findTab(store.get(scope), key);
+      if (!found) return Promise.resolve(false);
+      // Exactly the tabs beside it now; what opens while the question is asked stays.
+      const dockTabs = store.get(scope)[found.dock].tabs;
+      const others = dockTabs.filter((tab) => !tab.pinned && tab.key !== key).map((tab) => tab.key);
+      return guardedClose(others, key);
+    },
+    reopen: () => {
+      const current = definition();
+      const back = store.takeClosed(scope, ({ tab }) => {
+        const kind = current?.kind(tab.kind);
+        if (current && !kind) return false;
+        if (findTab(store.get(scope), tab.key)) return false;
+        return kind?.reopenable?.(scope, tab) ?? true;
+      });
+      if (!back) return false;
+      const { tab, dock, index } = back;
+      change((workspace) => {
+        const opened = openTab(workspace, {
+          kind: tab.kind,
+          id: tab.id,
+          title: tab.title,
+          data: tab.data,
+          pinned: tab.pinned,
+          dock,
+        });
+        const at = Math.min(index, opened[dock].tabs.length - 1);
+        return moveTab(opened, tab.key, at);
+      });
+      return true;
     },
     move: (key, toIndex) => change((workspace) => moveTab(workspace, key, toIndex)),
     moveToDock: (key, dock, index) =>

@@ -1,138 +1,160 @@
-import { AppWindowIcon, GitBranchIcon } from "@phosphor-icons/react";
-import { displayPath, folderName, parentFolder } from "@ace/ui-core";
+import { AppWindowIcon } from "@phosphor-icons/react";
+import { folderName, parentFolder } from "@ace/ui-core";
 import { useEffect, useState } from "react";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
-import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { FolderBrowser } from "./folder-browser.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Kbd } from "@/components/ui/kbd.tsx";
+import type { Machine } from "@/lib/machines.ts";
+import { AllowedPlaces } from "./folder-notices.tsx";
+import { FolderSearchBox } from "./folder-search.tsx";
 import { Footer, Offer, Problem } from "./form-parts.tsx";
-import { projectFailure, useProjectCommands, type Added } from "./project-commands.ts";
+import type { LandMode } from "./land.ts";
+import { projectFailure, useProjectCommandsOn, type Added } from "./project-commands.ts";
 import type { FolderAttempt } from "./requests.ts";
-import { useFolderInspection, useHostHome, useRecentFolders } from "./use-folders.ts";
+import { useFolderInspection } from "./use-folders.ts";
+import { useFolderSearch, type FolderRow } from "./use-folder-search.ts";
 
 /**
- * Open folder: browse the daemon's folders (or, in the desktop app with a daemon on this
- * computer, use the system's folder picker) and add the selected folder, else the one open.
- * A folder inside a repository offers the repository's root; it's added only if chosen.
+ * Open folder: one search box over the chosen machine's folders and every machine's recent
+ * projects (or, in the desktop app with a daemon on this computer, the system's folder picker
+ * too). Enter opens the highlighted folder, ⌘Enter opens it in a new thread. A folder inside a
+ * repository offers the repository's root; it's added only if chosen.
  */
 export function OpenFolderTab(props: {
+  machine: Machine;
+  machines: readonly Machine[];
   attempt: FolderAttempt | undefined;
-  offline: boolean;
-  onAdded(result: Added): void;
+  onAdded(result: Added, mode: LandMode, machine: Machine): void;
 }) {
-  const home = useHostHome().data;
-  const recent = useRecentFolders().data?.folders ?? [];
-  const commands = useProjectCommands();
-  const [path, setPath] = useState<string | undefined>(
-    props.attempt ? parentFolder(props.attempt.path) : undefined,
-  );
-  const [selected, setSelected] = useState<string | undefined>(props.attempt?.path);
-  const [problem, setProblem] = useState<{ path: string; message: string } | undefined>(
-    props.attempt ? { path: props.attempt.path, message: props.attempt.problem } : undefined,
+  const { machine } = props;
+  const [text, setText] = useState(() => {
+    const parent = props.attempt ? parentFolder(props.attempt.path) : undefined;
+    return parent ? `${parent.replace(/\/+$/, "")}/` : "";
+  });
+  const [highlighted, setHighlighted] = useState<FolderRow>();
+  const [problem, setProblem] = useState<
+    { key: string; message: string; denied: boolean } | undefined
+  >(
+    () =>
+      props.attempt && {
+        key: `${machine.id}\u0000${props.attempt.path}`,
+        message: props.attempt.problem,
+        denied: true,
+      },
   );
   const [adding, setAdding] = useState(false);
+  // What was typed carries over to another machine; a problem stays with its own.
+  const [shownFor, setShownFor] = useState(machine.id);
+  if (shownFor !== machine.id) {
+    setShownFor(machine.id);
+    setProblem(undefined);
+  }
+  const search = useFolderSearch({ machine, machines: props.machines, text, mode: "open" });
   const native = useNativePicker();
-  const browsing = path ?? home?.start;
-  // Nothing selected adds the folder open in the browser, but never a whole root (the home
-  // folder): that takes an explicit selection.
-  const atRoot = browsing !== undefined && (home?.roots ?? []).includes(browsing);
-  const target = selected ?? (atRoot ? undefined : browsing);
-  const inspection = useFolderInspection(target).data;
+  const target = highlighted;
+  const on = target?.machine ?? machine;
+  const commandsOn = useProjectCommandsOn();
+  const inspection = useFolderInspection(on, target?.path).data;
   const root = inspection?.suggestedRepoRoot;
+  const offline = machine.client === undefined;
 
-  const add = async (folder: string) => {
+  const add = async (path: string, mode: LandMode, where: Machine) => {
     setAdding(true);
     setProblem(undefined);
     try {
-      props.onAdded(await commands.add(folder));
+      props.onAdded(await commandsOn(where).add(path), mode, where);
     } catch (error) {
-      setProblem({ path: folder, message: projectFailure(error).message });
+      const failure = projectFailure(error);
+      setProblem({
+        key: `${where.id}\u0000${path}`,
+        message: failure.message,
+        denied: failure.denied ?? false,
+      });
     } finally {
       setAdding(false);
     }
   };
-  const reveal = (folder: string) => {
-    setPath(parentFolder(folder) ?? folder);
-    setSelected(folder);
+  const open = (row: FolderRow | undefined, newThread: boolean) => {
+    if (!row || adding) return;
+    void add(row.path, newThread ? "thread" : "open", row.machine);
   };
 
+  const shownProblem = problem && target && problem.key === target.key ? problem : undefined;
   return (
     <div className="grid gap-3">
-      {native && (
-        <div className="flex items-center gap-3">
-          <Button
-            disabled={props.offline || adding}
-            onClick={() =>
-              void native.choose().then((chosen) => {
-                if (chosen) void add(chosen);
-              })
-            }
-          >
-            <Icon icon={AppWindowIcon} size={14} />
-            Choose a folder…
-          </Button>
-          <span className="text-sm text-subtle-foreground">or pick one below</span>
-        </div>
-      )}
-      {recent.length > 0 && (
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
-          <span className="mr-1 text-sm text-subtle-foreground">Recent</span>
-          {recent.map((folder) => (
-            <Button
-              key={folder.id}
+      <FolderSearchBox
+        label="Search folders"
+        listLabel="Folders"
+        placeholder="Search folders, or type a path: / ~ ./"
+        search={search}
+        text={text}
+        onText={setText}
+        mode="open"
+        several={props.machines.length > 1}
+        onChoose={(row, how) => open(row, how.newThread)}
+        onHighlight={setHighlighted}
+        autoFocus
+        trailing={
+          native &&
+          machine.primary && (
+            <IconButton
+              icon={AppWindowIcon}
+              label="Choose a folder…"
               size="sm"
-              variant="ghost"
-              title={displayPath(folder.path, home?.path)}
-              onClick={() => reveal(folder.path)}
-            >
-              {folder.name}
-            </Button>
-          ))}
-        </div>
-      )}
-      <FolderBrowser
-        label="Folders"
-        path={browsing}
-        onPath={setPath}
-        selected={selected}
-        onSelect={setSelected}
-        home={home?.path}
-        roots={home?.roots ?? []}
-        start={home?.start}
+              disabled={offline || adding}
+              onClick={() =>
+                void native.choose().then((chosen) => {
+                  if (chosen) void add(chosen, "open", machine);
+                })
+              }
+            />
+          )
+        }
       />
-      {problem && problem.path === target ? (
-        <Problem>{problem.message}</Problem>
-      ) : root && target ? (
+      {shownProblem ? (
+        <Problem>
+          {shownProblem.message}
+          {shownProblem.denied && (
+            <AllowedPlaces
+              className="mt-1 justify-start"
+              roots={search.home?.roots ?? []}
+              home={search.home?.path}
+              onGo={(path) => setText(`${path.replace(/\/+$/, "")}/`)}
+            />
+          )}
+        </Problem>
+      ) : root && target && !target.self ? (
         <Offer
           action={
-            <Button size="sm" disabled={adding || props.offline} onClick={() => void add(root)}>
+            <Button
+              size="sm"
+              disabled={adding || offline}
+              onClick={() => void add(root, "open", on)}
+            >
               Add {folderName(root)}
             </Button>
           }
         >
-          {folderName(target)} is inside the {folderName(root)} repository. Add the repository to
-          work on all of it, or add just this folder.
+          {target.name} is inside the {folderName(root)} repository. Add the repository to work on
+          all of it, or add just this folder.
         </Offer>
       ) : null}
-      <Footer
-        note={
-          target && (
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              {inspection?.git && <Icon icon={GitBranchIcon} size={13} />}
-              <span className="truncate">
-                {displayPath(target, home?.path)}
-                {inspection?.git?.branch ? ` · ${inspection.git.branch}` : ""}
-              </span>
-            </span>
-          )
-        }
-      >
+      <Footer>
+        <Button
+          variant="ghost"
+          disabled={!target || adding || on.client === undefined}
+          onClick={() => open(target, true)}
+        >
+          New thread
+          <Kbd aria-hidden keys="mod+enter" />
+        </Button>
         <Button
           variant="primary"
-          disabled={!target || adding || props.offline}
-          onClick={() => target && void add(target)}
+          disabled={!target || adding || on.client === undefined}
+          onClick={() => open(target, false)}
         >
-          {adding ? "Adding…" : target ? `Add ${folderName(target)}` : "Select a folder"}
+          {adding ? "Opening…" : target ? `Open ${target.name}` : "Select a folder"}
         </Button>
       </Footer>
     </div>

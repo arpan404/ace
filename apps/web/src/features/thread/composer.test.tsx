@@ -147,7 +147,7 @@ test("the context bar shows where the thread runs and follows its branch past a 
   expect(branch.textContent).not.toContain("↑");
   await userEvent.click(screen.getByRole("button", { name: "Commit" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Commit" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   await waitFor(() =>
     expect(screen.getByLabelText("Branch: fix/replay-cursor").textContent).toContain("1↑"),
   );

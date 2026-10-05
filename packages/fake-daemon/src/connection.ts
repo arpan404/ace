@@ -144,7 +144,7 @@ export class Connection {
         this.send({ type: "pong" });
         return;
       case "subscribe":
-        this.subscribe(message.subscriptionId, message.scope, message.afterSeq);
+        this.subscribe(message.subscriptionId, message.scope, message.afterSeq, message.paced);
         return;
       case "unsubscribe":
         this.subscriptions.delete(message.subscriptionId);
@@ -198,20 +198,28 @@ export class Connection {
         void this.session.handle(message, this.device);
     }
   }
-  private subscribe(id: string, scope: SubscriptionScope, afterSeq: number | undefined): void {
+  private subscribe(
+    id: string,
+    scope: SubscriptionScope,
+    afterSeq: number | undefined,
+    paced = false,
+  ): void {
     const head = this.host.head;
     if (afterSeq !== undefined && afterSeq <= head && this.host.snapshot(scope)) {
       this.subscriptions.set(id, { scope, cursor: head });
       this.deliver(id, afterSeq, head, this.host.replay(scope, afterSeq));
-      return;
+    } else {
+      const view = this.host.snapshot(scope);
+      if (!view) {
+        this.error("not_found", { subscriptionId: id });
+        return;
+      }
+      this.subscriptions.set(id, { scope, cursor: head });
+      this.send({ type: "snapshot", subscriptionId: id, seq: view.seq, view });
     }
-    const view = this.host.snapshot(scope);
-    if (!view) {
-      this.error("not_found", { subscriptionId: id });
-      return;
-    }
-    this.subscriptions.set(id, { scope, cursor: head });
-    this.send({ type: "snapshot", subscriptionId: id, seq: view.seq, view });
+    // Like the daemon, a paced subscriber learns when initialization (snapshot or replay,
+    // even an empty one) is complete, so its startup slot frees for the next scope.
+    if (paced) this.send({ type: "subscription.ready", subscriptionId: id, seq: head });
   }
   /** Fan out one appended batch. Filtered events leave a host-sequence gap, as the daemon does. */
   publish(events: readonly DeliveryEvent[], through: number): void {

@@ -1,4 +1,4 @@
-import { Client } from "@ace/client";
+import { Client, ConductorClient } from "@ace/client";
 import {
   accountLimit,
   FakeDaemon,
@@ -6,15 +6,18 @@ import {
   facts,
   fakeTransport,
   flakyCheckout,
+  workbenchServices,
   type Scenario,
 } from "@ace/fake-daemon";
 import { DeviceId, InteractionId, type ThreadListEntry } from "@ace/protocol";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, expect, test } from "vitest";
 import {
   ClientProvider,
   useAgentTree,
   useInteractions,
+  useInteraction,
   useItemInteraction,
   useItem,
   useSidebarIndex,
@@ -26,6 +29,70 @@ afterEach(async () => {
   cleanup();
   await Promise.all(clients.splice(0).map((client) => client.close()));
 });
+
+test.each([
+  ["", false],
+  [" under StrictMode", true],
+])(
+  "a deck worker question stays live when another component subscribes and unmounts%s",
+  async (_label, strict) => {
+    const { daemon, client } = setup();
+    daemon.seedServices(workbenchServices(1_800_000_000_000));
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    let ids = 0;
+    const decks = new ConductorClient(client, () => `deck-${++ids}`);
+    const run = await decks.get("mobile-cold-start");
+    const gate = run.needsUser.find((entry) => entry.kind === "provider");
+    if (!gate?.threadId || !gate.interactionId) throw new Error("Missing worker question");
+    const threadId = gate.threadId;
+    const interactionId = gate.interactionId;
+    const reporting = run.delegations
+      .filter((entry) => entry.threadId !== threadId)
+      .slice(0, 4)
+      .map((entry) => client.thread(entry.threadId));
+    function Question({ label }: { label: string }) {
+      const interaction = useInteraction(threadId, interactionId);
+      const text =
+        interaction?.request.kind === "question" ? interaction.request.questions[0]?.text : "";
+      return (
+        <output aria-label={label}>{interaction ? `${interaction.state}: ${text}` : ""}</output>
+      );
+    }
+    const view = (second: boolean) => {
+      const tree = (
+        <ClientProvider client={client}>
+          <Question key="deck" label="deck" />
+          {second && <Question key="activity" label="activity" />}
+        </ClientProvider>
+      );
+      return strict ? <StrictMode>{tree}</StrictMode> : tree;
+    };
+    const mounted = render(view(false));
+    const text = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
+    await waitFor(() => expect(screen.getByLabelText("deck").textContent).toBe(`pending: ${text}`));
+    mounted.rerender(view(true));
+    await waitFor(() => {
+      expect(screen.getByLabelText("deck").textContent).toBe(`pending: ${text}`);
+      expect(screen.getByLabelText("activity").textContent).toBe(`pending: ${text}`);
+    });
+    mounted.rerender(view(false));
+    // The remaining component still receives live updates after its peer unmounts.
+    await act(async () => {
+      expect(
+        await client.command({
+          type: "interaction.resolve",
+          interactionId: InteractionId.parse(interactionId),
+          resolution: { kind: "question", answers: { choice: ["apk"] } },
+        }),
+      ).toMatchObject({ ok: true });
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText("deck").textContent).toBe(`resolved: ${text}`),
+    );
+    for (const lease of reporting) lease.release();
+  },
+);
 
 function setup() {
   let now = 1;

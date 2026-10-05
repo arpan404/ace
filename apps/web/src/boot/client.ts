@@ -1,14 +1,20 @@
-import { Client, type Credential, type Storage, type Transport } from "@ace/client";
+import {
+  Client,
+  type ClientOptions,
+  type Credential,
+  type Storage,
+  type Transport,
+} from "@ace/client";
 import { DeviceId } from "@ace/protocol";
 
 /** Browser defaults for the SDK's injected time, randomness and ids. Boundary code only. */
-export function createBrowserClient(options: {
+export function browserClientOptions(options: {
   deviceId: string;
   transport(): Transport;
   credential(): Promise<Credential>;
   storage: Storage;
-}): Client {
-  return new Client({
+}): ClientOptions {
+  return {
     deviceId: DeviceId.parse(options.deviceId),
     transport: options.transport,
     credential: options.credential,
@@ -21,7 +27,12 @@ export function createBrowserClient(options: {
     },
     random: () => Math.random(),
     id: () => crypto.randomUUID(),
-  });
+  };
+}
+
+/** A client with the browser defaults. */
+export function createBrowserClient(options: Parameters<typeof browserClientOptions>[0]): Client {
+  return new Client(browserClientOptions(options));
 }
 
 export function memoryStorage(): Storage {

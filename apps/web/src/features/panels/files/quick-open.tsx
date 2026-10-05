@@ -162,7 +162,7 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
                 onPointerMove={() => setActive(index)}
                 onClick={() => choose(row)}
                 className={cn(
-                  "flex h-9 cursor-default items-center gap-[9px] rounded-md px-2.5 text-[13.5px] select-none",
+                  "flex h-9 cursor-default items-center gap-[9px] rounded-md px-2.5 text-ui select-none",
                   index === current && "bg-accent",
                 )}
               >
