@@ -3,7 +3,7 @@ import {
   ArrowsOutLineVerticalIcon,
   CaretDownIcon,
 } from "@phosphor-icons/react";
-import { createElement, Suspense, useEffect, type ReactNode } from "react";
+import { createElement, Suspense, useEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
@@ -86,11 +86,19 @@ export function WorkspaceDock(props: {
   }, [right, state.open, setRightPanel, actions]);
   // Floating or as a sheet, it closes like any overlay: Escape, Done or a click on the scrim,
   // and focus goes back to the toggle that opened it rather than to the page.
+  const section = useRef<HTMLElement>(null);
   const dismiss = () => {
+    const toggle = toggleOutside(side, section.current);
     hide();
-    toggleOutside(side)?.focus();
+    toggle?.focus();
   };
   useHotkey("escape", dismiss, { enabled: dismissable && state.open });
+  // A sheet covers the whole screen: focus moves into it, onto its showing tab, so the keys
+  // (Escape included) act on what is in front.
+  useEffect(() => {
+    if (!layout.sheet || !state.open) return;
+    section.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+  }, [layout.sheet, state.open]);
   if (!presence.mounted) return null;
 
   const size = maximized ? layout.bounds.max : clampToBounds(layout.size, layout.bounds);
@@ -116,6 +124,7 @@ export function WorkspaceDock(props: {
         />
       )}
       <section
+        ref={section}
         aria-label={closing ? undefined : label}
         inert={closing}
         data-dock={side}
@@ -255,15 +264,18 @@ export function WorkspaceDock(props: {
 
 /**
  * The dock's toggle outside the dock itself (the header's), to return focus to. On a phone the
- * toggles live in the header's ⋯, closed by now: focus goes back to that ⋯.
+ * toggles live in this screen's header ⋯, closed by now: focus goes back to that ⋯.
  */
-function toggleOutside(side: Dock): HTMLElement | undefined {
+function toggleOutside(side: Dock, dock: HTMLElement | null): HTMLElement | undefined {
+  // Not one inside a popup (the phone's ⋯): that closes, taking focus with it.
   const toggle = [...document.querySelectorAll<HTMLElement>(`[data-dock-toggle="${side}"]`)].find(
-    (each) => !each.closest("[data-dock]"),
+    (each) => !each.closest('[data-dock], [data-slot="popover-content"], [role="menu"]'),
   );
   return (
     toggle ??
-    document.querySelector<HTMLElement>('header button[aria-label="More actions"]') ??
+    dock
+      ?.closest("[data-workspace]")
+      ?.querySelector<HTMLElement>('header button[aria-label="More actions"]') ??
     undefined
   );
 }

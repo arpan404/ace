@@ -145,7 +145,7 @@ export function Workspace(props: {
     </>
   );
   return (
-    <div ref={outer} className="relative flex min-h-0 flex-1 flex-col">
+    <div ref={outer} data-workspace className="relative flex min-h-0 flex-1 flex-col">
       <WorkspaceHotkeys workspace={workspace} definition={definition} actions={actions} />
       <KindOverlays scope={scope} definition={definition} />
       {(shown.right || shown.bottom) && (

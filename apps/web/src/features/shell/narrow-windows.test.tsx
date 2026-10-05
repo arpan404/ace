@@ -176,11 +176,13 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   windowWidth(390);
   await openThread();
   // On a phone the panel toggles live in the header's ⋯, which focus returns to.
-  const more = await moreActions(screen.getByRole("banner"));
-  await userEvent.click(more);
+  await userEvent.click(await moreActions(screen.getByRole("banner")));
   await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).queryByRole("separator", { name: /Resize/ })).toBeNull();
+  // Focus moves into the sheet, onto its showing tab.
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-selected")).toBe("true"));
+  expect(panel.contains(document.activeElement)).toBe(true);
   // It covers the header, so it says whose panel it is and offers only Done: full view and the
   // dock toggles mean nothing on a phone's whole screen.
   expect(within(panel).getByText("Cap cold-start replay at 200 events")).toBeTruthy();
@@ -189,10 +191,14 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   ).toBeNull();
   await userEvent.click(within(panel).getByRole("button", { name: "Done" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
-  await waitFor(() => expect(document.activeElement).toBe(more));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      within(screen.getByRole("banner")).getByRole("button", { name: "More actions" }),
+    ),
+  );
 
-  await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
+  // Its shortcut (Ctrl+Alt+B off Apple) opens it too; Escape closes it.
+  await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
   await screen.findByRole("region", { name: "Thread panel" });
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
