@@ -1,3 +1,4 @@
+import { personCommand } from "./person-command.ts";
 import { cancelDelegatedInputs } from "./stop-intents.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -252,24 +253,7 @@ export class Engine {
                 ),
     };
     this.handler = {
-      handle: (command, context) => {
-        const p = command.payload;
-        if (p.type === "thread.create" || p.type === "thread.send") {
-          const { origin: _origin, trigger: _trigger, ...person } = p;
-          return this.internalHandler.handle(
-            CommandSchema.parse({ ...command, payload: { ...person, trigger: "user" } }),
-            context,
-          );
-        }
-        if (p.type === "thread.prepare") {
-          const { titleSource: _source, ...person } = p;
-          return this.internalHandler.handle(
-            CommandSchema.parse({ ...command, payload: person }),
-            context,
-          );
-        }
-        return this.internalHandler.handle(command, context);
-      },
+      handle: (command, context) => this.internalHandler.handle(personCommand(command), context),
     };
     const recover = () =>
       recoverEngine(
@@ -671,6 +655,7 @@ export class Engine {
   }
   /** Validate before Git I/O and hold an engine slot until acceptance or cancellation. */
   admitCreation(command: Command): CreationAdmission | string {
+    command = personCommand(command);
     if (permissionOptions(command)) return "provider_permission_options_forbidden";
     if (this.closing) return "daemon_shutting_down";
     if (!this.readyState) return "engine_starting";
