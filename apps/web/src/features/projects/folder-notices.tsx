@@ -95,7 +95,7 @@ export function RefusedNotice(props: {
 /** A small label after a folder's name: Git, Project, a machine. */
 export function Badge(props: { children: ReactNode; icon?: typeof GitBranchIcon }) {
   return (
-    <span className="inline-flex h-[18px] shrink-0 items-center gap-1 rounded-xs bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)] px-1.5 text-[11px] font-medium text-muted-foreground">
+    <span className="inline-flex h-[18px] shrink-0 items-center gap-1 rounded-xs bg-foreground/5 px-1.5 text-[11px] font-medium text-muted-foreground">
       {props.icon && <Icon icon={props.icon} size={12} />}
       {props.children}
     </span>
