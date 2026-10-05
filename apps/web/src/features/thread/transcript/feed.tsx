@@ -333,6 +333,53 @@ export function Feed(props: FeedProps) {
   };
   useEffect(readTop);
 
+  // Rows above a jump's target measure only once they render, and the virtualizer aimed with
+  // estimates: keep re-aiming at the target for a few frames until the view holds still, so a
+  // jump lands on its row however its neighbours measure. The reader's own scrolling stops it.
+  const rowsNow = useRef(rows);
+  useLayoutEffect(() => {
+    rowsNow.current = rows;
+  }, [rows]);
+  const landing = useRef(0);
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const stop = () => {
+      landing.current++;
+    };
+    el.addEventListener("wheel", stop, { passive: true });
+    el.addEventListener("touchstart", stop, { passive: true });
+    el.addEventListener("keydown", stop);
+    return () => {
+      el.removeEventListener("wheel", stop);
+      el.removeEventListener("touchstart", stop);
+      el.removeEventListener("keydown", stop);
+    };
+  }, []);
+  const keepLanding = useCallback(
+    (key: string, itemId: string, align: "start" | "center") => {
+      const nonce = ++landing.current;
+      let frames = 0;
+      let still = 0;
+      let last = -1;
+      const step = () => {
+        const el = viewport.current;
+        if (landing.current !== nonce || !el || frames++ > 60 || still >= 3) return;
+        const index = rowsNow.current.findIndex((row) => row.key === key);
+        if (index < 0) return;
+        virtualizer.scrollToIndex(index, { align });
+        settle(virtualizer, el, placedUntil);
+        placedAt(anchor, virtualizer, el, rowsNow.current, index, itemId);
+        const at = el.scrollTop + virtualizer.getTotalSize();
+        still = at === last ? still + 1 : 0;
+        last = at;
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    },
+    [virtualizer],
+  );
+
   // A jump (or a search hit) brings its item into view once its row exists.
   useLayoutEffect(() => {
     if (!focus || handled.current === focus.nonce) return;
@@ -351,7 +398,8 @@ export function Feed(props: FeedProps) {
     // The jump's row is the reader's place from now on, so rows folding or sliding around it
     // (the window's turns arriving, say) keep it where it landed.
     placedAt(anchor, virtualizer, viewport.current, rows, index, focus.itemId);
-  }, [focus, rows, focusOrdinal, virtualizer, setPinned]);
+    if (key) keepLanding(key, focus.itemId, focus.query ? "center" : "start");
+  }, [focus, rows, focusOrdinal, virtualizer, setPinned, keepLanding]);
   useEffect(() => {
     if (!flash || flash.hit) return;
     const timer = setTimeout(() => setFlash(undefined), 1_600);
