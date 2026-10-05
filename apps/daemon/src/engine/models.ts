@@ -1,4 +1,9 @@
-import { isDefaultSelection, selectionModelFilter, type ModelCatalogApi } from "@ace/models";
+import {
+  executionModelId,
+  isDefaultSelection,
+  selectionModelFilter,
+  type ModelCatalogApi,
+} from "@ace/models";
 import {
   AcpIdentity,
   type ExecutionSelection,
@@ -44,10 +49,7 @@ export class EngineModels {
       if (model && !isDefaultSelection(model)) throw new ModelSelectionError();
       return undefined;
     }
-    const chosen = resolution.model;
-    return chosen.nativeProviderId
-      ? `${chosen.nativeProviderId}/${chosen.nativeModelId}`
-      : chosen.nativeModelId;
+    return executionModelId(resolution.model);
   }
   identity(id: ThreadId): AcpIdentity | undefined {
     const thread = this.repo.store.getThread(id);
@@ -122,10 +124,7 @@ export class EngineModels {
         ...filter,
         ...(previous.model && !isDefaultSelection(previous.model) ? { model: previous.model } : {}),
       });
-      const chosen = resolution.ok ? resolution.model : undefined;
-      const model = chosen?.nativeProviderId
-        ? `${chosen.nativeProviderId}/${chosen.nativeModelId}`
-        : chosen?.nativeModelId;
+      const model = resolution.ok ? executionModelId(resolution.model) : undefined;
       // With no cached choice, restore an implicit selection. Resume discovers it later.
       const { model: _oldModel, ...rest } = previous;
       const next = { ...rest, ...(model ? { model } : {}) };

@@ -1,4 +1,5 @@
 import {
+  executionModelId,
   isDefaultSelection,
   matchesModel,
   selectionModelFilter,
@@ -45,5 +46,5 @@ export function delegationModel(
     throw new Error(
       `Cannot delegate to ${request.provider}${instance ? ` account ${instance}` : ""}: requested model ${request.model ?? "(default)"} is unavailable and no valid configured default exists. Refresh the target account's model catalog or choose an available model.`,
     );
-  return chosen.nativeModelId;
+  return executionModelId(chosen);
 }

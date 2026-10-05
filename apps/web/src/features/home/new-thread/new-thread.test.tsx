@@ -1,4 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
+import { CatalogModel } from "@ace/protocol";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -59,12 +60,7 @@ function cursorSharesGpt5(made: ReturnType<typeof harness>) {
     (m) => m.provider === "codex" && m.nativeModelId === "gpt-5",
   );
   if (!codexGpt5) throw new Error("fixture lists Codex GPT-5");
-  services.models.push({
-    ...codexGpt5,
-    id: "cursor:gpt-5",
-    provider: "cursor",
-    instance: "cursor",
-  });
+  services.models.push({ ...codexGpt5, provider: "cursor", instance: "cursor" });
 }
 const savedModel = (storage: ReturnType<typeof memoryKeyValue>) =>
   Choices.parse(JSON.parse(storage.getItem("ace.home.newThread") ?? "{}")).model;
@@ -120,6 +116,73 @@ test("a bare id remembered for a model the starting provider doesn't list is not
 
   expect(await screen.findByRole("button", { name: /^Model: Opus 4\.1/ })).toBeTruthy();
   expect(savedModel(storage)).toBe("gpt-5");
+});
+
+/** Personal keeps the built-in default (Opus 4.1); work's synced default is Sonnet 4.5. */
+function workDefaultsToSonnet(made: ReturnType<typeof harness>) {
+  made.daemon.services.settings.seed({
+    "providers.configuration": [
+      { provider: "claude", instance: "claude-work", defaultModel: "claude-sonnet-4-5" },
+    ],
+  });
+}
+
+test("picking the work account launches the work account's own default, not the personal one", async () => {
+  const made = app();
+  workDefaultsToSonnet(made);
+  await made.open("/new?project=relay");
+
+  const popover = await openModelControl(/^Model: Opus 4\.1, personal/);
+  await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));
+  await closeModelControl();
+  expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, work/ })).toBeTruthy();
+
+  await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
+  const created = listed(made).find((t) => t.title === "Trace the reconnect loop");
+  expect(created?.live).toMatchObject({ model: "claude-sonnet-4-5", account: "claude-work" });
+});
+
+test("a remembered account starts on that account's default without a model being picked", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.home.newThread", JSON.stringify({ account: "claude-work" }));
+  const made = app({ storage });
+  workDefaultsToSonnet(made);
+  await made.open("/new?project=relay");
+
+  expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, work/ })).toBeTruthy();
+  await userEvent.type(await prompt(), "Audit the retry budget{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Audit the retry budget" });
+  const created = listed(made).find((t) => t.title === "Audit the retry budget");
+  expect(created?.live).toMatchObject({ model: "claude-sonnet-4-5", account: "claude-work" });
+});
+
+test("an OpenCode default starts the thread with its qualified provider/model id", async () => {
+  const made = app();
+  const { services } = made.daemon;
+  const template = services.models.find((row) => row.provider === "opencode");
+  if (!template) throw new Error("fixture lists an OpenCode model");
+  // The catalog id is qualified; the native id beside its provider is bare.
+  services.models = [
+    ...services.models.filter((row) => row.provider !== "opencode"),
+    CatalogModel.parse({
+      ...template,
+      id: "opencode-go/muse-spark-1.3-contributor",
+      displayName: "Muse Spark 1.3",
+      nativeProviderId: "opencode-go",
+      nativeModelId: "muse-spark-1.3-contributor",
+      isDefault: true,
+    }),
+  ];
+  services.settings.seed({ "providers.default": "opencode" });
+  await made.open("/new?project=relay");
+
+  expect(await screen.findByRole("button", { name: /^Model: Muse Spark 1\.3/ })).toBeTruthy();
+  await userEvent.type(await prompt(), "Map the session lifecycle{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Map the session lifecycle" });
+  const created = listed(made).find((t) => t.title === "Map the session lifecycle");
+  expect(created).toMatchObject({ provider: "opencode" });
+  expect(created?.live?.model).toBe("opencode-go/muse-spark-1.3-contributor");
 });
 
 test("Shift+Enter writes a new line instead of sending", async () => {

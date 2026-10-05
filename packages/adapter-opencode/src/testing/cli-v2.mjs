@@ -7,7 +7,8 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 if (args[0] === "auth") {
-  console.log("[]");
+  // Connection status only names the connection type; the double holds no credential.
+  console.log(JSON.stringify([{ id: "opencode-go", connections: [{ type: "credential" }] }]));
   process.exit(0);
 }
 if (args[0] === "models") {

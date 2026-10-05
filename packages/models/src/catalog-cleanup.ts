@@ -63,8 +63,15 @@ export const providerDefaultRules: Record<
 export function isDefaultSelection(id: string | undefined): boolean {
   return id !== undefined && /^(?:default(?:\s*\(recommended\))?)$/i.test(id.trim());
 }
+/** The model's own name: OpenCode keeps its upstream provider prefix in `nativeModelId`. */
+function modelName(row: CatalogModel): string {
+  const prefix = row.nativeProviderId && `${row.nativeProviderId}/`;
+  return prefix && row.nativeModelId.startsWith(prefix)
+    ? row.nativeModelId.slice(prefix.length)
+    : row.nativeModelId;
+}
 function usable(row: CatalogModel): boolean {
-  if (isDefaultSelection(row.id) || isDefaultSelection(row.nativeModelId)) return false;
+  if (isDefaultSelection(row.id) || isDefaultSelection(modelName(row))) return false;
   // These names describe non-chat endpoints, not coding models. Unknown names remain usable.
   if (
     /(?:^|[-_/ ])(?:embedding?s?|rerank(?:er)?|whisper|tts|dall-e|gpt-image|sora|moderation|internal)(?:$|[-_/ ])/i.test(
@@ -81,12 +88,13 @@ function isLegacy(row: CatalogModel): boolean {
 }
 function familyRank(row: CatalogModel): number {
   const families = providerDefaultRules[row.provider].families;
+  const name = modelName(row);
   const index = families.findIndex((family) =>
     family === "gpt-sol"
-      ? /^gpt[-.\d]+-sol(?:$|-)/.test(row.nativeModelId)
+      ? /^gpt[-.\d]+-sol(?:$|-)/.test(name)
       : family === "gpt-codex"
-        ? /^gpt[-.\d]+-codex(?:$|-)/.test(row.nativeModelId)
-        : row.nativeModelId.toLowerCase().startsWith(family),
+        ? /^gpt[-.\d]+-codex(?:$|-)/.test(name)
+        : name.toLowerCase().startsWith(family),
   );
   return index < 0 ? families.length : index;
 }
@@ -99,7 +107,7 @@ export function compareModels(a: CatalogModel, b: CatalogModel): number {
   if (family) return family;
   const known = familyRank(a) < providerDefaultRules[a.provider].families.length;
   return (
-    (known ? natural.compare(b.nativeModelId, a.nativeModelId) : natural.compare(a.id, b.id)) ||
+    (known ? natural.compare(modelName(b), modelName(a)) : natural.compare(a.id, b.id)) ||
     a.id.localeCompare(b.id, "en")
   );
 }

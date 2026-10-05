@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { copyFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
 import { ThreadId } from "@ace/protocol";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
@@ -94,21 +95,31 @@ test("a persisted OpenCode choice from before the fix opens after restart withou
   const row = rows[0];
   if (!row) throw new Error("Missing discovered model");
   const path = join(work.path, "models.sqlite");
+  const clock = new Clock();
+  // A current catalog writes the cache, so its revision is one this build accepts
+  // (connected-provider caches); only the model bytes predate the execution-ID fix.
+  const writer = new ModelCatalog({
+    storage: openModelStorage(path),
+    instances: [config],
+    now: () => 0,
+    deadline: clock.deadline,
+    discover: async () => rows,
+  });
+  await writer.refresh();
+  await writer.close();
   // Seed the actual legacy bytes: storage.replace already runs the repairing schema.
   const legacy = new DatabaseSync(path);
-  legacy.exec("CREATE TABLE model_catalog (instance TEXT PRIMARY KEY, payload TEXT NOT NULL)");
-  legacy.prepare("INSERT INTO model_catalog(instance, payload) VALUES (?, ?)").run(
-    config.id,
+  const stored = z
+    .object({ payload: z.string() })
+    .parse(legacy.prepare("SELECT payload FROM model_catalog WHERE instance=?").get(config.id));
+  legacy.prepare("UPDATE model_catalog SET payload=? WHERE instance=?").run(
     JSON.stringify({
-      instance: config.id,
-      provider: "opencode",
-      revision: config.loginRevision,
-      refreshedAt: 0,
+      ...z.record(z.string(), z.unknown()).parse(JSON.parse(stored.payload)),
       models: [{ ...row, nativeModelId: "muse-spark-1.3-contributor" }],
     }),
+    config.id,
   );
   legacy.close();
-  const clock = new Clock();
   const catalog = new ModelCatalog({
     storage: openModelStorage(path),
     instances: [config],

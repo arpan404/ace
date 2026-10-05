@@ -205,6 +205,8 @@ test("the OpenCode client default keeps its connected provider route through the
   const frames = scriptFrames();
   const h = await harness([], frames, {
     provider: "opencode",
+    // The adapter's capabilities, including permission modes, depend on the discovered version.
+    discovery: { installed: true, auth: "logged_in", loginHint: "unused", version: "2.0.22" },
     models: catalog,
     nativeAdapter: adapter,
   });
