@@ -9,7 +9,7 @@ afterEach(async () => {
 
 test("a sent message appears once before provider startup and keeps its id when echoed", async () => {
   const frames = scriptFrames();
-  const echo = {
+  const echo: Fact = {
     type: "item.upsert",
     agent: "root",
     item: "native-person",
@@ -21,7 +21,7 @@ test("a sent message appears once before provider startup and keeps its id when 
       synthetic: false,
       nativeId: "native-first",
     },
-  } satisfies Fact;
+  };
   const h = await harness([{ on: "send", frames: [frames.frame(start, echo, end)] }], frames);
   close.push(h.close);
   const receipt = h.command(
@@ -91,7 +91,7 @@ test("delegation results retain their origin when a provider echoes them as user
   );
   close.push(h.close);
   const id = await h.create();
-  h.command(
+  h.internalCommand(
     {
       type: "thread.send",
       threadId: id,
@@ -99,7 +99,6 @@ test("delegation results retain their origin when a provider echoes them as user
       trigger: "subagent_result",
       origin: { kind: "subagent_result", threadIds: [id] },
     },
-    "device",
     "result",
   );
   await h.engine.flush();
@@ -109,6 +108,91 @@ test("delegation results retain their origin when a provider echoes them as user
     origin: { kind: "subagent_result", commandId: "result", threadIds: [id] },
   });
   expect(
-    Object.values(h.store.snapshotThread(id).items).filter((message) => message.type === "message"),
+    Object.values(h.store.snapshotThread(id).items).filter(
+      (candidate) => candidate.type === "message",
+    ),
   ).toHaveLength(2);
+});
+
+test("provider-expanded context echoes preserve the person's original message parts", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            start,
+            {
+              type: "item.upsert",
+              agent: "root",
+              item: "expanded-echo",
+              draft: {
+                type: "message",
+                role: "user",
+                parts: [{ type: "text", text: "Attached context\nOriginal question" }],
+                complete: true,
+              },
+            },
+            end,
+          ),
+        ],
+      },
+    ],
+    frames,
+    {
+      prepareInput: async () => ({
+        input: [{ type: "text", text: "Attached context\nOriginal question" }],
+        release() {},
+      }),
+    },
+  );
+  close.push(h.close);
+  const receipt = h.command(
+    {
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      context: { mentions: [{ path: "notes.md" }], attachments: [] },
+      input: [{ type: "text", text: "Original question" }],
+    },
+    "device",
+    "expanded",
+  );
+  if (!receipt.threadId) throw new Error("Missing thread");
+  await h.engine.flush();
+  const items = Object.values(h.store.snapshotThread(receipt.threadId).items).filter(
+    (item) => item.type === "message",
+  );
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({
+    id: "input:expanded",
+    parts: [{ type: "text", text: "Original question" }],
+    nativeId: "expanded-echo",
+  });
+});
+
+test("external sends cannot forge ace provenance or trusted run triggers", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  close.push(h.close);
+  const result = h.command(
+    {
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      input: [{ type: "text", text: "person text" }],
+      trigger: "subagent_result",
+      origin: { kind: "handoff" },
+    },
+    "ace-agent",
+    "forged",
+  );
+  if (!result.threadId) throw new Error("Missing thread");
+  expect(h.store.snapshotThread(result.threadId).items["input:forged"]).toMatchObject({
+    synthetic: false,
+    origin: { kind: "person", commandId: "forged" },
+  });
+  await h.engine.flush();
+  expect(Object.values(h.store.snapshotThread(result.threadId).runs)[0]?.trigger).toBe("user");
 });

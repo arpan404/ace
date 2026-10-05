@@ -172,6 +172,13 @@ export const ScreenHelperRequest = z.discriminatedUnion("op", [
     allowlist: z.array(ScreenBundle).max(64),
   }),
   HelperEnvelope.extend({ op: z.literal("permissions") }),
+  /** macOS: prompt once, then open the permission's System Settings pane. */
+  HelperEnvelope.extend({
+    op: z.literal("permissions.request"),
+    permission: z.enum(["screenRecording", "accessibility"]),
+  }),
+  /** macOS: press a button of the captured window by accessible name (Simulator's Home). */
+  HelperEnvelope.extend({ op: z.literal("button.press"), name: z.string().min(1).max(64) }),
   HelperEnvelope.extend({ op: z.literal("targets") }),
   HelperEnvelope.extend({ op: z.literal("stop") }),
   HelperEnvelope.extend({ op: z.literal("action"), action: ScreenAction }),

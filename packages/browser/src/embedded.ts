@@ -9,6 +9,8 @@ import {
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { Screencast } from "./cdp.ts";
+import { navigateCdp } from "./cdp-navigation.ts";
+import type { NavigationClock } from "./navigation.ts";
 
 const Navigation = z.object({
   frame: z.object({ url: z.string().max(8192), parentId: z.string().optional() }),
@@ -33,7 +35,7 @@ interface Waiter {
   sessionId: string;
   resolve(value: unknown): void;
   reject(error: Error): void;
-  timer: ReturnType<typeof setTimeout>;
+  cancel(): void;
 }
 export interface EmbeddedTransport {
   send(message: BrowserBackendServerMessage, serialized?: string): boolean;
@@ -49,10 +51,24 @@ export class EmbeddedBackend implements BrowserBackend {
   private sequence = 0;
   private closed = false;
   private lost: () => void;
-  constructor(id: string, transport: EmbeddedTransport, lost: () => void) {
+  private clock: NavigationClock;
+  constructor(
+    id: string,
+    transport: EmbeddedTransport,
+    lost: () => void,
+    clock: NavigationClock = {
+      now: () => performance.now(),
+      set: (delay, work) => {
+        const timer = setTimeout(work, delay);
+        timer.unref();
+        return () => clearTimeout(timer);
+      },
+    },
+  ) {
     this.id = id;
     this.transport = transport;
     this.lost = lost;
+    this.clock = clock;
   }
   private send(message: BrowserBackendServerMessage): void {
     const serialized = JSON.stringify(message);
@@ -62,7 +78,12 @@ export class EmbeddedBackend implements BrowserBackend {
       throw new Error("Desktop browser backend lost");
     }
   }
-  private call(sessionId: string, operation: BrowserBackendOperation): Promise<unknown> {
+  private call(
+    sessionId: string,
+    operation: BrowserBackendOperation,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     if (this.closed) return Promise.reject(new Error("Desktop browser backend lost"));
     const session = this.sessions.get(sessionId);
     if (!session) return Promise.reject(new Error("Desktop browser session closed"));
@@ -76,23 +97,53 @@ export class EmbeddedBackend implements BrowserBackend {
       operation,
     };
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(
+      const cancelTimer = this.clock.set(
+        operation.kind === "open"
+          ? 60_000
+          : operation.kind === "cdp" && operation.method === "Page.navigate"
+            ? 95_000
+            : 30_000,
         () => {
+          signal?.removeEventListener("abort", abort);
           this.pending.delete(id);
           session.pending.delete(id);
           reject(new Error("Desktop browser command timed out"));
-          // The command may have run. Stop this transport; never replay it.
-          this.disconnect("Desktop browser command timed out");
+          // Uncertain work belongs to this session, never to its siblings.
+          this.loseSession(sessionId, "Desktop browser command timed out");
+          try {
+            this.send({
+              type: "browser.backend.request",
+              backendId: this.id,
+              sessionId,
+              id: String(++this.sequence),
+              operation: { kind: "close" },
+            });
+          } catch {
+            /* Transport loss already closes sessions. */
+          }
         },
-        operation.kind === "open" ? 60_000 : 30_000,
       );
-      timer.unref();
-      this.pending.set(id, { sessionId, resolve, reject, timer });
+      const cancel = () => {
+        cancelTimer();
+        signal?.removeEventListener("abort", abort);
+      };
+      const abort = () => {
+        cancel();
+        this.pending.delete(id);
+        session.pending.delete(id);
+        reject(signal?.reason ?? new Error("Desktop browser command cancelled"));
+      };
+      this.pending.set(id, { sessionId, resolve, reject, cancel });
       session.pending.add(id);
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
       try {
         this.send(message);
       } catch (error) {
-        clearTimeout(timer);
+        cancel();
         this.pending.delete(id);
         session.pending.delete(id);
         reject(error);
@@ -108,7 +159,7 @@ export class EmbeddedBackend implements BrowserBackend {
       if (!waiter || waiter.sessionId !== message.sessionId) return;
       this.pending.delete(message.id);
       this.sessions.get(waiter.sessionId)?.pending.delete(message.id);
-      clearTimeout(waiter.timer);
+      waiter.cancel();
       if (message.error !== undefined) waiter.reject(new Error(message.error));
       else waiter.resolve(message.result);
       return;
@@ -129,6 +180,24 @@ export class EmbeddedBackend implements BrowserBackend {
         sessionId: message.sessionId,
         frameId: frame.data.sessionId,
       });
+      return;
+    }
+    if (message.method === "ace.webSocketRequested") {
+      const request = z
+        .object({ id: z.string().max(256), url: z.string().max(8192) })
+        .safeParse(message.params);
+      if (!request.success) return;
+      void session.request
+        .allowed(request.data.url)
+        .catch(() => false)
+        .then((allowed) =>
+          this.call(message.sessionId, {
+            kind: "cdp",
+            method: "ace.webSocketDecision",
+            params: { id: request.data.id, allowed },
+          }),
+        )
+        .catch(() => {});
       return;
     }
     if (message.method === "ace.permissionDenied") {
@@ -200,7 +269,7 @@ export class EmbeddedBackend implements BrowserBackend {
       const waiter = this.pending.get(id);
       if (!waiter) continue;
       this.pending.delete(id);
-      clearTimeout(waiter.timer);
+      waiter.cancel();
       waiter.reject(new Error(reason));
     }
     session.pending.clear();
@@ -291,19 +360,30 @@ export class EmbeddedBackend implements BrowserBackend {
       );
       remote.url = opened.url;
       request.signal.throwIfAborted();
-      guard = await installOriginGuard(cdp, request.allowed);
+      guard = await installOriginGuard(cdp, request.allowed, request.initiator);
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");
       await cdp.send("Network.enable");
       return {
         cdp,
         url: () => remote.url,
-        navigate: async (url, timeout) => {
-          const completed = z
-            .object({ url: z.string().max(8192) })
-            .parse(await call({ kind: "navigate", url, timeout }));
-          remote.url = completed.url;
-          request.navigation();
+        navigate: async (url, _timeout, signal) => {
+          const navigationSignal = signal ?? request.signal;
+          await navigateCdp(
+            {
+              ...cdp,
+              send: (method, params) =>
+                method === "Page.navigate"
+                  ? this.call(
+                      sessionId,
+                      { kind: "cdp", method, ...(params ? { params } : {}) },
+                      navigationSignal,
+                    )
+                  : cdp.send(method, params),
+            },
+            url,
+            navigationSignal,
+          );
         },
         async click(x, y) {
           await cdp.send("Input.dispatchMouseEvent", {

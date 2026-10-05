@@ -24,8 +24,9 @@ test("tool work collapses into one line that opens to its steps and their output
   expect(within(feed).queryByText("apps/server/src/cursor.ts")).toBeNull();
 
   await userEvent.click(summary);
-  const steps = within(feed).getByRole("list", { name: "Steps" });
-  expect(within(steps).getByText("apps/server/src/cursor.ts")).toBeTruthy();
+  // The steps load with the thread's deferred parts.
+  const steps = await within(feed).findByRole("list", { name: "Steps" });
+  expect(await within(steps).findByText("apps/server/src/cursor.ts")).toBeTruthy();
   expect(within(steps).getByText("4 matches")).toBeTruthy();
 
   await userEvent.click(

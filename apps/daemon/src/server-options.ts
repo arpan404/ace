@@ -69,6 +69,8 @@ export interface ServerOptions {
   ticketLimits?: Partial<TicketLimits>;
   token: string;
   hostId: string;
+  /** Injected hostname fallback for host.identity. */
+  hostName?: string;
   store: Store;
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };

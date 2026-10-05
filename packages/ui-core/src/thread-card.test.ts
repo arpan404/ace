@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import { entry } from "./test-entries.fixture.ts";
-import { cardDetails, middleTruncate, threadCard, type ThreadCardInput } from "./thread-card.ts";
+import {
+  cardDetails,
+  middleTruncateText,
+  threadCard,
+  type ThreadCardInput,
+} from "./thread-card.ts";
 
 const now = new Date("2026-10-01T15:00:00").getTime();
 const input = (patch: Partial<ThreadCardInput> & Pick<ThreadCardInput, "entry">) => ({
@@ -115,9 +120,9 @@ test("a long branch is cut in the middle for the row and kept whole for the tool
 });
 
 test("middle truncation keeps short text and both ends of long text", () => {
-  expect(middleTruncate("fix/retry", 16)).toBe("fix/retry");
-  expect(middleTruncate("deck/resumable-streams", 16)).toBe("deck/res…streams");
-  expect(middleTruncate("abcdef", 2)).toBe("ab");
+  expect(middleTruncateText("fix/retry", 16)).toBe("fix/retry");
+  expect(middleTruncateText("deck/resumable-streams", 16)).toBe("deck/res…streams");
+  expect(middleTruncateText("abcdef", 2)).toBe("ab");
   // Characters, not UTF-16 units: an emoji in a branch name is never split in half.
-  expect(middleTruncate("🚀".repeat(12), 5)).toBe("🚀🚀…🚀🚀");
+  expect(middleTruncateText("🚀".repeat(12), 5)).toBe("🚀🚀…🚀🚀");
 });

@@ -242,7 +242,14 @@ export class Client implements ClientApi {
   }
   private observeInputs(message: ServerMessage): void {
     const observe = (item: Item) => {
-      if (item.type === "notice" && item.commandId && item.level === "error") {
+      // A known-not-sent notice fails its draft. `delivery_uncertain` may have run: it is
+      // recovered through `queue.resend`, never offered as a plain resend (ADR 0065).
+      if (
+        item.type === "notice" &&
+        item.commandId &&
+        item.level === "error" &&
+        item.code !== "delivery_uncertain"
+      ) {
         void this.intents
           .deliveryFailed(item.commandId, item.detail ?? item.text)
           .catch(() => this.connection.fail(new ClientError("storage")));

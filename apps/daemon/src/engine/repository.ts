@@ -1,8 +1,12 @@
-import { readableProviderFact } from "./provider-errors.ts";
+import { SessionMetadata } from "./session-metadata.ts";
+import { syntheticInput, admitInput, removeInput } from "./transcript-inputs.ts";
+import { cancelPending } from "./stop-intents.ts";
+import { foldProviderFacts } from "./provider-facts.ts";
+import { indexTitleInputs } from "./title-input.ts";
+import { InteractionLedger } from "./interaction-ledger.ts";
+import { InputJournal } from "./input-journal.ts";
 import { attributeAceAction } from "./ace-approvals.ts";
 import { AceInputs } from "./ace-inputs.ts";
-import { InputJournal, inputOrigin } from "./input-journal.ts";
-import { coalesceFacts } from "./delta-batch.ts";
 import { Permissions } from "./permissions.ts";
 import { ProviderRecovery } from "./provider-recovery.ts";
 import type { ProviderBackend, Frame } from "@ace/engine-api";
@@ -12,13 +16,13 @@ import { TransitionReadiness } from "./transition-readiness.ts";
 import { captureExecutionSources } from "./execution-provenance.ts";
 import { quiescent } from "./transition-history.ts";
 import { TransitionState } from "./transition-state.ts";
-import { FactBatch, type Fact, type ThreadState, type IdSource } from "@ace/core";
+import { type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { ExecutionOptions, Command, CommandId, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
-import { capFact, readRawBlob } from "./raw.ts";
+import { readRawBlob } from "./raw.ts";
 import { QueueStore } from "./queue-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
@@ -33,8 +37,10 @@ export class EngineRepository {
   readonly permissions: Permissions;
   readonly recovery: ProviderRecovery;
   private capture: StatementSync;
+  private metadata: SessionMetadata;
   readonly queue: QueueStore;
   readonly inputs: InputJournal;
+  readonly interactions: InteractionLedger;
   readonly pending: IntentStore;
   readonly attachments: AttachmentCorrelations;
   observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
@@ -64,9 +70,11 @@ export class EngineRepository {
     this.commandId = commandId;
     this.ids = ids;
     this.store = store;
+    this.metadata = new SessionMetadata(this);
     this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
     this.attachments = new AttachmentCorrelations(store);
+    indexTitleInputs(store);
     store.atomic((db) =>
       db.exec(
         "CREATE INDEX IF NOT EXISTS engine_entity_ids ON engine_state_records(thread_id,section,json_extract(value,'$.id')) WHERE section IN ('interactions','tasks')",
@@ -81,6 +89,7 @@ export class EngineRepository {
     this.queue = new QueueStore(store);
     this.pending = new IntentStore(store, this.queue);
     this.inputs = new InputJournal(store);
+    this.interactions = new InteractionLedger(store);
     this.transitions = new TransitionState(store);
     this.readiness = store.atomic((_db) => new TransitionReadiness(_db));
     store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
@@ -205,142 +214,28 @@ export class EngineRepository {
       if (oldest !== undefined) this.snapshots.delete(oldest);
     }
   }
-  apply(id: ThreadId, facts: Fact[], now: number): ThreadState {
+  attributeAction(state: ThreadState, fact: Fact): Fact {
+    return attributeAceAction(state, fact, this.aceAction);
+  }
+  apply(id: ThreadId, facts: Fact[], now: number, generation?: number): ThreadState {
     try {
       return this.store.atomic(() => {
-        const state = this.state(id);
-        if (!state) throw new Error("Missing engine state");
-        this.snapshots.get(id)?.begin();
-        const batch = new FactBatch(state);
-        let continuationStarted = false;
-        const events = coalesceFacts(facts).flatMap((input) => {
-          const queue = input.type === "turn.started" ? this.queue.get(id) : undefined;
-          if (
-            input.type === "turn.started" &&
-            input.agent === (state.rootKey ?? "root") &&
-            queue?.trigger &&
-            this.recoveryAcknowledgement(id)
-          )
-            input = { ...input, trigger: queue.trigger };
-          // The admitted input item takes the provider's echo first; ace's own inputs are then
-          // attributed, and provider errors made readable.
-          let fact = attributeAceAction(
-            state,
-            this.aceInputs.attribute(id, this.inputs.correlate(id, input, state.rootKey ?? "root")),
-            this.aceAction,
-          );
-          if (
-            ((fact.type === "item.upsert" || fact.type === "item.reconciled") &&
-              fact.draft.type === "notice") ||
-            (fact.type === "turn.ended" && fact.error) ||
-            (fact.type === "process.exited" && fact.message)
-          )
-            fact = readableProviderFact(state.config.provider, fact, this.session(id).model);
-          fact = capFact((raw) => this.store.capRaw(raw, id), fact);
-          if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
-            const pending = this.pending.awaiting(id);
-            if (
-              pending &&
-              (pending.kind === "thread.create" || pending.kind === "thread.send") &&
-              pending.trigger
-            )
-              fact = { ...fact, trigger: pending.trigger };
-          }
-          if (fact.type === "turn.ended" && fact.agent === (state.rootKey ?? "root")) {
-            const record = state.agents[fact.agent];
-            const runId = fact.nativeTurnId
-              ? record?.nativeRuns?.[fact.nativeTurnId]
-              : record?.activeRun;
-            const run = runId ? state.runs[runId] : undefined;
-            if (
-              run &&
-              ["spawn", "parent_agent", "subagent_result", "schedule"].includes(run.trigger)
-            )
-              fact = { ...fact, trigger: run.trigger };
-          }
-          if (fact.type === "interaction.closed" && fact.state === "resolved") {
-            const interaction = Object.hasOwn(state.interactions, fact.interaction)
-              ? state.interactions[fact.interaction]
-              : undefined;
-            const answer = interaction ? this.answer(interaction.id) : undefined;
-            if (answer?.payload.type === "interaction.resolve")
-              fact = {
-                ...fact,
-                resolution: answer.payload.resolution,
-                resolvedBy: answer.deviceId,
-              };
-          }
-          const snapshot = this.snapshots.get(id);
-          const finish = snapshot?.prepare(fact) ?? (() => {});
-          try {
-            const emitted = batch.apply(fact, {
-              now,
-              ids:
-                fact.type === "item.upsert" && fact.item.startsWith("input:")
-                  ? { next: (kind) => (kind === "item" ? fact.item : this.ids.next(kind)) }
-                  : this.ids,
-              ...(fact.type === "turn.ended"
-                ? {
-                    resolvingInteractions: this.pending.resolvingInteractions(id),
-                  }
-                : {}),
-            });
-            if (
-              fact.type === "turn.started" &&
-              (fact.trigger === "restart" || fact.trigger === "limit_resume") &&
-              emitted.some((event) => event.type === "run.started")
-            )
-              continuationStarted = true;
-            if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
-              snapshot?.delta(fact);
-            snapshot?.remember(fact, emitted);
-            if (fact.type === "tick") this.readiness.refreshBlocked(state);
-            return emitted;
-          } finally {
-            finish();
-          }
-        });
-        events.push(...batch.flush());
-        // Admission-based providers transfer queue ownership before a run starts.
-        // Persist the acknowledgement policy in the existing per-thread record store,
-        // so a later run cannot acknowledge the next, unrelated engine input.
-        const root = state.agents[state.rootKey ?? ""]?.agent.id;
-        for (const event of events) {
-          const admitted =
-            event.type === "input.admitted" && event.agentId === root && !this.opening.has(id);
-          if (admitted) this.admissionStatements.mark.run(id);
-          const started =
-            event.type === "run.started" &&
-            !this.opening.has(id) &&
-            event.run.agentId === root &&
-            [
-              "user",
-              "queue",
-              "unknown",
-              "spawn",
-              "parent_agent",
-              "subagent_result",
-              "schedule",
-              "restart",
-              "limit_resume",
-            ].includes(event.run.trigger) &&
-            !this.admissionStatements.has.get(id);
-          const acknowledged =
-            event.type === "input.admitted" && admitted && event.commandId !== undefined
-              ? this.admissionStatements.correlated.all(id, event.commandId)
-              : admitted || started
-                ? this.admissionStatements.ack.all(id, id)
-                : [];
-          for (const row of acknowledged) this.queue.prune(Number(row.id));
-        }
-        if (continuationStarted && this.queue.get(id).trigger) {
-          this.queue.set(id, { continuation: null, trigger: null }, now);
-          this.pending.finishContinuation(id);
-        }
-        this.snapshots.get(id)?.updateDeadlines(facts, events, now);
-        this.save(state, events, now);
-        this.observe?.(state, facts, events, now);
-        return state;
+        const state = this.requireState(id);
+        return foldProviderFacts(
+          this,
+          state,
+          facts,
+          now,
+          {
+            snapshot: this.snapshots.get(id),
+            ids: this.ids,
+            readiness: this.readiness,
+            admission: this.admissionStatements,
+            opening: this.opening.has(id),
+            recoveryAcknowledged: () => this.recoveryAcknowledgement(id),
+          },
+          generation,
+        );
       });
     } catch (error) {
       this.evict(id);
@@ -348,78 +243,24 @@ export class EngineRepository {
     }
   }
 
+  syntheticInput(
+    id: ThreadId,
+    key: string,
+    text: string,
+    origin: import("@ace/protocol").MessageOrigin,
+    at: number,
+  ): void {
+    syntheticInput(this, id, key, text, origin, at);
+  }
   admitInput(command: Command, id: ThreadId, at: number): void {
-    const p = command.payload;
-    if (p.type !== "thread.create" && p.type !== "thread.send") return;
-    const key = `input:${command.id}`;
-    const origin = inputOrigin(command);
-    this.inputs.register(id, key, p.input, origin);
-    this.apply(
-      id,
-      [
-        {
-          type: "item.upsert",
-          agent: this.requireState(id).rootKey ?? "root",
-          item: key,
-          draft: {
-            type: "message",
-            role: "user",
-            parts: p.input,
-            origin,
-            synthetic: origin.kind !== "person" && origin.kind !== "queue",
-            complete: true,
-            raw: [],
-          },
-        },
-      ],
-      at,
-    );
+    admitInput(this, command, id, at);
+  }
+  removeInput(id: ThreadId, commandId: CommandId, at: number): void {
+    removeInput(this, id, commandId, at);
   }
 
   cancelPending(id: ThreadId, now: number): ThreadId[] {
-    return this.store.atomic((_db) => {
-      const released = new Set<ThreadId>();
-      for (const intent of this.pending.headers(id)) {
-        if (!["pending", "queued"].includes(intent.status)) continue;
-        const kind = intent.kind;
-        if (kind !== "thread.switch" && kind !== "thread.merge") continue;
-        this.mark(intent, "failed", "Cancelled before delivery");
-        for (const thread of this.transitions.releaseGuards(intent.commandId)) released.add(thread);
-        if (kind === "thread.switch") {
-          const pending = this.store.getThread(id)?.switch;
-          if (pending)
-            this.store.appendEvents(
-              id,
-              [
-                {
-                  type: "thread.updated",
-                  switch: {
-                    ...pending,
-                    state: "failed",
-                    error: "Cancelled before delivery",
-                    at: now,
-                  },
-                },
-              ],
-              now,
-            );
-        }
-      }
-      // Fork intents belong to their new thread, never to the lineage source.
-      for (const intent of this.pending.headers(id)) {
-        if (intent.kind !== "thread.fork" || intent.status === "running") continue;
-        for (const thread of this.transitions.releaseGuards(intent.commandId)) released.add(thread);
-      }
-      this.store
-        .statement(
-          "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create','thread.fork') AND (status IN ('pending','queued','running') OR awaiting=1)",
-        )
-        .run(id);
-      for (const intent of this.pending.headers(id))
-        if (this.cancelled(intent.id)) this.queue.prune(intent.id);
-      this.queue.set(id, {}, now);
-      return [...released];
-    });
+    return cancelPending(this, id, now);
   }
   cancelled(intentId: number): boolean {
     return this.store.atomic(
@@ -436,7 +277,12 @@ export class EngineRepository {
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
-    this.pending.add(command, id, resolutionId);
+    this.pending.add(
+      command,
+      id,
+      resolutionId,
+      resolutionId ? this.interactions.owner(id, resolutionId) : undefined,
+    );
   }
   reserve(id: ThreadId): boolean {
     return this.store.atomic((_db) => {
@@ -535,36 +381,8 @@ export class EngineRepository {
       return row ? String(row.path) : undefined;
     });
   }
-  session(id: ThreadId): {
-    cwd: string;
-    model?: string;
-    nativeSessionId?: string;
-    backend?: ProviderBackend;
-    instanceId?: string;
-    workspaceReady: boolean;
-    options?: ExecutionOptions;
-  } {
-    return this.store.atomic((_db) => {
-      const row = this.store.statement("SELECT * FROM engine_sessions WHERE thread_id = ?").get(id);
-      if (!row) throw new Error("Missing engine session metadata");
-      return {
-        cwd: String(row.cwd),
-        ...(row.backend == null
-          ? {}
-          : { backend: z.enum(["acp", "cursor-sdk"]).parse(row.backend) }),
-        ...(row.instance_id == null
-          ? {}
-          : { instanceId: z.string().min(1).max(256).parse(row.instance_id) }),
-        workspaceReady: row.workspace_ready === 1,
-        ...(row.options == null
-          ? {}
-          : { options: ExecutionOptions.parse(JSON.parse(String(row.options))) }),
-        ...(row.model === null ? {} : { model: String(row.model) }),
-        ...(row.native_session_id === null
-          ? {}
-          : { nativeSessionId: String(row.native_session_id) }),
-      };
-    });
+  session(id: ThreadId) {
+    return this.metadata.session(id);
   }
   createUnpreparedSession(
     id: ThreadId,
@@ -574,12 +392,7 @@ export class EngineRepository {
     instanceId?: string,
     options?: ExecutionOptions,
   ): void {
-    this.createSession(id, cwd, model, backend, instanceId, options);
-    this.store.atomic((_db) =>
-      this.store
-        .statement("UPDATE engine_sessions SET workspace_ready=0 WHERE thread_id=?")
-        .run(id),
-    );
+    this.metadata.createUnpreparedSession(id, cwd, model, backend, instanceId, options);
   }
   createSession(
     id: ThreadId,
@@ -589,20 +402,7 @@ export class EngineRepository {
     instanceId?: string,
     options?: ExecutionOptions,
   ): void {
-    this.store.atomic((_db) =>
-      this.store
-        .statement(
-          "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id,options) VALUES (?, ?, ?, NULL, ?, ?, ?)",
-        )
-        .run(
-          id,
-          cwd,
-          model ?? null,
-          backend ?? null,
-          instanceId ?? null,
-          options ? JSON.stringify(options) : null,
-        ),
-    );
+    this.metadata.createSession(id, cwd, model, backend, instanceId, options);
   }
   nativeSession(
     id: ThreadId,
@@ -610,58 +410,18 @@ export class EngineRepository {
     backend?: ProviderBackend,
     instanceId?: string,
   ): void {
-    this.store.atomic((_db) => {
-      this.store
-        .statement(
-          "UPDATE engine_sessions SET native_session_id = ?, backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?",
-        )
-        .run(nativeId, backend ?? null, instanceId ?? null, id);
-      const thread = this.store.getThread(id);
-      if (thread && instanceId && thread.live?.account !== instanceId)
-        this.store.appendEvents(id, [
-          {
-            type: "thread.client.updated",
-            changes: { live: { ...thread.live, account: instanceId } },
-          },
-        ]);
-    });
+    this.metadata.nativeSession(id, nativeId, backend, instanceId);
+    this.interactions.bind(id);
   }
   pinSessionIdentity(
     id: ThreadId,
-    identity: {
-      backend: ProviderBackend;
-      instanceId: string;
-      nativeSessionId?: string;
-    },
+    identity: { backend: ProviderBackend; instanceId: string; nativeSessionId?: string },
   ): void {
-    this.store.atomic((_db) => {
-      const before = this.session(id);
-      if (
-        (before.backend && before.backend !== identity.backend) ||
-        (before.instanceId && before.instanceId !== identity.instanceId) ||
-        (before.nativeSessionId &&
-          identity.nativeSessionId &&
-          before.nativeSessionId !== identity.nativeSessionId)
-      )
-        throw new Error("Provider session identity conflicts with its durable binding");
-      this.store
-        .statement(`UPDATE engine_sessions SET backend=?, instance_id=?,
-        native_session_id=COALESCE(?,native_session_id) WHERE thread_id=?`)
-        .run(identity.backend, identity.instanceId, identity.nativeSessionId ?? null, id);
-    });
+    this.metadata.pinSessionIdentity(id, identity);
+    this.interactions.bind(id);
   }
   backend(id: ThreadId): ProviderBackend | undefined {
-    // Recovery and teardown also read the binding of a tombstoned thread. They must
-    // not resolve its execution workspace, which intentionally rejects deleted threads.
-    const backend = this.store.atomic((_db) => {
-      const row = this.store
-        .statement("SELECT backend FROM engine_sessions WHERE thread_id=?")
-        .get(id);
-      if (!row) throw new Error("Missing engine session metadata");
-      return row.backend == null ? undefined : z.enum(["acp", "cursor-sdk"]).parse(row.backend);
-    });
-    if (backend) return backend;
-    return this.requireState(id).config.provider === "cursor" ? "acp" : undefined;
+    return this.metadata.backend(id);
   }
   captureFrame(id: ThreadId, frame: Frame): void {
     // The SDK channel is shared by providers. Only Cursor owns this checkpoint journal.

@@ -1,4 +1,5 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
+import { CommandId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -85,6 +86,40 @@ test("Retry sends a refused message again and it lands once", async () => {
   await waitFor(() => expect(within(feed).queryByText("Not sent")).toBeNull());
   expect(within(feed).getAllByText("Also bump the changelog")).toHaveLength(1);
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
+});
+
+test("a message that may have run is never offered as Not sent with Retry", async () => {
+  const { app, feed, message } = await open("idle");
+  await userEvent.type(message, "Run the migration{Enter}");
+  const [send] = app.client.pendingSends("thread-router").getSnapshot();
+  if (!send) throw new Error("Expected the pending send");
+  await waitFor(() => expect(within(feed).queryByText("Sending…")).toBeNull());
+
+  // The provider dropped before confirming it (ADR 0065): it may have run, so a plain
+  // resend could run it twice.
+  act(() =>
+    app.daemon.apply("thread-router", [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "uncertain-migration",
+        draft: {
+          type: "notice",
+          level: "error",
+          commandId: CommandId.parse(send.commandId),
+          code: "delivery_uncertain",
+          title: "This message may have run",
+          text: "This message may have run",
+          complete: true,
+          raw: [],
+        },
+      },
+    ]),
+  );
+  expect(await within(feed).findByText(/This message may have run/)).toBeTruthy();
+  expect(within(feed).queryByText("Not sent")).toBeNull();
+  expect(within(feed).queryByRole("button", { name: "Retry" })).toBeNull();
+  expect(within(feed).getAllByText("Run the migration")).toHaveLength(1);
 });
 
 test("a message too large for the daemon says how large it is against the limit", async () => {

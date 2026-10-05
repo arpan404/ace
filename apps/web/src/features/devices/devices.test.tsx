@@ -67,13 +67,13 @@ test("approving a device for the thread is what the daemon records", async () =>
   );
 });
 
-test("an emulator boots, streams its screen, and takes keys and text once you take control", async () => {
+test("booting an emulator shows its live screen, which takes keys and text while you're in control", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const pixel = await openDevice(panel, "Pixel 9");
 
+  // Booting is how a person asks to see the device: no second step to start the view.
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
-  await userEvent.click(await within(pixel).findByRole("button", { name: "Start live view" }));
 
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
   await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
@@ -96,14 +96,13 @@ test("an emulator boots, streams its screen, and takes keys and text once you ta
   );
 });
 
-test("without control the live screen only watches: keys stay off", async () => {
-  const { panel } = await openDevices();
+test("a running simulator shows its screen as soon as its tab opens, and only watches until you take control", async () => {
+  const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
-  await userEvent.click(within(iphone).getByRole("button", { name: "Start live view" }));
-
-  expect(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
+  const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
   expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(true);
 
   // The control bar over the screen hands the device to you, and back.
@@ -114,13 +113,18 @@ test("without control the live screen only watches: keys stay off", async () => 
     ),
   );
   expect(statusLine(iphone)).toBe("iPhone 16 Pro · Live · You're in control");
+  await userEvent.click(within(iphone).getByRole("button", { name: "Home" }));
+  await waitFor(() =>
+    expect(app.daemon.appDevices.inputs.map((entry) => entry.input)).toEqual([
+      { kind: "key", key: "home" },
+    ]),
+  );
 });
 
 test("the device's ⋯ menu stops the live view and shuts the device down", async () => {
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
-  await userEvent.click(within(iphone).getByRole("button", { name: "Start live view" }));
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
@@ -203,7 +207,6 @@ test("while the window is hidden the device screen decodes nothing, and shows th
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const pixel = await openDevice(panel, "Pixel 9");
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
-  await userEvent.click(await within(pixel).findByRole("button", { name: "Start live view" }));
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
   await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
 
@@ -238,4 +241,50 @@ test("each device opens as its own tab beside the others, and the catalog marks 
   await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
   const list = within(panel).getByRole("list", { name: "Devices" });
   for (const row of within(list).getAllByRole("button")) expect(row.textContent).toContain("Open");
+});
+
+test("when macOS hasn't allowed screen recording, the simulator tab says how to allow it and shows the screen once allowed", async () => {
+  const { app, panel } = await openDevices();
+  app.daemon.appDevices.permissions.screenRecording = false;
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
+
+  const guide = await within(iphone).findByRole("alert", {
+    name: "Screen Recording permission needed",
+  });
+  expect(guide.textContent).toContain("Privacy & Security › Screen Recording");
+  expect(guide.textContent).toContain("Ace Screen Helper");
+  expect(within(iphone).queryByRole("img", { name: "iPhone 16 Pro screen" })).toBeNull();
+
+  await userEvent.click(
+    within(guide).getByRole("button", { name: "Open Screen Recording settings" }),
+  );
+  await waitFor(() => expect(app.daemon.appDevices.requested).toEqual(["screenRecording"]));
+
+  // The person turns it on in System Settings, then comes back.
+  app.daemon.appDevices.permissions.screenRecording = true;
+  await userEvent.click(within(guide).getByRole("button", { name: "Try again" }));
+  const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+  expect(within(iphone).queryByRole("alert", { name: /permission needed/ })).toBeNull();
+});
+
+test("a simulator key refused for want of Accessibility says how to allow it, above the live screen", async () => {
+  const { app, panel } = await openDevices();
+  app.daemon.appDevices.permissions.accessibility = false;
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
+  await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+
+  await userEvent.click(within(iphone).getByRole("button", { name: /Take control/ }));
+  await userEvent.click(within(iphone).getByRole("button", { name: "Home" }));
+
+  const guide = await within(iphone).findByRole("alert", {
+    name: "Accessibility permission needed",
+  });
+  expect(guide.textContent).toContain("Privacy & Security › Accessibility");
+  expect(within(iphone).getByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
+  expect(app.daemon.appDevices.inputs).toEqual([]);
+  await userEvent.click(within(guide).getByRole("button", { name: "Open Accessibility settings" }));
+  await waitFor(() => expect(app.daemon.appDevices.requested).toEqual(["accessibility"]));
 });

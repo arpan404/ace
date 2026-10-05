@@ -67,6 +67,10 @@ import { forkPointError, switchEvents } from "./transitions.ts";
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
   clock(): number;
+  hostId?: string;
+  displayName?: string;
+  version?: string;
+  catalog?: Partial<Pick<FakeServices, "accounts" | "models" | "commands" | "providerStatuses">>;
   deviceScopes?: Readonly<Record<string, readonly import("@ace/protocol").DeviceScope[]>>;
   projectScheduler?: (callback: () => void) => void;
   /** Credential the hello must present. */
@@ -92,7 +96,12 @@ type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionRes
  * `@ace/core`, so thread and agent status are derived exactly as the daemon derives them.
  */
 export class FakeDaemon implements Host {
-  readonly hostId = HostId.parse("fake-host");
+  readonly hostId: HostId;
+  get displayName(): string {
+    const name = this.services.settings.get("host.displayName");
+    return typeof name === "string" && name ? name : (this.options.displayName ?? "Fake machine");
+  }
+  readonly version: string;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
   private options: FakeDaemonOptions;
@@ -120,6 +129,8 @@ export class FakeDaemon implements Host {
   readonly appDevices: FakeAppDevices;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.hostId = HostId.parse(options.hostId ?? "fake-host");
+    this.version = options.version ?? "fake";
     this.longThreads = new FakeLongThreadWire({
       head: () => this.seq,
       thread: (id) => this.threads.get(id),
@@ -140,6 +151,7 @@ export class FakeDaemon implements Host {
         );
       },
     });
+    Object.assign(this.services, options.catalog);
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
@@ -787,11 +799,22 @@ export class FakeDaemon implements Host {
             return { commandId, ok: false, error: "already_resolved" };
           const pending = host.interaction(key);
           if (!pending) return { commandId, ok: false, error: "not_found" };
-          const error = permissionResolutionError(
-            host.view.thread.permission?.effective ?? "auto-review",
-            pending.request,
-            payload.resolution,
+          const browserOriginApproval = pending.raw.some(
+            (raw) => raw.type === "ace.browser.origin",
           );
+          if (
+            browserOriginApproval &&
+            (payload.resolution.kind !== "approval" ||
+              !["allow_once", "allow_thread", "deny"].includes(payload.resolution.optionId))
+          )
+            return { commandId, ok: false, error: "invalid_resolution" };
+          const error = browserOriginApproval
+            ? undefined
+            : permissionResolutionError(
+                host.view.thread.permission?.effective ?? "auto-review",
+                pending.request,
+                payload.resolution,
+              );
           if (error) return { commandId, ok: false, error };
           this.apply(host.id, [
             {
@@ -883,7 +906,7 @@ export class FakeDaemon implements Host {
                 : `/fake/${payload.workspaceId}`,
             branch: payload.baseBranch ?? "main",
             ...(payload.baseBranch ? { baseBranch: payload.baseBranch } : {}),
-            machine: { host: "fake-host", name: "Fake machine" },
+            machine: { host: this.hostId, name: this.displayName },
             diff: { files: 0, additions: 0, deletions: 0 },
           },
           live: {

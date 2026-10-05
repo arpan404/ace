@@ -2,6 +2,7 @@
   "$id": "https://ace.local/protocol/v1/SettingsKey.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "enum": [
+    "host.displayName",
     "projects.roots",
     "threads.followUpBehavior",
     "threads.continueAfterRestart",
@@ -19,6 +20,7 @@
     "providers.planner.model",
     "providers.planner.tier",
     "providers.planner.reasoningEffort",
+    "browser.allowedOrigins",
     "browser.backend",
     "browser.backendLoss",
     "permissions.defaultMode",

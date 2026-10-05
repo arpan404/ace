@@ -33,6 +33,10 @@
           "maxLength": 256,
           "type": "string"
         },
+        "notAnswered": {
+          "const": "stopped",
+          "type": "string"
+        },
         "origin": {
           "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
         },
@@ -385,6 +389,9 @@
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
         },
         "level": {
           "enum": [

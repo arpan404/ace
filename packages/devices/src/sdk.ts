@@ -8,11 +8,19 @@ export type DeviceErrorCode = DeviceFailure["code"];
 export class DeviceError extends Error {
   readonly code: DeviceErrorCode;
   readonly hint: string;
-  constructor(code: DeviceErrorCode, message: string, hint: string) {
+  /** The macOS permission the screen helper lacks, when that is why this failed. */
+  readonly permission: DeviceFailure["permission"];
+  constructor(
+    code: DeviceErrorCode,
+    message: string,
+    hint: string,
+    permission?: DeviceFailure["permission"],
+  ) {
     super(message);
     this.name = "DeviceError";
     this.code = code;
     this.hint = hint;
+    this.permission = permission;
   }
 }
 export type SDKOptions = {

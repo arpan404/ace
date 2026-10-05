@@ -5,6 +5,7 @@ import {
   type PendingSend,
   deferredProjectsApi,
   type FileDownloadInput,
+  type AttachmentInput,
   type FileUploadInput,
 } from "@ace/client";
 import {
@@ -403,8 +404,9 @@ export class RemoteClient implements ClientApi {
     if (this.closed || this.current !== "ready") throw new ClientError("offline");
     this.post({ t: "send", message });
   }
-  attachmentBytes(input: import("@ace/client").AttachmentInput, options: RequestOptions = {}) {
-    return import("@ace/client").then(({ attachmentBytes }) =>
+  attachmentBytes(input: AttachmentInput, options: RequestOptions = {}) {
+    // The subpath, not the barrel: a dynamic import of the barrel keeps the whole client.
+    return import("@ace/client/attachments").then(({ attachmentBytes }) =>
       attachmentBytes(this, input, options),
     );
   }

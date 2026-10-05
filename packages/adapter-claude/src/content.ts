@@ -1,3 +1,5 @@
+import { claudeError } from "./provider-error.ts";
+import { raw } from "./native.ts";
 import { ClaudeState } from "./state.ts";
 import { ProviderErrorDetails } from "@ace/protocol";
 import { list, number, object, string, text, type Data } from "./native.ts";
@@ -88,6 +90,57 @@ export function message(
     return;
   }
   if (role === "assistant") childUsage(state, agent, id, m);
+  if (typeof data["error"] === "string") {
+    const error = claudeError(data["error"], text(m["content"]), state.model);
+    const details = ProviderErrorDetails.safeParse({
+      code: data["error"],
+      provider: "claude",
+      model: state.model,
+    });
+    if (details.success) error.details = details.data;
+    state.errors.set(agent, error);
+    state.emit({
+      type: "item.upsert",
+      agent,
+      item: state.key("error", id),
+      draft: {
+        type: "notice",
+        level: "error",
+        code: error.code,
+        title: error.title,
+        detail: error.detail,
+        details: error.details,
+        text: error.message,
+        complete: true,
+        raw: [raw(data)],
+      },
+    });
+    return;
+  }
+  const userText = content
+    .map(object)
+    .filter(
+      (block) => block["type"] === "text" && block["text"] !== "[Request interrupted by user]",
+    );
+  if (role === "user" && userText.length) {
+    const item =
+      agent !== state.root ? state.key("prompt", agent) : state.key("message", `${agent}:${id}:0`);
+    state.emit({
+      type: "item.upsert",
+      agent,
+      item,
+      draft: {
+        type: "message",
+        role: "user",
+        parts: userText.map((block) => ({ type: "text" as const, text: string(block["text"]) })),
+        complete: true,
+        ...(string(data["uuid"]) && string(data["uuid"]).length <= 256
+          ? { nativeId: string(data["uuid"]) }
+          : {}),
+        ...state.keepMessageRaw(item, data, agent),
+      },
+    });
+  }
   const blocks = messages.forMessage(agent, id);
   for (const [index, value] of content.entries()) {
     const block = object(value);
@@ -158,15 +211,15 @@ export function message(
         state.notice(data, `${seq}`, agent, "info", contentText);
         continue;
       }
-      const item =
-        role === "user" && agent !== state.root ? state.key("prompt", agent) : messageItem;
+      if (role === "user") continue;
+      const item = messageItem;
       state.emit({
         type: "item.upsert",
         agent,
         item,
         draft: {
           type: "message",
-          ...((role === "user" || list(m["content"]).length === 1) &&
+          ...(list(m["content"]).length === 1 &&
           string(data["uuid"]) &&
           string(data["uuid"]).length <= 256
             ? { nativeId: string(data["uuid"]) }
@@ -191,26 +244,6 @@ export function message(
         },
       });
     else state.notice(data, `${seq}:${index}`, agent);
-  }
-  if (typeof data["error"] === "string") {
-    const error = data["error"];
-    const details = ProviderErrorDetails.safeParse({
-      code: error,
-      provider: "claude",
-      model: state.model,
-    });
-    // Provider error metadata is authoritative. Ordinary prose mentioning auth is not.
-    state.errors.set(agent, {
-      kind:
-        error === "authentication_failed"
-          ? "auth"
-          : error === "billing_error" || error === "rate_limit"
-            ? "quota"
-            : "provider",
-      message: text(m["content"]) || error,
-      ...(details.success ? { details: details.data } : {}),
-    });
-    state.notice(data, `error:${seq}`, agent, "error", error);
   }
 }
 export interface StreamState {

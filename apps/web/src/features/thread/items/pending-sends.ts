@@ -33,6 +33,8 @@ function readFailures(reader: ThreadReader): ReadonlyMap<string, string> {
   for (const id of reader.order) {
     const item = reader.item(id);
     if (item?.type !== "notice" || !item.code?.startsWith("delivery_")) continue;
+    // "May have run" is not "Not sent": it keeps its own notice, and no Retry (ADR 0065).
+    if (item.code === "delivery_uncertain") continue;
     // The daemon names the command on the notice (SY-1); older daemons don't.
     if ("commandId" in item && typeof item.commandId === "string") failures.set(item.commandId, id);
   }

@@ -1,3 +1,5 @@
+import { BrowserOrigin, type BrowserOriginGrant } from "@ace/protocol";
+import { BrowserOriginError, browserOrigin } from "@ace/browser/policy";
 import type { BrowserInput } from "@ace/protocol";
 import { pairPhoneFrame, sitePage } from "./preview-page.ts";
 
@@ -53,6 +55,23 @@ interface Entry {
 const clampDimension = (value: number) => Math.min(4096, Math.max(100, Math.round(value)));
 
 export class FakeBrowser {
+  private navigatePolicy: ((threadId: string, url: string) => Promise<void>) | undefined;
+  bindNavigation(policy: (threadId: string, url: string) => Promise<void>): void {
+    this.navigatePolicy = policy;
+  }
+  async navigateAgent(threadId: string, url: string): Promise<void> {
+    const entry = this.entries.get(threadId);
+    if (!entry?.view || entry.view.closed) throw new Error("Browser closed");
+    if (entry.view.controller !== "agent") throw new Error("Browser controlled by human");
+    if (!this.navigatePolicy) throw new Error("Browser agent policy unavailable");
+    await this.navigatePolicy(threadId, url);
+    if (entry.view.controller !== "agent" || entry.view.closed)
+      throw new Error("Browser controller changed during approval");
+    entry.view = { ...entry.view, url: new URL(url).href };
+    entry.page = "site";
+    this.paint(entry, entry.typed);
+  }
+  private origins = new Map<string, Map<string, BrowserOriginGrant>>();
   private entries = new Map<string, Entry>();
   private watchers = new Set<() => void>();
   private revision = 0;
@@ -101,7 +120,14 @@ export class FakeBrowser {
   }
   /** A person takes control through their client's connection (`owner`). */
   async takeover(threadId: string, owner = "fake-connection"): Promise<void> {
+    const current = this.view(threadId)?.owner;
+    if (current && current !== owner)
+      throw new Error("Browser already controlled by another connection");
     this.control(threadId, "human", owner);
+  }
+  disconnect(owner: string): void {
+    for (const [threadId, entry] of this.entries)
+      if (entry.view?.owner === owner) this.control(threadId, "agent");
   }
   async handback(threadId: string): Promise<void> {
     this.control(threadId, "agent");
@@ -145,7 +171,27 @@ export class FakeBrowser {
    * A person (holding control) navigates: the page changes and control stays theirs. A local
    * address nothing listens on fails the way Chromium reports it; so does an unsafe port.
    */
-  navigate(threadId: string, url: string): string {
+  originsList(threadId: string): BrowserOriginGrant[] {
+    return [...(this.origins.get(threadId)?.values() ?? [])].toSorted((a, b) =>
+      a.origin.localeCompare(b.origin),
+    );
+  }
+  originsGrant(threadId: string, raw: string, grantedAt = 0): void {
+    const origin = BrowserOrigin.parse(raw),
+      grants = this.origins.get(threadId) ?? new Map<string, BrowserOriginGrant>();
+    if (
+      !grants.has(origin) &&
+      (grants.size >= 256 ||
+        [...this.origins.values()].reduce((sum, entries) => sum + entries.size, 0) >= 16_384)
+    )
+      throw new Error("Browser origin grant limit; revoke an origin first");
+    if (!grants.has(origin)) grants.set(origin, { origin, grantedAt });
+    this.origins.set(threadId, grants);
+  }
+  originsRevoke(threadId: string, origin: string): void {
+    this.origins.get(threadId)?.delete(BrowserOrigin.parse(origin));
+  }
+  navigate(threadId: string, url: string, grantedAt = 0): string {
     const entry = this.entries.get(threadId);
     if (!entry?.view || entry.view.closed) throw new Error("Browser closed");
     if (entry.view.controller !== "human") throw new Error("Browser controller mismatch");
@@ -155,6 +201,10 @@ export class FakeBrowser {
     } catch {
       throw new Error(`net::ERR_INVALID_URL at ${url}`);
     }
+    const origin = browserOrigin(url);
+    if (!origin || !["http:", "https:"].includes(parsed.protocol))
+      throw new BrowserOriginError(url, "invalid_origin", "Browser requires an HTTP(S) address");
+    this.originsGrant(threadId, origin, grantedAt);
     const port = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
     if ([1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25].includes(port))
       throw new Error(`net::ERR_UNSAFE_PORT at ${url}`);

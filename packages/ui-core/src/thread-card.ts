@@ -118,7 +118,7 @@ export const branchLabelLength = 14;
  * `text` cut to at most `max` characters by taking out its middle, so both the prefix and the
  * distinctive end stay: "deck/re…treams".
  */
-export function middleTruncate(text: string, max: number): string {
+export function middleTruncateText(text: string, max: number): string {
   const chars = Array.from(text);
   if (chars.length <= max) return text;
   if (max < 3) return chars.slice(0, max).join("");
@@ -152,7 +152,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       details?.branch && !isDefaultBranch(details.branch)
         ? {
             name: details.branch,
-            label: middleTruncate(details.branch, branchLabelLength),
+            label: middleTruncateText(details.branch, branchLabelLength),
             pr: details.pr,
             worktree: details.worktree === true,
           }

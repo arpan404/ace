@@ -34,8 +34,15 @@ test("multi-part ace input is correlated before its native SDK echo", async () =
         ? [fact.draft]
         : [],
     );
-    expect(echoes).toHaveLength(2);
-    expect(echoes.every((draft) => draft.nativeId === identities[0]?.nativeId)).toBe(true);
+    expect(echoes).toEqual([
+      expect.objectContaining({
+        nativeId: identities[0]?.nativeId,
+        parts: [
+          { type: "text", text: "Handoff" },
+          { type: "text", text: "Result" },
+        ],
+      }),
+    ]);
   } finally {
     await h.session.close("user");
   }

@@ -1,12 +1,15 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import { GitForkIcon } from "@phosphor-icons/react";
-import { useCallback } from "react";
+import { Suspense, useCallback } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
+import { DeferredCopyAnswer } from "./deferred-review.ts";
 import { forkPointOf } from "../transitions/fork-point.ts";
 import { useForkOpener } from "../transitions/fork-opener.ts";
 import { useStreaming } from "../transcript/use-streaming.ts";
+
+const CopyAnswer = DeferredCopyAnswer.Component;
 
 /** Agent prose. A subagent's message carries its name, as the design's "reconnect-audit found…". */
 export function AssistantMessage(props: { threadId: string; itemId: string }) {
@@ -28,7 +31,14 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
           className="ml-0.5 inline-block h-[1em] w-[3px] animate-pulse rounded-full bg-current align-[-0.15em] text-muted-foreground"
         />
       )}
-      {!name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
+      {item.complete && (
+        <div className="mt-1 flex opacity-0 transition-opacity duration-(--dur-1) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
+          <Suspense fallback={null}>
+            <CopyAnswer text={text} />
+          </Suspense>
+          {!name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -51,9 +61,7 @@ function ForkHere(props: { threadId: string; itemId: string }) {
   const point = useThread(props.threadId, keys, read, samePoint);
   if (!open || !point) return null;
   return (
-    <div className="mt-1 flex opacity-0 transition-opacity duration-(--dur-1) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
-      <IconButton icon={GitForkIcon} label="Fork from here" size="sm" onClick={() => open(point)} />
-    </div>
+    <IconButton icon={GitForkIcon} label="Fork from here" size="sm" onClick={() => open(point)} />
   );
 }
 

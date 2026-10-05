@@ -23,8 +23,9 @@ export function createProjectsSession(context: SocketContext): SocketService {
   let stops: (() => void)[] = [];
   const allowed = () => connected() && authorize("projects");
   return {
-    authenticated() {
-      if (!options.projects) return;
+    authenticated(kind) {
+      // Project changes belong on the main channel; a devices or files channel can't parse them.
+      if (kind !== undefined || !options.projects) return;
       stops = [
         options.projects.subscribe((change) => {
           if (allowed()) send(change);

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { sessionHarness } from "./session.test-helper.ts";
-import { asyncKey, obj, planKey, requestKey, shellKey, str } from "./native.ts";
+import { asyncKey, obj, planKey, shellKey, str } from "./native.ts";
 const received = (method: string) => (frame: { dir: string; data: unknown }) =>
   frame.dir === "recv" && obj(frame.data)["method"] === method;
 const proof = (id: string) => (frame: { dir: string; data: unknown }) =>
@@ -57,9 +57,9 @@ test("approval amendments retain the exact offered provider decision", async () 
     await h.session.send(text("approval"), "queue");
     await h.wait(received("item/commandExecution/requestApproval"));
     await expect(
-      h.session.resolve(requestKey(100), { kind: "approval", optionId: "decline" }),
+      h.session.resolve(h.requestKey(100), { kind: "approval", optionId: "decline" }),
     ).rejects.toThrow("not offered");
-    await h.session.resolve(requestKey(100), {
+    await h.session.resolve(h.requestKey(100), {
       kind: "approval",
       optionId: "acceptWithExecpolicyAmendment",
     });
@@ -76,7 +76,7 @@ test("questions without a backing item receive the provider answer envelope", as
   try {
     await h.session.send(text("input"), "queue");
     await h.wait(received("item/tool/requestUserInput"));
-    await h.session.resolve(requestKey(100), { kind: "question", answers: { q: ["Yes"] } });
+    await h.session.resolve(h.requestKey(100), { kind: "question", answers: { q: ["Yes"] } });
     const reply = await h.wait(proof("response-proof"));
     expect(JSON.parse(str(obj(obj(obj(reply.data)["params"])["item"])["text"]))).toEqual({
       answers: { q: { answers: ["Yes"] } },
