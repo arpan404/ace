@@ -13,13 +13,19 @@
       "type": "integer"
     },
     "codec": {
-      "const": "jpeg",
+      "enum": [
+        "jpeg",
+        "h264"
+      ],
       "type": "string"
     },
     "height": {
       "exclusiveMinimum": 0,
       "maximum": 2160,
       "type": "integer"
+    },
+    "keyframe": {
+      "type": "boolean"
     },
     "scale": {
       "exclusiveMinimum": 0,
@@ -40,6 +46,10 @@
     "version": {
       "const": 1,
       "type": "number"
+    },
+    "videoCodec": {
+      "pattern": "^avc1\\.[0-9a-fA-F]{6}$",
+      "type": "string"
     },
     "width": {
       "exclusiveMinimum": 0,

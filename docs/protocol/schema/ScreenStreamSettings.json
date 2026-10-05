@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenStreamSettings.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bitrate": {
+      "maximum": 20000000,
+      "minimum": 128000,
+      "type": "integer"
+    },
+    "codec": {
+      "enum": [
+        "jpeg",
+        "h264"
+      ],
+      "type": "string"
+    },
+    "fps": {
+      "maximum": 60,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "maxHeight": {
+      "maximum": 2160,
+      "minimum": 64,
+      "type": "integer"
+    },
+    "maxWidth": {
+      "maximum": 3840,
+      "minimum": 64,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "codec",
+    "maxWidth",
+    "maxHeight",
+    "fps",
+    "bitrate"
+  ],
+  "type": "object"
+}

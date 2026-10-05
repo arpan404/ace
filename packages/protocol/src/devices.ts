@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ThreadId, AgentId } from "./ids.ts";
-import { ScreenId } from "./screen-base.ts";
+import { ScreenId, ScreenStreamSettings } from "./screen-base.ts";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "./screen-v2.ts";
 
 export const AppDeviceId = z
@@ -20,6 +20,11 @@ const point = { x: z.number().int().min(0).max(16384), y: z.number().int().min(0
 const durationMs = z.number().int().min(1).max(10000).default(500);
 export const DeviceInput = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("tap"), ...point }),
+  z.object({
+    kind: z.literal("pointer"),
+    phase: z.enum(["down", "move", "up", "cancel"]),
+    ...point,
+  }),
   z.object({ kind: z.literal("longPress"), ...point, durationMs }),
   z.object({ kind: z.literal("swipe"), ...point, toX: point.x, toY: point.y, durationMs }),
   z.object({ kind: z.literal("type"), text: z.string().max(4096) }),
@@ -108,8 +113,10 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("open_app"), ...target, appId: z.string().min(1).max(256) }),
   z.object({ op: z.literal("open_url"), ...target, url: z.string().min(1).max(4096) }),
   z.object({ op: z.literal("configure"), ...target, settings: DeviceSettings }),
-  z.object({ op: z.literal("start"), ...target, fps: z.number().int().min(1).max(30).default(10) }),
+  z.object({ op: z.literal("start"), ...target, fps: z.number().int().min(1).max(60).default(30) }),
   z.object({ op: z.literal("stop"), ...target }),
+  z.object({ op: z.literal("stream.configure"), ...target, settings: ScreenStreamSettings }),
+  z.object({ op: z.literal("stream.keyframe"), ...target }),
   z.object({ op: z.literal("subscribe"), ...target }),
   z.object({ op: z.literal("unsubscribe"), ...target }),
   z.object({

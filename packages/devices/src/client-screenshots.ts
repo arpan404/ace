@@ -1,9 +1,10 @@
 import { ScreenFrameHeader } from "@ace/protocol";
 import type { PortableFrame } from "@ace/screen/frames-client";
 
+const key = (header: ScreenFrameHeader) => JSON.stringify([header.sessionId, sequence(header)]);
 const sequence = (value: ScreenFrameHeader) => (value.version === 1 ? value.sequence : value.seq);
 
-/** Screenshot pixels precede their request metadata on the wire. Keep only latest frames. */
+/** Keep at most four matching JPEG candidates until all screenshot metadata arrives. */
 export class PendingScreenshots {
   private readonly requests = new Map<string, string>();
   private readonly frames = new Map<string, PortableFrame>();
@@ -12,10 +13,10 @@ export class PendingScreenshots {
     this.requests.set(requestId, deviceId);
   }
   retain(frame: PortableFrame): void {
-    if (!this.requests.size) return;
-    const sessionId = frame.header.sessionId;
-    this.frames.delete(sessionId);
-    this.frames.set(sessionId, frame);
+    if (!this.requests.size || frame.header.codec !== "jpeg") return;
+    const identity = key(frame.header);
+    this.frames.delete(identity);
+    this.frames.set(identity, frame);
     if (this.frames.size > 4) {
       const oldest = this.frames.keys().next().value;
       if (oldest !== undefined) this.frames.delete(oldest);
@@ -27,8 +28,7 @@ export class PendingScreenshots {
   ): { deviceId: string; frame: PortableFrame } | undefined {
     const deviceId = this.requests.get(requestId);
     const header = ScreenFrameHeader.parse(raw);
-    const frame = this.frames.get(header.sessionId);
-    this.frames.delete(header.sessionId);
+    const frame = this.frames.get(key(header));
     this.cancel(requestId);
     if (!deviceId || !frame) return undefined;
     if (sequence(header) !== sequence(frame.header) || header.bytes !== frame.header.bytes)

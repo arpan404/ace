@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
-    "./view": "./src/view.ts"
+    "./view": "./src/view.ts",
+    "./video-client": "./src/video-client.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

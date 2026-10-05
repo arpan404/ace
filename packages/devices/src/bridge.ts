@@ -11,6 +11,8 @@ export interface DevicePeer {
   agentExists(threadId: string, agentId: string): boolean;
   send(message: DeviceServerMessage): Promise<void>;
   frame(packet: Buffer): Promise<void>;
+  /** Reliable screenshot: resolve only after bytes are sent, or reject explicitly. */
+  image(packet: Buffer): Promise<void>;
 }
 /** A transport owner supplies authenticated identity and revocation checks. */
 export function connectDevices(service: DevicesService, owner: string, peer: DevicePeer) {
@@ -127,6 +129,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
             if (!operation.watching) {
               inventoryView?.();
               inventoryView = undefined;
+              await service.settleInventory();
             } else inventoryView ??= service.holdInventoryView();
           }
           const data =
@@ -140,7 +143,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
           if (operation.op === "screenshot") {
             // Image bytes always use the screen binary protocol; JSON is metadata only.
             const frame = await service.screenshot(operation.deviceId, actor);
-            await frames.send(frame.packet, () => deviceAccess(operation.deviceId));
+            await frames.send(frame.packet, () => deviceAccess(operation.deviceId), peer.image);
             await send({
               type: "devices.result",
               requestId: message.requestId,
