@@ -25,7 +25,7 @@ const digest = (patch: Partial<z.input<typeof TurnDigest>> = {}): TurnDigest =>
   });
 const texts = (d: TurnDigest) => digestFacts(d).map((fact) => fact.text);
 
-test("a digest reads as tools, files with their lines, failures, approvals and subagents", () => {
+test("a digest reads as steps, files with their lines, failures, approvals and subagents", () => {
   const facts = digestFacts(
     digest({
       toolCounts: { shell: 9, "file.edit": 5 },
@@ -42,7 +42,7 @@ test("a digest reads as tools, files with their lines, failures, approvals and s
     }),
   );
   expect(facts.map((fact) => fact.text)).toEqual([
-    "14 tools",
+    "14 steps",
     "2 files",
     "+12 −4",
     "1 failed",
@@ -76,12 +76,14 @@ test("a digest that left files out says so", () => {
 
 test("a quiet turn has no facts and large counts are grouped", () => {
   expect(texts(digest())).toEqual([]);
-  expect(texts(digest({ toolCounts: { shell: 12_400 } }))).toEqual(["12,400 tools"]);
+  expect(texts(digest({ toolCounts: { shell: 12_400 } }))).toEqual(["12,400 steps"]);
 });
 
 test("a running turn's span grows with the clock; a finished one's is fixed", () => {
   expect(turnSpan({ startedAt: 0, endedAt: 90_000 }, 10_000_000)).toBe("1m");
   expect(turnSpan({ startedAt: 0 }, 4 * 3_600_000 + 60_000)).toBe("4h 1m");
+  // A turn over in under a second says nothing rather than "0s".
+  expect(turnSpan({ startedAt: 0, endedAt: 400 }, 10_000)).toBe("");
 });
 
 test("a turn's headline is its ask on one line, else what the agent said", () => {

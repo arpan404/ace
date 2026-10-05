@@ -29,13 +29,19 @@ test("an account whose CLI reports no usage says so instead of showing an empty 
   const app = harness();
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
   await app.open("/more/accounts");
-  const opencode = await card("OpenCode Default");
+  const opencode = await card("OpenCode Default (your CLI login)");
   expect(within(opencode).queryByRole("meter")).toBeNull();
   expect(within(opencode).getByText("OpenCode doesn't report usage")).toBeTruthy();
 });
 
-test("Move threads moves the limited threads to the same provider's account with most headroom", async () => {
+test("Move threads moves the limited threads where automatic recovery would: the provider's first available account", async () => {
   const app = harness();
+  // This migration scenario has two signed-in isolated Codex accounts. The
+  // normal CLI home is signed out and cannot receive a migrated conversation.
+  const normal = app.daemon.services.accounts.find((account) => account.id === "codex-cli-default");
+  if (!normal) throw new Error("missing normal Codex account");
+  normal.availability = "logged_out";
+  normal.quota.auth = "logged_out";
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
   await app.open("/more/accounts");
   const team = await card("Codex Team");

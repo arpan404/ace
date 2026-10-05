@@ -21,6 +21,7 @@ export const TerminalProcessSchema = z.object({
 export const TerminalOpenSchema = z.object({
   cwd: z.string().min(1),
   shell: z.string().min(1).optional(),
+  args: z.array(z.string()).max(64).optional(),
   env: z.record(z.string(), z.string().optional()).optional(),
   cols: z.number().int().min(1).max(65535),
   rows: z.number().int().min(1).max(65535),

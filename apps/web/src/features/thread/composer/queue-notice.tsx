@@ -51,7 +51,7 @@ export function QueueNotice(props: {
     >
       <Icon icon={icons[notice.kind]} size={16} className="text-muted-foreground" />
       {/* The words keep a readable width; the actions wrap under them when they can't fit. */}
-      <div className="min-w-[260px] flex-1">
+      <div className="min-w-65 flex-1">
         <p className="font-medium text-foreground">{notice.title}</p>
         <p className="text-sm text-muted-foreground">{notice.detail}</p>
       </div>

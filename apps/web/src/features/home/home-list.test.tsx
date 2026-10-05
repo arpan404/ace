@@ -1,7 +1,8 @@
-import { workbench } from "@ace/fake-daemon";
+import { facts, workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { ThreadId } from "@ace/protocol";
+import { expect, test, vi } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
@@ -12,11 +13,6 @@ const order = () =>
     .queryAllByRole("link")
     .map((link) => titles.find((title) => link.textContent?.includes(title)));
 const card = (title: string | RegExp) => within(threads()).getByRole("link", { name: title });
-/** The open project folders, top to bottom (the only open disclosures in the list). */
-const folders = () =>
-  within(threads())
-    .queryAllByRole("button", { expanded: true })
-    .map((button) => button.textContent);
 
 /** `a` shows above `b` in the list. */
 const before = (a: string, b: string) => order().indexOf(a) < order().indexOf(b);
@@ -35,21 +31,20 @@ function workbenchApp(options: Parameters<typeof harness>[0] = {}) {
   return app;
 }
 
-test("Home groups threads by project, the folder that owes most first, each in the order of what needs you", async () => {
+test("Home lists every project's threads as one list, in the order of what needs you", async () => {
   await openHome(workbenchApp());
-  // A folder comes where its first thread would in Home order: needs you, then work in
-  // motion, then trouble.
-  expect(folders()).toEqual(["billing-api", "ace-mobile", "relay", "ace", "docs-site"]);
+  // No folders: threads from billing-api, ace-mobile, relay, ace and docs-site interleave, by
+  // what needs you, then work in motion, then trouble, then the rest.
   expect(order()).toEqual([
     "Partial refunds double-count tax",
-    // Failed work ranks below what needs you, but stays with its project.
-    "Invoice PDF locale fallback",
     "Approval sheet loses its state on rotate",
     "Retry budget for app-server restarts",
     "Backpressure on broadcast fan-out",
     "Dedupe thread events after reconnect",
     "Rewrite the install page for the daemon",
+    "Invoice PDF locale fallback",
   ]);
+  expect(within(threads()).queryByRole("button", { name: /^Show more/ })).toBeNull();
   // The finished thread's PR merged, so the daemon has settled it out of the way.
   const settled = screen.getByRole("button", { name: "Settled (1)" });
   expect(settled.getAttribute("aria-expanded")).toBe("false");
@@ -57,7 +52,92 @@ test("Home groups threads by project, the folder that owes most first, each in t
   expect(card(/Bump Codex app-server to 0.48/)).toBeTruthy();
 });
 
-test("a row's name says its status, provider and subagents, worktree, pull request and machine", async () => {
+test("a pinned thread leads the list, ahead of threads that need you", async () => {
+  const app = workbenchApp();
+  await openHome(app);
+  await app.client.command({
+    type: "thread.pin",
+    threadId: ThreadId.parse("thread-install-page"),
+    pinned: true,
+  });
+  await waitFor(() => expect(order()[0]).toBe("Rewrite the install page for the daemon"));
+  expect(order()[1]).toBe("Partial refunds double-count tax");
+  expect(card(/^Rewrite the install page for the daemon\..*Pinned/)).toBeTruthy();
+});
+
+test("a task row shows its project badge, status, title, branch, changes and provider", async () => {
+  await openHome(workbenchApp());
+  const refund = card(/^Partial refunds double-count tax/);
+  expect(within(refund).getByText("billing-api")).toBeTruthy();
+  expect(within(refund).getByText("BA")).toBeTruthy();
+  expect(within(refund).getByText("Needs you")).toBeTruthy();
+  expect(within(refund).getByText("fix/refund-tax")).toBeTruthy();
+  // A linked pull request stands in for the diff.
+  expect(refund.textContent).toContain("#77");
+
+  const install = card(/^Rewrite the install page for the daemon/);
+  expect(within(install).getByText("DS")).toBeTruthy();
+  expect(within(install).getByText("docs/install-daemon")).toBeTruthy();
+  expect(within(install).getByText("+120")).toBeTruthy();
+  expect(within(install).getByText("−88")).toBeTruthy();
+
+  const dedupe = card(/^Dedupe thread events after reconnect/);
+  expect(within(dedupe).getByText(/^Working/)).toBeTruthy();
+  // Its subagents count beside the provider's mark.
+  expect(within(dedupe).getByText("2")).toBeTruthy();
+});
+
+test("a working thread's pill counts the seconds it has been working", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const app = harness({ clock: () => Date.now() });
+    app
+      .play({
+        thread: {
+          id: "thread-fresh",
+          workspaceId: "relay",
+          title: "Fresh task",
+          provider: "claude",
+        },
+        steps: [{ kind: "facts", facts: [facts.rootAgent("claude"), facts.turn("root")] }],
+      })
+      .runUntilBlocked();
+    await openHome(app);
+    const seconds = () => {
+      const text = within(card(/^Fresh task/)).getByText(/^Working/).textContent ?? "";
+      return Number(/(\d+)s$/.exec(text)?.[1]);
+    };
+    const start = seconds();
+    expect(start).toBeLessThan(5);
+    await vi.advanceTimersByTimeAsync(6_000);
+    await waitFor(() => expect(seconds()).toBeGreaterThanOrEqual(start + 5));
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("Up and Down (and j and k) move between rows, past the Settled heading", async () => {
+  await openHome(workbenchApp());
+  const rows = within(threads()).getAllByRole("link");
+  const [first, second] = rows;
+  if (!first || !second) throw new Error("expected two rows");
+  first.focus();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(second);
+  await userEvent.keyboard("k");
+  expect(document.activeElement).toBe(first);
+  // Up from the top stays put.
+  await userEvent.keyboard("{ArrowUp}");
+  expect(document.activeElement).toBe(first);
+  const last = rows.at(-1);
+  last?.focus();
+  await userEvent.keyboard("j");
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settled (1)" }));
+  await userEvent.keyboard("{Enter}{ArrowDown}");
+  expect(document.activeElement).toBe(card(/^Bump Codex app-server to 0.48/));
+});
+
+test("a row's name says its status, provider and subagents, branch, pull request, changes, project and machine", async () => {
   await openHome(workbenchApp());
   expect(
     await within(threads()).findByRole("link", {
@@ -70,6 +150,11 @@ test("a row's name says its status, provider and subagents, worktree, pull reque
     ),
   ).toBeTruthy();
   expect(card(/^Backpressure on broadcast fan-out\..*Running on build-box/)).toBeTruthy();
+  expect(
+    card(
+      /^Rewrite the install page for the daemon\..*Branch docs\/install-daemon, 120 lines added, 88 removed, Project docs-site/,
+    ),
+  ).toBeTruthy();
 });
 
 test("hovering a row's link shows what its marks mean in a tooltip", async () => {
@@ -149,7 +234,7 @@ test("Settled lists settled threads without the settle rule, which lives in Sett
   expect(screen.queryByRole("button", { name: "When done threads settle" })).toBeNull();
 });
 
-test("Snooze sinks a thread to the end of its folder with its wake time; Undo wakes it", async () => {
+test("Snooze sinks a thread below the others with its wake time; Undo wakes it", async () => {
   await openHome(workbenchApp());
   await within(threads()).findByRole("link", { name: /Retry budget/ });
   await userEvent.click(

@@ -24,3 +24,5 @@ export { createAcpInstance, acpIsolation } from "./acp-instances.ts";
 export { loginAcpAccount, AcpLoginPlan, type AcpLoginResolver } from "./acp-login.ts";
 
 export { cursorDaemonDriver, type CursorCliAuth } from "./cursor-cli-auth.ts";
+
+export { assertManagedHome } from "./managed-home.ts";

@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
+import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads } from "./initial-preloads.ts";
 import { reactPlugins } from "./react-plugins.ts";
@@ -16,6 +17,7 @@ export default defineConfig({
     tanstackRouter({ target: "react", autoCodeSplitting: true, quoteStyle: "double" }),
     ...reactPlugins(),
     tailwindcss(),
+    cssWithoutLegacyPolyfills(),
     phosphorWeights(),
     zodWithoutJsonSchema(),
     zodWithoutMetadata(),

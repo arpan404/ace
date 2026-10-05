@@ -104,3 +104,67 @@ test("a thread with no branch yet shows none rather than an empty one", () => {
     threadCard(input({ entry: detached, details: cardDetails(detached, undefined) })).branch,
   ).toBeUndefined();
 });
+
+test("a working thread's pill counts from when it started working", () => {
+  const card = threadCard(
+    input({
+      entry: entry("t", { state: "working", agents: 1 }, now, { activityAt: now - 18_000 }),
+    }),
+  );
+  expect(card.pill).toEqual({
+    label: "Working",
+    tone: "working",
+    icon: "working",
+    since: now - 18_000,
+  });
+});
+
+test("finished work shows Done until it is read, then its age, quietly", () => {
+  const unread = threadCard(input({ entry: entry("t", { state: "done" }, now - 1000) }));
+  expect(unread.pill?.label).toBe("Done");
+  expect(unread.dimmed).toBe(false);
+  const read = threadCard(
+    input({ entry: entry("t", { state: "done" }, now - 1000, { readAt: now, unread: false }) }),
+  );
+  expect(read.pill).toBeUndefined();
+  expect(read.dimmed).toBe(true);
+});
+
+test("trouble and requests keep their pill whether read or not", () => {
+  const read = { readAt: now, unread: false };
+  for (const [status, label] of [
+    [{ state: "needs_you", interactions: 1 }, "Needs you"],
+    [{ state: "failed" }, "Failed"],
+    [{ state: "limited" }, "Limited"],
+    [{ state: "waiting", on: "rate_limit" }, "Waiting"],
+  ] as const) {
+    const card = threadCard(input({ entry: entry("t", status, now - 1000, read) }));
+    expect(card.pill?.label).toBe(label);
+    expect(card.dimmed).toBe(false);
+  }
+});
+
+test("a settled row is quiet and shows no pill", () => {
+  const card = threadCard(
+    input({ entry: entry("t", { state: "done" }, now - 1000), settled: true }),
+  );
+  expect(card.pill).toBeUndefined();
+  expect(card.dimmed).toBe(true);
+});
+
+test("diff stats show only when the checkout changed", () => {
+  const changed = threadCard(
+    input({
+      entry: entry("t", { state: "done" }, now),
+      details: { diff: { added: 126, removed: 4 } },
+    }),
+  );
+  expect(changed.diff).toEqual({ added: 126, removed: 4 });
+  const clean = threadCard(
+    input({
+      entry: entry("t", { state: "done" }, now),
+      details: { diff: { added: 0, removed: 0 } },
+    }),
+  );
+  expect(clean.diff).toBeUndefined();
+});

@@ -109,6 +109,7 @@ export function cursorSdkLoginDriver(
     checkAvailability: driver.checkAvailability,
     async status(instance: ProviderInstance, signal: AbortSignal) {
       const account = selected(instance);
+      await registry.validateHome(account);
       return publish(account, await driver.status(cursorIdentity(account), signal));
     },
     async login(
@@ -118,10 +119,12 @@ export function cursorSdkLoginDriver(
     ) {
       await registry.register(instance);
       const account = selected(instance);
+      await registry.validateHome(account);
       return publish(account, await driver.login(cursorIdentity(account), signal, ephemeralUrl));
     },
     async logout(instance: ProviderInstance, signal: AbortSignal) {
       const account = selected(instance);
+      await registry.validateHome(account);
       return publish(account, await driver.logout(cursorIdentity(account), signal));
     },
   };

@@ -17,6 +17,9 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
     const appReceived = deferred<Frame>();
     const helper = await Helper.open({
       command: join(directory, "build/ace-screen-helper"),
+      // Opt-in runs use the grants of the terminal that runs them, as before the helper
+      // disclaimed its launcher.
+      args: ["--inherit-responsibility"],
       nextId: ids(),
       onFrame: (frame) =>
         frame.header.sessionId === "native-app"

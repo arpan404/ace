@@ -32,6 +32,7 @@ it("records v2 model admission, keyed answers, owned children and paginated hist
     "event.subscribe",
     "session.create",
     "session.get",
+    "session.switchModel",
     "session.list",
     "session.active",
     "session.prompt",

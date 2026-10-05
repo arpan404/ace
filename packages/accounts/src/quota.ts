@@ -8,7 +8,7 @@ export function initialQuota(): AccountQuota {
   return { auth: "unknown", observedAt: 0, windows: {}, blockers: {}, usage: {} };
 }
 export type QuotaFact = {
-  provider: "codex" | "claude" | "opencode" | "cursor" | "acp";
+  provider: "codex" | "claude" | "opencode" | "cursor" | "acp" | "pi";
   /** ProviderPayload from encoded bytes. Uncertified input is blocked without traversal. */
   payload: unknown;
   observedAt: number;

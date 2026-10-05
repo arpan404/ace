@@ -26,6 +26,13 @@
           "maxLength": 256,
           "type": "string"
         },
+        "notAnswered": {
+          "const": "stopped",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
+        },
         "parts": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/ContentPart.json"
@@ -352,11 +359,20 @@
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
+        "code": {
+          "type": "string"
+        },
+        "commandId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
         "complete": {
           "type": "boolean"
         },
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "detail": {
+          "type": "string"
         },
         "details": {
           "$ref": "https://ace.local/protocol/v1/ProviderErrorDetails.json"
@@ -366,6 +382,9 @@
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
         },
         "level": {
           "enum": [
@@ -393,6 +412,9 @@
           "$ref": "https://ace.local/protocol/v1/TextSource.json"
         },
         "text": {
+          "type": "string"
+        },
+        "title": {
           "type": "string"
         },
         "toolCallId": {

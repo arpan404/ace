@@ -45,7 +45,11 @@ export default defineConfig({
           sequence: { groupOrder: 1 },
           testTimeout: PROCESS_TEST_TIMEOUT,
           hookTimeout: PROCESS_TEST_TIMEOUT,
-          globalSetup: ["./scripts/test-home-global-setup.ts", "./scripts/process-test-setup.ts"],
+          globalSetup: [
+            "./scripts/test-home-global-setup.ts",
+            "./scripts/process-test-setup.ts",
+            "./tools/web-perf/src/browser-test-setup.ts",
+          ],
           setupFiles: ["./scripts/test-home-setup.ts"],
         },
       },

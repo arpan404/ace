@@ -97,30 +97,7 @@
     {
       "properties": {
         "error": {
-          "properties": {
-            "details": {
-              "$ref": "https://ace.local/protocol/v1/ProviderErrorDetails.json"
-            },
-            "kind": {
-              "enum": [
-                "provider",
-                "auth",
-                "quota",
-                "network",
-                "process_exit",
-                "unknown"
-              ],
-              "type": "string"
-            },
-            "message": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind",
-            "message"
-          ],
-          "type": "object"
+          "$ref": "https://ace.local/protocol/v1/AgentError.json"
         },
         "state": {
           "const": "failed",

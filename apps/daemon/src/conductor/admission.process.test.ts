@@ -169,11 +169,7 @@ test("Deck resume retries a rejected queue revision after a concurrent human que
   await h.advance();
   await h.waitFor((run) => run.phase === "done");
   expect(
-    h.sends.filter(
-      (send) =>
-        send.thread === worker.thread &&
-        send.text.includes("Continue the interrupted task from native history"),
-    ),
+    h.sends.filter((send) => send.thread === worker.thread && send.text === "continue"),
   ).toHaveLength(1);
   expect(
     h.sends.filter(

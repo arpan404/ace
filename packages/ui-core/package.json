@@ -6,7 +6,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./provider-icons": "./src/provider-icons.ts"
+    "./provider-icons": "./src/provider-icons.ts",
+    "./step-labels": "./src/tool-labels.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
