@@ -425,7 +425,8 @@ test("a declined card ends the deck without merging, and the cards after it won'
   expect(b && cardStatus(b, run).label).toBe("Won't start");
   expect(b?.note).toBe("Won't start: you declined Card A.");
   expect(c?.note).toBe("Merged at abcdef1 into deck/relay.");
-  expect(deckMerge(run).detail).toBe("Merged 1 of 3 into main");
+  // Cards land on the Deck's own branch, never on the base it started from.
+  expect(deckMerge(run).detail).toBe("Merged 1 of 3 into deck/relay");
   expect(deckRunSummary(run)).toBe("1/3 merged · Finished");
   expect(laneGroups(run).map((group) => group.label)).toEqual(["Planned", "Merged", "Declined"]);
 });
@@ -474,4 +475,26 @@ test("ended decks label their merge and their agents for what happened", () => {
   expect(deckMerge(failed).detail).toBe("On hold");
   const auto = deckFromView(view({ planApproval: "auto" }), accounts);
   expect(deckStepper(auto).steps[1]?.label).toBe("Plan auto-approved");
+});
+
+/** A finished one-card deck on `merge` policy. */
+const done = (merge: string) =>
+  deckFromView(
+    view({
+      phase: "done",
+      merge,
+      branch: "deck/relay",
+      baseBranch: "main",
+      dag: [node("a", { state: "integrated", revision: "abcdef1234" })],
+    }),
+    accounts,
+  );
+
+test("a merged deck names the Deck branch, and a PR-only deck says its pull request is open", () => {
+  expect(deckMerge(done("ask")).detail).toBe("Merged into deck/relay");
+  expect(deckStepper(done("ask")).steps.at(-1)?.label).toBe("Merged");
+  const pr = done("PR-only");
+  expect(deckMerge(pr).detail).toBe("PR open from deck/relay");
+  expect(deckStepper(pr).steps.at(-1)?.label).toBe("PR open");
+  expect(deckRunSummary(pr)).toBe("1/1 merged · PR open");
 });

@@ -238,6 +238,7 @@ export function deckFromSummary(summary: ConductorSummary): DeckRun {
     branch: null,
     baseBranch: null,
     planApproval: undefined,
+    merge: undefined,
     deadline: null,
   };
 }
@@ -281,6 +282,7 @@ export function deckFromView(
     branch,
     baseBranch: view.baseBranch ?? null,
     planApproval: view.planApproval,
+    merge: view.merge,
     deadline: view.deadline ?? null,
   };
 }

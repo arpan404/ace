@@ -68,6 +68,7 @@ const run = (patch: Partial<DeckRun>): DeckRun => ({
   branch: null,
   baseBranch: null,
   planApproval: undefined,
+  merge: undefined,
   deadline: null,
   ...patch,
 });

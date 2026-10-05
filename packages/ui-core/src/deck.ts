@@ -157,6 +157,11 @@ export interface DeckRun {
   baseBranch: string | null;
   /** "auto" when the plan starts without asking; unknown on daemons that don't say. */
   planApproval: "required" | "auto" | undefined;
+  /**
+   * How reviewed cards land: merged into the Deck branch (asking first, or not), or pushed as a
+   * pull request from it that the person merges. Unknown on daemons that don't say.
+   */
+  merge: "ask" | "auto-after-verification" | "PR-only" | undefined;
   /** When the deck stops on its own, if it has a deadline. */
   deadline: number | null;
 }
@@ -185,10 +190,17 @@ export function planEnds(cards: readonly Pick<DeckCard, "id" | "dependencies">[]
 export function deckMerge(run: DeckRun): { detail: string; done: boolean; dependencies: string[] } {
   const dependencies = planEnds(run.cards);
   const { merged, total } = deckProgress(run);
-  const into = run.baseBranch ? ` into ${run.baseBranch}` : "";
+  // Cards integrate into the Deck's own branch; PR-only decks end at a pull request from it,
+  // which the person merges. Nothing here lands on the base branch.
+  const into = run.branch ? ` into ${run.branch}` : "";
+  const landed =
+    run.merge === "PR-only" ? `PR open${run.branch ? ` from ${run.branch}` : ""}` : `Merged${into}`;
   const ended: Partial<Record<DeckPhase, string>> = {
-    merged: `Merged${into}`,
-    finished: `Merged ${merged} of ${total}${into}`,
+    merged: landed,
+    finished:
+      run.merge === "PR-only"
+        ? `${merged} of ${total} in the PR`
+        : `Merged ${merged} of ${total}${into}`,
     merging: "Merging",
     cancelled: "Won't merge",
     stopping: "Won't merge",
@@ -203,22 +215,32 @@ export function deckMerge(run: DeckRun): { detail: string; done: boolean; depend
 }
 
 /** Declined cards and the planned cards that wait on one, directly or not: none will run. */
-export function heldCards(cards: readonly Pick<DeckCard, "id" | "dependencies" | "state">[]) {
-  const held = new Set(cards.filter((card) => card.state === "declined").map((card) => card.id));
-  for (let changed = held.size > 0; changed;) {
-    changed = false;
-    for (const card of cards)
-      if (
-        !held.has(card.id) &&
-        card.state === "planned" &&
-        card.dependencies.some((id) => held.has(id))
-      ) {
-        held.add(card.id);
-        changed = true;
+export function heldCards(
+  cards: readonly { id: string; dependencies: readonly string[]; state: string }[],
+): ReadonlySet<string> {
+  const known = heldMemo.get(cards);
+  if (known) return known;
+  // One pass over the edges: each card is visited once from the declined ones.
+  const dependants = new Map<string, { id: string; state: string }[]>();
+  for (const card of cards)
+    for (const id of card.dependencies) {
+      const list = dependants.get(id);
+      if (list) list.push(card);
+      else dependants.set(id, [card]);
+    }
+  const queue = cards.filter((card) => card.state === "declined").map((card) => card.id);
+  const held = new Set(queue);
+  for (let at = 0; at < queue.length; at++)
+    for (const next of dependants.get(queue[at] ?? "") ?? [])
+      if (next.state === "planned" && !held.has(next.id)) {
+        held.add(next.id);
+        queue.push(next.id);
       }
-  }
+  heldMemo.set(cards, held);
   return held;
 }
+/** Each card list is a run's snapshot: its closure is worked out once, not per card. */
+const heldMemo = new WeakMap<object, ReadonlySet<string>>();
 
 /** Sidebar groups, in order: decks that need you, stopped ones, moving ones, ended ones. */
 export type DeckGroup = "gated" | "stopped" | "active" | "finished";
@@ -269,7 +291,7 @@ export function deckState(run: DeckRun): string {
     case "stopping":
       return "Stopping";
     case "merged":
-      return "Merged";
+      return run.merge === "PR-only" ? "PR open" : "Merged";
     case "finished":
       return "Finished";
     case "cancelled":
@@ -309,7 +331,9 @@ export function deckSteps(run: DeckRun): DeckStep[] {
     run.phase === "finished"
       ? "Finished"
       : finished
-        ? "Merged"
+        ? run.merge === "PR-only"
+          ? "PR open"
+          : "Merged"
         : run.phase === "cancelled"
           ? "Cancelled"
           : run.phase === "stopping"
