@@ -49,17 +49,15 @@ export function DesktopFailureScreen(props: { reason: string; daemon: DesktopDae
       <p className="mt-4 rounded-md bg-secondary px-3 py-2.5 font-mono text-sm break-words whitespace-pre-wrap text-foreground">
         {reason}
       </p>
-      <p role="status" aria-live="polite" className="mt-3 flex min-h-5 items-center gap-2 text-sm">
+      <div role="status" aria-live="polite" className="text-sm">
         {busy && (
-          <>
+          <p className="mt-3 flex items-center gap-2 text-muted-foreground">
             <Spinner />
-            <span className="text-muted-foreground">
-              {status.state === "restarting" ? "Restarting the daemon…" : "Starting the daemon…"}
-            </span>
-          </>
+            {status.state === "restarting" ? "Restarting the daemon…" : "Starting the daemon…"}
+          </p>
         )}
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
+      </div>
+      <div className="mt-5 flex flex-wrap gap-2">
         <Button
           variant="primary"
           className="h-9 flex-1"

@@ -28,7 +28,7 @@ export function HandoffScreen(props: {
   const decline = (
     <Button
       variant={elsewhere ? "primary" : "secondary"}
-      className="h-9 flex-1"
+      className="h-9 w-full"
       onClick={props.onDecline}
       autoFocus={elsewhere}
     >
@@ -38,7 +38,7 @@ export function HandoffScreen(props: {
   const connect = (
     <Button
       variant={elsewhere ? "secondary" : "primary"}
-      className="h-9 flex-1"
+      className="h-9 w-full"
       onClick={props.onConnect}
     >
       Connect

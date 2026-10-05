@@ -51,7 +51,10 @@ export function ConnectionScreen() {
         ) : (
           <>
             ace runs on your machine and drives the coding CLIs you already use. Start it with{" "}
-            <CopyCommand command="ace start" />, then point this window at it.
+            <code className="rounded-xs bg-secondary px-1 font-mono text-sm whitespace-nowrap text-foreground">
+              ace start
+            </code>
+            , then point this window at it.
           </>
         )}
       </p>
@@ -80,8 +83,8 @@ function alertFor(connection: DaemonConnection): ReactNode {
   if (connection.desktop) return <>Couldn't reach the daemon at {where}. Is it running?</>;
   return (
     <>
-      Couldn't reach {where}. Is the daemon running on that machine? Start it with{" "}
-      <CopyCommand command="ace start" />.
+      Couldn't reach {where}. Is the daemon running on that machine? Start it there with{" "}
+      <CopyCommand command="ace start" />
     </>
   );
 }
