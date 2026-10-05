@@ -33,11 +33,15 @@ const ExternalUrl = z
 /** Renderer → main requests. Every request and result is parsed on both sides. */
 export const requests = {
   "app.info": { request: None, result: AppInfo },
+  /** Quit ace (the daemon this app started stops with it). */
+  "app.quit": { request: None, result: None },
   "daemon.connection": { request: None, result: DaemonConnection },
   "daemon.status": { request: None, result: DaemonStatus },
   "daemon.restart": { request: None, result: DaemonStatus },
   /** `ace doctor --json` with the bundled daemon: the "repair" flow and onboarding. */
   "daemon.diagnose": { request: None, result: DoctorReport },
+  /** Opens the local daemon's log folder in the file manager; false when there is none. */
+  "daemon.showLogs": { request: None, result: z.boolean() },
   "onboarding.providers": { request: None, result: z.array(ProviderSummary) },
   "system.toolchains": { request: None, result: z.array(Toolchain) },
   "daemon.pause": { request: z.boolean(), result: DaemonStatus },
@@ -68,27 +72,10 @@ export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;
 export type ResultOf<C extends RequestChannel> = z.output<(typeof requests)[C]["result"]>;
 
-export const MenuCommand = z.enum([
-  "palette",
-  "new-thread",
-  "new-deck",
-  "add-project",
-  "back",
-  "forward",
-  "toggle-sidebar",
-  "agents",
-  "changes",
-  "bottom-panel",
-  "settings",
-  "quick-composer",
-]);
-export type MenuCommand = z.infer<typeof MenuCommand>;
-
 /** Main → renderer events. */
 export const events = {
   "daemon.status": DaemonStatus,
   "deep-link": DeepLink,
-  "menu.command": MenuCommand,
   "theme.changed": NativeAppearance,
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,
