@@ -42,6 +42,7 @@ export * from "./status.ts";
 export * from "./storage.ts";
 export * from "./thread-card.ts";
 export * from "./thread-state.ts";
+export * from "./thread-title.ts";
 export * from "./time.ts";
 export * from "./turns.ts";
 export * from "./turn-activity.ts";
