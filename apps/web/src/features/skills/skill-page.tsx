@@ -176,7 +176,7 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
               </span>
             )}
           </div>
-          <SettingSection label={isPlugin ? "Plugin" : "Details"}>
+          <SettingSection label={isPlugin ? "Plugin" : "Details"} card>
             {!isPlugin && (
               <SettingRow
                 title={

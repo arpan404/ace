@@ -33,7 +33,7 @@ test("every view and settings page opens in the shell under its own title", asyn
   const pagesNav = screen.getByRole("navigation", { name: "Settings pages" });
   for (const page of [
     "Appearance",
-    "Providers & accounts",
+    "Providers",
     "Notifications",
     "Remote devices",
     "Keyboard",
@@ -42,7 +42,8 @@ test("every view and settings page opens in the shell under its own title", asyn
     await userEvent.click(within(pagesNav).getByRole("link", { name: page }));
     await screen.findByRole("heading", { level: 2, name: page });
   }
-  await userEvent.click(screen.getByRole("link", { name: "Open theme editor" }));
+  await userEvent.click(within(pagesNav).getByRole("link", { name: "Appearance" }));
+  await userEvent.click(await screen.findByRole("link", { name: "Open theme editor" }));
   await screen.findByRole("heading", { level: 2, name: "Theme editor" });
 });
 

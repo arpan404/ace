@@ -21,7 +21,7 @@ export type SettingsPath =
 export const settingsPages: readonly { to: SettingsPath; title: string; icon: IconGlyph }[] = [
   { to: "/settings/general", title: "General", icon: SlidersHorizontalIcon },
   { to: "/settings/appearance", title: "Appearance", icon: PaletteIcon },
-  { to: "/settings/providers", title: "Providers & accounts", icon: PlugIcon },
+  { to: "/settings/providers", title: "Providers", icon: PlugIcon },
   { to: "/settings/notifications", title: "Notifications", icon: BellIcon },
   { to: "/settings/remote", title: "Remote devices", icon: LaptopIcon },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon },

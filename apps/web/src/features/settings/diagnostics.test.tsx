@@ -18,7 +18,8 @@ test("daemon diagnostics and the development daemon stay off General, under Adva
   const show = await screen.findByRole("button", { name: "Show" });
   expect(screen.queryByText("Memory")).toBeNull();
   await userEvent.click(show);
-  const advanced = screen.getByRole("region", { name: "Advanced" });
-  expect(await within(advanced).findByText("Memory")).toBeTruthy();
-  expect(within(advanced).getByRole("table", { name: "Daemon queues" })).toBeTruthy();
+  const health = screen.getByRole("region", { name: "Health" });
+  expect(await within(health).findByText("Memory")).toBeTruthy();
+  expect(within(health).getByRole("table", { name: "Daemon queues" })).toBeTruthy();
+  expect(within(health).getByRole("button", { name: "Copy diagnostics" })).toBeTruthy();
 });
