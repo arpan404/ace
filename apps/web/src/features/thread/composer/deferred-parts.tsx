@@ -14,6 +14,10 @@ export const DeferredThreadControls = deferredComponent(() =>
 export const DeferredQueueArea = deferredComponent(() =>
   import("./queue-area.tsx").then((module) => module.QueueArea),
 );
+/** "Plan 3/7" beside the queue: the main agent's latest todo list (CMP-6). */
+export const DeferredPlanChip = deferredComponent(() =>
+  import("./plan-chip.tsx").then((module) => module.PlanChip),
+);
 export const DeferredSuggestionList = deferredComponent(() =>
   import("./suggestion-list.tsx").then((module) => module.SuggestionList),
 );
@@ -47,6 +51,7 @@ export function preloadComposerParts(): Promise<unknown> {
     import("@/features/models/index.ts").then((models) => models.preloadModelControl()),
     DeferredThreadControls.preload(),
     DeferredQueueArea.preload(),
+    DeferredPlanChip.preload(),
     DeferredSuggestionList.preload(),
     DeferredThreadUsage.preload(),
     DeferredSendStatus.preload(),

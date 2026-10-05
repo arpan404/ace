@@ -33,6 +33,7 @@ export * from "./organizer.ts";
 export * from "./organize-patch.ts";
 export * from "./permissions.ts";
 export * from "./permission-review.ts";
+export * from "./plan.ts";
 export * from "./profile.ts";
 export type { Brand } from "./brand-art/index.gen.ts";
 export type { BrandArt, BrandPath } from "./brand-art-types.ts";
