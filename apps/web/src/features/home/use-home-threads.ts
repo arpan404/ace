@@ -17,8 +17,10 @@ import { useOrganizerState } from "@/features/organize/index.ts";
 export interface HomeList {
   groups: HomeGroups;
   settled: string[];
+  /** The listed threads that need you, which may rise while the list otherwise holds still. */
+  needsYou: string[];
 }
-const empty: HomeList = { groups: { pinned: [], projects: [] }, settled: [] };
+const empty: HomeList = { groups: { pinned: [], projects: [] }, settled: [], needsYou: [] };
 const noProjects: ProjectCount[] = [];
 
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
@@ -35,7 +37,9 @@ function useEveryEntryKey(): readonly SidebarKey[] {
 }
 
 const listEqual = (a: HomeList, b: HomeList) =>
-  homeGroupsEqual(a.groups, b.groups) && arrayEqual(a.settled, b.settled);
+  homeGroupsEqual(a.groups, b.groups) &&
+  arrayEqual(a.settled, b.settled) &&
+  arrayEqual(a.needsYou, b.needsYou);
 
 /**
  * Home order (needs you, moving, trouble, the rest; settled apart), pinned threads first and
@@ -51,6 +55,7 @@ export function useHomeList(): HomeList {
       const entries = entriesOf(reader);
       const { active, settled } = arrange(entries, state, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
+      const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
       const groups = groupHome(
         active.flatMap((id) => {
           const entry = byId.get(id);
@@ -66,7 +71,7 @@ export function useHomeList(): HomeList {
             : [];
         }),
       );
-      return { groups, settled };
+      return { groups, settled, needsYou };
     },
     [state, now],
   );

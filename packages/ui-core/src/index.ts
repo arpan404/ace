@@ -23,6 +23,7 @@ export * from "./file-changes.ts";
 export * from "./file-tree.ts";
 export * from "./first-launch.ts";
 export * from "./home-groups.ts";
+export * from "./held-order.ts";
 export * from "./inline-markdown.ts";
 export * from "./models.ts";
 export * from "./model-picker.ts";

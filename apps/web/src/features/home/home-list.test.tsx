@@ -156,6 +156,14 @@ test("Snooze sinks a thread to the end of its folder with its wake time; Undo wa
     screen.getByRole("button", { name: "Snooze Retry budget for app-server restarts" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
+  // The row keeps its place while the pointer is on the list, and sinks once it leaves.
+  await waitFor(() => expect(card(/^Retry budget.*Snoozed until tomorrow/)).toBeTruthy());
+  expect(before("Retry budget for app-server restarts", "Backpressure on broadcast fan-out")).toBe(
+    true,
+  );
+  const list = threads().querySelector("[data-virtual-viewport]");
+  if (!(list instanceof HTMLElement)) throw new Error("no list");
+  await userEvent.unhover(list);
 
   await waitFor(() =>
     expect(
