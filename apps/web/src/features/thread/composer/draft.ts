@@ -15,6 +15,10 @@ export interface Draft {
     local: LocalAttachment[];
     uploading: number;
     settled: Promise<{ sha256: string; name: string }[]>;
+    /** Each file's own outcome, in `local`'s order. */
+    outcomes: Promise<({ sha256: string; name: string } | { error: string })[]>;
+    /** The files themselves, in `local`'s order, for an upload to be retried. */
+    files: (File | undefined)[];
     release(): void;
   };
   /** ⌘↵ / Ctrl+↵: the opposite of the follow-up default (steer instead of queue, or back). */

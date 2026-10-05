@@ -19,6 +19,10 @@ export interface ReadyAttachment {
   name: string;
 }
 
+/** How one file's upload ended: the daemon holds it, or why not, in words. */
+export type Outcome = ReadyAttachment | { error: string };
+const lost: Outcome = { error: "it was removed" };
+
 /** Larger files are refused before uploading; the daemon's own limit is higher. */
 export const maxAttachmentBytes = 25_000_000;
 
@@ -58,7 +62,7 @@ export function useAttachments(
   const previews = useRef(new Set<string>());
   // Each chip's outcome, kept for `settled()`, and the file itself, kept for Retry.
   const outcomes = useRef(
-    new Map<number, Promise<ReadyAttachment | undefined>>(
+    new Map<number, Promise<Outcome>>(
       restored.map((file, index) => [-1 - index, Promise.resolve(file)]),
     ),
   );
@@ -83,9 +87,10 @@ export function useAttachments(
             files.current.delete(key);
             return { sha256: attachment.sha256, name: file.name };
           },
-          (error: unknown) => {
-            patch({ state: "failed", error: uploadError(error), retryable: true });
-            return undefined;
+          (error: unknown): Outcome => {
+            const reason = uploadError(error);
+            patch({ state: "failed", error: reason, retryable: true });
+            return { error: reason };
           },
         );
       outcomes.current.set(key, outcome);
@@ -121,7 +126,12 @@ export function useAttachments(
           },
         ]);
         if (tooBig) {
-          outcomes.current.set(key, Promise.resolve(undefined));
+          outcomes.current.set(
+            key,
+            Promise.resolve({
+              error: `Too large: ${formatBytes(file.size)}, the limit is ${formatBytes(maxAttachmentBytes)}`,
+            }),
+          );
           continue;
         }
         files.current.set(key, file);
@@ -171,18 +181,27 @@ export function useAttachments(
    * order. Failed ones are left out. Removing or clearing chips afterwards doesn't change it.
    */
   const settled = (): Promise<ReadyAttachment[]> =>
-    Promise.all(outcomes.current.values()).then((all) => all.filter((file) => file !== undefined));
+    Promise.all(outcomes.current.values()).then((all) =>
+      all.flatMap((file) => ("sha256" in file ? [file] : [])),
+    );
   /**
    * Take every chip out of the composer for a message that is being sent: the files as a
-   * pending bubble shows them (`local`), what `settled()` would give, and `release()`, which
-   * frees the image previews once the bubble no longer needs them.
+   * pending bubble shows them (`local`), what `settled()` would give, each file's own outcome
+   * and the file itself (`outcomes`, `files`, in `local`'s order, for a message held while they
+   * upload), and `release()`, which frees the image previews once nothing shows them.
    */
   const handOff = (): {
     local: LocalAttachment[];
     settled: Promise<ReadyAttachment[]>;
+    outcomes: Promise<Outcome[]>;
+    files: (File | undefined)[];
     release(): void;
   } => {
     const ready = settled();
+    const each = Promise.all(
+      items.map((item) => outcomes.current.get(item.key) ?? Promise.resolve(lost)),
+    );
+    const held = items.map((item) => files.current.get(item.key));
     const urls = items.flatMap((item) => (item.preview ? [item.preview] : []));
     for (const url of urls) previews.current.delete(url);
     const local = items.map((item) => ({
@@ -196,6 +215,8 @@ export function useAttachments(
     return {
       local,
       settled: ready,
+      outcomes: each,
+      files: held,
       release: () => {
         for (const url of urls) URL.revokeObjectURL(url);
       },

@@ -1,11 +1,18 @@
 import type { PendingSend, ThreadReader } from "@ace/client";
 import { useThread, usePendingSends } from "@ace/client-react";
 import type { QueuePage } from "@ace/protocol";
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissedSends, loadDismissed } from "../composer/dismissed-sends.ts";
-import { stagedSends, type StagedSend } from "../composer/send-store.ts";
+import {
+  interrupted,
+  liveOwners,
+  pageId,
+  stagedSends,
+  withPreviews,
+  type StagedSend,
+} from "../composer/staged-sends.ts";
 import type { Block } from "../transcript/blocks.ts";
 
 /*
@@ -76,12 +83,38 @@ export function useQueuedCommands(threadId: string): ReadonlySet<string> {
   return useMemo(() => queuedCommands(pending, page, live), [pending, page, live]);
 }
 
-/** Staged sends (waiting for uploads) for this thread. */
+/**
+ * Messages held for their uploads in this thread, with this page's previews. One held by a
+ * page that has since closed (its uploads died with it) reads as failed, with why.
+ */
 export function useStaged(threadId: string): readonly StagedSend[] {
-  const all = useSyncExternalStore(stagedSends.subscribe, stagedSends.get, stagedSends.get);
-  return all.get(threadId) ?? noStaged;
+  const { storage } = useLayout();
+  const store = stagedSends(storage);
+  const all = useSyncExternalStore(store.subscribe, store.get, store.get);
+  const here = useMemo(() => all.filter((send) => send.threadId === threadId), [all, threadId]);
+  // Other pages' holds: alive while their pages hold their locks.
+  const others = here.some((send) => send.owner !== pageId && !send.failed);
+  const [live, setLive] = useState<ReadonlySet<string>>();
+  useEffect(() => {
+    if (!others) return;
+    let current = true;
+    void liveOwners().then((owners) => {
+      if (current) setLive(owners ?? new Set(here.map((send) => send.owner)));
+    });
+    return () => {
+      current = false;
+    };
+  }, [others, here]);
+  return useMemo(
+    () =>
+      here.map((send) => {
+        const shown = withPreviews(send);
+        const gone = send.owner !== pageId && !send.failed && live && !live.has(send.owner);
+        return gone ? { ...shown, failed: interrupted(send) } : shown;
+      }),
+    [here, live],
+  );
 }
-const noStaged: readonly StagedSend[] = [];
 
 /** Failed sends the person replaced with Retry or took back with Edit. */
 export function useDismissedSends(): ReadonlySet<string> {

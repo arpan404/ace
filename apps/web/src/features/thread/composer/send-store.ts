@@ -10,20 +10,29 @@ import type { PendingSend } from "@ace/client";
 import { useSyncExternalStore } from "react";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 import type { Block } from "../transcript/blocks.ts";
+import type { TurnOptions } from "@ace/protocol";
 
-/** A message held back until its uploads finish; it has its command id already. */
+/**
+ * A message held back until its files upload (`staged-sends.ts` keeps them): its files with this
+ * page's previews where it has them, and why it can't go as it is, once it can't.
+ */
 export interface StagedSend {
   commandId: string;
   threadId: string;
   text: string;
-  attachments: readonly LocalAttachment[];
-  /** How many of its files are still uploading. */
-  uploading: number;
+  mentions: string[];
+  attachments: (LocalAttachment & { sha256?: string | undefined })[];
+  options?: TurnOptions | undefined;
+  delivery?: "steer" | "queue" | undefined;
+  /** The page uploading its files; another page can't finish them. */
+  owner: string;
+  /** Why it can't go as it is, in words; undefined while its files upload. */
+  failed?: string | undefined;
 }
 
 type Listener = () => void;
 
-/** A tiny observable map, read through `useSyncExternalStore`. */
+/** A tiny observable value, read through `useSyncExternalStore`. */
 export class Observable<T> {
   private listeners = new Set<Listener>();
   private value: T;
@@ -43,32 +52,6 @@ export class Observable<T> {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
-}
-
-const noStaged: readonly StagedSend[] = [];
-
-/** Messages waiting for their uploads, by thread, oldest first. */
-export const stagedSends = new Observable<ReadonlyMap<string, readonly StagedSend[]>>(new Map());
-
-export function stagedFor(threadId: string): readonly StagedSend[] {
-  return stagedSends.get().get(threadId) ?? noStaged;
-}
-
-export function stage(send: StagedSend): void {
-  const all = new Map(stagedSends.get());
-  const list = (all.get(send.threadId) ?? noStaged).filter((s) => s.commandId !== send.commandId);
-  all.set(send.threadId, [...list, send]);
-  stagedSends.set(all);
-}
-
-export function unstage(threadId: string, commandId: string): void {
-  const list = stagedSends.get().get(threadId);
-  if (!list?.some((send) => send.commandId === commandId)) return;
-  const all = new Map(stagedSends.get());
-  const rest = list.filter((send) => send.commandId !== commandId);
-  if (rest.length) all.set(threadId, rest);
-  else all.delete(threadId);
-  stagedSends.set(all);
 }
 
 /*
@@ -161,7 +144,6 @@ export function startedTitle(commandId: string): string | undefined {
 
 /** Test seam: forget everything this window held. */
 export function resetSendStore(): void {
-  stagedSends.set(new Map());
   for (const attachment of locals.values())
     if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
   locals.clear();
@@ -191,6 +173,7 @@ export function leasable(threadId: string): string | undefined {
  */
 
 /** What a bubble knows of its message's way to the daemon. */
+
 export interface LocalSend {
   send?: PendingSend | undefined;
   staged?: StagedSend | undefined;

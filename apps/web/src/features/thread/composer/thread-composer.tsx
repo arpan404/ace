@@ -5,6 +5,7 @@ import { providerNames } from "@ace/ui-core";
 import { Suspense, useEffect, useRef, useState, type Ref } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import { useToastClearance } from "@/lib/toast-clearance.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { ThreadRef } from "../sources/index.ts";
@@ -59,6 +60,7 @@ export function ThreadComposer({
   composer?: Ref<ComposerHandle> | undefined;
 }) {
   const client = useClient();
+  const { storage } = useLayout();
   const toast = useToast();
   const meta = useThreadMeta(props.thread.id);
   const [setting] = useDaemonSetting("threads.followUpBehavior", {
@@ -100,6 +102,7 @@ export function ThreadComposer({
     const { sendMessage } = await loadSender();
     const ok = await sendMessage({
       client,
+      storage,
       threadId: props.thread.id,
       commandId,
       draft,

@@ -1,5 +1,5 @@
 import type { PendingSend } from "@ace/client";
-import { useClient, useItem } from "@ace/client-react";
+import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
@@ -10,6 +10,8 @@ import { useLayout } from "@/lib/layout.tsx";
 import { dismissSend } from "../composer/dismissed-sends.ts";
 import { draftOf, type SendPayload } from "../composer/returned-draft.ts";
 import { returnDraft, leasable } from "../composer/send-store.ts";
+import { canRetry, retryStaged, unstage, type StagedSend } from "../composer/staged-sends.ts";
+import { useThreadSources } from "../sources/index.ts";
 import { commandOf } from "./pending-sends.ts";
 
 /** "Not sent · the reason", with Retry (sends it again) and Edit (back into the composer). */
@@ -99,6 +101,63 @@ export function useSendActions(threadId: string) {
         );
     },
   };
+}
+
+/**
+ * A message held for its uploads that can't go as it is (a file didn't upload, or the page
+ * closed mid-upload): "Not sent" with why, Retry where this page still has the files (it
+ * uploads them again, then sends under the same id), and Edit, which gives the text, the
+ * files the daemon holds and the picks back to the composer.
+ */
+export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
+  const { staged } = props;
+  const client = useClient();
+  const toast = useToast();
+  const sources = useThreadSources();
+  const meta = useThreadMeta(leasable(props.threadId));
+  const { storage } = useLayout();
+  const retry = () => {
+    if (!meta) return;
+    const thread = { id: props.threadId, workspaceId: meta.workspaceId, title: meta.title };
+    void retryStaged(client, staged.commandId, (file) =>
+      sources.context.upload(thread, file, () => {}),
+    ).then((sent) => {
+      if (!sent) toast.add({ title: "It still didn't go", description: "It is still here." });
+    });
+  };
+  const edit = () => {
+    const draft = {
+      text: staged.text,
+      mentions: staged.mentions,
+      attachments: staged.attachments.flatMap((file) =>
+        file.sha256 ? [{ sha256: file.sha256, name: file.name }] : [],
+      ),
+      options: staged.options,
+    };
+    unstage(staged.commandId);
+    const key = `thread:${props.threadId}`;
+    if (!returnDraft(key, draft))
+      void import("../composer/draft-store.ts").then(({ writeDraft }) =>
+        writeDraft(storage, key, draft),
+      );
+  };
+  return (
+    <div role="alert" className="mt-[5px] flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+      <NotSent reason={staged.failed} />
+      <span className="flex gap-1">
+        {canRetry(staged) && (
+          <Button size="sm" variant="ghost" onClick={retry}>
+            <Icon icon={ArrowClockwiseIcon} size={12} />
+            Retry
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={edit}>
+          <Icon icon={PencilSimpleIcon} size={12} />
+          Edit
+        </Button>
+      </span>
+    </div>
+  );
 }
 
 /** "Not sent · the reason": the line on its own, and the head of the line with its actions. */

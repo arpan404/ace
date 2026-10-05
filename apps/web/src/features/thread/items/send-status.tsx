@@ -5,7 +5,7 @@ import { ClockIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { waitingNote } from "@/lib/daemon-command.ts";
 import { type StagedSend, leasable } from "../composer/send-store.ts";
-import { FailedSend } from "./failed-send.tsx";
+import { FailedHeld, FailedSend } from "./failed-send.tsx";
 import { sendFailure } from "./send-failure.ts";
 
 /*
@@ -49,6 +49,7 @@ export function SendStatus(props: {
   const online = useConnectionState() === "ready";
   const notice = useItem(leasable(props.threadId), props.noticeId ?? "");
   const { send, staged } = props;
+  if (staged?.failed) return <FailedHeld threadId={props.threadId} staged={staged} />;
   if (staged)
     return (
       <Line>
