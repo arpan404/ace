@@ -24,8 +24,9 @@ test("tool work collapses into one line that opens to its steps and their output
   expect(within(feed).queryByText("apps/server/src/cursor.ts")).toBeNull();
 
   await userEvent.click(summary);
-  const steps = within(feed).getByRole("list", { name: "Steps" });
-  expect(within(steps).getByText("apps/server/src/cursor.ts")).toBeTruthy();
+  // The steps load with the thread's deferred parts.
+  const steps = await within(feed).findByRole("list", { name: "Steps" });
+  expect(await within(steps).findByText("apps/server/src/cursor.ts")).toBeTruthy();
   expect(within(steps).getByText("4 matches")).toBeTruthy();
 
   await userEvent.click(
@@ -152,9 +153,17 @@ test("stopping a background task waits for the daemon to report it stopped", asy
 });
 
 test("returning to a thread marks where the new activity starts", async () => {
-  const { script, feed } = await openReplay("background");
+  const { app, script, feed } = await openReplay("background");
   await within(feed).findByText("Running in background");
   expect(screen.queryByRole("separator", { name: "New activity" })).toBeNull();
+  // Following the live end for a moment records how far this device read, on the daemon.
+  await waitFor(
+    async () =>
+      expect(
+        (await app.client.threadReadState({ threadId: "thread-replay-cursor" })).updatedAt,
+      ).not.toBeNull(),
+    { timeout: 3_000 },
+  );
 
   // The rail's Activity; the sidebar's bell goes there too.
   await userEvent.click(
