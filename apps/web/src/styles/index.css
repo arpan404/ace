@@ -292,3 +292,45 @@
     transparent calc(100% - var(--under, 0px))
   );
 }
+
+/*
+ * Focus rings (one recipe app-wide). `focus-ring` for controls: a 2px gap in the surface colour,
+ * then 2px of the focus colour. `focus-ring-inset` for rows inside scrollers, where an outer
+ * ring would be clipped. `--focus` is the full-strength focus token; it falls back to the accent.
+ */
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    box-shadow:
+      0 0 0 2px var(--background),
+      0 0 0 4px var(--focus, var(--ring));
+  }
+}
+@utility focus-ring-inset {
+  outline: none;
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--focus, var(--ring));
+  }
+}
+
+/*
+ * Touch targets: on a coarse pointer, an invisible area past the control's edges so a 30px
+ * button takes a 44px tap (7px each side; add -lg for 12px on ~20px controls, -xl for 14px
+ * on ~16px ones). The control keeps its size; it must be positioned.
+ */
+@utility touch-hit {
+  @media (pointer: coarse) {
+    &::after {
+      content: "";
+      position: absolute;
+      inset: calc(var(--hit, 7px) * -1);
+    }
+  }
+}
+/* Larger areas for smaller controls, with touch-hit. */
+@utility touch-hit-lg {
+  --hit: 12px;
+}
+@utility touch-hit-xl {
+  --hit: 14px;
+}

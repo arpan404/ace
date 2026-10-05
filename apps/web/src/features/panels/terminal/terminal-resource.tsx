@@ -19,7 +19,6 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { keymap } from "@/lib/keymap.ts";
 import {
   useWorkspaceActions,
   useWorkspaceStore,
@@ -334,7 +333,7 @@ function LiveTerminal(
           <MenuSeparator />
           <MenuItem
             icon={<MagnifyingGlassIcon aria-hidden size={16} />}
-            keys={keymap.findInTerminal.keys}
+            shortcut="findInTerminal"
             onClick={openFind}
           >
             Find

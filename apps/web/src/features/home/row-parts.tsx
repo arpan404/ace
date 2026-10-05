@@ -198,7 +198,8 @@ export function RowFoot(props: { card: ThreadCard }) {
       <span className="flex min-w-0 flex-1 items-center gap-1">
         {branch?.worktree && <Icon icon={GitBranchIcon} size={12} className="opacity-80" />}
         <span className="truncate">
-          {branch?.name}
+          {/* Cut in the middle so the distinctive end stays; the whole name is in the tooltip. */}
+          {branch && <span title={branch.name}>{branch.label}</span>}
           {card.machine && <span> · {card.machine}</span>}
         </span>
       </span>

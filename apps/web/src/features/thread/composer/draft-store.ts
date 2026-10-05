@@ -22,7 +22,7 @@ const Draft = z.object({
 const Entries = z.catch(z.array(z.tuple([z.string(), Draft])), []);
 const Recent = z.catch(z.array(z.tuple([z.string(), z.array(z.string())])), []);
 
-const draftsKey = "ace.composer.drafts";
+export const draftsKey = "ace.composer.drafts";
 const recentKey = "ace.composer.recent";
 const recentPerProject = 6;
 const recentProjects = 16;

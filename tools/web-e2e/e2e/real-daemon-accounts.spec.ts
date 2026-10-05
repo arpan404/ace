@@ -13,7 +13,9 @@ async function connect(page: Page, path: string) {
   await page.goto(
     `${path}#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`,
   );
-  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Account and connection", exact: true }),
+  ).toBeAttached();
 }
 
 test("the run-out policy is stored by the daemon and read back after a reload", async ({

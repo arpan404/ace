@@ -19,6 +19,12 @@ export function SidebarSheet(props: {
         side="left"
         showCloseButton={false}
         className="w-[min(344px,92vw)] flex-row gap-0 bg-[rgb(var(--sidebar-rgb))] p-0"
+        // Following any link in it is a choice of where to go, even the page already open.
+        onClickCapture={(event) => {
+          const link = (event.target as Element).closest("a[href]");
+          if (link && !event.defaultPrevented && !event.metaKey && !event.ctrlKey)
+            props.onOpenChange(false);
+        }}
       >
         <SheetTitle className="sr-only">Sidebar</SheetTitle>
         {props.rail}
@@ -28,7 +34,7 @@ export function SidebarSheet(props: {
           label="Hide sidebar"
           shortcut="toggleSidebar"
           onClick={() => props.onOpenChange(false)}
-          className="absolute top-2.5 right-2.5"
+          className="absolute top-2.5 right-2.5 [-webkit-app-region:no-drag]"
         />
       </SheetContent>
     </Sheet>

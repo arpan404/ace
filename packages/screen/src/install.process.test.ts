@@ -70,7 +70,7 @@ it("a new helper version installs beside the old one, which keeps its bytes and 
   expect(await installScreenHelper(f.app, destination)).toBe(next);
 });
 
-it("a helper whose Info.plist alone changed installs as a new version, leaving the old one running", async () => {
+it("a helper whose Info.plist alone changed installs as a new version and preserves the old executable", async () => {
   const f = await fixture();
   const destination = join(f.root, "data");
   const old = await installScreenHelper(f.app, destination);

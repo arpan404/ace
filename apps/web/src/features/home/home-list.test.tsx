@@ -241,6 +241,14 @@ test("Snooze sinks a thread below the others with its wake time; Undo wakes it",
     screen.getByRole("button", { name: "Snooze Retry budget for app-server restarts" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
+  // The row keeps its place while the pointer is on the list, and sinks once it leaves.
+  await waitFor(() => expect(card(/^Retry budget.*Snoozed until tomorrow/)).toBeTruthy());
+  expect(before("Retry budget for app-server restarts", "Backpressure on broadcast fan-out")).toBe(
+    true,
+  );
+  const list = threads().querySelector("[data-virtual-viewport]");
+  if (!(list instanceof HTMLElement)) throw new Error("no list");
+  await userEvent.unhover(list);
 
   await waitFor(() =>
     expect(
@@ -285,4 +293,37 @@ test("Tab walks a row's link, its Snooze, then the next row", async () => {
   expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Snooze /);
   await userEvent.tab();
   expect(document.activeElement).toBe(second);
+});
+
+test("a row names its branch cut in the middle, and no branch when it is on main", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "thread-on-main",
+    workspaceId: "relay",
+    title: "Tidy the README",
+    provider: "codex",
+    details: { branch: "main", mode: "local" },
+  });
+  app.daemon.createThread({
+    id: "thread-hash-branch",
+    workspaceId: "relay",
+    title: "Support spare-part materials",
+    provider: "codex",
+    details: { branch: "ace/33594883e2b3ea4fc70aeea5", mode: "worktree" },
+  });
+  await openHome(app);
+
+  const hashed = card(/^Support spare-part materials/);
+  expect(within(hashed).getByText("ace/33594883…a4fc70aeea5")).toBeTruthy();
+  // The whole name is still in the row's name and its tooltip.
+  expect(hashed.getAttribute("aria-label") ?? hashed.textContent).toContain(
+    "Worktree ace/33594883e2b3ea4fc70aeea5",
+  );
+  await userEvent.hover(hashed);
+  expect((await screen.findByRole("tooltip")).textContent).toContain(
+    "Worktree ace/33594883e2b3ea4fc70aeea5",
+  );
+
+  const onMain = card(/^Tidy the README/);
+  expect(onMain.textContent).not.toContain("main");
 });

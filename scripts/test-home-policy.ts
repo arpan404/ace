@@ -51,5 +51,14 @@ export function isolatedTestEnvironment(
     ACE_HISTORY_INSTANCES: "[]",
     ACE_MODEL_INSTANCES: "[]",
     ACE_TEST_REAL_HOME: realHome,
+    // Browser binaries are installed once per machine; tests drive them read-only.
+    PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
   };
+}
+
+/** Where Playwright installs its browsers for the real user (its documented default). */
+function playwrightCache(realHome: string): string {
+  if (process.platform === "darwin") return join(realHome, "Library/Caches/ms-playwright");
+  if (process.platform === "win32") return join(realHome, "AppData/Local/ms-playwright");
+  return join(realHome, ".cache/ms-playwright");
 }
