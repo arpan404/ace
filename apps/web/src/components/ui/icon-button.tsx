@@ -41,7 +41,7 @@ function IconButton({
       className={cn(
         "relative inline-grid shrink-0 place-items-center text-muted-foreground transition-[background-color,color,transform] duration-(--dur-1) ease-smooth focus-ring touch-hit active:scale-[0.94]",
         "hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground",
-        "disabled:pointer-events-none disabled:opacity-40 data-disabled:opacity-40 data-disabled:hover:bg-transparent data-disabled:hover:text-muted-foreground",
+        "disabled:pointer-events-none disabled:opacity-40 data-disabled:opacity-40",
         reason === undefined && "data-disabled:pointer-events-none",
         size === "sm" && "size-6 rounded-sm",
         size === "default" && "size-[30px] rounded-md",

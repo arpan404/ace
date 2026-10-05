@@ -59,10 +59,11 @@ export function rankCommand(query: string, item: RankItem, now?: number): number
       queryWords.length > 0 &&
       queryWords.every((word) => labelWords.some((candidate) => candidate.startsWith(word)))
     )
-      score = tier.words;
+      score = tier.words - Math.min(label.length, 100) * 0.1;
     else {
       const fuzzy = subsequence(q, label);
-      if (fuzzy !== null) score = tier.fuzzy + fuzzy * 0.5;
+      // Tighter first, then shorter: "nwthr" means "New thread" before "New thread on main".
+      if (fuzzy !== null) score = tier.fuzzy + fuzzy * 0.5 - Math.min(label.length, 100) * 0.1;
       else if (item.extra?.toLowerCase().includes(q)) score = tier.extra;
     }
   }

@@ -7,7 +7,7 @@ import {
   MagnifyingGlassIcon,
   PaletteIcon,
 } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { matchRanges, rankCommand } from "@ace/ui-core/command-rank";
 import { useMemo, useState, type ReactNode } from "react";
 import {
@@ -59,6 +59,7 @@ function arrange(
   groups: PaletteGroup[],
   query: string,
   recent: readonly { id: string; at: number }[],
+  current: string | undefined,
   allThreads: boolean,
   showAllThreads: () => void,
   searchAll: (query: string) => void,
@@ -68,7 +69,11 @@ function arrange(
   const opened = new Map(recent.map((entry) => [`thread-${entry.id}`, entry.at]));
   if (!q) {
     const byId = new Map(threads.map((item) => [item.id, item]));
-    const recentRows = recent.flatMap((entry) => byId.get(`thread-${entry.id}`) ?? []).slice(0, 5);
+    // The open thread is "This thread"; Recent is where else the person has been.
+    const recentRows = recent
+      .filter((entry) => entry.id !== current)
+      .flatMap((entry) => byId.get(`thread-${entry.id}`) ?? [])
+      .slice(0, 5);
     const out: RowGroup[] = [];
     for (const group of groups) {
       if (group.value === "Threads") {
@@ -153,6 +158,7 @@ export default function PaletteBody(props: { close(): void }) {
   const keymap = useResolvedKeymap();
   const phone = usePhone();
   const navigate = useNavigate();
+  const current = useParams({ strict: false }).threadId;
   const { storage } = useLayout();
   const [query, setQuery] = useState("");
   const [allThreads, setAllThreads] = useState(false);
@@ -163,6 +169,7 @@ export default function PaletteBody(props: { close(): void }) {
         groups,
         query,
         recent,
+        current,
         allThreads,
         () => setAllThreads(true),
         (q) => {
@@ -170,7 +177,7 @@ export default function PaletteBody(props: { close(): void }) {
           void navigate({ to: "/more/search", search: { q } });
         },
       ),
-    [groups, query, recent, allThreads, props, navigate],
+    [groups, query, recent, current, allThreads, props, navigate],
   );
   const ranked = query.trim() !== "";
   return (

@@ -102,10 +102,12 @@ test("a query nothing matches falls through to searching every thread", async ()
   expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull();
 });
 
-test("threads opened lately come first with an empty query", async () => {
-  const app = await openApp("/t/thread-fan-out");
+test("threads opened lately come first with an empty query, the open one aside", async () => {
+  await openApp("/t/thread-fan-out");
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });
-  expect(app.storage.getItem("ace.palette.recent")).toMatch(/thread-fan-out/);
+  const threads = within(screen.getByRole("navigation", { name: "Threads" }));
+  await userEvent.click(threads.getByRole("link", { name: /^Partial refunds double-count tax/ }));
+  await screen.findByRole("heading", { level: 1, name: /^Partial refunds double-count tax/ });
   await palette();
   const recent = within(await screen.findByRole("group", { name: "Recent threads" }));
   expect(recent.getAllByRole("option").map((option) => option.textContent)).toEqual([

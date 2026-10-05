@@ -17,7 +17,7 @@ import { WorkspaceMenu } from "./account-menu.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
 const quick =
-  "relative grid size-7 place-items-center rounded-md text-muted-foreground transition-colors duration-(--dur-1) focus-ring touch-hit-lg hover:bg-sidebar-accent hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground";
+  "relative grid size-7 place-items-center rounded-md text-muted-foreground transition-colors duration-(--dur-1) focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground aria-[current=page]:text-foreground";
 const pill =
   "mx-2 mb-2 flex h-8 shrink-0 items-center gap-[9px] rounded-md bg-sidebar-accent px-2.5 text-ui font-medium text-sidebar-foreground transition-colors duration-(--dur-1) focus-ring hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--foreground)_4%)] pointer-coarse:h-11 [&_svg]:text-muted-foreground";
 
@@ -58,7 +58,7 @@ export function AppSidebar(props: {
         <div
           data-slot="sidebar-top"
           className={cn(
-            "flex h-(--header-h) shrink-0 items-center gap-0.5 pl-2.5 [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]",
+            "flex h-(--header-h) shrink-0 items-center gap-1.5 pl-2.5 [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]",
             // The sheet's own close button sits at the row's end.
             sheet ? "pr-12" : "pr-2.5",
           )}

@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { matchRanges, rankCommand, type RankItem } from "./command-rank.ts";
 
 const items: RankItem[] = [
+  { label: "New thread on main in ace", command: true },
   { label: "New thread", command: true },
   { label: "New deck", command: true },
   { label: "Settings", command: true },
@@ -25,7 +26,7 @@ test("letters in order find a command, tightest first", () => {
 });
 
 test("words match in any order", () => {
-  expect(best("thread new")).toEqual(["New thread"]);
+  expect(best("thread new")).toEqual(["New thread", "New thread on main in ace"]);
 });
 
 test("a command named exactly by the query comes before threads that mention it", () => {

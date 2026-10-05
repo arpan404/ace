@@ -154,9 +154,9 @@ test("returning to a thread marks where the new activity starts", async () => {
   await within(feed).findByText("Running in background");
   expect(screen.queryByRole("separator", { name: "New activity" })).toBeNull();
 
-  // The rail's Activity; the sidebar's bell goes there too.
+  // The sidebar's bell: Activity's way in.
   await userEvent.click(
-    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", {
+    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
       name: /^Activity/,
     }),
   );

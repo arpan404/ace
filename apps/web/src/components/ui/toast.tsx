@@ -88,7 +88,7 @@ function ToastList() {
       <Toast.Close
         aria-label="Dismiss"
         className={cn(
-          "absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground opacity-0 transition-[opacity,background-color,color] duration-(--dur-1) focus-ring touch-hit-lg",
+          "absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground opacity-0 transition-[opacity,background-color,color] duration-(--dur-1) focus-ring touch-hit touch-hit-lg",
           "group-hover/toast:opacity-100 group-focus-within/toast:opacity-100 hover:bg-accent hover:text-foreground pointer-coarse:opacity-100",
         )}
       >

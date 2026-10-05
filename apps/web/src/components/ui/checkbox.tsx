@@ -12,7 +12,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
       data-slot="checkbox"
       className={cn(
         "grid size-3.5 shrink-0 place-items-center rounded-xs shadow-[inset_0_0_0_1px_var(--input)] outline-none transition-[background-color,box-shadow] duration-(--dur-1)",
-        "relative touch-hit-xl focus-visible:shadow-[inset_0_0_0_1px_var(--input),0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]",
+        "relative touch-hit touch-hit-xl focus-visible:shadow-[inset_0_0_0_1px_var(--input),0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]",
         "data-checked:bg-primary data-checked:shadow-none disabled:opacity-50",
         className,
       )}

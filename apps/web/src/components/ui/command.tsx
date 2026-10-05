@@ -104,10 +104,11 @@ function CommandInput({
       />
       <Dialog.Close
         aria-label={closeLabel}
-        className="relative grid shrink-0 place-items-center rounded-xs focus-ring touch-hit-lg pointer-coarse:h-7 pointer-coarse:rounded-sm pointer-coarse:px-2 pointer-coarse:text-sm pointer-coarse:font-medium pointer-coarse:text-muted-foreground"
+        className="relative grid shrink-0 place-items-center rounded-sm text-sm font-medium text-muted-foreground focus-ring touch-hit touch-hit-lg"
       >
-        <Kbd className="pointer-coarse:hidden">esc</Kbd>
-        <span aria-hidden className="hidden pointer-coarse:inline">
+        {/* The chip hides itself on touch, where "Close" shows instead. */}
+        <Kbd>esc</Kbd>
+        <span aria-hidden className="hidden px-1 pointer-coarse:inline">
           Close
         </span>
       </Dialog.Close>

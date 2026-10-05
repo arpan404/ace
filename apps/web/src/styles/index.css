@@ -273,33 +273,22 @@
 
 /*
  * Touch targets: on a coarse pointer, an invisible area past the control's edges so a 30px
- * button takes a 44px tap (7px each side; -lg 12px for ~20px controls, -xl 14px for ~16px).
- * The control keeps its size; it must be positioned.
+ * button takes a 44px tap (7px each side; add -lg for 12px on ~20px controls, -xl for 14px
+ * on ~16px ones). The control keeps its size; it must be positioned.
  */
 @utility touch-hit {
   @media (pointer: coarse) {
     &::after {
       content: "";
       position: absolute;
-      inset: -7px;
+      inset: calc(var(--hit, 7px) * -1);
     }
   }
 }
+/* Larger areas for smaller controls, with touch-hit. */
 @utility touch-hit-lg {
-  @media (pointer: coarse) {
-    &::after {
-      content: "";
-      position: absolute;
-      inset: -12px;
-    }
-  }
+  --hit: 12px;
 }
 @utility touch-hit-xl {
-  @media (pointer: coarse) {
-    &::after {
-      content: "";
-      position: absolute;
-      inset: -14px;
-    }
-  }
+  --hit: 14px;
 }

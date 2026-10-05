@@ -36,7 +36,7 @@ export function AccountMenu() {
         <button
           type="button"
           aria-label={label}
-          className="relative grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] transition-[color,transform] duration-(--dur-1) focus-ring touch-hit-lg hover:text-foreground active:scale-[0.94]"
+          className="relative grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] transition-[color,transform] duration-(--dur-1) focus-ring touch-hit touch-hit-lg hover:text-foreground active:scale-[0.94]"
         >
           {letters ? (
             <span aria-hidden className="text-2xs font-semibold tracking-[0.02em] text-foreground">
@@ -48,11 +48,10 @@ export function AccountMenu() {
           <span
             aria-hidden
             data-state={state}
-            className={cn(
-              "absolute -right-px -bottom-px size-[9px] rounded-full bg-rail ring-2 ring-[rgb(var(--rail-rgb))]",
-              connectionDot[state],
-            )}
-          />
+            className="absolute -right-0.5 -bottom-0.5 grid size-[13px] place-items-center rounded-full bg-rail"
+          >
+            <span className={cn("size-[9px] rounded-full", connectionDot[state])} />
+          </span>
         </button>
       }
     >
