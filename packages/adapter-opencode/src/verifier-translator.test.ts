@@ -108,7 +108,8 @@ it("keeps children discovered during recovery unresponsive until the whole strea
 it("preserves the native body of a malformed recognized part without an ID", () => {
   const h = setup();
   h.event("message.part.updated", { part: { type: "tool", unknownFuture: "NO_ID_FUTURE" } });
-  expect(JSON.stringify(Object.values(h.view.items))).toContain("NO_ID_FUTURE");
+  expect(JSON.stringify(h.diagnostics)).toContain("NO_ID_FUTURE");
+  expect(JSON.stringify(Object.values(h.view.items))).not.toContain("NO_ID_FUTURE");
 });
 
 it("keeps the thread working while an active background child outlives its parent turn", () => {

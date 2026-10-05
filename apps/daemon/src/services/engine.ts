@@ -204,6 +204,20 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           ]),
         );
       }),
+    onSessionOpenFailure: (thread, details) => {
+      log.log(
+        "warn",
+        "Provider session opening failed",
+        logFields([
+          ["thread", thread],
+          ["provider", details.provider],
+          ["code", details.code],
+          ["title", details.title],
+          ["detail", details.detail],
+        ]),
+      );
+      return engineOptions.onSessionOpenFailure?.(thread, details);
+    },
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());

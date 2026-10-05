@@ -446,12 +446,17 @@ Example:
     "detail": "example",
     "details": {
       "code": "example",
-      "model": "example",
-      "provider": "opencode"
+      "provider": "opencode",
+      "title": "example"
     },
     "id": "example",
     "interactionId": "example",
     "level": "error",
+    "source": {
+      "bytes": 3,
+      "encoding": "utf-16le",
+      "streamId": "example"
+    },
     "text": "example",
     "title": "example",
     "type": "notice"
@@ -494,22 +499,14 @@ Example:
 ```json
 {
   "item": {
-    "agentId": "example",
-    "complete": false,
-    "createdAt": 0,
-    "delivery": "tool",
+    "bytes": 7,
+    "complete": true,
+    "createdAt": 8,
     "id": "example",
-    "origin": "ace",
-    "results": [
-      {
-        "before": null,
-        "outcome": "cancelled",
-        "result": "example",
-        "threadId": "example",
-        "truncated": true
-      }
-    ],
-    "type": "delegation.settled"
+    "mimeType": "example",
+    "path": "example",
+    "source": "browser",
+    "type": "artifact"
   },
   "type": "item.updated"
 }

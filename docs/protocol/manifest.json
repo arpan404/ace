@@ -17,16 +17,16 @@
       "sha256": "dd3463511eaacfb2dde3c53bcd815f5999418932368abd55127d0f2346039f20"
     },
     "events.md": {
-      "bytes": 19309,
-      "sha256": "7bbb175936fa49b869864e9b18a984b0f7b378e757592234e72dd3e872b7c1e1"
+      "bytes": 19235,
+      "sha256": "b30b5b3ffba8a541b728129fec7d12bc279973c53f87ae46df726ac642f1599a"
     },
     "forge.md": {
       "bytes": 15937,
       "sha256": "cedf5a03a2ca2a9b9dc9eb38b0f0337b31f2e006fe530e41bd06c748e3a4fc28"
     },
     "mcp.md": {
-      "bytes": 81561,
-      "sha256": "34ac5b15dc9c676fd301a1663b7a10861c15843ab3c04b2b979c05a3c2df4df6"
+      "bytes": 81733,
+      "sha256": "097bbc2451a14d8614aba0aa04a6bed9e5d746bc2863e534bafb2cad714efacb"
     },
     "models.md": {
       "bytes": 11112,
@@ -1341,8 +1341,8 @@
       "sha256": "8dedceecece422a874cbe613479ebff8dd487ab76706f87b8b541fb28abdac73"
     },
     "schema/ProviderErrorDetails.json": {
-      "bytes": 492,
-      "sha256": "51de09987b4db2b64a2c80a47008f80ecf6cad9c90a90719013b2832edc51a14"
+      "bytes": 632,
+      "sha256": "8531b740256631cfabb1f550a650b577e2299362749cf8632d1be9ebfacfdb94"
     },
     "schema/ProviderInstance.json": {
       "bytes": 2363,
@@ -2177,8 +2177,8 @@
       "sha256": "33452a412c1f2ff81decdc1e5eafebc5b8ff11a2b629d8f9ef4f381bc1fd0988"
     },
     "schema/ace_list_agents.output.json": {
-      "bytes": 12910,
-      "sha256": "f9e59cb3f52680d1c72ad577a1c256d1980827a47e4a7a7bd308767947df6fdd"
+      "bytes": 13226,
+      "sha256": "65bf637c6c428c5a0e66020e0070e9f914bb41dce86c2de58dba82a5373b5863"
     },
     "schema/ace_notify_user.input.json": {
       "bytes": 196,
@@ -2249,8 +2249,8 @@
       "sha256": "59f40bf437c0bfc8bc6b87a7746fa8632de1926e6e924b2cd3c643ddb47e4eec"
     },
     "schema/ace_read_handoff.output.json": {
-      "bytes": 82659,
-      "sha256": "a9378b6b2820613a11552c9214bdea839d47faa055f6a67de3f9546a8004c541"
+      "bytes": 82911,
+      "sha256": "5d6f5b67e50f476857c8e2fe540daa4bd25c824255cfe297812fa5e7787bbb68"
     },
     "schema/ace_read_handoff_chunk.input.json": {
       "bytes": 206,
@@ -2413,10 +2413,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 465978,
-      "sha256": "ca12b052ae1b52ee08370cabcabc4332980c56001bf9e4783da5b4be47e2eb37"
+      "bytes": 466330,
+      "sha256": "eb16ea5ea47703918f8c2e9e6055522715e95e021fa9c5e22aaf87bd7b8dcf7b"
     }
   },
-  "input": "13f3ff1e0070d90ea3070ed07c7f2d4a1383e21380a1e834b1f099696634bdfa",
+  "input": "11ad0a2b358a5bd55054df121f296efebdc4daeb943298ca489585731bc45152",
   "version": 1
 }
