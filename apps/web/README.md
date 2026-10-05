@@ -1,6 +1,6 @@
 # @ace/web
 
-The ace client: React 19, Vite, TanStack Router (file routes), shadcn/ui on Base UI, Tailwind v4. Electron will load this same bundle. Read ADR 0045 (stack), 0004 (agent tree and status), 0006 (windowing) and 0030 (client SDK) first. The approved design is `ace-ui-prototype/index-fable.html` with its spec `DESIGN-fable.md`; match it, except that its rail and per-view second sidebar are now one sidebar (see Sidebar below).
+The ace client: React 19, Vite, TanStack Router (file routes), shadcn/ui on Base UI, Tailwind v4. Electron will load this same bundle. Read ADR 0045 (stack), 0004 (agent tree and status), 0006 (windowing) and 0030 (client SDK) first. The approved design is `ace-ui-prototype/index-fable.html` with its spec `DESIGN-fable.md`; match it (see Rail and sidebar below for the current shell).
 
 ```sh
 bun run web:dev:fake   # whole app against the in-page fake daemon
@@ -23,9 +23,9 @@ Import `cn` from `@/lib/cn.ts`, never from `cn` directly: the local one knows th
 | `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusPill`, `DataTable`                                                                  |
 | `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `time.ts` (`useNow`) |
 | `boot/`             | foundation | Client construction, daemon URL and token handling, fake boot, the fake backend for features without protocol (`fake-backend.ts`)   |
-| `features/shell/`   | foundation | `AppSidebar`, `SidebarFrame`, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice, `useWorkspaces`         |
+| `features/shell/`   | foundation | `Rail`, `AppSidebar`, `SidebarFrame`, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice                  |
 | `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests. Its `index.ts` is the only door in                                    |
-| `app/`              | app        | Composition of several slices: `AppShell` (sidebar, palette, notifier), `ConnectionGate`                                            |
+| `app/`              | app        | Composition of several slices: `AppShell` (rail, sidebar, palette, notifier), `ConnectionGate`                                      |
 | `routes/`           | per route  | TanStack file routes: route definition, search schema and params only. Screens live in the slice                                    |
 
 Headless view logic (status wording, Home ordering and settling, thread cards, work-log and diff
@@ -60,33 +60,43 @@ transform and opacity only.
 
 The widths the shell adapts at live in `lib/breakpoints.ts` (`usePhone`, `useSidebarInline`, ...),
 in line with Tailwind's `sm` and `md`. Below 640px the header folds its actions and ⋯ menu into
-one and panels open as a sheet over the content. Below 768px the sidebar is a sheet opened from the
-header (it closes once a place is chosen); below 1100px it steps down to icons while a right panel
-is open; below 1152px panels float over the content.
+one and panels open as a sheet over the content. Below 768px the rail and sidebar are one sheet
+opened from the header (it closes once a place is chosen); below 1100px the sidebar steps aside
+while a right panel is open (the rail stays); below 1152px panels float over the content.
 
-## Sidebar
+## Rail and sidebar
 
-One sidebar, as in desktop chat apps (`features/shell/app-sidebar.tsx`, composed in
-`app/app-shell.tsx`): the `ace` wordmark (Home), New thread (⌘N) and Search (⌘K); a row per view,
-Activity with its needs-you count, Deck, Automations and Skills (`g a`, `g d`, `g u`, `g s`;
-`g h` is Home); More, a menu of usage and accounts, files and search; the current view's own list;
-and at the foot the connection dot and account menu, Settings (⌘,) and the switch to icons.
+As in desktop chat apps: a narrow rail of views and, beside it, a sidebar with the current view's
+own list (composed in `app/app-shell.tsx`).
 
-- `SidebarFrame` owns where it sits (inline, sheet, hidden with `⌘\`, collapsed to a 68px column
-  of icons with tooltips) and stays mounted for the app's life. Hidden and collapsed are the
-  person's choice, persisted in `ace.layout` (`sidebarOpen`, `sidebarCollapsed`).
-- A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the sidebar's
-  body through a portal, so it keeps the route's providers. It is the only part that scrolls;
-  collapsed, it stays mounted and hidden.
+- **Rail** (`features/shell/rail.tsx`, 40px): icons only, each named by a tooltip with its
+  shortcut on hover and keyboard focus. Home (`g h`; a dot while a thread needs you or has news,
+  kept as counts by `AttentionTally` from the changed entries only, and judged against the same
+  first launch as Home's list, `firstLaunch` in `@ace/ui-core`), Activity (`g a`, the needs-you count), Deck (`g d`),
+  Automations (`g u`), Skills (`g s`), More (a menu of usage and accounts, files and search);
+  Settings (⌘,) and the account with the connection dot at the foot.
+- **Sidebar** (`features/shell/app-sidebar.tsx`): "ace ▾" (the account and connection menu), the
+  Activity bell and Search (⌘K), New thread (⌘N), then the current view's list, the only part
+  that scrolls. A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the
+  sidebar's body through a portal, so it keeps the route's providers.
+- **Home's list** (`features/home`): Pinned, then a folder per project (named from the project
+  cache) with its threads in Home order, the folder that owes most first; five threads, then
+  Show more (for this visit of the list); the open thread always shows. Closed folders persist
+  on this device (`ace.home.folders`, the newest 200). The grouping and the row keys are
+  `homeRows` and `homeRowKey` in `@ace/ui-core`; each kind of row has its own key prefix, so no
+  thread id can take a folder's key. Each row is one line: the title, then marks for a snooze,
+  worktree, pull request and status that give way to Settle and Snooze on hover; what they mean
+  stays in the row's name and its tooltip. The Threads heading carries the project filter and
+  Add project (⇧⌘O) on hover.
+- `SidebarFrame` owns where they sit and stays mounted for the app's life. `⌘\` is bound there:
+  it hides or shows the sidebar (the rail stays; persisted as `sidebarOpen` in `ace.layout`), and
+  on a narrow window opens and closes the sheet without touching that choice.
 - The More and account menus are there from the start; their contents load just after the first
   paint (`SidebarMenu`), keeping their icons and wording out of the initial bundle. More's pages
-  are defined once, in `features/more/pages.ts`; the app layer hands the sidebar More's menu.
-- `⌘\` is bound by `SidebarFrame`: it opens and closes the sheet on a narrow window and hides or
-  shows the sidebar elsewhere, so a narrow window never changes the wide window's choice.
+  are defined once, in `features/more/pages.ts`; the app layer hands the rail More's menu.
 - New thread (the row and ⌘N) starts in the project Home is narrowed to, else the last one used.
-- The desktop app styles `data-sidebar` (`expanded`, `collapsed`, `hidden`) and the `sidebar-top`,
-  `sidebar-wordmark` and `header-nav` slots so the macOS traffic lights never cover a control (as
-  icons, the top row grows so the wordmark, the Home link, sits below them).
+- The desktop app styles the `rail`, `sidebar-top` and `header-nav` slots and `data-sidebar`
+  (`shown`, `hidden`, `sheet`) so the macOS traffic lights never cover a control.
 
 ## Module boundaries
 

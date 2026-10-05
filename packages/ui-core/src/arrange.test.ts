@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { arrange, homeMachine, isUnread, projectCounts } from "./arrange.ts";
+import { arrange, homeMachine, projectCounts } from "./arrange.ts";
+import { isUnread } from "./thread-state.ts";
 import type { OrganizerState } from "./organizer.ts";
 import { entry } from "./test-entries.fixture.ts";
 

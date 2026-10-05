@@ -1,5 +1,6 @@
 import {
   Notifications,
+  type ChangeTap,
   type ClientError,
   type Selection,
   type SidebarExport,
@@ -252,6 +253,9 @@ export class MirrorSidebar implements SidebarSource {
     equal?: (a: T, b: T) => boolean,
   ): Selection<T> {
     return this.notifications.select(keys, () => read(this), equal);
+  }
+  observe(tap: ChangeTap): () => void {
+    return this.notifications.tap(tap);
   }
   reset(copy: SidebarExport): void {
     this.failure = errorOf(copy.error);
