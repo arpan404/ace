@@ -8,6 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { WebSocket } from "ws";
 import { ServerMessage } from "@ace/protocol";
+import { liveWorkerTelemetry } from "@ace/perf-kit";
 import { writeMeasurement } from "./output.ts";
 
 const Memory = z.object({
@@ -24,6 +25,7 @@ const Telemetry = z.object({
   collection: z.string().default(""),
   at: z.number(),
   isMainThread: z.boolean(),
+  workerIds: z.array(z.number().int().positive()),
   memory: Memory,
   cpu: z.object({ user: z.number(), system: z.number() }),
 });
@@ -139,9 +141,7 @@ async function sample() {
         Telemetry.parse(JSON.parse(await readFile(join(telemetry, file), "utf8"))),
       ),
   );
-  const main = samples.find((entry) => entry.threadId === 0);
-  if (!main) throw new Error("Missing main telemetry");
-  const live = samples.filter((entry) => main.at - entry.at < 1500);
+  const { main, workers } = liveWorkerTelemetry(samples);
   const pid = child.pid;
   if (!pid) throw new Error("Missing child PID");
   const threads =
@@ -153,9 +153,12 @@ async function sample() {
     memory: main.memory,
     cpu: main.cpu,
     threads,
-    workers: live
-      .filter((entry) => !entry.isMainThread)
-      .map(({ threadId, entry, memory, collection }) => ({ threadId, entry, memory, collection })),
+    workers: workers.map(({ threadId, entry, memory, collection }) => ({
+      threadId,
+      entry,
+      memory,
+      collection,
+    })),
   };
 }
 async function memoryRegions() {

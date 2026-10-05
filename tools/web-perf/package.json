@@ -20,5 +20,8 @@
     "@ace/protocol": "workspace:*",
     "@playwright/test": "1.63.0",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/perf-kit": "workspace:*"
   }
 }

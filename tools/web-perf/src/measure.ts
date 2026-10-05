@@ -10,10 +10,13 @@ export const observe = () => {
   const record = { longTasks: [] as number[], events: new Map<number, number>(), start: 0 };
   Object.assign(globalThis, { acePerfRecord: record });
   new PerformanceObserver((list) => {
-    for (const entry of list.getEntries()) record.longTasks.push(entry.duration);
+    for (const entry of list.getEntries()) {
+      if (entry.startTime >= record.start) record.longTasks.push(entry.duration);
+    }
   }).observe({ type: "longtask", buffered: true });
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {
+      if (entry.startTime < record.start) continue;
       const id =
         "interactionId" in entry && typeof entry.interactionId === "number"
           ? entry.interactionId
@@ -30,7 +33,8 @@ export function resetRecord(page: Page): Promise<number> {
     const record = Reflect.get(globalThis, "acePerfRecord");
     record.longTasks.length = 0;
     record.events.clear();
-    return performance.now();
+    record.start = performance.now();
+    return record.start;
   });
 }
 

@@ -25,6 +25,7 @@ await withPerfApp(port, async ({ browser, origin }) => {
     // Warm up: the stream starts a second after attach; let it reach speed.
     await page.waitForTimeout(3_000);
     // The detector must see a deliberate 120 ms task, or its zero would mean nothing.
+    const detectorStart = await resetRecord(page);
     await page.evaluate(() => {
       // A page task, not the evaluation itself, which the browser does not attribute.
       setTimeout(() => {
@@ -35,10 +36,10 @@ await withPerfApp(port, async ({ browser, origin }) => {
       }, 0);
     });
     await page.waitForTimeout(500);
-    const detected = await page.evaluate(() =>
-      Reflect.get(globalThis, "acePerfRecord").longTasks.some((value: number) => value >= 100),
-    );
-    if (!detected) throw new Error("The long-task detector did not see a 120 ms task");
+    if ((await readRecord(page, detectorStart)).longest < 100)
+      throw new Error(
+        "The long-task detector did not see a 120 ms task after resetting its window",
+      );
     const startEvents = await page.evaluate(() => Reflect.get(globalThis, "acePerf")?.events ?? 0);
     const start = await resetRecord(page);
     const feed = page.getByRole("feed", { name: "Transcript" });

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate, setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
+import { WebSocket } from "ws";
 import { Store, Engine, AdapterRegistry } from "../src/index.ts";
 import { startServer } from "../src/server.ts";
 import { publishHistory } from "../src/history-publisher.ts";
@@ -355,6 +356,10 @@ try {
     errors: errors.length,
   };
   subscription.release();
+} catch (error) {
+  // Publish failure before cleanup so a later subprocess deadline cannot hide it.
+  console.error(JSON.stringify({ type: "acceptance.failed", error: String(error) }));
+  throw error;
 } finally {
   await client.close();
   await server.close();
