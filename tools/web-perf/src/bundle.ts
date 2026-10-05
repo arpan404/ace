@@ -107,7 +107,14 @@ try {
     for (const next of imports(file).eager) workerClosure(next, into);
     return into;
   };
-  for (const worker of assets.filter((name) => /worker/.test(name) && name.endsWith(".js"))) {
+  // A page chunk can have "worker" in its name too (`components/markdown/worker.ts`, the page's
+  // side of the markdown worker); it is in the manifest and weighed with the routes that load it.
+  const pageFiles = new Set(
+    Object.values(manifest).map((chunk) => chunk.file.replace(/^assets\//, "")),
+  );
+  for (const worker of assets.filter(
+    (name) => /worker/.test(name) && name.endsWith(".js") && !pageFiles.has(name),
+  )) {
     const label = `worker ${worker.replace(/-[\w-]{8}\.js$/, "")}`;
     const eager = workerClosure(worker);
     const weighOf = (files: Iterable<string>) =>

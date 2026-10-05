@@ -96,6 +96,34 @@ export class ScreenManager {
       );
     }
   }
+  /**
+   * A person on this machine asked to see this app: turn screen access on and approve it. An
+   * existing approval is left alone, so a capture already starting is not cancelled.
+   */
+  async allow(bundleId: string): Promise<void> {
+    ScreenBundle.parse(bundleId);
+    if (!this.policy.enabled) await this.enable(true);
+    if (!this.policy.allowlist().includes(bundleId)) await this.approve(bundleId, true);
+  }
+  /**
+   * The helper's macOS permissions as a newly started helper sees them. macOS applies a grant
+   * only to processes started after it, so an idle helper is replaced before asking.
+   */
+  async currentPermissions(): Promise<ScreenPermissions> {
+    if (this.sessions.size === 0 && !this.starting && this.reservations === 0)
+      await this.host.close();
+    return this.permissions();
+  }
+  /**
+   * Ask macOS for a permission on behalf of a person: its prompt the first time, then the
+   * matching Privacy & Security pane, on the daemon's Mac.
+   */
+  async requestPermission(
+    permission: "screenRecording" | "accessibility",
+  ): Promise<ScreenPermissions> {
+    const helper = await this.host.open();
+    return ScreenPermissions.parse(await helper.request({ op: "permissions.request", permission }));
+  }
   requireApproval(bundleId: string): void {
     this.policy.authorize([ScreenBundle.parse(bundleId)]);
   }
@@ -347,6 +375,24 @@ export class ScreenManager {
       if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
       beforeDispatch?.();
       return session.helper.request({ op: "input", input });
+    });
+  }
+  /**
+   * Press a button of the captured window by its accessible name, such as Simulator's Home,
+   * Rotate and side buttons, with the same controller and permission checks as input.
+   */
+  async pressButton(
+    id: string,
+    actor: "human" | "agent",
+    name: string,
+    owner = "local",
+    beforeDispatch?: () => void,
+  ): Promise<void> {
+    await this.execute(id, actor, owner, (session) => {
+      if (session.helper.capabilities?.platform !== "macos")
+        throw new Error("Window buttons need the macOS helper");
+      beforeDispatch?.();
+      return session.helper.request({ op: "button.press", name });
     });
   }
   async namedKey(

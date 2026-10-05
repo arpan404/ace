@@ -1,4 +1,6 @@
 import { useInteraction, useItem, useSidebarThread } from "@ace/client-react";
+import { displayCommand, oneShotNote } from "@ace/ui-core";
+import { CheckIcon } from "@phosphor-icons/react";
 import type { Interaction } from "@ace/protocol";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -7,7 +9,7 @@ import { PermissionReviewSummary } from "@/components/permission-review.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { interactionKey } from "./activity-state.tsx";
-import { alwaysLabel, approvalChoices, commandRisk } from "./approval.ts";
+import { alwaysLabel, commandRisk, offeredChoices } from "./approval.ts";
 import {
   ButtonKey,
   CardActions,
@@ -78,11 +80,16 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
   const { interaction } = props;
   const request = interaction.request;
   const options = request.kind === "approval" ? request.options : [];
-  const choices = approvalChoices(options);
+  const mode = useSidebarThread(interaction.threadId)?.permission?.effective;
+  const choices = offeredChoices(options, mode);
   const [always, setAlways] = useState(false);
   const checkboxId = useId();
   const focused = useCardFocused(props.cardKey);
-  const { answer, sending, failure } = useAnswer(interaction.id);
+  const { answer, sending, chosen, failure } = useAnswer(interaction.id);
+  const picked =
+    chosen?.kind === "approval"
+      ? options.find((option) => option.id === chosen.optionId)
+      : undefined;
   const command = useShellCommand(interaction);
   const risk = command ? commandRisk(command) : undefined;
   const description = request.kind === "approval" ? request.description : undefined;
@@ -136,7 +143,16 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
       >
         {sending && (
           <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Spinner /> Sending…
+            {picked ? (
+              <>
+                <CheckIcon aria-hidden size={13} className="text-status-done" />
+                {picked.label} · sending…
+              </>
+            ) : (
+              <>
+                <Spinner /> Sending…
+              </>
+            )}
           </span>
         )}
         {choices.deny && (
@@ -152,6 +168,9 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
           </Button>
         )}
       </CardActions>
+      {choices.hidden > 0 && mode && (
+        <p className="mt-2 text-xs text-subtle-foreground">{oneShotNote(mode)}</p>
+      )}
       <CardError message={failure} />
     </>
   );
@@ -161,5 +180,5 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
 function useShellCommand(interaction: Interaction): string | undefined {
   const item = useItem(interaction.threadId, interaction.toolCallId ?? "");
   if (item?.type !== "tool_call" || item.call.detail.kind !== "shell") return undefined;
-  return item.call.detail.command;
+  return displayCommand(item.call.detail).command;
 }

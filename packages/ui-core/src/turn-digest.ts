@@ -58,7 +58,7 @@ export function digestLines(digest: TurnDigest): { added: number; removed: numbe
 export function digestFacts(digest: TurnDigest): DigestFact[] {
   const facts: DigestFact[] = [];
   const tools = toolTotal(digest);
-  if (tools) facts.push({ kind: "tools", text: counted(tools, "tool") });
+  if (tools) facts.push({ kind: "tools", text: counted(tools, "step") });
   if (digest.files.length) {
     // A digest lists at most 64 files and says when it left some out.
     const files = digest.truncated && digest.files.length >= 64 ? "64+ files" : null;
@@ -94,9 +94,10 @@ export function digestFacts(digest: TurnDigest): DigestFact[] {
   return facts;
 }
 
-/** How long the turn ran, or has been running ("4m", "1h 12m"). */
+/** How long the turn ran, or has been running ("4m", "1h 12m"); empty under a second. */
 export function turnSpan(turn: Pick<TurnSummary, "startedAt" | "endedAt">, now: number): string {
-  return formatSpan(turn.startedAt, turn.endedAt ?? Math.max(turn.startedAt, now));
+  const end = turn.endedAt ?? Math.max(turn.startedAt, now);
+  return end - turn.startedAt < 1000 ? "" : formatSpan(turn.startedAt, end);
 }
 
 /** The turn's outcome as a word, for the timeline's accessible names and rows. */
