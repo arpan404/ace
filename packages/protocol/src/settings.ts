@@ -1,3 +1,4 @@
+import { ProviderConfigurations } from "./provider-configuration.ts";
 import { BrowserOrigin } from "./browser.ts";
 import { PermissionMode } from "./permissions.ts";
 import { z } from "zod";
@@ -8,6 +9,7 @@ const name = z.string().min(1).max(256);
 const tier = z.enum(["default", "standard", "fast", "flex", "priority"]);
 const effort = z.enum(["default", "none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export const SettingsValues = z.object({
+  "providers.configuration": ProviderConfigurations,
   "host.displayName": z.string().max(256),
   "projects.roots": z.array(z.string().min(1).max(4096)).max(32),
   "threads.followUpBehavior": z.enum(["steer", "queue"]),

@@ -1,5 +1,6 @@
 import type { SettingsValues } from "@ace/protocol";
 export const defaults: SettingsValues = {
+  "providers.configuration": [],
   "host.displayName": "",
   "projects.roots": [],
   "threads.followUpBehavior": "queue",

@@ -1,3 +1,5 @@
+import { createModelView, providerConfiguration } from "./preferences.ts";
+import type { ProviderConfigurations } from "@ace/protocol";
 import { createHash } from "node:crypto";
 import { normalizeAcp } from "./normalize.ts";
 import {
@@ -30,25 +32,33 @@ type State = {
   retryAt: number;
   invalidating?: Promise<void>;
   flight?: Promise<ModelInstanceStatus>;
+  probeRevision?: string;
   abort?: AbortController;
+  view?: {
+    preferences: ProviderConfigurations;
+    entry?: CacheEntry;
+    models: ReturnType<typeof createModelView>;
+  };
 };
+const emptyPreferences: ProviderConfigurations = [];
 function cacheRevision(instance: ModelInstance): string {
-  return instance.provider === "acp"
+  return instance.provider === "opencode"
     ? createHash("sha256")
-        .update(
-          JSON.stringify([
-            instance.loginRevision,
-            instance.acpAgentId,
-            instance.installationId,
-            instance.instanceId,
-            instance.profileRevision,
-          ]),
-        )
+        .update(JSON.stringify([instance.loginRevision, "connected-providers-v1"]))
         .digest("hex")
-    : instance.loginRevision;
-}
-function* cachedModels(states: Iterable<State>): Generator<CatalogModel> {
-  for (const state of states) yield* state.entry?.models ?? [];
+    : instance.provider === "acp"
+      ? createHash("sha256")
+          .update(
+            JSON.stringify([
+              instance.loginRevision,
+              instance.acpAgentId,
+              instance.installationId,
+              instance.instanceId,
+              instance.profileRevision,
+            ]),
+          )
+          .digest("hex")
+      : instance.loginRevision;
 }
 export type CatalogOptions = {
   storage: CatalogStorage;
@@ -60,6 +70,8 @@ export type CatalogOptions = {
   timeoutMs?: number;
   retryMs?: number;
   concurrency?: number;
+  /** Keep the snapshot stable between updates; replace it or call configurationChanged on edits. */
+  preferences?: () => ProviderConfigurations;
 };
 export class ModelCatalog implements ModelCatalogApi {
   readonly #options: CatalogOptions;
@@ -99,6 +111,52 @@ export class ModelCatalog implements ModelCatalogApi {
     for (const entry of entries) this.#persisted.set(entry.instance, CachedEntry.parse(entry));
     for (const instance of options.instances ?? []) this.registerInstance(instance);
   }
+  #configuration(config: ModelInstance) {
+    return providerConfiguration(this.#options.preferences?.() ?? [], config.provider, config.id);
+  }
+  #revision(config: ModelInstance): string {
+    const path = this.#configuration(config).binaryPath;
+    return path
+      ? createHash("sha256")
+          .update(JSON.stringify([cacheRevision(config), path]))
+          .digest("hex")
+      : cacheRevision(config);
+  }
+  #models(state: State) {
+    const preferences = this.#options.preferences?.() ?? emptyPreferences;
+    if (state.view?.preferences === preferences && state.view.entry === state.entry)
+      return state.view.models;
+    const models = createModelView(
+      state.entry?.models ?? [],
+      state.config.provider,
+      state.config.id,
+      providerConfiguration(preferences, state.config.provider, state.config.id),
+    );
+    state.view = { preferences, ...(state.entry ? { entry: state.entry } : {}), models };
+    return models;
+  }
+  /** Fence disabled flights immediately; enabling resumes ordinary lazy discovery. */
+  configurationChanged(): void {
+    for (const state of this.#states.values()) {
+      delete state.view;
+      if (
+        this.#configuration(state.config).enabled === false ||
+        (state.probeRevision && state.probeRevision !== this.#revision(state.config))
+      )
+        state.abort?.abort();
+      if (state.entry && state.entry.revision !== this.#revision(state.config)) {
+        state.abort?.abort();
+        delete state.entry;
+        state.retryAt = 0;
+      }
+    }
+  }
+  hasProvider(provider: ModelInstance["provider"]): boolean {
+    return (this.#providers.get(provider)?.size ?? 0) > 0;
+  }
+  hasInstance(instance: string): boolean {
+    return this.#states.has(instance);
+  }
   registerInstance(input: InstanceInput, admit?: () => Promise<void>): void {
     if (this.#closed) throw new Error("Catalog closed");
     const config = ModelInstance.parse(input);
@@ -108,7 +166,7 @@ export class ModelCatalog implements ModelCatalogApi {
     // Re-registration also invalidates flights when executable/env/cwd changed.
     const entry = old?.entry ?? this.#persisted.get(config.id);
     const compatible =
-      entry?.revision === cacheRevision(config) && entry.provider === config.provider;
+      entry?.revision === this.#revision(config) && entry.provider === config.provider;
     if (entry && !compatible) void this.#deletions.remove(config.id);
     old?.abort?.abort();
     if (old) this.#providers.get(old.config.provider)?.delete(config.id);
@@ -143,7 +201,7 @@ export class ModelCatalog implements ModelCatalogApi {
     const entry = CachedEntry.parse({
       provider: instance.provider,
       instance: instance.id,
-      revision: cacheRevision(instance),
+      revision: this.#revision(instance),
       refreshedAt: this.#options.now(),
       models,
     });
@@ -239,7 +297,10 @@ export class ModelCatalog implements ModelCatalogApi {
       ...(state.config.acpAgentId ? { acpAgentId: state.config.acpAgentId } : {}),
       ...(state.config.installationId ? { installationId: state.config.installationId } : {}),
       ...(state.config.instanceId ? { instanceId: state.config.instanceId } : {}),
-      ...(state.entry ? { refreshedAt: state.entry.refreshedAt } : {}),
+      ...(state.entry
+        ? { refreshedAt: state.entry.refreshedAt, lastRefreshedAt: state.entry.refreshedAt }
+        : {}),
+      enabled: this.#configuration(state.config).enabled !== false,
       stale: this.#stale(state),
       refreshing: state.flight !== undefined,
       ...(state.error ? { error: state.error } : {}),
@@ -258,14 +319,19 @@ export class ModelCatalog implements ModelCatalogApi {
     let skipped = options.offset;
     let remaining = options.limit + 1;
     for (const state of states) {
-      const rows = state.entry?.models ?? [];
+      const rows = this.#models(state);
       if (skipped >= rows.length) {
         skipped -= rows.length;
         continue;
       }
-      const page = rows.slice(skipped, skipped + remaining);
-      models.push(...page);
-      remaining -= page.length;
+      const end = Math.min(rows.length, skipped + remaining);
+      for (let position = skipped; position < end; position++) {
+        const row = rows.at(position);
+        if (row) {
+          models.push(row);
+          remaining--;
+        }
+      }
       skipped = 0;
       if (!remaining) break;
     }
@@ -277,11 +343,14 @@ export class ModelCatalog implements ModelCatalogApi {
       ...(more ? { nextOffset: options.offset + options.limit } : {}),
     };
   }
+  *#availableModels(states: State[]): Generator<CatalogModel> {
+    for (const state of states) yield* this.#models(state);
+  }
   resolve(input: ModelRoleSpec): ModelResolution {
     const filter = ModelFilter.parse(input);
     const states = this.#select(filter);
     this.#revalidate(states);
-    return resolveModel(input, cachedModels(states), (id) => {
+    return resolveModel(input, this.#availableModels(states), (id) => {
       const state = this.#states.get(id);
       return !state || this.#stale(state);
     });
@@ -317,7 +386,8 @@ export class ModelCatalog implements ModelCatalogApi {
     return Promise.all(this.#select(ModelFilter.parse(input)).map((state) => this.#refresh(state)));
   }
   #refresh(state: State): Promise<ModelInstanceStatus> {
-    if (state.config.provider === "acp") return Promise.resolve(this.#status(state));
+    if (state.config.provider === "acp" || this.#configuration(state.config).enabled === false)
+      return Promise.resolve(this.#status(state));
     if (state.flight) return state.flight;
     if (this.#flights.size >= 64 || this.#discoveries.size >= 64) {
       state.error = "discovery_failed";
@@ -325,6 +395,8 @@ export class ModelCatalog implements ModelCatalogApi {
       return Promise.resolve(this.#status(state));
     }
     const abort = new AbortController();
+    const revision = this.#revision(state.config);
+    state.probeRevision = revision;
     state.abort = abort;
     // Deferring lets flight be installed before synchronous discovery implementations settle.
     const flight = Promise.resolve()
@@ -360,7 +432,12 @@ export class ModelCatalog implements ModelCatalogApi {
             stopDeadline();
             cleanupAbort?.();
           };
-          const discovery = this.#options.discover(state.config, abort.signal);
+          const configuration = this.#configuration(state.config);
+          if (configuration.enabled === false) return;
+          const discovery = this.#options.discover(
+            { ...state.config, executable: configuration.binaryPath ?? state.config.executable },
+            abort.signal,
+          );
           const cleanup = discovery.then(
             () => {},
             () => {},
@@ -375,11 +452,17 @@ export class ModelCatalog implements ModelCatalogApi {
             if (!owned.size) this.#instanceDiscoveries.delete(state.config.id);
           });
           const models = await Promise.race([discovery, failure]);
-          if (this.#states.get(state.config.id) !== state || this.#closed) return;
+          if (
+            this.#states.get(state.config.id) !== state ||
+            this.#closed ||
+            abort.signal.aborted ||
+            this.#revision(state.config) !== revision
+          )
+            return;
           const entry = CachedEntry.parse({
             provider: state.config.provider,
             instance: state.config.id,
-            revision: cacheRevision(state.config),
+            revision,
             refreshedAt: this.#options.now(),
             models,
           });
@@ -388,13 +471,24 @@ export class ModelCatalog implements ModelCatalogApi {
             // their durable slots; SQLite admission still refuses actual overflow.
             if (this.#deletions.has(state.config.id)) await this.#deletions.remove(state.config.id);
             await this.#deletions.retry();
-            if (this.#states.get(state.config.id) !== state || this.#closed) return;
+            if (
+              this.#states.get(state.config.id) !== state ||
+              this.#closed ||
+              abort.signal.aborted ||
+              this.#revision(state.config) !== revision
+            )
+              return;
             await this.#options.storage.replace(entry);
           } catch {
             state.error = "persistence_failed";
             return;
           }
-          if (this.#states.get(state.config.id) !== state || this.#closed || abort.signal.aborted)
+          if (
+            this.#states.get(state.config.id) !== state ||
+            this.#closed ||
+            abort.signal.aborted ||
+            this.#revision(state.config) !== revision
+          )
             return;
           state.entry = entry;
           delete state.error;
@@ -411,6 +505,7 @@ export class ModelCatalog implements ModelCatalogApi {
         this.#flights.delete(flight);
         delete state.flight;
         delete state.abort;
+        delete state.probeRevision;
         return this.#status(state);
       });
     this.#flights.add(flight);

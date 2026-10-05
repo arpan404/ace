@@ -55,6 +55,7 @@ export class ServerPool {
       key = this.anonymous.get(ctx.env) ?? `anonymous:${++this.serial}`;
       this.anonymous.set(ctx.env, key);
     }
+    if (ctx.executable) key += `:binary:${ctx.executable}`;
     // Native MCP config is process-wide. Never share its bearer between sessions.
     if (connection) key = `mcp:${++this.serial}`;
     // A last-user release owns shutdown. Reopening the same account waits for confirmed
@@ -65,7 +66,13 @@ export class ServerPool {
     }
     const serverOptions: ServerOptions = {
       ...this.options,
-      discovery: { ...this.options.discovery, ...(env ? { env } : {}) },
+      discovery: {
+        ...this.options.discovery,
+        ...(env ? { env } : {}),
+        ...(ctx.executable
+          ? { overrides: { ...this.options.discovery?.overrides, opencode: ctx.executable } }
+          : {}),
+      },
       ...(connection ? { secrets: [...(this.options.secrets ?? []), connection.bearer] } : {}),
     };
     let entry = this.entries.get(key);

@@ -1,74 +1,86 @@
 import { discoverCursorSdk } from "@ace/adapter-cursor";
-import { daemonCursorInstance } from "./cursor-instance.ts";
+import { cursorSdkCatalogInstance, registerCursorSdkCatalog } from "./cursor-activation.ts";
 import { createInstance, instanceEnv } from "@ace/accounts";
 import { cursorHosts } from "./cursor-hosts.ts";
-import { openDaemonModels, registerDefaultModelInstances } from "../models.ts";
+import {
+  openDaemonModels,
+  registerDefaultModelInstances,
+  registerConfiguredModelInstances,
+} from "../models.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startModels(context: ServiceContext): Promise<void> {
   const { config, options, resources, services } = context;
 
-  const models = openDaemonModels(config.dataDir, options.modelInstances ?? [], {
-    ...options.modelDiscovery,
-    cursorSlots: cursorHosts(context),
-    cursorEnv: options.engine?.cursor?.env ?? process.env,
-    cursorEnvironment(instance) {
-      if (!instance.homeDir) throw new Error("SDK model catalog needs an instance home");
-      const selected =
-        services.accountRegistry?.get(instance.id)?.instance ??
-        createInstance({
-          id: instance.id,
-          provider: "cursor",
-          label: instance.id,
-          homeDir: instance.homeDir,
-        });
-      if (selected.homeDir !== instance.homeDir || selected.provider !== "cursor")
-        throw new Error("SDK catalog instance does not match accounts");
-      if (services.cursorAccounts?.isFenced(selected.id))
-        throw new Error("SDK catalog is fenced during an account authentication change");
-      return instanceEnv(
-        selected,
-        { ...(options.engine?.cursor?.env ?? process.env), ...instance.env },
-        "cursor-sdk",
-      );
+  const models = openDaemonModels(
+    config.dataDir,
+    options.modelInstances ?? [],
+    {
+      ...options.modelDiscovery,
+      cursorSlots: cursorHosts(context),
+      cursorEnv: options.engine?.cursor?.env ?? process.env,
+      cursorEnvironment(instance) {
+        if (!instance.homeDir) throw new Error("SDK model catalog needs an instance home");
+        const selected =
+          services.accountRegistry?.get(instance.id)?.instance ??
+          createInstance({
+            id: instance.id,
+            provider: "cursor",
+            label: instance.id,
+            homeDir: instance.homeDir,
+          });
+        if (selected.homeDir !== instance.homeDir || selected.provider !== "cursor")
+          throw new Error("SDK catalog instance does not match accounts");
+        if (services.cursorAccounts?.isFenced(selected.id))
+          throw new Error("SDK catalog is fenced during an account authentication change");
+        return instanceEnv(
+          selected,
+          { ...(options.engine?.cursor?.env ?? process.env), ...instance.env },
+          "cursor-sdk",
+        );
+      },
     },
+    () => context.services.providerConfigurations?.current() ?? [],
+  );
+  const stopConfiguration = context.services.providerConfigurations?.listen(() => {
+    models.configurationChanged();
+    if (options.modelInstances === undefined)
+      registerConfiguredModelInstances(
+        models,
+        config.dataDir,
+        services.providerConfigurations?.current() ?? [],
+      );
   });
+  if (stopConfiguration) resources.own(stopConfiguration);
   resources.own(() => models.close());
   services.models = models;
-  const selected = services.accountRegistry?.selectedCursorSdk();
-  const account = selected ? services.accountRegistry?.get(selected) : undefined;
+  const account = services.accountRegistry?.selectedCursorSdk();
   const sdk =
-    account || options.modelInstances !== undefined
+    context.services.providerConfigurations?.for("cursor").enabled === false ||
+    account ||
+    options.modelInstances !== undefined
       ? undefined
       : await discoverCursorSdk(options.engine?.cursor?.discovery);
   const privateSdkConfigured =
     options.engine?.cursor?.instance !== undefined || config.cursorSdkHome !== undefined;
   const sdkInstance =
-    account?.instance ??
-    (options.modelInstances === undefined && (sdk?.installed || privateSdkConfigured)
-      ? daemonCursorInstance(context)
-      : undefined);
-  if (sdkInstance)
-    models.registerInstance(
-      {
-        id: sdkInstance.id,
-        provider: "cursor",
-        backend: "cursor-sdk",
-        homeDir: sdkInstance.homeDir,
-        cwd: sdkInstance.homeDir,
-        loginRevision: "cursor-sdk-default-v1",
-      },
-      async () => {
-        const sdkAccount = services.accountRegistry?.get(sdkInstance.id)?.instance;
-        if (sdkAccount) await services.accountRegistry?.validateHome(sdkAccount);
-      },
-    );
+    (account && services.accountRegistry?.get(account)) ||
+    (options.modelInstances === undefined && (sdk?.installed || privateSdkConfigured))
+      ? cursorSdkCatalogInstance(context)
+      : undefined;
+  if (sdkInstance) registerCursorSdkCatalog(context, sdkInstance);
   if (options.modelInstances === undefined) {
+    registerConfiguredModelInstances(
+      models,
+      config.dataDir,
+      services.providerConfigurations?.current() ?? [],
+    );
     const admission = registerDefaultModelInstances(
       models,
       config.dataDir,
       process.env,
       context.signal,
       new Set(sdkInstance ? ["cursor"] : []),
+      services.providerConfigurations?.current() ?? [],
     );
     services.modelsReady = admission;
     resources.own(() => admission);
@@ -104,12 +116,19 @@ export function createModelsSession(context: SocketContext): SocketService {
             modelFailure("Model catalog is not configured");
             return true;
           }
+          const catalog = options.models;
           if (modelRequests >= 8) {
             modelFailure("Too many catalog requests");
             return true;
           }
           modelRequests++;
-          const task = handleModelRequest(options.models, message)
+          const request =
+            message.type === "models.refresh"
+              ? Promise.resolve(options.providerActivation).then(() =>
+                  handleModelRequest(catalog, message),
+                )
+              : handleModelRequest(catalog, message);
+          const task = request
             .then(send, () => modelFailure("Model catalog request failed"))
             .finally(() => {
               modelRequests--;
