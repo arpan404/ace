@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/HostIdentityResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "identity": {
+      "$ref": "https://ace.local/protocol/v1/HostIdentity.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "host.identity.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "identity"
+  ],
+  "type": "object"
+}

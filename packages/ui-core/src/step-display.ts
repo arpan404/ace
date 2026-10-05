@@ -167,7 +167,10 @@ export interface DisplayCommand {
  * A shell step's command as shown (IR-5): the adapter's readable `command` when it also sent
  * `rawCommand`, else the command with its login-shell wrapper removed here.
  */
-export function displayCommand(detail: { command: string; rawCommand?: string }): DisplayCommand {
+export function displayCommand(detail: {
+  command: string;
+  rawCommand?: string | undefined;
+}): DisplayCommand {
   if (detail.rawCommand !== undefined)
     return {
       command: detail.command,

@@ -137,6 +137,17 @@ export class FakeSettings {
             : layer.kind === "thread"
               ? `thread:${layer.threadId}`
               : `workspace:${layer.workspaceId}`;
+        if (key.data === "browser.allowedOrigins" && layer.kind !== "global")
+          return {
+            ...reply(false),
+            diagnostics: [
+              {
+                layer: layer.kind,
+                code: "validation",
+                message: "Browser allowlist is a global user setting",
+              },
+            ],
+          };
         let values = id === undefined ? this.global : this.layers.get(id);
         if (!values) {
           if (this.layers.size >= layerLimit)

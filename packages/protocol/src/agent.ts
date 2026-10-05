@@ -60,6 +60,9 @@ export const AgentStatus = z.discriminatedUnion("state", [
     error: z.object({
       kind: z.enum(["provider", "auth", "quota", "network", "process_exit", "unknown"]),
       message: z.string(),
+      code: z.string().optional(),
+      title: z.string().optional(),
+      detail: z.string().optional(),
       details: ProviderErrorDetails.optional(),
     }),
   }),

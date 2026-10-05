@@ -1,3 +1,4 @@
+import { writeSync } from "node:fs";
 import { fork, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -8,38 +9,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { WebSocket } from "ws";
 import { ServerMessage } from "@ace/protocol";
+import { readWorkerSnapshot, measureWithCleanup, TimingFailure } from "@ace/perf-kit";
+import { Telemetry, Response } from "./telemetry-schema.ts";
 import { writeMeasurement } from "./output.ts";
 
-const Memory = z.object({
-  rss: z.number(),
-  heapUsed: z.number(),
-  heapTotal: z.number(),
-  external: z.number(),
-  arrayBuffers: z.number(),
-});
-const Telemetry = z.object({
-  threadId: z.number(),
-  runtime: z.string(),
-  entry: z.string().default("unknown"),
-  collection: z.string().default(""),
-  at: z.number(),
-  isMainThread: z.boolean(),
-  memory: Memory,
-  cpu: z.object({ user: z.number(), system: z.number() }),
-});
-const Response = z.object({
-  id: z.number(),
-  threads: z.array(z.string()),
-  memory: Memory,
-  queryPlans: z.record(z.string(), z.array(z.object({ detail: z.string() }))).optional(),
-  native: z
-    .object({
-      statements: z.number(),
-      databases: z.number(),
-      code: z.record(z.string(), z.number()),
-    })
-    .optional(),
-});
 const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
   process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
@@ -107,7 +80,9 @@ const requests = new Map<
 child.on("message", (input: unknown) => {
   const response = Response.safeParse(input);
   if (!response.success) {
-    for (const pending of requests.values()) pending.reject(new Error(JSON.stringify(input)));
+    const error = new Error(`Malformed daemon response: ${JSON.stringify(input)}`);
+    for (const pending of requests.values()) pending.reject(error);
+    aborted.reject(error);
     return;
   }
   requests.get(response.data.id)?.resolve(response.data);
@@ -132,16 +107,13 @@ function request(
   });
 }
 async function sample() {
-  const samples = await Promise.all(
-    (await readdir(telemetry))
-      .filter((file) => file.endsWith(".json"))
-      .map(async (file) =>
-        Telemetry.parse(JSON.parse(await readFile(join(telemetry, file), "utf8"))),
-      ),
-  );
-  const main = samples.find((entry) => entry.threadId === 0);
-  if (!main) throw new Error("Missing main telemetry");
-  const live = samples.filter((entry) => main.at - entry.at < 1500);
+  const { main, workers } = await readWorkerSnapshot({
+    read: async (id) =>
+      Telemetry.parse(JSON.parse(await readFile(join(telemetry, `${id}.json`), "utf8"))),
+    now: () => performance.now(),
+    pause: () => delay(10),
+    timeoutMs: 4000,
+  });
   const pid = child.pid;
   if (!pid) throw new Error("Missing child PID");
   const threads =
@@ -153,9 +125,12 @@ async function sample() {
     memory: main.memory,
     cpu: main.cpu,
     threads,
-    workers: live
-      .filter((entry) => !entry.isMainThread)
-      .map(({ threadId, entry, memory, collection }) => ({ threadId, entry, memory, collection })),
+    workers: workers.map(({ threadId, entry, memory, collection }) => ({
+      threadId,
+      entry,
+      memory,
+      collection,
+    })),
   };
 }
 async function memoryRegions() {
@@ -180,10 +155,11 @@ async function collectMemory() {
   return request({ op: "memory" });
 }
 const deadline = setTimeout(
-  () => aborted.reject(new Error(`Daemon measurement timed out during ${phase}: ${stderr}`)),
+  () =>
+    aborted.reject(new TimingFailure(`Daemon measurement timed out during ${phase}: ${stderr}`)),
   idleMs + soakMs + 55000,
 );
-const interrupt = () => aborted.reject(new Error("Daemon measurement interrupted"));
+const interrupt = () => aborted.reject(new TimingFailure("Daemon measurement interrupted"));
 process.on("SIGTERM", interrupt);
 process.on("SIGINT", interrupt);
 async function measure() {
@@ -191,7 +167,8 @@ async function measure() {
   while (!endpoint) {
     if (child.exitCode !== null || child.signalCode !== null)
       throw new Error(`Startup failed: ${stderr}`);
-    if (performance.now() - started > 20000) throw new Error(`Endpoint timed out: ${stderr}`);
+    if (performance.now() - started > 20000)
+      throw new TimingFailure(`Endpoint timed out: ${stderr}`);
     endpoint = await readFile(join(home, "daemon-endpoint"), "utf8").catch(() => "");
     if (!endpoint) await delay(10);
   }
@@ -375,16 +352,18 @@ async function measure() {
   await writeMeasurement(output, json);
   process.stdout.write(json);
 }
-try {
-  await Promise.race([measure(), aborted.promise]);
-} finally {
-  clearTimeout(deadline);
-  process.off("SIGTERM", interrupt);
-  process.off("SIGINT", interrupt);
-  socket?.terminate();
-  if (child.exitCode === null && child.signalCode === null) {
-    child.kill("SIGKILL");
-    await once(child, "exit");
-  }
-  await rm(home, { recursive: true, force: true });
-}
+await measureWithCleanup(
+  () => Promise.race([measure(), aborted.promise]),
+  async () => {
+    clearTimeout(deadline);
+    process.off("SIGTERM", interrupt);
+    process.off("SIGINT", interrupt);
+    socket?.terminate();
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+      await once(child, "exit");
+    }
+    await rm(home, { recursive: true, force: true });
+  },
+  (marker) => writeSync(2, `${marker}\n`),
+);

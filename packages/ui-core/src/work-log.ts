@@ -349,8 +349,8 @@ function retryKey(item: Extract<Item, { type: "tool_call" }>): string | undefine
   const detail = item.call.detail;
   const where = `${item.agentId}\u0000${item.runId ?? ""}`;
   if (detail.kind === "shell") {
-    // The exact string run: WP4's `rawCommand` when the adapter sends one.
-    const exact = (detail as { rawCommand?: string }).rawCommand ?? detail.command;
+    // The exact string run: the adapter's `rawCommand` when it sends one.
+    const exact = detail.rawCommand ?? detail.command;
     return `shell\u0000${where}\u0000${detail.cwd ?? ""}\u0000${exact}`;
   }
   if (detail.kind === "file.read")

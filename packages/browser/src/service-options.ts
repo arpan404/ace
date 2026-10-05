@@ -14,6 +14,12 @@ export interface BrowserServiceOptions {
   executablePath?: string;
   ffmpeg?: string;
   originPolicy?: OriginPolicy;
+  onNavigation?: (threadId: string) => void;
+  origins?: {
+    list(threadId: string): import("@ace/protocol").BrowserOriginGrant[];
+    grant(threadId: string, origin: string): void;
+    revoke(threadId: string, origin: string): void;
+  };
   evaluatePolicy?: (
     threadId: string,
     url: string,
@@ -22,6 +28,7 @@ export interface BrowserServiceOptions {
   onArtifact?: (threadId: string, artifact: BrowserArtifact) => void | Promise<void>;
   onError?: (error: unknown) => void;
   now?: () => number;
+  navigationClock?: import("./navigation.ts").NavigationClock;
   id?: () => string;
   maxSessions?: number;
   launchContext?: ContextLauncher;
