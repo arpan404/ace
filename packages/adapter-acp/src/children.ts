@@ -143,7 +143,7 @@ export function childUpdate(
       child,
     );
   }
-  state.notice(facts, frame, string(type), "ACP child association", parent);
+  state.notice(facts, frame, string(type), undefined, parent);
   return true;
 }
 export function placeholderChild(state: TranslationState, tool: ToolState, facts: Fact[]): void {

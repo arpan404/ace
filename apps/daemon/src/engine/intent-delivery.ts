@@ -1,3 +1,5 @@
+import { SessionOpenError } from "@ace/provider-kit/open-error";
+import type { ProviderErrorDetails } from "@ace/protocol";
 import type { CommandId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import type { Recovery } from "./recovery.ts";
@@ -121,7 +123,21 @@ export class IntentDelivery {
         const uncertain = editableSend && !acknowledged && !undelivered;
         if (uncertain) this.dependencies.repo.queue.uncertain(intent.id);
         const message = error instanceof Error ? error.message : String(error);
-        if (undelivered) this.retainInput(intent, message);
+        const openingFailure =
+          error instanceof SessionOpenError
+            ? error
+            : error instanceof DeliveryNotStarted && error.cause instanceof SessionOpenError
+              ? error.cause
+              : undefined;
+        const details = openingFailure
+          ? {
+              provider: this.dependencies.repo.requireState(actor.id).config.provider,
+              code: openingFailure.code,
+              title: openingFailure.title,
+              detail: openingFailure.detail,
+            }
+          : undefined;
+        if (undelivered) this.retainInput(intent, message, details);
         else
           this.fail(
             intent,
@@ -131,6 +147,7 @@ export class IntentDelivery {
               : uncertain
                 ? "delivery_uncertain"
                 : undefined,
+            details,
           );
         if (uncertain)
           this.dependencies.repo.queue.set(
@@ -201,14 +218,15 @@ export class IntentDelivery {
     await actor.flush();
     this.dependencies.recovery.release(actor.id, token);
   }
-  fail(intent: IntentHeader, message: string, code?: string): void {
+  fail(intent: IntentHeader, message: string, code?: string, details?: ProviderErrorDetails): void {
     this.dependencies.repo.store.atomic(() => {
       this.dependencies.repo.mark(intent, "failed", message);
-      this.reportFailure(intent, message, code);
+      this.reportFailure(intent, message, code, details);
     });
   }
-  private retainInput(intent: IntentHeader, message: string): void {
+  private retainInput(intent: IntentHeader, message: string, details?: ProviderErrorDetails): void {
     this.dependencies.repo.store.atomic(() => {
+      this.dependencies.repo.queue.clearUncertain(intent.id);
       this.dependencies.repo.mark(intent, "queued", message);
       this.dependencies.repo.beginSend(intent, undefined);
       this.dependencies.repo.queue.set(
@@ -216,10 +234,15 @@ export class IntentDelivery {
         { paused: true, reason: "manual" },
         this.dependencies.clock.now(),
       );
-      this.reportFailure(intent, message);
+      this.reportFailure(intent, message, undefined, details);
     });
   }
-  private reportFailure(intent: IntentHeader, message: string, code = "delivery_failed"): void {
+  private reportFailure(
+    intent: IntentHeader,
+    message: string,
+    code = "delivery_failed",
+    details?: ProviderErrorDetails,
+  ): void {
     this.dependencies.releaseGuards(intent);
     if (intent.kind === "thread.switch") {
       const pending = this.dependencies.repo.store.getThread(intent.threadId)?.switch;
@@ -280,6 +303,7 @@ export class IntentDelivery {
             data: { operation: intent.kind, message: message.slice(0, 4096) },
           },
         ],
+        ...(details ? { details } : {}),
       },
     };
     this.dependencies.repo.apply(intent.threadId, [fact], this.dependencies.clock.now());

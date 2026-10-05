@@ -2,10 +2,13 @@ import type { ProviderKind, ThreadListEntry } from "@ace/protocol";
 import { activityOf, isSnoozed, isUnread } from "./thread-state.ts";
 import { providerDisplayName, providerLabel } from "./providers.ts";
 import { describeWake } from "./snooze.ts";
+import { projectBadge, type ProjectBadge } from "./project-badge.ts";
 import {
   runningSubagents,
+  taskPill,
   threadStatusLabel,
   threadStatusMark,
+  type TaskPill,
   type ThreadMarkKind,
   type Tone,
 } from "./status.ts";
@@ -65,11 +68,19 @@ export interface ThreadCard {
   id: string;
   title: string;
   project: string;
+  /** Two letters on a tint that stays with the project. */
+  badge: ProjectBadge;
   /** "now", "4m", "2d". */
   age: string;
   flags: ThreadRowFlags;
   /** Medium weight: it needs you or has activity the person hasn't opened. */
   emphasis: boolean;
+  /** Quiet: done and read, nothing left to look at. Settled rows are quiet too. */
+  dimmed: boolean;
+  /** The status pill on the first line; without one the row shows its age. */
+  pill: TaskPill | undefined;
+  /** Lines added and removed in the thread's checkout. */
+  diff: { added: number; removed: number } | undefined;
   /** Say "unread" to assistive tech; a thread that needs you already says so. */
   announceUnread: boolean;
   /** "tomorrow 9:00 AM" while snoozed. */
@@ -111,9 +122,16 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
     id: entry.id,
     title: entry.title,
     project: input.projectName ?? entry.workspaceId,
+    badge: projectBadge({ id: entry.workspaceId, name: input.projectName ?? entry.workspaceId }),
     age: formatAge(activityOf(entry), now),
     flags,
     emphasis: needsYou || unread,
+    dimmed: input.settled || (entry.status.state === "done" && !unread),
+    pill: input.settled ? undefined : taskPill(entry.status, { unread, since: activityOf(entry) }),
+    diff:
+      details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
+        ? details.diff
+        : undefined,
     announceUnread: unread && !needsYou,
     wake:
       snoozed && entry.snoozedUntil !== undefined

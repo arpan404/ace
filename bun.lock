@@ -591,6 +591,7 @@
     "packages/provider-kit": {
       "name": "@ace/provider-kit",
       "dependencies": {
+        "@ace/redaction": "workspace:*",
         "zod": "^4.6.5",
       },
     },

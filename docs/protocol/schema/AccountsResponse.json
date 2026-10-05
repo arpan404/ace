@@ -4,6 +4,68 @@
   "oneOf": [
     {
       "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.changed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "account"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+        },
+        "instruction": {
+          "enum": [
+            "/login",
+            "/logout"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "terminalId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.auth",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "instanceId",
+        "terminalId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "accounts": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
