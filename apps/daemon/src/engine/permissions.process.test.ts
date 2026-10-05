@@ -566,3 +566,22 @@ test("a child's applied ancestry-limited override stops showing pending after it
     await h.close();
   }
 });
+
+test("invalid Codex turn authority cannot borrow Full access from the composer", async () => {
+  const frames = scriptFrames();
+  const fact = approval("pwd");
+  if (fact.type !== "interaction.opened") throw new Error("No approval");
+  fact.raw = [{ type: "ace.permission-policy", data: { mode: "unverified" } }];
+  const h = await harness([{ on: "send", frames: [frames.frame(start, fact)] }], frames, {
+    permissionSettings: async () => "full-access",
+  });
+  try {
+    const id = await h.create();
+    expect(Object.values(h.store.snapshotThread(id).interactions)[0]).toMatchObject({
+      state: "pending",
+    });
+    expect(Object.values(h.store.snapshotThread(id).interactions)[0]?.review).toBeUndefined();
+  } finally {
+    await h.close();
+  }
+});

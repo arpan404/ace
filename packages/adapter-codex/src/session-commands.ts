@@ -31,7 +31,7 @@ export type Pending = {
 };
 export type SessionCommandsContext = {
   nativeSessionId: string;
-  getLaunchOptions?(): Promise<{
+  getLaunchOptions?(threadId: string): Promise<{
     mode: PermissionMode;
     options: Pick<
       TurnStartParams,
@@ -71,7 +71,7 @@ export function createSessionCommands(
     threadId: string,
     params: Omit<TurnStartParams, "threadId">,
   ): Promise<unknown> {
-    const launch = await config.getLaunchOptions?.();
+    const launch = await config.getLaunchOptions?.(threadId);
     if (launch) emit("note", { event: "permission-turn-submitting", threadId, mode: launch.mode });
     return request(
       "turn/start",

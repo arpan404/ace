@@ -52,3 +52,40 @@ for (const [initial, next] of [
     }
   });
 }
+
+test("answering an idle child cannot raise the child's original Ask ceiling", async () => {
+  let mode: "ask" | "full-access" = "ask";
+  const h = await sessionHarness(false, "overlap-policy", undefined, undefined, undefined, mode, {
+    getPermissionMode: async () => mode,
+  });
+  try {
+    await h.session.send([{ type: "text", text: "first" }], "steer");
+    await h.wait((f) => obj(f.data).method === "turn/completed");
+    mode = "full-access";
+    await h.session.send([{ type: "text", text: "second" }], "steer");
+    await h.wait(
+      (f) =>
+        obj(f.data).method === "item/commandExecution/requestApproval" &&
+        obj(obj(f.data).params).itemId === "old-shell",
+    );
+    await h.session.interrupt({ agent: "child", cascade: false });
+    await h.wait(
+      (f) =>
+        obj(f.data).method === "turn/completed" && obj(obj(f.data).params).threadId === "child",
+    );
+    await h.session.resolve("async:child-question", { kind: "question", answers: { q0: ["yes"] } });
+    const last = h.frames.findLast((f) => f.dir === "send" && obj(f.data).method === "turn/start");
+    expect(obj(obj(last?.data).params)).toMatchObject({
+      threadId: "child",
+      approvalPolicy: "on-request",
+      sandboxPolicy: { type: "workspaceWrite" },
+    });
+    expect(
+      h.frames
+        .filter((f) => f.dir === "note" && obj(f.data).event === "permission-mode-applied")
+        .map((f) => obj(f.data).mode),
+    ).toEqual(["ask", "full-access"]);
+  } finally {
+    await h.dispose();
+  }
+});

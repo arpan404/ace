@@ -76,5 +76,6 @@ export function turnPolicyState(initial: PermissionMode) {
       }
     },
     policy,
+    authority: (thread: string) => threads.get(thread) ?? "ask",
   };
 }

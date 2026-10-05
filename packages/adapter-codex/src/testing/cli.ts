@@ -169,6 +169,13 @@ for await (const line of createInterface({ input: process.stdin })) {
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
     if (process.env["ACE_FAKE_RESUME"] === "overlap-policy") {
+      if (p["threadId"] === "child") {
+        respond({ turn: { id: "child-next" } });
+        active.set("child", "child-next");
+        notify("turn/started", { threadId: "child", turn: { id: "child-next" } });
+        end("child");
+        continue;
+      }
       const turnId = `overlap-${++policyTurn}`;
       const approve = (requestId: number, threadId: string, turn: string, itemId: string) =>
         write({
@@ -182,7 +189,7 @@ for await (const line of createInterface({ input: process.stdin })) {
             availableDecisions: ["accept", "decline"],
           },
         });
-      if (policyTurn === 2) approve(101, "native", turnId, "pre-ack");
+      if (policyTurn === 2) approve(typeof id === "number" ? id : 101, "native", turnId, "pre-ack");
       respond({ turn: { id: turnId } });
       active.set("native", turnId);
       notify("turn/started", { threadId: "native", turn: { id: turnId } });
@@ -196,6 +203,13 @@ for await (const line of createInterface({ input: process.stdin })) {
         });
         active.set("child", "child-turn");
         notify("turn/started", { threadId: "child", turn: { id: "child-turn" } });
+        item("child", "child-turn", {
+          type: "agentMessage",
+          id: "child-question",
+          delivery: "async",
+          text: "Continue?",
+          questions: [{ title: "Continue?", options: ["yes"] }],
+        });
         item(
           "native",
           turnId,

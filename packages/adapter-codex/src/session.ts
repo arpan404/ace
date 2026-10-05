@@ -1,3 +1,4 @@
+import { limitPermissionMode } from "@ace/core";
 import { sessionDiscovery } from "./session-discovery.ts";
 import { sessionLifetime } from "./session-lifetime.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
@@ -103,12 +104,13 @@ export async function openCodexSession(
       const p = obj(m["params"]);
       const method = str(m["method"]);
       const thread = str(p["threadId"]);
-      if (dir === "send" && method === "turn/start") policies.sent(m["id"], thread);
+      const submittedMode =
+        dir === "send" && method === "turn/start" ? policies.sent(m["id"], thread) : permissionMode;
       if (
         dir === "send" &&
         ["thread/start", "thread/resume", "thread/fork", "turn/start"].includes(method)
       )
-        controlRequests.set(m["id"], { method, thread, mode: permissionMode });
+        controlRequests.set(m["id"], { method, thread, mode: submittedMode });
       if (dir === "recv") {
         const control = method ? undefined : controlRequests.get(m["id"]);
         if (!method) controlRequests.delete(m["id"]);
@@ -351,12 +353,16 @@ export async function openCodexSession(
     close: lifetime.close,
     ...createSessionCommands({
       nativeSessionId,
-      getLaunchOptions: async () => {
+      getLaunchOptions: async (threadId) => {
         permissionMode = (await ctx.getPermissionMode?.()) ?? permissionMode;
+        const mode =
+          threadId === nativeSessionId
+            ? permissionMode
+            : limitPermissionMode(permissionMode, policies.authority(threadId));
         return {
-          mode: permissionMode,
+          mode,
           options: {
-            ...codexTurnPolicy(permissionMode, ctx.cwd),
+            ...codexTurnPolicy(mode, ctx.cwd),
             ...(selectedOptions.effort !== undefined ? { effort: selectedOptions.effort } : {}),
             ...(selectedOptions.serviceTier !== undefined
               ? { serviceTier: selectedOptions.serviceTier }
@@ -377,7 +383,6 @@ export async function openCodexSession(
         const note = obj(data);
         if (dir === "note" && note["event"] === "permission-turn-submitting") {
           const mode = PermissionMode.parse(note["mode"]);
-          permissionMode = mode;
           policies.submit(str(note["threadId"]), mode);
         }
         emit(dir, data, channel);
