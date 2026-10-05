@@ -75,7 +75,7 @@ function usable(row: CatalogModel): boolean {
   // These names describe non-chat endpoints, not coding models. Unknown names remain usable.
   if (
     /(?:^|[-_/ ])(?:embedding?s?|rerank(?:er)?|whisper|tts|dall-e|gpt-image|sora|moderation|internal)(?:$|[-_/ ])/i.test(
-      row.nativeModelId,
+      modelName(row),
     )
   )
     return false;

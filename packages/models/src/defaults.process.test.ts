@@ -9,6 +9,8 @@ import {
   normalizeCodex,
   normalizeClaude,
   configuredModels,
+  executionModelId,
+  normalizeOpenCodeV2,
   openModelStorage,
 } from "./index.ts";
 import { Clock, codexPayload, fakeCli, instance, workspace } from "./testing/support.ts";
@@ -73,7 +75,8 @@ async function catalogFor(
     env: {
       HOME: home.path,
       FAKE_PROVIDER: provider,
-      FAKE_PAYLOAD: JSON.stringify(payload),
+      // Generic ACP metadata arrives through an authorized session, never a CLI probe.
+      ...(provider === "acp" ? {} : { FAKE_PAYLOAD: JSON.stringify(payload) }),
       ...(provider === "opencode"
         ? {
             FAKE_CONNECTIONS: JSON.stringify([
@@ -452,9 +455,9 @@ test("versioned Claude aliases do not select a different minor version with the 
     models: [claude("opus-5.5"), claude("claude-opus-5-5"), claude("claude-opus-5-50")],
   });
   expect(chosen(catalog, "claude", "opus-5.5")).toBe("claude-opus-5-5");
-  expect(catalog.list().models.find((row) => row.id === "claude-opus-5-50")?.aliases).not.toContain(
-    "opus-5.5",
-  );
+  const otherVersion = catalog.list().models.find((row) => row.id === "claude-opus-5-50");
+  expect(otherVersion).toBeDefined();
+  expect(otherVersion?.aliases ?? []).not.toContain("opus-5.5");
 });
 
 test("large ACP metadata cannot hide non-chat flags or erase aliases and legacy grouping", async () => {
@@ -480,7 +483,11 @@ test("large ACP metadata cannot hide non-chat flags or erase aliases and legacy 
     aliases: ["old-chat", "route-alias"],
     raw: { truncated: true },
   });
-  expect(catalog.list().models[1]).toMatchObject({ group: "legacy", hidden: true });
+  expect(catalog.list().models[1]).toMatchObject({
+    group: "legacy",
+    hidden: true,
+    raw: { truncated: true },
+  });
   expect(chosen(catalog, "acp", "old-chat")).toBe("real-chat");
 });
 
@@ -518,6 +525,34 @@ test("OpenCode current connected rows survive earlier legacy and internal duplic
   expect(chosen(catalog)).toBe("opencode-go/muse-spark-1.3-contributor");
   expect(catalog.list().models).toHaveLength(2);
   expect(catalog.list().models.every((row) => !row.hidden && row.group === "current")).toBe(true);
+});
+
+test("OpenCode filters model names independently of the upstream route and qualifies execution selectors once", () => {
+  const config = instance("opencode");
+  const native = normalizeOpenCodeV2(
+    {
+      location: { directory: config.cwd },
+      data: [
+        openCode("internal-gateway", "claude-opus-5-5"),
+        openCode("internal-gateway", "private-router", { internal: true }),
+        openCode("internal-gateway", "text-embedding-3-large"),
+      ],
+    },
+    config,
+    new Set(["internal-gateway"]),
+  );
+  const rows = configuredModels(native, "opencode", config.id, {
+    provider: "opencode",
+    customModels: [{ id: "internal-gateway/local-chat", displayName: "Local chat" }],
+  });
+  expect(rows.map((row) => [row.id, row.nativeModelId, row.isDefault])).toEqual([
+    ["internal-gateway/claude-opus-5-5", "internal-gateway/claude-opus-5-5", true],
+    ["internal-gateway/local-chat", "local-chat", false],
+  ]);
+  expect(rows.map(executionModelId)).toEqual([
+    "internal-gateway/claude-opus-5-5",
+    "internal-gateway/local-chat",
+  ]);
 });
 
 test("cached Claude aliases remain canonical across settings generations without discovery", async () => {
