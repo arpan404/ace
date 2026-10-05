@@ -1,4 +1,5 @@
 import type { Question } from "@ace/protocol";
+import { contentHash } from "./content-hash.ts";
 
 /** One answer to offer for a question, its "(Recommended)" suffix turned into a flag. */
 export interface QuestionOption {
@@ -96,4 +97,22 @@ export function questionTitle(questions: readonly Question[]): string {
   return questions.length === 1
     ? (questions[0]?.text ?? "Question")
     : `${questions.length} questions`;
+}
+
+/** The parts of an interaction that identify the native request it stands for. */
+export interface RequestParts {
+  toolCallId?: string | undefined;
+  request: unknown;
+}
+
+/**
+ * The native request an interaction stands for (A1/A3): the provider item it was raised from
+ * plus a hash of everything it asks. A provider replaying the same request (after a restart)
+ * keeps both; the same wording asked again later comes from a new item, and a different
+ * question from the same item differs in its hash. Without an item there is no identity:
+ * wording alone never makes two requests the same.
+ */
+export function requestIdentity(interaction: RequestParts): string | undefined {
+  if (!interaction.toolCallId) return undefined;
+  return `${interaction.toolCallId}:${contentHash(JSON.stringify(interaction.request))}`;
 }

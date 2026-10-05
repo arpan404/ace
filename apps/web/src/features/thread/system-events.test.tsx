@@ -3,12 +3,12 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { forgetAllAnswers } from "./interactions/answers.ts";
+import { answerStore } from "./interactions/answers.ts";
 
 type Fact = Extract<Step, { kind: "facts" }>["facts"][number];
 
 // Every harness reuses the same interaction ids; this device's memory of answers must not leak.
-afterEach(forgetAllAnswers);
+afterEach(() => answerStore.forgetAll());
 
 const say = (item: string, role: "user" | "assistant", text: string): Fact => ({
   type: "item.upsert",
@@ -75,6 +75,21 @@ test("ace's restart input reads as one quiet divider, never as the person's mess
   expect(within(feed).getByText("Fix the login redirect loop")).toBeTruthy();
 });
 
+test("a person's message that only starts like ace's text stays their bubble", async () => {
+  const feed = await open(
+    thread("thread-lookalike", [
+      say("diagnose", "user", "ace restarted. Please diagnose this bug"),
+      say("role", "user", "Role: reviewer\n\nTask:\nReview this"),
+      say("reply", "assistant", "Looking into it."),
+    ]),
+  );
+  await within(feed).findByText("Looking into it.");
+  expect(within(feed).getByText("ace restarted. Please diagnose this bug")).toBeTruthy();
+  expect(within(feed).getByText(/Role: reviewer/)).toBeTruthy();
+  expect(within(feed).queryByRole("note", { name: "Resumed after restart" })).toBeNull();
+  expect(within(feed).queryByRole("region", { name: /Task|Delegated/ })).toBeNull();
+});
+
 test("delegated results come back as a card, one row per child, without the model's text", async () => {
   const results = [
     {
@@ -115,6 +130,17 @@ test("a provider error reads once, in words, with the action that fixes it", asy
   expect(within(feed).queryByText("model_not_found")).toBeNull();
   await userEvent.click(within(row).getByRole("button", { name: /Details/ }));
   expect(within(row).getByText(/unrecognized_model/)).toBeTruthy();
+});
+
+test("an independent failure after another error still shows", async () => {
+  const feed = await open(
+    thread("thread-two-errors", [
+      notice("auth", "error", "[codex:not_signed_in] Sign in to continue"),
+      notice("code", "error", "model_not_found"),
+    ]),
+  );
+  expect(await within(feed).findByRole("group", { name: /Not signed in/ })).toBeTruthy();
+  expect(within(feed).getByRole("group", { name: /doesn't recognise the model/ })).toBeTruthy();
 });
 
 const sheetRotate = () => {
@@ -182,9 +208,36 @@ const recovery = {
   ],
 };
 
-test("a question offered again after it was answered reads as answered, not as an open card", async () => {
-  const scenario: Scenario = {
-    thread: { id: "thread-reoffer", workspaceId: "relay", title: "Re-offer", provider: "codex" },
+const askTool = (item: string): Fact => ({
+  type: "item.upsert",
+  agent: "root",
+  item,
+  draft: {
+    type: "tool_call",
+    complete: false,
+    call: {
+      kind: "ask_user",
+      title: "Ask a question",
+      status: "running",
+      raw: [],
+      detail: { kind: "ask_user" },
+    },
+  },
+});
+
+const opened = (interaction: string, item: string, request: typeof recovery): Fact => ({
+  type: "interaction.opened",
+  agent: "root",
+  interaction,
+  item,
+  blocking: false,
+  request,
+});
+
+/** A thread whose question (raised from the call `asked`) is answered, then `next` runs. */
+function replayScenario(id: string, next: Fact[]): Scenario {
+  return {
+    thread: { id, workspaceId: "relay", title: "Replay", provider: "codex" },
     steps: [
       {
         kind: "facts",
@@ -199,50 +252,37 @@ test("a question offered again after it was answered reads as answered, not as a
           },
           { type: "turn.started", agent: "root", nativeTurnId: "t1", trigger: "user" },
           say("ask", "user", "Fix the sheet"),
-          {
-            type: "interaction.opened",
-            agent: "root",
-            interaction: "ask-1",
-            blocking: true,
-            request: recovery,
-          },
+          askTool("asked"),
+          opened("ask-1", "asked", recovery),
         ],
       },
-      {
-        kind: "await",
-        interaction: "ask-1",
-        next: () => [
-          {
-            kind: "facts",
-            facts: [
-              {
-                type: "interaction.opened",
-                agent: "root",
-                interaction: "ask-2",
-                blocking: true,
-                request: recovery,
-              },
-            ],
-          },
-        ],
-      },
+      { kind: "await", interaction: "ask-1", next: () => [{ kind: "facts", facts: next }] },
     ],
   };
+}
+
+async function answerThenReplay(scenario: Scenario) {
   const app = harness();
   const player = app.play(scenario);
   player.runUntilBlocked();
-  await app.open("/t/thread-reoffer");
+  await app.open(`/t/${scenario.thread.id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const card = await within(feed).findByRole("article", {
     name: "How should the sheet recover after rotate?",
   });
   await userEvent.click(within(card).getByRole("radio", { name: /Block rotation/ }));
   await userEvent.click(within(card).getByRole("button", { name: "Answer" }));
-  await waitFor(() => expect(app.daemon.isPending("thread-reoffer", "ask-1")).toBe(false));
-  // The provider asks the same question again, as after a restart (A1).
+  await waitFor(() => expect(app.daemon.isPending(scenario.thread.id, "ask-1")).toBe(false));
   player.runUntilBlocked();
-  expect(app.daemon.isPending("thread-reoffer", "ask-2")).toBe(true);
-  // Both copies read as answered with the first answer; neither offers Answer/Skip.
+  expect(app.daemon.isPending(scenario.thread.id, "ask-2")).toBe(true);
+  return feed;
+}
+
+test("the same native request replayed after it was answered reads as answered", async () => {
+  // As after a restart (A1): the provider offers the request on the same message again.
+  const feed = await answerThenReplay(
+    replayScenario("thread-replay", [opened("ask-2", "asked", recovery)]),
+  );
   await waitFor(() =>
     expect(
       within(feed).getAllByRole("article", {
@@ -255,6 +295,34 @@ test("a question offered again after it was answered reads as answered, not as a
   // The agent may still be waiting on the copy: it can be answered anew.
   await userEvent.click(within(feed).getByRole("button", { name: "Answer again" }));
   expect(await within(feed).findByRole("button", { name: "Skip" })).toBeTruthy();
+});
+
+test("the same wording asked again later is a new question, left open", async () => {
+  const feed = await answerThenReplay(
+    replayScenario("thread-ask-again", [
+      askTool("asked-again"),
+      opened("ask-2", "asked-again", recovery),
+    ]),
+  );
+  expect(
+    await within(feed).findByRole("article", {
+      name: "How should the sheet recover after rotate?",
+    }),
+  ).toBeTruthy();
+  expect(within(feed).getByRole("button", { name: "Skip" })).toBeTruthy();
+  expect(within(feed).queryByText(/Answered earlier/)).toBeNull();
+});
+
+test("a different question on the same message never inherits the earlier answer", async () => {
+  const other = {
+    kind: "question" as const,
+    questions: [{ ...recovery.questions[0]!, id: "scope", text: "Which screens should change?" }],
+  };
+  const feed = await answerThenReplay(
+    replayScenario("thread-other-question", [opened("ask-2", "asked", other)]),
+  );
+  const card = await within(feed).findByRole("article", { name: "Which screens should change?" });
+  expect(within(card).getByRole("button", { name: "Skip" })).toBeTruthy();
 });
 
 test("outside full access, approvals don't offer choices the daemon would refuse", async () => {

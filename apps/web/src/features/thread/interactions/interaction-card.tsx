@@ -13,6 +13,7 @@ import {
   offeredOptions,
   oneShotNote,
   questionTitle,
+  requestIdentity,
   unwrapShellCommand,
 } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
@@ -22,14 +23,7 @@ import { Dot } from "@/components/ui/dot.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { DeferredReviewSummary } from "../items/deferred-review.ts";
 import { AnsweredQuestionCard, closedMeta } from "./answered-question.tsx";
-import {
-  answerFailed,
-  answerSending,
-  answerSent,
-  forgetAnswer,
-  useLocalAnswer,
-  type LocalAnswer,
-} from "./answers.ts";
+import { answerStore, useLocalAnswer, type LocalAnswer } from "./answers.ts";
 import { QuestionForm } from "./question-form.tsx";
 import { PlanReview } from "./plan-review.tsx";
 import type { Answer } from "./answer.ts";
@@ -54,18 +48,18 @@ const typing = (target: EventTarget) =>
  * Send one answer as a durable intent. The pick shows at once (IR-2, SY-9); it is remembered
  * once the daemon accepts it, and offered again if the daemon refuses it.
  */
-function useAnswerSender(interactionId: string) {
+function useAnswerSender(interactionId: string, identity: string | undefined) {
   const { send, intent, error } = useIntentSender();
   const state = intent?.state;
   useEffect(() => {
-    if (state === "acked") answerSent(interactionId);
-    else if (state === "failed") answerFailed(interactionId);
+    if (state === "acked") answerStore.sent(interactionId);
+    else if (state === "failed") answerStore.failed(interactionId);
   }, [state, interactionId]);
   useEffect(() => {
-    if (error) answerFailed(interactionId);
+    if (error) answerStore.failed(interactionId);
   }, [error, interactionId]);
   const answer: Answer = (resolution) => {
-    answerSending(interactionId, resolution);
+    answerStore.sending(interactionId, resolution, identity);
     void send({
       type: "interaction.resolve",
       interactionId: interactionId as Interaction["id"],
@@ -90,10 +84,11 @@ function useAnswerSender(interactionId: string) {
 export function InteractionCard(props: { threadId: string; interactionId: string }) {
   const interaction = useInteraction(props.threadId, props.interactionId);
   const agent = useAgent(props.threadId, interaction?.agentId ?? "");
-  const local = useLocalAnswer(props.interactionId);
+  const identity = interaction ? requestIdentity(interaction) : undefined;
+  const local = useLocalAnswer(props.interactionId, identity);
   const earlier = useEarlierAnswer(props.threadId, interaction);
   const [reopened, setReopened] = useState(false);
-  const sender = useAnswerSender(props.interactionId);
+  const sender = useAnswerSender(props.interactionId, identity);
   const { failed } = sender;
   const answer: Answer = (resolution) => {
     setReopened(false);
@@ -127,7 +122,7 @@ export function InteractionCard(props: { threadId: string; interactionId: string
           onAnswerAgain={
             local.state === "sent"
               ? () => {
-                  forgetAnswer(interaction.id);
+                  answerStore.forget(interaction.id);
                   setReopened(true);
                 }
               : undefined
@@ -155,7 +150,7 @@ export function InteractionCard(props: { threadId: string; interactionId: string
       failed={failed}
       local={reopened ? undefined : (local ?? earlierAsLocal(earlier))}
       onAnswerAgain={() => {
-        forgetAnswer(interaction.id);
+        answerStore.forget(interaction.id);
         setReopened(true);
       }}
     />
@@ -164,7 +159,12 @@ export function InteractionCard(props: { threadId: string; interactionId: string
 
 function earlierAsLocal(earlier: Interaction | undefined): LocalAnswer | undefined {
   return earlier?.resolution
-    ? { resolution: earlier.resolution, state: "sent", at: earlier.closedAt ?? 0 }
+    ? {
+        resolution: earlier.resolution,
+        state: "sent",
+        at: earlier.closedAt ?? 0,
+        identity: requestIdentity(earlier),
+      }
     : undefined;
 }
 

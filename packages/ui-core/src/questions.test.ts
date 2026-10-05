@@ -1,6 +1,11 @@
 import { Question } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { answeredQuestions, questionOptions, questionOutcome } from "./questions.ts";
+import {
+  answeredQuestions,
+  questionOptions,
+  questionOutcome,
+  requestIdentity,
+} from "./questions.ts";
 
 test("the suggested answer loses its (Recommended) suffix and is flagged instead", () => {
   const question = Question.parse({
@@ -67,4 +72,35 @@ test("a question's outcome distinguishes answered, skipped and closed", () => {
   ).toBe("skipped");
   expect(questionOutcome({ state: "expired", request })).toBe("expired");
   expect(questionOutcome({ state: "pending", request })).toBe("pending");
+});
+
+const yesNo = (id: string, text: string) =>
+  Question.parse({
+    id,
+    text,
+    options: [
+      { id: "yes", label: "Yes" },
+      { id: "no", label: "No" },
+    ],
+  });
+
+test("two different requests with the same shape are different requests", () => {
+  const first = {
+    toolCallId: "call-1",
+    request: { kind: "question", questions: [yesNo("a", "Ship it?"), yesNo("b", "Tag it?")] },
+  };
+  const second = {
+    toolCallId: "call-1",
+    request: { kind: "question", questions: [yesNo("a", "Delete it?"), yesNo("b", "Push it?")] },
+  };
+  expect(requestIdentity(first)).not.toBe(requestIdentity(second));
+  expect(requestIdentity(first)).toBe(requestIdentity(structuredClone(first)));
+});
+
+test("the same wording from another item, or with no item, is never the same request", () => {
+  const request = { kind: "question", questions: [yesNo("a", "Ship it?")] };
+  expect(requestIdentity({ toolCallId: "call-1", request })).not.toBe(
+    requestIdentity({ toolCallId: "call-2", request }),
+  );
+  expect(requestIdentity({ request })).toBeUndefined();
 });
