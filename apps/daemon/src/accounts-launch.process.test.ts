@@ -92,7 +92,7 @@ test("reannouncing a retained agent preserves usage counters and cannot move it 
     store.close();
   }
 });
-test("daemon binds an account registered after startup and retains that account after restart", async () => {
+test("daemon binds a provider default selected after startup and retains that account after restart", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-account-launch-"));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const account = createInstance({
@@ -182,6 +182,7 @@ test("daemon binds an account registered after startup and retains that account 
   const first = await open();
   const registry = await openRegistry(join(home, "accounts.sqlite"));
   await registry.register(account);
+  registry.selectProvider("codex", account.id);
   registry.ingest(account.id, {
     provider: "codex",
     observedAt: 1,

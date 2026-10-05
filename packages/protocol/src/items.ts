@@ -69,6 +69,7 @@ export const AgentItem = z.discriminatedUnion("type", [
     /** Message ace did not send itself: task notifications, injected results. */
     synthetic: z.boolean().default(false),
     origin: MessageOrigin.optional(),
+    notAnswered: z.literal("stopped").optional(),
     mergedContext: MergedForkContext.optional(),
     raw: z.array(RawPayload).default([]),
   }),
@@ -107,6 +108,8 @@ export const AgentItem = z.discriminatedUnion("type", [
   ItemBase.extend({
     type: z.literal("notice"),
     level: z.enum(["info", "warning", "error"]),
+    commandId: CommandId.optional(),
+    interactionId: InteractionId.optional(),
     code: z.string().optional(),
     title: z.string().optional(),
     detail: z.string().optional(),

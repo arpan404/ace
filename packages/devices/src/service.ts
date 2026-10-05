@@ -17,9 +17,18 @@ import { approveDevice, disableDeviceSessions } from "./approval.ts";
 import { enqueueDeviceInput } from "./input-queue.ts";
 import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
+import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
+
+const simulatorBundle = "com.apple.iphonesimulator";
+/** Expected refusals a person can act on; anything else is a fault worth a warning. */
+const routine = new Set(["lease_required", "permission_denied", "busy", "not_booted"]);
 
 export interface DevicesOptions extends LifecycleOptions {
   spawnLogs?: typeof spawnSupervised;
+  /** Device and screen helper failures, for the daemon's redacting log. */
+  log?: DeviceLog;
+  /** How often the inventory is read again while a client watches (default four seconds). */
+  inventoryIntervalMs?: number;
 }
 export class DevicesService {
   private enabled = false;
@@ -28,15 +37,44 @@ export class DevicesService {
   private readonly sessions = new Map<string, DeviceSession>();
   private readonly listeners = new Set<(state: DeviceState) => void>();
   private readonly options: DevicesOptions;
-  private listing: Promise<Device[]> | undefined;
+  /** The inventory read in flight, numbered in the order reads started. */
+  private listing: { read: number; devices: Promise<Device[]> } | undefined;
+  private reads = 0;
+  private inventoryViews = 0;
+  private readonly enabledListeners = new Set<(enabled: boolean) => void>();
+  private readonly inventory: InventoryWatch;
   constructor(options: DevicesOptions) {
     this.options = options;
-  }
-  async list(): Promise<Device[]> {
-    this.listing ??= this.refresh().finally(() => {
-      this.listing = undefined;
+    this.inventory = new InventoryWatch({
+      read: () => this.list(),
+      after: options.runtime.after,
+      intervalMs: options.inventoryIntervalMs ?? 4000,
+      log: options.log,
     });
-    return this.listing;
+  }
+  /** The inventory, joining a read already in flight. */
+  async list(): Promise<Device[]> {
+    if (!this.listing) {
+      const listing = { read: ++this.reads, devices: Promise.resolve<Device[]>([]) };
+      listing.devices = this.refresh().finally(() => {
+        if (this.listing === listing) this.listing = undefined;
+      });
+      this.listing = listing;
+    }
+    return this.listing.devices;
+  }
+  /**
+   * The inventory from a read that started after this call: a read already in flight may have
+   * seen the device before a boot or shutdown, so it is waited out rather than joined.
+   */
+  private async freshList(): Promise<Device[]> {
+    const before = this.reads;
+    for (;;) {
+      const current = this.listing;
+      if (!current) return this.list();
+      if (current.read > before) return current.devices;
+      await current.devices.catch(() => {});
+    }
   }
   private async refresh(): Promise<Device[]> {
     if (this.closed)
@@ -47,11 +85,15 @@ export class DevicesService {
     const inventory = new Map(devices.map((device) => [device.id, device]));
     for (const session of this.sessions.values()) {
       const device = inventory.get(session.device.id);
+      // A boot, shutdown or rename since the last read reaches every watcher of the device.
+      const changed = device !== undefined && !sameDevice(device, session.device);
       if (device) session.device = device;
       if (!inventory.has(session.device.id) || device?.state !== "booted") {
         if (session.capture) await this.stop(session);
       }
+      if (changed) this.emit(session);
     }
+    this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
     return devices;
   }
   private async session(id: string): Promise<DeviceSession> {
@@ -85,6 +127,10 @@ export class DevicesService {
       error: session.error,
     });
   }
+  /** Devices are on for this machine; a client with no device sessions yet needs this too. */
+  isEnabled(): boolean {
+    return this.enabled && !this.closed;
+  }
   approvedThread(id: string): string | undefined {
     return this.sessions.get(id)?.threadId;
   }
@@ -102,6 +148,48 @@ export class DevicesService {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+  /**
+   * A Devices view is open: keep the inventory current while devices are on. Release when the
+   * view closes; state observers alone never cause background reads.
+   */
+  holdInventoryView(): () => void {
+    if (this.inventoryViews >= 64)
+      throw new DeviceError(
+        "limit",
+        "Device view limit (64)",
+        "Close another Devices view before opening one.",
+      );
+    this.inventoryViews++;
+    this.watching();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.inventoryViews--;
+      this.watching();
+    };
+  }
+  /** Hear when devices are turned on or off, by any client. */
+  watchEnabled(listener: (enabled: boolean) => void): () => void {
+    if (this.enabledListeners.size >= 64)
+      throw new DeviceError(
+        "limit",
+        "Device state subscriber limit (64)",
+        "Close another device connection before reconnecting.",
+      );
+    this.enabledListeners.add(listener);
+    return () => {
+      this.enabledListeners.delete(listener);
+    };
+  }
+  /** Hear about inventory changes: a simulator booting or shutting down, inside ace or not. */
+  watchInventory(listener: (inventory: Inventory) => void): () => void {
+    return this.inventory.watch(listener);
+  }
+  /** Keep reading the inventory only while devices are on and a client is watching. */
+  private watching(): void {
+    this.inventory.poll(this.enabled && !this.closed && this.inventoryViews > 0);
   }
   private emit(session: DeviceSession): void {
     const state = this.state(session);
@@ -133,6 +221,22 @@ export class DevicesService {
   }
   async request(raw: DeviceOperation, actor: Actor): Promise<unknown> {
     const operation = DeviceOperation.parse(raw);
+    try {
+      return await this.perform(operation, actor);
+    } catch (error) {
+      const failure = deviceFailure(error);
+      this.options.log?.(routine.has(failure.code) ? "info" : "warn", "Device request failed", {
+        op: operation.op,
+        deviceId: "deviceId" in operation ? operation.deviceId : undefined,
+        actor: actor.kind,
+        code: failure.code,
+        permission: failure.permission,
+        message: failure.message,
+      });
+      throw error;
+    }
+  }
+  private async perform(operation: DeviceOperation, actor: Actor): Promise<unknown> {
     if (["enable", "approve", "controller"].includes(operation.op) && actor.kind !== "human")
       throw new DeviceError(
         "permission_denied",
@@ -142,7 +246,17 @@ export class DevicesService {
     if (operation.op === "enable") {
       if (this.disabling)
         throw new DeviceError("busy", "Devices are disabling", "Wait for resource cleanup.");
+      const changed = this.enabled !== operation.enabled;
       this.enabled = operation.enabled;
+      this.watching();
+      if (changed)
+        for (const listener of this.enabledListeners) {
+          try {
+            listener(this.enabled);
+          } catch {
+            /* One subscriber cannot stop the others hearing about the change. */
+          }
+        }
       if (!this.enabled) {
         this.disabling = true;
         try {
@@ -164,11 +278,20 @@ export class DevicesService {
             : devices.filter((device) => this.sessions.get(device.id)?.threadId === actor.threadId),
       };
     }
+    if (operation.op === "inventory.watch")
+      throw new DeviceError(
+        "not_supported",
+        "Only a devices connection watches the inventory",
+        "Open the Devices view.",
+      );
+    if (operation.op === "permissions" || operation.op === "permissions.request")
+      return this.permissions(operation, actor);
     if (operation.op === "states")
       return {
         states: this.states().filter(
           (state) => actor.kind === "human" || state.threadId === actor.threadId,
         ),
+        enabled: this.isEnabled(),
       };
     const session = await this.session(operation.deviceId);
     if (operation.op === "approve") {
@@ -209,6 +332,9 @@ export class DevicesService {
     }
     switch (operation.op) {
       case "start":
+        // A person watching a simulator needs no thread approval: they approve its window.
+        if (actor.kind === "human" && session.device.platform === "ios")
+          await this.options.screen?.allow(simulatorBundle);
         await this.start(session, operation.fps);
         return this.state(session);
       case "stop":
@@ -228,6 +354,7 @@ export class DevicesService {
               "Take control and retry.",
             );
         });
+        await this.settled();
         return { completed: true };
       }
       case "subscribe":
@@ -273,11 +400,39 @@ export class DevicesService {
         return { started: true };
       case "record.stop":
         return stopDeviceRecording(session, actor, this.lifecycleOwner());
-      default:
-        return this.enqueue(session, actor, (guard) =>
+      default: {
+        const result = await this.enqueue(session, actor, (guard) =>
           performDeviceAction(this.options.platform, session, actor, operation, guard),
         );
+        // Booting changes the device's state; read it now rather than at the next poll.
+        if (operation.op === "boot") await this.settled();
+        return result;
+      }
     }
+  }
+  /** Read the inventory again after a lifecycle change; watchers hear the new state. */
+  private async settled(): Promise<void> {
+    await this.freshList();
+  }
+  private async permissions(
+    operation: Extract<DeviceOperation, { op: "permissions" | "permissions.request" }>,
+    actor: Actor,
+  ): Promise<{ screenRecording: boolean; accessibility: boolean }> {
+    const screen = this.options.screen;
+    if (!screen)
+      throw new DeviceError(
+        "not_supported",
+        "This daemon has no screen helper",
+        "Run ace's desktop app on a Mac to view and control iOS Simulators.",
+      );
+    if (operation.op === "permissions") return screen.currentPermissions();
+    if (actor.kind !== "human")
+      throw new DeviceError(
+        "permission_denied",
+        "Human authorization required",
+        "Ask the user to grant the permission from the device panel.",
+      );
+    return screen.requestPermission(operation.permission);
   }
   private async ui<T>(session: DeviceSession, actor: Actor, run: () => Promise<T>): Promise<T> {
     this.authorize(session, actor);
@@ -296,6 +451,15 @@ export class DevicesService {
   }
   private lifecycleOwner(): LifecycleOwner {
     return {
+      log: (message, session, error) => {
+        const failure = deviceFailure(error);
+        this.options.log?.("warn", message, {
+          deviceId: session.device.id,
+          code: failure.code,
+          permission: failure.permission,
+          message: failure.message,
+        });
+      },
       enabled: () => this.enabled && !this.closed,
       sessions: () => this.sessions.values(),
       list: () => this.list(),
@@ -366,6 +530,7 @@ export class DevicesService {
   async close(): Promise<void> {
     this.closed = true;
     this.enabled = false;
+    this.watching();
     const results = await Promise.allSettled([
       ...[...this.sessions.values()].map(async (session) => {
         const resources = await Promise.allSettled([this.stop(session), session.logs.close()]);
@@ -381,6 +546,7 @@ export class DevicesService {
     );
     this.sessions.clear();
     this.listeners.clear();
+    this.enabledListeners.clear();
     if (errors.length) throw new AggregateError(errors, "Devices close cleanup failed");
   }
 }

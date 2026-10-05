@@ -44,6 +44,50 @@
     },
     {
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "type": {
+          "const": "devices.enabled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/AppDevice.json"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        },
+        "issues": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
+          },
+          "maxItems": 2,
+          "type": "array"
+        },
+        "type": {
+          "const": "devices.inventory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "devices"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },

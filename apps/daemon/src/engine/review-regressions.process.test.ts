@@ -42,7 +42,7 @@ test("replayed and unrelated turn boundaries cannot acknowledge a new queued sen
     ),
   );
   const id = await h.create();
-  h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
+  const second = h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
   await h.engine.flush();
   h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
   await h.engine.flush();
@@ -67,6 +67,11 @@ test("replayed and unrelated turn boundaries cannot acknowledge a new queued sen
   await h.engine.flush();
   expect(h.adapter.commands.filter((c) => c.type === "send")).toHaveLength(2);
   expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
+  const admitted = Object.values(transcript(h, id).items).find(
+    (item) => item.type === "message" && item.origin?.commandId === second.commandId,
+  );
+  expect(admitted).toBeDefined();
+  expect(admitted).not.toHaveProperty("runId");
   ctx.onFrame(
     frames.frame({ ...start, nativeTurnId: "second" }, { ...end, nativeTurnId: "second" }),
   );
@@ -117,7 +122,9 @@ test("shutdown persists frames accepted immediately before close and output emit
   );
   await h.engine.close();
   expect(
-    Object.values(transcript(h, id).items).find((item) => item.type === "message"),
+    Object.values(transcript(h, id).items).find(
+      (item) => item.type === "message" && item.role === "assistant",
+    ),
   ).toMatchObject({
     parts: [{ type: "text", text: "before close during close" }],
   });
@@ -140,7 +147,7 @@ test("restart reports an unacknowledged delivered send and holds it for review",
     const view = store.snapshotThread(id);
     expect(
       Object.values(view.items).some(
-        (item) => item.type === "notice" && item.text.includes("uncertain"),
+        (item) => item.type === "notice" && item.detail?.includes("uncertain"),
       ),
     ).toBe(true);
     expect(engine.queue(id)).toMatchObject({
@@ -360,7 +367,7 @@ test("a valid answer with uncertain provider delivery retains its first-answer r
   expect(transcript(h, id).interactions[interactionId]?.state).toBe("pending");
   expect(
     Object.values(transcript(h, id).items).some(
-      (item) => item.type === "notice" && item.text.includes("expected interrupt, got resolve"),
+      (item) => item.type === "notice" && item.detail?.includes("expected interrupt, got resolve"),
     ),
   ).toBe(true);
 });

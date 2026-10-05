@@ -111,6 +111,7 @@ export const Interaction = z.object({
   request: InteractionRequest,
   review: PermissionReview.optional(),
   state: InteractionState,
+  expirationReason: z.literal("provider_disconnected").optional(),
   resolution: InteractionResolution.optional(),
   /** Device that answered first. Later answers are rejected. */
   resolvedBy: DeviceId.optional(),

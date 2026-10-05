@@ -35,8 +35,7 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
               aria-current={active ? "page" : undefined}
               className={cn(
                 rowClass,
-                active &&
-                  "bg-[color-mix(in_oklab,var(--foreground)_9%,transparent)] font-medium text-foreground",
+                active && "bg-foreground/10 font-medium text-foreground",
               )}
             >
               <Icon icon={page.icon} active={active} />

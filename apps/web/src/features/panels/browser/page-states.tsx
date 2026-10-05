@@ -127,9 +127,9 @@ export function StartPage(props: {
                   disabled={props.disabled !== undefined}
                   title={props.disabled ?? displayAddress(suggestion.url)}
                   onClick={() => props.onGo(suggestion.url)}
-                  className="flex h-[92px] w-full min-w-0 flex-col items-center justify-center gap-2 rounded-lg px-3 text-center outline-none transition-colors duration-(--dur-1) bg-[color-mix(in_oklab,var(--foreground)_3%,transparent)] hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:opacity-50"
+                  className="flex h-[92px] w-full min-w-0 flex-col items-center justify-center gap-2 rounded-lg px-3 text-center outline-none transition-colors duration-(--dur-1) bg-foreground/3 hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:opacity-50"
                 >
-                  <span className="grid size-8 place-items-center rounded-full bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)]">
+                  <span className="grid size-8 place-items-center rounded-full bg-foreground/5">
                     <Icon
                       icon={suggestion.detail === "Visited" ? ClockCounterClockwiseIcon : PlayIcon}
                       size={14}

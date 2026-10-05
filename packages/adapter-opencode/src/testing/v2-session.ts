@@ -91,13 +91,14 @@ export async function setup(extra: ServerOptions = {}) {
     cwd = "/one",
     resume?: string,
     permissionMode?: SessionContext["permissionMode"],
+    model = "opencode-go/muse-spark-1.3-contributor",
   ): Promise<ProviderSession> =>
     adapter.openSession({
       threadId: ThreadId.parse("thread_v2"),
       rootKey: "root",
       cwd,
       ...(permissionMode ? { permissionMode } : {}),
-      model: "opencode-go/muse-spark-1.3-contributor",
+      model,
       signal: controller.signal,
       onFrame,
       onInputMessage: (identity) => inputMessages.push({ ...identity, beforeFrame: frames.length }),

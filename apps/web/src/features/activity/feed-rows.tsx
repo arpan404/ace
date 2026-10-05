@@ -19,7 +19,7 @@ import { automationRunSummary } from "@/features/automations/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
 import { eventKey, interactionKey, useActivityState } from "./activity-state.tsx";
-import { approvalChoices } from "./approval.ts";
+import { offeredChoices } from "./approval.ts";
 import { FeedRow } from "./feed-row.tsx";
 import { useFeedSource, type FeedEvent, type FeedKind } from "./feed-source.ts";
 import { requestTitle } from "./question-card.tsx";
@@ -53,7 +53,10 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
   if (!interaction || interaction.state !== "pending") return null;
   const key = interactionKey(props.threadId, props.interactionId);
   const request = interaction.request;
-  const choices = request.kind === "approval" ? approvalChoices(request.options) : undefined;
+  const choices =
+    request.kind === "approval"
+      ? offeredChoices(request.options, thread?.permission?.effective)
+      : undefined;
   const { approve, deny } = choices ?? {};
   return (
     <FeedRow

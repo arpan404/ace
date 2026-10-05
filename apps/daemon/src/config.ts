@@ -15,6 +15,8 @@ const Environment = z.object({
   ACE_LOG_LEVEL: LogLevelSchema.default("info"),
   ACE_SCREEN_HELPER: z.string().min(1).optional(),
   ACE_SCREEN_HELPER_MANIFEST: z.string().min(1).optional(),
+  /** Development only: "1" keeps macOS permissions with the launching terminal. */
+  ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY: z.enum(["0", "1"]).optional(),
   ACE_HOME: z.string().optional(),
   ACE_CURSOR_SDK_HOME: z.string().min(1).optional(),
   ACE_WORKSPACE_ROOT: z.string().optional(),
@@ -39,6 +41,8 @@ export interface Config {
   screenHelper?: string;
   /** The helper manifest when it does not sit beside the app (the desktop bundle). */
   screenHelperManifest?: string;
+  /** Development only: the helper's macOS permissions follow the process that launched ace. */
+  screenHelperInheritsResponsibility?: boolean;
 }
 export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir()): Config {
   const settings = Environment.parse(env);
@@ -49,6 +53,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
     ...(settings.ACE_SCREEN_HELPER ? { screenHelper: resolve(settings.ACE_SCREEN_HELPER) } : {}),
     ...(settings.ACE_SCREEN_HELPER_MANIFEST
       ? { screenHelperManifest: resolve(settings.ACE_SCREEN_HELPER_MANIFEST) }
+      : {}),
+    ...(settings.ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY === "1"
+      ? { screenHelperInheritsResponsibility: true }
       : {}),
     dataDir: resolveDaemonHome(home, settings.ACE_HOME),
     ...(settings.ACE_CURSOR_SDK_HOME

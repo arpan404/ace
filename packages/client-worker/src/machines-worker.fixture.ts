@@ -5,6 +5,7 @@ import { FakeDaemon, fakeTransport, facts } from "@ace/fake-daemon";
 import { DeviceId, HostId, ServerMessage } from "@ace/protocol";
 import { z } from "zod";
 import { ClientHost } from "./host.ts";
+import { machineOutbox } from "./machine-outbox.fixture.ts";
 
 const config = z
   .object({
@@ -14,6 +15,7 @@ const config = z
     sidebarFault: z.enum(["hold", "fail"]).optional(),
     gate: z.instanceof(SharedArrayBuffer),
     threadCount: z.number().int().min(1).max(1000).optional(),
+    outboxRoot: z.string().optional(),
   })
   .parse(workerData);
 const daemon = new FakeDaemon({
@@ -95,7 +97,9 @@ const host = new ClientHost({
           expectedHostId: HostId.parse(config.hostId),
           credential: async () => config.token,
           transport,
-          storage: { load: async () => null, save: async () => {} },
+          storage: config.outboxRoot
+            ? machineOutbox(config.outboxRoot, config.hostId, "device")
+            : { load: async () => null, save: async () => {} },
           scheduler,
           random: () => 0,
           id: () => `${config.hostId}-${++sequence}`,

@@ -2,6 +2,7 @@ import type { RequestOptions, Scheduler } from "./types.ts";
 import { ClientError } from "./types.ts";
 
 interface Waiter {
+  durable: boolean;
   resolve(value: unknown): void;
   reject(error: ClientError): void;
   cleanup(): void;
@@ -22,6 +23,24 @@ export class Requests {
     options: RequestOptions,
     send: () => void,
   ): Promise<T> {
+    return this.add(id, decode, options, send, false);
+  }
+  /** A durable command waits across reconnects and has no failure deadline. */
+  waitDurable<T>(
+    id: string,
+    decode: (value: unknown) => T,
+    options: RequestOptions,
+    send: () => void,
+  ): Promise<T> {
+    return this.add(id, decode, options, send, true);
+  }
+  private add<T>(
+    id: string,
+    decode: (value: unknown) => T,
+    options: RequestOptions,
+    send: () => void,
+    durable: boolean,
+  ): Promise<T> {
     const timeout = options.timeoutMs ?? this.timeout;
     if (!Number.isSafeInteger(timeout) || timeout <= 0)
       return Promise.reject(new ClientError("limit"));
@@ -33,8 +52,11 @@ export class Requests {
         this.remove(id)?.reject(error);
       };
       const abort = () => fail(new ClientError("aborted"));
-      const cancel = this.scheduler.set(timeout, () => fail(new ClientError("timeout")));
+      const cancel = durable
+        ? () => {}
+        : this.scheduler.set(timeout, () => fail(new ClientError("timeout")));
       this.waiters.set(id, {
+        durable,
         resolve: (value) => {
           try {
             resolve(decode(value));
@@ -67,6 +89,10 @@ export class Requests {
   }
   reject(id: string, error: ClientError): void {
     this.remove(id)?.reject(error);
+  }
+  disconnect(): void {
+    for (const [id, waiter] of this.waiters)
+      if (!waiter.durable) this.reject(id, new ClientError("offline"));
   }
   clear(error: ClientError): void {
     for (const id of this.waiters.keys()) this.reject(id, error);

@@ -8,7 +8,8 @@
     "XDG_CONFIG_HOME",
     "XDG_STATE_HOME",
     "XDG_CACHE_HOME",
-    "CURSOR_DATA_DIR"
+    "CURSOR_DATA_DIR",
+    "PI_CODING_AGENT_DIR"
   ],
   "type": "string"
 }
