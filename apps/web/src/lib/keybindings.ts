@@ -31,11 +31,20 @@ export interface KeyboardEnv {
   web: boolean;
 }
 
+/**
+ * The desktop app's preload bridge. Checked by a field only the bridge has, because fake mode
+ * in a browser also puts a debugging `ace` (daemon and client) on the window.
+ */
+function inDesktopApp(): boolean {
+  const ace: unknown = Reflect.get(globalThis, "ace");
+  return hasDesktopBridge() && typeof ace === "object" && ace !== null && "electron" in ace;
+}
+
 function detectEnv(): KeyboardEnv {
   const standalone =
     typeof globalThis.matchMedia === "function" &&
     globalThis.matchMedia("(display-mode: standalone)").matches;
-  return { apple: applePlatform, web: !hasDesktopBridge() && !standalone };
+  return { apple: applePlatform, web: !inDesktopApp() && !standalone };
 }
 
 let envOverride: KeyboardEnv | undefined;
