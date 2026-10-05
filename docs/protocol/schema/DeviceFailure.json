@@ -27,6 +27,13 @@
     "message": {
       "maxLength": 2048,
       "type": "string"
+    },
+    "permission": {
+      "enum": [
+        "screenRecording",
+        "accessibility"
+      ],
+      "type": "string"
     }
   },
   "required": [

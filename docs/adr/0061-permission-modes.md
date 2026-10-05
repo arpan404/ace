@@ -14,7 +14,9 @@ The schema lives in @ace/protocol. Pure resolution and deterministic review belo
 
 Delegated children inherit their parent's effective mode. An explicit child selection can only lower it, in the order read-only < ask < auto-review < full-access. Durable parent links constrain every later turn and mode change, including settings changes, provider switches and resumed work. Spawn, fork inheritance, setters and turn admission compute the minimum across the complete ancestry, bounded to 64 parent edges. Idle intermediate records may retain their previous turn policy; they cannot hide a tightened ancestor. Provider-specific options cannot grant permissions. Agent-control tools do not expose the permission command or human approval resolution.
 
-Mode changes are requested immediately but become effective only before the next turn, once the provider's own tree has no live turns, background work or interactions. Steering retains the active turn's mode. A provider session is retired and resumed with explicit policy when the effective mode changes. No active child or background shell is closed merely to apply a setting. Autonomous provider continuation retains the session policy until the next engine-owned boundary.
+Mode changes are requested immediately. For Codex app-server, the next engine-owned turn/start carries the resolved requested policy even while older children or background shells survive. The composer publishes that mode as effective only after a valid native turn acknowledgement. Approval review uses the policy submitted for the request's own native turn or background action, including requests preceding the acknowledgement; child turns inherit the spawning turn's policy. Steering retains its current turn policy. Missing or evicted native attribution cannot earn a Full-access grant. Codex does not retire its process to apply these per-turn settings.
+
+Providers with session-fixed policy still wait until their own tree has no live turns, background work or interactions, then retire and resume with explicit policy. No active child or background shell is closed merely to apply a setting. Autonomous provider continuation retains its originating turn or session policy until the next engine-owned boundary.
 
 ## Settings compatibility
 
@@ -51,7 +53,7 @@ An optional provider-session reviewer may be injected at the host boundary in a 
 
 ## Safety invariants and follow-up
 
-Auto-review never grants full access. Restricted provider options and ambient permission grants cannot override the resolved mode. Children cannot exceed their parent. Mode changes occur at turn boundaries. Uncertain approvals remain human work. Full access is an explicit opt-in and intentionally disables tool risk review.
+Auto-review never grants full access. Restricted provider options and ambient permission grants cannot override the resolved mode. Children cannot exceed their parent. Mode changes occur at turn boundaries. Uncertain approvals remain human work. Full access is an explicit opt-in. Surfaced approvals still pass through the durable one-shot reviewer, which approves ordinary actions while retaining the secret/credential exception.
 
 The Claude web agent will add mode pickers, scoped defaults and audit rendering through @ace/client. Deck's executor will persist its run override and pass it into the generic engine spawn API for each lane/card thread. Behavior tests are written but not executed locally, per the owner's merge-only test rule. Runtime claims need run at merge.
 
@@ -91,3 +93,9 @@ input and failed approval delivery block execution. No OS sandbox is claimed.
 This supersedes the Pi tool-selection row and the statement that Pi cannot gate
 operations. Sources: pinned official [extension contract](https://raw.githubusercontent.com/badlogic/pi-mono/v0.85.1/packages/coding-agent/docs/extensions.md)
 and [RPC confirmation contract](https://raw.githubusercontent.com/badlogic/pi-mono/v0.85.1/packages/coding-agent/docs/rpc.md).
+
+## Codex reconstruction and process lifetime
+
+Resume/read history reconstructs transcript and background work. It does not prove a live answer transport: historical questions and plans never open interactions, and their native question identities remain terminal on duplicate notifications. A fresh server request owns a process-scoped key. Stale resolution returns `interaction_unavailable`; it never writes to a replacement process. The engine retains durable interaction outcomes and generation fencing (WP5).
+
+Each Codex exit emits bounded, redacted `codex-session-exit` diagnostic evidence: process-generation token, deliberate flag, retirement reason, native reason, code, signal, and a 4 KiB stderr tail. Planned idle/user/shutdown retirement is distinct from native disconnect and failed-open cleanup. This evidence uses the existing provider diagnostic sink; the daemon currently persists that sink only at debug level. WP5 must wire this specific exit record at ordinary log levels as part of its engine logging ownership.

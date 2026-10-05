@@ -1,3 +1,4 @@
+import { unwrapShellCommand } from "@ace/provider-kit/shell-command";
 import type {
   ApprovalTarget,
   PermissionMode,
@@ -79,16 +80,19 @@ export function reviewPermission(input: {
   mode: PermissionMode;
   target?: ApprovalTarget;
   paths: readonly PathRisk[];
+  /** Executables verified by the host filesystem boundary, never provider metadata. */
+  trustedShells?: readonly string[];
 }): RiskDecision {
   const { mode, target, paths } = input;
-  if (!target) return { decision: "escalate", reason: "Provider did not supply an exact action" };
   const text = [
-    target.command ?? "",
-    ...(target.paths ?? []),
-    JSON.stringify(target.input) ?? "",
+    target?.command ?? "",
+    ...(target?.paths ?? []),
+    JSON.stringify(target?.input) ?? "",
   ].join(" ");
   if (paths.includes("secret") || containsSecretReference(text))
     return { decision: "escalate", reason: "Secret or credential access requires a human" };
+  if (mode === "full-access") return { decision: "approve", reason: "Full access" };
+  if (!target) return { decision: "escalate", reason: "Provider did not supply an exact action" };
   if (paths.includes("outside"))
     return { decision: "escalate", reason: "Action reaches outside the thread workspace" };
   if (paths.includes("unknown"))
@@ -98,8 +102,6 @@ export function reviewPermission(input: {
   if (target.origin === "ace" && target.riskClass === "read-only")
     return { decision: "approve", reason: target.description ?? "Read-only ace inspection" };
   if (mode === "ask") return { decision: "escalate", reason: "Ask mode requires a human decision" };
-  if (mode === "full-access")
-    return { decision: "approve", reason: "User explicitly selected full access" };
   if (target.origin === "ace" && target.riskClass) {
     if (target.riskClass === "external-effect")
       return {
@@ -117,22 +119,26 @@ export function reviewPermission(input: {
       !["shell", "Bash", "bash", "item/commandExecution/requestApproval"].includes(target.tool)
     )
       return { decision: "escalate", reason: "Tool is not a verified command execution gate" };
+    const wrapper = unwrapShellCommand(target.command);
+    if (wrapper && !input.trustedShells?.includes(wrapper.shell))
+      return { decision: "escalate", reason: "Shell executable identity could not be verified" };
+    const command = wrapper?.inner ?? target.command;
     // Absolute paths, expansion and composition must not hide outside-workspace destruction.
-    if (/(?:^|[\s=])(?:\/|~)|(?:^|[\s=/])\.\.(?:\/|$)|[;&|<>`$\n\\'"]/.test(target.command))
+    if (/(?:^|[\s=])(?:\/|~)|(?:^|[\s=/])\.\.(?:\/|$)|[;&|<>`$\n\\'"]/.test(command))
       return {
         decision: "escalate",
         reason: "Shell paths, expansion or composition require a human",
       };
     if (
       /^(?:sudo\s+)?(?:rm|rmdir|shred|mkfs|dd)(?:\s|$)|^git\s+(?:reset\s+--hard|clean|push)(?:\s|$)/.test(
-        target.command,
+        command,
       )
     )
       return {
         decision: "deny",
         reason: "Destructive command is outside the automatic risk policy",
       };
-    if (/^pwd$/.test(target.command.trim()))
+    if (/^pwd$/.test(command.trim()))
       return { decision: "approve", reason: "Read-only workspace inspection command" };
     return { decision: "escalate", reason: "Command is not in the low-risk allowlist" };
   }
