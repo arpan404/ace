@@ -29,8 +29,28 @@ export interface RowOptions {
   openFrom: number;
 }
 
-/** How many of the newest turns stay open in the live transcript. */
-export const recentTurns = 3;
+/**
+ * Older turns fold only once the loaded window is long: more than 12 turns or 400 items. Then
+ * the 5 newest stay whole.
+ */
+export const foldRule = { turns: 12, items: 400, keep: 5 } as const;
+
+/** The first turn shown whole in the live transcript: every turn, until the window is long. */
+export function recentFrom(latest: number | undefined, turns: number, items: number): number {
+  if (latest === undefined || (turns <= foldRule.turns && items <= foldRule.items))
+    return Number.NEGATIVE_INFINITY;
+  return latest - foldRule.keep + 1;
+}
+
+/** How many turns the blocks hold. */
+export function turnCount(blocks: readonly Block[], ordinalOf: RowOptions["ordinalOf"]): number {
+  const turns = new Set<number>();
+  for (const block of blocks) {
+    const ordinal = blockOrdinal(block, ordinalOf);
+    if (ordinal !== undefined) turns.add(ordinal);
+  }
+  return turns.size;
+}
 
 function blockOrdinal(block: Block, ordinalOf: RowOptions["ordinalOf"]): number | undefined {
   for (const id of blockItems(block)) {
