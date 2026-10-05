@@ -1,7 +1,8 @@
 import { ClientError } from "@ace/client";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ChipAttachment } from "@/components/attachment-chips.tsx";
-import { formatBytes, type LocalAttachment } from "@/components/attachment-format.ts";
+import type { LocalAttachment } from "@/components/attachment-format.ts";
+import { formatBytes } from "@/components/format-bytes.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 

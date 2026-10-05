@@ -1,6 +1,6 @@
 import type { PendingSend } from "@ace/client";
 import { useConnectionState, useIntent, usePendingSends, useThreadMeta } from "@ace/client-react";
-import { provisionalTitle, providerNames, type TurnActivity } from "@ace/ui-core";
+import { providerNames, type TurnActivity } from "@ace/ui-core";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Suspense, useEffect } from "react";
@@ -48,8 +48,8 @@ export function PendingThreadView(props: { threadId: string }) {
   const projectName = useProjectName();
   const payload = entry?.payload;
   const workspaceId = payload?.type === "thread.create" ? payload.workspaceId : undefined;
-  const title =
-    startedTitle(commandId) ?? (payload ? provisionalTitle(payload.input) : "New thread");
+  // New thread worked the title out as it sent (after a reload the daemon's arrives instead).
+  const title = startedTitle(commandId) ?? "New thread";
   const failed = entry?.state === "failed" || intent?.state === "failed";
   if (!entry && !intent && ready)
     return (

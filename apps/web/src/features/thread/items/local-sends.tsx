@@ -1,7 +1,6 @@
 import { usePendingSends } from "@ace/client-react";
 import { useLayoutEffect, useMemo } from "react";
-import { leasable } from "../lib/pending-thread-id.ts";
-import { publishLocalSends } from "./local-sends-view.ts";
+import { leasable, publishLocalSends } from "../composer/send-store.ts";
 import {
   commandOf,
   inputItemId,
@@ -28,7 +27,10 @@ export function LocalSends(props: { threadId: string }) {
   const view = useMemo(() => {
     const local = { pending, staged, dismissed, queued, failures };
     return {
-      merge: (blocks: Parameters<typeof withLocalSends>[0]) => withLocalSends(blocks, local),
+      merge: (
+        blocks: Parameters<typeof withLocalSends>[0],
+        itemsOf: Parameters<typeof withLocalSends>[2],
+      ) => withLocalSends(blocks, local, itemsOf),
       find: (itemId: string) => {
         const send = pending.find((entry) => entry.itemId === itemId);
         const commandId = send?.commandId ?? commandOf(itemId);

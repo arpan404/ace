@@ -4,8 +4,7 @@ import type { ReactNode } from "react";
 import { ClockIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { waitingNote } from "@/lib/daemon-command.ts";
-import type { StagedSend } from "../composer/send-store.ts";
-import { leasable } from "../lib/pending-thread-id.ts";
+import { type StagedSend, leasable } from "../composer/send-store.ts";
 import { FailedSend } from "./failed-send.tsx";
 import { sendFailure } from "./send-failure.ts";
 

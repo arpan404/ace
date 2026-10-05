@@ -31,7 +31,7 @@ import {
 } from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
 import { DeferredLocalSends } from "../composer/deferred-parts.tsx";
-import { useLocalSendsView } from "../items/local-sends-view.ts";
+import { useLocalSendsView } from "../composer/send-store.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
@@ -157,7 +157,7 @@ export function Feed(props: FeedProps) {
   const built = useBlocks(threadId);
   const local = useLocalSendsView(threadId);
   const blocks = useMemo(
-    () => (local && !detached ? local.merge(built) : built),
+    () => (local && !detached ? local.merge(built, blockItems) : built),
     [local, built, detached],
   );
   const order = useItemOrder(threadId) ?? none;

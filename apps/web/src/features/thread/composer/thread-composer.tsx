@@ -13,7 +13,6 @@ import { ContextBar } from "./context-bar.tsx";
 import { ContextMeter } from "./context-meter.tsx";
 import { ControlsPending, DeferredQueueArea, DeferredThreadControls } from "./deferred-parts.tsx";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
-import { rememberAttachments, stage, unstage } from "./send-store.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
 
 /** Desktop widths put the caret in the composer when a thread opens; a phone's keyboard waits. */
@@ -89,55 +88,18 @@ export function ThreadComposer({
     // whether the message is a bubble (steered in) or a pill (queued).
     const other = followUp === "steer" ? "queue" : "steer";
     const delivery = busy ? (draft.opposite ? other : (followUp ?? "queue")) : undefined;
-    const { files } = draft;
-    // Files still uploading: the message waits as its bubble ("Uploading 2 images…") and goes
-    // when they're done (AT-2). A file that didn't upload sends it back to the composer.
-    if (files.uploading)
-      stage({
-        commandId,
-        threadId: props.thread.id,
-        text: draft.text,
-        attachments: files.local,
-        uploading: files.uploading,
-      });
-    const ready = await files.settled;
-    rememberAttachments(files.local, ready);
-    if (ready.length < files.local.length) {
-      unstage(props.thread.id, commandId);
-      toast.add({
-        title: "A file didn't upload",
-        description: "The message is back in the composer without it.",
-      });
-      return false;
-    }
-    try {
-      const saved = client.enqueue(
-        {
-          type: "thread.send",
-          threadId,
-          input: [{ type: "text", text: draft.text || "See the attached files." }],
-          context: {
-            mentions: draft.mentions,
-            attachments: ready.map((file) => ({ sha256: file.sha256 })),
-          },
-          ...(delivery ? { delivery } : {}),
-          ...(sent ? { options: sent.options } : {}),
-        },
-        commandId,
-      );
-      // The outbox shows it at once under the same key, so the held bubble carries on.
-      unstage(props.thread.id, commandId);
-      await saved;
-      if (sent) setSpent({ commandId, turn: sent });
-      return true;
-    } catch {
-      unstage(props.thread.id, commandId);
-      toast.add({
-        title: "Couldn't send the message",
-        description: "This device couldn't save it. It is back in the composer.",
-      });
-      return false;
-    }
+    const { sendMessage } = await import("./send-message.ts");
+    const ok = await sendMessage({
+      client,
+      threadId: props.thread.id,
+      commandId,
+      draft,
+      delivery,
+      options: sent?.options,
+      notify: (title, description) => toast.add({ title, description }),
+    });
+    if (ok && sent) setSpent({ commandId, turn: sent });
+    return ok;
   };
 
   // Stop names the turn it was pressed in, and reads "Stopping…" until that turn ends.

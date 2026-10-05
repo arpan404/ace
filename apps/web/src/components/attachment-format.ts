@@ -1,4 +1,5 @@
 import type { Attachment, ContentPart } from "@ace/protocol";
+import { formatBytes } from "./format-bytes.ts";
 
 /*
  * What a message's attachments look like on screen, decided without I/O: which are images and
@@ -41,11 +42,7 @@ export interface Shown {
 }
 
 /** Bytes as people say them: 940 B, 12 KB, 3.4 MB. */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1000) return `${bytes} B`;
-  if (bytes < 1_000_000) return `${Math.round(bytes / 1000)} KB`;
-  return `${(bytes / 1_000_000).toFixed(bytes < 10_000_000 ? 1 : 0)} MB`;
-}
+export { formatBytes };
 
 /** The last segment of a path or URL; a stored blob named by its hash reads as "Attached file". */
 export function displayName(path: string, fallback = "Attached file"): string {

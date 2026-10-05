@@ -2,7 +2,8 @@ import { useItem } from "@ace/client-react";
 import { InfoIcon, WarningIcon } from "@phosphor-icons/react";
 import { memo, Suspense } from "react";
 import { DeferredReviewNote } from "./deferred-review.ts";
-import { ArtifactLine } from "@/components/attachment-artifact.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { DeferredInteractionCard } from "../interactions/deferred-card.ts";
 import type { Block } from "../transcript/blocks.ts";
@@ -13,6 +14,11 @@ import { AssistantMessage } from "./messages.tsx";
 import { UserMessage } from "./user-message.tsx";
 import { Subagents } from "./subagents.tsx";
 import { WorkLog } from "./work-log.tsx";
+
+/** A saved artifact (an image as a thumbnail); rare, so its code loads when one shows. */
+const ArtifactLine = deferredComponent(() =>
+  import("@/components/attachment-artifact.tsx").then((module) => module.ArtifactLine),
+);
 
 /**
  * One transcript block. Each child subscribes to its own items, so streaming stays local, and
@@ -97,7 +103,15 @@ function QuietItem(props: { threadId: string; itemId: string }) {
         </Marker>
       );
     case "artifact":
-      return <ArtifactLine threadId={props.threadId} path={item.path} mimeType={item.mimeType} />;
+      return (
+        <Suspense fallback={null}>
+          <ArtifactLine.Component
+            threadId={props.threadId}
+            path={item.path}
+            mimeType={item.mimeType}
+          />
+        </Suspense>
+      );
     case "message":
       return (
         <p className="text-ui whitespace-pre-wrap text-muted-foreground">

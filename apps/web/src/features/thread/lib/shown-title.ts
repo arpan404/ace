@@ -1,5 +1,4 @@
 import { usePendingSends } from "@ace/client-react";
-import { untitledThread } from "@ace/ui-core";
 import { startedTitle } from "../composer/send-store.ts";
 
 /**
@@ -9,6 +8,7 @@ import { startedTitle } from "../composer/send-store.ts";
  */
 export function useShownTitle(threadId: string, title: string | undefined): string | undefined {
   const created = usePendingSends(threadId).find((send) => send.payload.type === "thread.create");
-  if (title !== undefined && title !== untitledThread) return title;
+  // The daemon's own name for a thread with no title yet (`untitledThread` in ui-core).
+  if (title !== undefined && title !== "New thread") return title;
   return (created && startedTitle(created.commandId)) ?? title;
 }

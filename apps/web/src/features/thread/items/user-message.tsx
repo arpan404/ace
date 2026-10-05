@@ -1,13 +1,39 @@
 import { useItem } from "@ace/client-react";
 import { formatClock } from "@ace/ui-core";
 import { Suspense } from "react";
-import { MessageAttachments, type LocalAttachment } from "@/components/attachment-message.tsx";
+import type { LocalAttachment } from "@/components/attachment-format.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { DeferredSendStatus } from "../composer/deferred-parts.tsx";
-import { inputText, localAttachment } from "../composer/send-store.ts";
-import { leasable } from "../lib/pending-thread-id.ts";
-import { useLocalSendsView, type LocalSend } from "./local-sends-view.ts";
+import {
+  inputText,
+  localAttachment,
+  leasable,
+  useLocalSendsView,
+  type LocalSend,
+} from "../composer/send-store.ts";
 
 const nothing: LocalSend = {};
+
+/** Thumbnails and file chips; their code loads with the thread's deferred parts. */
+const DeferredAttachments = deferredComponent(() =>
+  import("@/components/attachment-message.tsx").then((module) => module.MessageAttachments),
+);
+
+/**
+ * Room for a message's attachments while their code arrives: a lone image's box at its known
+ * aspect (within 320×240), else a grid's rows of 120, so the bubble keeps its size.
+ */
+function AttachmentsRoom(props: {
+  images: readonly { width?: number | undefined; height?: number | undefined }[];
+}) {
+  const [first] = props.images;
+  if (!first) return null;
+  const height =
+    props.images.length === 1
+      ? Math.min(240, (320 * (first.height ?? 3)) / (first.width ?? 4))
+      : Math.ceil(Math.min(props.images.length, 4) / 2) * 126;
+  return <span aria-hidden className="mb-2 block" style={{ height }} />;
+}
 
 /** Files of a message the daemon hasn't echoed yet, as this window knows them. */
 function localFiles(local: LocalSend): readonly LocalAttachment[] | undefined {
@@ -42,6 +68,18 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
     : local.send
       ? inputText(local.send.payload.input)
       : (local.staged?.text ?? "");
+  // Most messages carry no files: only those load the thumbnails' code.
+  const parts = message?.parts ?? local.send?.payload.input ?? [];
+  const images: { width?: number | undefined; height?: number | undefined }[] = [
+    ...(message?.attachments ?? []).filter((file) => file.mimeType.startsWith("image/")),
+    ...parts.flatMap((part) => (part.type === "image" ? [{}] : [])),
+  ];
+  const files =
+    message?.attachments?.length ||
+    parts.some((part) => part.type === "file" || part.type === "image") ||
+    (!message && localFiles(local)?.length)
+      ? { images }
+      : undefined;
   const saying =
     !!local.staged ||
     noticeId !== undefined ||
@@ -56,13 +94,17 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
   return (
     <div className="group/bubble flex flex-col items-end">
       <div className="max-w-[82%] rounded-[16px_16px_4px_16px] bg-bubble px-[15px] py-2.5 text-[15px] leading-[1.55] tracking-[-0.005em] wrap-break-word whitespace-pre-wrap">
-        <MessageAttachments
-          threadId={leasable(props.threadId)}
-          attachments={message?.attachments}
-          parts={message?.parts ?? local.send?.payload.input}
-          local={message ? undefined : localFiles(local)}
-          className={text ? "mb-2" : undefined}
-        />
+        {files && (
+          <Suspense fallback={<AttachmentsRoom images={files.images} />}>
+            <DeferredAttachments.Component
+              threadId={leasable(props.threadId)}
+              attachments={message?.attachments}
+              parts={message?.parts ?? local.send?.payload.input}
+              local={message ? undefined : localFiles(local)}
+              className={text ? "mb-2" : undefined}
+            />
+          </Suspense>
+        )}
         {text}
       </div>
       {/* One line under the bubble: how its sending goes, else its time on hover. Both are

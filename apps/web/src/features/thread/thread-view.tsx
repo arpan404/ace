@@ -1,6 +1,15 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type CSSProperties,
+} from "react";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
@@ -31,7 +40,7 @@ const ForkDialog = lazy(() =>
 import { Transcript } from "./transcript/transcript.tsx";
 import { AgentTranscript } from "./transcript/agent-transcript.tsx";
 import { SideChatComposer } from "./composer/side-chat-composer.tsx";
-import { AgentComposer } from "./composer/agent-composer.tsx";
+import { DeferredAgentComposer } from "./composer/deferred-parts.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import {
@@ -42,11 +51,20 @@ import {
   preloadDeferred,
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
-import { isPendingThread } from "./lib/pending-thread-id.ts";
+import { isPendingThread } from "./composer/send-store.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
 import { PendingThreadView } from "./pending-thread.tsx";
 import { LongThreadButtons } from "./long/header-buttons.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
+
+/** The Agents panel's follow-up composer: its code loads with the composer's other parts. */
+function AgentComposer(props: ComponentProps<typeof DeferredAgentComposer.Component>) {
+  return (
+    <Suspense fallback={null}>
+      <DeferredAgentComposer.Component {...props} />
+    </Suspense>
+  );
+}
 
 /** Where a link into the thread points: an item's creation sequence (a search hit elsewhere). */
 export interface ThreadTarget {

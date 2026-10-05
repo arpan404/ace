@@ -7,11 +7,9 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useLayout } from "@/lib/layout.tsx";
-import { writeDraft } from "../composer/draft-store.ts";
 import { dismissSend } from "../composer/dismissed-sends.ts";
 import { draftOf, type SendPayload } from "../composer/returned-draft.ts";
-import { returnDraft } from "../composer/send-store.ts";
-import { leasable } from "../lib/pending-thread-id.ts";
+import { returnDraft, leasable } from "../composer/send-store.ts";
 import { commandOf } from "./pending-sends.ts";
 
 /** "Not sent · the reason", with Retry (sends it again) and Edit (back into the composer). */
@@ -89,13 +87,16 @@ export function useSendActions(threadId: string) {
     edit(commandId: string, payload: SendPayload) {
       const draft = draftOf(payload);
       dismissSend(storage, commandId);
-      if (payload.type === "thread.create") {
-        writeDraft(storage, `new:${payload.workspaceId}`, draft);
-        void navigate({ to: "/new", search: { project: payload.workspaceId } });
-        return;
-      }
+      if (payload.type === "thread.create")
+        return void import("../composer/draft-store.ts").then(({ writeDraft }) => {
+          writeDraft(storage, `new:${payload.workspaceId}`, draft);
+          void navigate({ to: "/new", search: { project: payload.workspaceId } });
+        });
       const key = `thread:${threadId}`;
-      if (!returnDraft(key, draft)) writeDraft(storage, key, draft);
+      if (!returnDraft(key, draft))
+        void import("../composer/draft-store.ts").then(({ writeDraft }) =>
+          writeDraft(storage, key, draft),
+        );
     },
   };
 }

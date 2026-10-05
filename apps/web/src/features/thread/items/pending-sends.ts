@@ -6,7 +6,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissedSends, loadDismissed } from "../composer/dismissed-sends.ts";
 import { stagedSends, type StagedSend } from "../composer/send-store.ts";
-import { blockItems, type Block } from "../transcript/blocks.ts";
+import type { Block } from "../transcript/blocks.ts";
 
 /*
  * The person's messages on their way, in the transcript (UX audit SY-2, SY-3, SY-7). A message
@@ -113,9 +113,14 @@ export function commandOf(itemId: string): string | undefined {
  * bubble says it), and a message the daemon hasn't admitted yet is appended as the bubble its
  * item will become. Returns `blocks` itself when nothing changes. Pure.
  */
-export function withLocalSends(blocks: readonly Block[], local: LocalSends): readonly Block[] {
+export function withLocalSends(
+  blocks: readonly Block[],
+  local: LocalSends,
+  /** The items a block shows (`blockItems`, from the transcript). */
+  itemsOf: (block: Block) => readonly string[],
+): readonly Block[] {
   const shown = new Set<string>();
-  for (const block of blocks) for (const id of blockItems(block)) shown.add(id);
+  for (const block of blocks) for (const id of itemsOf(block)) shown.add(id);
   const failureNotices = new Set<string>();
   for (const [commandId, noticeId] of local.failures)
     if (shown.has(inputItemId(commandId)) || local.dismissed.has(commandId))
