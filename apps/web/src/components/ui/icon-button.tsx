@@ -7,6 +7,8 @@ import { Tip } from "./tooltip.tsx";
 /**
  * A square icon-only button. The label is its accessible name and its tooltip, with the
  * shortcut beside it. `pressed` makes it a toggle: the icon fills and `aria-pressed` is set.
+ * Disabled with a `reason`, it stays focusable and hoverable (`aria-disabled`, clicks do
+ * nothing), so its tooltip can say why it can't be used.
  */
 function IconButton({
   icon,
@@ -16,6 +18,7 @@ function IconButton({
   pressed,
   size = "default",
   tooltip = true,
+  reason,
   className,
   ...props
 }: Omit<ButtonPrimitive.Props, "children"> & {
@@ -26,16 +29,20 @@ function IconButton({
   pressed?: boolean;
   size?: "sm" | "default" | "lg";
   tooltip?: boolean;
+  /** Shown as the tooltip while disabled: why it can't be used now. */
+  reason?: string | undefined;
 }) {
   const button = (
     <ButtonPrimitive
       data-slot="icon-button"
       aria-label={label}
+      focusableWhenDisabled={reason !== undefined}
       {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
       className={cn(
         "relative inline-grid shrink-0 place-items-center text-muted-foreground transition-[background-color,color,transform] duration-(--dur-1) ease-smooth focus-ring touch-hit active:scale-[0.94]",
         "hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground",
-        "disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40",
+        "disabled:pointer-events-none disabled:opacity-40 data-disabled:opacity-40 data-disabled:hover:bg-transparent data-disabled:hover:text-muted-foreground",
+        reason === undefined && "data-disabled:pointer-events-none",
         size === "sm" && "size-6 rounded-sm",
         size === "default" && "size-[30px] rounded-md",
         size === "lg" && "size-[34px] rounded-card",
@@ -48,7 +55,11 @@ function IconButton({
   );
   if (!tooltip) return button;
   return (
-    <Tip label={label} {...(shortcut ? { shortcut } : {})} {...(keys ? { keys } : {})}>
+    <Tip
+      label={props.disabled && reason ? reason : label}
+      {...(props.disabled && reason ? {} : shortcut ? { shortcut } : {})}
+      {...(props.disabled && reason ? {} : keys ? { keys } : {})}
+    >
       {button}
     </Tip>
   );

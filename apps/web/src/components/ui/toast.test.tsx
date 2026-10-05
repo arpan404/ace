@@ -28,6 +28,15 @@ function Buttons() {
       >
         Fail
       </button>
+      <button
+        type="button"
+        onClick={() => {
+          for (const name of ["one", "two", "three", "four"])
+            toast.add({ title: `Archived ${name}`, actionProps: { children: "Undo" } });
+        }}
+      >
+        Archive four
+      </button>
     </>
   );
 }
@@ -70,4 +79,18 @@ test("a toast with an action stays twice as long as a plain one", async () => {
   expect(screen.getByText("Archived")).toBeTruthy();
   await act(() => vi.advanceTimersByTimeAsync(4_000));
   expect(screen.queryByText("Archived")).toBeNull();
+});
+
+test("an Undo waiting behind a full stack keeps its whole time for when it shows", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  setup();
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  await user.click(screen.getByRole("button", { name: "Archive four" }));
+  await user.unhover(screen.getByRole("button", { name: "Archive four" }));
+  await act(() => vi.advanceTimersByTimeAsync(8_500));
+  // The three shown ran out; the one that waited is shown now, with its time still ahead.
+  expect(screen.queryByText("Archived two")).toBeNull();
+  expect(screen.getByText("Archived one")).toBeTruthy();
+  await act(() => vi.advanceTimersByTimeAsync(6_000));
+  expect(screen.getByText("Archived one")).toBeTruthy();
 });

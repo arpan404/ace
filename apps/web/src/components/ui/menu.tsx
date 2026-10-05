@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
 import { describeKeys, type KeymapId } from "@/lib/keymap.ts";
 import {
+  layers,
   menuDanger,
   menuItem,
   menuLabel,
@@ -35,7 +36,7 @@ function MenuContent({
         align={align}
         sideOffset={sideOffset}
         anchor={anchor}
-        className="isolate z-[110] outline-none"
+        className={cn(layers.popup, "isolate outline-none [-webkit-app-region:no-drag]")}
       >
         <MenuPrimitive.Popup
           data-slot="menu-content"
