@@ -2,7 +2,8 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
-import { formatKeys } from "@/lib/keymap.ts";
+import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
+import { formatKeys, type KeymapId } from "@/lib/keymap.ts";
 import {
   menuDanger,
   menuItem,
@@ -47,23 +48,46 @@ function MenuContent({
 }
 
 /**
- * One action. `icon` and `keys` render the leading glyph and trailing shortcut. `reason` is a
- * muted second line, for saying why a disabled item can't be chosen yet.
+ * The trailing shortcut text: a keymap id, or keys (a default follows its rebinding unless
+ * `resolve` is false).
+ */
+function useShortcutText(
+  shortcut: KeymapId | undefined,
+  keys: string | undefined,
+  resolve: boolean,
+) {
+  const resolved = useResolvedKeymap();
+  const shown = shortcut
+    ? resolved[shortcut]
+    : keys && (resolve ? resolveKeys(keys, resolved) : keys);
+  return shown ? formatKeys(shown) : undefined;
+}
+
+/**
+ * One action. `icon` and `shortcut` (a keymap id) or `keys` render the leading glyph and
+ * trailing shortcut. `reason` is a muted second line, for saying why a disabled item can't be
+ * chosen yet.
  */
 function MenuItem({
   className,
   icon,
+  shortcut,
   keys,
+  resolve = true,
   danger,
   reason,
   children,
   ...props
 }: MenuPrimitive.Item.Props & {
   icon?: ReactNode;
+  shortcut?: KeymapId;
   keys?: string;
+  /** False: `keys` are this item's own, never a rebindable shortcut's. */
+  resolve?: boolean;
   danger?: boolean;
   reason?: string | undefined;
 }) {
+  const shortcutText = useShortcutText(shortcut, keys, resolve);
   if (reason)
     // Two lines: the row grows past 30px, and only the label and icon dim when disabled, so
     // the reason keeps its contrast.
@@ -84,9 +108,9 @@ function MenuItem({
           <span className="truncate group-data-disabled/item:opacity-50">{children}</span>
           <span className="text-xs whitespace-normal text-subtle-foreground">{reason}</span>
         </span>
-        {keys && (
+        {shortcutText && (
           <span className={cn(menuShortcut, "group-data-disabled/item:opacity-50")}>
-            {formatKeys(keys)}
+            {shortcutText}
           </span>
         )}
       </MenuPrimitive.Item>
@@ -95,7 +119,7 @@ function MenuItem({
     <MenuPrimitive.Item className={cn(menuItem, danger && menuDanger, className)} {...props}>
       {icon}
       <span className="min-w-0 flex-1 truncate">{children}</span>
-      {keys && <span className={menuShortcut}>{formatKeys(keys)}</span>}
+      {shortcutText && <span className={menuShortcut}>{shortcutText}</span>}
     </MenuPrimitive.Item>
   );
 }
@@ -110,7 +134,7 @@ function MenuSubTrigger({
     <MenuPrimitive.SubmenuTrigger className={cn(menuItem, className)} {...props}>
       {icon}
       <span className="min-w-0 flex-1 truncate">{children}</span>
-      <CaretRightIcon aria-hidden size={12} className="ml-auto" />
+      <CaretRightIcon aria-hidden size={12} className="ml-auto size-3!" />
     </MenuPrimitive.SubmenuTrigger>
   );
 }
