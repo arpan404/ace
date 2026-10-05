@@ -365,6 +365,9 @@
         "code": {
           "type": "string"
         },
+        "commandId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
         "complete": {
           "type": "boolean"
         },

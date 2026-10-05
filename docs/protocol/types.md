@@ -1235,6 +1235,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | yes | boolean |  |
 | type | yes | `"notice"` |  |
+| commandId | no | [CommandId.json](schema/CommandId.json) |  |
 | level | yes | ["info","warning","error"] |  |
 | code | no | string |  |
 | title | no | string |  |
@@ -1253,7 +1254,10 @@ Example:
   "code": "example",
   "complete": true,
   "createdAt": 7,
-  "detail": "example",
+  "details": {
+    "code": "example",
+    "provider": "opencode"
+  },
   "executionSource": {
     "nativeSessionId": "example",
     "selection": {
@@ -1262,17 +1266,12 @@ Example:
     }
   },
   "id": "example",
-  "level": "warning",
+  "level": "info",
   "nativeId": "example",
+  "raw": [],
   "runId": "example",
-  "source": {
-    "bytes": 8,
-    "encoding": "utf-16le",
-    "streamId": "example"
-  },
   "text": "example",
   "title": "example",
-  "toolCallId": "example",
   "type": "notice"
 }
 ```
@@ -1297,10 +1296,10 @@ Example:
 ```json
 {
   "agentId": "example",
-  "complete": false,
-  "createdAt": 3,
+  "complete": true,
+  "createdAt": 7,
   "id": "example",
-  "tokensAfter": 2,
+  "tokensBefore": 0,
   "type": "compaction"
 }
 ```
@@ -1317,9 +1316,7 @@ Example:
 Example:
 
 ```json
-{
-  "effort": "high"
-}
+{}
 ```
 
 ## AgentOrigin
@@ -1331,7 +1328,7 @@ Type: ["root","provider_subagent","ace"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"provider_subagent"
+"ace"
 ```
 
 ## AgentSelection
@@ -1353,7 +1350,7 @@ Example:
 
 ```json
 {
-  "accountId": "example",
+  "installationId": "example",
   "instanceId": "example",
   "model": "example",
   "provider": "acp"
@@ -1391,8 +1388,7 @@ Example:
 
 ```json
 {
-  "activity": "starting_turn",
-  "detail": "example",
+  "activity": "responding",
   "itemId": "example",
   "state": "working"
 }
@@ -1413,10 +1409,9 @@ Example:
 
 ```json
 {
-  "on": "upstream",
+  "on": "subagents",
   "refs": [],
-  "state": "blocked",
-  "until": 4
+  "state": "blocked"
 }
 ```
 
@@ -7653,6 +7648,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | yes | boolean |  |
 | type | yes | `"notice"` |  |
+| commandId | no | [CommandId.json](schema/CommandId.json) |  |
 | level | yes | ["info","warning","error"] |  |
 | code | no | string |  |
 | title | no | string |  |
@@ -7668,16 +7664,14 @@ Example:
 ```json
 {
   "agentId": "example",
+  "code": "example",
+  "commandId": "example",
   "complete": true,
   "createdAt": 8,
-  "details": {
-    "code": "example",
-    "provider": "acp"
-  },
+  "detail": "example",
   "id": "example",
-  "level": "info",
+  "level": "warning",
   "text": "example",
-  "title": "example",
   "type": "notice"
 }
 ```
@@ -7703,9 +7697,11 @@ Example:
 {
   "agentId": "example",
   "complete": true,
-  "createdAt": 1,
+  "createdAt": 8,
   "id": "example",
-  "tokensBefore": 0,
+  "nativeId": "example",
+  "tokensAfter": 3,
+  "tokensBefore": 1,
   "type": "compaction"
 }
 ```

@@ -95,7 +95,7 @@ export function idbOutbox(
         return transact<readonly string[]>("readonly", (tx, done) => {
           const request = tx
             .objectStore("intents")
-            .getAll(IDBKeyRange.bound([key, ""], [key, "\uffff"]));
+            .getAll(IDBKeyRange.bound([key], [key, []], false, true));
           request.addEventListener("success", () => {
             try {
               done(z.array(z.string()).parse(request.result));

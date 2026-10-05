@@ -156,7 +156,6 @@ export class Client implements ClientApi {
           case "cursor.auth.changed":
           case "cursor.auth.error":
           case "registry.result":
-          case "items.page":
           case "output.data":
             // Resolved above with every other correlated reply.
             break;
@@ -222,10 +221,14 @@ export class Client implements ClientApi {
         }
         if (intent?.state === "failed" && !intent.localFailure)
           this.requests.resolve(id, { commandId: id, ok: false, error: intent.error });
+        const hadEntry = this.pendingSendEntries.has(id);
         const entry = intent && pendingSend(intent);
         if (entry) this.pendingSendEntries.set(id, entry);
         else this.pendingSendEntries.delete(id);
-        this.notifications.emit([`intent:${id}`, "pendingSends"]);
+        this.notifications.emit([
+          `intent:${id}`,
+          ...(entry || hadEntry ? [`pendingSend:${id}`, "pendingSends"] : []),
+        ]);
       },
       send: (command) => {
         if (this.state === "ready") this.connection.send({ type: "command", command });
@@ -239,6 +242,12 @@ export class Client implements ClientApi {
   }
   private observeInputs(message: ServerMessage): void {
     const observe = (item: Item) => {
+      if (item.type === "notice" && item.commandId && item.level === "error") {
+        void this.intents
+          .deliveryFailed(item.commandId, item.detail ?? item.text)
+          .catch(() => this.connection.fail(new ClientError("storage")));
+        return;
+      }
       if (item.type !== "message" || item.role !== "user") return;
       const id =
         item.origin?.commandId ?? (item.id.startsWith("input:") ? item.id.slice(6) : undefined);
@@ -247,9 +256,12 @@ export class Client implements ClientApi {
     };
     if (message.type === "snapshot" && message.view.kind === "thread")
       for (const item of Object.values(message.view.items)) observe(item);
+    else if (message.type === "items.page" || message.type === "items.window")
+      for (const item of message.items) observe(item);
     else if (message.type === "events")
       for (const event of message.events) {
-        if (event.payload.type === "item.created") observe(event.payload.item);
+        if (event.payload.type === "item.created" || event.payload.type === "item.updated")
+          observe(event.payload.item);
       }
   }
   get state(): ConnectionState {
@@ -260,6 +272,19 @@ export class Client implements ClientApi {
   }
   connectionState(): Selection<ConnectionState> {
     return this.notifications.select(["connection"], () => this.state);
+  }
+  /** Worker-owned allocation also supplies tab prefixes; no tab reaches for randomness. */
+  commandId(): string {
+    return CommandId.parse(this.options.id());
+  }
+  pendingSend(id: string): PendingSend | undefined {
+    return this.pendingSendEntries.get(id);
+  }
+  observePendingSends(listener: (id: string) => void): () => void {
+    return this.notifications.tap((keys) => {
+      if (keys === "all") return;
+      for (const key of keys) if (key.startsWith("pendingSend:")) listener(key.slice(12));
+    });
   }
   intent(id: string): Selection<Intent | undefined> {
     return this.notifications.select([`intent:${id}`], () => this.intents.get(id));

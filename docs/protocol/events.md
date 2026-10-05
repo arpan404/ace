@@ -421,13 +421,15 @@ Example:
       }
     },
     "id": "example",
-    "level": "error",
+    "level": "warning",
+    "raw": [],
     "source": {
-      "bytes": 2,
+      "bytes": 5,
       "encoding": "utf-16le",
       "streamId": "example"
     },
     "text": "example",
+    "toolCallId": "example",
     "type": "notice"
   },
   "type": "item.created"
@@ -450,7 +452,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "text",
+  "field": "output",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -469,14 +471,21 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "bytes": 7,
     "complete": true,
     "createdAt": 3,
+    "delivery": "ace-input",
     "id": "example",
-    "mimeType": "example",
-    "path": "example",
-    "source": "browser",
-    "type": "artifact"
+    "origin": "ace",
+    "results": [
+      {
+        "before": null,
+        "outcome": "cancelled",
+        "result": "example",
+        "threadId": "example",
+        "truncated": true
+      }
+    ],
+    "type": "delegation.settled"
   },
   "type": "item.updated"
 }
@@ -511,31 +520,26 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "autoReviewed": false,
     "blocking": false,
-    "createdAt": 9,
+    "closedAt": 9,
+    "createdAt": 6,
     "id": "example",
     "request": {
+      "defaultToNo": false,
       "description": "example",
-      "kind": "elicitation",
-      "message": "example",
-      "nativeId": "example",
-      "server": "example"
-    },
-    "resolution": {
       "kind": "approval",
-      "optionId": "example"
+      "options": [],
+      "title": "example"
     },
     "review": {
-      "decision": "escalate",
+      "decision": "deny",
       "interactionId": "example",
-      "mode": "full-access",
+      "mode": "read-only",
       "reason": "example",
       "reviewer": "ace-risk-policy"
     },
-    "state": "expired",
-    "threadId": "example",
-    "toolCallId": "example"
+    "state": "pending",
+    "threadId": "example"
   },
   "type": "interaction.opened"
 }
@@ -557,9 +561,9 @@ Example:
 
 ```json
 {
-  "closedAt": 5,
+  "closedAt": 3,
   "interactionId": "example",
-  "state": "cancelled",
+  "state": "expired",
   "type": "interaction.closed"
 }
 ```
@@ -577,14 +581,15 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "childAgentId": "example",
-    "endedAt": 5,
+    "ambient": false,
     "id": "example",
-    "kind": "other",
-    "startedAt": 5,
-    "status": "failed",
+    "kind": "monitor",
+    "raw": [],
+    "startedAt": 4,
+    "status": "unknown",
     "stoppable": false,
-    "title": "example"
+    "title": "example",
+    "toolCallId": "example"
   },
   "type": "background_task.started"
 }
@@ -603,7 +608,7 @@ Example:
 
 ```json
 {
-  "status": "failed",
+  "status": "unknown",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -624,9 +629,9 @@ Example:
 ```json
 {
   "paused": false,
-  "reason": null,
-  "resumeAt": 6,
-  "revision": 1,
+  "reason": "manual",
+  "resumeAt": null,
+  "revision": 2,
   "type": "queue.updated"
 }
 ```
@@ -644,9 +649,9 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 0,
+    "epoch": 9,
     "source": "catalog",
-    "usedTokens": 8,
+    "usedTokens": null,
     "windowTokens": null
   },
   "type": "context_meter.updated"
@@ -669,9 +674,10 @@ Example:
 ```json
 {
   "agentId": "example",
+  "model": "example",
   "sessionId": "example",
   "type": "context.sampled",
-  "usedTokens": 3
+  "usedTokens": 0
 }
 ```
 
@@ -704,14 +710,14 @@ Example:
 
 ```json
 {
-  "accountId": "example",
   "agentId": "example",
-  "cacheWriteTokens": 5,
   "contextSessionId": "example",
-  "contextTokens": 6,
-  "counterKey": "example",
-  "inputTokens": 2,
-  "outputTokens": 7,
+  "contextTokens": 7,
+  "costUsd": 9,
+  "counterMode": "incremental",
+  "inputTokens": 8,
+  "model": "example",
+  "outputTokens": 4,
   "type": "usage.updated",
   "usageScope": "agent"
 }
@@ -730,6 +736,7 @@ Example:
 ```json
 {
   "change": {
+    "destination": "example",
     "id": "example",
     "op": "example",
     "path": "example",

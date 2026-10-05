@@ -82,3 +82,4 @@ export type {
 export { pendingSend, pendingSendsEqual, matchesPendingThread } from "./pending-sends.ts";
 export type { PendingSend, SendPayload } from "./pending-sends.ts";
 export { attachmentBytes, type AttachmentInput } from "./attachments.ts";
+export { fitsUtf8 } from "./bounds.ts";

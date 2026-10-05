@@ -1,6 +1,7 @@
 import { readableProviderFact } from "./provider-errors.ts";
 import { attributeAceAction } from "./ace-approvals.ts";
 import { AceInputs } from "./ace-inputs.ts";
+import { InputJournal, inputOrigin } from "./input-journal.ts";
 import { coalesceFacts } from "./delta-batch.ts";
 import { Permissions } from "./permissions.ts";
 import { ProviderRecovery } from "./provider-recovery.ts";
@@ -32,6 +33,7 @@ export class EngineRepository {
   readonly recovery: ProviderRecovery;
   private capture: StatementSync;
   readonly queue: QueueStore;
+  readonly inputs: InputJournal;
   readonly pending: IntentStore;
   observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
   private ids: IdSource;
@@ -75,6 +77,7 @@ export class EngineRepository {
     );
     this.queue = new QueueStore(store);
     this.pending = new IntentStore(store, this.queue);
+    this.inputs = new InputJournal(store);
     this.transitions = new TransitionState(store);
     this.readiness = store.atomic((_db) => new TransitionReadiness(_db));
     store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
@@ -216,7 +219,13 @@ export class EngineRepository {
             this.recoveryAcknowledgement(id)
           )
             input = { ...input, trigger: queue.trigger };
-          let fact = attributeAceAction(state, this.aceInputs.attribute(id, input), this.aceAction);
+          // The admitted input item takes the provider's echo first; ace's own inputs are then
+          // attributed, and provider errors made readable.
+          let fact = attributeAceAction(
+            state,
+            this.aceInputs.attribute(id, this.inputs.correlate(id, input, state.rootKey ?? "root")),
+            this.aceAction,
+          );
           if (
             ((fact.type === "item.upsert" || fact.type === "item.reconciled") &&
               fact.draft.type === "notice") ||
@@ -263,7 +272,10 @@ export class EngineRepository {
           try {
             const emitted = batch.apply(fact, {
               now,
-              ids: this.ids,
+              ids:
+                fact.type === "item.upsert" && fact.item.startsWith("input:")
+                  ? { next: (kind) => (kind === "item" ? fact.item : this.ids.next(kind)) }
+                  : this.ids,
               ...(fact.type === "turn.ended"
                 ? {
                     resolvingInteractions: this.pending.resolvingInteractions(id),
@@ -331,6 +343,34 @@ export class EngineRepository {
       this.evict(id);
       throw error;
     }
+  }
+
+  admitInput(command: Command, id: ThreadId, at: number): void {
+    const p = command.payload;
+    if (p.type !== "thread.create" && p.type !== "thread.send") return;
+    const key = `input:${command.id}`;
+    const origin = inputOrigin(command);
+    this.inputs.register(id, key, p.input, origin);
+    this.apply(
+      id,
+      [
+        {
+          type: "item.upsert",
+          agent: this.requireState(id).rootKey ?? "root",
+          item: key,
+          draft: {
+            type: "message",
+            role: "user",
+            parts: p.input,
+            origin,
+            synthetic: origin.kind !== "person" && origin.kind !== "queue",
+            complete: true,
+            raw: [],
+          },
+        },
+      ],
+      at,
+    );
   }
 
   cancelPending(id: ThreadId, now: number): ThreadId[] {

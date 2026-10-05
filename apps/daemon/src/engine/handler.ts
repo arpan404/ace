@@ -272,6 +272,7 @@ export function engineHandler(
         if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");
         const released = p.type === "thread.interrupt" ? repo.cancelPending(threadId, now()) : [];
         repo.add(admitted, threadId, resolutionId);
+        repo.admitInput(admitted, threadId, now());
         if (p.type === "thread.create" || p.type === "thread.send") {
           repo.queue.set(threadId, {}, now());
           recovery.sync(threadId);

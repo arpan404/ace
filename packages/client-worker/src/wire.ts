@@ -86,7 +86,11 @@ export const LeaseChanges = z.object({
 export type LeaseChanges = z.infer<typeof LeaseChanges>;
 
 export const WorkerMessage = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("attached"), error: z.optional(ErrorShape) }),
+  z.object({
+    t: z.literal("attached"),
+    error: z.optional(ErrorShape),
+    idPrefix: z.optional(z.string()),
+  }),
   z.object({ t: z.literal("connection"), state: z.string(), error: z.optional(ErrorShape) }),
   z.object({
     t: z.literal("pendingSends"),

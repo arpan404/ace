@@ -119,7 +119,17 @@ export async function callArgs(
     }
     case "command": {
       const [payload, parsed, id] = decode(schemas.command, args);
-      return client.command(payload, options(parsed, signal), id);
+      const result = await client.command(payload, options(parsed, signal), id);
+      const current = client.intent(result.commandId).getSnapshot();
+      return {
+        result,
+        intent: current && {
+          ...current,
+          state: current.state === "pending" ? (result.ok ? "acked" : "failed") : current.state,
+          error: current.state === "pending" ? result.error : current.error,
+          threadId: result.threadId ?? current.threadId,
+        },
+      };
     }
     case "registry": {
       const [input, parsed] = decode(schemas.registry, args);

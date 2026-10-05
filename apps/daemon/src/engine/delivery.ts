@@ -118,12 +118,14 @@ export async function executeIntent(
       }
       if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
       actor.lifetime?.signal.throwIfAborted();
+      const input = [
+        ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
+        ...(prepared?.input ??
+          (p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input)),
+      ];
+      repo.inputs.sending(actor.id, `input:${intent.command.id}`, input);
       await session.send(
-        [
-          ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
-          ...(prepared?.input ??
-            (p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input)),
-        ],
+        input,
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
           ? "steer"
           : "queue",

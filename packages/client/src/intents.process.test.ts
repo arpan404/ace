@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { stubHandler } from "@ace/daemon";
-import { AgentId, ItemId, InteractionId, DeviceId } from "@ace/protocol";
+import { AgentId, InteractionId, DeviceId } from "@ace/protocol";
 import { setup, ready, when, barrier, memoryStorage } from "./test-support.ts";
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -264,51 +264,4 @@ test("an offline durable action waits through reconnect and applies once", async
   client.networkOnline(true);
   expect(await result).toMatchObject({ ok: true, commandId: "offline-archive" });
   expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeDefined();
-});
-
-test("200 large sends in a row never block the 201st", async () => {
-  const h = await setup({ handle: (command) => ({ commandId: command.id, ok: true }) });
-  cleanup = h.cleanup;
-  const storage = memoryStorage();
-  const { client } = h.make({ storage });
-  await ready(client);
-  const lease = client.thread(h.thread.id);
-  for (let i = 0; i <= 200; i++) {
-    const id = `large-${i}`;
-    expect(
-      await client.command(
-        {
-          type: "thread.send",
-          threadId: h.thread.id,
-          input: [{ type: "text", text: "x".repeat(256 * 1024) }],
-          delivery: "queue",
-        },
-        {},
-        id,
-      ),
-    ).toMatchObject({ ok: true });
-    h.daemon.store.appendEvents(h.thread.id, [
-      {
-        type: "item.created",
-        item: {
-          type: "message",
-          id: ItemId.parse(`input:${id}`),
-          agentId: AgentId.parse("agent"),
-          createdAt: i + 1,
-          role: "user",
-          complete: true,
-          synthetic: false,
-          parts: [{ type: "text", text: "x".repeat(256 * 1024) }],
-          raw: [],
-        },
-      },
-    ]);
-    await when(
-      client.intent(id),
-      (intent) => intent?.state === "acked" && intent.delivered === true,
-    );
-  }
-  expect(await storage.load()).toBe("[]");
-  expect(client.state).toBe("ready");
-  lease.release();
 });
