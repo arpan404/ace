@@ -1,16 +1,18 @@
 import { useItem } from "@ace/client-react";
-import { ArchiveIcon, InfoIcon, WarningIcon } from "@phosphor-icons/react";
+import { mayBeSystemInput } from "@ace/ui-core";
 import { memo, Suspense } from "react";
-import { DeferredReviewNote } from "./deferred-review.ts";
-import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
-import { DeferredInteractionCard } from "../interactions/deferred-card.ts";
+import { DeferredEvent } from "./deferred-review.ts";
 import type { Block } from "../transcript/blocks.ts";
 import { TurnEnd } from "../transcript/turn-end.tsx";
 import { BackgroundTaskLine } from "./background-task.tsx";
 import { ChangedFiles } from "./changed-files.tsx";
-import { AssistantMessage, UserMessage } from "./messages.tsx";
+import { AssistantMessage } from "./messages.tsx";
+import { QuestionBlock } from "./question-block.tsx";
+import { UserMessage } from "./user-message.tsx";
 import { Subagents } from "./subagents.tsx";
 import { WorkLog } from "./work-log.tsx";
+
+const EventView = DeferredEvent.Component;
 
 /**
  * One transcript block. Each child subscribes to its own items, so streaming stays local, and
@@ -25,7 +27,7 @@ export const BlockView = memo(function BlockView(props: {
   const { threadId, block } = props;
   switch (block.kind) {
     case "user":
-      return <UserMessage threadId={threadId} itemId={block.itemId} />;
+      return <PersonMessage threadId={threadId} itemId={block.itemId} />;
     case "message":
       return <AssistantMessage threadId={threadId} itemId={block.itemId} />;
     case "work":
@@ -43,78 +45,31 @@ export const BlockView = memo(function BlockView(props: {
       return <BackgroundTaskLine threadId={threadId} itemId={block.itemId} taskId={block.taskId} />;
     case "files":
       return <ChangedFiles threadId={threadId} itemIds={block.itemIds} />;
-    case "item":
-      return <QuietItem threadId={threadId} itemId={block.itemId} />;
     case "question":
-      // Placeholder (contract C-B): the pending card where the question was asked.
-      return (
-        <Suspense fallback={null}>
-          <DeferredInteractionCard.Component
-            threadId={threadId}
-            interactionId={block.interactionId}
-          />
-        </Suspense>
-      );
+      return <QuestionBlock threadId={threadId} interactionId={block.interactionId} />;
+    case "item":
     case "event":
-      // Placeholder (contract C-B): the injected text as a quiet line.
-      return <QuietItem threadId={threadId} itemId={block.itemId} />;
+      return <Event threadId={threadId} itemId={block.itemId} />;
     case "end":
       return <TurnEnd threadId={threadId} block={block} />;
   }
 });
 
-/** Notices, compaction, artifacts and messages ace did not send: one quiet line each. */
-function QuietItem(props: { threadId: string; itemId: string }) {
+function Event(props: { threadId: string; itemId: string }) {
+  return (
+    <Suspense fallback={null}>
+      <EventView threadId={props.threadId} itemId={props.itemId} />
+    </Suspense>
+  );
+}
+
+/**
+ * A user message: the person's bubble, unless ace sent it on their behalf (a resume, a
+ * delegation result, an answer, a handoff), which reads as an event instead (A3). Only a
+ * candidate goes to the event view, which decides exactly and shows the bubble otherwise.
+ */
+function PersonMessage(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
-  if (!item) return null;
-  switch (item.type) {
-    case "notice": {
-      // ace's risk policy decided an approval: the decision, its reason and the exact target.
-      if (item.raw.some((raw) => raw.type === "permission.reviewed"))
-        return (
-          <Suspense fallback={<p className="text-ui text-muted-foreground">{item.text}</p>}>
-            <DeferredReviewNote.Component threadId={props.threadId} item={item} />
-          </Suspense>
-        );
-      return (
-        <p className="flex items-start gap-2 text-ui text-muted-foreground">
-          {item.level === "info" ? (
-            <InfoIcon aria-hidden size={16} className="mt-px shrink-0 text-subtle-foreground" />
-          ) : (
-            <WarningIcon
-              aria-hidden
-              size={16}
-              className={
-                item.level === "error"
-                  ? "mt-px shrink-0 text-status-failed"
-                  : "mt-px shrink-0 text-subtle-foreground"
-              }
-            />
-          )}
-          <span className="whitespace-pre-wrap">{item.text}</span>
-        </p>
-      );
-    }
-    case "compaction":
-      return (
-        <Marker variant="separator" className="text-xs">
-          <MarkerContent>Context compacted</MarkerContent>
-        </Marker>
-      );
-    case "artifact":
-      return (
-        <p className="flex items-center gap-2 text-ui text-muted-foreground">
-          <ArchiveIcon aria-hidden size={16} className="text-subtle-foreground" />
-          Saved <code className="font-mono text-[12.5px] text-foreground">{item.path}</code>
-        </p>
-      );
-    case "message":
-      return (
-        <p className="text-ui whitespace-pre-wrap text-muted-foreground">
-          {item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")}
-        </p>
-      );
-    default:
-      return null;
-  }
+  if (mayBeSystemInput(item)) return <Event threadId={props.threadId} itemId={props.itemId} />;
+  return <UserMessage threadId={props.threadId} itemId={props.itemId} />;
 }
