@@ -2844,8 +2844,10 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | action | yes | `"wait_for"` |  |
-| ref | yes | string | {"minLength":1,"maxLength":256} |
-| state | yes | ["visible","hidden"] |  |
+| ref | no | string | {"description":"Ref from the latest snapshot. Use only for element visibility waits.","minLength":1,"maxLength":256} |
+| state | no | ["visible","hidden"] | {"description":"Required with ref."} |
+| url | no | string | {"description":"Exact destination URL. Also waits for DOMContentLoaded. Works before or after navigation commits.","minLength":1,"maxLength":8192} |
+| text | no | string | {"description":"Visible page text to wait for, matched as a substring.","minLength":1,"maxLength":4096} |
 | timeout | no | integer | {"default":10000,"minimum":1,"maximum":30000} |
 
 Example:
@@ -2854,8 +2856,8 @@ Example:
 {
   "action": "wait_for",
   "ref": "example",
-  "state": "visible",
-  "timeout": 6
+  "state": "hidden",
+  "text": "example"
 }
 ```
 
@@ -2886,8 +2888,8 @@ Example:
 ```json
 {
   "action": "resize",
-  "height": 100,
-  "width": 104
+  "height": 105,
+  "width": 100
 }
 ```
 
@@ -2910,7 +2912,7 @@ Example:
   "action": "emulate",
   "height": 100,
   "touch": false,
-  "width": 108
+  "width": 107
 }
 ```
 
@@ -2928,8 +2930,8 @@ Example:
 
 ```json
 {
-  "controller": "human",
-  "generation": 0
+  "controller": "none",
+  "generation": 6
 }
 ```
 
@@ -2949,7 +2951,7 @@ Example:
 
 ```json
 {
-  "phase": "extracting",
+  "phase": "downloading",
   "received": 7,
   "type": "browser.download.progress",
   "version": "example"
@@ -2974,9 +2976,9 @@ Example:
 {
   "data": "example",
   "height": 109,
-  "sequence": 1,
-  "timestamp": 7,
-  "width": 103
+  "sequence": 9,
+  "timestamp": 6,
+  "width": 106
 }
 ```
 
@@ -2999,11 +3001,10 @@ Example:
 
 ```json
 {
-  "button": "right",
-  "event": "mouseReleased",
+  "event": "mouseMoved",
   "kind": "mouse",
-  "x": 6,
-  "y": 9
+  "x": 7,
+  "y": 8
 }
 ```
 
@@ -3022,10 +3023,10 @@ Example:
 
 ```json
 {
-  "event": "char",
+  "event": "keyDown",
   "key": "example",
   "kind": "key",
-  "text": "example"
+  "modifiers": 0
 }
 ```
 
@@ -3043,11 +3044,11 @@ Example:
 
 ```json
 {
-  "deltaX": 0,
-  "deltaY": 2,
+  "deltaX": 2,
+  "deltaY": 3,
   "kind": "scroll",
-  "x": 8,
-  "y": 3
+  "x": 2,
+  "y": 9
 }
 ```
 
@@ -3063,7 +3064,7 @@ Example:
 
 ```json
 {
-  "event": "touchCancel",
+  "event": "touchMove",
   "kind": "touch",
   "points": []
 }
@@ -3084,6 +3085,7 @@ Example:
 
 ```json
 {
+  "headed": true,
   "profile": "ephemeral",
   "threadId": "example",
   "workspaceId": "example"
@@ -3135,7 +3137,7 @@ Example:
 
 ```json
 {
-  "grantedAt": 4,
+  "grantedAt": 0,
   "origin": "https://youtube.com"
 }
 ```
@@ -3163,7 +3165,7 @@ Example:
   "backend": "embedded",
   "pageStateLost": true,
   "reason": "example",
-  "recovery": "headless",
+  "recovery": "pause",
   "threadId": "example",
   "type": "browser.backend.lost",
   "url": "example"
@@ -3184,9 +3186,8 @@ Example:
 
 ```json
 {
-  "phase": "verifying",
-  "received": 4,
-  "total": 2,
+  "phase": "downloading",
+  "received": 3,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -3207,7 +3208,7 @@ Example:
 
 ```json
 {
-  "ok": true,
+  "ok": false,
   "requestId": "example",
   "type": "browser.result"
 }
@@ -3225,10 +3226,16 @@ Example:
 ```json
 {
   "state": {
+    "backend": "headless",
+    "blocked": {
+      "origin": "example",
+      "reason": "read_only"
+    },
     "closed": true,
-    "controller": "human",
+    "controller": "none",
+    "owner": "example",
+    "pageStateLost": true,
     "reason": "example",
-    "status": "ready",
     "threadId": "example",
     "url": "example"
   },
@@ -3250,10 +3257,10 @@ Example:
 {
   "frame": {
     "data": "example",
-    "height": 103,
-    "sequence": 3,
-    "timestamp": 0,
-    "width": 103
+    "height": 107,
+    "sequence": 5,
+    "timestamp": 2,
+    "width": 108
   },
   "threadId": "example",
   "type": "browser.frame"
@@ -3281,7 +3288,11 @@ Example:
 
 ```json
 {
-  "closed": true,
+  "blocked": {
+    "origin": "example",
+    "reason": "read_only"
+  },
+  "closed": false,
   "controller": "human",
   "reason": "example",
   "threadId": "example",
@@ -3321,19 +3332,21 @@ Example:
 
 ```json
 {
-  "backgroundTaskControl": true,
-  "backgroundVisibility": "full",
+  "backgroundTaskControl": false,
+  "backgroundVisibility": "partial",
+  "childFidelity": "full",
   "fork": true,
-  "forkMode": "context-handoff",
-  "imageInput": true,
+  "forkPoints": [],
+  "forkSubagents": false,
+  "imageInput": false,
   "interruptCascades": false,
-  "planMode": false,
+  "planMode": true,
   "resume": true,
   "rewindFiles": true,
+  "sessionOptions": true,
   "steer": false,
-  "steeringMode": "queue",
-  "subagentTranscripts": true,
-  "tokenUsage": true
+  "subagentTranscripts": false,
+  "tokenUsage": false
 }
 ```
 
@@ -3404,7 +3417,7 @@ Example:
 ```json
 {
   "kind": "prompt",
-  "provider": "acp",
+  "provider": "pi",
   "text": "example"
 }
 ```
@@ -3422,7 +3435,7 @@ Example:
 
 ```json
 {
-  "action": "A3Vh8-",
+  "action": "W:Dxci_A",
   "arguments": {},
   "kind": "ace",
   "positional": []
@@ -3446,10 +3459,10 @@ Example:
 {
   "ok": true,
   "plan": {
-    "action": ":Dxci_Aho",
-    "arguments": {},
-    "kind": "ace",
-    "positional": []
+    "kind": "native",
+    "metadata": {},
+    "provider": "codex",
+    "text": "example"
   }
 }
 ```

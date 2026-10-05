@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { parseToolArguments } from "./tool-failure.ts";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
 import type { ToolContext } from "./registry.ts";
@@ -19,7 +20,7 @@ export async function executeContent<I extends z.ZodType>(
   context: ToolContext,
 ): Promise<CallToolResult> {
   if (!withinJsonBudget(input, 64 * 1024)) throw new Error("Input budget exceeded");
-  const args = definition.input.parse(input);
+  const args = parseToolArguments(definition.input, input);
   context.signal.throwIfAborted();
   const result = await definition.run(args, context);
   const limit = 12 * 1024 * 1024; // Includes base64 expansion of the 8 MiB JPEG limit.

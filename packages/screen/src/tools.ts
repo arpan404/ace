@@ -7,17 +7,23 @@ import {
 } from "@ace/protocol";
 import { z } from "zod";
 import type { ScreenManager } from "./manager.ts";
-const Screenshot = z.object({});
+const Screenshot = z.strictObject({});
 const [ClickAction, TypeAction, KeyAction, ScrollAction] = ScreenAction.options;
-const Click = ClickAction.omit({ kind: true });
-const Type = TypeAction.omit({ kind: true });
+const Click = ClickAction.omit({ kind: true }).strict();
+const Type = TypeAction.omit({ kind: true }).strict();
 const [, , , PointKey, , PointScroll] = ScreenInput.options;
-const Key = z.union([KeyAction.omit({ kind: true }), PointKey.omit({ kind: true })]);
-const Scroll = z.union([ScrollAction.omit({ kind: true }), PointScroll.omit({ kind: true })]);
+const Key = z.union([
+  KeyAction.omit({ kind: true }).strict(),
+  PointKey.omit({ kind: true }).strict(),
+]);
+const Scroll = z.union([
+  ScrollAction.omit({ kind: true }).strict(),
+  PointScroll.omit({ kind: true }).strict(),
+]);
 export const computerUseSchemas = {
-  screen_ui_tree: ScreenUITreeOptions,
-  screen_ui_find: ScreenUIFindOptions,
-  screen_ui_act: ScreenUIActOptions,
+  screen_ui_tree: ScreenUITreeOptions.strict(),
+  screen_ui_find: ScreenUIFindOptions.strict(),
+  screen_ui_act: ScreenUIActOptions.strict(),
   screen_screenshot: Screenshot,
   screen_click: Click,
   screen_type: Type,
@@ -29,19 +35,19 @@ export const computerUseTools = [
     name: "screen_ui_tree",
     description:
       "Use first: inspect the approved app's bounded accessibility tree with stable refs. Prefer semantic actions to pixel clicks.",
-    inputSchema: z.toJSONSchema(ScreenUITreeOptions),
+    inputSchema: z.toJSONSchema(computerUseSchemas.screen_ui_tree),
   },
   {
     name: "screen_ui_find",
     description:
       "Find accessible elements by role, name or text without requesting the entire tree. Use before screenshot searches.",
-    inputSchema: z.toJSONSchema(ScreenUIFindOptions),
+    inputSchema: z.toJSONSchema(computerUseSchemas.screen_ui_find),
   },
   {
     name: "screen_ui_act",
     description:
       "Act on a stable element ref using the OS accessibility API. Reply states whether synthesized input was needed.",
-    inputSchema: z.toJSONSchema(ScreenUIActOptions),
+    inputSchema: z.toJSONSchema(computerUseSchemas.screen_ui_act),
   },
   {
     name: "screen_screenshot",
@@ -52,7 +58,7 @@ export const computerUseTools = [
   {
     name: "screen_click",
     description:
-      "Prefer screen_ui_act. Click at target-window points with v2, or screenshot pixels with v1.",
+      "Prefer screen_ui_act. Click at target-window points with v2, or pixels of the latest model screenshot with v1. Take a new screenshot after takeover or resizing.",
     inputSchema: z.toJSONSchema(Click),
   },
   {
@@ -69,12 +75,17 @@ export const computerUseTools = [
   {
     name: "screen_scroll",
     description:
-      "Scroll with v2 dx/dy at optional target-window points, or legacy pixel coordinates and deltaX/deltaY.",
+      "Scroll with v2 dx/dy at optional target-window points, or legacy model-image pixel coordinates and deltaX/deltaY.",
     inputSchema: z.toJSONSchema(Scroll),
   },
 ];
 /** The MCP host supplies a session and owner from its scoped credential, never tool arguments. */
-export function computerUseHandler(manager: ScreenManager, sessionId: string, owner: string) {
+export function computerUseHandler(
+  manager: ScreenManager,
+  sessionId: string,
+  owner: string,
+  signal: AbortSignal = new AbortController().signal,
+) {
   return async (
     name: string,
     input: unknown,
@@ -84,34 +95,33 @@ export function computerUseHandler(manager: ScreenManager, sessionId: string, ow
       | { type: "text"; text: string }
     )[];
   }> => {
+    signal.throwIfAborted();
     if (name === "screen_screenshot") {
-      const frame = await manager.captureScreenshot(sessionId);
       Screenshot.parse(input);
+      const image = await manager.modelScreenshot(sessionId, owner, signal);
       return {
         content: [
           {
             type: "image",
-            data: frame.payload.toString("base64"),
+            data: image.payload.toString("base64"),
             mimeType: "image/jpeg",
           },
-          ...(frame.header.scale === undefined
-            ? []
-            : [
-                {
-                  type: "text" as const,
-                  text: `Screenshot scale: ${frame.header.scale} pixels per target point. Divide screenshot coordinates by this scale for input; prefer UI refs.`,
-                },
-              ]),
+          {
+            type: "text",
+            text: manager.state(sessionId).capabilities
+              ? `Screenshot scale: ${image.scale} pixels per target point. Divide image coordinates by this scale for v2 input; prefer UI refs.`
+              : `Legacy input uses pixels in this ${image.width}x${image.height} model image. Pass its coordinates directly; ace maps them to the original capture. Refresh after control or capture geometry changes.`,
+          },
         ],
       };
     }
     if (name === "screen_ui_tree" || name === "screen_ui_find" || name === "screen_ui_act") {
       const data =
         name === "screen_ui_tree"
-          ? await manager.uiTree(sessionId, input)
+          ? await manager.uiTree(sessionId, input, owner)
           : name === "screen_ui_find"
-            ? await manager.uiFind(sessionId, input)
-            : await manager.uiAct(sessionId, "agent", input, owner);
+            ? await manager.uiFind(sessionId, input, owner)
+            : await manager.uiAct(sessionId, "agent", input, owner, () => signal.throwIfAborted());
       return { content: [{ type: "text", text: JSON.stringify(data) }] };
     }
     let action: unknown;
@@ -145,8 +155,11 @@ export function computerUseHandler(manager: ScreenManager, sessionId: string, ow
       default:
         throw new Error("Unknown computer-use tool");
     }
-    if (v2) await manager.input(sessionId, "agent", v2, owner);
-    else await manager.action(sessionId, "agent", ScreenAction.parse(action), owner);
+    if (v2) await manager.input(sessionId, "agent", v2, owner, () => signal.throwIfAborted());
+    else
+      await manager.modelAction(sessionId, owner, ScreenAction.parse(action), () =>
+        signal.throwIfAborted(),
+      );
     return { content: [{ type: "text", text: "Action completed" }] };
   };
 }

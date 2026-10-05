@@ -1,21 +1,35 @@
 import { cn } from "@/lib/cn.ts";
-import { formatKeys } from "@/lib/keymap.ts";
+import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
+import { formatKeys, type KeymapId } from "@/lib/keymap.ts";
 
 /**
- * A key hint. `keys` uses the keymap notation ("mod+k", "shift+mod+n", "g h") and renders
- * platform glyphs; children render verbatim.
+ * A key hint. `shortcut` shows what a keymap id is bound to now. `keys` uses the keymap
+ * notation ("mod+k", "shift+mod+n", "g h") and renders platform glyphs; a keymap default
+ * (`keymap.x.keys`) follows the user's rebinding unless `resolve={false}`. Children render
+ * verbatim.
  */
 function Kbd({
   className,
+  shortcut,
   keys,
+  resolve = true,
   variant = "default",
   children,
   ...props
 }: React.ComponentProps<"kbd"> & {
+  shortcut?: KeymapId;
   keys?: string;
+  /** False: `keys` are already final (Settings › Keyboard shows a stored binding). */
+  resolve?: boolean;
   /** `on-primary`: a plain dim key on an ink button, no box. */
   variant?: "default" | "bare" | "outline" | "on-primary";
 }) {
+  const resolved = useResolvedKeymap();
+  const shown = shortcut
+    ? resolved[shortcut]
+    : keys && resolve
+      ? resolveKeys(keys, resolved)
+      : keys;
   return (
     <kbd
       data-slot="kbd"
@@ -29,7 +43,7 @@ function Kbd({
       )}
       {...props}
     >
-      {keys ? formatKeys(keys) : children}
+      {shown ? formatKeys(shown) : children}
     </kbd>
   );
 }

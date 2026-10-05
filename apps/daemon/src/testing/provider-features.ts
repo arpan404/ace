@@ -1,13 +1,17 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createServer } from "node:http";
+import { createServer, type RequestListener } from "node:http";
 import { DevicesService, DevicePlatform } from "@ace/devices";
 import { ScreenManager } from "@ace/screen";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { DeviceOperation } from "@ace/protocol/devices";
 import { ThreadId } from "@ace/protocol";
 import { startDaemon, readConfig, stubHandler } from "../index.ts";
-export async function providerFeatures(directory: string, executablePath: string) {
+export async function providerFeatures(
+  directory: string,
+  executablePath: string,
+  pageHandler?: RequestListener,
+) {
   const screenJournal = join(directory, "screen-input.jsonl");
   const deviceJournal = join(directory, "device-input.jsonl");
   await Promise.all([writeFile(screenJournal, ""), writeFile(deviceJournal, "")]);
@@ -59,10 +63,12 @@ else if (command.includes("input")) await appendFile(${JSON.stringify(deviceJour
       },
     },
   });
-  const page = createServer((_request, response) =>
-    response.end(
-      '<!doctype html><label>Name <input aria-label="Name"></label><button onclick="document.getElementById(\'result\').textContent=document.querySelector(\'input\').value">Save</button><p id="result"></p>',
-    ),
+  const page = createServer(
+    pageHandler ??
+      ((_request, response) =>
+        response.end(
+          '<!doctype html><label>Name <input aria-label="Name"></label><button onclick="document.getElementById(\'result\').textContent=document.querySelector(\'input\').value">Save</button><p id="result"></p>',
+        )),
   );
   await new Promise<void>((resolve) => page.listen(0, "127.0.0.1", resolve));
   const address = page.address();
@@ -70,18 +76,30 @@ else if (command.includes("input")) await appendFile(${JSON.stringify(deviceJour
   const browserUrl = `http://127.0.0.1:${address.port}`;
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
   const close = async () => {
-    await daemon?.close();
-    await devices.close();
-    await screen.close();
-    page.closeAllConnections();
-    await new Promise<void>((resolve, reject) =>
-      page.close((error) => (error ? reject(error) : resolve())),
-    );
+    const errors: unknown[] = [];
+    try {
+      await daemon?.close();
+    } catch (error) {
+      errors.push(error);
+    }
+    const results = await Promise.allSettled([
+      devices.close(),
+      screen.close(),
+      (async () => {
+        page.closeAllConnections();
+        await new Promise<void>((resolve, reject) =>
+          page.close((error) => (error ? reject(error) : resolve())),
+        );
+      })(),
+    ]);
+    for (const result of results) if (result.status === "rejected") errors.push(result.reason);
+    if (errors.length) throw new AggregateError(errors, "Feature fixture cleanup failed");
   };
   try {
     daemon = await startDaemon({
       config: readConfig({ ACE_HOME: directory, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       handler: stubHandler(),
+      startup: { cleanupTimeoutMs: 30_000 },
       screen,
       devices,
       browser: { executablePath, evaluatePolicy: () => true },
@@ -89,6 +107,8 @@ else if (command.includes("input")) await appendFile(${JSON.stringify(deviceJour
     const host = daemon;
     return {
       daemon: host,
+      screen,
+      devices,
       browserUrl,
       deviceId: "android:Pixel",
       close,

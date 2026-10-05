@@ -361,7 +361,7 @@ test("the ⋯ menu offers the same thread actions, in the same order, as the row
     .getAllByRole("menuitem")
     .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R)$/, ""));
   // The thread screen adds a side chat and the agent tree, and shows its own shortcuts.
-  const shortcut = /(Alt\+Ctrl\+[RP]|Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
+  const shortcut = /(Alt\+Ctrl\+[RP]|(Alt\+)?Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
   expect(
     header
       .filter((label) => !/^(Open agent tree|New side chat)/.test(label))
@@ -398,7 +398,8 @@ test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archiv
   expect(await screen.findByRole("textbox", { name: "Thread title" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
 
-  await userEvent.keyboard("{Shift>}{Meta>}a{/Meta}{/Shift}");
+  // Off Apple platforms Archive is Ctrl+Alt+Shift+A (Ctrl+Shift+A is Agents there).
+  await userEvent.keyboard("{Control>}{Alt>}{Shift>}a{/Shift}{/Alt}{/Control}");
   expect(await screen.findByText("Archived · Replay cursor resets on every resume")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
 });
