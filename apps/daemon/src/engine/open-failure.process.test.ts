@@ -43,7 +43,7 @@ for (const exit of [false, true])
       expect(notices.some((item) => item.text.includes("execution is uncertain"))).toBe(false);
       expect(notices).toContainEqual(
         expect.objectContaining({
-          text: expect.stringContaining("model must be provider/model"),
+          detail: expect.stringContaining("model must be provider/model"),
           details: expect.objectContaining({ code: "session_open_failed", provider: "codex" }),
         }),
       );
@@ -86,7 +86,7 @@ test("structured open failures reach diagnostics and stored notices with the sam
       expect.objectContaining({
         type: "notice",
         details: failure,
-        text: expect.stringContaining("No provider match"),
+        detail: expect.stringContaining("No provider match"),
       }),
     );
     expect(JSON.stringify({ warnings, items })).not.toContain("private-open-secret");
@@ -130,7 +130,7 @@ test.each([false, true])(
       expect(Object.values(snapshot.items)).toContainEqual(
         expect.objectContaining({
           type: "notice",
-          text: expect.stringContaining("Cannot select model"),
+          detail: expect.stringContaining("Cannot select model"),
           details: expect.objectContaining({ code: "session_open_failed" }),
         }),
       );
@@ -184,7 +184,7 @@ test.each([
       expect(items).toContainEqual(
         expect.objectContaining({
           type: "notice",
-          text: expect.stringContaining("Cannot select model"),
+          detail: expect.stringContaining("Cannot select model"),
           details: warnings[0],
         }),
       );
