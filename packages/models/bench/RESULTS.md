@@ -19,6 +19,11 @@ prefixes once, followed by one final catalog sort. It does not rescan and sort
 the full catalog for each alias. Warm pages still visit the requested rows plus
 one lookahead. Startup default migration uses the cached-only resolver and
 schedules no CLI discovery; cold discovery belongs to the resumed session.
+Cold migration clears the persisted sentinel to an implicit selection when no
+cached choice exists. Cleanup no longer parses diagnostic raw JSON. Native
+normalizers filter usability and retain legacy/alias fields before truncation.
+The client reads one account-scoped page, capped at 100 rows, and resolves that
+scope before building a command. It does not flatten or merge account catalogs.
 
 ## PR 129 revision: needs run at merge
 

@@ -1,5 +1,5 @@
 import { isDefaultSelection } from "@ace/models";
-import type { EngineModels } from "./models.ts";
+import { ModelSelectionError, type EngineModels } from "./models.ts";
 import { providerCommandDisabled, permissionResolutionError } from "@ace/core";
 import { provisionalTitle } from "./thread-title.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
@@ -156,9 +156,17 @@ export function engineHandler(
           let { cwd } = creation;
           const { entry, acpIdentity, instanceId, handoff } = creation;
           deliveryCommand = creation.deliveryCommand;
-          const model =
-            models?.select(p.provider, p.model, instanceId, acpIdentity) ??
-            (isDefaultSelection(p.model) ? undefined : p.model);
+          let model: string | undefined;
+          try {
+            model = models
+              ? models.select(p.provider, p.model, instanceId, acpIdentity)
+              : isDefaultSelection(p.model)
+                ? undefined
+                : p.model;
+          } catch (error) {
+            if (error instanceof ModelSelectionError) return fail("model_unavailable");
+            throw error;
+          }
           const at = now();
           const prepared = context.preparedWorkspace;
           threadId = ThreadId.parse(prepared?.id ?? p.threadId ?? nextId());

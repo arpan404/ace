@@ -7,6 +7,12 @@ import {
 } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 
+export class ModelSelectionError extends Error {
+  constructor() {
+    super("model_unavailable");
+  }
+}
+
 /** One selection boundary for creation, resume, switches and legacy controls. */
 export class EngineModels {
   private catalog: ModelCatalogApi | undefined;
@@ -25,13 +31,19 @@ export class EngineModels {
   ): string | undefined {
     if (!this.catalog) return isDefaultSelection(model) ? undefined : model;
     const filter = selectionModelFilter(provider, instance, identity);
-    if (!filter) return isDefaultSelection(model) ? undefined : model;
+    if (!filter) {
+      if (model && !isDefaultSelection(model)) throw new ModelSelectionError();
+      return undefined;
+    }
     const resolution = this.catalog.resolve({
       role: "thread",
       ...filter,
       ...(model && !isDefaultSelection(model) ? { model } : {}),
     });
-    if (!resolution.ok) return isDefaultSelection(model) ? undefined : model;
+    if (!resolution.ok) {
+      if (model && !isDefaultSelection(model)) throw new ModelSelectionError();
+      return undefined;
+    }
     const chosen = resolution.model;
     return chosen.nativeProviderId
       ? `${chosen.nativeProviderId}/${chosen.nativeModelId}`
@@ -110,13 +122,14 @@ export class EngineModels {
         ...filter,
         ...(previous.model && !isDefaultSelection(previous.model) ? { model: previous.model } : {}),
       });
-      if (!resolution.ok) continue;
-      const chosen = resolution.model;
-      const model = chosen.nativeProviderId
+      const chosen = resolution.ok ? resolution.model : undefined;
+      const model = chosen?.nativeProviderId
         ? `${chosen.nativeProviderId}/${chosen.nativeModelId}`
-        : chosen.nativeModelId;
-      const next = { ...previous, model };
-      if (model && (model !== metadata.model || model !== selection?.model))
+        : chosen?.nativeModelId;
+      // With no cached choice, restore an implicit selection. Resume discovers it later.
+      const { model: _oldModel, ...rest } = previous;
+      const next = { ...rest, ...(model ? { model } : {}) };
+      if (model !== metadata.model || model !== selection?.model)
         this.remember(state.threadId, next);
     }
   }

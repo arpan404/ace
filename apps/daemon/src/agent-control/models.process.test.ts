@@ -210,7 +210,6 @@ test("delegation without a model uses the synced provider default over a parent'
         task: "Synthetic",
         role: "worker",
         provider: "claude",
-        model: "default",
       }),
     );
     await f.engine.flush();

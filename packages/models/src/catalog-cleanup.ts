@@ -1,6 +1,5 @@
 import type { CatalogModel, ProviderKind } from "@ace/protocol";
 import { modelDisplayName } from "./display-name.ts";
-import { catalogMetadata, chatMetadata, legacyMetadata } from "./catalog-metadata.ts";
 
 /** Preference rules only rank reported choices. They never manufacture model IDs. */
 export const providerDefaultRules: Record<
@@ -64,13 +63,6 @@ export const providerDefaultRules: Record<
 export function isDefaultSelection(id: string | undefined): boolean {
   return id !== undefined && /^(?:default(?:\s*\(recommended\))?)$/i.test(id.trim());
 }
-function readMetadata(row: CatalogModel) {
-  try {
-    return catalogMetadata(JSON.parse(row.raw.json));
-  } catch {
-    return catalogMetadata(null);
-  }
-}
 function usable(row: CatalogModel): boolean {
   if (isDefaultSelection(row.id) || isDefaultSelection(row.nativeModelId)) return false;
   // These names describe non-chat endpoints, not coding models. Unknown names remain usable.
@@ -81,10 +73,11 @@ function usable(row: CatalogModel): boolean {
   )
     return false;
   if (row.inputModalities.length && !row.inputModalities.includes("text")) return false;
-  return chatMetadata(readMetadata(row));
+  // Semantic filtering belongs to native decoding, before bounded diagnostic raw is made.
+  return true;
 }
 function isLegacy(row: CatalogModel): boolean {
-  return Boolean(row.legacy || row.deprecated || legacyMetadata(readMetadata(row)));
+  return Boolean(row.legacy || row.deprecated);
 }
 function familyRank(row: CatalogModel): number {
   const families = providerDefaultRules[row.provider].families;
@@ -134,9 +127,7 @@ export function cleanCatalog(models: readonly CatalogModel[]): CatalogModel[] {
   }
   const byId = new Map<string, CatalogModel>();
   for (const original of usableRows) {
-    const info = readMetadata(original);
-    let canonical =
-      original.resolvedModelId ?? info.resolvedModel ?? info.resolvedModelId ?? original.id;
+    let canonical = original.resolvedModelId ?? original.id;
     const claudeAlias = /^(opus|sonnet|haiku)(?:-([\d][\d.-]*))?$/.exec(original.id);
     if (original.provider === "claude" && claudeAlias && canonical === original.id) {
       const version = claudeAlias[2]?.replaceAll(".", "-");
@@ -160,7 +151,6 @@ export function cleanCatalog(models: readonly CatalogModel[]): CatalogModel[] {
       ...new Set([
         ...(previous?.aliases ?? []),
         ...(original.aliases ?? []),
-        ...(info.aliases ?? []),
         ...(original.id !== canonical ? [original.id] : []),
       ]),
     ]

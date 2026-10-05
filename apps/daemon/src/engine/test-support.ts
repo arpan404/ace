@@ -196,6 +196,7 @@ export async function harness(
     store,
     handler: engine.handler,
     engine,
+    ...(options.models ? { models: options.models } : {}),
   });
   const clients: Client[] = [];
   function command(payload: CommandPayload, deviceId = "device", id: string = randomUUID()) {
@@ -231,6 +232,7 @@ export async function harness(
     return client;
   }
   return {
+    url: server.url,
     home,
     path,
     store,

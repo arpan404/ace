@@ -78,3 +78,6 @@ export type {
   ThreadReadStateInput,
   ThreadMarkReadInput,
 } from "./long-thread.ts";
+
+export { ModelClient } from "./models.ts";
+export type { ModelScope, ModelServicePort } from "./models.ts";

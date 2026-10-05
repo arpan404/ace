@@ -160,9 +160,20 @@ test("cached legacy default rows migrate for display and resume without sending 
     cold.close();
     cold = undefined;
     const restarted = new Store(h.path);
+    const beforeRestart = restarted.readEvents({ afterSeq: 0, threadId: id, limit: 1000 });
+    const secondEngine = new Engine(restarted, {
+      registry: h.registry,
+      models: m.catalog,
+      clock: h.clock,
+    });
     try {
+      await secondEngine.ready();
       expect(restarted.getThread(id)?.execution?.model).toBe("gpt-6-sol");
+      expect(restarted.readEvents({ afterSeq: 0, threadId: id, limit: 1000 })).toEqual(
+        beforeRestart,
+      );
     } finally {
+      await secondEngine.close();
       restarted.close();
     }
   } finally {
@@ -213,7 +224,7 @@ test("a native thread without an account does not borrow another account's defau
   }
 });
 
-test("cold legacy rows wait for their own resume to discover a concrete model", async () => {
+test("cold legacy rows clear their display sentinel and discover a concrete model only on resume", async () => {
   const m = models();
   const frames = scriptFrames();
   const h = await harness(
@@ -242,7 +253,8 @@ test("cold legacy rows wait for their own resume to discover a concrete model", 
     cold = new Store(h.path);
     engine = new Engine(cold, { registry: h.registry, models: m.catalog, clock: h.clock });
     await engine.ready();
-    expect(cold.getThread(id)?.execution?.model).toBe("default");
+    expect(cold.getThread(id)?.execution?.model).toBeUndefined();
+    expect(cold.getThread(id)?.live?.model).toBeUndefined();
     expect(
       m.catalog.resolveCached({ role: "thread", provider: "codex", instance: "codex-cli-default" })
         .ok,

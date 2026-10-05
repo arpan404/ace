@@ -579,3 +579,85 @@ test("cached Claude aliases remain canonical across settings generations without
     await catalog.close();
   }
 });
+
+test("a padded current ACP legacy selector stays legacy and cannot become the automatic default", async () => {
+  const { catalog, home, config, clock } = await catalogFor("acp", {
+    configOptions: [
+      {
+        id: "model",
+        category: "model",
+        type: "select",
+        currentValue: "old-chat",
+        options: [
+          { group: "legacy", options: [selector("old-chat", { description: "x".repeat(3000) })] },
+          selector("private-router", { description: "x".repeat(3000), internal: true }),
+          selector("non-chat", { description: "x".repeat(3000), capabilities: { chat: false } }),
+          selector("real-chat"),
+        ],
+      },
+    ],
+  });
+  expect(catalog.list().models.map((row) => row.id)).toEqual(["real-chat", "old-chat"]);
+  expect(catalog.list().models.find((row) => row.id === "old-chat")).toMatchObject({
+    legacy: true,
+    group: "legacy",
+    isDefault: false,
+    raw: { truncated: true },
+  });
+  expect(chosen(catalog, "acp")).toBe("real-chat");
+  await catalog.close();
+  const cold = new ModelCatalog({
+    instances: [config],
+    storage: openModelStorage(join(home.path, "models.sqlite")),
+    now: () => clock.now,
+    deadline: clock.deadline,
+    discover: async () => {
+      throw new Error("Metadata unavailable");
+    },
+  });
+  cleanup.push(() => cold.close());
+  expect(cold.list().models.map((row) => row.id)).toEqual(["real-chat", "old-chat"]);
+  expect(cold.list().models.find((row) => row.id === "old-chat")).toMatchObject({
+    legacy: true,
+    group: "legacy",
+    isDefault: false,
+  });
+  expect(chosen(cold, "acp")).toBe("real-chat");
+});
+
+test("an account null reset uses the built-in default while deleting the reset restores the visible provider override", async () => {
+  const config = instance("codex");
+  let preferences: ProviderConfigurations = [
+    { provider: "codex", defaultModel: "gpt-6-sol" },
+    { provider: "codex", instance: config.id, defaultModel: null },
+  ];
+  const catalog = new ModelCatalog({
+    instances: [config],
+    storage: { load: () => [], replace() {}, remove() {}, close() {} },
+    discover: async () =>
+      normalizeCodex({ data: [codex("gpt-6.1-sol"), codex("gpt-6-sol")] }, config),
+    now: () => 1000,
+    deadline: () => () => {},
+    preferences: () => preferences,
+  });
+  try {
+    await catalog.refresh();
+    expect(catalog.list().models.every((row) => !row.hidden)).toBe(true);
+    expect(
+      catalog.resolve({ role: "new thread", provider: "codex", instance: config.id }),
+    ).toMatchObject({
+      ok: true,
+      model: { id: "gpt-6.1-sol", defaultSource: "built-in" },
+    });
+    preferences = [{ provider: "codex", defaultModel: "gpt-6-sol" }];
+    catalog.configurationChanged();
+    expect(
+      catalog.resolve({ role: "new thread", provider: "codex", instance: config.id }),
+    ).toMatchObject({
+      ok: true,
+      model: { id: "gpt-6-sol", defaultSource: "user" },
+    });
+  } finally {
+    await catalog.close();
+  }
+});

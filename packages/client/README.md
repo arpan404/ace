@@ -158,3 +158,29 @@ Each caller retains its own abort and timeout. The daemon advances monotonically
 and caps the cursor at its current head. An accepted command stays in the normal
 outbox until its receipt is acknowledged. Pending unsent read marks are bounded
 by the client's request limit.
+
+## Scoped model selection
+
+`new ModelClient(client)` provides `list`, `refresh`, `resolve` and
+`commandSelection`. Choose the account before calling these APIs. Native scopes
+contain `{ provider, instance }`, using the catalog's instance ID, including the
+native CLI instance. ACP scopes contain the full `{ provider: "acp", acpAgentId,
+installationId, instanceId }` identity.
+
+`list(scope, { offset, limit })` preserves each account's default and model
+capabilities. Use `nextOffset` for another page in the same scope. Empty catalogs
+return an empty list. `resolve(scope)` chooses the current configured or built-in
+default; passing a model resolves an explicit choice. The returned model exposes
+`isDefault` and `defaultSource`.
+
+`commandSelection(scope)` resolves that scope's default and returns the provider,
+account identity and canonical model ID for `Client.command`. OpenCode IDs retain
+the connection prefix, such as `opencode-go/muse-spark-1.3-contributor`. Re-resolve
+when the account changes. An unavailable selection rejects without inventing a
+model ID. Do not deduplicate choices across accounts or send `nativeModelId` as
+a replacement for the returned command model.
+
+Use `Client.settingsGet` and `Client.settingsSet` with `providers.configuration`
+for synced provider/account overrides. Keep other rows and fields when editing.
+Omitting an account's `defaultModel` inherits the provider override; `null` resets
+that account to the built-in policy. Defaults are badges on concrete choices.

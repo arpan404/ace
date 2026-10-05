@@ -65,7 +65,7 @@ export function normalizeOpenCodeV2(
     const provider = V2Provider.safeParse(raw);
     if (connected && (!provider.success || !connected.has(provider.data.providerID))) continue;
     const native = V2Model.parse(raw);
-    if (!chatMetadata(native)) continue;
+    if (!native.enabled || !chatMetadata(native)) continue;
     const id = `${native.providerID}/${native.modelID}`;
     const previous = available.get(id);
     if (
