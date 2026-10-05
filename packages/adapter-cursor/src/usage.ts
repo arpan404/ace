@@ -13,7 +13,15 @@ export function turnUsage(value: unknown, agent: Key, counterKey: string): Fact[
   const parsed = Usage.safeParse(value);
   if (!parsed.success) return [];
   const usage = parsed.data;
+  const occupied =
+    usage.inputTokens +
+    usage.outputTokens +
+    (usage.cacheReadTokens ?? 0) +
+    (usage.cacheWriteTokens ?? 0);
   return [
+    ...(Number.isSafeInteger(occupied)
+      ? [{ type: "context.sample" as const, agent, usedTokens: occupied }]
+      : []),
     {
       type: "usage",
       agent,

@@ -3,12 +3,11 @@ import { useThreadMeta } from "@ace/client-react";
 import { providerNames } from "@ace/ui-core";
 import { GlobeSimpleIcon, ListChecksIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
-import { MenuGroup, MenuLabel } from "@/components/ui/menu.tsx";
+import { MenuGroup, MenuItem } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
-import { DescribedItem } from "./described-item.tsx";
 import { contextPages } from "./context-pages.ts";
 import { usePermissionCapabilities, useSetThreadPermission } from "./permission-hooks.ts";
 
@@ -16,8 +15,8 @@ import { usePermissionCapabilities, useSetThreadPermission } from "./permission-
 const shownPages = 3;
 
 /**
- * The + menu's rows that belong to this thread: plan before acting (read-only approvals until
- * the plan is agreed), and the pages open in its workspace as context for the message.
+ * The + menu's rows that belong to this thread: Plan first (read-only approvals until the plan
+ * is agreed), and the pages open in its workspace as context for the message.
  */
 export function ThreadContextRows(props: { thread: ThreadRef; onInsert(text: string): void }) {
   const meta = useThreadMeta(props.thread.id);
@@ -40,12 +39,11 @@ export function ThreadContextRows(props: { thread: ThreadRef; onInsert(text: str
           : undefined;
   const pages = contextPages(workspace).slice(0, shownPages);
   return (
-    <MenuGroup>
-      <MenuLabel>This thread</MenuLabel>
-      <DescribedItem
+    <MenuGroup aria-label="This thread">
+      <MenuItem
         icon={<Icon icon={ListChecksIcon} />}
-        description="Read only until you've agreed the plan"
         reason={planReason}
+        disabled={!!planReason}
         onClick={() =>
           void set("read-only").then(
             () =>
@@ -59,25 +57,26 @@ export function ThreadContextRows(props: { thread: ThreadRef; onInsert(text: str
         }
       >
         Plan first
-      </DescribedItem>
+      </MenuItem>
       {pages.length ? (
         pages.map((page) => (
-          <DescribedItem
+          <MenuItem
             key={page.url}
             icon={<Icon icon={GlobeSimpleIcon} />}
-            description="Add the open page's address to the message"
+            aria-label={`Add ${page.label} to the message`}
             onClick={() => props.onInsert(`${page.url} `)}
           >
             {page.label}
-          </DescribedItem>
+          </MenuItem>
         ))
       ) : (
-        <DescribedItem
+        <MenuItem
           icon={<Icon icon={GlobeSimpleIcon} />}
-          reason="Open a page in the Browser, or a dev server in its own tab, first"
+          reason="Open a page in the Browser first"
+          disabled
         >
           An open page
-        </DescribedItem>
+        </MenuItem>
       )}
     </MenuGroup>
   );

@@ -37,6 +37,7 @@
   --color-bubble: var(--bubble);
   --color-reading: var(--reading);
   --color-panel: var(--panel);
+  --color-rail: var(--rail);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
@@ -55,11 +56,14 @@
   --color-status-failed: var(--status-failed);
   --color-status-done: var(--status-done);
 
-  /* 6 kbd/tags · 8 rows/buttons/inputs · 10 cards · 12 popovers · 16 composer and bubbles. */
+  /*
+   * 4 kbd/tags · 8 small buttons, dense rows, tooltips · 10 rows/buttons/inputs · 14 cards ·
+   * 16 popovers and menus · 22 the composer, dialogs and bubbles. Chips are pills (full).
+   */
   --radius-xs: 4px;
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius);
-  --radius-card: 10px;
+  --radius-card: 14px;
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
 
@@ -171,7 +175,7 @@
       0 0 0 0.5px var(--glass-edge),
       var(--glass-shadow);
   }
-  /* The sidebar and reading column blur the wallpaper behind them. */
+  /* Rail, second sidebar and reading column blur the wallpaper behind them. */
   .vibrancy {
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
     backdrop-filter: blur(var(--glass-blur)) saturate(120%);

@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { discoverCursorSdk } from "./host.ts";
 import { hostWire } from "./host-wire.ts";
+import { probeCursorSandbox } from "./sandbox-support.ts";
 import { HostRuntime } from "./host-runtime.ts";
 import { snapshotInHost } from "./history.ts";
 import { validateCursorAuthHome } from "./auth-home.ts";
@@ -70,7 +71,11 @@ const wire = hostWire(async (method, params) => {
     const safe: unknown = JSON.parse(scrub(boundedJson(await sdk.Cursor.models.list(), 262144)));
     return safe;
   }
-  runtime ??= new HostRuntime(sdk, (frame) => wire.confirmed("frame", frame));
+  const loaded = sdk;
+  runtime ??= new HostRuntime(
+    { ...loaded, sandboxSupport: (options) => probeCursorSandbox(loaded, options) },
+    (frame) => wire.confirmed("frame", frame),
+  );
   if (method === "open") return runtime.open(params);
   if (method === "send") return runtime.send(params);
   if (method === "cancel") {

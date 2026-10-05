@@ -24,7 +24,7 @@ test("a limited thread moves to another account and carries on", async ({ page }
   await page.goto("/t/thread-limit-search");
   const limit = page.getByRole("region", { name: "Usage limit reached" });
   await expect(limit).toBeVisible();
-  await expect(page.getByRole("button", { name: "Model: GPT-5 Codex, team" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Model: GPT-5 Codex, team/ })).toBeVisible();
 
   await limit.getByRole("button", { name: "Move to another account" }).click();
 
@@ -47,7 +47,10 @@ test("Usage & accounts moves every thread stopped at an account's limit", async 
   await expect(page.getByText("Moved 3 threads to Codex · Personal")).toBeVisible();
   await expect(team.getByRole("button", { name: "Move running threads" })).toHaveCount(0);
   const threads = page.getByRole("navigation", { name: "Threads" });
-  await page.getByRole("link", { name: "Home" }).click();
+  await page
+    .getByRole("navigation", { name: "Views" })
+    .getByRole("link", { name: /^Home/ })
+    .click();
   await expect(threads.getByRole("link", { name: /Split the CI matrix/ })).not.toContainText(
     "Limited",
   );

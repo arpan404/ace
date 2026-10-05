@@ -22,7 +22,7 @@ export const fakePermissionCapabilities: Capabilities = {
   rewindFiles: false,
   // Effort and other launch options change on a live thread through a queued switch.
   sessionOptions: true,
-  launchOptions: ["effort"],
+  launchOptions: ["effort", "serviceTier"],
   permissions: {
     modes: ["read-only", "ask", "auto-review", "full-access"],
     nativeAutoReview: false,

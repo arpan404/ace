@@ -26,6 +26,21 @@ export function permissionLabel(mode: PermissionMode): string {
   return names[mode].label;
 }
 
+const shortNames: Record<PermissionMode, string | undefined> = {
+  "auto-review": undefined,
+  "read-only": "Read-only",
+  ask: "Ask",
+  "full-access": "Full access",
+};
+
+/**
+ * What the composer's approvals chip says beside its icon: nothing for the default mode
+ * (Auto-review), a word or two for any other, so a thread off the default reads as such.
+ */
+export function permissionShortLabel(mode: PermissionMode): string | undefined {
+  return shortNames[mode];
+}
+
 /** Full access turns review off, so it is the one mode that asks for attention. */
 export function permissionNeedsAttention(mode: PermissionMode): boolean {
   return mode === "full-access";

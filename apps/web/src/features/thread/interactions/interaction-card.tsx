@@ -74,7 +74,7 @@ export function InteractionCard(props: { threadId: string; interactionId: string
         </h3>
       ) : null}
       {command && (
-        <pre className="rounded-[9px] bg-code px-3 py-[9px] font-mono text-[12.5px] leading-[1.5] whitespace-pre-wrap">
+        <pre className="rounded-md bg-code px-3 py-[9px] font-mono text-[12.5px] leading-[1.5] whitespace-pre-wrap">
           {command}
         </pre>
       )}

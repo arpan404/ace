@@ -1,3 +1,5 @@
+import { safeCursorErrorMessage } from "./sdk-failure.ts";
+import { z } from "zod";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
@@ -42,6 +44,10 @@ export class CursorHost {
   private rpc: JsonRpcPeer;
   private stopped: Promise<void> | undefined;
   private limits: CursorLimits;
+  private errorMessage: string | undefined;
+  get failureMessage(): string | undefined {
+    return this.errorMessage;
+  }
   constructor(
     options: HostOptions,
     onFrame: (frame: CursorEnvelope, payload: ProviderPayload) => void | Promise<void>,
@@ -93,7 +99,12 @@ export class CursorHost {
       if (frame.generation !== this.generation && !(frame.replayed && frame.boundaryOffset))
         throw new Error("SDK generation mismatch");
       await onFrame(frame, payload);
-      if (frame.kind === "error") void this.stop();
+      if (frame.kind === "error") {
+        const error = z.object({ message: z.string() }).safeParse(frame.body);
+        if (error.success)
+          this.errorMessage = safeCursorErrorMessage(error.data.message, options.env);
+        void this.stop();
+      }
     };
     this.rpc.onRequest = async ({ method, params }) => {
       if (method !== "frame") throw new Error("Unknown SDK host request");
@@ -113,8 +124,10 @@ export class CursorHost {
         });
       else throw new Error("Unknown host notification");
     };
-    // Drain diagnostics, but never persist SDK stderr or auth diagnostic text.
-    this.process.stderr.on("line", () => {});
+    // Retain only bounded, scrubbed prose. Auth workers never publish this buffer.
+    this.process.stderr.on("line", (line: string) => {
+      this.errorMessage = safeCursorErrorMessage(line, options.env);
+    });
   }
   request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
     if (params !== undefined) boundedJson(params, this.limits.maxFrameBytes - 1024);
@@ -123,7 +136,7 @@ export class CursorHost {
       .catch(async () => {
         await this.stop();
         throw new Error(
-          `Cursor SDK ${method} failed; delivery may be uncertain. Inspect history before resending.`,
+          `${["open", "send", "cancel"].includes(method) && this.errorMessage ? this.errorMessage + " " : ""}Cursor SDK ${method} failed; delivery may be uncertain. Inspect history before resending.`,
         );
       });
   }

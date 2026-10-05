@@ -57,7 +57,7 @@ export function AppearanceSettings() {
       <SettingSection label="Material">
         <SettingRow
           title="Glass intensity"
-          description="How much of your desktop shows through the sidebar and floating panels. Follows Reduce transparency in your OS."
+          description="How much of your desktop shows through the rail, sidebar and floating panels. Follows Reduce transparency in your OS."
         >
           <span className="text-[12px] text-subtle-foreground">Solid</span>
           <Slider
@@ -149,7 +149,7 @@ function AccentPicker() {
           setHex(event.target.value);
           if (HexColor.safeParse(event.target.value).success) custom(event.target.value);
         }}
-        className="h-7 w-[84px] rounded-[7px] bg-secondary px-2 font-mono text-[12px] outline-none placeholder:text-subtle-foreground focus:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]"
+        className="h-7 w-[84px] rounded-sm bg-secondary px-2 font-mono text-[12px] outline-none placeholder:text-subtle-foreground focus:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]"
       />
     </div>
   );

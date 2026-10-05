@@ -1,4 +1,6 @@
+import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { createInterface } from "node:readline";
+import { StringDecoder } from "node:string_decoder";
 import { Transform } from "node:stream";
 import { z } from "zod";
 import { boundedJson, RpcWriter } from "@ace/provider-kit/ipc";
@@ -17,7 +19,46 @@ export function hostWire(
   const stdout = process.stdout.write.bind(process.stdout);
   // SDK logs are not the replay boundary and may contain login diagnostics.
   process.stdout.write = () => true;
-  process.stderr.write = () => true;
+  const stderr = process.stderr.write.bind(process.stderr);
+  const decoder = new StringDecoder("utf8");
+  let pendingStderr = "",
+    oversizedStderr = false;
+  const flushStderr = () => {
+    if (pendingStderr || oversizedStderr)
+      stderr(
+        oversizedStderr
+          ? "SDK stderr exceeded its safe line budget\n"
+          : safeCursorErrorMessage(pendingStderr, { CURSOR_API_KEY: process.env.CURSOR_API_KEY }) +
+              "\n",
+      );
+    pendingStderr = "";
+    oversizedStderr = false;
+  };
+  process.on("exit", flushStderr);
+  process.stderr.write = (
+    chunk: string | Uint8Array,
+    encoding?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void,
+  ) => {
+    const text = typeof chunk === "string" ? chunk : decoder.write(Buffer.from(chunk));
+    let start = 0;
+    while (start < text.length) {
+      const newline = text.indexOf("\n", start);
+      const end = newline === -1 ? text.length : newline;
+      if (!oversizedStderr) {
+        if (pendingStderr.length + end - start > 65536) {
+          pendingStderr = "";
+          oversizedStderr = true;
+        } else pendingStderr += text.slice(start, end);
+      }
+      if (newline === -1) break;
+      flushStderr();
+      start = newline + 1;
+    }
+    const done = typeof encoding === "function" ? encoding : callback;
+    if (done) queueMicrotask(() => done());
+    return true;
+  };
   const output = new Transform({
     transform(chunk, _encoding, callback) {
       stdout(chunk, callback);

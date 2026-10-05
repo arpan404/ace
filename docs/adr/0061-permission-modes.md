@@ -66,3 +66,28 @@ are scoped to one page or one thread and never become native provider grants.
 Human navigation itself is consent under the human browser lease. See
 [thread browser origin consent](0054-desktop-shell.md#thread-browser-origin-consent)
 for resource, redirect, WebSocket, timeout and persistence rules.
+
+## Runtime corrections from the Pi and Cursor re-test
+
+Cursor SDK 1.0.35 sandbox support depends on the host, beyond package/helper installation.
+The isolated SDK host uses the public `createAgentPlatform` and
+`prewarmLocalWorkspace` executor admission before a turn. An unsupported-sandbox
+`ConfigurationError` selects `read,grep,glob,ls` with sandboxing disabled,
+settings isolated and child-header inheritance enabled. Shell, writes, network,
+MCP and Task children are excluded. The preview reports tool-selection and
+Limited coverage until support is verified; a supported host publishes its
+sandbox guarantee at open. Auto-review remains the ace default. An unsupported
+host launches with this disclosed read-only fallback, never full access.
+Source: [Cursor SDK options and executor prewarming](https://cursor.com/docs/sdk/typescript)
+and the pinned 1.0.35 public declarations.
+
+Pi 0.85.1 exposes a blocking `tool_call` extension event before execution.
+The ace extension forwards exact tool input through RPC `ui.confirm` as a
+canonical approval with Allow once and Deny. Ask and Auto-review enable the
+standard read/write/edit/bash/search tools with ambient extensions disabled.
+The engine owns deterministic review, physical path checks and durable decisions.
+Read-only also gates reads and excludes mutation tools. Missing UI, malformed
+input and failed approval delivery block execution. No OS sandbox is claimed.
+This supersedes the Pi tool-selection row and the statement that Pi cannot gate
+operations. Sources: pinned official [extension contract](https://raw.githubusercontent.com/badlogic/pi-mono/v0.85.1/packages/coding-agent/docs/extensions.md)
+and [RPC confirmation contract](https://raw.githubusercontent.com/badlogic/pi-mono/v0.85.1/packages/coding-agent/docs/rpc.md).

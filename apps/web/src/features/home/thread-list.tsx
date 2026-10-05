@@ -4,50 +4,51 @@ import { cn } from "@/lib/cn.ts";
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
-import { type Arrangement } from "@ace/ui-core";
-import { AutoSettleNote } from "./auto-settle-note.tsx";
+import { homeRowKey, homeRowThread, homeRows, type HomeRow } from "@ace/ui-core";
+import { FolderRow, PinnedLabel, ShowMore } from "./folder-rows.tsx";
+import { useFolders } from "./folders.ts";
 import { SettledRow } from "./settled-row.tsx";
 import { HomeMachine, useHomeMachine } from "./thread-details.ts";
 import { ThreadRow } from "./thread-row.tsx";
+import type { HomeList } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 
-type Row =
-  | { kind: "thread"; id: string }
-  | { kind: "settled-header"; count: number }
-  | { kind: "settled"; id: string }
-  | { kind: "rule" };
-
-const estimates: Record<Row["kind"], number> = {
-  thread: 74,
+const estimates: Record<HomeRow["kind"], number> = {
+  "pinned-label": 36,
+  pinned: 31,
+  folder: 31,
+  thread: 31,
+  more: 37,
   "settled-header": 40,
-  settled: 30,
-  rule: 52,
+  settled: 31,
 };
-const keyOf = (row: Row) => (row.kind === "thread" || row.kind === "settled" ? row.id : row.kind);
 
 /**
- * The Home list, virtualized: cards in Home order, then the collapsible Settled section with
- * compact rows and the auto-settle rule. Only visible rows mount. Rows that arrive (a new thread,
- * an unsnooze) rise in, rows that go (settle, snooze, archive) fade where they were, and the
- * rest slide to their new places.
+ * The Home list, virtualized: Pinned, then a folder per project (its first threads, then Show
+ * more), then the collapsible Settled section (when threads settle is a setting, in Settings ›
+ * General). Only visible rows mount.
+ * Rows that arrive (a new thread, an unsnooze) rise in, rows that go (settle, snooze, archive)
+ * fade where they were, and the rest slide to their new places.
  */
-export function ThreadList(props: { arrangement: Arrangement }) {
-  const { active, settled } = props.arrangement;
+export function ThreadList(props: { list: HomeList }) {
+  const { groups, settled } = props.list;
   const { settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
+  const folders = useFolders();
+  const open = useParams({ strict: false, select: (params) => params.threadId });
   const home = useHomeMachine();
-  const rows = useMemo<Row[]>(
-    () => [
-      ...active.map((id): Row => ({ kind: "thread", id })),
-      { kind: "settled-header", count: settled.length },
-      ...(settledOpen
-        ? [...settled.map((id): Row => ({ kind: "settled", id })), { kind: "rule" } as const]
-        : []),
-    ],
-    [active, settled, settledOpen],
+  const rows = useMemo(
+    () =>
+      homeRows(groups, settled, {
+        closed: folders.state.closed,
+        showingAll: folders.state.showingAll,
+        open,
+        settledOpen,
+      }),
+    [groups, settled, folders.state, open, settledOpen],
   );
-  const { rows: drawn, moving } = useListMotion(rows, keyOf);
+  const { rows: drawn, moving } = useListMotion(rows, homeRowKey);
   const viewport = useRef<HTMLDivElement>(null);
   // oxlint-disable-next-line react-compiler/incompatible-library -- the virtualizer's callbacks are unstable by design.
   const virtualizer = useVirtualizer({
@@ -94,15 +95,31 @@ export function ThreadList(props: { arrangement: Arrangement }) {
                 style={{ transform: `translateY(${item.start}px)` }}
               >
                 <div className={rowMotion(entry.phase)}>
+                  {row.kind === "pinned-label" && <PinnedLabel />}
+                  {row.kind === "pinned" && <ThreadRow threadId={row.id} pinned />}
+                  {row.kind === "folder" && (
+                    <FolderRow
+                      project={row.project}
+                      open={row.open}
+                      needsYou={row.needsYou}
+                      onToggle={() => folders.folders.toggleOpen(row.project)}
+                    />
+                  )}
                   {row.kind === "thread" && <ThreadRow threadId={row.id} />}
+                  {row.kind === "more" && (
+                    <ShowMore
+                      project={row.project}
+                      showingAll={row.showingAll}
+                      onToggle={() => folders.folders.toggleShowingAll(row.project)}
+                    />
+                  )}
                   {row.kind === "settled" && <SettledRow threadId={row.id} />}
-                  {row.kind === "rule" && <AutoSettleNote />}
                   {row.kind === "settled-header" && (
                     <button
                       type="button"
                       aria-expanded={settledOpen}
                       onClick={() => organizer.setSettledOpen(!settledOpen)}
-                      className="mt-3 mb-0.5 flex w-full items-center gap-2 rounded-[7px] px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1) after:h-px after:flex-1 after:bg-sidebar-border hover:text-muted-foreground"
+                      className="mt-3 mb-0.5 flex w-full items-center gap-2 rounded-sm px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1) after:h-px after:flex-1 after:bg-sidebar-border hover:text-muted-foreground"
                     >
                       Settled ({row.count})
                       <CaretDownIcon
@@ -130,14 +147,15 @@ export function ThreadList(props: { arrangement: Arrangement }) {
  * once, without fighting the person's own scrolling afterwards.
  */
 function useRevealOpenThread(
-  drawn: readonly { key: string }[],
+  drawn: readonly { item: HomeRow }[],
   scrollToIndex: (index: number, options: { align: "auto" }) => void,
 ) {
   const threadId = useParams({ strict: false, select: (params) => params.threadId });
   const revealed = useRef<string>(undefined);
   useEffect(() => {
     if (!threadId || revealed.current === threadId) return;
-    const index = drawn.findIndex((row) => row.key === threadId);
+    // By the thread a row shows, not its key: a row's key is encoded per kind.
+    const index = drawn.findIndex((row) => homeRowThread(row.item) === threadId);
     if (index < 0) return;
     revealed.current = threadId;
     scrollToIndex(index, { align: "auto" });

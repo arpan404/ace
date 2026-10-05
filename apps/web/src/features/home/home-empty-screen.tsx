@@ -9,7 +9,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { lastThread } from "./last-thread.ts";
-import { useHomeArrangement } from "./use-home-threads.ts";
+import { topThread, useHomeList } from "./use-home-threads.ts";
 
 /**
  * Home never rests on an empty pane: it reopens the last thread if the list still shows it, else
@@ -20,11 +20,15 @@ export function HomeEmptyScreen() {
   const { storage } = useLayout();
   const [last] = useState(() => lastThread(storage));
   const loaded = useSidebarLoaded();
-  const { active, settled } = useHomeArrangement();
+  const list = useHomeList();
   const directory = useProjectDirectory();
   // The last thread only while Home still lists it (not archived, inside the project filter).
-  const listed = last !== null && (active.includes(last) || settled.includes(last));
-  const target = listed ? last : loaded ? active[0] : undefined;
+  const listed =
+    last !== null &&
+    (list.groups.pinned.includes(last) ||
+      list.groups.projects.some((group) => group.ids.includes(last)) ||
+      list.settled.includes(last));
+  const target = listed ? last : loaded ? topThread(list) : undefined;
   if (target) return <Navigate to="/t/$threadId" params={{ threadId: target }} replace />;
   if (loaded && directory.loaded && directory.projects.length === 0)
     return (

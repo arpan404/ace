@@ -37,7 +37,7 @@ export function FeedRow(props: {
       >
         <span
           className={cn(
-            "mt-px grid size-[26px] place-items-center rounded-[7px] bg-secondary",
+            "mt-px grid size-[26px] place-items-center rounded-sm bg-secondary",
             props.mark ? "text-foreground" : "text-muted-foreground",
           )}
         >
