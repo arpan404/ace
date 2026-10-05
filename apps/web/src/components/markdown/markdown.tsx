@@ -1,6 +1,6 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import type { MarkedToken, Token } from "marked";
-import { memo, type ReactNode } from "react";
+import { createContext, memo, useContext, type ReactNode } from "react";
 import { MarkdownImage } from "@/components/attachment-markdown.tsx";
 import { codeSpanClass } from "@/components/inline-markdown.tsx";
 import type { MarkdownBlock } from "./blocks.ts";
@@ -111,7 +111,11 @@ const headingClass = [
   "mt-4 mb-1.5 text-[1em] font-semibold",
 ];
 
+/** Inside a block still being written: its code shows plain until the block settles. */
+const Writing = createContext(false);
+
 function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode {
+  const writing = useContext(Writing);
   const token = props.token;
   if (!isKnown(token)) return <p>{token.raw}</p>;
   switch (token.type) {
@@ -133,7 +137,7 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
         <CodeBlock
           code={token.text}
           lang={token.lang}
-          {...(props.code ? { tokens: props.code } : {})}
+          {...(props.code ? { tokens: props.code } : writing ? { plain: true } : {})}
         />
       );
     case "blockquote":
@@ -221,24 +225,38 @@ function Blocks(props: { tokens: readonly Token[] }) {
   return props.tokens.map((token, index) => <Block key={index} token={token} />);
 }
 
-/** One top-level block. Its object is shared while its source is unchanged, so it skips. */
-const TopBlock = memo(function TopBlock(props: { block: MarkdownBlock }) {
+/**
+ * One top-level block. A settled block keeps its object, so it never renders again; an open
+ * one is new on each update and patches its elements in place, and keeps its place (its key)
+ * when it settles, so settling only highlights its code.
+ */
+const TopBlock = memo(function TopBlock(props: { block: MarkdownBlock; writing: boolean }) {
   return (
-    <Block token={props.block.token} {...(props.block.code ? { code: props.block.code } : {})} />
+    <Writing.Provider value={props.writing}>
+      <Block token={props.block.token} {...(props.block.code ? { code: props.block.code } : {})} />
+    </Writing.Provider>
   );
 });
 
 /**
- * Transcript prose (15.5/1.6), lexed and highlighted in the markdown worker. A streaming
- * message re-renders only its last block; until its first document is ready it shows as text.
+ * Transcript prose (15.5/1.6), lexed and highlighted in the markdown worker. `stream` names a
+ * message whose text grows while `streaming`: its finished blocks render once, and only its
+ * open block re-renders, 10 to 20 times a second. Until the first document is ready the text
+ * shows as it is.
  */
-export const Markdown = memo(function Markdown(props: { text: string; className?: string }) {
-  const doc = useMarkdown(props.text);
+export const Markdown = memo(function Markdown(props: {
+  text: string;
+  stream?: string | undefined;
+  streaming?: boolean | undefined;
+  className?: string | undefined;
+}) {
+  const doc = useMarkdown(props.text, props.stream, !props.streaming);
   if (!doc) return <p className={`whitespace-pre-wrap ${props.className ?? ""}`}>{props.text}</p>;
   return (
     <div className={props.className}>
-      {doc.blocks.map((block) => (
-        <TopBlock key={block.key} block={block} />
+      {doc.blocks.map((block, index) => (
+        // A block's place is its identity: the open block keeps it when it settles.
+        <TopBlock key={index} block={block} writing={index >= doc.settled} />
       ))}
     </div>
   );
