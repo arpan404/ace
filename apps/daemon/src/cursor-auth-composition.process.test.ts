@@ -95,7 +95,10 @@ createInterface({input:process.stdin}).on('line', line => {
       expect(
         await daemon.accounts?.handle({ type: "accounts.list", requestId: "list" }),
       ).toMatchObject({
-        accounts: [{ id: "cursor-sdk-default" }],
+        accounts: expect.arrayContaining([
+          expect.objectContaining({ id: "cursor-sdk-default", implicit: false }),
+          expect.objectContaining({ id: "cursor-cli-default", implicit: true }),
+        ]),
       });
       expect(
         await daemon.cursorAuth?.handle("device", {

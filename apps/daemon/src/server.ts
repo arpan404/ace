@@ -334,7 +334,7 @@ export async function startServer(options: ServerOptions): Promise<{
               ? {
                   id: message.deviceId,
                   name: "Host",
-                  scopes: ["admin", "projects"] as const,
+                  scopes: ["admin", "projects", "accounts"] as const,
                   createdAt: 0,
                   lastSeenAt: auth.now(),
                   revokedAt: null,

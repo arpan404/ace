@@ -8,7 +8,7 @@ import {
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { formatSpan, type ProjectBadge, type TaskPill, type ThreadCard } from "@ace/ui-core";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
@@ -65,22 +65,16 @@ export function ProjectMark(props: { badge: ProjectBadge; className?: string }) 
   );
 }
 
-// Tinted tones share one mix rule and name their status colour inline, so a new tone adds no CSS.
+// Tinted tones share one mix rule and each names its status colour in a small class of its own.
 const tinted = "text-[color-mix(in_oklab,var(--tone)_85%,var(--foreground))]";
 const pillTone: Record<TaskPill["tone"], string> = {
-  working: tinted,
+  working: `${tinted} [--tone:var(--status-working)]`,
   "needs-you":
-    "rounded-full bg-[color-mix(in_oklab,var(--status-needs-you)_13%,transparent)] px-1.5 text-[color-mix(in_oklab,var(--status-needs-you)_80%,var(--foreground))]",
-  waiting: tinted,
-  failed: tinted,
-  done: tinted,
+    "rounded-full bg-status-needs-you/13 px-1.5 text-[color-mix(in_oklab,var(--status-needs-you)_80%,var(--foreground))]",
+  waiting: `${tinted} [--tone:var(--status-waiting)]`,
+  failed: `${tinted} [--tone:var(--status-failed)]`,
+  done: `${tinted} [--tone:var(--status-done)]`,
   idle: "text-muted-foreground",
-};
-const toneColor: Partial<Record<TaskPill["tone"], string>> = {
-  working: "var(--status-working)",
-  waiting: "var(--status-waiting)",
-  failed: "var(--status-failed)",
-  done: "var(--status-done)",
 };
 
 function PillIcon(props: { pill: TaskPill }) {
@@ -110,7 +104,6 @@ export function RowPill(props: { pill: TaskPill }) {
   return (
     <span
       data-tone={pill.tone}
-      style={{ "--tone": toneColor[pill.tone] } as CSSProperties}
       className={cn(
         "inline-flex h-[18px] shrink-0 items-center gap-1 text-xs font-medium whitespace-nowrap",
         pillTone[pill.tone],

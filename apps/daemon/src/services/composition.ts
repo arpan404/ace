@@ -10,7 +10,7 @@ import { startDevices } from "./devices.ts";
 import { startThreadTransitions } from "./thread-transitions.ts";
 import { startAgentRegistry } from "./agent-registry.ts";
 import { startScreen } from "./screen.ts";
-import { startAccounts } from "./accounts.ts";
+import { startAccounts, startAccountManagement } from "./accounts.ts";
 import { startCommands } from "./commands.ts";
 import { startFiles } from "./files.ts";
 import { startRelayKeys } from "./relay.ts";
@@ -101,6 +101,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["engine", "accounts"],
     after: [],
     start: startCursorAuth,
+  },
+  {
+    name: "accountManagement",
+    phase: "listener",
+    requires: ["accounts"],
+    after: ["engine", "models", "cursorAuth"],
+    start: startAccountManagement,
   },
   { name: "context", phase: "listener", requires: [], after: [], start: startContext },
   { name: "review", phase: "listener", requires: [], after: [], start: startReview },

@@ -48,6 +48,10 @@
     "id": {
       "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
     },
+    "implicit": {
+      "const": true,
+      "type": "boolean"
+    },
     "installationId": {
       "maxLength": 256,
       "minLength": 1,
@@ -70,6 +74,10 @@
     "loginRevision": {
       "maxLength": 128,
       "type": "string"
+    },
+    "managed": {
+      "const": true,
+      "type": "boolean"
     },
     "profileRevision": {
       "maxLength": 256,
