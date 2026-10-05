@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
+import { modelName } from "./model-label.ts";
 import {
+  modelControlName,
   nextOptions,
   pickerModelsFromChoices,
   reconcileNextOptions,
@@ -96,4 +98,18 @@ test("after the thread moves, what the new model takes is kept and the rest is n
     speedAllowed: true,
   });
   expect(moved).toEqual({ options: undefined, dropped: ["effort", "speed"] });
+});
+
+test("the model chip's tooltip names the provider once, the default included", () => {
+  const details = { account: "personal", effort: "high", hasEfforts: true };
+  expect(modelControlName({ model: "Opus 4.1", provider: "claude", ...details })).toBe(
+    "Claude Code · Opus 4.1, personal, High effort",
+  );
+  expect(modelControlName({ model: modelName("claude"), provider: "claude", ...details })).toBe(
+    "Claude Code · Default, personal, High effort",
+  );
+  // Its accessible name leaves the provider to the mark beside it.
+  expect(modelControlName({ model: "Opus 4.1", ...details })).toBe(
+    "Opus 4.1, personal, High effort",
+  );
 });

@@ -75,3 +75,68 @@ The final main merge includes automations and process-test reliability. Context 
 Workspace PR #26 is now merged. The narrow `WorkspaceFiles` implementation remains for this merge: context requires raw bounded byte prefixes for binary/UTF-8 diagnostics and an incrementally published fuzzy index, while `@ace/workspace.read` returns decoded text or a binary flag and its watcher owns an asynchronous disposal contract. Adapting those contracts safely needs a separate migration rather than a merge-resolution change. Git and canonical roots remain required; every symlink is refused. Remote authorization already uses the merged daemon device scopes via `allows`.
 
 Main at `fe670b0` is merged without rebasing. NOTICE retains both image-size and workspace descriptor notices. The daemon retains model requests, notifications, authenticated context requests and main's injected delivery runtime, connection admission, presence cleanup and shutdown behavior. Engine PR #15 remains open; the context-owned `deliverContext` integration contract is unchanged.
+
+## Image delivery and client reads
+
+The daemon keeps original image bytes unchanged. Provider-local paths use hard links
+named with the MIME-derived extension, under the same private blob directory. GC
+removes both names. Codex receives `localImage`, Claude receives base64 image sources,
+OpenCode 2 receives data URI attachments with MIME, Cursor SDK receives image URLs,
+and Pi/ACP receive base64 images. Negotiated capabilities and inline byte limits
+still apply. Unsupported media now produce a visible diagnostic naming the file and
+provider; the fallback does not suggest opening a daemon path. HEIC upload fails with
+an explicit export-to-PNG/JPEG message. Animated containers remain rejected.
+
+User message items gain `attachments` metadata with `sha256` as the content id,
+name, MIME, byte size, dimensions and `thumbnailAvailable`. The engine replaces
+verified attachment echoes with that metadata. Matched path, URI and base64 fields
+in native user envelopes become content-id references; unrelated native fields
+remain available for debugging. Claude image-only envelopes also produce a user
+item, and OpenCode prompt evidence retains its file parts for correlation.
+
+Attachment metadata and its originating intent id are committed to an indexed
+SQLite table before provider send/admission. Native resume resolves each hash
+from that table before accepting its echo, including a crash before any user
+item was stored. Actor construction reads no transcript bodies and performs no
+attachment-history scan; per-echo lookups use the thread/hash primary key.
+
+`context.request` gains `attachment.read`. Reads are thread scoped, require read
+permission, and return at most 64 KiB with offset, total bytes, MIME and EOF. The
+same operation is supported on the authenticated relay files channel. The client
+exposes `attachmentBytes` on each connection, with thumbnails as the default and
+an explicit original-size budget. The portable helper also accepts a request port
+bound to a dedicated relay channel. A multi-daemon client must call the connection
+that owns the thread, rather than cache a global daemon URL.
+
+Authenticated GET/HEAD `/v1/attachments/<threadId>/<sha256>/<original|thumbnail>`
+works on both local HTTP and paired-device HTTPS. Tokens belong in the Authorization
+header. Every request checks current device/read/thread permission and retained
+thread ownership before conditional cache replies. Only single byte ranges up to
+1 MiB are accepted. Full originals are streamed in 64 KiB reads, up to the 32 MiB
+upload cap. ETags include hash, variant and preview version. Private revalidation
+prevents a cached URL from bypassing a later permission check.
+
+Sharp 0.34.5, accepted under Apache-2.0, creates PNG previews bounded to 256 by 256
+pixels and 256 KiB. Decoder input has a 40 million pixel cap; at most two decodes
+run concurrently. The authorized read path pins blobs while decoding. Eight previews
+are cached in memory, at most 2 MiB. No preview replaces or rewrites the original,
+including its alpha, ICC profile or EXIF bytes. Standalone releases stage Sharp's
+runtime dependency closure and platform binaries, retaining bundled license notices.
+
+Fake daemons retain uploaded bytes and return small original fixtures as previews.
+`ServicesSeed.attachmentImages` seeds an orange PNG by thread id; `fixtureImage`
+exports its content id for UI fixtures. Production size and authorization guarantees
+belong to the real daemon, not the fake image codec.
+
+HTTP admission includes a 30-second absolute response deadline, using the injected
+delivery timer. Expiry or transport close releases the slot while a storage read
+or a socket drain is pending. Each completed wait detaches its listener; previous
+chunks are not retained by a shared unresolved close promise. WebSocket reads,
+HTTP reads and relay reads all recheck current thread access after asynchronous
+work. Originals require an explicit `maxBytes` budget in the client helper.
+
+Review regressions and benchmark definitions are written but not executed under
+the owner policy. `apps/daemon/bench/attachments.ts` reports actor-open/indexed
+lookup latency at multiple history sizes, preview/original CPU time and RSS.
+Numbers and runtime assertions need run at merge. Client rendering is a separate
+UI follow-up: metadata must be displayed using the connection that owns the item.

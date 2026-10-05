@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -9,21 +9,25 @@ import {
   Menu,
   nativeTheme,
   powerMonitor,
+  shell,
   type WebContents,
 } from "electron";
 import type { AppInfo, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import { Background } from "./background.ts";
+import { daemonLogsPath } from "./daemon/logs.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
-import { acceleratorToKey, applicationMenu } from "./menu.ts";
+import { applicationMenu } from "./menu.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
+import { checkWithFeedback } from "./os/update-feedback.ts";
 import { appPaths } from "./paths.ts";
 import { applyDevCsp, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { SettingsStore } from "./settings-store.ts";
+import { replayChord } from "./shortcuts.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { createMainWindow } from "./window/main-window.ts";
 
@@ -72,6 +76,13 @@ if (unsafe) {
 function log(level: "info" | "warn" | "error", message: string): void {
   (level === "error" ? console.error : console.log)(`[${level}] ${message}`);
 }
+
+const timers = {
+  set(delayMs: number, callback: () => void) {
+    const timer = setTimeout(callback, delayMs);
+    return () => clearTimeout(timer);
+  },
+};
 
 function isDirectory(path: string): boolean {
   try {
@@ -276,6 +287,12 @@ function main(target: DaemonTarget): void {
       missedConnection = false;
       window?.webContents.reload();
     });
+    /** The daemon's log folder (or home) in the file manager; false when there is none here. */
+    const showLogs = async (): Promise<boolean> => {
+      const path = daemonLogsPath(runtime.target, existsSync);
+      if (!path) return false;
+      return (await shell.openPath(path)) === "";
+    };
     const handlers = createHandlers({
       info,
       runtime,
@@ -284,6 +301,8 @@ function main(target: DaemonTarget): void {
       window: () => window,
       env: process.env,
       connection,
+      quit: () => app.quit(),
+      showLogs,
     });
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
@@ -291,19 +310,20 @@ function main(target: DaemonTarget): void {
           platform: process.platform,
           appName: app.name,
           developer: !app.isPackaged,
-          trigger: (command, accelerator) => {
-            emit(contents(), "menu.command", command);
-            const key = acceleratorToKey(accelerator, process.platform);
-            for (const type of ["keyDown", "keyUp"] as const)
-              window?.webContents.sendInputEvent({
-                type,
-                keyCode: key.keyCode,
-                modifiers: key.modifiers,
-              });
+          trigger: (accelerator) => {
+            if (window && !window.isDestroyed())
+              replayChord(window.webContents, accelerator, process.platform);
           },
           checkForUpdates: () =>
-            void Promise.resolve(handlers["updates.check"](undefined)).then((status) =>
-              emit(contents(), "updates.status", status),
+            void checkWithFeedback({
+              check: async () => handlers["updates.check"](undefined),
+              report: (status) => emit(contents(), "updates.status", status),
+              timers,
+            }),
+          openUrl: (url) => void shell.openExternal(url).catch(() => {}),
+          showLogs: () =>
+            void showLogs().catch((error: unknown) =>
+              log("warn", `Could not show the logs: ${String(error)}`),
             ),
         }),
       ),

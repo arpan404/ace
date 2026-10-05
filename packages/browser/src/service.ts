@@ -161,8 +161,7 @@ export class BrowserService {
       ) => {
         const task = session?.navigationTask;
         const policySignal = task ? AbortSignal.any([signal, task.signal]) : signal;
-        const resume = originContext.navigation ? task?.pause() : undefined;
-        if (task && originContext.navigation) task.policyOrigin = browserOrigin(url);
+        const resume = originContext.navigation ? session?.policyWait(url) : undefined;
         try {
           const result = await allowedOrigin(
             options.threadId,
@@ -197,7 +196,6 @@ export class BrowserService {
             session?.blockedNavigation(error.blocked, task);
           throw error;
         } finally {
-          if (task && originContext.navigation) task.policyOrigin = undefined;
           resume?.();
         }
       };
@@ -437,12 +435,20 @@ export class BrowserService {
   stopRecording(threadId: string): Promise<BrowserArtifact> {
     return this.get(threadId).stopRecording();
   }
-  async closeThread(threadId: string): Promise<void> {
+  async closeThread(threadId: string, actor?: Actor, signal?: AbortSignal): Promise<void> {
+    // Agent closure must not revoke policies or start recovery cleanup before ownership is checked.
+    const current = this.sessions.get(threadId);
+    if (actor && current) {
+      await current.closeBy(actor, signal);
+      this.sessions.delete(threadId);
+      return;
+    }
+    signal?.throwIfAborted();
     this.policyScopes.get(threadId)?.abort();
     await this.recoveries.get(threadId);
     const session = this.sessions.get(threadId) ?? (await this.opening.get(threadId));
     if (session) {
-      await session.close();
+      await (actor ? session.closeBy(actor, signal) : session.close());
       this.sessions.delete(threadId);
     }
   }

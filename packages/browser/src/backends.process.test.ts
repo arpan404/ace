@@ -85,8 +85,8 @@ it("pause on desktop loss emits the URL and rejects an in-flight read without re
     }),
   ]);
   expect(states.at(-1)).toMatchObject({ controller: "none", status: "paused" });
-  await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toThrow(
-    "disconnected",
+  await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toMatchObject(
+    { code: "browser_paused" },
   );
   expect(f.headless.pages).toHaveLength(0);
 });
@@ -214,11 +214,11 @@ it("closes a pressured relay and pauses its session instead of queuing undeliver
     status: "paused",
     reason: "Desktop browser transport backpressure",
   });
-  await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toThrow(
-    "backpressure",
+  await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toMatchObject(
+    { code: "browser_paused" },
   );
 });
-it("requires evaluation approval before sending arbitrary JavaScript to the desktop", async () => {
+async function approvalRace() {
   const approval = Promise.withResolvers<boolean>(),
     entered = Promise.withResolvers<void>();
   const f = await backendFixture({
@@ -228,11 +228,39 @@ it("requires evaluation approval before sending arbitrary JavaScript to the desk
     },
   });
   await f.open();
-  const evaluating = f.service.execute("thread", { action: "evaluate", expression: "1" });
+  const scripts: string[] = [];
+  f.requests.on("Runtime.evaluate", (message: unknown) => {
+    const expression = z
+      .object({ operation: z.object({ params: z.object({ expression: z.string() }) }) })
+      .safeParse(message);
+    if (expression.success && expression.data.operation.params.expression.includes("agent-script"))
+      scripts.push(expression.data.operation.params.expression);
+  });
+  const evaluating = f.service.execute("thread", {
+    action: "evaluate",
+    expression: "'agent-script'",
+  });
   await entered.promise;
+  return { f, scripts, evaluating, approve: () => approval.resolve(true) };
+}
+it("requires evaluation approval before sending arbitrary JavaScript to the desktop", async () => {
+  const { f, scripts, evaluating, approve } = await approvalRace();
   f.service.takeover("thread", "human");
-  approval.resolve(true);
-  await expect(evaluating).rejects.toThrow("controlled by human");
+  approve();
+  // The person still holds the page, so the agent is told why, not just that control moved.
+  await expect(evaluating).rejects.toMatchObject({
+    code: "human_controlled",
+    message: "Browser controlled by human",
+  });
+  expect(scripts).toEqual([]);
+});
+it("an approved evaluation is dropped as stale when control changed hands during approval", async () => {
+  const { f, scripts, evaluating, approve } = await approvalRace();
+  f.service.takeover("thread", "human");
+  f.service.handback("thread", "human");
+  approve();
+  await expect(evaluating).rejects.toMatchObject({ code: "controller_changed" });
+  expect(scripts).toEqual([]);
 });
 it("native permission and download denials flow through bounded daemon logs", async () => {
   const f = await backendFixture();

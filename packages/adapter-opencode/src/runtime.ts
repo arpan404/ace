@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { discoverProviders } from "@ace/provider-kit/discovery";
+import { discoverProvider, discoverProviders } from "@ace/provider-kit/discovery";
 import { spawnSupervised } from "@ace/provider-kit/process";
 export type Runtime = {
   wallTime(): number;
   monotonic(): number;
   entropy(bytes: number): string;
   discover: typeof discoverProviders;
+  discoverProvider: typeof discoverProvider;
   spawn: typeof spawnSupervised;
   fetch: typeof fetch;
   schedule(callback: () => void, delayMs: number): () => void;
@@ -17,6 +18,7 @@ export function runtime(overrides: Partial<Runtime> = {}): Runtime {
     monotonic: () => performance.now(),
     entropy: (bytes) => randomBytes(bytes).toString("hex"),
     discover: discoverProviders,
+    discoverProvider,
     spawn: spawnSupervised,
     fetch: (...args) => fetch(...args),
     schedule: (callback, delayMs) => {

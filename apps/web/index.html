@@ -2,14 +2,35 @@
 <html lang="en" data-theme="dark" data-scheme="dark" data-accent="blue" data-density="comfortable">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- resizes-content: the layout (h-dvh) shrinks with the on-screen keyboard on Chrome/Android. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, interactive-widget=resizes-content"
+    />
     <meta name="color-scheme" content="dark light" />
     <title>ace</title>
     <style>
-      /* First visit only: the default Dark background until the theme stylesheet loads. */
+      /*
+       * First visit only (no theme to replay): the OS scheme until the theme stylesheet loads,
+       * so a light OS never sees a dark first frame. The script below sets data-first-visit.
+       */
       html {
         background: #0a0a0a;
         color-scheme: dark;
+      }
+      @media (prefers-color-scheme: light) {
+        html[data-first-visit] {
+          background: #f6f6f7;
+          color-scheme: light;
+        }
+        html[data-first-visit] #boot {
+          --wall: #f6f6f7;
+          --foreground: #1d1d20;
+          --rail-rgb: 238 238 241;
+          --sidebar-rgb: 242 242 245;
+          --reading-rgb: 250 250 251;
+          --sidebar-border: rgb(0 0 0 / 0.07);
+        }
       }
       /*
        * The boot shell: rail, sidebar rows and header painted before the app's script runs,
@@ -35,37 +56,77 @@
       }
       #boot i {
         display: block;
+        flex: none;
         border-radius: 6px;
         background: color-mix(in oklab, var(--foreground, #ededed) 6%, transparent);
         animation: boot-breathe 1.6s ease-in-out infinite;
       }
+      /* Mirrors the shell: rail 40px, sidebar 280px, header 50px (src/features/shell). */
       #boot .rail {
         width: 40px;
         flex: none;
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 14px;
-        padding-top: 13px;
+        gap: 6px;
+        padding: 9px 0 12px;
         background: rgb(var(--rail-rgb, 17 17 19) / 0.9);
         border-right: 1px solid var(--sidebar-border, rgb(255 255 255 / 0.06));
       }
       #boot .rail i {
-        width: 22px;
-        height: 22px;
-        border-radius: 7px;
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+      }
+      #boot .rail .foot {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      #boot .rail .avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
       }
       #boot .side {
         width: 280px;
         flex: none;
         display: flex;
         flex-direction: column;
-        gap: 22px;
-        padding: 20px 16px;
         background: rgb(var(--sidebar-rgb, 19 19 21) / 0.92);
         border-right: 1px solid var(--sidebar-border, rgb(255 255 255 / 0.06));
       }
-      #boot .side i {
+      #boot .top {
+        height: 50px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 10px;
+      }
+      #boot .top .name {
+        width: 40px;
+        height: 14px;
+        margin-right: auto;
+      }
+      #boot .top .quick {
+        width: 28px;
+        height: 28px;
+        border-radius: 10px;
+      }
+      #boot .pill {
+        height: 32px;
+        margin: 0 8px 8px;
+        border-radius: 10px;
+      }
+      #boot .rows {
+        display: flex;
+        flex-direction: column;
+        gap: 21px;
+        padding: 10px 18px;
+      }
+      #boot .rows i {
         height: 10px;
       }
       #boot .main {
@@ -77,11 +138,44 @@
         height: 50px;
         display: flex;
         align-items: center;
-        padding: 0 16px;
+        gap: 2px;
+        padding: 0 12px;
       }
-      #boot .head i {
+      #boot .head .nav {
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+      }
+      #boot .head .title {
         width: 220px;
         height: 12px;
+        margin-left: 14px;
+      }
+      /* Shown by the watchdog below when nothing has replaced the splash in 15s. */
+      #boot .stuck {
+        padding: 0 24px;
+        font:
+          13px/1.45 system-ui,
+          sans-serif;
+        color: color-mix(in oklab, var(--foreground, #ededed) 70%, transparent);
+      }
+      #boot .stuck button {
+        pointer-events: auto;
+        font: inherit;
+        color: var(--foreground, #ededed);
+        background: none;
+        border: 0;
+        padding: 0;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        cursor: pointer;
+      }
+      /* The desktop's macOS traffic lights sit over the rail top and the sidebar's first row. */
+      :root[data-platform="darwin"]:not([data-fullscreen]) #boot .rail {
+        padding-top: 44px;
+      }
+      :root[data-platform="darwin"]:not([data-fullscreen]) #boot .top {
+        padding-left: 40px;
       }
       @media (max-width: 47.99rem) {
         #boot .side,
@@ -103,10 +197,18 @@
       }
     </style>
     <script>
+      // The desktop app's preload bridge says which platform draws the window chrome.
+      try {
+        const platform = window.ace && window.ace.platform;
+        if (typeof platform === "string")
+          document.documentElement.setAttribute("data-platform", platform);
+      } catch {}
       // Replay the theme the app last applied (src/theme/theme-provider.tsx) before first paint.
+      let replayed = false;
       try {
         const boot = JSON.parse(localStorage.getItem("ace.boot-theme") || "null");
         if (boot && typeof boot.css === "string") {
+          replayed = true;
           const root = document.documentElement;
           const sheet = document.createElement("style");
           sheet.id = "ace-themes";
@@ -124,21 +226,92 @@
           root.style.background = "var(--wall)";
         }
       } catch {}
+      // Nothing to replay (a first visit, or storage denied): follow the OS, as the default
+      // "system" theme will once the app loads.
+      if (!replayed) {
+        const root = document.documentElement;
+        const scheme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        root.setAttribute("data-first-visit", "");
+        root.setAttribute("data-theme", scheme);
+        root.setAttribute("data-scheme", scheme);
+      }
+      // A boot that fails outright (an entry script that can't load or throws while loading)
+      // says so on the splash at once; the app replaces the splash when it gets going.
+      const bootError = (message) => {
+        const boot = document.getElementById("boot");
+        if (!boot || boot.hasAttribute("data-leaving") || boot.querySelector(".stuck")) return;
+        const note = document.createElement("p");
+        note.className = "stuck";
+        note.setAttribute("role", "alert");
+        note.append(`ace couldn't start: ${message} `);
+        const reload = document.createElement("button");
+        reload.type = "button";
+        reload.textContent = "Reload";
+        reload.addEventListener("click", () => location.reload());
+        note.append(reload);
+        boot.removeAttribute("aria-hidden");
+        boot.querySelector(".main")?.append(note);
+      };
+      addEventListener(
+        "error",
+        (event) => {
+          const target = event.target;
+          if (target instanceof HTMLScriptElement) bootError("its code didn't load.");
+          else if (event.message && !document.getElementById("root")?.hasChildNodes())
+            bootError(event.message);
+        },
+        true,
+      );
     </script>
   </head>
   <body>
     <div id="boot" aria-hidden="true">
-      <div class="rail"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="rail">
+        <i></i><i></i><i></i><i></i><i></i><i></i>
+        <div class="foot"><i></i><i class="avatar"></i></div>
+      </div>
       <div class="side">
-        <i style="width: 18%"></i><i style="width: 52%"></i><i style="width: 100%"></i
-        ><i style="width: 44%"></i><i style="width: 34%"></i><i style="width: 50%"></i
-        ><i style="width: 86%"></i><i style="width: 72%"></i><i style="width: 80%"></i>
+        <div class="top"><i class="name"></i><i class="quick"></i><i class="quick"></i></div>
+        <i class="pill"></i>
+        <div class="rows">
+          <i style="width: 52%"></i><i style="width: 86%"></i><i style="width: 44%"></i
+          ><i style="width: 70%"></i><i style="width: 34%"></i><i style="width: 62%"></i
+          ><i style="width: 80%"></i>
+        </div>
       </div>
       <div class="main">
-        <div class="head"><i></i></div>
+        <div class="head">
+          <i class="nav"></i><i class="nav"></i><i class="nav"></i><i class="title"></i>
+        </div>
       </div>
     </div>
     <div id="root"></div>
+    <script>
+      // A boot that never gets as far as replacing the splash (a script that failed to load, a
+      // hang) says so after 15s instead of breathing forever. A screen that holds the splash on
+      // purpose (the desktop's "Starting ace…") marks it data-held and handles the wait itself.
+      setTimeout(() => {
+        const boot = document.getElementById("boot");
+        if (
+          !boot ||
+          boot.hasAttribute("data-leaving") ||
+          boot.hasAttribute("data-held") ||
+          boot.querySelector(".stuck")
+        )
+          return;
+        const note = document.createElement("p");
+        note.className = "stuck";
+        note.setAttribute("role", "status");
+        note.append("Still starting… ");
+        const reload = document.createElement("button");
+        reload.type = "button";
+        reload.textContent = "Reload";
+        reload.addEventListener("click", () => location.reload());
+        note.append(reload);
+        boot.removeAttribute("aria-hidden");
+        boot.querySelector(".main")?.append(note);
+      }, 15000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

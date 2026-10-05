@@ -8,10 +8,12 @@ import {
   type InstanceInput,
   type ModelCatalogApi,
   type DiscoveryOptions,
+  type CatalogOptions,
 } from "@ace/models";
+import { providerConfiguration } from "@ace/models/preferences";
 import { z } from "zod";
 import type { ClientMessage, ServerMessage, ProviderKind } from "@ace/protocol";
-import { findExecutable } from "@ace/provider-kit/discovery";
+import { findExecutable, defaultProviderExecutable } from "@ace/provider-kit/discovery";
 import {
   assertTestHomeIsolation,
   assertTestEnvironmentIsolation,
@@ -46,6 +48,7 @@ export async function registerDefaultModelInstances(
   env: NodeJS.ProcessEnv,
   signal: AbortSignal,
   registeredProviders: ReadonlySet<ProviderKind>,
+  preferences: import("@ace/protocol").ProviderConfigurations = [],
 ): Promise<void> {
   if (process.env.ACE_TEST_REAL_HOME) assertTestHomeIsolation(cwd);
   const candidates = [
@@ -58,10 +61,14 @@ export async function registerDefaultModelInstances(
   const installed = await Promise.all(
     candidates
       .filter((candidate) => !registeredProviders.has(candidate.provider))
-      .map(async (candidate) => ({
-        provider: candidate.provider,
-        path: await findExecutable(candidate.executable, env),
-      })),
+      .map(async (candidate) => {
+        const override = providerConfiguration(preferences, candidate.provider).binaryPath;
+        const path = await findExecutable(override ?? candidate.executable, env);
+        const executable = override
+          ? ((await findExecutable(candidate.executable, env)) ?? candidate.executable)
+          : (path ?? candidate.executable);
+        return { provider: candidate.provider, path, executable };
+      }),
   );
   if (signal.aborted) return;
   for (const candidate of installed) {
@@ -69,10 +76,28 @@ export async function registerDefaultModelInstances(
     catalog.registerInstance({
       id: `${candidate.provider}-cli-default`,
       provider: candidate.provider,
-      executable: candidate.path,
+      executable: candidate.executable,
       cwd,
       // Installation identity is stable; account owners invalidate when login identity changes.
       loginRevision: createHash("sha256").update(candidate.path).digest("hex"),
+    });
+  }
+}
+/** Explicit paths can admit a previously missing CLI without a restart or a probe. */
+export function registerConfiguredModelInstances(
+  catalog: ModelCatalog,
+  cwd: string,
+  preferences: import("@ace/protocol").ProviderConfigurations,
+): void {
+  for (const config of preferences) {
+    if (config.instance || !config.binaryPath || catalog.hasProvider(config.provider)) continue;
+    if (config.provider === "acp" || config.provider === "antigravity") continue;
+    catalog.registerInstance({
+      id: `${config.provider}-cli-default`,
+      provider: config.provider,
+      executable: defaultProviderExecutable(config.provider),
+      cwd,
+      loginRevision: createHash("sha256").update(config.binaryPath).digest("hex"),
     });
   }
 }
@@ -80,6 +105,7 @@ export function openDaemonModels(
   dataDir: string,
   instances: readonly InstanceInput[],
   discoveryOptions: DiscoveryOptions = {},
+  preferences?: CatalogOptions["preferences"],
 ): ModelCatalog {
   assertTestHomeIsolation(dataDir);
   assertModelTestIsolation(instances);
@@ -87,6 +113,7 @@ export function openDaemonModels(
   try {
     return new ModelCatalog({
       storage,
+      ...(preferences ? { preferences } : {}),
       instances,
       discover: createModelDiscovery(discoveryOptions),
       now: Date.now,

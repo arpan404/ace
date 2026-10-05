@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderConfigurations.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProviderConfiguration.json"
+      },
+      "maxItems": 64,
+      "type": "array",
+      "x-ace-constraint": "Each provider and optional instance pair must be unique."
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema1"
+    }
+  ],
+  "examples": [
+    []
+  ]
+}

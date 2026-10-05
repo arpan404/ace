@@ -43,7 +43,7 @@ export async function openSession(
   if (ctx.fork?.point.type === "turn") throw new Error("Claude requires a native message boundary");
   ctx.signal.throwIfAborted();
   const env = { ...process.env, ...options.env, ...ctx.env };
-  const executable = await findExecutable(options.executable ?? "claude", env);
+  const executable = await findExecutable(ctx.executable ?? options.executable ?? "claude", env);
   if (!executable) throw new Error("Claude CLI is not installed");
   const versionProbe = await probeOutput(executable, ["--version"], { env });
   if (versionProbe.code !== 0) throw new Error("Claude version probe failed");
@@ -196,7 +196,7 @@ export async function openSession(
           },
         ],
       },
-      env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: "ace/0.0.0" },
+      env: { ...env, ...injection?.env, CLAUDE_AGENT_SDK_CLIENT_APP: "ace/0.0.0" },
       spawnClaudeCodeProcess: (spawn) =>
         spawnSdkProcess(spawn, {
           ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),

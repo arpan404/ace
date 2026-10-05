@@ -21,7 +21,7 @@ export function browserToolkit(browser: BrowserService, store: Store): Toolkit {
       registry.registerContent({
         name: "ace_browser_open",
         description:
-          "Open ace's browser in this thread, selecting the desktop or headless backend automatically.",
+          "Open this thread's ace browser. Optional url must be HTTP(S) without credentials. New origins follow the thread permission mode and may wait for human approval. Then call ace_browser_snapshot for element refs. Do not use cua_repl or another provider's browser for this thread.",
         input: z.strictObject({ url: z.string().max(8192).optional() }),
         capability: "browser",
         timeoutMs: 300_000,
@@ -41,20 +41,23 @@ export function browserToolkit(browser: BrowserService, store: Store): Toolkit {
           );
         },
       });
-      scopedBrowserToolkit({
-        async execute(threadId, command, actor, signal) {
-          signal?.throwIfAborted();
-          await open(ThreadId.parse(threadId));
-          signal?.throwIfAborted();
-          return browser.execute(threadId, command, actor, signal);
+      scopedBrowserToolkit(
+        {
+          async execute(threadId, command, actor, signal) {
+            signal?.throwIfAborted();
+            await open(ThreadId.parse(threadId));
+            signal?.throwIfAborted();
+            return browser.execute(threadId, command, actor, signal);
+          },
+          async screenshot(threadId, signal) {
+            signal?.throwIfAborted();
+            await open(ThreadId.parse(threadId));
+            signal?.throwIfAborted();
+            return browser.screenshot(threadId, signal);
+          },
         },
-        async screenshot(threadId, signal) {
-          signal?.throwIfAborted();
-          await open(ThreadId.parse(threadId));
-          signal?.throwIfAborted();
-          return browser.screenshot(threadId, signal);
-        },
-      }).register(registry);
+        200_000,
+      ).register(registry);
       registry.registerContent({
         name: "ace_browser_close",
         description: "Close this thread's ace browser.",
@@ -63,7 +66,7 @@ export function browserToolkit(browser: BrowserService, store: Store): Toolkit {
         timeoutMs: 60_000,
         async run(_input, { caller, signal }) {
           signal.throwIfAborted();
-          await browser.closeThread(caller.threadId);
+          await browser.closeThread(caller.threadId, { kind: "agent" }, signal);
           return content({ closed: true });
         },
       });

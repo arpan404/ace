@@ -78,6 +78,8 @@ export interface SessionContext {
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
+  /** Daemon-owned executable override; never accepted from wire session data. */
+  executable?: string;
   /** Host-local selected account home, never a client-supplied credential selector. */
   instanceHomeDir?: string;
   /** Required by the engine; omitted only by legacy direct callers. */

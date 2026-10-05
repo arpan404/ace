@@ -62,6 +62,97 @@
     },
     {
       "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "stream.configure",
+          "type": "string"
+        },
+        "settings": {
+          "$ref": "https://ace.local/protocol/v1/ScreenStreamSettings.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "settings"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "stream.keyframe",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "stream.image",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "enabled": {
           "type": "boolean"
         },
@@ -512,7 +603,7 @@
           "type": "boolean"
         },
         "fps": {
-          "maximum": 30,
+          "maximum": 60,
           "minimum": 1,
           "type": "integer"
         },

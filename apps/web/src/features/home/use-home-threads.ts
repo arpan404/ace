@@ -4,14 +4,17 @@ import type { ThreadListEntry } from "@ace/protocol";
 import { useCallback } from "react";
 import { useNow } from "@/lib/time.ts";
 import { arrange, homeOrder, projectCounts, type ProjectCount } from "@ace/ui-core";
-import { useOrganizerState } from "@/features/organize/index.ts";
+import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
+import { usePendingActions } from "@/lib/pending-actions.ts";
 
 /** Home's threads: pinned first, then the rest in Home order, and Settled apart. */
 export interface HomeList {
   active: string[];
   settled: string[];
+  /** The listed threads that need you, which may rise while the list otherwise holds still. */
+  needsYou: string[];
 }
-const empty: HomeList = { active: [], settled: [] };
+const empty: HomeList = { active: [], settled: [], needsYou: [] };
 const noProjects: ProjectCount[] = [];
 
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
@@ -19,6 +22,19 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
     const entry = reader.thread(id);
     return entry ? [entry] : [];
   });
+
+/** The list's entries as this window shows them, with organize actions not yet confirmed. */
+function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
+  const overlay = useOrganizeOverlay();
+  const pending = usePendingActions();
+  return useCallback(
+    (reader: SidebarReader) => {
+      const entries = entriesOf(reader);
+      return pending.length ? entries.map((entry) => overlay.apply(entry)) : entries;
+    },
+    [overlay, pending],
+  );
+}
 
 /** Keys for every entry, so a selection over the whole list sees each status change. */
 // `threads` changes with any entry, so one key covers the whole list at any size.
@@ -28,7 +44,9 @@ function useEveryEntryKey(): readonly SidebarKey[] {
 }
 
 const listEqual = (a: HomeList, b: HomeList) =>
-  arrayEqual(a.active, b.active) && arrayEqual(a.settled, b.settled);
+  arrayEqual(a.active, b.active) &&
+  arrayEqual(a.settled, b.settled) &&
+  arrayEqual(a.needsYou, b.needsYou);
 
 /**
  * Home order (needs you, moving, trouble, the rest, most recent first in each; settled apart),
@@ -39,17 +57,19 @@ export function useHomeList(): HomeList {
   const keys = useEveryEntryKey();
   const state = useOrganizerState();
   const now = useNow();
+  const read = useEntries();
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
-      const entries = entriesOf(reader);
+      const entries = read(reader);
       const { active, settled } = arrange(entries, state, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
+      const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
       const ordered = homeOrder(
         active.map((id) => ({ id, pinned: byId.get(id)?.pinned === true })),
       );
-      return { active: ordered, settled };
+      return { active: ordered, settled, needsYou };
     },
-    [state, now],
+    [state, now, read],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }
@@ -65,10 +85,7 @@ const countsEqual = (a: ProjectCount[], b: ProjectCount[]) =>
 /** Projects that have threads here, with how many. */
 export function useProjects(): ProjectCount[] {
   const keys = useEveryEntryKey();
-  const state = useOrganizerState();
-  const select = useCallback(
-    (reader: SidebarReader) => projectCounts(entriesOf(reader), state),
-    [state],
-  );
+  const read = useEntries();
+  const select = useCallback((reader: SidebarReader) => projectCounts(read(reader)), [read]);
   return useSidebar(keys, select, countsEqual) ?? noProjects;
 }

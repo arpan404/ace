@@ -13,6 +13,12 @@ export interface AccountRow {
 }
 
 /**
+ * Where the model list stands: still arriving (the picker shows placeholder rows), being
+ * discovered again with the last list shown meanwhile, or settled.
+ */
+export type CatalogState = "loading" | "refreshing" | "ready";
+
+/**
  * Everything the composer's model chip and its popover show, the same shape for New thread and
  * a running thread. Each side maps its own data into it; the chip only draws it.
  */
@@ -25,7 +31,12 @@ export interface ModelControlView {
   /** The chip's accessible name and tooltip. */
   ariaLabel: string;
   tip: string;
-  /** Nothing can change now (offline): the chip dims and the popover says why. */
+  /**
+   * A switch to `label` not in effect yet: the model it leaves (the chip reads "Opus 4.1 →
+   * Sonnet 4.5"; undefined when only the account changes) and when it applies.
+   */
+  switching?: { from: string | undefined; description: string } | undefined;
+  /** Offline: changes still go and apply once the daemon is back; the popover says so. */
   offline?: string | undefined;
   /** No model can be chosen at all (no provider installed). */
   disabled?: boolean | undefined;
@@ -53,6 +64,7 @@ export interface ModelControlView {
   account: string | undefined;
   models: readonly PickerModel[];
   providers: readonly PickerProvider[];
+  catalog: CatalogState;
 }
 
 export interface ModelControlActions {

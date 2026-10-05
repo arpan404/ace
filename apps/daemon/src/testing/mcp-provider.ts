@@ -46,6 +46,9 @@ if (provider === "opencode" && args[0] !== "serve") {
 const write = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 
 if (provider === "opencode") {
+  z.object({
+    mcp: z.object({ ace: z.object({ timeout: z.object({ execution: z.literal(300000) }) }) }),
+  }).parse(JSON.parse(process.env["OPENCODE_CONFIG_CONTENT"] ?? "null"));
   const config = z
     .object({ mcp: z.object({ ace: HttpServer }) })
     .parse(JSON.parse(process.env["OPENCODE_CONFIG_CONTENT"] ?? "null")).mcp.ace;
@@ -181,6 +184,8 @@ if (provider === "opencode") {
     } else if (provider === "claude") {
       if (message.type !== "control_request") continue;
       if (request["subtype"] === "initialize") {
+        if (process.env["MCP_TOOL_TIMEOUT"] !== "300000")
+          throw new Error("Claude tool deadline cannot accommodate origin approval");
         const config = z
           .object({ mcpServers: z.object({ ace: HttpServer }) })
           .parse(JSON.parse(args[args.indexOf("--mcp-config") + 1] ?? "null")).mcpServers.ace;
@@ -218,6 +223,8 @@ if (provider === "opencode") {
     ) {
       let url, authorization;
       if (provider === "codex") {
+        if (!args.includes("mcp_servers.ace.tool_timeout_sec=300"))
+          throw new Error("Codex tool deadline cannot accommodate origin approval");
         const setting = args.find((arg) => arg.startsWith("mcp_servers.ace.url="));
         if (!setting) throw new Error("Missing Codex MCP URL");
         url = z.string().parse(JSON.parse(setting.slice(setting.indexOf("=") + 1)));

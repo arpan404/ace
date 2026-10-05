@@ -47,6 +47,7 @@ export interface Services {
   accounts?: AccountService;
   accountManagement?: import("../account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
+  providerActivation?: Promise<void>;
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
   files?: FilesService;
@@ -69,6 +70,7 @@ export interface Services {
   context: ContextService;
   settings: SettingsService;
   models: ModelCatalog;
+  providerConfigurations: import("../provider-configurations.ts").ProviderConfigurationsState;
   /** Filesystem admission completes separately from lazy metadata discovery. */
   modelsReady?: Promise<void>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;

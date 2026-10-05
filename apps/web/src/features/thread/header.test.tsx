@@ -361,7 +361,7 @@ test("the ⋯ menu offers the same thread actions, in the same order, as the row
     .getAllByRole("menuitem")
     .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R)$/, ""));
   // The thread screen adds a side chat and the agent tree, and shows its own shortcuts.
-  const shortcut = /(Alt\+Ctrl\+[RP]|Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
+  const shortcut = /(Alt\+Ctrl\+[RP]|(Alt\+)?Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
   expect(
     header
       .filter((label) => !/^(Open agent tree|New side chat)/.test(label))
@@ -398,19 +398,18 @@ test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archiv
   expect(await screen.findByRole("textbox", { name: "Thread title" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
 
-  await userEvent.keyboard("{Shift>}{Meta>}a{/Meta}{/Shift}");
+  // Off Apple platforms Archive is Ctrl+Alt+Shift+A (Ctrl+Shift+A is Agents there).
+  await userEvent.keyboard("{Control>}{Alt>}{Shift>}a{/Shift}{/Alt}{/Control}");
   expect(await screen.findByText("Archived · Replay cursor resets on every resume")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
 });
 
-test("New side chat in the ⋯ menu opens the Side chat tab", async () => {
+test("New side chat in the ⋯ menu says it isn't available yet and promises no shortcut", async () => {
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   const item = await screen.findByRole("menuitem", { name: /^New side chat/ });
-  expect(item.textContent).toMatch(/Alt\+Ctrl\+S|⌥⌘S/);
-  await userEvent.click(item);
-  const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { name: "Side chat", selected: true })).toBeTruthy();
+  expect(item.getAttribute("aria-disabled")).toBe("true");
+  expect(item.textContent).toBe("New side chatNot available yet");
 });
 
 test("Fork says why it is unavailable before the first turn has finished", async () => {

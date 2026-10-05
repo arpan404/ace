@@ -73,7 +73,7 @@ export function AppearanceSettings() {
         </SettingRow>
         <SettingRow
           title="Accent colour"
-          description="Used for focus, links, selection and the new-activity marker. Status colours never change."
+          description="Primary actions, links, selection, focus and sliders. Theme follows each theme's own accent. Status colours never change."
         >
           <AccentPicker />
         </SettingRow>
@@ -109,12 +109,12 @@ function AccentPicker() {
   const custom = (value: string) => update({ accent: "custom", customAccent: value });
   return (
     <div role="radiogroup" aria-label="Accent colour" className="flex items-center gap-2">
-      {accentNames.map((name) => (
+      {(["theme", ...accentNames] as const).map((name) => (
         <button
           key={name}
           type="button"
           role="radio"
-          aria-label={name}
+          aria-label={name === "theme" ? "Theme's own" : name}
           aria-checked={appearance.accent === name}
           onClick={() => update({ accent: name })}
           className={swatch}

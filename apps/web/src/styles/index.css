@@ -41,6 +41,11 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* The accent as a fill (primary actions, checked controls) and the text on it. */
+  --color-tint: var(--ring);
+  --color-tint-foreground: var(--ring-foreground);
+  /* The accent as text: links and the current view, AA on every surface (theme/accent.ts). */
+  --color-link: var(--ring-text);
   --color-code: var(--code);
   --color-bubble: var(--bubble);
   --color-reading: var(--reading);
@@ -56,7 +61,11 @@
   --color-diff-add: var(--diff-add);
   --color-diff-del: var(--diff-del);
 
-  /* Status hues: dots, the activity badge and diff counts only (DESIGN-fable.md, Principle 2). */
+  /*
+   * Status hues: working blue, needs you amber, waiting and limited violet (a limited row's dot is
+   * a hollow violet ring), failed red, done green. Pills, dots, rings and badges read them
+   * through `data-tone` (below) as --tone.
+   */
   --color-status-needs-you: var(--status-needs-you);
   --color-status-working: var(--status-working);
   --color-status-waiting: var(--status-waiting);
@@ -171,6 +180,31 @@
   }
 }
 
+@layer base {
+  /* One status vocabulary: any element with `data-tone` gets its hue as --tone. */
+  [data-tone="working"] {
+    --tone: var(--status-working);
+  }
+  [data-tone="needs-you"] {
+    --tone: var(--status-needs-you);
+  }
+  [data-tone="waiting"] {
+    --tone: var(--status-waiting);
+  }
+  [data-tone="failed"] {
+    --tone: var(--status-failed);
+  }
+  [data-tone="done"] {
+    --tone: var(--status-done);
+  }
+  [data-tone="unresponsive"] {
+    --tone: var(--status-unresponsive);
+  }
+  [data-tone="idle"] {
+    --tone: var(--subtle-foreground);
+  }
+}
+
 @layer components {
   /* Floating glass: popovers, menus, palette, composer, toasts. */
   .glass {
@@ -206,7 +240,7 @@
       radial-gradient(50% 55% at 76% 90%, var(--w3), transparent 70%),
       radial-gradient(40% 45% at 16% 92%, var(--w4), transparent 70%), var(--wall);
   }
-  /* Spinner ring: grey on rows, tinted only where status words are allowed. */
+  /* Spinner ring in the current colour: the working blue unless a caller sets another. */
   .spin-ring {
     display: inline-block;
     flex: none;
@@ -257,4 +291,46 @@
     #000 calc(100% - var(--under, 0px) - 1.75rem),
     transparent calc(100% - var(--under, 0px))
   );
+}
+
+/*
+ * Focus rings (one recipe app-wide). `focus-ring` for controls: a 2px gap in the surface colour,
+ * then 2px of the focus colour. `focus-ring-inset` for rows inside scrollers, where an outer
+ * ring would be clipped. `--focus` is the full-strength focus token; it falls back to the accent.
+ */
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    box-shadow:
+      0 0 0 2px var(--background),
+      0 0 0 4px var(--focus, var(--ring));
+  }
+}
+@utility focus-ring-inset {
+  outline: none;
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--focus, var(--ring));
+  }
+}
+
+/*
+ * Touch targets: on a coarse pointer, an invisible area past the control's edges so a 30px
+ * button takes a 44px tap (7px each side; add -lg for 12px on ~20px controls, -xl for 14px
+ * on ~16px ones). The control keeps its size; it must be positioned.
+ */
+@utility touch-hit {
+  @media (pointer: coarse) {
+    &::after {
+      content: "";
+      position: absolute;
+      inset: calc(var(--hit, 7px) * -1);
+    }
+  }
+}
+/* Larger areas for smaller controls, with touch-hit. */
+@utility touch-hit-lg {
+  --hit: 12px;
+}
+@utility touch-hit-xl {
+  --hit: 14px;
 }

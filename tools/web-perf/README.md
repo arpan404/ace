@@ -4,6 +4,14 @@
 browser interactions, retained-memory streaming and the million-item long-thread journey.
 The limits live in `src/budgets.ts` and ADR 0056.
 
+`node tools/web-perf/src/bundle.ts --analyze` also prints the client worker's eager and lazy
+chunk sizes, package totals and largest retained modules from Rolldown. Module lengths are
+before minification; gzip sizes count each emitted chunk once, as the budgets do. The report
+asset is emitted only for analysis builds. Every production build checks the worker's static
+imports against `forbiddenEagerWorkerModules` in `apps/web/worker-bundle.ts`, reporting the
+module name if a cold service, page implementation or duplicate mini schema runtime returns
+to the startup path. See [the bundle diet measurements](client-worker-diet.md).
+
 The long-thread journey keeps all six rounds, 2,000 indexed turns, 48 subagent threads and
 20 live items per second. A run that exceeds only readiness, interaction or long-task timing
 budgets gets one complete repeat in a fresh browser. Both samples are printed. A second
@@ -19,6 +27,19 @@ to give its timer batches and the page's sampling boundaries margin above the un
 This increases the workload; it does not lower the acceptance threshold. Detector and other
 correctness failures remain fatal. `browser-budgets.test.ts` verifies that a small shortfall
 retries, a repeated shortfall fails, and the exact 5,000 boundary passes.
+
+The perf worker counts decoded transcript event deliveries, excluding snapshots and duplicate
+sidebar deliveries, and publishes the count after the client has processed each frame.
+`acePerf.events` is this delivered count, rather than the soak daemon's generated sequence.
+Reset captures the count and `performance.now()` together in one page task; reading captures
+both endpoints together again. The rate uses that count delta and the same `seconds` as the
+interaction report. Queued deliveries after the read belong to the next window. A stale start
+from before another reset is rejected. The measurement behaviour test injects a clock and
+counters to verify that pre-window and post-window deliveries cannot enter the rate.
+
+The literal 4,997.42 also appears in expected-failure budget tests. Those tests previously
+printed rejected samples while asserting that the gate rejects them. They now silence their
+sample reports so expected rejections cannot look like real browser benchmark failures.
 
 PerformanceObserver delivery is asynchronous. Resetting a measurement clears its values and
 sets its start timestamp; entries delivered afterward are filtered by `entry.startTime`.

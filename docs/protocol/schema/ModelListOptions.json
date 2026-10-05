@@ -30,7 +30,7 @@
     },
     "offset": {
       "default": 0,
-      "maximum": 32768,
+      "maximum": 40960,
       "minimum": 0,
       "type": "integer"
     },

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { crowdedQuery, useSidebarInline } from "@/lib/breakpoints.ts";
+import { crowdedQuery, overlayPanelsQuery, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
 import { panelMotion, usePresence } from "@/lib/motion.ts";
 import { cn } from "@/lib/cn.ts";
@@ -42,14 +42,16 @@ const SidebarSheet = lazy(() =>
 /**
  * The rail of views, the sidebar beside it (280px, translucent) and the selected view. ⌘\
  * hides and shows the sidebar; the rail always stays. Below 768px both are a sheet opened from
- * the header. Below 1100px the sidebar steps aside while the screen's right panel is open and
- * comes back when it closes. Both stay mounted for the app's life; each view draws its own list
+ * the header. Below 1100px the sidebar steps aside while the screen's right panel is open, so
+ * the panel can dock beside the column, and comes back when it closes; where panels float
+ * anyway (896px and below) it stays put. Both stay mounted for the app's life; each view draws its own list
  * into the sidebar's body.
  */
 export function SidebarFrame(props: { rail: ReactNode; sidebar: ReactNode; children: ReactNode }) {
   const { layout, setSidebarOpen, hideRightPanel, rightPanelShown } = useLayout();
   const wide = useSidebarInline();
   const crowded = useMediaQuery(crowdedQuery, false);
+  const overlay = useMediaQuery(overlayPanelsQuery, false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [body, setBody] = useState<HTMLElement | null>(null);
   // The sheet is a way to get somewhere: it closes once the person has gone there.
@@ -60,7 +62,7 @@ export function SidebarFrame(props: { rail: ReactNode; sidebar: ReactNode; child
     setSheetOpen(false);
   }
   // Yielding is not remembered: the person's own choice (sidebarOpen) is what comes back.
-  const yielded = crowded && rightPanelShown;
+  const yielded = crowded && !overlay && rightPanelShown;
   const inline = layout.sidebarOpen && !yielded;
   const shown = wide ? inline : sheetOpen;
   // The sidebar stays mounted while hidden (it keeps its scroll and state); it slides in from

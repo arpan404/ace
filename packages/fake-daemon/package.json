@@ -10,15 +10,23 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ace/accounts": "workspace:*",
     "@ace/automations": "workspace:*",
     "@ace/browser": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/core": "workspace:*",
+    "@ace/models": "workspace:*",
+    "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/search": "workspace:*",
     "@ace/settings": "workspace:*",
+    "@ace/ui-core": "workspace:*",
     "@ace/usage": "workspace:*",
+    "image-size": "^2.0.2",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/conductor": "workspace:*"
   }
 }

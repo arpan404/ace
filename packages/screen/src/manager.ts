@@ -1,6 +1,12 @@
+import { z } from "zod";
+import { ScreenStreamSettings } from "@ace/protocol";
+import type { ModelImageRuntime } from "@ace/mcp-server";
+import { captureModelImage } from "./model-capture.ts";
+import { legacyModelAction } from "./model-coordinates.ts";
+import { dispatchLegacyAction } from "./legacy-input.ts";
 import { ScreenStopError } from "./stop-error.ts";
 import { ScreenAgentScope } from "@ace/protocol";
-import { agentOwner } from "./agent-binding.ts";
+import { agentOwner, ScreenDelegationError } from "./agent-binding.ts";
 import {
   ScreenAction,
   ScreenBundle,
@@ -29,6 +35,7 @@ import { nodeScheduler } from "./runtime.ts";
 import { Recording, type RecordingArtifact } from "./recording.ts";
 
 export type ScreenOptions = Omit<HelperOptions, "onFrame" | "onFailure"> & {
+  modelImageRuntime?: ModelImageRuntime;
   recordingDirectory: string;
   recordingLimitBytes?: number;
   publishArtifact: (artifact: RecordingArtifact) => Promise<void>;
@@ -155,7 +162,7 @@ export class ScreenManager {
   async start(input: ScreenTarget, fps = 10): Promise<ScreenState> {
     const target = ScreenTarget.parse(input);
     this.authorize(target);
-    if (!Number.isInteger(fps) || fps < 1 || fps > 30) throw new Error("Invalid frame rate");
+    if (!Number.isInteger(fps) || fps < 1 || fps > 60) throw new Error("Invalid frame rate");
     if (this.sessions.size >= 1 || this.starting) throw new Error("Session limit");
     this.starting = true;
     this.reservations++;
@@ -205,7 +212,7 @@ export class ScreenManager {
         op: "start" as const,
         sessionId: id,
         target,
-        fps,
+        fps: helper.capabilities?.platform === "macos" ? fps : Math.min(30, fps),
         capture: helper.capabilities?.platform !== "macos",
         allowlist: this.policy.allowlist(),
       };
@@ -297,16 +304,49 @@ export class ScreenManager {
     if (!session.latest) throw new Error("No captured frame yet");
     return session.latest;
   }
+  async configureStream(
+    id: string,
+    raw: ScreenStreamSettings,
+  ): Promise<{ codec: "jpeg" | "h264" }> {
+    const settings = ScreenStreamSettings.parse(raw);
+    const session = this.live(id);
+    this.authorize(session.state.target);
+    if (
+      session.helper.capabilities?.platform !== "macos" ||
+      !session.helper.capabilities.codecs.includes("h264")
+    )
+      return { codec: "jpeg" };
+    return z
+      .object({ codec: z.enum(["jpeg", "h264"]) })
+      .parse(await session.helper.request({ op: "stream.configure", settings }));
+  }
+  async requestKeyframe(id: string): Promise<void> {
+    const session = this.live(id);
+    this.authorize(session.state.target);
+    if (session.helper.capabilities?.platform === "macos")
+      await session.helper.request({ op: "stream.keyframe" });
+  }
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
     this.authorize(session.state.target);
     if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux"))
       return this.screenshot(id);
-    return session.pixels.screenshot(
-      this.options.scheduler ?? nodeScheduler,
-      this.options.timeoutMs ?? 10_000,
-    );
+    const lease = session.pixels.acquire();
+    try {
+      await lease.ready;
+      if (session.helper.capabilities.platform === "macos") {
+        session.pixels.invalidateImage();
+        await session.helper.request({ op: "stream.image" });
+      }
+      return await session.pixels.screenshot(
+        this.options.scheduler ?? nodeScheduler,
+        this.options.timeoutMs ?? 10_000,
+      );
+    } finally {
+      lease.release();
+    }
   }
+
   private async readUI<T>(
     id: string,
     read: (session: Session) => Promise<T>,
@@ -374,7 +414,12 @@ export class ScreenManager {
     await this.execute(id, actor, owner, (session) => {
       if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
       beforeDispatch?.();
-      return session.helper.request({ op: "input", input });
+      if (input.kind === "pointer.down") session.pointerDown = true;
+      return session.helper.request({ op: "input", input }).then((result) => {
+        if (input.kind === "pointer.up" || input.kind === "pointer.cancel")
+          session.pointerDown = false;
+        return result;
+      });
     });
   }
   /**
@@ -419,7 +464,7 @@ export class ScreenManager {
         candidate.state.controller === "agent" &&
         candidate.owner === owner,
     );
-    if (!session) throw new Error("Screen delegation required");
+    if (!session) throw new ScreenDelegationError();
     session.controllerBinding?.authorize();
     this.authorize(session.state.target);
     return session.state.sessionId;
@@ -439,6 +484,24 @@ export class ScreenManager {
     binding?: ControllerBinding,
   ): void {
     const session = this.live(id);
+    if (
+      session.pointerDown &&
+      session.helper.capabilities?.platform === "macos" &&
+      (session.state.controller !== controller || session.owner !== owner)
+    ) {
+      const cleanup = session.helper.request({ op: "input", input: { kind: "pointer.cancel" } });
+      const completion = cleanup.then(() => {
+        if (session.pointerCleanup === completion) {
+          session.pointerDown = false;
+          delete session.pointerCleanup;
+        }
+      });
+      session.pointerCleanup = completion;
+      void session.pointerCleanup.catch((error) => {
+        session.state.error = String(error);
+        this.emit(session);
+      });
+    }
     if (session.controllerBinding) {
       // No old input remains authorized if an external release callback fails.
       Object.assign(session, takeControl(session, "none", owner));
@@ -488,33 +551,32 @@ export class ScreenManager {
     actor: "human" | "agent",
     input: ScreenAction,
     owner = "local",
+    beforeDispatch?: () => void,
   ): Promise<void> {
     const action = ScreenAction.parse(input);
-    await this.execute(id, actor, owner, async (session) => {
-      if (!session.helper.capabilities?.platform.startsWith("linux"))
-        return session.helper.request({ op: "action", action });
-      const scale = session.latest?.header.scale ?? 1;
-      switch (action.kind) {
-        case "click":
-          return session.helper.requestV2({
-            op: "pointer.click",
-            x: action.x / scale,
-            y: action.y / scale,
-            button: action.button,
-          });
-        case "type":
-          return session.helper.requestV2({ op: "text.type", text: action.text });
-        case "scroll":
-          await session.helper.requestV2({
-            op: "pointer.move",
-            x: action.x / scale,
-            y: action.y / scale,
-          });
-          return session.helper.requestV2({ op: "scroll", dx: action.deltaX, dy: action.deltaY });
-        case "key":
-          throw new Error("Use a named key on protocol v2 helpers");
-      }
-    });
+    await this.execute(id, actor, owner, (session) =>
+      dispatchLegacyAction(session, action, beforeDispatch ?? (() => {})),
+    );
+  }
+  modelScreenshot(id: string, owner: string, signal: AbortSignal) {
+    return captureModelImage(
+      this.live(id),
+      owner,
+      () => this.captureScreenshot(id),
+      signal,
+      this.options.modelImageRuntime,
+    );
+  }
+  async modelAction(
+    id: string,
+    owner: string,
+    input: ScreenAction,
+    beforeDispatch: () => void,
+  ): Promise<void> {
+    const action = ScreenAction.parse(input);
+    await this.execute(id, "agent", owner, (session) =>
+      dispatchLegacyAction(session, legacyModelAction(session, owner, action), beforeDispatch),
+    );
   }
   private async execute(
     id: string,
@@ -531,6 +593,7 @@ export class ScreenManager {
     const epoch = session.epoch;
     const execute = session.actionTail
       .then(async () => {
+        await session.pointerCleanup;
         if (session.epoch !== epoch) throw new Error("Controller changed");
         const permissions = ScreenPermissions.parse(
           await session.helper.request({ op: "permissions" }),

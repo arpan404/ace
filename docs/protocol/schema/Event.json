@@ -12,9 +12,7 @@
       "$ref": "https://ace.local/protocol/v1/EventPayload.json"
     },
     "seq": {
-      "maximum": 9007199254740991,
-      "minimum": 0,
-      "type": "integer"
+      "$ref": "https://ace.local/protocol/v1/EventSequence.json"
     },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"

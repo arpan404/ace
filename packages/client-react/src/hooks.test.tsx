@@ -1,5 +1,6 @@
 import { Client, ConductorClient } from "@ace/client";
 import {
+  accountLimit,
   FakeDaemon,
   ScenarioPlayer,
   facts,
@@ -8,8 +9,9 @@ import {
   workbenchServices,
   type Scenario,
 } from "@ace/fake-daemon";
-import { DeviceId, InteractionId } from "@ace/protocol";
+import { DeviceId, InteractionId, type ThreadListEntry } from "@ace/protocol";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, expect, test } from "vitest";
 import {
   ClientProvider,
@@ -18,6 +20,7 @@ import {
   useInteraction,
   useItemInteraction,
   useItem,
+  useSidebarIndex,
   type AgentTreeNode,
 } from "./index.ts";
 
@@ -27,47 +30,69 @@ afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
 });
 
-test("a deck worker question remains visible when another component subscribes and unmounts", async () => {
-  const { daemon, client } = setup();
-  daemon.seedServices(workbenchServices(1_800_000_000_000));
-  await client.start();
-  await waitFor(() => expect(client.state).toBe("ready"));
-  let ids = 0;
-  const decks = new ConductorClient(client, () => `deck-${++ids}`);
-  const run = await decks.get("mobile-cold-start");
-  const gate = run.needsUser.find((entry) => entry.kind === "provider");
-  if (!gate?.threadId || !gate.interactionId) throw new Error("Missing worker question");
-  const threadId = gate.threadId;
-  const interactionId = gate.interactionId;
-  const reporting = run.delegations
-    .filter((entry) => entry.threadId !== threadId)
-    .slice(0, 4)
-    .map((entry) => client.thread(entry.threadId));
-  function Question({ label }: { label: string }) {
-    const interaction = useInteraction(threadId, interactionId);
-    const text =
-      interaction?.request.kind === "question" ? interaction.request.questions[0]?.text : "";
-    return <output aria-label={label}>{text}</output>;
-  }
-  const view = (second: boolean) => (
-    <ClientProvider client={client}>
-      <Question key="deck" label="deck" />
-      {second && <Question key="activity" label="activity" />}
-    </ClientProvider>
-  );
-  const mounted = render(view(false));
-  const text = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
-  await waitFor(() => expect(screen.getByLabelText("deck").textContent).toBe(text));
-  mounted.rerender(view(true));
-  await waitFor(() => {
-    expect(screen.getByLabelText("deck").textContent).toBe(text);
-    expect(screen.getByLabelText("activity").textContent).toBe(text);
-  });
-  mounted.rerender(view(false));
-  await act(async () => {});
-  expect(screen.getByLabelText("deck").textContent).toBe(text);
-  for (const lease of reporting) lease.release();
-});
+test.each([
+  ["", false],
+  [" under StrictMode", true],
+])(
+  "a deck worker question stays live when another component subscribes and unmounts%s",
+  async (_label, strict) => {
+    const { daemon, client } = setup();
+    daemon.seedServices(workbenchServices(1_800_000_000_000));
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    let ids = 0;
+    const decks = new ConductorClient(client, () => `deck-${++ids}`);
+    const run = await decks.get("mobile-cold-start");
+    const gate = run.needsUser.find((entry) => entry.kind === "provider");
+    if (!gate?.threadId || !gate.interactionId) throw new Error("Missing worker question");
+    const threadId = gate.threadId;
+    const interactionId = gate.interactionId;
+    const reporting = run.delegations
+      .filter((entry) => entry.threadId !== threadId)
+      .slice(0, 4)
+      .map((entry) => client.thread(entry.threadId));
+    function Question({ label }: { label: string }) {
+      const interaction = useInteraction(threadId, interactionId);
+      const text =
+        interaction?.request.kind === "question" ? interaction.request.questions[0]?.text : "";
+      return (
+        <output aria-label={label}>{interaction ? `${interaction.state}: ${text}` : ""}</output>
+      );
+    }
+    const view = (second: boolean) => {
+      const tree = (
+        <ClientProvider client={client}>
+          <Question key="deck" label="deck" />
+          {second && <Question key="activity" label="activity" />}
+        </ClientProvider>
+      );
+      return strict ? <StrictMode>{tree}</StrictMode> : tree;
+    };
+    const mounted = render(view(false));
+    const text = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
+    await waitFor(() => expect(screen.getByLabelText("deck").textContent).toBe(`pending: ${text}`));
+    mounted.rerender(view(true));
+    await waitFor(() => {
+      expect(screen.getByLabelText("deck").textContent).toBe(`pending: ${text}`);
+      expect(screen.getByLabelText("activity").textContent).toBe(`pending: ${text}`);
+    });
+    mounted.rerender(view(false));
+    // The remaining component still receives live updates after its peer unmounts.
+    await act(async () => {
+      expect(
+        await client.command({
+          type: "interaction.resolve",
+          interactionId: InteractionId.parse(interactionId),
+          resolution: { kind: "question", answers: { choice: ["apk"] } },
+        }),
+      ).toMatchObject({ ok: true });
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText("deck").textContent).toBe(`resolved: ${text}`),
+    );
+    for (const lease of reporting) lease.release();
+  },
+);
 
 function setup() {
   let now = 1;
@@ -238,6 +263,37 @@ test("the agent tree re-nests a subagent when it is linked under another parent"
   await act(async () => script.step());
   await act(async () => {});
   expect(screen.getByLabelText("tree").textContent).toBe("[[[[]]]]");
+});
+
+test("an index over the thread list re-reads only the threads a change names", async () => {
+  const { daemon, client } = setup();
+  new ScenarioPlayer(daemon, accountLimit("thread-a", "A")).runThrough("limited");
+  const b = new ScenarioPlayer(daemon, accountLimit("thread-b", "B"));
+  b.step();
+  await client.start();
+  const picked: string[] = [];
+  const limited = (entry: ThreadListEntry) => {
+    picked.push(entry.id);
+    return entry.status.state === "limited" ? entry.id : undefined;
+  };
+  function Limited() {
+    const ids = useSidebarIndex(limited);
+    return <output aria-label="limited">{(ids ?? []).join(",")}</output>;
+  }
+  render(
+    <ClientProvider client={client}>
+      <Limited />
+    </ClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByLabelText("limited").textContent).toBe("thread-a"));
+
+  picked.length = 0;
+  await act(async () => b.step());
+  await waitFor(() =>
+    expect(screen.getByLabelText("limited").textContent).toBe("thread-a,thread-b"),
+  );
+  // Thread A didn't change, so it wasn't read again.
+  expect(new Set(picked)).toEqual(new Set(["thread-b"]));
 });
 
 test("an answered question remains attached to its loaded item", async () => {

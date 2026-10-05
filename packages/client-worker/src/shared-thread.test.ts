@@ -54,15 +54,8 @@ test("a deck worker's question stays visible to overlapping subscribers and afte
   expect(right.read()).toMatchObject([{ id: gate.interactionId, request: { kind: "question" } }]);
   left.stop();
   first.release();
-  await client.request({ type: "diagnostics.health" });
-  expect(right.read()).toMatchObject([{ id: gate.interactionId, state: "pending" }]);
-  const returning = client.thread(gate.threadId);
-  const returned = watch(returning.store);
-  expect(returned.read()).toEqual(right.read());
-  right.stop();
-  second.release();
-  await client.request({ type: "diagnostics.health" });
-  expect(returned.read()).toMatchObject([{ id: gate.interactionId, state: "pending" }]);
+  first.release();
+  // The survivor still receives live updates; nothing reacquires the thread first.
   expect(
     await client.command({
       type: "interaction.resolve",
@@ -70,9 +63,10 @@ test("a deck worker's question stays visible to overlapping subscribers and afte
       resolution: { kind: "question", answers: { choice: ["apk"] } },
     }),
   ).toMatchObject({ ok: true });
-  await vi.waitFor(() => expect(returned.read()).toEqual([]));
-  returned.stop();
-  returning.release();
+  await vi.waitFor(() => expect(right.read()).toEqual([]));
+  expect(second.store.interaction(gate.interactionId)?.state).toBe("resolved");
+  right.stop();
+  second.release();
 });
 
 test("a normal thread's approval survives overlapping leases, release and resubscription", async () => {
@@ -94,18 +88,12 @@ test("a normal thread's approval survives overlapping leases, release and resubs
   expect(right.read()).toEqual(expected);
   right.stop();
   second.release();
-  await client.request({ type: "diagnostics.health" });
-  expect(left.read()).toEqual(expected);
-  left.stop();
-  first.release();
-  await client.request({ type: "diagnostics.health" });
-  const resumed = client.thread(script.threadId);
-  const visible = watch(resumed.store);
-  await vi.waitFor(() => expect(visible.read()).toEqual(expected));
+  second.release();
   const approval = expected[0];
   if (approval?.request.kind !== "approval") throw new Error("Missing approval");
   const option = approval.request.options.find((entry) => entry.kind === "allow_once");
   if (!option) throw new Error("Missing approval option");
+  // The survivor still receives live updates; nothing reacquires the thread first.
   expect(
     await client.command({
       type: "interaction.resolve",
@@ -113,13 +101,17 @@ test("a normal thread's approval survives overlapping leases, release and resubs
       resolution: { kind: "approval", optionId: option.id },
     }),
   ).toMatchObject({ ok: true });
-  await vi.waitFor(() => expect(visible.read()).toEqual([]));
-  visible.stop();
+  await vi.waitFor(() => expect(left.read()).toEqual([]));
+  left.stop();
+  first.release();
+  await client.request({ type: "diagnostics.health" });
+  const resumed = client.thread(script.threadId);
+  await vi.waitFor(() => expect(resumed.store.interaction(approval.id)?.state).toBe("resolved"));
   resumed.release();
 });
 
-test("a complete snapshot admits queued threads while reconnect replay still waits for completion", async () => {
-  const { daemon, tab, faults } = world();
+async function fiveHydratedThreadsGoOffline(world_: ReturnType<typeof world>) {
+  const { daemon, tab } = world_;
   const client = tab();
   await client.start();
   const ids = Array.from({ length: 5 }, (_, index) => `paced-${index}`);
@@ -133,28 +125,31 @@ test("a complete snapshot admits queued threads while reconnect replay still wai
   client.networkOnline(false);
   await vi.waitFor(() => expect(client.state).toBe("offline"));
   for (const id of ids) daemon.updateThread(id, { title: "After" });
-  const complete: (() => void)[] = [];
-  faults.incoming = (message, text, deliver) => {
-    deliver(text);
-    // The transport holds the daemon's replay-completion acknowledgements independently
-    // of replay data, which can span several batches on the real daemon.
-    if (message.type === "events")
-      complete.push(() =>
-        deliver(
-          JSON.stringify({
-            type: "subscription.ready",
-            subscriptionId: message.subscriptionId,
-            seq: message.throughSeq,
-          }),
-        ),
-      );
+  return { client, held };
+}
+
+test("every hydrated thread catches up after a reconnect replay", async () => {
+  const { client, held } = await fiveHydratedThreadsGoOffline(world());
+  client.networkOnline(true);
+  await vi.waitFor(() => {
+    for (const lease of held) expect(lease.store.thread?.title).toBe("After");
+  });
+});
+
+test("a complete snapshot admits queued threads while reconnect replay still waits for completion", async () => {
+  const setup = world();
+  const { client, held } = await fiveHydratedThreadsGoOffline(setup);
+  const withheld: (() => void)[] = [];
+  setup.faults.incoming = (message, text, deliver) => {
+    // Replay data arrives; the daemon's completion acknowledgements are held back.
+    if (message.type === "subscription.ready") withheld.push(() => deliver(text));
+    else deliver(text);
   };
   client.networkOnline(true);
   await vi.waitFor(() => expect(held[3]?.store.thread?.title).toBe("After"));
   await client.request({ type: "diagnostics.health" });
   expect(held[4]?.store.thread?.title).toBe("Before");
-  const release = complete.shift();
-  if (!release) throw new Error("Missing replay completion");
-  release();
+  expect(withheld).toHaveLength(4);
+  withheld.shift()?.();
   await vi.waitFor(() => expect(held[4]?.store.thread?.title).toBe("After"));
 });

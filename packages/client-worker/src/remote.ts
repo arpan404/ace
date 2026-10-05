@@ -4,6 +4,7 @@ import {
   pendingSendsEqual,
   type PendingSend,
   deferredProjectsApi,
+  type AttachmentInput,
   type FileDownloadInput,
   type FileUploadInput,
 } from "@ace/client";
@@ -402,6 +403,12 @@ export class RemoteClient implements ClientApi {
     if (!isOneWayMessage(message)) throw new ClientError("protocol", "Invalid one-way message");
     if (this.closed || this.current !== "ready") throw new ClientError("offline");
     this.post({ t: "send", message });
+  }
+  attachmentBytes(input: AttachmentInput, options: RequestOptions = {}) {
+    // A subpath keeps the validating reader (and zod) out of the page's first paint.
+    return import("@ace/client/attachments").then(({ attachmentBytes }) =>
+      attachmentBytes(this, input, options),
+    );
   }
   async *downloadFile(
     input: FileDownloadInput,

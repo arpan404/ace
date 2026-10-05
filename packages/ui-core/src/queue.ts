@@ -1,5 +1,7 @@
 import type { ContextMeter, QueueSnapshot, ThreadStatus } from "@ace/protocol";
+import type { LimitContext } from "./limits.ts";
 import { describeWake } from "./snooze.ts";
+import { formatCountdown } from "./time.ts";
 
 /*
  * Wording and choices for a thread's server queue (ADR 0053): why it is held and what the
@@ -11,7 +13,11 @@ export type QueueAction =
   | { id: "resume_now"; label: string }
   | { id: "resume_at_reset"; label: string }
   | { id: "snooze_until_reset"; label: string }
-  | { id: "migrate_now"; label: string }
+  | {
+      id: "migrate_now";
+      label: string;
+      /** The account it moves to, when one is named. */ instanceId?: string;
+    }
   | { id: "resume"; label: string }
   | { id: "hold"; label: string };
 
@@ -25,12 +31,16 @@ export interface QueueNotice {
 
 export type QueueHold = Pick<QueueSnapshot, "paused" | "reason" | "resumeAt">;
 
-/** Why the queue isn't sending, and the way out; undefined while it flows. */
+/**
+ * Why the queue isn't sending, and the way out; undefined while it flows. `account` is what
+ * `accounts.list` says about the account a limited thread ran out on, when it has loaded.
+ */
 export function queueNotice(
   status: ThreadStatus | undefined,
   queue: QueueHold | undefined,
   now: number,
   locale?: string,
+  account?: LimitContext,
 ): QueueNotice | undefined {
   const reason = queue?.paused ? queue.reason : null;
   const resumeAt = queue?.resumeAt ?? null;
@@ -55,14 +65,19 @@ export function queueNotice(
       actions: [{ id: "resume_now", label: "Resume now" }],
     };
   if (status?.state === "limited" || reason === "limit") {
-    const until = status?.state === "limited" ? status.until : undefined;
+    // The thread's own reset, else the account's: the daemon resumes at the account's too.
+    const until = (status?.state === "limited" ? status.until : undefined) ?? account?.resetsAt;
     const known = until !== undefined && until > now;
+    const who = account?.name ?? "The account";
+    const target = account?.target;
+    const detail = known
+      ? `${who} resets ${describeWake(until, now, locale)}, in ${formatCountdown(until - now)}.`
+      : "The provider didn't say when it resets.";
+    const stuck = target === null ? ` No other ${account?.providerLabel} account has room.` : "";
     return {
       kind: "limited",
       title: "Usage limit reached",
-      detail: known
-        ? `The account resets ${describeWake(until, now, locale)}. Queued messages wait.`
-        : "The provider didn't say when it resets. Queued messages wait.",
+      detail: `${detail}${stuck} Queued messages wait.`,
       actions: [
         ...(known
           ? [
@@ -70,7 +85,17 @@ export function queueNotice(
               { id: "snooze_until_reset", label: "Snooze until reset" } as const,
             ]
           : []),
-        { id: "migrate_now", label: "Move to another account" },
+        ...(target === null
+          ? []
+          : [
+              target
+                ? ({
+                    id: "migrate_now",
+                    label: `Move to ${target.name}`,
+                    instanceId: target.id,
+                  } as const)
+                : ({ id: "migrate_now", label: "Move to another account" } as const),
+            ]),
         { id: "resume_now", label: "Resume now" },
       ],
     };

@@ -1,15 +1,21 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { WarningCircleIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
-import { buttonVariants } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type CSSProperties,
+} from "react";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
+import { ThreadStatusDot } from "./header/status-dot.tsx";
 import {
   PinnedSummary,
   SummaryToggle,
@@ -20,8 +26,12 @@ import type { ComposerHandle } from "./composer/composer.tsx";
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkOpener } from "./transitions/fork-opener.ts";
+import { ThreadLoadError } from "./thread-load-error.tsx";
 
 // Loaded on first open, off the route's first paint.
+const PendingThreadView = lazy(() =>
+  import("./pending-thread.tsx").then((m) => ({ default: m.PendingThreadView })),
+);
 const RenameDialog = lazy(() =>
   import("./header/rename-dialog.tsx").then((m) => ({ default: m.RenameDialog })),
 );
@@ -31,19 +41,61 @@ const ForkDialog = lazy(() =>
 import { Transcript } from "./transcript/transcript.tsx";
 import { AgentTranscript } from "./transcript/agent-transcript.tsx";
 import { SideChatComposer } from "./composer/side-chat-composer.tsx";
-import { AgentComposer } from "./composer/agent-composer.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import {
+  DeferredAgentComposer,
   DeferredCatchUpSlot,
+  DeferredLimitBadge,
   DeferredThreadHotkeys,
   DeferredThreadMenu,
   DeferredTurnsPanel,
   preloadDeferred,
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
+import { isPendingThread } from "./composer/send-store.ts";
+import { useShownTitle } from "./lib/shown-title.ts";
+import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
+import { UserMessage } from "./items/user-message.tsx";
+import { ActivityLine } from "./transcript/live-footer.tsx";
 import { LongThreadButtons } from "./long/header-buttons.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
+
+/**
+ * A thread New thread started a moment ago, until the daemon names it: its view's code loads
+ * on demand, drawing the person's message and the live line as the transcript does.
+ */
+function PendingThread(props: { threadId: string }) {
+  const commandId = props.threadId.slice("pending:".length);
+  return (
+    <Suspense fallback={null}>
+      <PendingThreadView
+        threadId={props.threadId}
+        parts={{
+          column: readingColumn,
+          bubble: (
+            <>
+              <UserMessage threadId={props.threadId} itemId={`input:${commandId}`} />
+              <Suspense fallback={null}>
+                <DeferredLocalSends.Component threadId={props.threadId} />
+              </Suspense>
+            </>
+          ),
+          Line: ActivityLine,
+        }}
+      />
+    </Suspense>
+  );
+}
+
+/** The Agents panel's follow-up composer, in the panel's own slot. */
+function AgentComposer(props: ComponentProps<typeof DeferredAgentComposer.Component>) {
+  return (
+    <Suspense fallback={null}>
+      <DeferredAgentComposer.Component {...props} />
+    </Suspense>
+  );
+}
 
 /** Where a link into the thread points: an item's creation sequence (a search hit elsewhere). */
 export interface ThreadTarget {
@@ -58,6 +110,8 @@ export interface ThreadTarget {
  * A long thread adds its turns, search and a catch-up card for the reader who was away.
  */
 export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
+  // Started from New thread a moment ago: shown until the daemon names the real thread.
+  if (isPendingThread(props.threadId)) return <PendingThread threadId={props.threadId} />;
   return (
     <ThreadNavProvider threadId={props.threadId}>
       <ThreadScreen threadId={props.threadId} target={props.target} />
@@ -81,7 +135,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   );
   // Step details and interaction cards load once the transcript has painted.
   useEffect(() => whenIdle(() => void preloadDeferred()), []);
-  const title = meta?.title;
+  const title = useShownTitle(id, meta?.title);
   const composer = useRef<ComposerHandle>(null);
   const column = useRef<HTMLDivElement>(null);
   const placement = useSummaryPlacement(column);
@@ -99,7 +153,19 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     <ThreadPartsProvider value={parts}>
       <Screen
         title={title ?? "Loading thread…"}
-        subtitle={meta && projectName(meta.workspaceId)}
+        subtitle={
+          meta && (
+            <>
+              {projectName(meta.workspaceId)}
+              {meta.status.state === "limited" && (
+                <Suspense fallback={null}>
+                  <DeferredLimitBadge.Component threadId={id} />
+                </Suspense>
+              )}
+            </>
+          )
+        }
+        status={meta && <ThreadStatusDot status={meta.status} />}
         menu={
           thread && (
             <Suspense fallback={null}>
@@ -131,18 +197,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
         workspace={{ scope: id, definition: threadWorkspace }}
       >
         {error ? (
-          <div role="alert" className="h-full">
-            <EmptyState
-              icon={WarningCircleIcon}
-              title="This thread couldn't be loaded"
-              description={`The daemon said: ${error.message}. The agents keep working; try again from the list.`}
-              action={
-                <Link to="/" className={buttonVariants({ size: "sm" })}>
-                  Back to Home
-                </Link>
-              }
-            />
-          </div>
+          <ThreadLoadError error={error} />
         ) : !meta ? (
           <TranscriptSkeleton />
         ) : (
