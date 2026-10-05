@@ -12,7 +12,6 @@ import { useCallback } from "react";
 import { useTicker } from "../lib/clock.ts";
 import { flatEqual, useItemsSelect } from "../lib/use-items.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
-import { useStepDisplay } from "./use-step-display.ts";
 
 /** Time spent waiting on a person within [from, to], from the thread's shared ledger. */
 function useWaited(threadId: string, from: number, to: number): number {
@@ -62,6 +61,3 @@ export function useWorkLog(
     awaiting: summary.awaiting,
   };
 }
-
-/** One work-log step: the item for its detail and how its row reads (WP2's step display). */
-export const useToolStep = useStepDisplay;
