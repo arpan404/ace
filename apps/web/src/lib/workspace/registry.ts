@@ -61,6 +61,8 @@ export interface TabKindOptions {
   /** The tab title; default: the title the view last reported, else `label`. */
   title?(tab: WorkspaceTab): string;
   load(): Promise<TabModule>;
+  /** The tab's shape while its code loads (a toolbar and rows); default: a spinner. */
+  Skeleton?: ComponentType;
   /** Called after a tab of this kind closed (release a session it alone held). */
   onClose?(scope: string, tab: WorkspaceTab): void;
   /**

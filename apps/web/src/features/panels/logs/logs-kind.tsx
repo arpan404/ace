@@ -1,5 +1,6 @@
 import { ScrollIcon } from "@phosphor-icons/react";
 import { defineTabKind } from "@/lib/workspace/index.ts";
+import { OutputSkeleton } from "../tab-skeletons.tsx";
 import { logScopeTitle } from "./scopes.ts";
 
 /*
@@ -14,6 +15,7 @@ export const logsKind = defineTabKind({
   docks: ["bottom", "right"],
   launcher: 80,
   title: (tab) => logScopeTitle(tab.id, tab.title),
+  Skeleton: OutputSkeleton,
   load: () =>
     import("./logs-tab.tsx").then((m) => ({ default: m.default, Actions: m.LogsActions })),
 });

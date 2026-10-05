@@ -10,6 +10,7 @@ import {
   RobotIcon,
   TreeStructureIcon,
 } from "@phosphor-icons/react";
+import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
@@ -49,6 +50,7 @@ export const changesKind = defineTabKind({
   pinned: true,
   launcher: 10,
   Badge: (props) => <ThreadDiffStat threadId={props.scope} folded={props.folded} />,
+  Skeleton: ChangesSkeleton,
   load: () => views().then((m) => ({ default: m.ChangesView })),
 });
 
@@ -65,6 +67,7 @@ export const filesKind = defineTabKind({
     const path = field(tab.data, "path");
     return path ? (path.split("/").at(-1) ?? path) : "Open file";
   },
+  Skeleton: FilesSkeleton,
   load: () => import("./files/file-tab.tsx"),
   fromFile: (path) => ({ kind: "files", id: fileTabId(path), data: { path } }),
   onShortcut: (scope) => quickOpen.set(() => scope),

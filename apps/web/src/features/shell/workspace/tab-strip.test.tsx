@@ -126,3 +126,36 @@ test("the showing tab grows to fit its badge when the badge arrives after the ta
   // The whole badge (6 characters) and its gap fit beside the whole title.
   expect(after).toBeGreaterThanOrEqual(before + 6 * charWidth);
 });
+
+test("while a tool's code loads, its tab shows the tool's shape rather than a spinner", async () => {
+  const { TabContent } = await import("./tab-content.tsx");
+  const slow = defineTabKind({
+    kind: "files",
+    label: "Files",
+    icon: FileIcon,
+    // A tool's own shape (the Files tree, say), not the generic spinner.
+    Skeleton: () => <div role="status" aria-label="Loading Files" />,
+    load: () => new Promise(() => {}),
+  });
+  const definition = defineWorkspace({
+    label: "Side panel",
+    docks: ["right"],
+    launcher: "files",
+    initial: [{ kind: "files", id: "a", dock: "right" }],
+    kinds: () => Promise.resolve({ default: [slow] }),
+  });
+  await definition.load();
+  const tab = { key: "files:a", kind: "files", id: "a", pinned: false };
+  render(
+    <TabContent
+      scope="scope"
+      dock="right"
+      definition={definition}
+      tabs={[tab]}
+      shown={tab.key}
+      onClose={() => {}}
+    />,
+  );
+  expect(await screen.findByRole("status", { name: "Loading Files" })).toBeTruthy();
+  expect(screen.queryByRole("status", { name: "Loading" })).toBeNull();
+});

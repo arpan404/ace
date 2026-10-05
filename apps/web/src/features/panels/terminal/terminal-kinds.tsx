@@ -1,6 +1,7 @@
 import { TerminalIcon, TerminalWindowIcon } from "@phosphor-icons/react";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { defineTabKind, type ClosingTab, type CloseWarning } from "@/lib/workspace/index.ts";
+import { OutputSkeleton } from "../tab-skeletons.tsx";
 import { requestTerminalEnd, terminalEnded } from "./closing.ts";
 import {
   isPendingTerminal,
@@ -20,6 +21,7 @@ export const terminalKind = defineTabKind({
   docks: ["bottom", "right"],
   launcher: 20,
   title: (tab) => tab.title ?? "Terminal",
+  Skeleton: OutputSkeleton,
   load: () =>
     import("./terminal-resource.tsx").then((m) => ({
       default: m.default,
@@ -73,6 +75,7 @@ export const shellKind = defineTabKind({
   icon: TerminalIcon,
   docks: ["bottom", "right"],
   title: (tab) => tab.title ?? "Agent shell",
+  Skeleton: OutputSkeleton,
   // The agent's shell keeps running when its tab closes; Stop is in the tab.
   load: () =>
     import("./shell-resource.tsx").then((m) => ({ default: m.default, Actions: m.ShellActions })),
