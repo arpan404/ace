@@ -3,7 +3,7 @@ import { MachineDirectory, type MachineSecretStore } from "@ace/client/machines"
 import type { PortLike } from "@ace/client-worker";
 import { MachinePool } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
-import type { MachineTarget } from "./worker-target.ts";
+import type { MachineTarget } from "./machine-target.ts";
 
 /*
  * The browser's and desktop renderer's machine pool (ADR 0059): the directory of the person's

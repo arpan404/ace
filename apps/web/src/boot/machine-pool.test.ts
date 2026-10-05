@@ -7,7 +7,7 @@ import { memoryKeyValue } from "@/test/harness.tsx";
 import { Client } from "@ace/client";
 import { browserClientOptions, memoryStorage } from "./client.ts";
 import { browserMachinePool, directoryKey, type SpawnedWorker } from "./machine-pool.ts";
-import { MachineTarget } from "./worker-target.ts";
+import { MachineTarget } from "./machine-target.ts";
 
 const token = "a".repeat(64);
 const timers = {

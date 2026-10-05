@@ -3,7 +3,7 @@ import { ClientHost, type PortLike } from "@ace/client-worker";
 import { HostId } from "@ace/protocol";
 import { browserClientOptions } from "./client.ts";
 import { workerOutbox } from "./worker-outbox.ts";
-import { MachineTarget } from "./worker-target.ts";
+import { MachineTarget } from "./machine-target.ts";
 
 /*
  * Entry of a machine-pool worker (ADR 0059): a dedicated Worker for one of the person's other
