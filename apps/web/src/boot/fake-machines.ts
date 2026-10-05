@@ -16,6 +16,12 @@ const timers = {
 /** A device token the in-page directory keeps; the fake daemons authenticate their own. */
 const token = "0".repeat(64);
 
+export interface FakeMachines {
+  pool: MachinePool;
+  /** The machine's worker dies, as a crashed dedicated worker would; `pool.reconnect` revives it. */
+  crash(hostId: string): void;
+}
+
 /**
  * A real `MachinePool` over fake daemons in the page (dev:fake and tests): each machine's
  * client runs behind its own `ClientHost` on a `MessageChannel`, the way a dedicated worker
@@ -25,7 +31,8 @@ const token = "0".repeat(64);
 export async function fakeMachinePool(
   daemons: readonly FakeDaemon[],
   client: (daemon: FakeDaemon) => Client,
-): Promise<MachinePool> {
+): Promise<FakeMachines> {
+  const failures = new Map<string, Set<(error: ClientError) => void>>();
   const secrets = new Map<string, string>();
   const directory = new MachineDirectory(memoryStorage(), {
     get: async (key) => secrets.get(key) ?? null,
@@ -54,7 +61,12 @@ export async function fakeMachinePool(
           port1.close();
           port2.close();
         },
-        onFailure: () => () => {},
+        onFailure: (listener) => {
+          const listeners = failures.get(entry.hostId) ?? new Set();
+          failures.set(entry.hostId, listeners);
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
       };
     },
   });
@@ -66,5 +78,11 @@ export async function fakeMachinePool(
       deviceId: "web-fake-device",
       token,
     });
-  return pool;
+  return {
+    pool,
+    crash: (hostId) => {
+      for (const listener of Array.from(failures.get(hostId) ?? []))
+        listener(new ClientError("offline", "Worker exited"));
+    },
+  };
 }

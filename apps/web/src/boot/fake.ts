@@ -104,7 +104,7 @@ export function bootFake(): {
       credential: async () => other.token,
       storage: memoryStorage(),
     }),
-  );
+  ).then((fake) => fake.pool);
   return {
     client,
     daemon,

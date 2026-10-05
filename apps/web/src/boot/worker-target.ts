@@ -6,6 +6,8 @@ export const WorkerTarget = z.extend(DaemonTarget, {
   deviceId: z.string().check(z.minLength(1)),
   /** The outbox an older build kept in localStorage, to carry over once. */
   seed: z.nullable(z.string()),
+  /** A machine-pool entry's host: the client refuses a daemon that answers as another. */
+  hostId: z.optional(z.string().check(z.minLength(1))),
 });
 export type WorkerTarget = z.infer<typeof WorkerTarget>;
 

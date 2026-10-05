@@ -212,6 +212,8 @@ test("a folder inside a repository offers the repository, added only when chosen
 
   const offer = await screen.findByRole("note");
   expect(offer.textContent).toContain("web is inside the mono repository");
+  // Offered, not added.
+  expect(registered(made)).toEqual([]);
   await userEvent.click(within(offer).getByRole("button", { name: "Add mono" }));
   await screen.findByRole("heading", { name: "What should we work on in mono?" });
   expect(registered(made)).toEqual([`${home}/code/mono`]);
@@ -353,4 +355,64 @@ test("a home reached through a symlink still opens at home when a root holds its
   await dialog();
   expect(await option("code")).toBeTruthy();
   expect(within(await folders()).queryByRole("option", { name: /^www/ })).toBeNull();
+});
+
+test("Enter never opens a result still showing from the previous search", async () => {
+  const made = firstRun();
+  const search = await openFolder(made);
+  await userEvent.type(search, "weather");
+  const results = await within(await folders()).findByRole("group", { name: /^Folders on/ });
+  await within(results).findByRole("option", { name: /^weather/ });
+  // The next search is slow; the last one's rows stay in view meanwhile.
+  const release = made.daemon.projects.holdReads(
+    (operation) => operation.op === "fs.search" && operation.query === "weatherx",
+  );
+  await userEvent.type(search, "x");
+  const shown = within(results).getByRole("option", { name: /^weather/ });
+  expect(shown.getAttribute("aria-disabled")).toBe("true");
+  await userEvent.keyboard("{Enter}");
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  expect(screen.getByRole("button", { name: "Select a folder" }).hasAttribute("disabled")).toBe(
+    true,
+  );
+  release();
+  expect(
+    await screen.findByText("No folders match “weatherx”. Type a path, like ~/ or /, to browse."),
+  ).toBeTruthy();
+  expect(registered(made)).toEqual([]);
+  expect(screen.getByRole("dialog", { name: "Add project" })).toBeTruthy();
+});
+
+test("a folder whose later folders can't be read keeps the rest and reads again only on request", async () => {
+  const made = harness();
+  made.daemon.projects.seedFolders(
+    home,
+    Array.from({ length: 101 }, (_, index) => ({
+      path: `${home}/big/f${String(index).padStart(3, "0")}`,
+    })),
+  );
+  // The second page of ~/big fails until the test lets it through.
+  let refused = 0;
+  const allow = made.daemon.projects.refuseReads("directory_unavailable", (operation) => {
+    const second = operation.op === "fs.browse" && operation.after !== undefined;
+    if (second) refused++;
+    return second;
+  });
+  const search = await openFolder(made);
+  await userEvent.type(search, "~/big/");
+  expect(await option("f000")).toBeTruthy();
+  expect(await screen.findByText(/Couldn't read the rest of this folder/)).toBeTruthy();
+  // Nothing asks again on its own, however long it waits.
+  const repeats = (after: number) =>
+    waitFor(() => expect(refused).toBeGreaterThan(after), { timeout: 300 });
+  await expect(repeats(1)).rejects.toThrow();
+  expect(refused).toBe(1);
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(refused).toBe(2));
+  await expect(repeats(2)).rejects.toThrow();
+
+  allow();
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await option("f100")).toBeTruthy();
+  expect(screen.queryByText(/Couldn't read the rest of this folder/)).toBeNull();
 });

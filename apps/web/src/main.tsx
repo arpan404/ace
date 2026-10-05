@@ -8,6 +8,7 @@ import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl } from "./boot/connection-settings.ts";
 import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient } from "./boot/daemon.ts";
+import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import { desktopTarget, hasDesktopBridge } from "./boot/desktop.ts";
 import { StartingScreen } from "./features/connect/index.ts";
 import { markSeen } from "./features/thread/index.ts";
@@ -24,6 +25,11 @@ const batch = frameBatch((flush) => requestAnimationFrame(flush));
 const app = (client: ClientApi, machines?: MachinePool) => (
   <App client={client} storage={localStorage} batch={batch} machines={machines} />
 );
+/** A real daemon's app, with the machine pool this browser has stored for its connection. */
+function DaemonApp(props: { client: ClientApi }) {
+  return app(props.client, useBrowserMachinePool(localStorage));
+}
+const daemonApp = (client: ClientApi) => <DaemonApp client={client} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 async function content() {
@@ -57,7 +63,7 @@ async function content() {
       fragment={location.hash}
       onFragmentRead={forgetFragment}
     >
-      {app}
+      {daemonApp}
     </ConnectionGate>
   );
 }

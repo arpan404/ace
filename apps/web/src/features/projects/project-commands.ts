@@ -160,8 +160,11 @@ export function projectReads(client: ClientApi) {
     search: async (query: string, signal: AbortSignal) =>
       answer(await client.projects.search({ query, limit: 50 }, { signal }), "search"),
     /** Path completion (`fs.complete`) for an absolute or `~/` path. */
-    complete: async (path: string, showHidden: boolean) =>
-      answer(await client.projects.complete({ path, limit: 50, showHidden }), "completion"),
+    complete: async (path: string, showHidden: boolean, signal: AbortSignal) =>
+      answer(
+        await client.projects.complete({ path, limit: 50, showHidden }, { signal }),
+        "completion",
+      ),
     /** A clone address checked and normalised (`owner/repo` too), with the folder it suggests. */
     validateClone: async (url: string, signal: AbortSignal) =>
       answer(await client.projects.validateCloneUrl(url, { signal }), "cloneUrl"),

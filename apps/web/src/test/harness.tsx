@@ -7,7 +7,7 @@ import { render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
-import { fakeMachinePool } from "@/boot/fake-machines.ts";
+import { fakeMachinePool, type FakeMachines } from "@/boot/fake-machines.ts";
 
 type ClientStorage = ReturnType<typeof memoryStorage>;
 import { DaemonConnectionContext } from "@/boot/connection.tsx";
@@ -100,7 +100,16 @@ export function harness(
     ? workerClient(daemon)
     : fakeClient(daemon, daemon.token, options.outbox);
   const storage = options.storage ?? memoryKeyValue();
+  let fake: FakeMachines | undefined;
+  const pooled = () => {
+    if (!fake) throw new Error("harness({ machines }) and open() first");
+    return fake;
+  };
   return {
+    /** The window's machine pool (with `machines`, once opened). */
+    pool: () => pooled().pool,
+    /** A machine's worker dies; `pool().reconnect(hostId)` starts a fresh one. */
+    crashMachine: (hostId: string) => pooled().crash(hostId),
     daemon,
     /** The other machines' daemons, by host id. */
     machines: new Map(others.map((other) => [other.hostId as string, other])),
@@ -110,9 +119,10 @@ export function harness(
     async open(path: string) {
       // The browser warms these while idle after first paint; tests start with them warm.
       await Promise.all([client.start(), preloadDeferred(), preloadProjectDialogs()]);
-      const machines = others.length
+      fake = others.length
         ? await fakeMachinePool(others, (other) => fakeClient(other))
         : undefined;
+      const machines = fake?.pool;
       if (machines) running.push(machines);
       const connection = fakeConnection(daemon);
       return render(

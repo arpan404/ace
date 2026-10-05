@@ -23,9 +23,12 @@ import { projectReads } from "./project-commands.ts";
 import type { CloneControl } from "./use-clone-run.ts";
 import { useRecentFolders } from "./use-folders.ts";
 
-/** An address with a scheme or `git@` is checked here at once; shorthand goes to the daemon. */
-const spelledOut = (value: string) =>
-  /^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("git@");
+/**
+ * Only GitHub shorthand (`owner/repo`, `github.com/owner/repo`) goes to the daemon to be read.
+ * Anything else, a spelled-out address included, is checked here, so nothing with a scheme or
+ * a user name in it is sent before Clone.
+ */
+const shorthand = (value: string) => /^[^\s:@]+\/[^\s:@]+$/.test(value);
 const notCloneable =
   "That isn't an address ace can clone. Use https://…, ssh://…, git@host:owner/repo, or owner/repo for GitHub.";
 
@@ -74,8 +77,8 @@ export function CloneProjectTab(props: {
   });
   const running = run.status === "running";
   const value = url.trim();
-  const local = value && spelledOut(value) ? cloneUrlProblem(value) : undefined;
-  const checked = useCloneAddress(machine, value, value !== "" && !local);
+  const local = value && !shorthand(value) ? cloneUrlProblem(value) : undefined;
+  const checked = useCloneAddress(machine, value, value !== "" && shorthand(value));
   const urlProblem = !value
     ? "Paste the repository's address."
     : (local ?? (checked.error ? notCloneable : undefined));

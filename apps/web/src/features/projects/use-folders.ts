@@ -132,18 +132,26 @@ export function useFolderListing(machine: Machine, path: string | undefined, sho
     retry: false,
   });
   const entries = useMemo(() => query.data?.pages.flatMap((page) => page.entries), [query.data]);
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query;
   const count = entries?.length ?? 0;
+  const reachable = client !== undefined && path !== undefined;
+  // The rest is read only while the machine is there, and never again after a page failed:
+  // that takes Retry.
+  const reading = reachable && hasNextPage && !isFetchNextPageError && count < listingCap;
   useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage && count < listingCap) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, count, fetchNextPage]);
+    if (reading && !isFetchingNextPage) void fetchNextPage();
+  }, [reading, isFetchingNextPage, fetchNextPage]);
   return {
     entries,
     error: query.error,
-    loading: query.isPending && client !== undefined && path !== undefined,
+    /** A later page couldn't be read; the folders so far still show. */
+    restFailed: isFetchNextPageError,
+    loading: query.isPending && reachable,
     offline: client === undefined,
     more: hasNextPage,
-    retry: () => void query.refetch(),
+    /** Stopped at 5,000 folders with more to come. */
+    capped: hasNextPage && count >= listingCap,
+    retry: () => void (isFetchNextPageError ? fetchNextPage() : query.refetch()),
   };
 }
 
@@ -179,6 +187,8 @@ export function useFolderSearchQuery(machine: Machine, text: string, enabled: bo
       previousQuery?.queryKey[2] === machine.id ? previous : undefined,
     refetchInterval: (query) => (query.state.data?.indexing ? 150 : false),
     staleTime: 5_000,
+    // Every keystroke is a query; answers no one shows are dropped after 30 s, not 5 minutes.
+    gcTime: 30_000,
     // Another picker on this connection superseded it: ask again, once.
     retry: (count, error) => count < 1 && projectFailure(error).code === "search_cancelled",
   });

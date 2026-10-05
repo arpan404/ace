@@ -66,8 +66,10 @@ export function MachinePicker(props: {
         onKeyDown={onKeyDown}
         className="flex min-w-0 flex-wrap items-center gap-1"
       >
-        {props.machines.map((machine) => {
+        {props.machines.map((machine, index) => {
           const checked = machine.id === props.value;
+          // With the chosen machine gone, the group is still one Tab stop.
+          const none = !props.machines.some((each) => each.id === props.value);
           return (
             <button
               key={machine.id}
@@ -76,7 +78,7 @@ export function MachinePicker(props: {
               aria-checked={checked}
               aria-label={`${machine.name}, ${statusLabel[machine.status]}`}
               data-machine={machine.id}
-              tabIndex={checked ? 0 : -1}
+              tabIndex={checked || (none && index === 0) ? 0 : -1}
               onClick={() => select(machine.id)}
               className={cn(
                 "inline-flex h-7 max-w-48 items-center gap-1.5 rounded-sm px-2 text-sm font-medium text-muted-foreground outline-none transition-[color,background-color,box-shadow] duration-(--dur-1)",

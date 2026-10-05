@@ -49,9 +49,21 @@ export function AddProjectDialog(props: {
   onAdded(result: Added, verb: string, options: LandOptions): void;
 }) {
   const machines = useMachines();
-  const [chosen, setChosen] = useState<string>();
-  const machine: Machine | undefined = machines.find((each) => each.id === chosen) ?? machines[0];
-  const several = machines.length > 1;
+  const [chosen, setChosen] = useState<{ id: string; name: string; primary: boolean }>();
+  const choose = (id: string | undefined) => {
+    const next = machines.find((each) => each.id === id);
+    if (next) setChosen({ id: next.id, name: next.name, primary: next.primary });
+  };
+  // This window's daemon is found by being primary: its id becomes its host id once known.
+  const found =
+    chosen && machines.find((each) => each.id === chosen.id || (chosen.primary && each.primary));
+  // A chosen machine that leaves the pool stays chosen, unreachable, until another is picked:
+  // nothing typed for it may land on a different machine.
+  const removed = chosen !== undefined && found === undefined;
+  const machine: Machine | undefined = chosen
+    ? (found ?? { ...chosen, status: "offline", client: undefined })
+    : machines[0];
+  const several = machines.length > 1 || removed;
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const mod = applePlatform ? event.metaKey : event.ctrlKey;
@@ -61,7 +73,7 @@ export function AddProjectDialog(props: {
       next = tabs[Number(event.key) - 1]?.value;
     else if (mod && event.key.toLowerCase() === "m" && several && machine) {
       event.preventDefault();
-      setChosen(nextMachine(machines, machine.id)?.id);
+      choose(nextMachine(machines, machine.id)?.id);
       return;
     } else if (
       (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
@@ -87,7 +99,7 @@ export function AddProjectDialog(props: {
           </DialogDescription>
         </DialogHeader>
         {several && machine && (
-          <MachinePicker machines={machines} value={machine.id} onValue={setChosen} />
+          <MachinePicker machines={machines} value={machine.id} onValue={choose} />
         )}
         <Tabs
           value={props.tab}
@@ -108,9 +120,11 @@ export function AddProjectDialog(props: {
           </TabsList>
           {machine && machine.status !== "online" && (
             <p role="status" className="text-sm text-muted-foreground">
-              {machine.primary
-                ? "Reconnecting to the daemon… Folders and actions come back once it answers."
-                : `${machine.name} isn't connected. Folders and actions come back once it is.`}
+              {removed
+                ? `${machine.name} was removed from your machines. Choose a machine to carry on.`
+                : machine.primary
+                  ? "Reconnecting to the daemon… Folders and actions come back once it answers."
+                  : `${machine.name} isn't connected. Folders and actions come back once it is.`}
             </p>
           )}
           {machine && (

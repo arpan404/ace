@@ -11,6 +11,7 @@ import {
 import { crumbs, displayPath, pathInput, upInput } from "@ace/ui-core";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -56,14 +57,25 @@ export function FolderSearchBox(props: {
   // Rows still cached from before the machine went away, or from a folder now refused, stay
   // out of reach.
   const blocked = search.offline || search.failure !== undefined;
-  const highlighted = blocked ? undefined : rows[current];
+  const pointed = blocked ? undefined : rows[current];
+  // A row still showing from the previous query is never chosen for this one.
+  const highlighted = pointed?.stale ? undefined : pointed;
   const virtual = useRef<VirtualRowsHandle>(null);
   const roots = home?.roots ?? [];
   const optionId = (index: number) => `${listId}-${index}`;
-  const latest = useRef(text);
+  // What the box holds now, for replies that arrive later: the text and the machine it's for.
+  const latest = useRef({ text, machine: search.machineId });
   useEffect(() => {
-    latest.current = text;
-  }, [text]);
+    latest.current = { text, machine: search.machineId };
+  }, [text, search.machineId]);
+  // One completion at a time; a newer Tab, another machine or closing abandons the last one.
+  const completing = useRef<AbortController | undefined>(undefined);
+  const { machineId } = search;
+  useEffect(() => {
+    // A completion begun for one machine never lands on another, nor after closing.
+    if (!machineId) return;
+    return () => completing.current?.abort();
+  }, [machineId]);
 
   const { onHighlight } = props;
   useEffect(() => onHighlight?.(highlighted), [onHighlight, highlighted]);
@@ -108,13 +120,18 @@ export function FolderSearchBox(props: {
       choose(highlighted, mod(event));
     } else if (key === "Tab" && !event.shiftKey && !event.altKey && !mod(event)) {
       if (query.kind === "path") {
-        // The daemon completes; a reply to text that has since changed is dropped.
-        const typed = text;
+        // The daemon completes. Its reply applies only to the same text on the same machine.
+        const typed = { text, machine: search.machineId };
         const fallback =
           highlighted && !highlighted.self && query.segment ? highlighted : undefined;
-        void search.complete().then(
+        completing.current?.abort();
+        const controller = new AbortController();
+        completing.current = controller;
+        void search.complete(controller.signal).then(
           (completed) => {
-            if (latest.current !== typed) return;
+            const now = latest.current;
+            if (controller.signal.aborted) return;
+            if (now.text !== typed.text || now.machine !== typed.machine) return;
             if (completed) type(completed);
             else if (fallback) browse(fallback.path);
           },
@@ -184,7 +201,7 @@ export function FolderSearchBox(props: {
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={highlighted ? optionId(current) : undefined}
+          aria-activedescendant={pointed ? optionId(current) : undefined}
           aria-describedby={`${listId}-path`}
           placeholder={props.placeholder}
           value={text}
@@ -270,6 +287,18 @@ export function FolderSearchBox(props: {
           })}
         </div>
       </div>
+      {state === null && (search.restFailed || search.capped) && (
+        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+          {search.restFailed
+            ? "Couldn't read the rest of this folder. The folders above are what was read."
+            : "Showing the first 5,000 folders here. Type more of a name to narrow them."}
+          {search.restFailed && (
+            <Button size="sm" variant="ghost" onClick={search.retry}>
+              Try again
+            </Button>
+          )}
+        </p>
+      )}
       <div className="flex min-h-5 min-w-0 items-center gap-3 text-xs text-subtle-foreground">
         <span id={`${listId}-path`} className="min-w-0 flex-1 truncate font-mono text-[11.5px]">
           {highlighted
@@ -343,6 +372,7 @@ function FolderOption(props: {
       id={props.id}
       role="option"
       aria-selected={props.active}
+      aria-disabled={row.stale ? true : undefined}
       tabIndex={-1}
       onPointerMove={props.active ? undefined : props.onPoint}
       onMouseDown={(event) => event.preventDefault()}
@@ -350,6 +380,7 @@ function FolderOption(props: {
       className={cn(
         "flex h-[30px] cursor-default items-center gap-2 rounded-sm px-2 text-ui text-foreground select-none",
         props.active && "bg-accent",
+        row.stale && "opacity-60",
       )}
     >
       <Icon

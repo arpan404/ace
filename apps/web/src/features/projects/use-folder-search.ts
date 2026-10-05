@@ -33,6 +33,8 @@ export interface FolderRow {
   self?: boolean;
   /** Matched letters in the name, for highlighting. */
   positions: readonly number[];
+  /** Still showing from the previous query while this one is answered: not choosable. */
+  stale?: boolean;
 }
 
 export interface FolderSection {
@@ -156,39 +158,43 @@ export function useFolderSearch(options: {
         },
       ];
     }
-    // Projects on every machine, ranked together; each machine's own recency breaks ties.
-    const keyOf = (folder: RecentFolder) => `${folder.machine.id}\u0000${folder.path}`;
-    const byKey = new Map(online.map((folder) => [keyOf(folder), folder]));
+    // Projects on every machine, ranked together by name; each machine's own recency breaks
+    // ties. A candidate's path is its name and then its place in `online`, written as a
+    // private-use character no one types: it matches by what it's called, not where it lives,
+    // in one pass with a single root.
+    // Recents are capped at 100 per machine and 100 machines, well inside the plane.
+    const keyOf = (index: number, name: string) =>
+      `/${name}/${String.fromCodePoint(0xf0000 + index)}`;
+    const indexOf = (path: string) => (path.codePointAt(path.lastIndexOf("/") + 1) ?? 0) - 0xf0000;
     const projects =
       mode === "open"
         ? rankFolders(
             words,
-            online.map((folder) => ({
+            online.map((folder, index) => ({
               name: folder.name,
-              path: keyOf(folder),
+              path: keyOf(index, folder.name),
               isGitRepo: false,
               isProject: true,
               recentScore: 1 / (folder.rank + 1),
             })),
-            // Each relative to its parent: a project matches by name, not by where it lives.
-            online.map((folder) => {
-              const key = keyOf(folder);
-              return key.slice(0, key.lastIndexOf("/"));
-            }),
+            ["/"],
           )
             .slice(0, recentShown)
             .flatMap((match) => {
-              const folder = byKey.get(match.path);
+              const folder = online[indexOf(match.path)];
               return folder ? [asProject(folder)] : [];
             })
         : [];
     const listed = new Set(projects.map((each) => each.key));
     const folders = (found.data?.entries ?? [])
       .map((match) =>
-        row(
-          { name: match.name, path: match.path, git: match.isGitRepo, project: match.isProject },
-          machine,
-          words,
+        Object.assign(
+          row(
+            { name: match.name, path: match.path, git: match.isGitRepo, project: match.isProject },
+            machine,
+            words,
+          ),
+          { stale: found.isPlaceholderData },
         ),
       )
       .filter((each) => !listed.has(each.key));
@@ -203,6 +209,7 @@ export function useFolderSearch(options: {
     isProject,
     listing.entries,
     found.data,
+    found.isPlaceholderData,
     machine,
     mode,
     home,
@@ -210,8 +217,12 @@ export function useFolderSearch(options: {
   ]);
 
   const visible = sections.filter((section) => section.rows.length > 0);
-  const error = query.kind === "search" && words ? found.error : listing.error;
+  // A later page failing leaves the folders read so far; only a first read failing replaces them.
+  const error =
+    query.kind === "search" && words ? found.error : listing.restFailed ? null : listing.error;
   return {
+    /** The machine these folders are on. */
+    machineId: machine.id,
     query,
     home,
     sections: visible,
@@ -221,6 +232,10 @@ export function useFolderSearch(options: {
     /** Names in the folder being browsed, for name checks. */
     names: (listing.entries ?? []).map((entry) => entry.name),
     loading: listing.loading || (words !== "" && found.isFetching) || recent.loading,
+    /** The folder's later folders couldn't be read; `retry` reads them. */
+    restFailed: browsing !== undefined && listing.restFailed,
+    /** The folder has more folders than are read (5,000). */
+    capped: browsing !== undefined && listing.capped,
     /** More folders may match: the daemon stopped at its bounds. */
     truncated: words !== "" && (found.data?.truncated ?? false),
     failure: error ? projectFailure(error) : undefined,
@@ -229,10 +244,10 @@ export function useFolderSearch(options: {
      * Tab in path mode, by the daemon (`fs.complete`): the box's text extended to what every
      * matching folder shares, or into the only one. Undefined when it can't grow.
      */
-    complete: async (): Promise<string | undefined> => {
+    complete: async (signal: AbortSignal): Promise<string | undefined> => {
       if (query.kind !== "path" || !machine.client) return undefined;
       const typed = pathInput(query.directory, home?.path) + query.segment;
-      const reply = await projectReads(machine.client).complete(typed, showHidden);
+      const reply = await projectReads(machine.client).complete(typed, showHidden, signal);
       const only = reply.candidates.length === 1 ? reply.candidates[0] : undefined;
       if (only && !reply.truncated) return only.completion;
       return reply.commonPrefix.length > typed.length ? reply.commonPrefix : undefined;

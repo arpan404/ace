@@ -39,6 +39,8 @@ export type CloneRun =
 export function useCloneRun(options: {
   visible: boolean;
   onCloned(result: Added, machine: Machine): void;
+  /** The machines as they are now: a clone's host is looked up again for Cancel and Retry. */
+  machines: readonly Machine[];
 }) {
   const commandsOn = useProjectCommandsOn();
   const toast = useToast();
@@ -46,10 +48,24 @@ export function useCloneRun(options: {
   const current = useRef<{ commandId: string; stop(): void } | undefined>(undefined);
   const visible = useRef(options.visible);
   const onCloned = useRef(options.onCloned);
+  const machines = useRef(options.machines);
   useEffect(() => {
     visible.current = options.visible;
     onCloned.current = options.onCloned;
+    machines.current = options.machines;
   });
+  /**
+   * The clone's host as it is now. A worker that was replaced has a new client; a host that
+   * left the pool has none, and its commands refuse rather than reach another machine.
+   */
+  const now = (machine: Machine): Machine =>
+    machines.current.find(
+      (each) => each.id === machine.id || (machine.primary && each.primary),
+    ) ?? {
+      ...machine,
+      status: "offline",
+      client: undefined,
+    };
   useEffect(() => () => current.current?.stop(), []);
 
   const finish = () => {
@@ -108,7 +124,7 @@ export function useCloneRun(options: {
     if (run.status !== "running" || run.cancelling) return;
     setRun({ ...run, cancelling: true, cancelProblem: undefined });
     // The clone's own receipt ends the run; a cancel that came too late leaves it finishing.
-    commandsOn(run.machine)
+    commandsOn(now(run.machine))
       .cancelClone(run.commandId)
       .catch((error: unknown) => {
         const problem = projectFailure(error);
@@ -127,9 +143,9 @@ export function useCloneRun(options: {
       });
   };
 
-  /** The failed clone again, with the same address, folder and machine. */
+  /** The failed clone again, with the same address and folder, on the same machine. */
   const retry = () => {
-    if (run.status === "failed") start(run.input, run.machine);
+    if (run.status === "failed") start(run.input, now(run.machine));
   };
   const dismiss = () =>
     setRun((previous) => (previous.status === "failed" ? { status: "idle" } : previous));

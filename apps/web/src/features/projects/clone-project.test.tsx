@@ -28,6 +28,17 @@ async function openClone(made: ReturnType<typeof harness>) {
 
 test("an address with credentials in it is refused before anything is sent", async () => {
   const { made } = stepped();
+  // What reaches the daemon: every command, and every read naming the address.
+  const sent: string[] = [];
+  const commandAsync = made.daemon.commandAsync.bind(made.daemon);
+  made.daemon.commandAsync = (command) => {
+    sent.push(command.payload.type);
+    return commandAsync(command);
+  };
+  made.daemon.projects.refuseReads("unused", (operation) => {
+    if (operation.op === "workspace.clone.validate") sent.push(operation.url);
+    return false;
+  });
   await openClone(made);
   // ace clones with the person's own Git setup: it never takes a password.
   expect(screen.getByText(/ace never asks for or stores credentials/)).toBeTruthy();
@@ -36,6 +47,7 @@ test("an address with credentials in it is refused before anything is sent", asy
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
   expect(screen.queryByRole("progressbar")).toBeNull();
   expect(registered(made)).toEqual([]);
+  expect(sent).toEqual([]);
 });
 
 test("a clone names its folder after the repository, shows Git's progress and opens when done", async () => {
