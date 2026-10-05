@@ -57,7 +57,9 @@ test("200 large real-engine sends never block the 201st without a transcript lea
   }
   const page = await first.itemsPage({ threadId: created.threadId, limit: 200 });
   expect(page.items.some((item) => item.id === "input:real-send-200")).toBe(true);
-  await when(first.intent("real-send-200"), (value) => value?.delivered === true);
+  await when(first.pendingSends(created.threadId), (entries) =>
+    entries.some((entry) => entry.commandId === "real-send-200" && entry.state === "delivered"),
+  );
   expect(
     first
       .pendingSends(created.threadId)

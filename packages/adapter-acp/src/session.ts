@@ -29,6 +29,8 @@ interface PendingInteraction {
 }
 interface Queued {
   input: ContentPart[];
+  commandId?: string;
+  origin?: "ace";
   bytes: number;
   resolve(): void;
   reject(error: unknown): void;
@@ -289,7 +291,12 @@ class AcpSession implements ProviderSession {
   setMode(mode: string): Promise<void> {
     return this.select("mode", mode);
   }
-  async send(input: ContentPart[], _delivery: "steer" | "queue"): Promise<void> {
+  async send(
+    input: ContentPart[],
+    _delivery: "steer" | "queue",
+    commandId?: string,
+    origin?: "ace",
+  ): Promise<void> {
     if (this.closed) throw new Error("ACP session closed");
     if (this.shells.blocked) throw new Error("ACP shell execution completion is unconfirmed");
     const bytes = Buffer.byteLength(JSON.stringify(input));
@@ -297,7 +304,14 @@ class AcpSession implements ProviderSession {
       throw new Error("ACP input queue capacity reached");
     await new Promise<void>((resolve, reject) => {
       this.queuedBytes += bytes;
-      this.queue.push({ input: structuredClone(input), bytes, resolve, reject });
+      this.queue.push({
+        input: structuredClone(input),
+        ...(commandId ? { commandId } : {}),
+        ...(origin ? { origin } : {}),
+        bytes,
+        resolve,
+        reject,
+      });
       this.queueChanged();
       void this.drain();
     });
@@ -321,6 +335,14 @@ class AcpSession implements ProviderSession {
     this.active = true;
     this.queueChanged();
     try {
+      if (next.commandId) {
+        this.ctx.onInputMessage?.({ commandId: next.commandId, nativeId: next.commandId });
+        this.frame("note", "recorder", {
+          event: "input-sending",
+          nativeId: next.commandId,
+          ...(next.origin ? { origin: next.origin } : {}),
+        });
+      }
       const result = await this.rpc.request(
         "session/prompt",
         { sessionId: this.nativeSessionId, prompt: next.input.map(encodeContent) },

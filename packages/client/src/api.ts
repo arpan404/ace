@@ -53,6 +53,11 @@ export interface SidebarSource extends SidebarReader {
     read: (sidebar: SidebarReader) => T,
     equal?: (a: T, b: T) => boolean,
   ): Selection<T>;
+  /**
+   * Follow which keys change (`thread:<id>` per changed entry, `ids`, `threads`, or "all" for a
+   * new snapshot), so a view over the whole list can update from the changed entries alone.
+   */
+  observe(tap: ChangeTap): () => void;
 }
 export interface Lease<T> {
   store: T;

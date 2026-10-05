@@ -52,6 +52,7 @@ export {
 export { oppositeFollowUpBehavior } from "./follow-up.ts";
 
 export { ConductorClient } from "./conductor.ts";
+export { BrowserOriginsClient } from "./browser-origins.ts";
 export type { ConductorWatch } from "./conductor.ts";
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";
 export type {

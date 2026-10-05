@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ContentPart } from "@ace/protocol";
+import type { SessionContext } from "@ace/engine-api";
 import type { OpenCodeClient } from "@opencode/client";
 import type { Runtime } from "./runtime.ts";
 import type { Observe } from "./observation.ts";
@@ -15,6 +16,7 @@ type Ports = {
   frame: Observe;
   barrier(): Promise<void>;
   uncertain(): void;
+  correlate?: SessionContext["onInputMessage"];
 };
 /** Serializes HTTP admissions, leaving execution and durable inbox ownership independent. */
 export class SessionPrompts {
@@ -43,6 +45,7 @@ export class SessionPrompts {
       this.started = this.rejected = false;
       const id = messageId(p.runtime.wallTime(), ++this.sequence, p.runtime.entropy(16));
       try {
+        if (commandId) p.correlate?.({ commandId, nativeId: id });
         p.frame("note", "input.sending", { id, commandId });
         const reply = z
           .object({ id: z.literal(id), sessionID: z.literal(p.session()) })

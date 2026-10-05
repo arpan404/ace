@@ -59,6 +59,7 @@ export interface EngineOptions {
   silenceMs?: number;
   onError?: (error: unknown) => void;
   onProviderDiagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void;
+  aceToolAction?: typeof import("@ace/mcp-server").aceToolAction;
   mcp?: (
     threadId: ThreadId,
     agentId: string,
@@ -107,6 +108,7 @@ export class Engine {
       options.ids,
       this.limits.maxActiveThreads,
       options.commandId,
+      options.aceToolAction,
     );
     this.admissions = new CreationAdmissions(this.repo, this.nextThreadId);
     this.selectInstance = options.selectInstance;
@@ -349,6 +351,9 @@ export class Engine {
       }),
     );
   }
+  permissionAuthority(id: ThreadId): PermissionMode {
+    return this.repo.permissions.authority(id);
+  }
   permissionMode(id: ThreadId): PermissionMode {
     return this.repo.permissions.effective(id);
   }
@@ -403,6 +408,81 @@ export class Engine {
     );
     this.wake(parentId);
   }
+  /** One stable parent item follows each independently owned child thread. */
+  delegationStarted(record: import("@ace/protocol").DelegationRecord, child: Thread) {
+    const state = this.repo.requireState(record.parentId);
+    const agent = state.indexes.agentKeysById[record.parentAgentId];
+    if (!agent) throw new Error("Unknown delegation parent");
+    const selection = this.repo.session(child.id);
+    this.repo.apply(
+      record.parentId,
+      [
+        {
+          type: "item.upsert",
+          agent,
+          item: `ace-delegation:${child.id}`,
+          draft: {
+            type: "delegation.started",
+            origin: "ace",
+            childThreadId: child.id,
+            provider: child.provider,
+            ...(selection.model ? { model: selection.model } : {}),
+            ...(selection.instanceId ? { accountId: selection.instanceId } : {}),
+            title: child.title,
+            role: record.request.role,
+            phase: record.phase,
+            status: child.status,
+            updatedAt: this.clock.now(),
+            generation: record.generation,
+            complete: record.phase === "settled",
+            outcome: record.outcome ?? null,
+          },
+        },
+      ],
+      this.clock.now(),
+    );
+  }
+  /** Host-only result attribution; ordinary wire sends cannot impersonate ace. */
+  delegationSettled(
+    parentId: ThreadId,
+    parentAgentId: AgentId,
+    commandId: string,
+    results: import("@ace/protocol").DelegationOutcome[],
+    delivery: "tool" | "ace-input",
+    text?: string,
+  ) {
+    const state = this.repo.requireState(parentId);
+    const agent = state.indexes.agentKeysById[parentAgentId];
+    if (!agent) throw new Error("Unknown delegation parent");
+    const item = `ace-results:${commandId}`;
+    const summaries = results.map((result) => ({
+      ...result,
+      result: result.result.slice(0, 128),
+      truncated: result.truncated || result.result.length > 128,
+    }));
+    this.repo.store.atomic(() => {
+      if (text)
+        this.repo.aceInputs.record(parentId, commandId, { agent, item, results: summaries });
+      this.repo.apply(
+        parentId,
+        [
+          {
+            type: "item.upsert",
+            agent,
+            item,
+            draft: {
+              type: "delegation.settled",
+              origin: "ace",
+              delivery,
+              results: summaries,
+              complete: true,
+            },
+          },
+        ],
+        this.clock.now(),
+      );
+    });
+  }
   /** On-demand metrics visit bounded live actors and indexed outstanding intents only. */
   workload(): { activeSessions: number; queues: Record<string, number> } {
     let activeSessions = 0;
@@ -419,7 +499,8 @@ export class Engine {
   bindHostInteractions(
     handler: (command: Command) => import("@ace/protocol").CommandResult | undefined,
   ): void {
-    this.hostInteractionHandler = handler;
+    const previous = this.hostInteractionHandler;
+    this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
   }
   /**
    * A thread's root agent id. A prepared thread has only its configured root until a fact
@@ -433,7 +514,12 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
-  openHostGate(threadId: ThreadId, key: string, message: string) {
+  openHostApproval(
+    threadId: ThreadId,
+    key: string,
+    request: import("@ace/protocol").InteractionRequest,
+    raw: import("@ace/protocol").RawPayload[],
+  ) {
     const state = this.repo.requireState(threadId);
     this.actor(threadId).apply([
       {
@@ -441,16 +527,35 @@ export class Engine {
         agent: state.rootKey ?? "root",
         interaction: key,
         blocking: true,
-        request: { kind: "plan_review", title: "Deck needs your decision", markdown: message },
-        raw: [{ type: "ace.conductor.gate", data: { key } }],
+        request,
+        raw,
       },
     ]);
     const interaction = this.repo.requireState(threadId).interactions[key];
     if (!interaction) throw new Error("Host interaction was not admitted");
     return interaction.id;
   }
+  resolveHostApproval(
+    threadId: ThreadId,
+    key: string,
+    result: {
+      state: "resolved" | "cancelled" | "expired";
+      resolution?: import("@ace/protocol").InteractionResolution;
+      resolvedBy?: import("@ace/protocol").DeviceId;
+    },
+  ): void {
+    this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, ...result }]);
+  }
+  openHostGate(threadId: ThreadId, key: string, message: string) {
+    return this.openHostApproval(
+      threadId,
+      key,
+      { kind: "plan_review", title: "Deck needs your decision", markdown: message },
+      [{ type: "ace.conductor.gate", data: { key } }],
+    );
+  }
   closeHostGate(threadId: ThreadId, key: string, state: "resolved" | "cancelled"): void {
-    this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, state }]);
+    this.resolveHostApproval(threadId, key, { state });
   }
   activeExecutionSelections() {
     const row = z.object({

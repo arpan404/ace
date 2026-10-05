@@ -442,6 +442,49 @@ test("a view over the whole thread list follows every entry through one key, and
   stop();
   lease.release();
 });
+
+test("worker sidebar observers share snapshots and changed rows, and unsubscribe independently", async () => {
+  const { daemon, tab } = world();
+  daemon.createThread({ id: "cache", workspaceId: "acme", title: "Cache", provider: "codex" });
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const lease = remote.threads();
+  const first: (ReadonlySet<string> | "all")[] = [];
+  const second: (ReadonlySet<string> | "all")[] = [];
+  const stopFirst = lease.store.observe((keys) => first.push(keys));
+  const stopSecond = lease.store.observe((keys) => second.push(keys));
+  cleanups.push(() => {
+    stopFirst();
+    stopSecond();
+    lease.release();
+  });
+  await vi.waitFor(() => expect(lease.store.thread("cache")?.title).toBe("Cache"));
+  expect(second).toContain("all");
+  expect(first).toEqual(second);
+  first.length = second.length = 0;
+
+  daemon.createThread({ id: "relay", workspaceId: "acme", title: "Relay", provider: "codex" });
+  await vi.waitFor(() => expect(second).toHaveLength(1));
+  expect(first).toEqual(second);
+  const added = second[0];
+  expect(added).not.toBe("all");
+  if (!added || added === "all") throw new Error("Expected changed sidebar keys");
+  expect(added.has("thread:relay")).toBe(true);
+  expect(added.has("thread:cache")).toBe(false);
+  expect(lease.store.thread("relay")?.title).toBe("Relay");
+
+  stopFirst();
+  stopFirst();
+  await remote.command({ type: "thread.delete", threadId: ThreadId.parse("relay") });
+  await vi.waitFor(() => expect(second).toHaveLength(2));
+  expect(first).toHaveLength(1);
+  const removed = second[1];
+  if (!removed || removed === "all") throw new Error("Expected changed sidebar keys");
+  expect(removed.has("thread:relay")).toBe(true);
+  expect(lease.store.thread("relay")).toBeUndefined();
+  expect(lease.store.ids).toEqual(["cache"]);
+});
 import { createHash } from "node:crypto";
 import { WorkspaceId, type HistoryOperationProgress } from "@ace/protocol";
 

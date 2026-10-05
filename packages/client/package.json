@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./devices": "./src/devices.ts",
     "./files": "./src/files.ts",
-    "./project-calls": "./src/project-calls.ts"
+    "./project-calls": "./src/project-calls.ts",
+    "./machines": "./src/machines.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.runtime.json",

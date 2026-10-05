@@ -30,3 +30,12 @@ Native IndexedDB regression tests use a temporary Chromium profile and a local
 HTTP origin. The merge runner needs the Playwright Chromium installation; these
 tests and performance benchmarks are not executed during implementation under
 the owner's rule. See ADR 0066 for receipt ownership and memory limits.
+
+MachinePool's `command`, `enqueue` and `create` route durable work to the same
+previously verified machine connection while its transport is offline. They keep
+the caller's command ID; other machines cannot acknowledge or replace the draft.
+One-shot pool access still requires an online connection. Retain the host's
+`ClientApi.pendingSends` selection to observe saving, receipts and delivery
+across disconnects. Removed, unverified and auth-failed machines reject new
+pool sends. Worker replacement loads only that host/device's record outbox;
+the platform's spawn adapter must supply `idbOutbox` under that scope.
