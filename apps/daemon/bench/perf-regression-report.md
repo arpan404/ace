@@ -100,3 +100,41 @@ Correctness errors now synchronously publish a measurement failure marker before
 The browser benchmark acknowledges initial Home/End and subsequent movement keys. Reading and search steps now assert visible completion while retaining their original inputs and pauses. Preview teardown waits for the directly spawned Vite process to exit. Real browser tests specify buffered old tasks and interactions arriving after reset, a new blocking task, delayed navigation commits and actual scrolling; a real HTTP subprocess test specifies port release before preview cleanup returns.
 
 The owner’s final rule forbids runtime verification in this review round. No tests, benchmarks, probes, mutation runs, flakiness runs or CI were executed. Every new behaviour reproduction and updated throughput/long-task/churn measurement **needs run at merge**. All performance values above are historical observations from the pre-review implementation, not measurements of this revision. The original 300 events/s floor, web budgets, workloads and per-attempt timeouts are unchanged. [The mutation coverage table](review-coverage.md) labels all cases **not executed (tests run at merge)**.
+
+## Search-hit follow-up after the main merge
+
+This follow-up starts at `6f37286e`, after main `854f1cce` merged. The owner authorized the
+two standalone browser journeys and new regression tests, without the full suite.
+`git pull` and `bun install` completed first.
+
+The long-thread journey failed at its first tool-output hit. The search counter advanced
+and the window loaded, but estimated row sizes placed the target outside the virtual range.
+Later size corrections left it unmounted. Main's original journey only pressed Enter and
+waited; it did not assert a transcript hit. Retaining the focused row beside the visible
+range lets it be measured and brought into view, with at most one extra mounted row.
+The original hit assertion remains. An empty filtered search also exposed an incorrect
+visibility wait on its zero-height listbox; attachment plus a visible empty explanation
+acknowledges that valid outcome.
+
+| Measurement                      | Before this follow-up                              | After                                                         |
+| -------------------------------- | -------------------------------------------------- | ------------------------------------------------------------- |
+| Long-thread search hit           | Missing; exit 1                                    | All 18 hits across six rounds pass                            |
+| Long-thread interaction p95      | Run stopped at search                              | 72 ms, limit 100                                              |
+| Long-thread longest task         | Run stopped at search                              | 0 ms, limit 200                                               |
+| Long-thread peak DOM nodes       | Run stopped at search                              | 1,081, limit 1,500                                            |
+| Long-thread retained heap growth | Run stopped at search                              | 2.45 MB, limit 4                                              |
+| Browser throughput acceptance    | 4,997.42 accepted against a displayed 5,000 budget | 4,997.42 rejected; one complete repeat allowed                |
+| Browser full workload            | No timing retry                                    | 5,048.55 events/s, p95 64 ms, longest task 0 ms on the repeat |
+
+The browser code previously compared throughput against 90% of the displayed budget. It now
+enforces the documented 5,000 floor. Its source supplies 5,050 events/s, increasing the
+workload by 1% to give batched delivery margin above the floor. An initial standalone run
+passed at 5,042.99 events/s, p95 56 ms and longest task 0 ms. The final run exercised a real
+retry: its first sample reported a 2,042 ms task during a machine load spike above 200;
+the complete repeat met every unchanged limit with the numbers in the table.
+
+The five new regression cases pass: real production-browser hit visibility and viewport
+intersection from live and after historical navigation, valid empty filtered results,
+4,997.42 followed by a passing repeat, a persistent shortfall failing, and the exact 5,000
+boundary passing. Typecheck, lint, format, file size and dependency checks pass. No full
+test suite, provider prompts or user-home data were used.

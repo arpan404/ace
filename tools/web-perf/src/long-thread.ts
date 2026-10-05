@@ -106,9 +106,15 @@ async function measureLongThread(): Promise<void> {
         "true",
       );
       await expect(bar.locator("[aria-live]")).not.toHaveText(/^\d+ of /);
-      await bar.getByRole("listbox", { name: "Results" }).waitFor();
+      // Empty searches render a zero-height listbox and a separate explanation.
+      // Its presence acknowledges the result list opening, including no hits.
+      await expect(bar.getByRole("listbox", { name: "Results" })).toBeAttached();
       await expect(bar.getByRole("button", { name: "Searching…", exact: true })).toBeHidden();
       await expect(bar.getByRole("alert")).toBeHidden();
+      if ((await bar.getByRole("option").count()) === 0)
+        await expect(
+          bar.getByText(/^Nothing (in this thread matches|yet in the history read so far)\.$/),
+        ).toBeVisible();
       nodes.push((await pageMemory(cdp)).nodes);
       await page.keyboard.press("Escape");
       // Back to the live end, then a look at the live tail.

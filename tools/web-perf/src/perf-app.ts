@@ -20,6 +20,7 @@ export async function withPerfApp<T>(
   port: number,
   run: (app: { browser: Browser; origin: string }) => Promise<T>,
   args: string[] = [],
+  executablePath?: string,
 ): Promise<T> {
   const out = mkdtempSync(join(tmpdir(), "ace-web-perf-"));
   let server: ReturnType<typeof spawn> | undefined;
@@ -43,7 +44,7 @@ export async function withPerfApp<T>(
       ],
       { cwd: web, stdio: "ignore" },
     );
-    const browser = await chromium.launch({ args });
+    const browser = await chromium.launch({ args, ...(executablePath ? { executablePath } : {}) });
     try {
       return await run({ browser, origin: `http://127.0.0.1:${port}` });
     } finally {

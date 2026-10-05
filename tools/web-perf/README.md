@@ -12,6 +12,14 @@ mixed resource/timing failures fail immediately. There is no best-of-many loop o
 Every accepted run must meet the unchanged 200 ms longest-task, 100 ms interaction-p95,
 10% long-task-share, 1,500-node and 4 MB retained-growth limits.
 
+The streaming browser journey also gets one complete repeat for a timing violation. Its
+throughput floor is 5,000 events/s, including a small shortfall such as 4,997.42. The old
+comparison accepted 90% while printing a 5,000 budget. The fixture now supplies 5,050 events/s
+to give its timer batches and the page's sampling boundaries margin above the unchanged floor.
+This increases the workload; it does not lower the acceptance threshold. Detector and other
+correctness failures remain fatal. `browser-budgets.test.ts` verifies that a small shortfall
+retries, a repeated shortfall fails, and the exact 5,000 boundary passes.
+
 PerformanceObserver delivery is asynchronous. Resetting a measurement clears its values and
 sets its start timestamp; entries delivered afterward are filtered by `entry.startTime`.
 This keeps queued observations from before the interaction window out of its maximum and
@@ -37,8 +45,12 @@ and Event Timing observers acknowledge both the buffered pre-reset delivery and 
 interaction; animation frames or short polling deadlines are not delivery barriers.
 Navigation fixtures commit through message channels rather than elapsed-time delays.
 
-After the merge gate reported setup failures, the two permitted process test files were
-reproduced and verified independently. They cover worker initialization and retirement,
-queued pre-reset task and event records, a post-reset blocker, delayed Home/End commits
-and transcript movement. No product UI files were edited. Updated performance numbers
-and preview overlap verification still need run at merge.
+The search-hit assertion exposed a missed virtual scroll that the original journey's timed
+pauses did not check. Estimated sizes could place a tool-output row outside the rendered range;
+later size corrections then left it unmounted. The transcript now includes the focused row
+alongside its visible range so the jump can measure it, retaining at most one extra row until
+the next focus or return to live. `search-jump.process.test.ts` exercises the production browser
+build from live and after historical navigation, asserting both visibility and viewport
+intersection. It synchronizes on results and the actual hit, without a timing-only barrier.
+Filtered searches can validly return no hits. Their empty listbox has zero height, so the
+journey acknowledges its attachment and asserts the visible empty-result explanation.
