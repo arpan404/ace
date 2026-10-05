@@ -1,8 +1,11 @@
 import { workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+// The tab and project filter last for the browser session.
+beforeEach(() => sessionStorage.clear());
 
 async function openActivity() {
   const app = harness();
@@ -51,7 +54,7 @@ test("tabs narrow the feed to mentions or to automation results", async () => {
   expect(within(feed).queryByText("Checks failed on #74")).toBeNull();
   expect(within(feed).queryByText("Allow a force push to fix/restart-retry?")).toBeNull();
 
-  await userEvent.click(tab("Automations"));
+  await userEvent.click(tab("Runs"));
   expect(await within(feed).findByText("Failed: npm registry timeout, retried once")).toBeTruthy();
   expect(
     within(feed).queryByText("mira: @you Which port does the daemon default to in docker?"),

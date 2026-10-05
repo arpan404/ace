@@ -1,36 +1,110 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { readJson, writeJson } from "@ace/ui-core";
+import * as z from "zod/mini";
+import { WaitingSinceProvider } from "./waiting-since.tsx";
 
-export type ActivityTab = "all" | "needs" | "mentions" | "automations";
+export type ActivityTab = "all" | "needs" | "mentions" | "runs";
+const ActivityView = z.object({
+  tab: z.enum(["all", "needs", "mentions", "runs"]),
+  project: z.optional(z.string()),
+});
 
-/** Card keys shared by the sidebar rows and the Needs-you cards. */
+/** Card keys shared by the sidebar rows, the Needs-you cards and `/activity?item=`. */
 export const interactionKey = (threadId: string, interactionId: string) =>
   `interaction:${threadId}:${interactionId}`;
 export const eventKey = (eventId: string) => `event:${eventId}`;
+export const runKey = (runId: string) => `run:${runId}`;
+/** The read-state id behind a card key: an event's or a run's own id. */
+export function readIdOf(key: string): string | undefined {
+  if (key.startsWith("event:")) return key.slice("event:".length);
+  if (key.startsWith("run:")) return key.slice("run:".length);
+  return undefined;
+}
 
 interface ActivityState {
   tab: ActivityTab;
   setTab(tab: ActivityTab): void;
   /** The card J/K, A/D and 1–3 act on; the matching sidebar row is selected. */
   focused: string | undefined;
-  setFocused: Dispatch<SetStateAction<string | undefined>>;
+  /** Focus a card in the Needs-you list (from keys or a pointer on the card). */
+  focusCard: Dispatch<SetStateAction<string | undefined>>;
+  /**
+   * A Needs-you row was chosen: focus its card in the list, leaving any single item shown.
+   * Rows outside this slice call it; the name is theirs.
+   */
+  setFocused(key: string): void;
+  /** The item shown on its own in the main column (`/activity?item=`), if any. */
+  item: string | undefined;
+  /** Show one item on its own; each choice is a history entry, so Back returns to the last. */
+  selectItem(key: string | undefined): void;
   /** Project filter from the header; undefined shows every project. */
   project: string | undefined;
   setProject(project: string | undefined): void;
+  /** Items picked for a batch action (X, Shift-click), by card key. */
+  picked: ReadonlySet<string>;
+  togglePicked(key: string): void;
+  clearPicked(): void;
 }
 
 const Context = createContext<ActivityState | undefined>(undefined);
+const viewKey = "ace.activity.view";
+const session = () => (typeof sessionStorage === "undefined" ? undefined : sessionStorage);
 
-/** View state for Activity, shared by its sidebar and main column. Not persisted. */
+/**
+ * View state for Activity, shared by its sidebar and main column. The tab and project filter
+ * last for the browser session; the shown item lives in the URL.
+ */
 export function ActivityProvider(props: { children: ReactNode }) {
-  const [tab, setTab] = useState<ActivityTab>("all");
-  const [focused, setFocused] = useState<string>();
-  const [project, setProject] = useState<string>();
-  const value = useMemo(
-    () => ({ tab, setTab, focused, setFocused, project, setProject }),
-    [tab, focused, project],
+  const [view, setView] = useState(() =>
+    readJson(session(), viewKey, ActivityView, { tab: "all" as ActivityTab }),
   );
-  return <Context.Provider value={value}>{props.children}</Context.Provider>;
+  const [focused, focusCard] = useState<string>();
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
+  const search: { item?: unknown } = useSearch({ strict: false });
+  const item = typeof search.item === "string" ? search.item : undefined;
+  const navigate = useNavigate();
+  const save = useCallback((next: z.infer<typeof ActivityView>) => {
+    setView(next);
+    writeJson(session(), viewKey, next);
+  }, []);
+  const selectItem = useCallback(
+    (key: string | undefined) =>
+      void navigate({ to: "/activity", search: key ? { item: key } : {} }),
+    [navigate],
+  );
+  const value = useMemo<ActivityState>(
+    () => ({
+      tab: view.tab,
+      setTab: (tab) => save({ ...view, tab }),
+      project: view.project,
+      setProject: (project) =>
+        save(project === undefined ? { tab: view.tab } : { tab: view.tab, project }),
+      focused,
+      focusCard,
+      setFocused(key) {
+        focusCard(key);
+        if (item !== undefined) selectItem(undefined);
+      },
+      item,
+      selectItem,
+      picked,
+      togglePicked: (key) =>
+        setPicked((current) => {
+          const next = new Set(current);
+          if (!next.delete(key)) next.add(key);
+          return next;
+        }),
+      clearPicked: () => setPicked(new Set()),
+    }),
+    [view, save, focused, item, selectItem, picked],
+  );
+  return (
+    <Context.Provider value={value}>
+      <WaitingSinceProvider>{props.children}</WaitingSinceProvider>
+    </Context.Provider>
+  );
 }
 
 export function useActivityState(): ActivityState {

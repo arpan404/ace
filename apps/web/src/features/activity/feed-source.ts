@@ -1,27 +1,39 @@
 /*
  * The Activity feed from the daemon: pull-request, CI and mention events from the forge for
  * threads with a linked PR (`workspace.request` `pr.status`), and Deck escalations from the
- * conductor (`@/features/deck`). Which events this device has read is kept per client here.
+ * conductor (`@/features/deck`). What has been read is the daemon's Activity read cursor
+ * (`read-state.ts`).
  */
 import type { SidebarReader } from "@ace/client";
 import { useClient, useConnectionState, useSidebarAll } from "@ace/client-react";
+import { isActivityRead, type AutomationRun } from "@ace/protocol";
 import { useQueries } from "@tanstack/react-query";
-import { useSyncExternalStore } from "react";
+import { useEffect, useMemo } from "react";
+import { useAutomationRuns } from "@/features/automations/index.ts";
 import { useDeckSender } from "@/features/deck/index.ts";
 import { useEscalations } from "./escalations.ts";
 import { pullRequestEvents, type FeedEvent, type LinkedThread } from "./feed-events.ts";
-import { useReadState } from "./read-state.ts";
+import { useReadCursor, useReadState } from "./read-state.ts";
 
 export type { FeedAction, FeedEvent, FeedKind } from "./feed-events.ts";
 
 export interface FeedSnapshot {
   events: readonly FeedEvent[];
-  /** Ids read on this device: feed events and automation runs share the set. */
+  /** Automation runs, newest first; undefined until read. */
+  runs: readonly AutomationRun[] | undefined;
+  /** The runs have been read, or couldn't be: the feed can say what it has. */
+  runsSettled: boolean;
+  /** Ids of the events and runs that have been read (the daemon's cursor, on every device). */
   read: ReadonlySet<string>;
+  /** False until the read cursor has arrived: nothing is called unread before then. */
+  readLoaded: boolean;
 }
 
 export interface FeedSource {
   markRead(ids: readonly string[]): void;
+  markUnread(ids: readonly string[]): void;
+  /** Everything up to `at` is read. */
+  markAllRead(at: number): void;
   /** Take an escalation's decision; it leaves Needs you once the deck reports the gate closed. */
   resolve(event: FeedEvent, actionId: string): Promise<void>;
 }
@@ -31,6 +43,8 @@ export function useFeedSource(): FeedSource {
   const send = useDeckSender();
   return {
     markRead: (ids) => reads.mark(ids),
+    markUnread: (ids) => reads.mark(ids, false),
+    markAllRead: (at) => reads.markAllBefore(at),
     async resolve(event, actionId) {
       const action = event.actions?.find((candidate) => candidate.id === actionId);
       if (!event.runId || !event.gateId || !action) throw new Error("not_found");
@@ -113,10 +127,35 @@ function usePullRequestEvents(): FeedEvent[] {
   );
 }
 
+/** When a run counts as happening: when it finished, else when it started. */
+export const runAt = (run: AutomationRun) => run.finishedAt ?? run.startedAt;
+
 export function useFeed(): FeedSnapshot {
   const reads = useReadState();
-  const read = useSyncExternalStore(reads.subscribe, reads.snapshot, reads.snapshot);
+  const cursor = useReadCursor();
   const escalations = useEscalations();
   const forge = usePullRequestEvents();
-  return { events: [...escalations, ...forge], read };
+  const runsQuery = useAutomationRuns();
+  const runs = runsQuery.data;
+  const events = useMemo(() => [...escalations, ...forge], [escalations, forge]);
+  const refs = useMemo(
+    () => [
+      ...events.map((event) => ({ id: event.id, at: event.at })),
+      ...(runs ?? []).map((run) => ({ id: run.id, at: runAt(run) })),
+    ],
+    [events, runs],
+  );
+  useEffect(() => reads.know(refs), [reads, refs]);
+  const read = useMemo(
+    () =>
+      new Set(cursor ? refs.filter((ref) => isActivityRead(cursor, ref)).map((ref) => ref.id) : []),
+    [cursor, refs],
+  );
+  return {
+    events,
+    runs,
+    runsSettled: runs !== undefined || runsQuery.isError,
+    read,
+    readLoaded: cursor !== undefined,
+  };
 }

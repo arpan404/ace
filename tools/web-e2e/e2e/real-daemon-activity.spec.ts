@@ -74,7 +74,7 @@ test("an automation created in the app is stored by the daemon and listed back",
   await expect(enabled).toHaveAttribute("aria-checked", "true");
   await page.getByRole("link", { name: "Automations" }).click();
   await aside.getByRole("link", { name: /Nightly e2e audit/ }).click();
-  await page.getByRole("main").getByRole("button", { name: "Run now" }).click();
+  await page.getByRole("button", { name: "Run now" }).click();
   await expect(page.getByText("Started · Nightly e2e audit")).toBeVisible();
   await expect(
     page.getByRole("main").getByRole("list", { name: "Recent runs" }).getByRole("listitem"),
