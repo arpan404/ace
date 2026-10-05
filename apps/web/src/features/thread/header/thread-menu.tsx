@@ -44,10 +44,11 @@ export function ThreadMenuItems(props: {
       onLeave={() => void navigate({ to: "/" })}
       extra={
         <>
+          {/* Side chat has no daemon support yet (PN-07): no shortcut to promise, no tab to open. */}
           <MenuItem
             icon={<ChatsCircleIcon aria-hidden size={16} />}
-            keys={keymap.sideChat.keys}
-            onClick={() => workspace.open({ kind: "side-chat" })}
+            disabled
+            reason="Not available yet"
           >
             New side chat
           </MenuItem>

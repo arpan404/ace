@@ -195,3 +195,19 @@ test("the Theme editor is reached from Appearance and keeps Appearance selected 
   await userEvent.click(screen.getByRole("link", { name: "Appearance", current: false }));
   await screen.findByRole("heading", { name: "Appearance" });
 });
+
+test("⌘K finds a single setting and opens its page at that row", async () => {
+  await harness().open("/");
+  await screen.findByRole("heading", { level: 1, name: "Home" });
+  await userEvent.keyboard("{Control>}k{/Control}");
+  const input = await screen.findByRole("combobox", { name: "Search commands" });
+  // Not listed until asked for: an empty palette stays short.
+  expect(screen.queryByRole("option", { name: /^Accent colour/ })).toBeNull();
+  await userEvent.type(input, "accent");
+  const option = await screen.findByRole("option", { name: /^Accent colour/ });
+  expect(option.textContent).toContain("Appearance");
+  await userEvent.keyboard("{Enter}");
+
+  await screen.findByRole("heading", { level: 2, name: "Appearance" });
+  expect(document.getElementById("appearance.accent")).toBeTruthy();
+});

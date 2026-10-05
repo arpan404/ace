@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectFolderMatch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "isGitRepo": {
+      "type": "boolean"
+    },
+    "isProject": {
+      "type": "boolean"
+    },
+    "lastOpened": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/ProjectDirectoryName.json"
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "recentScore": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "score": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "name",
+    "path",
+    "isGitRepo",
+    "isProject",
+    "recentScore",
+    "score"
+  ],
+  "type": "object"
+}

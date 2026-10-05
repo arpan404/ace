@@ -1,6 +1,6 @@
 import type { ThreadListEntry } from "@ace/protocol";
-import { AccountId } from "@ace/protocol/accounts";
-import { tightestWindow, type AccountView } from "./accounts.ts";
+import { automaticTarget } from "@ace/accounts/availability";
+import { liveWindows, tightestWindow, type AccountView } from "./accounts.ts";
 
 /** The parts of a listed thread that say which account it runs on and whether it is stuck. */
 export type AccountThreadSource = Pick<
@@ -60,29 +60,25 @@ export function accountThreadCounts(
   return counts;
 }
 
-/** Percent left in the account's tightest window; 100 when it reports none. */
-export function headroom(account: AccountView): number {
-  return 100 - (tightestWindow(account)?.usedPercent ?? 0);
+/**
+ * Percent left in the account's tightest window still in its period at `now`; undefined when it
+ * reports none, since then there is nothing to measure.
+ */
+export function headroom(account: AccountView, now: number): number | undefined {
+  const window = tightestWindow({ windows: liveWindows(account, now) });
+  return window && 100 - window.usedPercent;
 }
 
 /**
- * Where an exhausted account's threads move: the same provider's signed-in account with the most
- * headroom, never another exhausted one. Only native accounts can be named as a target.
+ * Where a thread on account `fromId` moves when its account runs out: the account the daemon's
+ * automatic recovery picks, the first other account of the same provider, in listed order, that
+ * is available at `now`. Moving by hand names the same account, so both say the same thing.
  */
 export function migrationTarget(
   accounts: readonly AccountView[],
   fromId: string,
+  now: number,
 ): AccountView | undefined {
   const from = accounts.find((account) => account.id === fromId);
-  if (!from) return undefined;
-  return accounts
-    .filter(
-      (account) =>
-        account.id !== from.id &&
-        account.provider === from.provider &&
-        account.signedIn &&
-        account.availability !== "exhausted" &&
-        AccountId.safeParse(account.id).success,
-    )
-    .toSorted((a, b) => headroom(b) - headroom(a))[0];
+  return from && automaticTarget(accounts, from, now);
 }

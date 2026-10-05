@@ -54,13 +54,11 @@ test("the sidebar marks the current view and the header's back and forward follo
   expect(button("Back").disabled).toBe(true);
   expect(button("Forward").disabled).toBe(true);
 
-  await userEvent.click(within(views).getByRole("link", { name: /^Activity/ }));
-  await title("Activity");
-  expect(
-    within(views)
-      .getByRole("link", { name: /^Activity/ })
-      .getAttribute("aria-current"),
-  ).toBe("page");
+  await userEvent.click(within(views).getByRole("link", { name: /^Deck/ }));
+  await title("Deck");
+  expect(within(views).getByRole("link", { name: /^Deck/ }).getAttribute("aria-current")).toBe(
+    "page",
+  );
   expect(button("Back").disabled).toBe(false);
 
   await userEvent.click(button("Back"));
@@ -69,7 +67,7 @@ test("the sidebar marks the current view and the header's back and forward follo
   expect(button("Forward").disabled).toBe(false);
 
   await userEvent.keyboard("{Meta>}]{/Meta}");
-  await title("Activity");
+  await title("Deck");
   expect(button("Forward").disabled).toBe(true);
 });
 

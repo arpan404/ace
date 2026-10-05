@@ -9,4 +9,9 @@ export type PrepareInput = (
   command: Command,
   provider: ProviderKind,
   capabilities: Capabilities,
-) => Promise<{ input: ContentPart[]; diagnostics?: ContextDiagnostic[]; release(): void }>;
+) => Promise<{
+  input: ContentPart[];
+  attachments?: import("@ace/protocol").Attachment[];
+  diagnostics?: ContextDiagnostic[];
+  release(): void;
+}>;

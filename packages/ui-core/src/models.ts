@@ -1,6 +1,8 @@
 import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
-import { blockingReset, tightestWindow, type AccountView } from "./accounts.ts";
+import { tightestWindow, type AccountView } from "./accounts.ts";
+import { accountLimit } from "./limits.ts";
 import type { ProviderStatus } from "./provider-status.ts";
+import { modelLine, modelName } from "./model-label.ts";
 import { modelLabel, providerNames } from "./providers.ts";
 
 /** One model on one of the person's signed-in accounts, as the composer's picker lists it. */
@@ -82,8 +84,8 @@ export function recordedChoice(
   return {
     id: `recorded:${selection.provider}:${model ?? "default"}`,
     provider: selection.provider,
-    // No model on record: the provider runs its own default.
-    model: model ? modelLabel(model) : `${providerNames[selection.provider]} default`,
+    // No model on record: the provider runs its own default, "Claude Code · Default".
+    model: modelName(selection.provider, model && modelLabel(model)),
     modelId: model ?? "",
     account: "",
     accountId: "",
@@ -112,8 +114,7 @@ export function accountTag(label: string): string {
 
 /** Provider, account and model in one line: "Claude Code · work · Sonnet 4.5". */
 export function choiceLine(choice: ModelChoice): string {
-  const account = choice.account ? ` · ${accountTag(choice.account)}` : "";
-  return `${providerNames[choice.provider]}${account} · ${choice.model}`;
+  return modelLine(choice.provider, choice.model, choice.account && accountTag(choice.account));
 }
 
 function note(model: CatalogModel, account: AccountView | undefined): string {
@@ -125,11 +126,13 @@ function note(model: CatalogModel, account: AccountView | undefined): string {
 
 /**
  * `models.list` joined with `accounts.list`: each visible model under the account (instance)
- * that serves it, grouped by provider in catalog order, signed-out accounts left out.
+ * that serves it, grouped by provider in catalog order, signed-out accounts left out, each
+ * account's limit as it stands at `now`.
  */
 export function modelChoices(
   models: readonly CatalogModel[],
   accounts: readonly AccountView[],
+  now: number,
 ): ModelChoice[] {
   const byId = new Map(accounts.map((account) => [account.id, account]));
   const providers = [...new Set(models.map((model) => model.provider))];
@@ -140,19 +143,20 @@ export function modelChoices(
         const account = byId.get(model.instance);
         if (account && !account.signedIn) return [];
         const window = account && tightestWindow(account);
-        const exhausted = account?.availability === "exhausted";
+        const limit = account && accountLimit(account, now);
+        const exhausted = limit?.level === "reached";
         return [
           {
             id: model.id,
             provider,
-            model: model.displayName,
+            model: modelName(provider, model.displayName),
             modelId: model.nativeModelId,
             account: account?.label ?? "",
             accountId: model.instance,
             note: note(model, account),
             used: window ? window.usedPercent / 100 : undefined,
             exhausted,
-            resetsAt: exhausted && account ? blockingReset(account) : undefined,
+            resetsAt: limit?.resetsAt,
             isDefault: model.isDefault,
             efforts: model.reasoningEfforts,
             defaultEffort: model.defaultEffort,
@@ -289,7 +293,7 @@ export function newThreadOptions(
     options.push({
       key,
       id: model.nativeModelId,
-      label: model.displayName,
+      label: modelName(model.provider, model.displayName),
       provider: model.provider,
       isDefault: model.isDefault,
       fromCatalog: true,
@@ -309,7 +313,7 @@ export function newThreadOptions(
       options.push({
         key: modelKey(provider, `${provider}:default`),
         id: `${provider}:default`,
-        label: `${providerNames[provider]} default`,
+        label: modelName(provider),
         provider,
         isDefault: true,
         fromCatalog: false,

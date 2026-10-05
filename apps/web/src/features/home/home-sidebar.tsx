@@ -2,7 +2,8 @@ import { ChatsIcon } from "@phosphor-icons/react";
 import { useClient, useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import { useParams } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useLayout } from "@/lib/layout.tsx";
@@ -11,10 +12,16 @@ import { SidebarHeader } from "@/features/shell/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { activityOf, isUnread } from "@ace/ui-core";
 import { ThreadsActions } from "./project-filter.tsx";
+import { NeedsDaemon, useDaemonReachable } from "./needs-daemon.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { rememberThread } from "./last-thread.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
+
+/** Threads started here that the list doesn't show yet; its code loads after first paint. */
+const DeferredStartedRows = deferredComponent(() =>
+  import("./started-rows.tsx").then((module) => module.StartedRows),
+);
 
 /**
  * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
@@ -31,10 +38,16 @@ export function HomeSidebar() {
   const directory = useProjectDirectory();
   const dialogs = useProjectDialogs();
   const noProjects = directory.loaded && directory.projects.length === 0;
+  const reachable = useDaemonReachable();
   return (
     <>
       <SidebarHeader title="Threads" actions={<ThreadsActions />} />
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
+        {loaded && (
+          <Suspense fallback={null}>
+            <DeferredStartedRows.Component />
+          </Suspense>
+        )}
         {!loaded ? (
           <ListSkeleton label="threads" shape="card" className="px-2" />
         ) : empty ? (
@@ -51,14 +64,17 @@ export function HomeSidebar() {
               }
               action={
                 !project && noProjects ? (
-                  <button
-                    type="button"
-                    className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
-                    onClick={() => dialogs.open({ kind: "add", tab: "open" })}
-                    onPointerEnter={dialogs.preload}
-                  >
-                    Add project…
-                  </button>
+                  <NeedsDaemon reachable={reachable}>
+                    <button
+                      type="button"
+                      aria-disabled={!reachable || undefined}
+                      className="text-ui font-medium text-foreground underline-offset-4 hover:underline aria-disabled:opacity-40 aria-disabled:hover:no-underline"
+                      onClick={() => reachable && dialogs.open({ kind: "add", tab: "open" })}
+                      onPointerEnter={dialogs.preload}
+                    >
+                      Add project…
+                    </button>
+                  </NeedsDaemon>
                 ) : project ? (
                   <button
                     type="button"

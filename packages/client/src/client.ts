@@ -40,8 +40,8 @@ import {
   type SettingsScope,
   type SettingsLayer,
 } from "@ace/protocol";
-import type { ClientApi, RegistryQuery } from "./api.ts";
-import { Connection } from "./connection.ts";
+import type { ClientApi, ConnectionControl, RegistryQuery } from "./api.ts";
+import { Connection, sameConnectionInfo } from "./connection.ts";
 import { WireCodec, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
@@ -55,6 +55,7 @@ import {
   defaultLimits,
   type ClientOptions,
   type RequestOptions,
+  type ConnectionInfo,
   type ConnectionState,
 } from "./types.ts";
 
@@ -62,7 +63,12 @@ export type { RegistryQuery } from "./api.ts";
 type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
 
-export class Client implements ClientApi {
+export class Client implements ClientApi, ConnectionControl {
+  attachmentBytes(input: import("./attachments.ts").AttachmentInput, options: RequestOptions = {}) {
+    return import("./attachments.ts").then(({ attachmentBytes }) =>
+      attachmentBytes(this, input, options),
+    );
+  }
   /** Project calls forward through `command`/`request`; pushes arrive through `onMessage`. */
   readonly projects: ProjectsApi = { ...projectCalls(this), ...projectEvents(this) };
   private options: ClientOptions;
@@ -237,7 +243,14 @@ export class Client implements ClientApi {
   }
   private observeInputs(message: ServerMessage): void {
     const observe = (item: Item) => {
-      if (item.type === "notice" && item.commandId && item.level === "error") {
+      // A known-not-sent notice fails its draft. `delivery_uncertain` may have run: it is
+      // recovered through `queue.resend`, never offered as a plain resend (ADR 0065).
+      if (
+        item.type === "notice" &&
+        item.commandId &&
+        item.level === "error" &&
+        item.code !== "delivery_uncertain"
+      ) {
         void this.intents
           .deliveryFailed(item.commandId, item.detail ?? item.text)
           .catch(() => this.connection.fail(new ClientError("storage")));
@@ -267,6 +280,16 @@ export class Client implements ClientApi {
   }
   connectionState(): Selection<ConnectionState> {
     return this.notifications.select(["connection"], () => this.state);
+  }
+  connectionInfo(): Selection<ConnectionInfo> {
+    return this.notifications.select(
+      ["connection"],
+      () => this.connection.info(),
+      sameConnectionInfo,
+    );
+  }
+  reconnectNow(): void {
+    this.connection.reconnectNow();
   }
   /** Worker-owned allocation also supplies tab prefixes; no tab reaches for randomness. */
   commandId(): string {

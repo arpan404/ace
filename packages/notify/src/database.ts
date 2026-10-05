@@ -6,9 +6,8 @@ import {
   NotificationDevice,
   NotificationPreferences,
   NotificationAddress,
-  ThreadId,
-  type DeviceId,
-} from "@ace/protocol";
+} from "@ace/protocol/notifications";
+import { ThreadId, type DeviceId } from "@ace/protocol/ids";
 import { CompactThread, Pending, advance, content } from "./model.ts";
 import type { MetadataEvent } from "./metadata.ts";
 import { InteractionTracking, trackingTables } from "./tracking.ts";

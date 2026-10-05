@@ -19,8 +19,27 @@ export const NewDeckInput = z.object({
   merge: MergePolicy,
   maxParallel: z.number().int().min(1).max(8),
   fixRounds: z.number().int().min(0).max(5),
+  budget: z
+    .number({ error: "Enter how many lane starts the deck may use." })
+    .int("Use a whole number of lane starts.")
+    .min(1, "Allow at least one lane start.")
+    .max(100_000, "Keep the budget under 100,000 lane starts."),
+  stopAfter: z.enum(["none", "2h", "8h", "1d"]),
 });
 export type NewDeckInput = z.infer<typeof NewDeckInput>;
+
+/** "Stop after": how long the deck may run before its deadline gate asks you. */
+export const stopAfterMs: Record<NewDeckInput["stopAfter"], number | null> = {
+  none: null,
+  "2h": 2 * 3_600_000,
+  "8h": 8 * 3_600_000,
+  "1d": 24 * 3_600_000,
+};
+
+/** Each worker, reviewer or fix run is one lane start: room for about six rounds per lane. */
+export function defaultBudget(maxParallel: number): number {
+  return Math.max(50, 4 * maxParallel * 6);
+}
 
 const role = (choice: DeckProviderChoice) => ({
   provider: choice.provider,
@@ -40,6 +59,7 @@ export function deckSpec(
   input: NewDeckInput,
   choices: readonly DeckProviderChoice[],
   rootAgentId: string,
+  now: number,
 ): ConductorSpec {
   const pick = (provider: ProviderKind) => {
     const choice = choices.find((entry) => entry.provider === provider);
@@ -58,9 +78,10 @@ export function deckSpec(
       providers: used.map((choice) => choice.provider),
       models: [...new Set(used.map((choice) => choice.model))],
       accounts: [...new Set(used.flatMap((choice) => choice.accounts))],
-      budget: 50,
+      budget: input.budget,
       maxParallel: input.maxParallel,
-      deadline: null,
+      deadline:
+        stopAfterMs[input.stopAfter] === null ? null : now + (stopAfterMs[input.stopAfter] ?? 0),
       stallAfterMs: 15 * 60_000,
     },
     policies: {

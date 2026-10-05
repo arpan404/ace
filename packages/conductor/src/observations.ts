@@ -39,7 +39,15 @@ export function gateRequest(input: unknown): InteractionRequest {
     description: gate.message,
     options: [
       { id: "approve", label: "Approve", kind: "allow_once" },
-      { id: "reject", label: "Reject and cancel run", kind: "deny" },
+      { id: "reject", label: rejectLabel(gate), kind: "deny" },
     ],
   });
+}
+/** What rejecting does (approval.ts): a card's gate declines the card; budget, deadline and
+ * any other gate not about a card stop the run. */
+function rejectLabel(gate: Gate): string {
+  if (gate.kind === "plan") return "Reject and draft a new plan";
+  if (gate.kind === "budget" || gate.kind === "deadline" || !gate.workstream)
+    return "Reject and cancel run";
+  return "Decline this card";
 }

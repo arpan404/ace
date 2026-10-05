@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AgentId, BackgroundTaskId, ItemId, Timestamp } from "./ids.ts";
-import { RawPayload } from "./provider.ts";
+import { RawPayload } from "./provider-data.ts";
 
 /** Work that can outlive the turn that started it. */
 export const BackgroundTask = z.object({

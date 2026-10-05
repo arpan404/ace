@@ -9,7 +9,7 @@ test("the sidebar's Activity count is what the Activity header counts, Deck deci
   app.daemon.seedServices(workbenchServices(Date.now()));
   await app.open("/activity");
   const header = await screen.findByRole("banner");
-  const views = screen.getByRole("navigation", { name: "Views" });
+  const views = screen.getByRole("navigation", { name: "App" });
   // Three threads wait on an answer; one deck waits on its plan, the other on an escalation and
   // a worker's question. A deck's own threads aren't counted again for the same decisions.
   expect(await within(header).findByText("6 need you")).toBeTruthy();

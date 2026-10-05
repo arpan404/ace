@@ -24,6 +24,8 @@ import type { FakeServiceContext } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends PlanningSeed {
+  /** Seed the small PNG fixture for scoped client attachment reads. */
+  attachmentImages?: { threadId: string; name?: string }[];
   plugins?: PluginSeed;
   /** Pull requests linked to existing threads, by thread id. */
   pullRequests?: Record<string, ForgePrStatus>;
@@ -75,6 +77,8 @@ export class FakeServicesWire {
     );
   }
   seed(seed: ServicesSeed): void {
+    for (const image of seed.attachmentImages ?? [])
+      this.context.seedImage(image.threadId, image.name);
     if (seed.settings) this.settings.seed(seed.settings);
     this.planning.seed(seed);
     if (seed.plugins) this.plugins.seed(seed.plugins);
@@ -110,6 +114,7 @@ export class FakeServicesWire {
       )
         emit(message);
     });
+    let picker: AbortController | undefined;
     const files = this.files.session(emit);
     const browser = fakeBrowserSession(
       this.browser,
@@ -123,6 +128,7 @@ export class FakeServicesWire {
       },
       close: () => {
         closed = true;
+        picker?.abort();
         stopProjects();
 
         browser.close();
@@ -176,15 +182,30 @@ export class FakeServicesWire {
             return;
           }
           if (message.type === "projects.request") {
-            emit(
-              (this.host.canManageProjects?.(device) ?? true)
-                ? await this.workspace.projects.read(message, device)
-                : {
-                    type: "projects.result",
-                    requestId: message.requestId,
-                    result: { kind: "error", code: "forbidden" },
-                  },
-            );
+            const allowed = () => !closed && (this.host.canManageProjects?.(device) ?? true);
+            if (!allowed()) {
+              emit({
+                type: "projects.result",
+                requestId: message.requestId,
+                result: { kind: "error", code: "forbidden" },
+              });
+              return;
+            }
+            const controller = new AbortController();
+            if (message.operation.op === "fs.search" || message.operation.op === "fs.complete") {
+              picker?.abort();
+              picker = controller;
+            }
+            await Promise.resolve();
+            const result = controller.signal.aborted
+              ? {
+                  type: "projects.result" as const,
+                  requestId: message.requestId,
+                  result: { kind: "error" as const, code: "search_cancelled" },
+                }
+              : await this.workspace.projects.read(message, device);
+            if (allowed()) emit(result);
+            if (picker === controller) picker = undefined;
             return;
           }
           if (message.type === "workspace.request") {

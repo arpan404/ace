@@ -4,5 +4,5 @@
   "maxLength": 256,
   "minLength": 1,
   "type": "string",
-  "x-ace-constraint": "A literal existing directory name; no separators or NUL."
+  "x-ace-constraint": "A literal existing directory name; no forward slash or NUL. Host filesystem rules apply to backslashes."
 }

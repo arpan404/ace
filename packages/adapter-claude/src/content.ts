@@ -64,6 +64,31 @@ export function message(
     typeof m["content"] === "string" ? [{ type: "text", text: m["content"] }] : list(m["content"]);
   if (role === "assistant" && content.length > 0) state.contentSeen.add(agent);
   const id = string(m["id"], string(data["uuid"], `${seq}`));
+  // SDK user envelopes can contain only an image, or text and multiple images.
+  // Keep one user item for that envelope so the engine can correlate its native media.
+  if (
+    role === "user" &&
+    content.some((value) => string(object(value)["type"]) === "image") &&
+    !content.some((value) => ["tool_result", "tool_use"].includes(string(object(value)["type"])))
+  ) {
+    const item = state.key("message", `${agent}:${id}:0`);
+    state.emit({
+      type: "item.upsert",
+      agent,
+      item,
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        ...(string(data["uuid"]) ? { nativeId: string(data["uuid"]) } : {}),
+        parts: content
+          .filter((value) => string(object(value)["type"]) === "text")
+          .map((value) => ({ type: "text", text: string(object(value)["text"]) })),
+        ...state.keepMessageRaw(item, data, agent),
+      },
+    });
+    return;
+  }
   if (role === "assistant") childUsage(state, agent, id, m);
   if (typeof data["error"] === "string") {
     const error = claudeError(data["error"], text(m["content"]), state.model);

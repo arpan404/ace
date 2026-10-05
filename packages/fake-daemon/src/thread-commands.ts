@@ -35,6 +35,7 @@ export function admissionFacts(
   host: ThreadHost,
   key: string,
   input: readonly ContentPart[],
+  attachments: readonly import("@ace/protocol").Attachment[] = [],
 ): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined) return [];
@@ -50,6 +51,8 @@ export function admissionFacts(
         synthetic: false,
         parts: [...input],
         origin: { kind: "person", commandId: CommandId.parse(key) },
+        // The admitted bubble owns attachment metadata, as in the daemon (ADR 0065).
+        ...(attachments.length ? { attachments: [...attachments] } : {}),
       },
     },
   ];
@@ -76,6 +79,7 @@ export function sendFacts(
     input: readonly ContentPart[];
     context?: MessageContext | undefined;
     delivery: "steer" | "queue";
+    attachments?: import("@ace/protocol").Attachment[];
   },
 ): ThreadCommandOutcome {
   const root = host.state.rootKey;
@@ -90,7 +94,7 @@ export function sendFacts(
     return {
       ok: true,
       facts: [
-        ...admissionFacts(host, commandId, payload.input),
+        ...admissionFacts(host, commandId, payload.input, payload.attachments),
         ...startTurn(host, commandId, text),
       ],
     };
@@ -104,7 +108,7 @@ export function sendFacts(
     return {
       ok: true,
       facts: [
-        ...admissionFacts(host, commandId, payload.input),
+        ...admissionFacts(host, commandId, payload.input, payload.attachments),
         ...steerFacts(host, commandId, text),
       ],
     };
@@ -113,6 +117,7 @@ export function sendFacts(
     key: commandId,
     text,
     input: [...payload.input],
+    ...(payload.attachments ? { attachments: payload.attachments } : {}),
     ...(payload.context ? { context: payload.context } : {}),
     delivery: payload.delivery,
     state: "queued",
@@ -123,7 +128,7 @@ export function sendFacts(
   return {
     ok: true,
     facts: [
-      ...admissionFacts(host, commandId, payload.input),
+      ...admissionFacts(host, commandId, payload.input, payload.attachments),
       { type: "queue.changed", count: host.queued.length },
     ],
   };

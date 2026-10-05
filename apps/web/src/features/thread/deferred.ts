@@ -1,6 +1,7 @@
 import { threadWorkspace } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { preloadComposerParts } from "./composer/deferred-parts.tsx";
+import { DeferredAccountMeter } from "./composer/deferred-usage.ts";
 import { DeferredInteractionCard } from "./interactions/deferred-card.ts";
 import { DeferredReviewNote, DeferredReviewSummary } from "./items/deferred-review.ts";
 import { preloadJump } from "./long/jump.ts";
@@ -28,6 +29,10 @@ export const DeferredThreadHotkeys = deferredComponent(() =>
 );
 export const DeferredSummaryBody = deferredComponent(() =>
   import("./header/summary-body.tsx").then((module) => module.SummaryBody),
+);
+/** "Limited until 15:20" beside the project in the header, while the thread is held at a limit. */
+export const DeferredLimitBadge = deferredComponent(() =>
+  import("./header/limit-badge.tsx").then((module) => module.LimitBadge),
 );
 /** The pinned summary's ⋯: the project's and git's actions. */
 export const DeferredSummaryMenu = deferredComponent(() =>
@@ -75,8 +80,14 @@ export const DeferredCatchUpSlot = deferredComponent(() =>
   import("./long/catch-up-slot.tsx").then((module) => module.CatchUpSlot),
 );
 
+/** The Agents panel's follow-up composer; loads while idle, after the thread paints. */
+export const DeferredAgentComposer = deferredComponent(() =>
+  import("./composer/agent-composer.tsx").then((module) => module.AgentComposer),
+);
+
 export function preloadDeferred(): Promise<unknown> {
   return Promise.all([
+    DeferredAgentComposer.preload(),
     DeferredStepDetail.preload(),
     DeferredInteractionCard.preload(),
     DeferredReviewNote.preload(),
@@ -87,6 +98,7 @@ export function preloadDeferred(): Promise<unknown> {
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.
     threadWorkspace.load(),
     preloadComposerParts(),
+    DeferredAccountMeter.preload(),
     DeferredTurnsPanel.preload(),
     DeferredSearchBar.preload(),
     DeferredJumpBar.preload(),
@@ -98,5 +110,7 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredCatchUpSlot.preload(),
     DeferredTurnKeys.preload(),
     preloadJump(),
+    // Thumbnails and file chips: their shell, then their tiles.
+    import("@/components/attachment-message.tsx").then((module) => module.preloadAttachments()),
   ]);
 }

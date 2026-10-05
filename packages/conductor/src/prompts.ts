@@ -29,12 +29,18 @@ export function reviewerPrompt(brief: ConductorBrief, revision: string, rules: s
     "Run repeated checks for flakiness, at least twice. Check design, ownership, tree-status correctness and restart behaviour. Measure performance and check bounded memory and work proportional to change. Write a report with requirements, probes, mutations, flakiness {runs, passed, evidence}, design {passed, evidence}, performance {passed, evidence}, summary and verdict pass or changes_required. A pass requires all evidence to pass. Return the reviewed revision with the report.",
   ].join("\n");
 }
-export function plannerPrompt(spec: ConductorSpec): string {
+export function plannerPrompt(spec: ConductorSpec, rejected: string | null = null): string {
   return [
     "Plan this project. Return a Conductor plan artifact with summary and workstreams. Each workstream needs id, title, dependencies, priority and brief {objective, instructions, acceptance, files, packages, risks}. Use a dependency DAG. Conflicting file or package owners must be dependency-ordered. No implementation yet.",
     quoted("Goal", spec.goal),
     quoted("Repository rules", spec.repositoryRules),
     quoted("Constraints", JSON.stringify(spec.constraints)),
+    ...(rejected
+      ? [
+          "The person rejected an earlier plan. Propose a materially different split.",
+          quoted("Rejected plan summary", rejected),
+        ]
+      : []),
   ].join("\n");
 }
 export function planDescription(plan: ConductorPlan): string {

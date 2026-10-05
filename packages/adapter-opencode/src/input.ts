@@ -17,10 +17,13 @@ export function promptBody(input: ContentPart[], cwd: string, id: string) {
     files: { uri: string }[] = [];
   for (const part of input) {
     if (part.type === "text") text.push(part.text);
-    else
+    else {
+      if (part.type === "file" && part.mimeType?.startsWith("image/"))
+        throw new Error("OpenCode images require an inline data URI with MIME type");
       files.push({
         uri: part.type === "image" ? part.url : pathToFileURL(resolve(cwd, part.path)).href,
       });
+    }
   }
   return { id, text: text.join("\n"), ...(files.length ? { files } : {}) };
 }

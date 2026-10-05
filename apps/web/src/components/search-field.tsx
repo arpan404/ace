@@ -50,7 +50,7 @@ export function SearchField({
           if (value) onValueChange("");
           else document.getElementById("main")?.focus();
         }}
-        className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-subtle-foreground [&::-webkit-search-cancel-button]:appearance-none"
+        className="min-w-0 flex-1 bg-transparent text-foreground placeholder:text-subtle-foreground focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
         {...props}
       />
       {trailing}

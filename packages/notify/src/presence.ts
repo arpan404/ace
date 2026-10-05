@@ -1,4 +1,5 @@
-import { PresenceUpdate, type DeviceId, type ThreadId } from "@ace/protocol";
+import { PresenceUpdate } from "@ace/protocol/notifications";
+import type { DeviceId, ThreadId } from "@ace/protocol";
 
 type Presence = { device: DeviceId; thread: ThreadId | null; receivedAt: number; inputAt: number };
 /** Indexed by focused thread; disconnect and replacement remove old index entries. */

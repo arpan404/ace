@@ -26,19 +26,40 @@ export function permissionLabel(mode: PermissionMode): string {
   return names[mode].label;
 }
 
-const shortNames: Record<PermissionMode, string | undefined> = {
-  "auto-review": undefined,
+const shortNames: Record<PermissionMode, string> = {
+  "auto-review": "Auto-review",
   "read-only": "Read-only",
   ask: "Ask",
   "full-access": "Full access",
 };
 
 /**
- * What the composer's approvals chip says beside its icon: nothing for the default mode
- * (Auto-review), a word or two for any other, so a thread off the default reads as such.
+ * What the composer's approvals chip says beside its icon: a word or two for every mode, the
+ * default (Auto-review) included, so the chip always says which mode the thread is in.
  */
-export function permissionShortLabel(mode: PermissionMode): string | undefined {
+export function permissionShortLabel(mode: PermissionMode): string {
   return shortNames[mode];
+}
+
+/**
+ * The chip's words: the mode in effect, and while a change waits for the agent's next turn both,
+ * "Auto-review → Full access".
+ */
+export function permissionChipText(mode: PermissionMode, next: PermissionMode | undefined): string {
+  return next ? `${shortNames[mode]} → ${shortNames[next]}` : shortNames[mode];
+}
+
+/**
+ * Why a chosen mode isn't in effect yet. The daemon may one day say the agent is mid-command
+ * (`busy`), where the change waits for that command rather than for the next turn.
+ */
+export type PermissionWait = "busy";
+
+/** When a chosen mode takes over, in the chip's tooltip. */
+export function permissionPendingNote(wait?: PermissionWait | undefined): string {
+  return wait === "busy"
+    ? "Applies when the running command finishes"
+    : "Applies at the agent's next turn";
 }
 
 /** Full access turns review off, so it is the one mode that asks for attention. */
@@ -117,30 +138,44 @@ export function permissionChoices(
 }
 
 export interface PermissionSummary {
-  /** The mode the composer shows: a pending override, else what applies now. */
+  /** The mode in effect now: what the agent runs under until a change applies. */
   mode: PermissionMode;
   label: string;
   attention: boolean;
   coverage: string;
-  /** Chosen, but the agent is mid-turn: it applies from the next turn. */
-  pending: boolean;
+  /** The mode chosen to replace it, waiting for the agent's next turn; undefined when none. */
+  next: PermissionMode | undefined;
   /** No override: the mode comes from the project or global default. */
   inherited: boolean;
 }
 
-/** A thread's permission as the composer's chip and tooltip read it. */
+/**
+ * A thread's permission as the composer's chip and tooltip read it: the effective mode, and the
+ * one waiting to replace it. `chosen` is a change this device made that the daemon hasn't
+ * reported yet (`null`: back to the default), shown at once rather than after the round trip.
+ * `defaultMode` is what a thread without an override follows, so "Use the default" can say what
+ * it becomes.
+ */
 export function threadPermissionSummary(
   state: PermissionState | undefined,
   capabilities: PermissionCapabilities | undefined,
+  options: {
+    chosen?: PermissionMode | null | undefined;
+    defaultMode?: PermissionMode | undefined;
+  } = {},
 ): PermissionSummary | undefined {
   if (!state) return undefined;
-  const mode = state.override ?? state.effective;
+  const mode = state.effective;
+  const local = options.chosen !== undefined;
+  const override = local ? (options.chosen ?? null) : state.override;
+  const target = override ?? options.defaultMode;
+  const waiting = local || state.pending;
   return {
     mode,
     label: permissionLabel(mode),
     attention: permissionNeedsAttention(mode),
     coverage: permissionCoverage(capabilities, mode),
-    pending: state.pending && state.override !== null && state.override !== state.effective,
-    inherited: state.override === null,
+    next: waiting && target !== undefined && target !== mode ? target : undefined,
+    inherited: override === null,
   };
 }

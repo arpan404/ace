@@ -15,19 +15,40 @@ export const ProjectDirectoryName = z
   .min(1)
   .max(256)
   .refine(
-    (value) =>
-      value !== "." &&
-      value !== ".." &&
-      !value.includes("/") &&
-      !value.includes("\\") &&
-      !value.includes("\0"),
+    (value) => value !== "." && value !== ".." && !value.includes("/") && !value.includes("\0"),
   )
-  .meta({ "x-ace-constraint": "A literal existing directory name; no separators or NUL." });
+  .meta({
+    "x-ace-constraint":
+      "A literal existing directory name; no forward slash or NUL. Host filesystem rules apply to backslashes.",
+  });
+export const ProjectFolderMatch = z.object({
+  name: ProjectDirectoryName,
+  path,
+  isGitRepo: z.boolean(),
+  isProject: z.boolean(),
+  lastOpened: z.number().nonnegative().optional(),
+  recentScore: z.number().nonnegative(),
+  score: z.number(),
+});
+export type ProjectFolderMatch = z.infer<typeof ProjectFolderMatch>;
 export const ProjectsRequest = z.object({
   type: z.literal("projects.request"),
   requestId: z.string().min(1).max(128),
   operation: z.discriminatedUnion("op", [
     z.object({ op: z.literal("workspace.inspect"), path }),
+    z.object({
+      op: z.literal("fs.search"),
+      query: z.string().max(256),
+      limit: z.number().int().min(1).max(100).default(30),
+      showHidden: z.boolean().default(false),
+    }),
+    z.object({
+      op: z.literal("fs.complete"),
+      path,
+      limit: z.number().int().min(1).max(100).default(50),
+      showHidden: z.boolean().default(false),
+    }),
+    z.object({ op: z.literal("workspace.clone.validate"), url: z.string().max(4096) }),
     z.object({ op: z.literal("fs.home") }),
     z.object({
       op: z.literal("fs.recentFolders"),
@@ -49,6 +70,21 @@ export const ProjectsResult = z.object({
   requestId: z.string().min(1).max(128),
   result: z.discriminatedUnion("kind", [
     ProjectInspection.extend({ kind: z.literal("inspection") }),
+    z.object({
+      kind: z.literal("search"),
+      query: z.string().max(256),
+      indexing: z.boolean(),
+      entries: z.array(ProjectFolderMatch).max(100),
+      truncated: z.boolean(),
+    }),
+    z.object({
+      kind: z.literal("completion"),
+      path,
+      candidates: z.array(ProjectFolderMatch.extend({ completion: path })).max(100),
+      commonPrefix: z.string().max(4096),
+      truncated: z.boolean(),
+    }),
+    z.object({ kind: z.literal("cloneUrl"), url: path, name: ProjectDirectoryName }),
     z.object({
       kind: z.literal("home"),
       path,
