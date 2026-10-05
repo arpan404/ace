@@ -8,7 +8,9 @@ import {
   workbenchServices,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
+import type { MachinePool } from "@ace/client-worker/machines";
 import { createBrowserClient, memoryStorage } from "./client.ts";
+import { fakeMachinePool } from "./fake-machines.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
 
 const timer = {
@@ -33,9 +35,13 @@ export function bootFake(): {
   seen: SeenSeed[];
   /** The name the design's account disc shows ("AB"), used when this device has none yet. */
   profileName: string;
+  /** A second machine, a build server, in the window's machine pool. */
+  machines: Promise<MachinePool>;
 } {
   const daemon = new FakeDaemon({
     clock: () => Date.now(),
+    hostId: "this-mac",
+    displayName: "This Mac",
     snapshotItems: 40,
     // A clone takes a few seconds, so its progress and Cancel can be seen.
     projectScheduler: (callback) => void setTimeout(callback, 700),
@@ -78,9 +84,31 @@ export function bootFake(): {
   // Exposed for poking at fault injection from the console, e.g. ace.daemon.disconnectAll().
   // In Electron `window.ace` is the read-only desktop bridge, so use `aceFake` there.
   Object.assign(globalThis, { ["ace" in globalThis ? "aceFake" : "ace"]: { daemon, client } });
+  // A build server with its own folders, so Add project offers a machine picker.
+  const server = new FakeDaemon({
+    clock: () => Date.now(),
+    hostId: "build-server",
+    displayName: "Build server",
+    projectScheduler: (callback) => void setTimeout(callback, 700),
+  });
+  server.projects.seedFolders("/home/ci", [
+    { path: "/home/ci/services/api", git: true },
+    { path: "/home/ci/services/billing-worker", git: true },
+    { path: "/home/ci/services/web-gateway", git: true },
+    { path: "/home/ci/infra/terraform", git: true },
+  ]);
+  const machines = fakeMachinePool([server], (other) =>
+    createBrowserClient({
+      deviceId: "web-fake-device",
+      transport: () => fakeTransport(other),
+      credential: async () => other.token,
+      storage: memoryStorage(),
+    }),
+  );
   return {
     client,
     daemon,
+    machines,
     connection: fakeConnection(daemon),
     seen,
     profileName: "Arpan Bhandari",

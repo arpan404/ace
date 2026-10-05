@@ -7,6 +7,7 @@ import { render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
+import { fakeMachinePool } from "@/boot/fake-machines.ts";
 
 type ClientStorage = ReturnType<typeof memoryStorage>;
 import { DaemonConnectionContext } from "@/boot/connection.tsx";
@@ -14,7 +15,7 @@ import { fakeConnection } from "@/boot/fake.ts";
 import { preloadDeferred } from "@/features/thread/index.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
 
-const running: ClientApi[] = [];
+const running: { close(): Promise<void> }[] = [];
 afterEach(async () => {
   await Promise.all(running.splice(0).map((client) => client.close()));
 });
@@ -66,15 +67,31 @@ export function harness(
     throughWorker?: boolean;
     /** The daemon's clock; by default a counter from 1,000 ms. */
     clock?: () => number;
-    /** When each stage of a project clone runs (tests step clones by hand). */
+    /** When each stage of a project clone runs, on every machine (tests step clones by hand). */
     projectScheduler?: (callback: () => void) => void;
     /** Where the client keeps its outbox (tests hold a save to catch work done meanwhile). */
     outbox?: ClientStorage;
+    /**
+     * Other machines in the window's machine pool (ADR 0059), each a fake daemon of its own.
+     * This daemon is then "This Mac".
+     */
+    machines?: readonly { hostId: string; name: string }[];
   } = {},
 ) {
   let now = 1_000;
+  const clock = options.clock ?? (() => (now += 1));
+  const others = (options.machines ?? []).map(
+    (machine) =>
+      new FakeDaemon({
+        clock,
+        hostId: machine.hostId,
+        displayName: machine.name,
+        ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
+      }),
+  );
   const daemon = new FakeDaemon({
-    clock: options.clock ?? (() => (now += 1)),
+    clock,
+    ...(others.length ? { hostId: "this-mac", displayName: "This Mac" } : {}),
     ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
     ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
   });
@@ -84,12 +101,18 @@ export function harness(
   const storage = options.storage ?? memoryKeyValue();
   return {
     daemon,
+    /** The other machines' daemons, by host id. */
+    machines: new Map(others.map((other) => [other.hostId as string, other])),
     client,
     storage,
     play: (scenario: Scenario) => new ScenarioPlayer(daemon, scenario),
     async open(path: string) {
       // The browser warms these while idle after first paint; tests start with them warm.
       await Promise.all([client.start(), preloadDeferred()]);
+      const machines = others.length
+        ? await fakeMachinePool(others, (other) => fakeClient(other))
+        : undefined;
+      if (machines) running.push(machines);
       const connection = fakeConnection(daemon);
       return render(
         <AppFrame
@@ -101,6 +124,7 @@ export function harness(
               queryClient={createQueryClient()}
               storage={storage}
               history={createMemoryHistory({ initialEntries: [path] })}
+              machines={machines}
             />
           </DaemonConnectionContext.Provider>
         </AppFrame>,

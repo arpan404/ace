@@ -1,4 +1,5 @@
 import type { ClientApi } from "@ace/client";
+import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
 import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -20,7 +21,9 @@ const environment = {
 };
 // Store changes reach React once per animation frame (none while the tab is hidden).
 const batch = frameBatch((flush) => requestAnimationFrame(flush));
-const app = (client: ClientApi) => <App client={client} storage={localStorage} batch={batch} />;
+const app = (client: ClientApi, machines?: MachinePool) => (
+  <App client={client} storage={localStorage} batch={batch} machines={machines} />
+);
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 async function content() {
@@ -31,9 +34,10 @@ async function content() {
     for (const mark of seen) markSeen(mark.threadId, mark.itemId);
     if (!profileName(localStorage)) setProfileName(localStorage, fake.profileName);
     await client.start();
+    const machines = await fake.machines;
     return (
       <DaemonConnectionContext.Provider value={fake.connection}>
-        {app(client)}
+        {app(client, machines)}
       </DaemonConnectionContext.Provider>
     );
   }

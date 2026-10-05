@@ -1,4 +1,5 @@
 import type { ClientApi } from "@ace/client";
+import type { MachinePool } from "@ace/client-worker/machines";
 import { ClientProvider, type NotifyBatch } from "@ace/client-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, type RouterHistory } from "@tanstack/react-router";
@@ -7,6 +8,7 @@ import type { ReactNode } from "react";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import { LayoutProvider } from "@/lib/layout.tsx";
+import { MachinePoolProvider } from "@/lib/machine-pool.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
 import { ThemeProvider, type Environment } from "@/theme/theme-provider.tsx";
 import { createAppRouter } from "./router.ts";
@@ -35,6 +37,8 @@ export function App(props: {
   history?: RouterHistory;
   /** When store changes reach React; the browser entry batches them per animation frame. */
   batch?: NotifyBatch;
+  /** The user's other machines (ADR 0059); pickers that target a machine offer them. */
+  machines?: MachinePool | undefined;
 }) {
   const [queryClient] = useState(() => props.queryClient ?? createQueryClient());
   const [router] = useState(() =>
@@ -44,7 +48,9 @@ export function App(props: {
     <ClientProvider client={props.client} {...(props.batch ? { batch: props.batch } : {})}>
       <QueryClientProvider client={queryClient}>
         <LayoutProvider storage={props.storage}>
-          <RouterProvider router={router} />
+          <MachinePoolProvider value={props.machines}>
+            <RouterProvider router={router} />
+          </MachinePoolProvider>
         </LayoutProvider>
       </QueryClientProvider>
     </ClientProvider>

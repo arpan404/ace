@@ -579,6 +579,9 @@ export class FakeDaemon implements Host {
     if (!this.canManageProjects(command.deviceId))
       return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
     if (command.payload.type !== "workspace.clone") return Promise.resolve(this.command(command));
+    // `refuseCommands` covers clones too: a clone Git refuses (sign-in, network) fails at once.
+    const refusal = this.refusals.get(command.payload.type);
+    if (refusal) return Promise.resolve({ commandId: command.id, ok: false, error: refusal });
     const prior = this.receipts.get(command.id);
     if (prior)
       return Promise.resolve(

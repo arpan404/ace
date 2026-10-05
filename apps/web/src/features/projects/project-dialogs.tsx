@@ -35,9 +35,9 @@ export default function ProjectDialogs(props: {
   }
   const clone = useCloneRun({
     visible: open && request.kind === "add",
-    onCloned: (result) => {
+    onCloned: (result, machine) => {
       onOpenChange(false);
-      land(result, "Cloned");
+      land(result, "Cloned", { machine });
     },
   });
 
@@ -94,9 +94,9 @@ export default function ProjectDialogs(props: {
       onTab={setTab}
       attempt={attempt}
       clone={clone}
-      onAdded={(result, verb) => {
+      onAdded={(result, verb, options) => {
         onOpenChange(false);
-        land(result, verb);
+        land(result, verb, options);
       }}
     />
   );

@@ -121,6 +121,7 @@
         "@ace/client": "workspace:*",
         "@ace/client-react": "workspace:*",
         "@ace/client-worker": "workspace:*",
+        "@ace/project-picker": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@base-ui/react": "^1.8.0",

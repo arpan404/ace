@@ -15,6 +15,7 @@ import { useProjectDirectory } from "@/lib/projects.ts";
 import { Footer, Problem, TextField } from "./form-parts.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import { useHostHome } from "./use-folders.ts";
+import { usePrimaryMachine } from "@/lib/machines.ts";
 
 function useProject(projectId: string) {
   return useProjectDirectory().projects.find((project) => project.id === projectId);
@@ -123,7 +124,7 @@ export function RemoveProjectDialog(props: {
   onOpenChange(open: boolean): void;
 }) {
   const project = useProject(props.projectId);
-  const home = useHostHome().data;
+  const home = useHostHome(usePrimaryMachine()).data;
   const commands = useProjectCommands();
   const toast = useToast();
   const running = useRunningThreads(props.projectId);
