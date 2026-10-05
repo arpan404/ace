@@ -1,5 +1,6 @@
 import { DevicesService, DevicePlatform, connectDevices, renderDeviceVideo } from "@ace/devices";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
+import { logFields } from "@ace/diagnostics";
 import { ThreadId, AgentId } from "@ace/protocol";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
@@ -32,6 +33,12 @@ export async function startDevices(context: ServiceContext): Promise<void> {
       },
       env: process.env,
       ...(services.screen ? { screen: services.screen } : {}),
+      log: (level, message, fields) =>
+        context.log.log(
+          level,
+          message,
+          logFields(Object.entries(fields).filter(([, value]) => value !== undefined)),
+        ),
       recordingDirectory: root,
       recordingAvailable: () => services.files !== undefined,
       async publishArtifact(artifact, threadId) {

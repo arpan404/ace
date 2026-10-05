@@ -33,7 +33,7 @@ it("repeated installation retains the same executable inode and bytes", async ()
   expect((await stat(path)).ino).toBe(first.ino);
   expect(await readFile(path)).toEqual(f.binary);
 });
-it("tampered bundles and runtime replacement cannot overwrite the installed helper", async () => {
+it("a tampered bundle never installs and never replaces the installed helper", async () => {
   const f = await fixture();
   const destination = join(f.root, "data");
   const path = await installScreenHelper(f.app, destination);
@@ -41,15 +41,44 @@ it("tampered bundles and runtime replacement cannot overwrite the installed help
   await expect(installScreenHelper(f.app, join(f.root, "other-data"))).rejects.toThrow(
     "hash mismatch",
   );
+  expect(await installScreenHelper(f.app, destination)).toBe(path);
+  expect(await readFile(path)).toEqual(f.binary);
+});
+
+it("a new helper version installs beside the old one, which keeps its bytes and inode", async () => {
+  const f = await fixture();
+  const destination = join(f.root, "data");
+  const old = await installScreenHelper(f.app, destination);
+  const before = await stat(old);
+  // The next app build ships a different, correctly signed helper.
+  const binary = Buffer.from("next executable bytes");
+  await writeFile(join(f.app, "Contents/MacOS/ace-screen-helper"), binary, { mode: 0o755 });
+  const plist = await readFile(join(f.app, "Contents/Info.plist"));
   await writeFile(
     join(f.root, "source/manifest.json"),
     JSON.stringify({
       bundleId: "dev.ace.screen-helper",
-      sha256: "a".repeat(64),
-      plistSha256: "b".repeat(64),
+      sha256: hash(binary),
+      plistSha256: hash(plist),
     }),
   );
-  await expect(installScreenHelper(f.app, destination)).rejects.toThrow("upgrade explicitly");
+  const next = await installScreenHelper(f.app, destination);
+  expect(next).not.toBe(old);
+  expect(await readFile(next)).toEqual(binary);
+  expect(await readFile(old)).toEqual(f.binary);
+  expect((await stat(old)).ino).toBe(before.ino);
+  expect(await installScreenHelper(f.app, destination)).toBe(next);
+});
+
+it("an interrupted install is redone instead of blocking every later start", async () => {
+  const f = await fixture();
+  const destination = join(f.root, "data");
+  const path = await installScreenHelper(f.app, destination);
+  // A crash between the copy and the manifest leaves a version directory without one.
+  const version = join(path, "../../../..");
+  await rm(join(version, "manifest.json"));
+  await writeFile(join(version, "AceScreenHelper.app/Contents/MacOS/ace-screen-helper"), "partial");
+  expect(await installScreenHelper(f.app, destination)).toBe(path);
   expect(await readFile(path)).toEqual(f.binary);
 });
 

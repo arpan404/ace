@@ -44,6 +44,34 @@
     },
     {
       "properties": {
+        "op": {
+          "const": "permissions",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "permissions.request",
+          "type": "string"
+        },
+        "permission": {
+          "$ref": "https://ace.local/protocol/v1/DevicePermission.json"
+        }
+      },
+      "required": [
+        "op",
+        "permission"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "allowed": {
           "type": "boolean"
         },

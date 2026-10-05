@@ -47,8 +47,14 @@ async function verify(app: string, expected: z.infer<typeof Manifest>): Promise<
     throw new Error("Helper bundle hash mismatch");
   return executable;
 }
-/** Copy only on first install. Runtime startup never rewrites a stable executable. */
 /**
+ * Install a verified helper bundle once per version, and return its executable.
+ *
+ * Runtime never rewrites an installed executable: a different version goes into a directory
+ * named for its hash beside the earlier ones (`screen-helper/<sha>/`), so a running helper is
+ * never replaced and a new app build still finds its own helper. macOS keys privacy grants to
+ * the helper's signing identity, not its path, so a signed upgrade keeps them.
+ *
  * `manifestPath` defaults to `manifest.json` beside the app. A host app that ships the helper
  * in `Contents/Helpers` keeps the manifest in its own sealed resources instead, because
  * codesign rejects non-code files in `Contents/Helpers`.
@@ -66,32 +72,48 @@ export async function installScreenHelper(
     );
   const expected = await manifest(manifestPath ?? join(dirname(app), "manifest.json"));
   const root = join(dataDirectory, "screen-helper");
-  const installed = join(root, "AceScreenHelper.app");
-  try {
-    const current = await manifest(join(root, "manifest.json"));
-    if (current.sha256 !== expected.sha256 || current.plistSha256 !== expected.plistSha256)
-      throw new Error(
-        "Installed helper differs; stop ace and upgrade explicitly, never rewrite it at runtime",
-      );
-    return await verify(installed, current);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-  }
+  // The first layout kept a single version directly in the root; reuse it when it matches.
+  const legacy = await installed(root, expected);
+  if (legacy) return legacy;
+  const versioned = join(root, expected.sha256.slice(0, 16));
+  const existing = await installed(versioned, expected);
+  if (existing) return existing;
   await verify(app, expected);
-  await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
-  // Creating the stable directory is the install lock. No temporary executable path.
-  await mkdir(root, { mode: 0o700 });
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  // A directory without its manifest is an interrupted copy that never ran: start it again.
+  await rm(versioned, { recursive: true, force: true });
+  // Creating the version directory is the install lock. No temporary executable path.
+  await mkdir(versioned, { mode: 0o700 });
+  const destination = join(versioned, "AceScreenHelper.app");
   try {
-    await cp(app, installed, { recursive: true, force: false, errorOnExist: true });
-    const executable = await verify(installed, expected);
+    await cp(app, destination, { recursive: true, force: false, errorOnExist: true });
+    const executable = await verify(destination, expected);
     // The manifest is the completion marker; another startup never executes a partial copy.
-    await writeFile(join(root, "manifest.json"), JSON.stringify(expected), {
+    await writeFile(join(versioned, "manifest.json"), JSON.stringify(expected), {
       flag: "wx",
       mode: 0o600,
     });
     return executable;
   } catch (error) {
-    await rm(root, { recursive: true, force: true });
+    await rm(versioned, { recursive: true, force: true });
     throw error;
   }
+}
+
+/** The executable installed in `directory` when its manifest names exactly this version. */
+async function installed(
+  directory: string,
+  expected: z.infer<typeof Manifest>,
+): Promise<string | undefined> {
+  let current: z.infer<typeof Manifest>;
+  try {
+    current = await manifest(join(directory, "manifest.json"));
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+    throw error;
+  }
+  if (current.sha256 !== expected.sha256 || current.plistSha256 !== expected.plistSha256)
+    return undefined;
+  // Installed bytes must still match; tampering is an error, never a silent reinstall.
+  return verify(join(directory, "AceScreenHelper.app"), current);
 }

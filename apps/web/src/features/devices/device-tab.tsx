@@ -23,6 +23,7 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { DeviceLogs } from "./device-logs.tsx";
 import { DeviceScreen } from "./device-screen.tsx";
 import { DevicesMenu } from "./devices-menu.tsx";
+import { needsPermission, PermissionGuide } from "./device-permission.tsx";
 import { useDevices, type DeviceProblem } from "./use-devices.ts";
 
 export function Problem(props: { problem: DeviceProblem }) {
@@ -108,6 +109,8 @@ function SelectedDevice(props: { devices: Devices }) {
   const { selected, controls, session } = view;
   const controlled = controls?.inControl === true;
   const live = controls?.live === true;
+  // A missing macOS permission gets its own guidance instead of a one-line error.
+  const permission = [view.problem, controls?.error].find(needsPermission);
   const toggle = () => {
     if (view.pending || !controls?.running) return;
     if (controlled) devices.release();
@@ -161,9 +164,14 @@ function SelectedDevice(props: { devices: Devices }) {
             </Button>
           )}
         </div>
-        {view.problem && <Problem problem={view.problem} />}
-        {controls.error && <Problem problem={controls.error} />}
-        {live ? (
+        {view.problem && !needsPermission(view.problem) && <Problem problem={view.problem} />}
+        {controls.error && !needsPermission(controls.error) && <Problem problem={controls.error} />}
+        {permission && live && (
+          <PermissionGuide problem={permission} devices={devices} pending={view.pending} compact />
+        )}
+        {permission && !live ? (
+          <PermissionGuide problem={permission} devices={devices} pending={view.pending} />
+        ) : live ? (
           <>
             {/* The screen takes what the tab has left, so the whole device shows at once. */}
             <div className="relative min-h-[160px] flex-1">

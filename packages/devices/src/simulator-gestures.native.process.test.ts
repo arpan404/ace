@@ -19,6 +19,9 @@ it.skipIf(process.platform !== "darwin" || process.env["ACE_DEVICE_GESTURE_LIVE"
     let id = 0;
     const helper = await Helper.open({
       command: join(root, "build/ace-screen-helper"),
+      // Opt-in runs use the grants of the terminal that runs them, as before the helper
+      // disclaimed its launcher.
+      args: ["--inherit-responsibility"],
       nextId: () => `gesture-${++id}`,
       onFrame: () => {},
       onFailure: () => {},

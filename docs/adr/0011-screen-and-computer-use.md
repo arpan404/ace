@@ -59,3 +59,49 @@ The helper is an `.app` bundle with stable `dev.ace.screen-helper` identity. Bui
 New behavior tests cover negotiation/fallback, endpoint validation, bounded semantic responses, stable refs, approval/takeover, damage filtering, capture leases, stable installation and one child process across 100 actions. Mutation cases and runtime measurements are not executed (tests run at merge). Benchmarks cover idle CPU, changing-window CPU at 10 fps, JPEG latency, large-app `ui.tree` latency and RSS. Historical v1 measurements remain labeled as historical; v2 numbers need run at merge. We do not claim lower CPU or better latency than Codex without measurements.
 
 The shared v2 header also carries `version`, `sessionId` and bounded payload `bytes` for existing framing and target correlation. Mac-only capture lease and metrics commands are optional extensions. Helpers on other platforms need only the shared contract; their integration supplies a supervised spawner, stable installation and an owner-only endpoint factory. The default Windows path fails closed until that factory exists. V1 launchers select explicit legacy socket transport. JPEG remains the only negotiated codec in this implementation.
+
+## Permission identity, Spaces and Simulator input (2026-10-04)
+
+Live diagnosis of the in-app Simulator view (ADR 0064) found four macOS-side causes.
+
+- **Permission attribution.** macOS attributes a child process's privacy checks to its
+  responsible process. The daemon is launched by the desktop app, so every Screen Recording and
+  Accessibility check of the helper was made for `dev.ace.app`; local app builds are ad-hoc
+  signed, so each build voided earlier grants (tccd logged "Failed to match existing code
+  requirement"), and the helper's own stable identity never mattered. The helper now
+  re-executes itself once at launch with responsibility disclaimed, through libsystem's
+  `responsibility_spawnattrs_setdisclaim` (resolved at runtime; without it the helper keeps
+  the old attribution and says so on stderr). The child shares stdio and the process group,
+  so group supervision and stdin EOF still end it; the parent only mirrors its exit. Grants
+  now belong to "Ace Screen Helper" and survive app rebuilds. Development runs from a terminal
+  may keep the terminal's grants with `ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY=1`.
+- **Asking for permission.** The helper still never prompts on its own. A new
+  `permissions.request` command, sent only for a person's request, calls the system prompt
+  once and opens the matching Privacy & Security pane. A grant applies to processes started
+  after it, so the manager replaces an idle helper before reading permissions again.
+- **Windows on another Space.** Target discovery used on-screen windows only, so a Simulator
+  window on another Space (behind a full-screen ace) was invisible. Discovery now includes
+  off-screen ordinary titled windows; capture and input look windows up among all shareable
+  windows. Window capture uses the display's pixel density (bounded by the existing cap), so
+  a phone screen stays legible.
+- **Simulator input.** The overlap refusal now counts only windows of the same app stacked in
+  front of the target (window-server order), so a second Simulator window behind it no longer
+  blocks taps. Keyboard input first clicks the target's title bar, which focuses the window
+  without activating the app, then proves the focus as before. Text is sent one key per
+  character with its US key code and real Shift key events as well as the Unicode string,
+  because Simulator reads hardware keys and ignored the string. Hardware keys no longer use
+  menu shortcuts, which reach Simulator only while it is the active app: a new
+  `button.press {name}` command presses the captured window's own Accessibility button (Home,
+  Rotate, Sleep/Wake), found in the verified focused window, which stays reachable on another
+  Space. Every Accessibility call in the helper gives up after one second instead of six, so a
+  busy app cannot outlast the command timeout and take the capture down with it. Simulator is
+  opened with `open -g` so booting never pulls a person out of ace.
+- **Rotation and resizing.** When a window no longer fills the configured frame (Simulator
+  rotated, or the window resized), the helper reconfigures the stream to the window's new size
+  with `SCStream.updateConfiguration`, at most twice a second. Pixel density comes from the
+  window's display mode, which stays valid while NSScreen lists nothing.
+
+Helper installation is versioned: each verified version installs once under
+`screen-helper/<sha256 prefix>/` beside earlier ones, never rewriting a running executable.
+This replaces "a mismatched installed version requires an explicit upgrade", which made every
+new app build fail to open its helper.

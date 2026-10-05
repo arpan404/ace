@@ -36,11 +36,16 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
     if (state.threadId && !peer.canReadThread(state.threadId)) return;
     void send({ type: "devices.state", state }).catch(close);
   });
+  // Admin peers see the whole inventory, as a "list" request would show them.
+  const unwatchInventory = service.watchInventory((inventory) => {
+    void send({ type: "devices.inventory", ...inventory }).catch(close);
+  });
   function close() {
     if (closed) return;
     closed = true;
     frames.close();
     unwatch();
+    unwatchInventory();
     streams.close();
     logs.close();
     service.disconnect(owner);
@@ -130,6 +135,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
                     states: service
                       .states()
                       .filter((state) => !state.threadId || peer.canReadThread(state.threadId)),
+                    enabled: service.isEnabled(),
                   }
                 : data;
             await send({

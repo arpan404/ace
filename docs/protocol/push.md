@@ -1406,19 +1406,34 @@ Example:
 {
   "state": {
     "approved": false,
-    "controller": "agent",
+    "controller": "none",
     "device": {
-      "id": "ios:61982FD5D2bc-2718bFF15E7f5ea8-96eEEd",
+      "id": "ios:1982FD5D2bc-2718bFF15E7f5ea8-96eEEd-",
       "name": "example",
-      "platform": "android",
-      "runtime": "example",
+      "platform": "ios",
       "state": "booted"
     },
     "enabled": false,
-    "leaseExpiresAt": 7,
-    "lifecycle": "stopping"
+    "lifecycle": "live"
   },
   "type": "devices.state"
+}
+```
+
+### devices.inventory
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"devices.inventory"` |  |
+| devices | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/AppDevice.json"}} |
+| issues | no | array | {"default":[],"maxItems":2,"items":{"$ref":"https://ace.local/protocol/v1/DeviceFailure.json"}} |
+
+Example:
+
+```json
+{
+  "devices": [],
+  "type": "devices.inventory"
 }
 ```
 
@@ -1436,8 +1451,8 @@ Example:
 
 ```json
 {
-  "deviceId": "android:75FE1Ch56IAPsM2Wl.zHiptiGQO_1.5Z_DhZiezopyQ8k3",
-  "dropped": 2,
+  "deviceId": "ios:8FE6Dc880D2A175e-CFdfAcF22-6-86-Ec6d",
+  "dropped": 3,
   "lines": [],
   "sequence": 0,
   "type": "devices.logs"
@@ -1463,7 +1478,7 @@ Example:
   "backend": "embedded",
   "pageStateLost": true,
   "reason": "example",
-  "recovery": "headless",
+  "recovery": "pause",
   "threadId": "example",
   "type": "browser.backend.lost",
   "url": "example"
@@ -1484,9 +1499,8 @@ Example:
 
 ```json
 {
-  "phase": "extracting",
-  "received": 4,
-  "total": 3,
+  "phase": "downloading",
+  "received": 3,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -1506,8 +1520,7 @@ Example:
 
 ```json
 {
-  "error": "example",
-  "ok": true,
+  "ok": false,
   "requestId": "example",
   "result": null,
   "type": "browser.result"
@@ -1526,11 +1539,10 @@ Example:
 ```json
 {
   "state": {
-    "backend": "headless",
-    "closed": true,
-    "controller": "human",
-    "pageStateLost": false,
-    "status": "recovering",
+    "closed": false,
+    "controller": "agent",
+    "owner": "example",
+    "reason": "example",
     "threadId": "example",
     "url": "example"
   },
@@ -1553,9 +1565,9 @@ Example:
   "frame": {
     "data": "example",
     "height": 104,
-    "sequence": 4,
-    "timestamp": 3,
-    "width": 104
+    "sequence": 3,
+    "timestamp": 0,
+    "width": 101
   },
   "threadId": "example",
   "type": "browser.frame"
@@ -1576,8 +1588,32 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "instances": [],
-    "models": []
+    "effort": "example",
+    "model": {
+      "contextWindow": 5,
+      "defaultTier": "example",
+      "deprecated": false,
+      "displayName": "example",
+      "hidden": false,
+      "id": "example",
+      "inputModalities": [],
+      "installationId": "example",
+      "instance": "example",
+      "isDefault": false,
+      "isNew": true,
+      "nativeModelId": "example",
+      "provider": "codex",
+      "raw": {
+        "json": "example",
+        "truncated": true
+      },
+      "reasoningEfforts": [],
+      "resolvedModelId": "example",
+      "serviceTiers": []
+    },
+    "ok": true,
+    "reason": "example",
+    "stale": true
   },
   "type": "models.result"
 }
@@ -1596,9 +1632,9 @@ Example:
 {
   "notification": {
     "actions": [],
-    "backgroundCount": 2,
+    "backgroundCount": 5,
     "id": "example",
-    "status": "background_done",
+    "status": "failed",
     "threadId": "example",
     "title": "example"
   },
@@ -1624,9 +1660,9 @@ Example:
 {
   "data": "example",
   "done": true,
-  "index": 3,
+  "index": 9,
   "requestId": "example",
-  "seq": 1,
+  "seq": 0,
   "threadId": "example",
   "type": "entities.page.part"
 }
@@ -1644,7 +1680,7 @@ Example:
 
 ```json
 {
-  "seq": 1,
+  "seq": 2,
   "subscriptionId": "example",
   "type": "subscription.ready"
 }
@@ -1666,8 +1702,8 @@ Example:
 ```json
 {
   "data": "example",
-  "done": false,
-  "index": 7,
+  "done": true,
+  "index": 9,
   "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot.part"
@@ -1687,10 +1723,10 @@ Example:
 ```json
 {
   "page": {
-    "collection": "interactions",
-    "entitiesBefore": null,
+    "collection": "backgroundTasks",
+    "entitiesBefore": 8,
     "entries": [],
-    "seq": 0,
+    "seq": 1,
     "threadId": "example"
   },
   "requestId": "example",
@@ -1711,7 +1747,7 @@ Example:
 
 ```json
 {
-  "headSeq": 0,
+  "headSeq": 9,
   "hostId": "example",
   "protocolVersion": 1,
   "type": "welcome"

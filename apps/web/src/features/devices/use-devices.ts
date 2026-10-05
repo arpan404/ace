@@ -1,22 +1,25 @@
 import { DeviceClientError } from "@ace/client/devices";
-import type { DeviceInput, DeviceOperation } from "@ace/protocol";
+import type { DeviceInput, DeviceOperation, DevicePermission } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
-import { deviceControls, deviceRows, type DeviceControls, type DeviceRow } from "@ace/ui-core";
-import { useEffect, useState } from "react";
+import {
+  deviceControls,
+  deviceRows,
+  type DeviceControls,
+  type DeviceProblem,
+  type DeviceRow,
+} from "@ace/ui-core";
+import { useEffect, useRef, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useDeviceSession, type DeviceSession } from "./device-session.ts";
 
 const enabledResult = (data: unknown): boolean =>
   typeof data === "object" && data !== null && "enabled" in data && data.enabled === true;
 
-/** A failed device request, as one line and a hint. */
-export interface DeviceProblem {
-  message: string;
-  hint: string;
-}
+export type { DeviceProblem } from "@ace/ui-core";
 
 function problem(error: unknown): DeviceProblem {
-  if (error instanceof DeviceClientError) return { message: error.message, hint: error.hint };
+  if (error instanceof DeviceClientError)
+    return { message: error.message, hint: error.hint, permission: error.permission };
   return { message: error instanceof Error ? error.message : "That didn't work.", hint: "" };
 }
 
@@ -74,9 +77,11 @@ export function useDevices(threadId: string, deviceId?: string) {
   const selected = deviceId === undefined ? undefined : rows.find((row) => row.id === deviceId);
   const state = snapshot.states.find((entry) => entry.device.id === selected?.id);
   const device = state?.device ?? snapshot.devices.find((entry) => entry.id === selected?.id);
-  const enabled = snapshot.states.length
-    ? snapshot.states.some((entry) => entry.enabled)
-    : (enabledLocally ?? false);
+  const enabled =
+    snapshot.enabled ??
+    (snapshot.states.length
+      ? snapshot.states.some((entry) => entry.enabled)
+      : (enabledLocally ?? false));
   const now = useSeconds(state?.controller === "human");
   const controls = device && deviceControls(device, state, threadId, now);
 
@@ -90,15 +95,38 @@ export function useDevices(threadId: string, deviceId?: string) {
     };
   }, [session, streaming]);
 
-  const run = async (operation: DeviceOperation): Promise<unknown> => {
+  // A running device shows its screen as soon as its tab opens: start the live view once per
+  // device while the tab is open. A failure (a missing permission, say) waits for Try again.
+  const autoStarted = useRef(new Set<string>());
+  const idle =
+    connected &&
+    enabled &&
+    selected?.running === true &&
+    (state === undefined || state.lifecycle === "idle")
+      ? selected.id
+      : undefined;
+  useEffect(() => {
+    if (!session || !idle || autoStarted.current.has(idle)) return;
+    autoStarted.current.add(idle);
+    void session.client
+      .request({ op: "start", deviceId: idle, fps: 10 })
+      .catch((error: unknown) => setFailed(problem(error)));
+  }, [session, idle]);
+
+  /** One request, counted as pending; whatever went wrong before stays on show. */
+  const send = async (operation: DeviceOperation): Promise<unknown> => {
     if (!session) throw new DeviceClientError("disconnected", "Devices are offline");
     setPending((count) => count + 1);
-    setFailed(undefined);
     try {
       return await session.client.request(operation);
     } finally {
       setPending((count) => count - 1);
     }
+  };
+  /** A new attempt: the last problem clears while it runs. */
+  const run = (operation: DeviceOperation): Promise<unknown> => {
+    setFailed(undefined);
+    return send(operation);
   };
   const act = (operation: () => Promise<unknown>) => {
     void operation().catch((error: unknown) => setFailed(problem(error)));
@@ -146,10 +174,26 @@ export function useDevices(threadId: string, deviceId?: string) {
       act(() =>
         run({ op: "approve", deviceId: target, threadId: ThreadId.parse(threadId), allowed }),
       ),
-    boot: () => target && act(() => withControl({ op: "boot", deviceId: target })),
+    /** Boot, then show its screen: booting is how a person asks to see the device. */
+    boot: () =>
+      target &&
+      act(async () => {
+        autoStarted.current.add(target);
+        await withControl({ op: "boot", deviceId: target });
+        await run({ op: "start", deviceId: target, fps: 10 });
+      }),
     shutdown: () => target && act(() => withControl({ op: "shutdown", deviceId: target })),
     start: () => target && act(() => run({ op: "start", deviceId: target, fps: 10 })),
     stop: () => target && act(() => run({ op: "stop", deviceId: target })),
+    /**
+     * Ask macOS for a permission the screen helper lacks: on the Mac running ace this shows the
+     * system prompt, or opens its Privacy & Security pane with Ace Screen Helper listed.
+     */
+    grant: (permission: DevicePermission) =>
+      // The guidance stays until the person tries again: they still have a switch to turn on.
+      act(() => send({ op: "permissions.request", permission })),
+    /** Try the live view again, as after granting a permission. */
+    retry: () => target && act(() => run({ op: "start", deviceId: target, fps: 10 })),
     takeControl: () =>
       target && act(() => run({ op: "controller", deviceId: target, controller: "human" })),
     release: () =>
