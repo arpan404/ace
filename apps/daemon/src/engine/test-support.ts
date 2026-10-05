@@ -102,6 +102,7 @@ export async function harness(
     provider?: ProviderKind;
     capabilities?: Capabilities;
     nativeAdapter?: ProviderAdapter;
+    createTranslator?: ProviderAdapter["createTranslator"];
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-engine-"));
@@ -128,11 +129,27 @@ export async function harness(
         imageInput: true,
         rewindFiles: false,
       }),
-    createTranslator: () => ({
-      translate: frames.translate,
-      tick: options.tick ?? (() => []),
-      ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
-    }),
+    createTranslator:
+      options.createTranslator ??
+      ((init) => ({
+        translate(frame) {
+          const facts = frames.translate(frame);
+          const mode =
+            contexts.findLast((ctx) => ctx.threadId === init.threadId)?.permissionMode ??
+            "auto-review";
+          for (const fact of facts)
+            if (
+              (options.provider ?? "codex") === "codex" &&
+              fact.type === "interaction.opened" &&
+              fact.request.kind === "approval" &&
+              !fact.raw?.some((raw) => raw.type === "ace.permission-policy")
+            )
+              fact.raw = [...(fact.raw ?? []), { type: "ace.permission-policy", data: { mode } }];
+          return facts;
+        },
+        tick: options.tick ?? (() => []),
+        ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
+      })),
     steps,
   });
   const registry = new AdapterRegistry();
@@ -181,6 +198,12 @@ export async function harness(
     const value = Command.parse({ id, deviceId, payload });
     return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
   }
+  function internalCommand(payload: CommandPayload, id: string) {
+    const value = Command.parse({ id, deviceId: "ace-agent", payload });
+    return store.recordCommand(value.id, value.deviceId, () =>
+      engine.internalHandler.handle(value, store),
+    );
+  }
   async function connect(deviceId: string) {
     const client = new Client(server.url);
     clients.push(client);
@@ -214,6 +237,7 @@ export async function harness(
     registry,
     engine,
     command,
+    internalCommand,
     connect,
     errors,
     async create() {

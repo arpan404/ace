@@ -198,6 +198,7 @@ export class DelegationAdmission {
             provider: r.request.provider,
             ...identity,
             title: r.request.role.slice(0, 256),
+            titleSource: "agent",
             ...(r.resolvedModel ? { model: r.resolvedModel } : {}),
             ...(r.request.options ? { options: r.request.options } : {}),
             ...(current.accountId ? { accountId: current.accountId } : {}),

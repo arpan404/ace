@@ -42,19 +42,16 @@ Example:
 
 ```json
 {
-  "contextWindow": 3,
-  "defaultTier": "example",
-  "deprecated": false,
+  "acpAgentId": "example",
+  "deprecated": true,
   "displayName": "example",
-  "hidden": false,
+  "hidden": true,
   "id": "example",
   "inputModalities": [],
-  "installationId": "example",
   "instance": "example",
   "isDefault": false,
-  "modelConfigId": "example",
   "nativeModelId": "example",
-  "provider": "opencode",
+  "provider": "claude",
   "raw": {
     "json": "example",
     "truncated": true
@@ -79,10 +76,7 @@ Example:
 Example:
 
 ```json
-{
-  "acpAgentId": "example",
-  "installationId": "example"
-}
+{}
 ```
 
 ## ModelInstanceStatus
@@ -105,10 +99,10 @@ Example:
 
 ```json
 {
-  "error": "timeout",
+  "installationId": "example",
   "instance": "example",
-  "provider": "opencode",
-  "refreshedAt": 4,
+  "provider": "codex",
+  "refreshedAt": 8,
   "refreshing": true,
   "stale": true
 }
@@ -132,10 +126,7 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "instanceId": "example",
-  "limit": 1,
-  "offset": 1
+  "acpAgentId": "example"
 }
 ```
 
@@ -154,7 +145,8 @@ Example:
 ```json
 {
   "instances": [],
-  "models": []
+  "models": [],
+  "nextOffset": 9
 }
 ```
 
@@ -177,29 +169,29 @@ Example:
 
 ```json
 {
+  "effort": "example",
   "model": {
-    "contextWindow": 9,
     "deprecated": true,
     "displayName": "example",
     "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
-    "isDefault": false,
-    "isNew": true,
+    "instanceId": "example",
+    "isDefault": true,
     "nativeModelId": "example",
-    "provider": "acp",
+    "provider": "claude",
     "raw": {
       "json": "example",
       "truncated": false
     },
     "reasoningEfforts": [],
-    "resolvedModelId": "example",
+    "selectorMethod": "session/set_config_option",
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": true
+  "stale": false
 }
 ```
 
@@ -242,9 +234,10 @@ Example:
 
 ```json
 {
-  "instanceId": "example",
+  "installationId": "example",
+  "model": "example",
   "role": "example",
-  "selection": "strongest"
+  "tier": "example"
 }
 ```
 
@@ -307,10 +300,8 @@ Example:
   "roleSpec": {
     "imageInput": false,
     "instance": "example",
-    "instanceId": "example",
-    "provider": "pi",
-    "role": "example",
-    "tier": "example"
+    "provider": "acp",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -332,8 +323,38 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": false,
-    "reason": "example"
+    "effort": "example",
+    "model": {
+      "contextWindow": 8,
+      "deprecated": false,
+      "displayName": "example",
+      "hidden": false,
+      "id": "example",
+      "inputModalities": [],
+      "installationId": "example",
+      "instance": "example",
+      "instanceId": "example",
+      "isDefault": true,
+      "isNew": false,
+      "modelConfigId": "example",
+      "nativeModelId": "example",
+      "nativeProviderId": "example",
+      "provider": "acp",
+      "raw": {
+        "json": "example",
+        "truncated": true
+      },
+      "reasoningEfforts": [],
+      "serviceTiers": []
+    },
+    "ok": true,
+    "reason": "example",
+    "stale": false,
+    "tier": {
+      "id": "example",
+      "name": "example",
+      "parameters": {}
+    }
   },
   "type": "models.result"
 }
@@ -355,6 +376,7 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "parameters": {}
 }
 ```

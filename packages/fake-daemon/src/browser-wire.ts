@@ -1,3 +1,4 @@
+import { BrowserOriginError } from "@ace/browser/policy";
 import { BrowserState, type BrowserClientMessage, type ServerMessage } from "@ace/protocol";
 import type { FakeBrowser } from "./browser.ts";
 import type { FakeServiceContext } from "./service-context.ts";
@@ -7,6 +8,7 @@ export function fakeBrowserSession(
   browser: FakeBrowser,
   host: FakeServiceContext,
   send: (message: ServerMessage) => void,
+  connectionId: string,
 ) {
   const subscriptions = new Map<
     string,
@@ -23,6 +25,7 @@ export function fakeBrowserSession(
     close() {
       for (const entry of subscriptions.values()) entry.stop();
       subscriptions.clear();
+      browser.disconnect(connectionId);
     },
     /** As the daemon's browser bridge: a refusal is a `browser.result` with `ok: false`. */
     async handle(message: BrowserClientMessage) {
@@ -36,6 +39,7 @@ export function fakeBrowserSession(
           type: "browser.result",
           requestId: message.requestId,
           ok: false,
+          ...(error instanceof BrowserOriginError ? { blocked: error.blocked } : {}),
           error: (error instanceof Error ? error.message : "Browser operation failed").slice(
             0,
             2048,
@@ -57,6 +61,17 @@ export function fakeBrowserSession(
       }
       let result: unknown;
       switch (message.type) {
+        case "browser.origins.list":
+          result = browser.originsList(id);
+          break;
+        case "browser.origins.grant":
+          browser.originsGrant(id, message.origin, host.now());
+          result = browser.originsList(id);
+          break;
+        case "browser.origins.revoke":
+          browser.originsRevoke(id, message.origin);
+          result = browser.originsList(id);
+          break;
         case "browser.open": {
           if (thread.thread.workspaceId !== message.options.workspaceId)
             throw new Error("workspace_mismatch");
@@ -81,14 +96,17 @@ export function fakeBrowserSession(
           browser.close(id);
           break;
         case "browser.takeover":
-          await browser.takeover(id);
+          await browser.takeover(id, connectionId);
           result = BrowserState.parse(browser.view(id));
           break;
         case "browser.handback":
+          if (browser.view(id)?.owner !== connectionId)
+            throw new Error("Browser controller mismatch");
           await browser.handback(id);
           break;
         case "browser.input":
-          if (browser.view(id)?.controller !== "human") throw new Error("human_control_required");
+          if (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
+            throw new Error("human_control_required");
           browser.wireInput(id, message.input);
           break;
         case "browser.execute": {
@@ -97,10 +115,13 @@ export function fakeBrowserSession(
           // As the daemon's browser service: a client acts as a person, and a person's commands
           // (navigate, resize, emulate) need the control lease; reads never do.
           const reads = ["snapshot", "screenshot", "logs", "wait_for"];
-          if (!reads.includes(command.action) && browser.view(id)?.controller !== "human")
+          if (
+            !reads.includes(command.action) &&
+            (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
+          )
             throw new Error("Browser controller mismatch");
           if (command.action === "navigate") {
-            browser.navigate(id, command.url);
+            browser.navigate(id, command.url, host.now());
             result = BrowserState.parse(browser.view(id));
           } else if (command.action === "type") browser.type(id, command.text);
           else if (command.action === "resize") browser.resize(id, command.width, command.height);

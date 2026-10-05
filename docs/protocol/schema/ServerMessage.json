@@ -18,6 +18,9 @@
       "$ref": "https://ace.local/protocol/v1/ThreadReadStateResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/HostIdentityResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MachinesResult.json"
     },
     {
@@ -733,6 +736,50 @@
     },
     {
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "type": {
+          "const": "devices.enabled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/AppDevice.json"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        },
+        "issues": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
+          },
+          "maxItems": 2,
+          "type": "array"
+        },
+        "type": {
+          "const": "devices.inventory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "devices"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },
@@ -776,6 +823,9 @@
     },
     {
       "properties": {
+        "blocked": {
+          "$ref": "https://ace.local/protocol/v1/BrowserOriginBlock.json"
+        },
         "error": {
           "maxLength": 2048,
           "type": "string"
@@ -1088,11 +1138,17 @@
     },
     {
       "properties": {
+        "code": {
+          "type": "string"
+        },
         "commandId": {
           "$ref": "https://ace.local/protocol/v1/CommandId.json"
         },
         "commit": {
           "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        },
+        "detail": {
           "type": "string"
         },
         "editor": {
@@ -1129,6 +1185,9 @@
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "title": {
+          "type": "string"
         },
         "type": {
           "const": "commandResult",

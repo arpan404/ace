@@ -14,10 +14,15 @@ const day = 24 * 60 * 60 * 1000;
  * notes and an answer). The daemon's snapshot keeps `tail` items, so older turns are only
  * reachable by jumping.
  */
-async function openLong(turns: number, tail: number, extra?: (scenario: Scenario) => Scenario) {
+async function openLong(
+  turns: number,
+  tail: number,
+  extra?: (scenario: Scenario) => Scenario,
+  scans = 20,
+) {
   let now = 10 * day;
   const app = harness({ snapshotItems: tail, clock: () => (now += 1) });
-  const scenario = multiDayDemo(threadId, turns, { scans: 20 });
+  const scenario = multiDayDemo(threadId, turns, { scans });
   const script = app.play(extra ? extra(scenario) : scenario);
   script.runUntilBlocked();
   await app.open(`/t/${threadId}`);
@@ -43,9 +48,9 @@ test("the turn timeline lists every turn with its digest and jumps to one", asyn
   await user.keyboard("{Home}");
   const first = await within(list).findByRole("option", { name: /^Turn 1: / });
   expect(first.getAttribute("aria-selected")).toBe("true");
-  // The digest: two tools (the command and the edit), the file and its lines, the approval.
+  // The digest: its steps (the command and the edit), the file and its lines, the approval.
   expect(first.getAttribute("aria-label")).toBe(
-    `Turn 1: ${ask(1)} Completed, 3 tools, 1 file, +2 −1, 1 approval, 1 subagent`,
+    `Turn 1: ${ask(1)} Completed, 3 steps, 1 file, +2 −1, 1 approval, 1 subagent`,
   );
   await user.keyboard("{ArrowDown}{Enter}");
 
@@ -74,21 +79,29 @@ test("a turn already in the live tail is scrolled to without leaving it", async 
   expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull();
 });
 
-test("older turns fold into one-line digests that open and fold again", async () => {
-  const user = userEvent.setup();
+test("a short thread never folds its turns", async () => {
   const { feed } = await openLong(6, 200);
-  // The three newest turns show whole; the others are one row each.
   expect(within(feed).getByText(answer(6))).toBeTruthy();
-  expect(within(feed).getByText(answer(4))).toBeTruthy();
-  expect(within(feed).queryByText(answer(2))).toBeNull();
-  const folded = within(feed).getByRole("button", { name: `Turn 2: ${ask(2)} Show the turn` });
-  await waitFor(() => expect(folded.textContent).toContain("3 tools"));
+  expect(within(feed).getByText(answer(1))).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /Show the turn$/ })).toBeNull();
+});
+
+test("past twelve turns, older turns fold into one-line digests that open and fold again", async () => {
+  const user = userEvent.setup();
+  const { feed } = await openLong(14, 200, undefined, 2);
+  // The five newest turns show whole; the others are one row each.
+  expect(within(feed).getByText(answer(14))).toBeTruthy();
+  expect(within(feed).getByText(answer(10))).toBeTruthy();
+  expect(within(feed).queryByText(answer(9))).toBeNull();
+  const folded = within(feed).getByRole("button", { name: `Turn 9: ${ask(9)} Show the turn` });
+  expect(folded.textContent).toContain("Turn 9");
+  await waitFor(() => expect(folded.textContent).toMatch(/\d+ steps/));
   expect(folded.textContent).toContain("1 approval");
 
   await user.click(folded);
-  expect(await within(feed).findByText(answer(2))).toBeTruthy();
-  await user.click(within(feed).getByRole("button", { name: "Turn 2. Fold the turn" }));
-  await waitFor(() => expect(within(feed).queryByText(answer(2))).toBeNull());
+  expect(await within(feed).findByText(answer(9))).toBeTruthy();
+  await user.click(within(feed).getByRole("button", { name: "Turn 9. Fold the turn" }));
+  await waitFor(() => expect(within(feed).queryByText(answer(9))).toBeNull());
 });
 
 test("Jump to live counts what reached the thread while the reader was in its history", async () => {

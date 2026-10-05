@@ -5,6 +5,8 @@ import {
   type DeviceFailure,
   type DeviceInput,
   type DeviceOperation,
+  type DevicePermission,
+  type DevicePermissions,
   type DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
@@ -35,10 +37,30 @@ interface Channel {
 
 class Refusal extends Error {
   readonly failure: DeviceFailure;
-  constructor(code: DeviceFailure["code"], message: string, hint: string) {
+  constructor(
+    code: DeviceFailure["code"],
+    message: string,
+    hint: string,
+    permission?: DevicePermission,
+  ) {
     super(message);
-    this.failure = { code, message, hint };
+    this.failure = { code, message, hint, ...(permission ? { permission } : {}) };
   }
+}
+
+const permissionNames: Record<DevicePermission, string> = {
+  screenRecording: "Screen Recording",
+  accessibility: "Accessibility",
+};
+/** The daemon's refusal when its screen helper lacks a macOS permission. */
+function denied(permission: DevicePermission): Refusal {
+  const name = permissionNames[permission];
+  return new Refusal(
+    "permission_denied",
+    `ace needs ${name} permission to ${permission === "screenRecording" ? "show the Simulator" : "send taps and keys to the Simulator"}`,
+    `Open System Settings › Privacy & Security › ${name}, turn on Ace Screen Helper, then try again.`,
+    permission,
+  );
 }
 
 function decode(base64: string): Uint8Array<ArrayBuffer> {
@@ -64,6 +86,10 @@ export class FakeAppDevices {
   private streams = 0;
   /** Every input a person sent, in order, as the device received it. */
   readonly inputs: { deviceId: string; input: DeviceInput }[] = [];
+  /** macOS permissions of the daemon's screen helper; iOS views and input need them. */
+  readonly permissions: DevicePermissions = { screenRecording: true, accessibility: true };
+  /** Each permission a person asked macOS for, in order. */
+  readonly requested: DevicePermission[] = [];
   constructor(clock: () => number) {
     this.clock = clock;
     for (const device of [
@@ -237,8 +263,11 @@ export class FakeAppDevices {
   }
 
   private operate(channel: Channel, operation: DeviceOperation): unknown {
+    if (operation.op === "inventory.watch") return { watching: operation.watching };
     if (operation.op === "enable") {
       this.enabled = operation.enabled;
+      for (const open of this.channels)
+        this.send(open, { type: "devices.enabled", enabled: this.enabled });
       if (!this.enabled)
         for (const session of this.sessions.values()) {
           delete session.threadId;
@@ -252,7 +281,15 @@ export class FakeAppDevices {
     if (operation.op === "list")
       return { devices: [...this.sessions.values()].map((s) => s.device), issues: [] };
     if (operation.op === "states")
-      return { states: this.enabled ? [...this.sessions.values()].map((s) => this.state(s)) : [] };
+      return {
+        states: this.enabled ? [...this.sessions.values()].map((s) => this.state(s)) : [],
+        enabled: this.enabled,
+      };
+    if (operation.op === "permissions") return { ...this.permissions };
+    if (operation.op === "permissions.request") {
+      this.requested.push(operation.permission);
+      return { ...this.permissions };
+    }
     const session = this.session(operation.deviceId);
     switch (operation.op) {
       case "approve":
@@ -295,6 +332,8 @@ export class FakeAppDevices {
       case "start":
         if (session.device.state !== "booted")
           throw new Refusal("not_booted", "The device isn't running", "Boot it first.");
+        if (session.device.platform === "ios" && !this.permissions.screenRecording)
+          throw denied("screenRecording");
         session.lifecycle = "live";
         session.streamId = `stream-${++this.streams}`;
         this.publish(session);
@@ -314,6 +353,8 @@ export class FakeAppDevices {
         return this.state(session);
       case "input":
         this.controlled(session);
+        if (session.device.platform === "ios" && !this.permissions.accessibility)
+          throw denied("accessibility");
         this.inputs.push({ deviceId: session.device.id, input: operation.input });
         if (operation.input.kind === "key" && operation.input.key === "home")
           session.screen = "home";

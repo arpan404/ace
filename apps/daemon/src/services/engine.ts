@@ -208,7 +208,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   });
   resources.own(() => engine.close());
   await engine.ready();
+  engine.bindHostInteractions((command) => services.browserOrigins?.resolve(command));
   services.engine = engine;
+  services.browserOrigins?.recover();
   services.handler = engine.handler;
 }
 
@@ -270,6 +272,21 @@ export function createEngineSession(context: SocketContext): SocketService {
           // An injected handler without the engine admission port keeps its existing late-preparation path.
           if (admission) preparation = await options.workspaceActions?.prepareCreation(accepted);
           if (!context.connected() || !context.authorize("operate")) return;
+          if (payload.type === "interaction.resolve") {
+            const interaction = options.store.getInteraction(payload.interactionId);
+            if (
+              interaction?.raw.some((raw) => raw.type === "ace.browser.origin") &&
+              !canReadThread(interaction.threadId)
+            ) {
+              send({
+                type: "commandResult",
+                commandId: command.id,
+                ok: false,
+                error: "browser_thread_access_denied",
+              });
+              return;
+            }
+          }
           if (
             payload.type === "thread.create" &&
             payload.handoffFrom &&

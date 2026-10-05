@@ -1,4 +1,4 @@
-import { coldStartReplay, replayCursor } from "@ace/fake-daemon";
+import { coldStartReplay, facts, replayCursor } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -56,7 +56,9 @@ test("the answer reads as prose with a code block that copies", async () => {
 });
 
 test("the changed-files card lists the turn's files and opens the Changes tab", async () => {
-  const { feed } = await openReplay("answered");
+  const { app, feed } = await openReplay("answered");
+  // The card sums up a turn once it has ended.
+  act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
   const card = await within(feed).findByRole("region", { name: "2 changed files" });
   expect(within(card).queryByText("apps/server/src/replay.ts")).toBeNull();
 
@@ -99,13 +101,13 @@ test("a full-text edit's changed-files stat counts the lines that changed, as Ch
   await waitFor(() => expect(tab.textContent).toContain(`+${stat?.[1]} −${stat?.[2]}`));
 });
 
-test("subagents open inline as a tree, and the agent tree is one click away", async () => {
+test("subagents open inline as the agents started, and the agent tree is one click away", async () => {
   const { feed } = await openReplay("delegated");
   await userEvent.click(await within(feed).findByRole("button", { name: "Started 2 subagents" }));
   const tree = within(feed).getByRole("tree", { name: "Subagents" });
-  expect(
-    within(tree).getByRole("treeitem", { name: "Claude Code: Waiting for subagents" }),
-  ).toBeTruthy();
+  // Only the agents it started: the parent's own state is the live line under the transcript.
+  expect(within(tree).getAllByRole("treeitem")).toHaveLength(2);
+  expect(within(tree).queryByRole("treeitem", { name: /^Claude Code/ })).toBeNull();
   expect(
     within(tree).getByRole("treeitem", {
       name: "reconnect-audit: Reading apps/mobile/src/resume.ts",
