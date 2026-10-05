@@ -34,12 +34,12 @@ test("starting a deck drafts a plan behind a gate, and approving it deals the fi
   );
   const decks = screen.getByRole("navigation", { name: "Decks" });
   expect(
-    within(within(decks).getByRole("region", { name: "Gated" })).getByText(
+    within(within(decks).getByRole("region", { name: "Needs you" })).getByText(
       /Stream terminal output/,
     ),
   ).toBeTruthy();
 
-  await userEvent.click(within(gate).getByRole("button", { name: "Approve plan" }));
+  await userEvent.click(within(gate).getByRole("button", { name: /^Approve plan/ }));
 
   await waitFor(() =>
     expect(screen.getByRole("button", { name: /Map the current behaviour/ }).textContent).toContain(
@@ -86,4 +86,62 @@ test("⌘⇧N opens New deck from anywhere", async () => {
   await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
 
   expect(await screen.findByRole("form", { name: "New deck" })).toBeTruthy();
+});
+
+test("New deck opens on the goal, and its footer says when lanes start", async () => {
+  await openNew();
+  const form = await screen.findByRole("form", { name: "New deck" });
+  await waitFor(() => expect(document.activeElement).toBe(within(form).getByLabelText("Goal")));
+  expect(within(form).getByText("You approve the plan before any lane starts.")).toBeTruthy();
+
+  await userEvent.click(within(form).getByRole("switch"));
+
+  expect(within(form).getByText("Lanes start as soon as the plan is drafted.")).toBeTruthy();
+});
+
+test("a failed submit focuses the field to fix", async () => {
+  await openNew();
+  const form = await screen.findByRole("form", { name: "New deck" });
+  await userEvent.click(within(form).getByRole("button", { name: /Start deck/ }));
+  await waitFor(() => expect(document.activeElement).toBe(within(form).getByLabelText("Goal")));
+});
+
+test("the budget and a time limit are set under Advanced and go to the daemon with the deck", async () => {
+  await openNew();
+  const form = await screen.findByRole("form", { name: "New deck" });
+  await userEvent.type(
+    within(form).getByLabelText("Goal"),
+    "Index thread titles for search across every project.",
+  );
+  await userEvent.click(within(form).getByRole("button", { name: "Advanced" }));
+  const budget = within(form).getByLabelText("Lane starts budget");
+  // Empty means the default for the lanes at once: 3 lanes × 4 × 6.
+  expect(budget.getAttribute("placeholder")).toBe("72");
+  await userEvent.type(budget, "0");
+  await userEvent.click(within(form).getByRole("button", { name: /Start deck/ }));
+  expect((await within(form).findByRole("alert")).textContent).toBe(
+    "Enter a whole number of lane starts, from 1 to 100,000.",
+  );
+  await waitFor(() => expect(document.activeElement).toBe(budget));
+
+  await userEvent.clear(budget);
+  await userEvent.type(budget, "120");
+  await userEvent.click(within(form).getByRole("button", { name: /Start deck/ }));
+
+  await screen.findByRole("heading", { level: 1, name: /^Index thread titles/ });
+  expect(screen.getByText("1 of 120 lane starts")).toBeTruthy();
+});
+
+test("with no project yet, New deck offers to add one and won't start", async () => {
+  const app = harness();
+  await app.open("/deck/new");
+  const form = await screen.findByRole("form", { name: "New deck" });
+
+  expect(within(form).getByRole("button", { name: "Add project…" })).toBeTruthy();
+  expect(within(form).getByText("Decks run inside a project.")).toBeTruthy();
+  expect(
+    within(form)
+      .getByRole("button", { name: /Start deck/ })
+      .hasAttribute("disabled"),
+  ).toBe(true);
 });

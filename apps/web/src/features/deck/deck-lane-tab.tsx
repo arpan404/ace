@@ -1,11 +1,12 @@
 import { ArrowUpRightIcon, CardsIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { cardStatus, deckRunSummary, type DeckCard } from "@ace/ui-core";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { StatusMark } from "./card-graph.tsx";
+import { DeckGates } from "./deck-gate.tsx";
 import { useDeckRun } from "./deck-source.ts";
 import { LaneDetail } from "./lane-detail.tsx";
 
@@ -14,12 +15,17 @@ const worksOn = (card: DeckCard, threadId: string) =>
   card.lane?.threadId === threadId || card.agents.some((agent) => agent.threadId === threadId);
 
 /**
- * One deck lane as a workspace tab beside a thread: the card's worker and reviewer, its review
- * rounds and every agent the deck delegated for it, with the way back to the whole deck.
+ * One deck lane as a workspace tab beside a thread: what the deck asks about the card, its
+ * worker and reviewer, its review rounds and every agent the deck delegated for it, with the
+ * way back to the whole deck.
  */
 export function DeckLaneTab(props: { runId: string; cardId: string }) {
   const { ready, run } = useDeckRun(props.runId);
+  const navigate = useNavigate();
+  // The thread this tab sits beside: its lane needs no "Open thread" to where the person is.
+  const scope = useParams({ strict: false, select: (params) => params.threadId });
   const card = run?.cards.find((candidate) => candidate.id === props.cardId);
+  const gates = run?.gates.filter((gate) => gate.workstream === props.cardId) ?? [];
   if (!run)
     return ready ? (
       <EmptyState
@@ -55,7 +61,23 @@ export function DeckLaneTab(props: { runId: string; cardId: string }) {
         </Link>
       </div>
       {card ? (
-        <LaneDetail card={card} run={run} beside={false} />
+        <div className="flex flex-col gap-3">
+          {gates.length > 0 && (
+            <DeckGates
+              run={run}
+              gates={gates}
+              compact
+              onOpenCard={(cardId) =>
+                void navigate({
+                  to: "/deck/$runId",
+                  params: { runId: run.id },
+                  search: { tab: "plan", card: cardId },
+                })
+              }
+            />
+          )}
+          <LaneDetail card={card} run={run} beside={false} {...(scope ? { scope } : {})} />
+        </div>
       ) : (
         <EmptyState
           icon={CardsIcon}
@@ -98,10 +120,10 @@ export function DeckOfThread(props: {
       >
         <CardsIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
         <span className="shrink-0 font-medium">{run.title}</span>
-        <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
           {deckRunSummary(run)}
         </span>
-        <ArrowUpRightIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+        <ArrowUpRightIcon aria-hidden size={12} className="shrink-0 text-muted-foreground" />
       </Link>
       <ul aria-label={`Lanes of ${run.title}`}>
         {run.cards.map((card) => {
@@ -126,7 +148,7 @@ export function DeckOfThread(props: {
                 {mine && (
                   <span className="shrink-0 text-xs text-muted-foreground">this thread</span>
                 )}
-                <span className="min-w-0 flex-1 truncate text-right text-xs text-subtle-foreground">
+                <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
                   {status.label}
                 </span>
               </button>

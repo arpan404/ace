@@ -139,7 +139,11 @@ function reduceFact(state: State, input: unknown, env: Environment): Transition 
       else lane.status = "limited";
       const account = s.accounts.find((a) => a.id === lane.account);
       if (account) account.quota = 0;
-    } else if (fact.type === "destructive") gate(ctx, "destructive", fact.description, node, lane);
+    } else if (fact.type === "destructive") {
+      // A stopping lane or a declined card has nothing left to allow.
+      if (lane.retiring || node?.state === "declined") return { state, effects: [] };
+      gate(ctx, "destructive", fact.description, node, lane);
+    }
   } else
     switch (fact.type) {
       case "accounts":
