@@ -168,6 +168,20 @@ export const protocolNoiseCases: {
         },
       }),
       ...names.map((method) => recv({ method, params: evidence })),
+      ...["running", "running", "completed", "completed"].map((state) =>
+        recv({
+          method: "session/update",
+          params: {
+            sessionId: "native",
+            update: {
+              sessionUpdate: "subagent_state_update",
+              subagentSessionId: "child",
+              state,
+              ...evidence,
+            },
+          },
+        }),
+      ),
       recv(null),
     ],
     after: [

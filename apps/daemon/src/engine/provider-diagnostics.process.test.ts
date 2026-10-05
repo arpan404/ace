@@ -1,10 +1,12 @@
 import { expect, test } from "vitest";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { ProviderPayload } from "@ace/provider-kit/payload";
+import { createFileSink, createLogger, logFields, logMetadata } from "@ace/diagnostics";
+import { createRedactor } from "@ace/redaction";
 import { codexCapabilities } from "@ace/adapter-codex";
 import { protocolNoiseCases } from "./protocol-noise-test-support.ts";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
@@ -13,7 +15,7 @@ import { Client } from "../socket-test-support.ts";
 import { until } from "./test-support.ts";
 
 for (const corpus of protocolNoiseCases.filter((c) => c.provider !== "acp")) {
-  test(`${corpus.name} unknown frames survive the bounded redacted daemon sink without transcript rows`, async () => {
+  test(`${corpus.name} unknown frames survive size-limited redacted daemon records without transcript rows`, async () => {
     const home = await mkdtemp(join(tmpdir(), "ace-provider-diagnostics-"));
     const registry = new AdapterRegistry();
     registry.register(
@@ -118,3 +120,58 @@ for (const corpus of protocolNoiseCases.filter((c) => c.provider !== "acp")) {
     }
   });
 }
+
+// Mutation: disable file rotation/retention or bypass secret/oversize normalization.
+// Not executed (tests run at merge).
+test("sustained provider diagnostics keep recent evidence within the file retention cap", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ace-provider-log-retention-"));
+  const context = { home: directory };
+  const totalBytes = 4096;
+  const sink = await createFileSink({ directory, fileBytes: 2048, totalBytes, context });
+  const logger = createLogger({
+    sink,
+    now: () => 0,
+    redact: createRedactor(context),
+    level: "debug",
+  });
+  try {
+    for (let index = 0; index < 40; index++) {
+      logger.log(
+        "debug",
+        "Provider diagnostic",
+        logFields([
+          [
+            "raw",
+            [
+              logMetadata({
+                type: "future/extension",
+                data: {
+                  marker: `provider-record-${index}`,
+                  detail: "d".repeat(600),
+                  api_key: "synthetic-secret",
+                  oversized: "x".repeat(10000),
+                },
+              }),
+            ],
+          ],
+        ]),
+      );
+      await logger.flush();
+    }
+    await logger.close();
+    const files = (await readdir(directory)).filter((name) => /^ace(?:\.\d+)?\.jsonl$/.test(name));
+    const sizes = await Promise.all(files.map((name) => stat(join(directory, name))));
+    expect(sizes.every((entry) => entry.size <= 2048)).toBe(true);
+    expect(sizes.reduce((bytes, entry) => bytes + entry.size, 0)).toBeLessThanOrEqual(totalBytes);
+    const evidence = (
+      await Promise.all(files.map((name) => readFile(join(directory, name), "utf8")))
+    ).join("\n");
+    expect(evidence).toContain("provider-record-39");
+    expect(evidence).not.toContain("provider-record-0");
+    expect(evidence).not.toContain("synthetic-secret");
+    expect(evidence).not.toContain("x".repeat(10000));
+  } finally {
+    await logger.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

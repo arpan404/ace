@@ -3,7 +3,7 @@ import type { ThreadId } from "@ace/protocol";
 import { InteractionResolution } from "@ace/protocol";
 import type { Frame, Translator } from "@ace/engine-api";
 import { NativeEvent, eventSession } from "./boundaries.ts";
-import { object, array, string, number, retryReason, raw } from "./data.ts";
+import { object, array, string, number, retryReason, raw, type Data } from "./data.ts";
 import { NativeState } from "./native-state.ts";
 import { tool, text, projected } from "./native-content.ts";
 import { interaction } from "./interactions.ts";
@@ -20,9 +20,12 @@ export class OpenCodeTranslator implements Translator {
     return pending;
   }
   translate(frame: Frame, now: number): Fact[] {
-    this.diagnostics = raw(string(object(frame.data).type, frame.channel), frame.data);
+    const data = object(frame.data);
+    // Retain the native receipt by reference, as Codex/Cursor do. The diagnostic
+    // sink bounds and redacts it; only canonical transcript evidence needs raw().
+    this.diagnostics = [{ type: string(data.type, frame.channel), data: frame.data }];
     try {
-      return this.frame(frame, now);
+      return this.frame(frame, data, now);
     } catch {
       this.state.disconnected = true;
       return [
@@ -36,15 +39,14 @@ export class OpenCodeTranslator implements Translator {
             complete: true,
             level: "error",
             text: "OpenCode data could not be translated; execution remains uncertain",
-            raw: this.diagnostics,
+            raw: raw(string(data.type, frame.channel), frame.data),
           },
         },
       ];
     }
   }
-  private frame(frame: Frame, now: number): Fact[] {
-    const data = object(frame.data),
-      state = this.state;
+  private frame(frame: Frame, data: Data, now: number): Fact[] {
+    const state = this.state;
     if (frame.channel === "clock") return [];
     if (frame.channel === "interaction.resolving" || frame.channel === "interaction.rejected") {
       const pending = state.pending.get(string(data.key));

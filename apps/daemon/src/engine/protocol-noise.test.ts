@@ -42,10 +42,7 @@ for (const corpus of protocolNoiseCases) {
     for (const frame of corpus.noise.filter((candidate) =>
       JSON.stringify(candidate.data).includes("future evidence"),
     )) {
-      const expected = JSON.stringify(frame.data).replaceAll(
-        "synthetic-secret",
-        corpus.provider === "opencode" ? "[redacted]" : "synthetic-secret",
-      );
+      const expected = JSON.stringify(frame.data);
       expect(
         result.diagnostics.some((raw) => "data" in raw && JSON.stringify(raw.data) === expected),
       ).toBe(true);
@@ -66,11 +63,15 @@ for (const corpus of protocolNoiseCases) {
       JSON.stringify(candidate.data).includes("future evidence"),
     );
     if (!unknown) throw new Error("Corpus requires unknown evidence");
-    for (let i = 0; i < 256; i++)
-      translator.translate(Object.assign({}, unknown, { seq: i + 100, t: i + 100 }), i + 100);
+    for (let i = 0; i < 256; i++) {
+      const data = Object.assign({}, unknown.data, { diagnosticMarker: `receipt-${i}` });
+      translator.translate(Object.assign({}, unknown, { data, seq: i + 100, t: i + 100 }), i + 100);
+    }
     const diagnostics = translator.takeDiagnostics?.() ?? [];
     expect(diagnostics).toHaveLength(1);
     expect(JSON.stringify(diagnostics)).toContain("future evidence");
+    expect(diagnostics).toMatchObject([{ data: { diagnosticMarker: "receipt-255" } }]);
+    expect(JSON.stringify(diagnostics)).not.toContain('"diagnosticMarker":"receipt-0"');
     expect(translator.takeDiagnostics?.()).toEqual([]);
   });
 }
