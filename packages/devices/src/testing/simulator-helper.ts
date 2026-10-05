@@ -20,6 +20,7 @@ frames.on("error", () => process.exit(1));
 let sessionId = "";
 let sequence = 0;
 let capturing = false;
+let heldPointer = false;
 
 const permissions = (): {
   screenRecording: boolean;
@@ -119,6 +120,11 @@ commands.on("line", (line) => {
           message: "Keys reach Simulator only while it is the frontmost app",
         };
       else {
+        if (request.input.kind === "pointer.down") heldPointer = true;
+        if (["pointer.up", "pointer.cancel"].includes(request.input.kind) && heldPointer) {
+          record({ nativeMouseUp: { windowId: 42, button: "left" } });
+          heldPointer = false;
+        }
         record({ input: request.input });
         setTimeout(() => paint(`after-${request.input.kind}`), 5);
       }

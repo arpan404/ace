@@ -42,6 +42,13 @@ struct Input: Decodable {
     let dy: Int32?
 }
 struct UIQuery: Codable { let role: String?; let name: String?; let text: String? }
+struct StreamSettings: Decodable {
+    let codec: String
+    let maxWidth: Int
+    let maxHeight: Int
+    let fps: Int
+    let bitrate: Int
+}
 struct Request: Decodable {
     let version: Int
     let id: String
@@ -50,6 +57,7 @@ struct Request: Decodable {
     let target: Target?
     let allowlist: [String]?
     let fps: Int?
+    let settings: StreamSettings?
     let action: Action?
     let input: Input?
     let enabled: Bool?
@@ -64,12 +72,13 @@ struct Request: Decodable {
     let name: String?
     // ui.act's action is a string; decode it separately from v1's action object.
     let semanticAction: String?
-    enum CodingKeys: String, CodingKey { case version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name }
+    enum CodingKeys: String, CodingKey { case settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version); id = try c.decode(String.self, forKey: .id); op = try c.decode(String.self, forKey: .op)
         sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId); target = try c.decodeIfPresent(Target.self, forKey: .target)
         allowlist = try c.decodeIfPresent([String].self, forKey: .allowlist); fps = try c.decodeIfPresent(Int.self, forKey: .fps)
+        settings = try c.decodeIfPresent(StreamSettings.self, forKey: .settings)
         action = op == "ui.act" ? nil : try c.decodeIfPresent(Action.self, forKey: .action)
         semanticAction = op == "ui.act" ? try c.decodeIfPresent(String.self, forKey: .action) : nil
         input = try c.decodeIfPresent(Input.self, forKey: .input); enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled)
@@ -120,6 +129,6 @@ func permissions() -> [String: Bool] { ["screenRecording": CGPreflightScreenCapt
 func capabilities() -> [String: Any] {
     ["version": 2, "platform": "macos", "capture": ["windows": true, "displays": true, "changeDriven": true],
      "input": ["pointer": true, "keyboard": true, "scroll": true, "text": true], "uiTree": true,
-     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select"], "codecs": ["jpeg"],
+     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select"], "codecs": ["jpeg", "h264"],
      "permissions": ["screen": CGPreflightScreenCaptureAccess() ? "granted" : "denied", "input": AXIsProcessTrusted() ? "granted" : "denied"]]
 }

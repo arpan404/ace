@@ -1,4 +1,6 @@
+import { H264AccessUnits } from "./h264.ts";
 import { framePacket, type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
+import type { ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import type { RawSupervisedProcess } from "@ace/provider-kit/process";
 import { findExecutable as discoverExecutable } from "@ace/provider-kit/discovery";
@@ -11,6 +13,8 @@ import { permissionDenied } from "./screen-failure.ts";
 export interface DeviceCapture extends Capture {
   screenSessionId?: string;
   streamId?: string;
+  configure?(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }>;
+  keyframe?(): Promise<void>;
 }
 export async function startCapture(options: {
   device: Device;
@@ -107,6 +111,8 @@ export async function startCapture(options: {
       return {
         screenSessionId: state.sessionId,
         streamId: state.sessionId,
+        configure: (settings) => screen.configureStream(state.sessionId, settings),
+        keyframe: () => screen.requestKeyframe(state.sessionId),
         stop: cleanup,
         get terminated() {
           return terminated;
@@ -131,6 +137,8 @@ export async function startCapture(options: {
   const { runtime } = options;
   let stopped = false;
   let sequence = 0;
+  let settings: ScreenStreamSettings | undefined;
+  let lastKeyframe = -Infinity;
   type Cycle = {
     input: RawSupervisedProcess;
     output: RawSupervisedProcess;
@@ -170,6 +178,15 @@ export async function startCapture(options: {
     transport = await options.platform.captureTransport(options.device, serial);
     if (stopped) return;
     checkAbort();
+    const factor = Math.min(
+      1,
+      (settings?.maxWidth ?? 3840) / transport.width,
+      (settings?.maxHeight ?? 2160) / transport.height,
+    );
+    const size = {
+      width: Math.max(2, Math.floor((transport.width * factor) / 2) * 2),
+      height: Math.max(2, Math.floor((transport.height * factor) / 2) * 2),
+    };
     const input = runtime.spawn({
       command: transport.adb,
       args: [
@@ -178,6 +195,9 @@ export async function startCapture(options: {
         "exec-out",
         "screenrecord",
         "--output-format=h264",
+        ...(settings
+          ? ["--size", `${size.width}x${size.height}`, "--bit-rate", String(settings.bitrate)]
+          : []),
         "--time-limit",
         "180",
         "-",
@@ -202,16 +222,20 @@ export async function startCapture(options: {
           "h264",
           "-i",
           "pipe:0",
-          "-vf",
-          `fps=${options.fps},scale='min(3840,iw)':'min(2160,ih)':force_original_aspect_ratio=decrease,mpdecimate=hi=0:lo=0:frac=0`,
-          "-fps_mode",
-          "vfr",
-          "-c:v",
-          "mjpeg",
-          "-q:v",
-          "5",
-          "-f",
-          "image2pipe",
+          ...(settings?.codec === "h264"
+            ? ["-c:v", "copy", "-bsf:v", "h264_metadata=aud=insert", "-f", "h264"]
+            : [
+                "-vf",
+                `fps=${settings?.fps ?? options.fps},scale='min(${settings?.maxWidth ?? 3840},iw)':'min(${settings?.maxHeight ?? 2160},ih)':force_original_aspect_ratio=decrease,mpdecimate=hi=0:lo=0:frac=0`,
+                "-fps_mode",
+                "vfr",
+                "-c:v",
+                "mjpeg",
+                "-q:v",
+                "5",
+                "-f",
+                "image2pipe",
+              ]),
           "pipe:1",
         ],
         env: options.env,
@@ -243,11 +267,30 @@ export async function startCapture(options: {
       const packet = framePacket(header, payload);
       options.publish({ header, payload: packet.subarray(packet.length - header.bytes), packet });
     });
+    const video = new H264AccessUnits((payload, keyframe, videoCodec) => {
+      if (stopped || current.intent !== "run" || cycle !== current) return;
+      const header = {
+        version: 1 as const,
+        sessionId: options.streamId,
+        sequence: sequence++,
+        timestamp: runtime.now(),
+        width: size.width,
+        height: size.height,
+        scale: size.width / transport.width,
+        codec: "h264" as const,
+        keyframe,
+        ...(keyframe ? { videoCodec } : {}),
+        bytes: payload.length,
+      };
+      const packet = framePacket(header, payload);
+      options.publish({ header, payload: packet.subarray(packet.length - payload.length), packet });
+    });
     output.stdout.on("data", (chunk: unknown) => {
       if (stopped || current.intent !== "run") return;
       try {
         if (!Buffer.isBuffer(chunk)) throw new Error("Invalid JPEG chunk");
-        jpeg.push(chunk);
+        if (settings?.codec === "h264") video.push(chunk);
+        else jpeg.push(chunk);
       } catch (error) {
         fail(error);
       }
@@ -349,7 +392,20 @@ export async function startCapture(options: {
       });
     return restarting;
   };
-  return { stop, restart };
+  return {
+    stop,
+    restart,
+    async configure(next) {
+      settings = next;
+      await restart();
+      return { codec: next.codec };
+    },
+    async keyframe() {
+      if (runtime.now() - lastKeyframe < 1000) return;
+      lastKeyframe = runtime.now();
+      await restart();
+    },
+  };
 }
 /**
  * The one Simulator window showing this device. A booted device whose window is closed (booted

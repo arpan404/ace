@@ -37,7 +37,12 @@ process.stdin.on("data",chunk=>{
   for(const byte of chunk){
     if(byte===1) process.stdout.write(image.subarray(0,image.length-1),()=>process.stderr.write("prefix\\n"));
     if(byte===2) process.stdout.write(image.subarray(image.length-1));
-    if(byte===3) process.stdout.write(image);
+    if(byte===3) {
+      if(process.argv.includes("copy")) {
+        const nal=(...data)=>Buffer.from([0,0,0,1,...data]);
+        process.stdout.write(Buffer.concat([nal(9,240),nal(103,66,224,31),nal(104,1),nal(101,3),nal(9,240),nal(65,4),nal(9,240),nal(65,5)]));
+      } else process.stdout.write(image);
+    }
   }
 });
 process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
@@ -486,4 +491,40 @@ it("a decoder failure after screenrecord finishes terminates capture without sch
 
 it("an Android transport changing during dimension lookup cannot start a capture process", async () => {
   await expect(fixture("dimensionmove")).rejects.toMatchObject({ code: "not_found" });
+});
+
+it("video negotiation forwards hardware access units and restores JPEG for image viewers", async () => {
+  const f = await fixture();
+  const configure = f.capture.configure;
+  if (!configure) throw new Error("Capture cannot negotiate video");
+  const settings = {
+    codec: "h264" as const,
+    maxWidth: 320,
+    maxHeight: 640,
+    fps: 30,
+    bitrate: 1000000,
+  };
+  await configure(settings);
+  f.send(3);
+  const key = await f.frame();
+  expect(key.header).toMatchObject({
+    codec: "h264",
+    keyframe: true,
+    videoCodec: "avc1.42e01f",
+    width: 320,
+    height: 640,
+    scale: 0.5,
+  });
+  expect(key.payload).toEqual(
+    Buffer.from([0, 0, 0, 1, 103, 66, 224, 31, 0, 0, 0, 1, 104, 1, 0, 0, 0, 1, 101, 3]),
+  );
+  const delta = await f.frame();
+  expect(delta.header).toMatchObject({ codec: "h264", keyframe: false });
+  expect(delta.payload).toEqual(Buffer.from([0, 0, 0, 1, 65, 4]));
+  await configure({ ...settings, codec: "jpeg" });
+  f.send(3);
+  const image = await f.frame();
+  expect(image.header).toMatchObject({ codec: "jpeg", width: 320, height: 640, scale: 0.5 });
+  expect(image.header.sequence).toBeGreaterThan(key.header.sequence);
+  expect(f.failures).toEqual([]);
 });

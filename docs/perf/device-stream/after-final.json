@@ -1,0 +1,37 @@
+{
+  "codecs": {
+    "jpeg": 0,
+    "h264": 602
+  },
+  "resolution": {
+    "width": 446,
+    "height": 950
+  },
+  "fps": 48.43972224546139,
+  "mbps": 0.37260804818873927,
+  "captureToDisplayMs": {
+    "p50": 6.27001953125,
+    "p95": 20.640869140625,
+    "samples": 579
+  },
+  "sourcePixelToDisplayMs": {
+    "p50": 27,
+    "p95": 41,
+    "samples": 579
+  },
+  "inputDispatchMs": {
+    "p50": 69.70000004768372,
+    "p95": 136
+  },
+  "inputToPixelMs": {
+    "p50": 115,
+    "p95": 180,
+    "samples": 16
+  },
+  "cpuPercent": {
+    "helper": 18.321760227557938,
+    "daemon": 4.5854680833263615,
+    "renderer": 8.882983351459886
+  },
+  "errors": []
+}

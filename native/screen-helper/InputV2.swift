@@ -4,6 +4,7 @@ import AppKit
 extension Capture {
     func injectV2(_ input: Input) async throws {
         guard target?.kind == "window" || target?.kind == "app" else { throw HelperError("Display is view-only", code: "not_supported") }
+        if input.kind == "pointer.cancel" { try releasePointer(); return }
         // V2 coordinates are target points. The legacy injector scales pixels to global points.
         var bounds = frame
         var selectedWindow: UInt32?
@@ -23,10 +24,15 @@ extension Capture {
         var action = Action(kind: "")
         action.x = target?.kind == "window" ? input.x : x; action.y = target?.kind == "window" ? input.y : y;
         if target?.kind == "window" { action.coordinates = .windowPoints }
+        // Simulator accepts events explicitly addressed to its window even while backgrounded.
+        // AX focus discovery is expensive and does not affect this targeted pointer routing.
+        if target?.kind == "window", target?.bundleId == "com.apple.iphonesimulator", input.kind.hasPrefix("pointer.") { action.focusFirst = false }
         action.windowId = selectedWindow; action.button = input.button ?? "left"
         switch input.kind {
         case "pointer.click": action.kind = "click"
-        case "pointer.move": action.kind = "move"
+        case "pointer.move": action.kind = pointerAction == nil ? "move" : "drag"
+        case "pointer.down": action.kind = "down"
+        case "pointer.up": action.kind = "up"
         case "pointer.drag":
             guard let endX = input.toX, let endY = input.toY, endX.isFinite, endY.isFinite, endX >= 0, endY >= 0, (target?.kind == "window" || (endX < bounds.width && endY < bounds.height)) else { throw HelperError("Drag endpoint outside target", code: "bounds") }
             let duration = input.durationMs ?? 0
@@ -61,7 +67,7 @@ extension Capture {
             } catch {
                 // A cancelled Task's flag remains set; release itself has no
                 // cancellation check and still uses the approved target path.
-                if target == gestureTarget { try? await inject(release) }
+                if target == gestureTarget { try? releasePointer() }
                 throw error
             }
             return
