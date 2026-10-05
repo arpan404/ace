@@ -44,14 +44,23 @@ function endWarning(scope: string, tabs: readonly ClosingTab[]): CloseWarning | 
   );
   const first = live[0];
   if (!first) return undefined;
+  // Kept on one line with its brackets.
   const hide = (
-    <Kbd shortcut={first.dock === "bottom" ? "bottomPanel" : "rightPanel"} variant="outline" />
+    <span className="whitespace-nowrap">
+      (
+      <Kbd
+        shortcut={first.dock === "bottom" ? "bottomPanel" : "rightPanel"}
+        variant="bare"
+        className="h-auto min-w-0 px-0 text-ui text-current"
+      />
+      )
+    </span>
   );
   if (live.length === 1)
     return {
       title: `End ${first.title}?`,
       description: (
-        <>Its shell and anything running in it stop. Hide the panel ({hide}) to keep it running.</>
+        <>Its shell and anything running in it stop. Hide the panel {hide} to keep it running.</>
       ),
       confirm: "End",
     };
@@ -61,8 +70,8 @@ function endWarning(scope: string, tabs: readonly ClosingTab[]): CloseWarning | 
     title: `End ${live.length} shells?`,
     description: (
       <>
-        Closing them ends {listed}, and anything running in them. Hide the panel ({hide}) to keep
-        them running.
+        Closing them ends {listed}, and anything running in them. Hide the panel {hide} to keep them
+        running.
       </>
     ),
     confirm: `End ${live.length} shells`,
