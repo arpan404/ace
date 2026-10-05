@@ -96,10 +96,10 @@ describe.skipIf(!executablePath)("live Chromium and controller ownership", () =>
     await f.navigate();
     const name = ref(await f.execute({ action: "snapshot" }), "Name");
     const active = f.evaluate("1");
-    const activeFailure = expect(active).rejects.toThrow("controlled by human");
+    const activeFailure = expect(active).rejects.toMatchObject({ code: "controller_changed" });
     await seen;
     const queued = f.execute({ action: "type", ref: name, text: "queued" });
-    const queuedFailure = expect(queued).rejects.toThrow("controlled by human");
+    const queuedFailure = expect(queued).rejects.toMatchObject({ code: "controller_changed" });
     f.service.takeover("thread", "human");
     release(true);
     await activeFailure;

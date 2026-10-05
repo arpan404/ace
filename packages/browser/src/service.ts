@@ -435,12 +435,20 @@ export class BrowserService {
   stopRecording(threadId: string): Promise<BrowserArtifact> {
     return this.get(threadId).stopRecording();
   }
-  async closeThread(threadId: string): Promise<void> {
+  async closeThread(threadId: string, actor?: Actor, signal?: AbortSignal): Promise<void> {
+    // Agent closure must not revoke policies or start recovery cleanup before ownership is checked.
+    const current = this.sessions.get(threadId);
+    if (actor && current) {
+      await current.closeBy(actor, signal);
+      this.sessions.delete(threadId);
+      return;
+    }
+    signal?.throwIfAborted();
     this.policyScopes.get(threadId)?.abort();
     await this.recoveries.get(threadId);
     const session = this.sessions.get(threadId) ?? (await this.opening.get(threadId));
     if (session) {
-      await session.close();
+      await (actor ? session.closeBy(actor, signal) : session.close());
       this.sessions.delete(threadId);
     }
   }

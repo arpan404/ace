@@ -23,7 +23,7 @@ share its origin approvals, and are not part of this contract.
    focuses it and sends a key. Omitting `ref` uses the focused element.
 4. After submitting, use `ace_browser_wait_for({url: "http://localhost:3000/results"})`
    for an exact destination through DOMContentLoaded, or
-   `ace_browser_wait_for({text: "Saved"})` for a visible-text substring.
+   `ace_browser_wait_for({text: "Saved"})` for a bounded visible-text substring.
    These check the current document, so they work if navigation already finished.
    A URL includes its query string and fragment. A loaded error document is not
    proof that a submission succeeded; inspect its content.
@@ -37,7 +37,9 @@ it cannot wait for a destination element whose ref does not exist yet. Wait and
 navigation `timeout` values are milliseconds, default 10000, maximum 30000.
 Origin approval pauses the load budget, including an approval begun by a click
 before the wait was submitted. The total approval reserve is at most 65000 ms.
-Cancellation does not return a late success.
+Cancellation does not return a late success. Each text poll visits at most 1024 DOM nodes
+and 65536 text characters, and rejects documents over the 20000-node snapshot cap.
+Larger searches return `page_text_limit` instead of repeatedly scanning the page.
 
 Refs include a document generation and Chromium node identity. They remain
 stable across snapshots of an unchanged element in the same document, but only
@@ -87,11 +89,15 @@ OS accessibility support varies; unsupported operations return an error.
 `screen_key({key: "Enter"})` sends a named v2 key.
 `screen_click({x: 10, y: 20})` uses target-window points on v2.
 `screen_scroll({dx: 0, dy: 100})` scrolls, with optional target-window `x`, `y`.
-Legacy v1 helpers instead use screenshot pixel coordinates, macOS `keyCode`, and
-`deltaX`/`deltaY`. Prefer semantic refs to coordinate input.
+Legacy v1 MCP tools instead use pixels in the latest model screenshot, macOS
+`keyCode`, and `deltaX`/`deltaY`. ace maps model pixels back to the original capture
+for click and scroll positions, including Retina captures. A controller or capture
+geometry change requires a fresh screenshot before coordinate input. Viewer input
+keeps its original capture-pixel contract. Prefer semantic refs to coordinate input.
 
 `screen_screenshot({})` returns an inline JPEG and its pixels-per-target-point
-scale. Divide screenshot coordinates by that scale before v2 input. Screen and
+scale for v2. Divide screenshot coordinates by that scale before v2 input. For v1,
+pass pixels from the model image directly as described in its text block. Screen and
 device model images are capped at 1536 pixels and 1 MiB. Large images require
 ffmpeg on the daemon host for resizing; a missing encoder returns a typed remedy.
 Live-view frames retain their original resolution.
@@ -128,10 +134,14 @@ not grant or renew input authority. Restart never restores approval/control.
 
 Execution failures return MCP `isError: true` and text containing bounded JSON
 `{code, message, hint?}`. Origin failures also contain `blocked: {origin, reason}`.
+Only ace-authored public failure types expose fixed messages and remedies. Arbitrary
+backend messages, hints, stacks, strings and code-shaped objects become a fixed
+`execution_failed` response. Schema errors expose no private issue literals.
 Examples include `stale_ref`, `controller_changed`, `delegation_required`,
 `lease_required`, `read_only`, `denied`, and `invalid_arguments`. Malformed backend
-results return `invalid_data` so the agent is not told to change valid arguments. Native screen
-error codes, including `target_gone` and `permission_denied`, are retained.
+results return `invalid_data` so the agent is not told to change valid arguments. Allowlisted native screen
+error codes, including `target_gone` and `permission_denied`, are retained with
+fixed guidance. Unknown native codes use a generic failure.
 Capacity, cancellation and result-limit failures also return readable text.
 Stack traces, input dumps and echoed ace bearer credentials are not returned.
 Read the error before retrying; delegation and approval failures require a human.
@@ -152,7 +162,8 @@ is required for browser/computer tools. Unsupported ACP transport fails explicit
 
 ## Offline regression harness
 
-Run only these targeted tests with `bun run test --project process`:
+The owner permits test execution only at merge. These are merge-time regression
+suites, not development commands:
 
 - `apps/daemon/src/agent-browser-journey.process.test.ts`: real daemon MCP and
   installed Chromium against a gated localhost form, results, screenshots,
@@ -163,6 +174,16 @@ Run only these targeted tests with `bun run test --project process`:
 - `apps/daemon/src/provider-mcp.process.test.ts` and
   `apps/daemon/src/cursor-sdk-tools.process.test.ts`: fake native providers consume
   injected config and call the daemon toolkit without provider prompts.
+- `packages/browser/src/ref-dispatch.process.test.ts`: resolution and cleanup
+  barriers observe focus, selection, scroll and destination input.
+- `apps/daemon/src/browser-paused-owner.process.test.ts`: suspended human ownership
+  still blocks MCP close.
+- `packages/screen/src/model-input.process.test.ts`: legacy image midpoint reaches
+  the native target centre at scales 1 and 2.
+- `packages/browser/src/text-wait.process.test.ts` and `wait-readiness.process.test.ts`:
+  bounded text searches and a held document readiness condition.
+- `packages/mcp-server/src/model-image-failures.process.test.ts`: injected encoder
+  discovery and deadlines with local fake child processes.
 - `packages/browser/src/control-journey.process.test.ts`: queued input and
   click-origin approval races with injected time.
 - `apps/daemon/src/screen-queued-cancel.process.test.ts`: cancelled input never
@@ -174,3 +195,11 @@ record paid sessions, drive the user's OS, contact external sites, or use
 `~/.ace-next`. Missing Chromium or ffmpeg produces an explicit test skip; no
 automatic download occurs. Real OS permission and provider-version compatibility
 remain separate installation checks.
+
+## Performance verification at merge
+
+`packages/browser/bench/text-wait.ts` is a localhost, temporary-home benchmark
+for 100, 500 and 10000 nodes and an oversized 65537-character text node. It records
+100 samples per case, p50/p95 wait latency, bounded-limit results and RSS. It has
+not been executed under the owner rule. Measured latency and memory need run at
+merge; the numerical limits above are implementation budgets, not benchmark results.

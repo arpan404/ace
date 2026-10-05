@@ -1,6 +1,7 @@
-import type { Toolkit } from "@ace/mcp-server";
+import { PublicToolError, PublicToolCode, type Toolkit } from "@ace/mcp-server";
 import type { ScreenManager } from "./manager.ts";
 import type { ApprovalTarget } from "@ace/protocol";
+import { HelperCommandError } from "./helper.ts";
 import { agentOwner } from "./agent-binding.ts";
 import { computerUseTools, computerUseSchemas, computerUseHandler } from "./tools.ts";
 const risks = new Map(
@@ -33,12 +34,21 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
           async run(args, { caller, signal }) {
             signal.throwIfAborted();
             const sessionId = manager.agentSession(caller);
-            const result = await computerUseHandler(
-              manager,
-              sessionId,
-              agentOwner(caller),
-              signal,
-            )(name, args);
+            let result;
+            try {
+              result = await computerUseHandler(
+                manager,
+                sessionId,
+                agentOwner(caller),
+                signal,
+              )(name, args);
+            } catch (error) {
+              if (error instanceof HelperCommandError) {
+                const code = PublicToolCode.safeParse(error.code);
+                if (code.success) throw new PublicToolError(code.data);
+              }
+              throw error;
+            }
             signal.throwIfAborted();
             if (manager.agentSession(caller) !== sessionId)
               throw new Error("Screen delegation changed");

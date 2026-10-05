@@ -1,18 +1,14 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
-import { CredentialRegistry, ToolRegistry } from "./index.ts";
+import { CredentialRegistry, ToolRegistry, PublicToolError } from "./index.ts";
 import { scope } from "./test-support.ts";
 
-it("agents receive actionable bounded errors while echoed credentials and stacks stay private", async () => {
+it("only intentional fixed failures reach agents; raw messages, hints, stacks and code-shaped objects stay private", async () => {
   const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
   const lease = new CredentialRegistry(() => "a".repeat(64)).issue(
     scope("root", ["browser"]),
     new AbortController().signal,
   );
-  class NativeError extends Error {
-    readonly code = "target_gone";
-    readonly hint = "Take a fresh snapshot";
-  }
   registry.registerContent({
     name: "ace_browser_click",
     capability: "browser",
@@ -20,52 +16,57 @@ it("agents receive actionable bounded errors while echoed credentials and stacks
     timeoutMs: 1000,
     input: z.strictObject({ ref: z.string() }),
     async run(args) {
-      if (args.ref === "plain-error")
+      if (args.ref === "public") {
+        const error = new PublicToolError("target_gone");
+        error.message = `secret bearer material ${lease.bearer}`;
+        throw error;
+      }
+      if (args.ref === "origin") {
+        class OriginFailure extends PublicToolError {
+          readonly blocked = {
+            origin: `https://${lease.bearer}.example.invalid/path`,
+            reason: "denied" as const,
+          };
+        }
+        throw new OriginFailure("denied");
+      }
+      if (args.ref === "plain")
         return Promise.reject({
           code: "target_gone",
-          message: "Native target disappeared",
-          hint: "Refresh tree",
+          message: "secret bearer material",
+          hint: "secret recovery hint",
         });
-      throw new NativeError(`Element expired; Bearer ${lease.bearer}. ${"x".repeat(5000)}`);
+      if (args.ref === "schema")
+        z.object({ secret: z.literal("private literal") }).parse({ secret: "no" });
+      throw new Error(`secret bearer material ${lease.bearer}`);
     },
   });
-  const call = (args: unknown) =>
-    registry.call("ace_browser_click", args, lease.principal, new AbortController().signal);
-  const response = await call({ ref: "gone" });
-  expect(response.isError).toBe(true);
-  const text = response.content?.find((content) => content.type === "text")?.text;
-  const failure = z
-    .object({ code: z.string(), message: z.string(), hint: z.string() })
-    .parse(JSON.parse(String(text)));
-  expect(failure).toMatchObject({
-    code: "target_gone",
-    hint: "Take a fresh snapshot",
-    message: expect.stringContaining("Element expired"),
+  const call = (ref: string) =>
+    registry.call("ace_browser_click", { ref }, lease.principal, new AbortController().signal);
+  for (const ref of ["public", "plain", "schema", "raw", "origin"]) {
+    const result = await call(ref);
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).not.toMatch(/secret|private literal|at |[a-f0-9]{64}/);
+  }
+  expect(await call("public")).toMatchObject({
+    content: [{ text: expect.stringContaining('"code":"target_gone"') }],
   });
-  expect(failure.message.length).toBeLessThanOrEqual(2048);
-  expect(JSON.stringify(response)).not.toContain(lease.bearer);
-  expect(JSON.stringify(response)).not.toContain("at NativeError");
-  expect(await call({ ref: 42 })).toMatchObject({
+  expect(await call("plain")).toMatchObject({
+    content: [{ text: expect.stringContaining('"code":"execution_failed"') }],
+  });
+  expect(await call("schema")).toMatchObject({
+    content: [{ text: expect.stringContaining('"code":"invalid_data"') }],
+  });
+  expect(
+    await registry.call(
+      "ace_browser_click",
+      { ref: 42 },
+      lease.principal,
+      new AbortController().signal,
+    ),
+  ).toMatchObject({
     isError: true,
     content: [{ text: expect.stringContaining("invalid_arguments") }],
   });
-  expect(await call({ ref: "plain-error" })).toMatchObject({
-    isError: true,
-    content: [{ text: expect.stringContaining("Native target disappeared") }],
-  });
-  registry.registerContent({
-    name: "ace_browser_snapshot",
-    capability: "browser",
-    description: "Inspect",
-    timeoutMs: 1000,
-    input: z.strictObject({}),
-    async run() {
-      z.object({ nodes: z.array(z.unknown()) }).parse({ nodes: "corrupt" });
-      return { content: [] };
-    },
-  });
-  expect(
-    await registry.call("ace_browser_snapshot", {}, lease.principal, new AbortController().signal),
-  ).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("invalid_data") }] });
   lease.end();
 });

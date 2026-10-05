@@ -1,17 +1,10 @@
-/** A recoverable browser action failure with an agent-readable remedy. */
-export class BrowserActionError extends Error {
-  readonly code: string;
-  readonly hint: string;
-  constructor(code: string, message: string, hint: string) {
-    super(message);
-    this.code = code;
-    this.hint = hint;
+import { PublicToolError, type PublicToolCode } from "@ace/mcp-server/errors";
+/** The message and remedy are fixed by the shared public failure catalog. */
+export class BrowserActionError extends PublicToolError {
+  constructor(code: PublicToolCode, _message?: string, _hint?: string) {
+    super(code);
   }
 }
 export function staleRef(): BrowserActionError {
-  return new BrowserActionError(
-    "stale_ref",
-    "Stale or unknown browser ref",
-    "Call ace_browser_snapshot and use a ref from the current document.",
-  );
+  return new BrowserActionError("stale_ref");
 }

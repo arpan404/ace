@@ -1,4 +1,4 @@
-import { staleRef } from "./action-error.ts";
+import { staleRef, BrowserActionError } from "./action-error.ts";
 import type { BrowserCdp } from "./backend.ts";
 import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
 import { z } from "zod";
@@ -32,15 +32,29 @@ export class SnapshotRefs {
     for (const node of nodes) if (node.ref) this.refs.set(node.ref, Number(node.ref.split("-")[1]));
     return { nodes, truncated: nodes.length < tree.nodes.length };
   }
-  private async call(ref: string, functionDeclaration: string): Promise<unknown> {
+  guard(ref: string): () => void {
+    const epoch = this.epoch;
+    const node = this.refs.get(ref);
+    if (node === undefined) throw staleRef();
+    return () => {
+      if (epoch !== this.epoch || this.refs.get(ref) !== node) throw staleRef();
+    };
+  }
+  private async call(
+    ref: string,
+    functionDeclaration: string,
+    beforeDispatch: () => void = () => {},
+  ): Promise<unknown> {
     const backendNodeId = this.refs.get(ref);
     if (backendNodeId === undefined) throw staleRef();
     const epoch = this.epoch;
     const { object } = ResolvedNode.parse(
       await this.cdp.send("DOM.resolveNode", { backendNodeId }),
     );
+    let result: unknown;
     try {
       if (epoch !== this.epoch) throw staleRef();
+      beforeDispatch();
       const response = CallResult.parse(
         await this.cdp.send("Runtime.callFunctionOn", {
           objectId: object.objectId,
@@ -49,13 +63,16 @@ export class SnapshotRefs {
         }),
       );
       if (epoch !== this.epoch) throw staleRef();
-      if (response.exceptionDetails) throw new Error("Browser element is detached or unavailable");
-      return response.result.value;
+      if (response.exceptionDetails) throw new BrowserActionError("element_unavailable");
+      result = response.result.value;
     } finally {
       await this.cdp.send("Runtime.releaseObject", { objectId: object.objectId }).catch(() => {});
     }
+    if (epoch !== this.epoch) throw staleRef();
+    beforeDispatch();
+    return result;
   }
-  async bounds(ref: string) {
+  async bounds(ref: string, beforeDispatch: () => void) {
     return Bounds.parse(
       await this.call(
         ref,
@@ -65,19 +82,21 @@ export class SnapshotRefs {
       const r = this.getBoundingClientRect();
       return {x:r.x, y:r.y, width:r.width, height:r.height};
     }`,
+        beforeDispatch,
       ),
     );
   }
-  async focus(ref: string): Promise<void> {
+  async focus(ref: string, beforeDispatch: () => void): Promise<void> {
     await this.call(
       ref,
       `function() {
       if (!this.isConnected) throw new Error('detached');
       this.focus();
     }`,
+      beforeDispatch,
     );
   }
-  async select(ref: string): Promise<void> {
+  async select(ref: string, beforeDispatch: () => void): Promise<void> {
     await this.call(
       ref,
       `function() {
@@ -89,6 +108,7 @@ export class SnapshotRefs {
         const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
       else throw new Error('not editable');
     }`,
+      beforeDispatch,
     );
   }
   async visible(ref: string): Promise<boolean> {

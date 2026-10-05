@@ -1,4 +1,3 @@
-import { modelImage } from "@ace/mcp-server";
 import {
   ScreenAction,
   ScreenInput,
@@ -59,7 +58,7 @@ export const computerUseTools = [
   {
     name: "screen_click",
     description:
-      "Prefer screen_ui_act. Click at target-window points with v2, or screenshot pixels with v1.",
+      "Prefer screen_ui_act. Click at target-window points with v2, or pixels of the latest model screenshot with v1. Take a new screenshot after takeover or resizing.",
     inputSchema: z.toJSONSchema(Click),
   },
   {
@@ -76,7 +75,7 @@ export const computerUseTools = [
   {
     name: "screen_scroll",
     description:
-      "Scroll with v2 dx/dy at optional target-window points, or legacy pixel coordinates and deltaX/deltaY.",
+      "Scroll with v2 dx/dy at optional target-window points, or legacy model-image pixel coordinates and deltaX/deltaY.",
     inputSchema: z.toJSONSchema(Scroll),
   },
 ];
@@ -99,8 +98,7 @@ export function computerUseHandler(
     signal.throwIfAborted();
     if (name === "screen_screenshot") {
       Screenshot.parse(input);
-      const frame = await manager.captureScreenshot(sessionId);
-      const image = await modelImage({ payload: frame.payload, ...frame.header }, signal);
+      const image = await manager.modelScreenshot(sessionId, owner, signal);
       return {
         content: [
           {
@@ -108,14 +106,12 @@ export function computerUseHandler(
             data: image.payload.toString("base64"),
             mimeType: "image/jpeg",
           },
-          ...(image.scale === undefined
-            ? []
-            : [
-                {
-                  type: "text" as const,
-                  text: `Screenshot scale: ${image.scale} pixels per target point. Divide screenshot coordinates by this scale for input; prefer UI refs.`,
-                },
-              ]),
+          {
+            type: "text",
+            text: manager.state(sessionId).capabilities
+              ? `Screenshot scale: ${image.scale} pixels per target point. Divide image coordinates by this scale for v2 input; prefer UI refs.`
+              : `Legacy input uses pixels in this ${image.width}x${image.height} model image. Pass its coordinates directly; ace maps them to the original capture. Refresh after control or capture geometry changes.`,
+          },
         ],
       };
     }
@@ -161,7 +157,7 @@ export function computerUseHandler(
     }
     if (v2) await manager.input(sessionId, "agent", v2, owner, () => signal.throwIfAborted());
     else
-      await manager.action(sessionId, "agent", ScreenAction.parse(action), owner, () =>
+      await manager.modelAction(sessionId, owner, ScreenAction.parse(action), () =>
         signal.throwIfAborted(),
       );
     return { content: [{ type: "text", text: "Action completed" }] };

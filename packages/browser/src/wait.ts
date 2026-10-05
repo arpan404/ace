@@ -1,10 +1,15 @@
+import { textCondition } from "./text-condition.ts";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import { NavigationTask, type NavigationClock } from "./navigation.ts";
 import { BrowserActionError } from "./action-error.ts";
 
 const Result = z.object({
-  result: z.object({ value: z.boolean().optional() }),
+  result: z.object({
+    value: z
+      .union([z.boolean(), z.object({ matched: z.boolean(), limited: z.boolean() })])
+      .optional(),
+  }),
   exceptionDetails: z.unknown().optional(),
 });
 /** Poll current facts, not a past event. A committed navigation may replace the context. */
@@ -19,19 +24,28 @@ async function waitForPage(
   const expression =
     condition.url !== undefined
       ? `location.href === ${JSON.stringify(condition.url)} && document.readyState !== 'loading'`
-      : `document.readyState !== 'loading' && (document.body?.innerText ?? '').includes(${JSON.stringify(condition.text)})`;
+      : textCondition(condition.text ?? "");
   while (true) {
     signal.throwIfAborted();
     checkNavigation();
     try {
+      if (condition.text !== undefined) {
+        const counters = z
+          .object({ nodes: z.number().nonnegative() })
+          .parse(await cdp.send("Memory.getDOMCounters"));
+        if (counters.nodes > 20_000) throw new BrowserActionError("page_text_limit");
+      }
       if (element) {
         if (await element()) return;
       } else {
         const response = Result.parse(
           await cdp.send("Runtime.evaluate", { expression, returnByValue: true }),
         );
-        if (response.exceptionDetails) throw new Error("Browser page condition could not be read");
-        if (response.result.value === true) return;
+        if (response.exceptionDetails) throw new BrowserActionError("invalid_data");
+        const value = response.result.value;
+        if (typeof value === "object" && value.limited)
+          throw new BrowserActionError("page_text_limit");
+        if (value === true || (typeof value === "object" && value.matched)) return;
       }
     } catch (error) {
       if (

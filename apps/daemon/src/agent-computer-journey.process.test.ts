@@ -181,7 +181,8 @@ it("screen and device agents edit, submit, read results and respect takeover, ex
   ).toBe("pixels:Saved journey!");
   expect(data(await call("screen_ui_act", { ref: "name", action: "focus" }, true))).toMatchObject({
     code: "target_gone",
-    message: expect.stringContaining("expired"),
+    message: "Native target is no longer available",
+    hint: expect.stringContaining("current ref"),
   });
   screen.controller(session.sessionId, "human", "person");
   await call("screen_type", { text: "forbidden" }, true);

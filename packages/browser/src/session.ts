@@ -179,7 +179,7 @@ export class BrowserSession {
     this.options.state(this.state);
   }
   takeover(connectionId: string): BrowserState {
-    if (this.closed) throw new Error("Browser closed");
+    if (this.closed) throw new BrowserActionError("browser_closed");
     if (this.owner && this.owner !== connectionId)
       throw new Error("Browser already controlled by another connection");
     if (this.owner === connectionId) return this.state;
@@ -208,10 +208,10 @@ export class BrowserSession {
         "Browser control changed while the action was queued",
         "Take a fresh snapshot and retry after control is handed back.",
       );
-    if (this.closed) throw new Error("Browser closed");
-    if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
+    if (this.closed) throw new BrowserActionError("browser_closed");
+    if (this.paused) throw new BrowserActionError("browser_paused");
     if (actor.kind === "agent" && this.controller !== "agent")
-      throw new Error("Browser controlled by human");
+      throw new BrowserActionError("human_controlled");
     if (
       actor.kind === "human" &&
       (this.controller !== "human" || this.owner !== actor.connectionId)
@@ -219,8 +219,8 @@ export class BrowserSession {
       throw new Error("Browser controller mismatch");
   }
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
-    if (this.closed) return Promise.reject(new Error("Browser closed"));
-    if (this.pending >= 32) return Promise.reject(new Error("Browser command queue full"));
+    if (this.closed) return Promise.reject(new BrowserActionError("browser_closed"));
+    if (this.pending >= 32) return Promise.reject(new BrowserActionError("queue_full"));
     this.pending++;
     const result = this.tail.then(work);
     this.tail = result
@@ -235,11 +235,11 @@ export class BrowserSession {
     const submittedGeneration = this.generation;
     return this.enqueue(async () => {
       signal?.throwIfAborted();
-      if (this.closed) throw new Error("Browser closed");
+      if (this.closed) throw new BrowserActionError("browser_closed");
       if (inputActions.has(command.action)) {
         this.check(actor, signal, submittedGeneration);
       }
-      if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
+      if (this.paused) throw new BrowserActionError("browser_paused");
       const generation = this.generation;
       if (inputActions.has(command.action)) {
         await this.leaseReady;
@@ -253,22 +253,50 @@ export class BrowserSession {
         throw error;
       }
       if (this.paused || (generation !== this.generation && this.pageStateLost))
-        throw new Error("Browser backend changed during command");
+        throw new BrowserActionError("backend_changed");
       return result;
     });
   }
   screenshot(signal?: AbortSignal): Promise<Uint8Array> {
     return this.enqueue(async () => {
       signal?.throwIfAborted();
-      if (this.closed) throw new Error("Browser closed");
-      if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
+      if (this.closed) throw new BrowserActionError("browser_closed");
+      if (this.paused) throw new BrowserActionError("browser_paused");
       const generation = this.generation;
       const bytes = await this.options.backend.screenshot("jpeg");
       signal?.throwIfAborted();
       if (this.paused || (generation !== this.generation && this.pageStateLost))
-        throw new Error("Browser backend changed during screenshot");
+        throw new BrowserActionError("backend_changed");
       return ScreenshotBytes.parse(bytes);
     });
+  }
+  private refDispatch(
+    ref: string,
+    actor: Actor,
+    signal: AbortSignal | undefined,
+    generation: number,
+  ) {
+    const document = this.refs.guard(ref);
+    const prepare = () => this.check(actor, signal, generation);
+    return {
+      prepare,
+      send: () => {
+        prepare();
+        document();
+      },
+    };
+  }
+  closeBy(actor: Actor, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
+    if (actor.kind === "agent" && (this.controller === "human" || this.owner !== undefined))
+      throw new BrowserActionError(
+        "human_controlled",
+        "Browser controlled by human",
+        "Wait for handback before closing.",
+      );
+    if (actor.kind === "human" && this.owner !== undefined && this.owner !== actor.connectionId)
+      throw new Error("Browser controller mismatch");
+    return this.close();
   }
   private async run(
     command: BrowserCommand,
@@ -337,22 +365,32 @@ export class BrowserSession {
       case "snapshot":
         return this.refs.snapshot();
       case "click": {
-        const rect = await this.refs.bounds(command.ref);
-        this.check(actor, signal, generation);
-        if (rect.width <= 0 || rect.height <= 0) throw new Error("Browser element is not visible");
+        const dispatch = this.refDispatch(command.ref, actor, signal, generation);
+        const rect = await this.refs.bounds(command.ref, dispatch.prepare);
+        dispatch.send();
+        if (rect.width <= 0 || rect.height <= 0) throw new BrowserActionError("not_visible");
         await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
         return { ok: true };
       }
-      case "type":
-        await this.refs.select(command.ref);
-        this.check(actor, signal, generation);
+      case "type": {
+        const dispatch = this.refDispatch(command.ref, actor, signal, generation);
+        await this.refs.select(command.ref, dispatch.prepare);
+        dispatch.send();
         await page.insertText(command.text);
         return { ok: true };
-      case "press":
-        if (command.ref) await this.refs.focus(command.ref);
-        this.check(actor, signal, generation);
+      }
+      case "press": {
+        const dispatch = command.ref
+          ? this.refDispatch(command.ref, actor, signal, generation)
+          : {
+              prepare: () => this.check(actor, signal, generation),
+              send: () => this.check(actor, signal, generation),
+            };
+        if (command.ref) await this.refs.focus(command.ref, dispatch.prepare);
+        dispatch.send();
         await page.press(command.key);
         return { ok: true };
+      }
       case "scroll":
         await page.wheel(command.x, command.y);
         return { ok: true };
@@ -399,7 +437,7 @@ export class BrowserSession {
         return { ok: true };
       case "evaluate": {
         if (!(await evaluatePolicy?.(threadId, page.url())))
-          throw new Error("Browser evaluate requires approval");
+          throw new BrowserActionError("evaluate_approval_required");
         this.check(actor, signal, generation);
         return evaluatePage(cdp, command.expression);
       }

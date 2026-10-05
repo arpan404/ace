@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { DeviceOperation, AppDeviceId } from "@ace/protocol/devices";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "@ace/protocol";
-import { modelImage, ModelImageError, type Toolkit } from "@ace/mcp-server";
+import {
+  modelImage,
+  ModelImageError,
+  PublicToolError,
+  PublicToolCode,
+  type ModelImageRuntime,
+  type Toolkit,
+} from "@ace/mcp-server";
 import type { ApprovalTarget } from "@ace/protocol";
 import { DevicesService, agentOwner, deviceFailure } from "./service.ts";
 
@@ -131,7 +138,7 @@ const actions = new Map(
     { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
   >),
 );
-export function devicesToolkit(service: DevicesService): Toolkit {
+export function devicesToolkit(service: DevicesService, imageRuntime?: ModelImageRuntime): Toolkit {
   return {
     register(registry) {
       for (const [name, input] of Object.entries(schemas)) {
@@ -166,7 +173,11 @@ export function devicesToolkit(service: DevicesService): Toolkit {
               if (name === "device_screenshot") {
                 const { deviceId } = target.parse(args);
                 const frame = await service.screenshot(deviceId, actor);
-                const image = await modelImage({ payload: frame.payload, ...frame.header }, signal);
+                const image = await modelImage(
+                  { payload: frame.payload, ...frame.header },
+                  signal,
+                  imageRuntime,
+                );
                 signal.throwIfAborted();
                 return {
                   content: [
@@ -204,10 +215,12 @@ export function devicesToolkit(service: DevicesService): Toolkit {
               return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
             } catch (error) {
               if (error instanceof ModelImageError) throw error;
-              return {
-                isError: true,
-                content: [{ type: "text" as const, text: JSON.stringify(deviceFailure(error)) }],
-              };
+              const failure = deviceFailure(error);
+              const code = PublicToolCode.safeParse(failure.code);
+              throw new PublicToolError(
+                code.success ? code.data : "command_failed",
+                failure.permission,
+              );
             } finally {
               signal.removeEventListener("abort", abort);
             }

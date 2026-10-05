@@ -24,9 +24,9 @@ function frame() {
           sessionId,
           seq: sequence++,
           ts: 1000,
-          scale: 1,
-          width: 100,
-          height: 100,
+          width: Number(process.env.MODEL_FRAME_WIDTH ?? 100),
+          height: Number(process.env.MODEL_FRAME_HEIGHT ?? 100),
+          scale: Number(process.env.MODEL_NATIVE_SCALE ?? 1),
           codec: "jpeg",
           bytes: payload.length,
           dirtyRects: [{ x: 0, y: 0, w: 100, h: 100 }],
@@ -36,8 +36,9 @@ function frame() {
           sessionId,
           sequence: sequence++,
           timestamp: 1000,
-          width: 100,
-          height: 100,
+          width: Number(process.env.MODEL_FRAME_WIDTH ?? 100),
+          height: Number(process.env.MODEL_FRAME_HEIGHT ?? 100),
+          scale: Number(process.env.MODEL_NATIVE_SCALE ?? 1),
           codec: "jpeg",
           bytes: payload.length,
         },
@@ -54,6 +55,7 @@ let inspectedInput = false;
 const v2 = process.env.FAKE_V2 === "1";
 let capturing = !v2;
 let actions = 0;
+let clickedTarget = "none";
 const node = (ref: string, role: string, name: string, value?: string) => ({
   ref,
   role,
@@ -181,7 +183,9 @@ lines.on("line", (line) => {
           bundleId: "dev.ace.test",
           title: v2
             ? `capture:${capturing};actions:${actions};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pid:${process.pid}`
-            : "Test",
+            : process.env.MODEL_FRAME_WIDTH
+              ? `Test;clicked:${clickedTarget}`
+              : "Test",
         },
       ],
     };
@@ -195,6 +199,16 @@ lines.on("line", (line) => {
       process.exit(7);
     }
     actions++;
+    if (request.action?.kind === "click") {
+      const nativeScale = Number(process.env.MODEL_NATIVE_SCALE ?? 1);
+      const point = request.action.x / nativeScale;
+      const pointY = request.action.y / nativeScale;
+      clickedTarget =
+        point === Number(process.env.MODEL_FRAME_WIDTH ?? 100) / nativeScale / 2 &&
+        pointY === Number(process.env.MODEL_FRAME_HEIGHT ?? 100) / nativeScale / 2
+          ? "centre"
+          : "wrong";
+    }
     if (capturing) frame();
     data = { action: request.action };
   }

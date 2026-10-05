@@ -85,8 +85,8 @@ it("pause on desktop loss emits the URL and rejects an in-flight read without re
     }),
   ]);
   expect(states.at(-1)).toMatchObject({ controller: "none", status: "paused" });
-  await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toThrow(
-    "disconnected",
+  await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toMatchObject(
+    { code: "browser_paused" },
   );
   expect(f.headless.pages).toHaveLength(0);
 });
@@ -214,8 +214,8 @@ it("closes a pressured relay and pauses its session instead of queuing undeliver
     status: "paused",
     reason: "Desktop browser transport backpressure",
   });
-  await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toThrow(
-    "backpressure",
+  await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toMatchObject(
+    { code: "browser_paused" },
   );
 });
 it("requires evaluation approval before sending arbitrary JavaScript to the desktop", async () => {

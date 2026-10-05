@@ -66,9 +66,7 @@ export function browserToolkit(browser: BrowserService, store: Store): Toolkit {
         timeoutMs: 60_000,
         async run(_input, { caller, signal }) {
           signal.throwIfAborted();
-          if (browser.state(caller.threadId).controller === "human")
-            throw new Error("Browser controlled by human; wait for handback before closing");
-          await browser.closeThread(caller.threadId);
+          await browser.closeThread(caller.threadId, { kind: "agent" }, signal);
           return content({ closed: true });
         },
       });
