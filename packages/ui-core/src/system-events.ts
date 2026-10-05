@@ -12,7 +12,7 @@ import {
 
 /* ---------------------------------------------------------------------------------------- */
 
-export type EventIcon = "restart" | "resume" | "background" | "queue" | "switch" | "automation";
+export type EventIcon = "restart" | "resume" | "background" | "switch" | "automation";
 
 /** One quiet divider: "Resumed after restart", "Switched to Codex · GPT-5 Codex". */
 export interface EventLine {
@@ -58,8 +58,6 @@ export function inputLine(input: SystemInput): EventLine | undefined {
       return { icon: "restart", text: "Resumed after restart" };
     case "limit_resume":
       return { icon: "resume", text: "Resumed after the usage limit" };
-    case "queue":
-      return { icon: "queue", text: "Queued message sent" };
     case "background_completion": {
       const title = /`([^`\n]+)`/.exec(input.text)?.[1];
       return {
