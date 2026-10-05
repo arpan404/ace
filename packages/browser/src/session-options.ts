@@ -14,6 +14,7 @@ export interface SessionOptions {
   ffmpeg?: string;
   spawn?: ProcessSpawner;
   cancelPolicy: () => void;
+  /** Persist private ownership before takeover, and retain it through disconnect. */
   privatePaused?: () => void;
   privateResumed?: () => void;
   navigatePolicy: (url: string, actor: Actor, signal?: AbortSignal) => Promise<boolean>;
@@ -22,6 +23,7 @@ export interface SessionOptions {
     url: string,
     mode?: "read-only" | "unrestricted",
     expression?: string,
+    signal?: AbortSignal,
   ) => boolean | Promise<boolean>;
   artifactAllowed?: (path: string) => boolean | Promise<boolean>;
   workspaceRoot?: () => string | Promise<string>;

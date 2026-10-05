@@ -49,8 +49,9 @@ from updated state after answering. Stale IDs fail rather than answering a diffe
 dialog. A command that opens a synchronous dialog returns `{pending_dialog}`
 without waiting for the renderer reply. Until it is answered, other page commands
 return that pending state without applying input; tab listing remains available.
-Dialogs on inactive tabs remain on that tab's entry. Switching is required
-before agent dialog tools, while `browser.dialog.answer` selects its specified tab.
+Dialogs on inactive tabs remain on that tab's entry. Both agent dialog tools and
+`browser.dialog.answer` answer the original dialog without switching tabs; send
+its original `tabId` and `dialogId`.
 
 Evaluate approvals arrive through the existing canonical `interaction.opened`
 path and thread approval UI, not a separate browser popup. The target tool is
@@ -63,15 +64,15 @@ paths, and always require a human. Auto-review records `permission.reviewed` and
 leaves these external effects pending. Grants never apply across threads or to
 unrestricted JS. Revoke calls expire matching pending evaluations.
 
-Private takeover shows `controller:"human"`, `takeoverMode:"private"`. Agent calls
+Private takeover persists its blocking ownership gate immediately, including while the controller is connected. Private takeover shows `controller:"human"`, `takeoverMode:"private"`. Agent calls
 return `human_private`; private frames do not enter recordings and private logs or
 response bodies are not collected. Human viewing remains authorized independently.
 On private disconnect the state becomes `controller:"none"`, `status:"paused"`,
 no owner and still private. Reconnect must subscribe, take over in private mode,
 then explicitly hand back. Taking over makes human input available again; handback
 restores `controller:"agent"`, ready/shared, and closes the engine's blocking
-"Private browser paused" interaction. Resolving that interaction directly fails
-with `private_handback_required`; only handback or browser closure clears it. After an unclean daemon stop, reopen the browser before takeover/handback; its
+"Private browser ownership" interaction. Resolving that interaction directly fails
+with `private_handback_required`; only authorized handback or explicit browser closure clears it. Shared takeover cannot downgrade a private lease. Daemon shutdown and backend loss preserve it. After an unclean daemon stop, reopen the browser before takeover/handback; its
 durable private gate restores private/paused state even though tabs were lost.
 Backend-loss pause is separate and cannot
 be cleared by handback. Shared disconnect retains automatic handback.
@@ -94,3 +95,23 @@ input, file operations, approvals or recording actions after an uncertain result
 The fake daemon exposes the same requests and states. Fixture scripts can call
 `tabsList`, `tabOpen`, `tabSwitch`, `tabClose`, `dialogOpen`, `downloadAdd`, and
 `evaluateGrant` to seed these panels; client behavior still goes through the wire.
+
+## UI follow-up for the Claude web agent
+
+Use `new BrowserFeaturesClient(client)` from `@ace/client` for `tabs`, `openTab`,
+`switchTab`, `closeTab`, `downloads`, `answerDialog`, `evaluateGrants`,
+`revokeEvaluateGrant`, `takeover(threadId, "private")` and `handback`. Use the existing
+`BrowserOriginsClient.list/grant/revoke` for origin consent. These are one-shot
+requests, not durable intents. Tab mutations return either `{activeTabId,tabs}` or
+`{pending_dialog}`; preserve dialog ownership and answer by its original `tabId`
+and `dialogId` before retrying. The pending dialog may belong to an inactive tab.
+Read lists require thread read scope; mutations, answers, takeover and handback
+require operate scope and the human controller lease where applicable. Client
+errors use `ClientError("daemon", error)` or `ClientError("protocol", ...)`.
+Continue rendering `browser.state` and acknowledging `browser.frame` through the
+existing subscription transport. Approvals use `interaction.resolve` and the
+existing interaction projection. Do not mark private control complete while its
+host gate is pending. The fake daemon exposes the same ownership timing.
+
+UI changes are delegated to the Claude web agent. This backend PR does not edit
+web, desktop, mobile or UI packages.

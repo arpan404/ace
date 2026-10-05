@@ -56,9 +56,13 @@ screencast before starting the new one and retains increasing frame sequences.
 ## Files, dialogs and semantic input
 
 Downloads require origin permission and an independent `browser.downloads` host
-approval in Ask and Auto-review. Full access permits them directly. Attachment
-responses pass the download gate before Fetch continues. Browser download events
-also check the gate, covering downloads not marked as attachments. Downloads stay
+approval in Ask and Auto-review. Full access permits them directly. Each browser download event owns one approval,
+including downloads not marked as attachments. Approvals never accumulate URL
+credits, and attachment-like fetch responses cannot authorize later downloads.
+Origin guards apply before network requests. Chromium may receive quarantined
+bytes while host download approval is pending; progress caps still apply and
+refusal cancels and deletes those bytes. No artifact or download stream is released
+before the individual download approval. Downloads stay
 in a private session directory belonging to the thread. They never open or execute.
 A CDP progress hook cancels oversized Chromium temporary files, and a bounded
 stream independently enforces a 64 MiB artifact limit and 256 MiB thread-session
@@ -80,10 +84,13 @@ descriptors, so a hostile local writer can still race the final path check. This
 is a local filesystem limitation, not an atomic containment guarantee.
 
 Alert, confirm and prompt stay pending with a dialog ID, tab ID, message and
-optional default prompt. `ace_browser_dialog` accepts or dismisses the current
+optional default prompt. `ace_browser_dialog` accepts or dismisses a tab-owned
 pending dialog and can provide prompt text. Synchronous dialog triggers return
 `pending_dialog` while their renderer operation is paused; answering unblocks it.
-Other page commands cannot overtake that operation. Obsolete IDs fail. Beforeunload is
+Pending dialog ownership is checked across all tabs before switching or waiting.
+Dialog answers bypass the renderer command queue under the same submitting lease
+checks, so a read targeting another tab cannot block the answer. Other page
+commands return the outstanding dialog until it is answered. Obsolete IDs fail. Beforeunload is
 automatically accepted only under the agent lease. Native permissions remain denied;
 file chooser windows do not grant filesystem access.
 
@@ -136,18 +143,27 @@ collection, refuses new downloads, cancels in-flight transfers and excludes live
 viewers can still see and operate the browser under their authenticated scopes.
 Private mode protects data from the agent, not from another authorized human viewer.
 
-A private controller disconnect clears its connection ownership and pauses browser
-operation. The production engine also opens a blocking host gate so the thread's
-agent tree cannot report done while private handback is pending. A new authorized
+Private takeover synchronously persists a blocking host gate before granting the
+private lease, even while the human stays connected. A private controller
+disconnect clears its connection ownership and pauses browser operation. The
+gate keeps the thread's agent tree needing a human until handback. A new authorized
 connection must take over and explicitly hand back; reconnect never restores agent
 control automatically. Handback clears private mode and closes the host gate.
-Closing the browser also closes the gate. After an unclean daemon stop, the durable
+An authorized explicit browser close also closes the gate. Internal backend loss,
+failed recovery and daemon shutdown preserve private ownership. After a daemon stop, the durable
 private gate restores private/paused control when its browser is reopened; a new
 blank session cannot bypass handback. Backend loss remains independently paused.
 
 `ace_browser_record_start` and `ace_browser_record_stop` reuse the bounded JPEG
 pipeline, ffmpeg encoding/fallback player and durable artifact sink. Recording is
-capture, not replay. Private frames and logs are excluded before disk collection.
+capture, not replay. Private frames and logs are excluded before disk collection. Seeded screenshots
+carry the privacy epoch from dispatch through completion. Screencast recording
+admission uses CDP capture timestamps, rather than delivery time, and rejects
+captures at or before the latest privacy transition. Missing timestamps after a
+private transition fail closed for recording. Transport generations also reject
+late events from replaced captures. Human live-view delivery remains independent.
+These provenance guarantees depend on Chromium's CDP timestamps and the host's
+wall clock; a browser bug or host clock discontinuity is outside that guarantee.
 
 ## UI contract and verification
 
@@ -161,6 +177,16 @@ SQLite and authenticated wire clients. They cover tab caps and isolation, popup
 admission, same/cross-origin frame actions, file boundaries, dialogs, evaluate
 side effects, approval decisions and revocation, private disconnect, recording,
 inline redacted inspection and the existing browser journeys. Test commands and
-performance measurements are recorded in the PR; only touched suites are run,
-serially for Chromium. The daemon bench must include the startup module-load guard
-and may run only when the host load average is below 15.
+historical performance measurements are recorded in the PR. Under the owner's
+merge-only test policy, no tests, probes, mutation runs or benchmarks are executed
+in this review-fix run. Added regression tests and mutation cases are marked
+not executed (tests run at merge); runtime behavior and performance need run at
+merge. Development verification uses only the permitted static checks.
+
+Ownership and admission decisions live in pure modules. Session recording,
+profile allocation, first-use acquisition and teardown have separate I/O owners.
+Approval timers are supplied by the daemon boundary. Each awaited authority lookup
+rechecks cancellation and shutdown before creating an interaction; evaluate
+approvals combine command and session lifetimes. Frame discovery builds an indexed
+map in O(reported frame nodes + sessions), queries each CDP tree once, and frame offsets use
+O(depth) map lookups. Snapshot collection retains its existing node and byte caps.

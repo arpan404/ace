@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserTabsResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "properties": {
+        "activeTabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabs": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/BrowserTab.json"
+          },
+          "maxItems": 8,
+          "type": "array"
+        }
+      },
+      "required": [
+        "activeTabId",
+        "tabs"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "pending_dialog": {
+          "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"
+        }
+      },
+      "required": [
+        "pending_dialog"
+      ],
+      "type": "object"
+    }
+  ]
+}

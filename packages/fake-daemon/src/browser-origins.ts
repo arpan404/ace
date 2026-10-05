@@ -25,7 +25,7 @@ export function bindFakeBrowserOrigins(
           blocking: true,
           request: {
             kind: "plan_review",
-            title: "Private browser paused",
+            title: "Private browser ownership",
             markdown: "Take over again and hand back control to resume the agent.",
           },
           raw: [{ type: "ace.browser.private", data: { key } }],

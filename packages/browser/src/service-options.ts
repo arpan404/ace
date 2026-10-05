@@ -15,6 +15,7 @@ export interface BrowserServiceOptions {
   ffmpeg?: string;
   originPolicy?: OriginPolicy;
   isPrivatePaused?: (threadId: string) => boolean;
+  /** Called before granting a private lease, as well as on its disconnect. */
   onPrivatePaused?: (threadId: string) => void;
   onPrivateResumed?: (threadId: string) => void;
   onNavigation?: (threadId: string) => void;

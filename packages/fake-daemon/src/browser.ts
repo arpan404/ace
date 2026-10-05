@@ -32,7 +32,7 @@ export interface BrowserView {
   tabs?: BrowserTab[];
   activeTabId?: string;
   downloads?: BrowserDownload[];
-  pending_dialog?: BrowserDialog;
+  pending_dialog?: BrowserDialog | undefined;
   reason?: string;
 }
 export interface ScreenFrame {
@@ -148,6 +148,9 @@ export class FakeBrowser {
     const current = this.view(threadId)?.owner;
     if (current && current !== owner)
       throw new Error("Browser already controlled by another connection");
+    if (this.view(threadId)?.takeoverMode === "private" && mode !== "private")
+      throw new Error("Private browser requires explicit handback");
+    if (mode === "private") this.privateLifecycle?.(threadId, true);
     this.control(threadId, "human", owner);
     const view = this.view(threadId);
     if (view) {
@@ -342,8 +345,9 @@ export class FakeBrowser {
     if (!entry?.view || !tab) throw new Error("Browser tab unavailable");
     entry.view.activeTabId = tabId;
     entry.view.url = tab.url;
-    if (tab.pending_dialog) entry.view.pending_dialog = tab.pending_dialog;
-    else delete entry.view.pending_dialog;
+    entry.view.pending_dialog = this.tabsList(threadId).find(
+      (candidate) => candidate.pending_dialog,
+    )?.pending_dialog;
     entry.page = "site";
     this.paint(entry, "");
   }
@@ -352,6 +356,7 @@ export class FakeBrowser {
     if (!view?.tabs?.some((tab) => tab.tabId === tabId)) throw new Error("Browser tab unavailable");
     if (view.tabs.length === 1) throw new Error("Close the browser to close its last tab");
     view.tabs = view.tabs.filter((tab) => tab.tabId !== tabId);
+    view.pending_dialog = view.tabs.find((tab) => tab.pending_dialog)?.pending_dialog;
     if (view.activeTabId === tabId && view.tabs[0]) this.tabSwitch(threadId, view.tabs[0].tabId);
     else this.changed();
   }
@@ -360,15 +365,22 @@ export class FakeBrowser {
     if (!tab) throw new Error("Browser tab unavailable");
     tab.pending_dialog = dialog;
     const view = this.view(threadId);
-    if (view?.activeTabId === dialog.tabId) view.pending_dialog = dialog;
+    if (view)
+      view.pending_dialog = this.tabsList(threadId).find(
+        (candidate) => candidate.pending_dialog,
+      )?.pending_dialog;
     this.changed();
   }
   dialogAnswer(threadId: string, dialogId: string): void {
     const view = this.view(threadId);
     if (view?.pending_dialog?.dialogId !== dialogId) throw new Error("Dialog no longer pending");
-    const tab = this.tabsList(threadId).find((candidate) => candidate.tabId === view.activeTabId);
+    const tab = this.tabsList(threadId).find(
+      (candidate) => candidate.pending_dialog?.dialogId === dialogId,
+    );
     if (tab) delete tab.pending_dialog;
-    delete view.pending_dialog;
+    view.pending_dialog = this.tabsList(threadId).find(
+      (candidate) => candidate.pending_dialog,
+    )?.pending_dialog;
     this.changed();
   }
   downloadsList(threadId: string): BrowserDownload[] {

@@ -12,7 +12,7 @@ export class SnapshotRefs {
     | (() => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>)
     | undefined;
   private cdp: BrowserCdp;
-  private frameSessions: BrowserFrameSession[] = [];
+  private frameSessions = new Map<string, BrowserFrameSession>();
   constructor(
     cdp: BrowserCdp,
     frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>,
@@ -41,8 +41,10 @@ export class SnapshotRefs {
   private async collect() {
     const epoch = this.epoch;
     const frames = this.frames ? await this.frames() : [{ frameId: undefined, cdp: this.cdp }];
-    this.frameSessions = frames.filter(
-      (frame): frame is BrowserFrameSession => frame.frameId !== undefined,
+    this.frameSessions = new Map(
+      frames
+        .filter((frame): frame is BrowserFrameSession => frame.frameId !== undefined)
+        .map((frame) => [frame.frameId, frame]),
     );
     let domNodes = 0;
     for (const cdp of new Set(frames.map((frame) => frame.cdp))) {
@@ -117,6 +119,16 @@ export class SnapshotRefs {
     if (node === undefined) throw staleRef();
     return () => {
       if (epoch !== this.epoch || this.refs.get(ref) !== node) throw staleRef();
+    };
+  }
+  dispatch(ref: string, prepare: () => void) {
+    const document = this.guard(ref);
+    return {
+      prepare,
+      send: () => {
+        prepare();
+        document();
+      },
     };
   }
   private async call(

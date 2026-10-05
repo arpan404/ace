@@ -248,6 +248,10 @@ it("fake private disconnect waits for a new takeover and explicit handback", asy
   const f = await fixture();
   try {
     await f.client.request({ type: "browser.takeover", threadId: f.threadId, mode: "private" });
+    expect(f.view().thread.status.state).toBe("needs_you");
+    expect(
+      await f.client.request({ type: "browser.takeover", threadId: f.threadId, mode: "shared" }),
+    ).toMatchObject({ ok: false });
     const owner = f.daemon.browser.view(f.threadId)?.owner;
     if (!owner) throw new Error("owner");
     f.daemon.browser.disconnect(owner);
@@ -312,6 +316,55 @@ it("fake once grants are listed for the page and expire at the next agent naviga
       resolution: { kind: "approval", optionId: "deny" },
     });
     await denied;
+  } finally {
+    await f.client.close();
+  }
+});
+it("typed browser client APIs follow tabs, downloads, dialogs, grants and private handback", async () => {
+  const { BrowserFeaturesClient } = await import("@ace/client");
+  const f = await fixture(),
+    browser = new BrowserFeaturesClient(f.client);
+  try {
+    await browser.takeover(f.threadId, "shared");
+    const first = (await browser.tabs(f.threadId))[0];
+    if (!first) throw new Error("tab");
+    const opened = await browser.openTab(f.threadId);
+    if (!("activeTabId" in opened)) throw new Error("unexpected dialog");
+    expect(opened.tabs).toHaveLength(2);
+    expect(await browser.switchTab(f.threadId, first.tabId)).toMatchObject({
+      activeTabId: first.tabId,
+    });
+    f.daemon.browser.dialogOpen(f.threadId, {
+      dialogId: "client-dialog",
+      tabId: first.tabId,
+      type: "prompt",
+      message: "Client answer",
+    });
+    const dialog = f.daemon.browser.view(f.threadId)?.pending_dialog;
+    if (!dialog) throw new Error("dialog");
+    expect(
+      await browser.answerDialog(f.threadId, dialog.tabId, dialog.dialogId, true, "answered"),
+    ).toEqual({ ok: true });
+    expect(f.daemon.browser.view(f.threadId)?.pending_dialog).toBeUndefined();
+    expect(await browser.downloads(f.threadId)).toEqual([]);
+    f.daemon.browser.evaluateGrant(f.threadId, {
+      origin: "https://site.example",
+      mode: "read-only",
+      grantedAt: 1000,
+    });
+    expect(await browser.evaluateGrants(f.threadId)).toMatchObject([
+      { origin: "https://site.example" },
+    ]);
+    expect(await browser.revokeEvaluateGrant(f.threadId, "https://site.example")).toEqual([]);
+    expect(await browser.closeTab(f.threadId, opened.activeTabId)).toMatchObject({ tabs: [first] });
+    expect(await browser.takeover(f.threadId, "private")).toMatchObject({
+      takeoverMode: "private",
+      controller: "human",
+    });
+    expect(await browser.handback(f.threadId)).toMatchObject({
+      takeoverMode: "shared",
+      controller: "agent",
+    });
   } finally {
     await f.client.close();
   }

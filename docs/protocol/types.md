@@ -3906,6 +3906,45 @@ Example:
 }
 ```
 
+## BrowserTabsResult
+
+[JSON Schema](schema/BrowserTabsResult.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| activeTabId | yes | string | {"minLength":1,"maxLength":256} |
+| tabs | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/BrowserTab.json"}} |
+
+Example:
+
+```json
+{
+  "activeTabId": "example",
+  "tabs": []
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| pending_dialog | yes | [BrowserDialog.json](schema/BrowserDialog.json) |  |
+
+Example:
+
+```json
+{
+  "pending_dialog": {
+    "dialogId": "example",
+    "message": "example",
+    "tabId": "example",
+    "type": "prompt"
+  }
+}
+```
+
 ## Capabilities
 
 [JSON Schema](schema/Capabilities.json), input validation.
@@ -3938,21 +3977,25 @@ Example:
 
 ```json
 {
-  "backgroundTaskControl": true,
-  "backgroundVisibility": "full",
-  "childControls": "read-only",
+  "backgroundTaskControl": false,
+  "backgroundVisibility": "none",
   "fork": true,
   "forkSubagents": false,
   "imageInput": true,
-  "interruptCascades": false,
-  "planMode": false,
+  "interruptCascades": true,
+  "launchOptions": [],
+  "permissions": {
+    "guarantees": [],
+    "modes": [],
+    "nativeAutoReview": true,
+    "toolGate": false
+  },
+  "planMode": true,
   "resume": false,
-  "rewindFiles": true,
-  "sessionOptions": true,
-  "steer": true,
-  "steeringMode": "native",
-  "subagentTranscripts": false,
-  "tokenUsage": false
+  "rewindFiles": false,
+  "steer": false,
+  "subagentTranscripts": true,
+  "tokenUsage": true
 }
 ```
 
@@ -4023,7 +4066,7 @@ Example:
 ```json
 {
   "kind": "prompt",
-  "provider": "antigravity",
+  "provider": "cursor",
   "text": "example"
 }
 ```
@@ -4041,7 +4084,7 @@ Example:
 
 ```json
 {
-  "action": "GeoBF",
+  "action": "o",
   "arguments": {},
   "kind": "ace",
   "positional": []
@@ -4084,7 +4127,6 @@ Example:
 
 ```json
 {
-  "argument": "example",
   "error": "missing_argument",
   "ok": false
 }
@@ -4111,10 +4153,10 @@ Example:
 {
   "draft": {
     "draftId": "example",
-    "provider": "antigravity",
+    "provider": "cursor",
     "workspaceId": "example"
   },
-  "limit": 1,
+  "query": "example",
   "requestId": "example",
   "type": "commands.list"
 }
@@ -4159,8 +4201,8 @@ Example:
 
 ```json
 {
-  "arguments": {},
   "commandId": "example",
+  "positional": [],
   "requestId": "example",
   "threadId": "example",
   "type": "commands.resolve"
@@ -4183,7 +4225,6 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "argument": "example",
     "error": "invalid_argument",
     "ok": false
   },
@@ -4208,7 +4249,7 @@ Example:
 ```json
 {
   "source": {
-    "bytes": 2,
+    "bytes": 0,
     "encoding": "utf-16le",
     "streamId": "example"
   },
@@ -4267,7 +4308,7 @@ Example:
 
 ```json
 {
-  "code": "quota",
+  "code": "offset",
   "message": "example"
 }
 ```
@@ -4281,7 +4322,7 @@ Type: ["invalid_request","forbidden","not_found","outside_workspace","ignored","
 Example:
 
 ```json
-"invalid_request"
+"hash_mismatch"
 ```
 
 ## ContextMeter
@@ -4302,11 +4343,10 @@ Example:
 ```json
 {
   "agentId": "example",
-  "epoch": 8,
-  "model": "example",
-  "source": "catalog",
-  "usedTokens": 6,
-  "windowTokens": 3
+  "epoch": 2,
+  "source": "provider",
+  "usedTokens": 2,
+  "windowTokens": 6
 }
 ```
 
@@ -4326,9 +4366,10 @@ Example:
   "meter": {
     "agentId": "example",
     "epoch": 8,
-    "source": "unknown",
-    "usedTokens": 4,
-    "windowTokens": 4
+    "model": "example",
+    "source": "catalog",
+    "usedTokens": 6,
+    "windowTokens": 3
   },
   "type": "context_meter.updated"
 }
@@ -4365,7 +4406,7 @@ Example:
 
 ```json
 {
-  "draftId": "XJq",
+  "draftId": "Ezau31oXJq",
   "op": "draft.release"
 }
 ```

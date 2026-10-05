@@ -264,6 +264,7 @@ export async function executeBrowserCommand(
       return { ok: true };
     }
     case "scroll":
+      context.check(actor, signal, generation);
       await page.wheel(command.x, command.y);
       return { ok: true };
     case "wait_for":
@@ -297,22 +298,27 @@ export async function executeBrowserCommand(
       await context.logs.flush();
       return context.logs.read(command);
     case "resize":
+      context.check(actor, signal, generation);
       await page.resize(command.width, command.height);
       return { ok: true };
     case "emulate":
+      context.check(actor, signal, generation);
       await page.resize(command.width, command.height);
+      context.check(actor, signal, generation);
       await cdp.send("Emulation.setDeviceMetricsOverride", {
         width: command.width,
         height: command.height,
         deviceScaleFactor: command.deviceScaleFactor,
         mobile: command.mobile,
       });
+      context.check(actor, signal, generation);
       await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: command.touch });
+      context.check(actor, signal, generation);
       await page.media(command.colorScheme);
       return { ok: true };
     case "evaluate": {
       const document = context.refs.documentGuard();
-      if (!(await evaluatePolicy?.(threadId, page.url(), command.mode, command.expression)))
+      if (!(await evaluatePolicy?.(threadId, page.url(), command.mode, command.expression, signal)))
         throw new BrowserActionError("evaluate_approval_required");
       context.check(actor, signal, generation);
       document();

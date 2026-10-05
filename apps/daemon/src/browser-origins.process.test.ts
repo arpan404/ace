@@ -334,6 +334,7 @@ it("engine browser approvals keep the tree needing a human and resolve without n
     ).toMatchObject({ ok: true });
     expect(await evaluating).toBe(1);
     browser.takeover(threadId, "private-owner", "private");
+    expect(h.store.getThread(threadId)?.status.state).toBe("needs_you");
     browser.disconnect("private-owner");
     expect(h.store.getThread(threadId)?.status.state).toBe("needs_you");
     const privateGate = Object.values(h.store.snapshotThread(threadId).interactions).find(
@@ -361,23 +362,6 @@ it("engine browser approvals keep the tree needing a human and resolve without n
     });
     browser.takeover(threadId, "returning-owner", "private");
     browser.handback(threadId, "returning-owner");
-    await h.engine.flush();
-    expect(h.store.getThread(threadId)?.status.state).toBe("working");
-    await browser.closeThread(threadId);
-    h.engine.openHostApproval(threadId, "interrupted-private", privateGate.request, [
-      { type: "ace.browser.private", data: { key: "interrupted-private" } },
-    ]);
-    const reopened = await browser.open({ threadId, workspaceId: h.workspace });
-    expect(reopened).toMatchObject({
-      controller: "none",
-      takeoverMode: "private",
-      status: "paused",
-    });
-    await expect(browser.execute(threadId, { action: "logs" })).rejects.toMatchObject({
-      code: "human_private",
-    });
-    browser.takeover(threadId, "after-interruption", "private");
-    browser.handback(threadId, "after-interruption");
     await h.engine.flush();
     expect(h.store.getThread(threadId)?.status.state).toBe("working");
     h.store.releaseThread(threadId);

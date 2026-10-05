@@ -81,16 +81,23 @@ export function fakeBrowserSession(
         case "browser.dialog.answer": {
           if (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
             throw new Error("Browser controller mismatch");
+          const pending_dialog = browser.view(id)?.pending_dialog;
+          if (pending_dialog && message.type !== "browser.dialog.answer") {
+            result = { pending_dialog };
+            break;
+          }
           if (message.type === "browser.tabs.open") {
             browser.tabOpen(id);
             if (message.url) browser.navigate(id, message.url, host.now());
           } else if (message.type === "browser.tabs.switch") browser.tabSwitch(id, message.tabId);
           else if (message.type === "browser.tabs.close") browser.tabClose(id, message.tabId);
           else {
-            browser.tabSwitch(id, message.tabId);
             browser.dialogAnswer(id, message.dialogId);
           }
-          result = BrowserState.parse(browser.view(id));
+          result =
+            message.type === "browser.dialog.answer"
+              ? { ok: true }
+              : { activeTabId: browser.view(id)?.activeTabId, tabs: browser.tabsList(id) };
           break;
         }
         case "browser.origins.list":
@@ -158,7 +165,17 @@ export function fakeBrowserSession(
             (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
           )
             throw new Error("Browser controller mismatch");
-          if (command.tabId && command.action !== "tabs") browser.tabSwitch(id, command.tabId);
+          const pending_dialog = browser.view(id)?.pending_dialog;
+          if (
+            pending_dialog &&
+            command.action !== "dialog" &&
+            !(command.action === "tabs" && command.operation === "list")
+          ) {
+            result = { pending_dialog };
+            break;
+          }
+          if (command.tabId && command.action !== "tabs" && command.action !== "dialog")
+            browser.tabSwitch(id, command.tabId);
           if (command.action === "tabs") {
             if (command.operation === "open") {
               browser.tabOpen(id);

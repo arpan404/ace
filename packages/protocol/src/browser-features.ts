@@ -32,3 +32,9 @@ export const BrowserEvaluateGrant = z.object({
   grantedAt: z.number().finite(),
 });
 export type BrowserEvaluateGrant = z.infer<typeof BrowserEvaluateGrant>;
+/** Tab mutations can surface a renderer dialog instead of changing selection. */
+export const BrowserTabsResult = z.union([
+  z.object({ activeTabId: id, tabs: z.array(BrowserTab).max(8) }),
+  z.object({ pending_dialog: BrowserDialog }),
+]);
+export type BrowserTabsResult = z.infer<typeof BrowserTabsResult>;

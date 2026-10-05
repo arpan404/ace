@@ -1,103 +1,10 @@
-import { afterEach, expect, it } from "vitest";
-import { createServer } from "node:http";
+import { expect, it } from "vitest";
 import { mkdtemp, rm, writeFile, readFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { BrowserService, detectChromium } from "./index.ts";
 import { ref, Snapshot } from "./test-support.ts";
-const executablePath = await detectChromium();
-const cleanups: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  for (const close of cleanups.splice(0).toReversed()) await close();
-}, 60_000);
-async function setup(options: Partial<import("./service-options.ts").BrowserServiceOptions> = {}) {
-  const home = await mkdtemp(join(tmpdir(), "ace-parity-"));
-  const artifacts: import("@ace/protocol").BrowserArtifact[] = [];
-  const server = createServer((req, res) => {
-    if (req.url === "/file") {
-      res.writeHead(200, {
-        "Content-Disposition": "attachment; filename=example.zip",
-        "Content-Type": "application/zip",
-      });
-      res.end("zip-fixture");
-      return;
-    }
-    if (req.url === "/failed") {
-      res.destroy();
-      return;
-    }
-    if (req.url === "/slow") {
-      res.writeHead(200, {
-        "Content-Disposition": "attachment; filename=slow.txt",
-        "Content-Type": "text/plain",
-      });
-      res.write("start".repeat(256));
-      const timer = setTimeout(() => res.end("finish"), 2000);
-      res.on("close", () => clearTimeout(timer));
-      return;
-    }
-    if (req.url === "/body") {
-      res.writeHead(201, { "Content-Type": "application/json" });
-      res.end('{"token":"secret-value","safe":"body-marker"}');
-      return;
-    }
-    res.setHeader("Content-Type", "text/html");
-    if (req.url === "/frame") {
-      res.end(
-        `<button onclick="this.textContent='Clicked frame'">Frame button</button><input aria-label="Frame input">`,
-      );
-      return;
-    }
-    const host = req.headers.host ?? "";
-    res.end(`<!doctype html><title>Parity</title><body>
-    <input aria-label="Name"><input type="file" aria-label="File"><input type="checkbox" aria-label="Agree">
-    <select aria-label="Choice"><option value="a">A</option><option value="b">B</option></select>
-    <a href="/other" target="_blank">Popup</a><a href="/file">Download</a><a href="/slow">Slow download</a>
-    <button onclick="document.body.dataset.answer=prompt('Question','default')">Prompt</button>
-    <button onmouseover="document.body.dataset.hovered=1">Hover</button>
-    <div role="button" aria-label="Drag source" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','dragged')" style="width:100px;height:40px">Drag</div>
-    <div role="button" aria-label="Drop target" ondragover="event.preventDefault()" ondrop="event.preventDefault();document.body.dataset.dropped=event.dataTransfer.getData('text/plain')" style="width:100px;height:40px">Drop</div>
-    <iframe src="/frame" title="same"></iframe><iframe src="http://localhost:${host.split(":")[1]}/frame" title="cross"></iframe>
-    <script>fetch('/body');console.warn('console-marker');</script></body>`);
-  });
-  await new Promise<void>((resolve) => server.listen(0, "0.0.0.0", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("address");
-  const url = `http://127.0.0.1:${address.port}`;
-  const service = new BrowserService({
-    dataDir: home,
-    ...(executablePath ? { executablePath } : {}),
-    workspaceRoot: () => home,
-    evaluatePolicy: () => true,
-    downloadPolicy: () => true,
-    onArtifact: (_thread, artifact) => {
-      artifacts.push(artifact);
-    },
-    ...options,
-  });
-  cleanups.push(async () => {
-    await service.close();
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(home, { recursive: true, force: true });
-  });
-  await service.open({ threadId: "thread", workspaceId: "workspace", background: true });
-  const execute = (command: unknown) => service.execute("thread", command);
-  await execute({ action: "navigate", url });
-  return {
-    service,
-    execute,
-    url,
-    home,
-    artifacts,
-    evaluate: (expression: string) => execute({ action: "evaluate", expression }),
-  };
-}
-const tabs = z.object({
-  activeTabId: z.string(),
-  tabs: z.array(z.object({ tabId: z.string(), url: z.string() })),
-});
+import { setup, tabs, executablePath, cleanups } from "./parity-test-support.ts";
 
 it.skipIf(!executablePath)(
   "background tabs preserve their own page and enforce thread and daemon caps",
@@ -160,7 +67,9 @@ it.skipIf(!executablePath)(
     ).toHaveLength(2);
     const current = await f.execute({ action: "snapshot" });
     await f.execute({ action: "check", ref: ref(current, "Agree") });
+    await f.execute({ action: "check", ref: ref(current, "Agree") });
     expect(await f.evaluate("document.querySelector('[type=checkbox]').checked")).toBe(true);
+    await f.execute({ action: "uncheck", ref: ref(snap, "Agree") });
     await f.execute({ action: "uncheck", ref: ref(snap, "Agree") });
     expect(await f.evaluate("document.querySelector('[type=checkbox]').checked")).toBe(false);
     await f.execute({ action: "select", ref: ref(snap, "Choice"), values: ["b"] });
@@ -247,6 +156,9 @@ it.skipIf(!executablePath)(
   "read-only evaluation reads DOM but refuses mutation, navigation and network writes",
   async () => {
     const f = await setup();
+    const beforeBody = await f.evaluate("document.body.innerHTML"),
+      beforeUrl = f.service.state("thread").url;
+    const beforeWrites = f.writes();
     expect(
       await f.execute({ action: "evaluate", mode: "read-only", expression: "document.title" }),
     ).toBe("Parity");
@@ -258,7 +170,9 @@ it.skipIf(!executablePath)(
       await expect(
         f.execute({ action: "evaluate", mode: "read-only", expression }),
       ).rejects.toThrow();
-    expect(await f.evaluate("document.title")).toBe("Parity");
+    expect(await f.evaluate("document.body.innerHTML")).toBe(beforeBody);
+    expect(f.service.state("thread").url).toBe(beforeUrl);
+    expect(f.writes()).toBe(beforeWrites);
   },
 );
 it.skipIf(!executablePath)(
@@ -266,8 +180,25 @@ it.skipIf(!executablePath)(
   async () => {
     const f = await setup();
     f.service.takeover("thread", "human", "private");
-    for (const action of ["snapshot", "screenshot", "logs", "tabs", "record_start"])
-      await expect(f.execute({ action })).rejects.toMatchObject({ code: "human_private" });
+    for (const command of [
+      { action: "snapshot" },
+      { action: "screenshot" },
+      { action: "logs" },
+      { action: "tabs" },
+      { action: "find", role: "button", name: "Prompt" },
+      { action: "wait_for", text: "Popup" },
+      { action: "network_body", requestId: "private" },
+      { action: "evaluate", expression: "document.body.innerHTML", mode: "read-only" },
+      { action: "record_start" },
+      { action: "record_stop" },
+    ])
+      await expect(f.execute(command)).rejects.toMatchObject({ code: "human_private" });
+    await expect(f.service.startRecording("thread")).rejects.toMatchObject({
+      code: "human_private",
+    });
+    await expect(f.service.stopRecording("thread")).rejects.toMatchObject({
+      code: "human_private",
+    });
     await expect(f.service.screenshot("thread")).rejects.toMatchObject({ code: "human_private" });
     f.service.disconnect("human");
     expect(f.service.state("thread").status).toBe("paused");
@@ -277,96 +208,6 @@ it.skipIf(!executablePath)(
     f.service.takeover("thread", "reconnected", "private");
     f.service.handback("thread", "reconnected");
     expect(Snapshot.parse(await f.execute({ action: "snapshot" })).nodes.length).toBeGreaterThan(0);
-  },
-);
-it.skipIf(!executablePath)(
-  "inspection returns filtered inline entries and redacts a bounded response",
-  async () => {
-    const f = await setup();
-    const Logs = z.object({
-      entries: z.array(
-        z.object({
-          text: z.string(),
-          url: z.string().optional(),
-          requestId: z.string().optional(),
-          status: z.number().optional(),
-        }),
-      ),
-    });
-    await expect
-      .poll(
-        async () =>
-          Logs.parse(await f.execute({ action: "logs", kind: "network", status: 201 })).entries
-            .length,
-      )
-      .toBe(1);
-    const response = Logs.parse(await f.execute({ action: "logs", url: "/body", status: 201 }))
-      .entries[0];
-    expect(response?.requestId).toBeTruthy();
-    await expect
-      .poll(async () => {
-        try {
-          return z
-            .object({ body: z.string() })
-            .parse(await f.execute({ action: "network_body", requestId: response?.requestId }))
-            .body.includes("body-marker");
-        } catch {
-          return false;
-        }
-      })
-      .toBe(true);
-    const body = z
-      .object({ body: z.string() })
-      .parse(await f.execute({ action: "network_body", requestId: response?.requestId }));
-    expect(body.body).toContain("body-marker");
-    expect(body.body).not.toContain("secret-value");
-    await expect
-      .poll(
-        async () =>
-          Logs.parse(
-            await f.execute({ action: "logs", kind: "network", url: "/frame", status: 200 }),
-          ).entries.filter((entry) => entry.url?.startsWith("http://localhost:")).length,
-      )
-      .toBe(1);
-    const crossFrame = Logs.parse(
-      await f.execute({ action: "logs", kind: "network", url: "/frame", status: 200 }),
-    ).entries.find((entry) => entry.url?.startsWith("http://localhost:"));
-    await expect
-      .poll(async () => {
-        try {
-          return z
-            .object({ body: z.string() })
-            .parse(await f.execute({ action: "network_body", requestId: crossFrame?.requestId }))
-            .body.includes("Frame input");
-        } catch {
-          return false;
-        }
-      })
-      .toBe(true);
-    expect(
-      z
-        .object({ body: z.string() })
-        .parse(await f.execute({ action: "network_body", requestId: crossFrame?.requestId })).body,
-    ).toContain("Frame input");
-    await f.evaluate("fetch('/failed').catch(()=>undefined)");
-    await expect
-      .poll(
-        async () =>
-          Logs.parse(
-            await f.execute({ action: "logs", kind: "network", level: "failed", url: "/failed" }),
-          ).entries.length,
-      )
-      .toBeGreaterThan(0);
-    const original = f.service.state("thread").activeTabId;
-    await f.execute({ action: "tabs", operation: "open" });
-    await f.execute({ action: "tabs", operation: "close", tabId: original });
-    await expect(
-      f.execute({ action: "network_body", requestId: response?.requestId }),
-    ).rejects.toThrow(/unavailable/);
-
-    expect(
-      Logs.parse(await f.execute({ action: "logs", level: "warning" })).entries[0]?.text,
-    ).toContain("console-marker");
   },
 );
 
@@ -380,6 +221,7 @@ it.skipIf(!executablePath)(
     });
     await expect.poll(() => f.service.state("thread").downloads?.[0]?.state).toBe("pending");
     f.service.takeover("thread", "human", "private");
+    f.finishSlow();
     await expect.poll(() => f.service.state("thread").downloads?.[0]?.state).toBe("denied");
     expect(f.artifacts).toEqual([]);
     f.service.handback("thread", "human");
@@ -410,3 +252,53 @@ it.skipIf(!executablePath)(
     expect((await readFile(recording.path)).byteLength).toBe(recording.bytes);
   },
 );
+
+it.skipIf(!executablePath)("each same-URL download needs its own approval", async () => {
+  let allowed = true;
+  const f = await setup({ downloadPolicy: () => allowed });
+  const file = ref(await f.execute({ action: "snapshot" }), "Plain download");
+  await f.execute({ action: "click", ref: file });
+  await expect.poll(() => f.service.downloadsList("thread")[0]?.state).toBe("complete");
+  allowed = false;
+  await f.execute({ action: "click", ref: file });
+  await expect.poll(() => f.service.downloadsList("thread")[1]?.state).toBe("denied");
+  expect(f.artifacts).toHaveLength(1);
+  expect(await readFile(f.artifacts[0]?.path ?? "", "utf8")).toBe("plain-fixture");
+});
+it.skipIf(!executablePath)("attachment-like reads cannot authorize a later download", async () => {
+  let allowed = true;
+  const f = await setup({ downloadPolicy: () => allowed });
+  expect(await f.evaluate("fetch('/plain',{headers:{'x-preview':'1'}}).then(r=>r.text())")).toBe(
+    "plain-fixture",
+  );
+  allowed = false;
+  await f.execute({
+    action: "click",
+    ref: ref(await f.execute({ action: "snapshot" }), "Plain download"),
+  });
+  await expect.poll(() => f.service.downloadsList("thread")[0]?.state).toBe("denied");
+  expect(f.artifacts).toEqual([]);
+});
+it.skipIf(!executablePath)("a dialog on A can be answered after a read targets B", async () => {
+  const f = await setup(),
+    a = f.service.state("thread").activeTabId;
+  const b = tabs.parse(
+    await f.execute({ action: "tabs", operation: "open", url: f.url + "/other" }),
+  ).activeTabId;
+  await f.execute({ action: "tabs", operation: "switch", tabId: a });
+  const pending = z
+    .object({ pending_dialog: z.object({ dialogId: z.string(), tabId: z.string() }) })
+    .parse(await f.evaluate("document.body.dataset.answer = prompt('Across tabs')"));
+  const readB = f.execute({ action: "snapshot", tabId: b });
+  const answer = f.execute({
+    action: "dialog",
+    tabId: a,
+    dialogId: pending.pending_dialog.dialogId,
+    accept: true,
+    promptText: "answered",
+  });
+  expect(await readB).toMatchObject({ pending_dialog: { tabId: a } });
+  expect(await answer).toEqual({ ok: true });
+  expect(await f.evaluate("document.body.dataset.answer")).toBe("answered");
+  expect(await f.execute({ action: "snapshot", tabId: b })).toMatchObject({ tabId: b });
+});

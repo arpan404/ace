@@ -68,18 +68,27 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
     await f.evaluate(
       "fetch('/data').then(r=>r.text()).then(text=>console.log('network-complete '+text))",
     );
+    const rawLogs = await f.execute({ action: "logs" });
+    expect(rawLogs).not.toHaveProperty("console");
+    expect(rawLogs).not.toHaveProperty("network");
+    expect(rawLogs).not.toHaveProperty("path");
     const logs = z
       .object({
+        limit: z.number().int().max(200),
         entries: z.array(
-          z.object({
-            text: z.string(),
-            kind: z.string(),
-            status: z.number().optional(),
-            url: z.string().optional(),
-          }),
+          z
+            .object({
+              text: z.string(),
+              kind: z.string(),
+              status: z.number().optional(),
+              url: z.string().optional(),
+            })
+            .passthrough(),
         ),
       })
-      .parse(await f.execute({ action: "logs" }));
+      .strict()
+      .parse(rawLogs);
+    for (const entry of logs.entries) expect(entry).not.toHaveProperty("path");
     expect(logs.entries.some((entry) => entry.text.includes("console-marker"))).toBe(true);
     expect(
       logs.entries.some((entry) => entry.text.includes("network-complete response-data")),

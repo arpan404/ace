@@ -30,7 +30,6 @@ export class HeadlessDownloads {
   privacy(enabled: boolean): void {
     this.privateMode = enabled;
     this.privacyGeneration++;
-    this.approved.clear();
     if (enabled)
       for (const [abort, download] of this.transfers) {
         abort.abort();
@@ -38,7 +37,6 @@ export class HeadlessDownloads {
       }
   }
   private entries: BrowserDownload[] = [];
-  private approved = new Map<string, number>();
   private mime = new Map<string, string>();
   private pending = 0;
   private sequence = 0;
@@ -58,10 +56,6 @@ export class HeadlessDownloads {
       (await this.request.allowed(url)) && (await this.request.downloadAllowed?.(url)) === true;
     this.request.signal.throwIfAborted();
     if (this.privateMode || generation !== this.privacyGeneration) return false;
-    if (allowed) {
-      if (this.approved.size >= 128) this.approved.clear();
-      this.approved.set(url, (this.approved.get(url) ?? 0) + 1);
-    }
     return allowed;
   }
   response(url: string, mime: string): void {
@@ -117,9 +111,7 @@ export class HeadlessDownloads {
     this.request.changed?.();
     const path = join(this.request.downloadDir, `${entry.downloadId}-${filename}`);
     try {
-      const grants = this.approved.get(download.url()) ?? 0;
-      if (grants > 0) this.approved.set(download.url(), grants - 1);
-      else if (!(await this.allowed(download.url()))) {
+      if (!(await this.allowed(download.url()))) {
         entry.state = "denied";
         await download.cancel();
         return;

@@ -9,7 +9,8 @@ export class LiveCapture {
   readonly fanout = new FrameFanout();
   private cdp: BrowserCdp;
   private now: () => number;
-  private onFrame: (frame: BrowserFrame) => void;
+  private onFrame: (frame: BrowserFrame, epoch: number) => void;
+  private privacy: () => { epoch: number; since: number };
   private timer: ReturnType<typeof setInterval> | undefined;
   private sequence = 0;
   private lastFrame = -Infinity;
@@ -18,16 +19,23 @@ export class LiveCapture {
   private adapting = false;
   private closed = false;
   private generation = 0;
-  constructor(cdp: BrowserCdp, now: () => number, onFrame: (frame: BrowserFrame) => void) {
+  constructor(
+    cdp: BrowserCdp,
+    now: () => number,
+    onFrame: (frame: BrowserFrame, epoch: number) => void,
+    privacy: () => { epoch: number; since: number } = () => ({ epoch: 0, since: -Infinity }),
+  ) {
     this.cdp = cdp;
     this.now = now;
     this.onFrame = onFrame;
+    this.privacy = privacy;
   }
-  private receive = (raw: unknown): void => {
+  private receive: (raw: unknown) => void = () => {};
+  private captureFrame(raw: unknown, cdp: BrowserCdp, generation: number): void {
     const ack = Ack.safeParse(raw);
-    if (ack.success) void this.cdp.send("Page.screencastFrameAck", ack.data).catch(() => {});
+    if (ack.success) void cdp.send("Page.screencastFrameAck", ack.data).catch(() => {});
     const parsed = Screencast.safeParse(raw);
-    if (!parsed.success || this.closed) return;
+    if (!parsed.success || this.closed || generation !== this.generation) return;
     const timestamp = this.now();
     if (timestamp - this.lastFrame < 1000 / this.settings.fps) return;
     this.lastFrame = timestamp;
@@ -39,28 +47,37 @@ export class LiveCapture {
       height: parsed.data.metadata.deviceHeight,
     };
     this.fanout.publish(frame);
-    this.onFrame(frame);
-  };
+    const privacy = this.privacy(),
+      capturedAt = parsed.data.metadata.timestamp;
+    // CDP timestamps identify capture time, not delivery time. Missing provenance after
+    // a private transition is fail-closed for recording, while human viewers still see frames.
+    if (privacy.epoch === 0 || (capturedAt !== undefined && capturedAt * 1000 > privacy.since))
+      this.onFrame(frame, privacy.epoch);
+  }
   async start(): Promise<void> {
     if (this.closed) throw new Error("Browser capture closed");
-    this.cdp.on("Page.screencastFrame", this.receive);
+    const cdp = this.cdp,
+      generation = this.generation;
+    this.receive = (raw) => this.captureFrame(raw, cdp, generation);
+    cdp.on("Page.screencastFrame", this.receive);
     await this.cdp.send("Page.startScreencast", {
       format: "jpeg",
       quality: this.settings.quality,
       maxWidth: 1280,
       maxHeight: 960,
     });
-    if (this.closed) throw new Error("Browser capture closed");
+    if (this.closed || generation !== this.generation) throw new Error("Browser capture closed");
     // A static about:blank page may emit no screencast event. Seed the view so a
     // subscriber never has to wait for the first user/agent action to see pixels.
-    const sequence = this.sequence;
+    const sequence = this.sequence,
+      epoch = this.privacy().epoch;
     const initial = z.object({ data: z.string().max(4 * 1024 * 1024) }).parse(
       await this.cdp.send("Page.captureScreenshot", {
         format: "jpeg",
         quality: this.settings.quality,
       }),
     );
-    if (this.closed) throw new Error("Browser capture closed");
+    if (this.closed || generation !== this.generation) throw new Error("Browser capture closed");
     if (this.sequence === sequence) {
       const frame: BrowserFrame = {
         sequence: ++this.sequence,
@@ -70,7 +87,7 @@ export class LiveCapture {
         height: 720,
       };
       this.fanout.publish(frame);
-      this.onFrame(frame);
+      if (epoch === this.privacy().epoch) this.onFrame(frame, epoch);
     }
     this.timer = setInterval(() => {
       this.fanout.flush();
@@ -85,8 +102,6 @@ export class LiveCapture {
       this.lastAdapt = this.now();
       this.adapting = true;
       this.settings = settings;
-      const cdp = this.cdp,
-        generation = this.generation;
       void (async () => {
         await cdp.send("Page.stopScreencast");
         if (!this.closed && generation === this.generation)

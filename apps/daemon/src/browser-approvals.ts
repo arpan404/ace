@@ -36,6 +36,9 @@ interface Host {
     interactionId: string,
   ): void;
 }
+export interface ApprovalTimers {
+  set(delay: number, work: () => void): () => void;
+}
 /** Daemon-owned host approvals; site grants never imply evaluate/file permission. */
 export class BrowserApprovals {
   private host: Host;
@@ -44,8 +47,10 @@ export class BrowserApprovals {
   private versions = new Map<string, number>();
   private stop: () => void;
   private closed = false;
-  constructor(host: Host) {
+  private timers: ApprovalTimers;
+  constructor(host: Host, timers: ApprovalTimers) {
     this.host = host;
+    this.timers = timers;
     host.store.atomic((db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS browser_evaluate_grants (
       thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
@@ -132,6 +137,7 @@ export class BrowserApprovals {
     if (this.closed) return false;
     const authority = await this.host.mode(threadId);
     signal?.throwIfAborted();
+    if (this.closed) return false;
     if (authority === "read-only" && (kind !== "evaluate" || mode !== "read-only")) return false;
     if (
       authority === "full-access" &&
@@ -148,7 +154,8 @@ export class BrowserApprovals {
       return true;
     if (this.pending.size >= 32) return false;
     const agentId = this.host.root(threadId);
-    if (!agentId) return false;
+    signal?.throwIfAborted();
+    if (this.closed || !agentId) return false;
     const key = `browser-${kind}:${this.host.id()}`;
     const versionKey = `${threadId}:${origin}`,
       version = this.versions.get(versionKey) ?? 0;
@@ -192,6 +199,12 @@ export class BrowserApprovals {
         raw: [{ type: "ace.browser.permission", data: { key, kind, origin, mode } }],
       }),
     );
+    // Host event subscribers may synchronously cancel or shut down while opening.
+    if (this.closed || signal?.aborted) {
+      this.expire(interaction.id, { threadId, key });
+      signal?.throwIfAborted();
+      return false;
+    }
     this.host.store.atomic((db) => {
       db.prepare("INSERT INTO browser_permission_pending VALUES (?,?,?)").run(
         interaction.id,
@@ -227,8 +240,12 @@ export class BrowserApprovals {
     const pending = { threadId, key };
     this.pending.set(interaction.id, pending);
     await new Promise<void>((resolve) => {
+      let completed = false;
+      let cancelTimer: (() => void) | undefined;
       const finish = () => {
-        clearTimeout(timer);
+        if (completed) return;
+        completed = true;
+        cancelTimer?.();
         signal?.removeEventListener("abort", abort);
         this.waiters.delete(interaction.id);
         resolve();
@@ -237,11 +254,14 @@ export class BrowserApprovals {
         this.expire(interaction.id, pending);
         finish();
       };
-      const timer = setTimeout(abort, 60_000);
       this.waiters.set(interaction.id, finish);
       signal?.addEventListener("abort", abort, { once: true });
-      if (signal?.aborted || this.host.store.getInteraction(interaction.id)?.state !== "pending")
-        finish();
+      if (signal?.aborted || this.closed) abort();
+      else if (this.host.store.getInteraction(interaction.id)?.state !== "pending") finish();
+      else {
+        cancelTimer = this.timers.set(60_000, abort);
+        if (completed) cancelTimer();
+      }
     });
     this.pending.delete(interaction.id);
     this.host.store.atomic((db) =>
@@ -253,6 +273,8 @@ export class BrowserApprovals {
     if (this.closed || version !== (this.versions.get(versionKey) ?? 0)) return false;
     const result = this.host.store.getInteraction(interaction.id);
     const latest = await this.host.mode(threadId);
+    signal?.throwIfAborted();
+    if (this.closed || version !== (this.versions.get(versionKey) ?? 0)) return false;
     if (latest === "read-only" && (kind !== "evaluate" || mode !== "read-only")) return false;
     return (
       result?.state === "resolved" &&

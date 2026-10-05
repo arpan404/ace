@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { privateBrowserOwnership } from "../browser-private.ts";
 import { browserArtifactAccess } from "../browser-artifacts.ts";
 import { BrowserApprovals } from "../browser-approvals.ts";
 import { BrowserOrigins } from "../browser-origins.ts";
@@ -85,110 +86,76 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   services.browserOrigins = origins;
   resources.own(() => origins.close());
   resources.onShutdown(() => origins.close());
-  const approvals = new BrowserApprovals({
-    store,
-    now,
-    id,
-    mode: async (threadId) =>
-      services.engine?.permissionAuthority(threadId) ??
-      store.getThread(threadId)?.permission?.effective ??
-      PermissionMode.parse(
-        (
-          await services.settings?.get(
-            "permissions.defaultMode",
-            settingsScope(store, { threadId }),
-          )
-        )?.value ?? "auto-review",
-      ),
-    root: (threadId) =>
-      services.engine?.rootAgent(threadId) ?? store.getThread(threadId)?.rootAgentId,
-    open: (interaction) => {
-      if (services.engine) {
-        const raw = interaction.raw.find((entry) => entry.type === "ace.browser.permission");
-        const key = z
-          .object({ key: z.string() })
-          .parse(raw && "data" in raw ? raw.data : undefined).key;
-        const interactionId = services.engine.openHostApproval(
-          interaction.threadId,
-          key,
-          interaction.request,
-          interaction.raw,
-        );
-        const opened = store.getInteraction(interactionId);
-        if (!opened) throw new Error("Browser approval unavailable");
-        return opened;
-      }
-      store.appendEvents(
-        interaction.threadId,
-        [{ type: "interaction.opened", interaction }],
-        now(),
-      );
-      return interaction;
-    },
-    close: (threadId, key, result, rawInteractionId) => {
-      if (services.engine) services.engine.resolveHostApproval(threadId, key, result);
-      else {
-        const interactionId = importInteractionId.parse(rawInteractionId);
-        if (interactionId)
-          store.appendEvents(
-            threadId,
-            [{ type: "interaction.closed", interactionId, closedAt: now(), ...result }],
-            now(),
+  const approvals = new BrowserApprovals(
+    {
+      store,
+      now,
+      id,
+      mode: async (threadId) =>
+        services.engine?.permissionAuthority(threadId) ??
+        store.getThread(threadId)?.permission?.effective ??
+        PermissionMode.parse(
+          (
+            await services.settings?.get(
+              "permissions.defaultMode",
+              settingsScope(store, { threadId }),
+            )
+          )?.value ?? "auto-review",
+        ),
+      root: (threadId) =>
+        services.engine?.rootAgent(threadId) ?? store.getThread(threadId)?.rootAgentId,
+      open: (interaction) => {
+        if (services.engine) {
+          const raw = interaction.raw.find((entry) => entry.type === "ace.browser.permission");
+          const key = z
+            .object({ key: z.string() })
+            .parse(raw && "data" in raw ? raw.data : undefined).key;
+          const interactionId = services.engine.openHostApproval(
+            interaction.threadId,
+            key,
+            interaction.request,
+            interaction.raw,
           );
-      }
+          const opened = store.getInteraction(interactionId);
+          if (!opened) throw new Error("Browser approval unavailable");
+          return opened;
+        }
+        store.appendEvents(
+          interaction.threadId,
+          [{ type: "interaction.opened", interaction }],
+          now(),
+        );
+        return interaction;
+      },
+      close: (threadId, key, result, rawInteractionId) => {
+        if (services.engine) services.engine.resolveHostApproval(threadId, key, result);
+        else {
+          const interactionId = importInteractionId.parse(rawInteractionId);
+          if (interactionId)
+            store.appendEvents(
+              threadId,
+              [{ type: "interaction.closed", interactionId, closedAt: now(), ...result }],
+              now(),
+            );
+        }
+      },
     },
-  });
+    options.browser?.navigationClock ?? {
+      set: (delay, work) => {
+        const timer = setTimeout(work, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+  );
   services.browserApprovals = approvals;
   resources.own(() => approvals.close());
   resources.onShutdown(() => approvals.close());
-  const privateGates = new Map<string, string>();
-  const privateKey = (threadId: string): string | undefined => {
-    const cached = privateGates.get(threadId);
-    if (cached) return cached;
-    const row = store
-      .statement(`SELECT json_extract(raw.value, '$.data.key') AS key
-      FROM view_entities AS entity, json_each(entity.value, '$.raw') AS raw
-      WHERE entity.thread_id=? AND entity.collection='interactions'
-      AND json_extract(entity.value, '$.state')='pending'
-      AND json_extract(raw.value, '$.type')='ace.browser.private' LIMIT 1`)
-      .get(ThreadId.parse(threadId));
-    const parsed = z.object({ key: z.string() }).safeParse(row);
-    if (!parsed.success) return undefined;
-    privateGates.set(threadId, parsed.data.key);
-    return parsed.data.key;
-  };
   const browser = new BrowserService({
     ...options.browser,
     dataDir: config.dataDir,
     originPolicy: (request) => origins.allowed(request),
     origins,
-    isPrivatePaused: (threadId) => privateKey(threadId) !== undefined,
-    onPrivatePaused: (rawThreadId) => {
-      const threadId = ThreadId.parse(rawThreadId),
-        engine = services.engine;
-      if (!engine || privateKey(threadId)) return;
-      const key = `browser-private:${id()}`;
-      engine.openHostApproval(
-        threadId,
-        key,
-        {
-          kind: "plan_review",
-          title: "Private browser paused",
-          markdown:
-            "Private browser disconnected. Take over again and hand back control to resume the agent.",
-        },
-        [{ type: "ace.browser.private", data: { key } }],
-      );
-      privateGates.set(threadId, key);
-    },
-    onPrivateResumed: (rawThreadId) => {
-      const threadId = ThreadId.parse(rawThreadId),
-        key = privateKey(threadId);
-      if (key) {
-        services.engine?.closeHostGate(threadId, key, "resolved");
-        privateGates.delete(threadId);
-      }
-    },
+    ...privateBrowserOwnership(context),
     evaluatePolicy:
       options.browser?.evaluatePolicy ??
       ((threadId, url, signal, mode, expression) =>

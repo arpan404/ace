@@ -91,16 +91,10 @@ export class HeadlessTabs {
     try {
       const cdp = await this.context.newCDPSession(page);
       await cdp.send("Page.enable");
-      const guard = await installOriginGuard(
-        cdp,
-        this.request.allowed,
-        this.request.initiator,
-        (url) => this.downloads.allowed(url),
-        {
-          attach: (child) => this.inspection.attach(child, id),
-          detach: (child) => this.inspection.detach(child),
-        },
-      );
+      const guard = await installOriginGuard(cdp, this.request.allowed, this.request.initiator, {
+        attach: (child) => this.inspection.attach(child, id),
+        detach: (child) => this.inspection.detach(child),
+      });
       const tab: Tab = { title: "", id, page, cdp, guard, release, ...(dialog ? { dialog } : {}) };
       if (this.stopped) {
         guard.close();
@@ -210,12 +204,16 @@ export class HeadlessTabs {
     await tab.page.close({ runBeforeUnload: false });
   }
   dialog(): BrowserDialog | undefined {
-    return this.tabs.get(this.activeId)?.dialog?.state;
+    for (const tab of this.tabs.values()) if (tab.dialog) return tab.dialog.state;
+    return undefined;
   }
   async answer(dialogId: string, accept: boolean, promptText?: string): Promise<void> {
-    const tab = this.current(),
-      dialog = tab.dialog;
-    if (!dialog || dialog.state.dialogId !== dialogId) throw new Error("Dialog no longer pending");
+    const tab = [...this.tabs.values()].find(
+        (candidate) => candidate.dialog?.state.dialogId === dialogId,
+      ),
+      dialog = tab?.dialog;
+    if (!tab || !dialog || dialog.state.dialogId !== dialogId)
+      throw new Error("Dialog no longer pending");
     if (accept) await dialog.native.accept(promptText);
     else await dialog.native.dismiss();
     tab.dialog = undefined;
@@ -227,28 +225,24 @@ export class HeadlessTabs {
   async frames(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> {
     const tab = this.current();
     await tab.guard.ready();
-    const output: { frameId: string; cdp: BrowserCdp; parentId?: string }[] = [];
+    const output = new Map<string, { frameId: string; cdp: BrowserCdp; parentId?: string }>();
     for (const cdp of [tab.cdp, ...tab.guard.frameSessions()]) {
       const raw = z.object({ frameTree: Tree }).parse(await cdp.send("Page.getFrameTree"));
       const visit = (tree: FrameTree) => {
-        if (!output.some((frame) => frame.frameId === tree.frame.id))
-          output.push({
-            frameId: tree.frame.id,
-            cdp,
-            ...(tree.frame.parentId ? { parentId: tree.frame.parentId } : {}),
-          });
+        const previous = output.get(tree.frame.id);
+        // Child sessions replace parent placeholders; preserve the OOPIF owner's parent.
+        const parentId = tree.frame.parentId ?? previous?.parentId;
+        output.set(tree.frame.id, {
+          frameId: tree.frame.id,
+          cdp,
+          ...(parentId ? { parentId } : {}),
+        });
+        if (output.size > 64) throw new Error("Browser frame limit");
         for (const child of tree.childFrames ?? []) visit(child);
       };
       visit(raw.frameTree);
     }
-    // OOPIF entries must resolve through their own CDP session, not the parent's placeholder.
-    for (const cdp of tab.guard.frameSessions()) {
-      const tree = z.object({ frameTree: Tree }).parse(await cdp.send("Page.getFrameTree"));
-      const entry = output.find((frame) => frame.frameId === tree.frameTree.frame.id);
-      if (entry) entry.cdp = cdp;
-    }
-    if (output.length > 64) throw new Error("Browser frame limit");
-    return output;
+    return [...output.values()];
   }
   stop(): void {
     this.stopped = true;

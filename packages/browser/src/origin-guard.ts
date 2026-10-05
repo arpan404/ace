@@ -35,7 +35,6 @@ export async function installOriginGuard(
   cdp: BrowserCdp,
   allowed: (url: string, context?: { navigation?: boolean; human?: boolean }) => Promise<boolean>,
   initiator: () => boolean = () => false,
-  downloadAllowed?: (url: string) => Promise<boolean>,
   frameInspection?: {
     attach(cdp: BrowserCdp, targetId: string): Promise<void>;
     detach(cdp: BrowserCdp): void;
@@ -57,6 +56,7 @@ export async function installOriginGuard(
   const pending = new Map<
     number,
     {
+      sessionId: string;
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
@@ -70,7 +70,7 @@ export async function installOriginGuard(
 
   function sendChild(parent: Send, sessionId: string): Send {
     return (method, params) => {
-      if (stopped || pending.size >= 128)
+      if (stopped || !children.has(sessionId) || pending.size >= 128)
         return Promise.reject(new Error("Browser target command limit"));
       const id = ++nextId;
       return new Promise((resolve, reject) => {
@@ -78,7 +78,7 @@ export async function installOriginGuard(
           pending.delete(id);
           reject(new Error("Browser target command timed out"));
         }, 10_000);
-        pending.set(id, { resolve, reject, timer });
+        pending.set(id, { sessionId, resolve, reject, timer });
         void parent("Target.sendMessageToTarget", {
           sessionId,
           message: JSON.stringify({ id, method, params }),
@@ -114,18 +114,10 @@ export async function installOriginGuard(
       if (checks < 32 && !stopped) {
         checks++;
         try {
-          const attachment = request.data.responseHeaders?.some(
-            (h) =>
-              (h.name.toLowerCase() === "content-disposition" && /attachment/i.test(h.value)) ||
-              (h.name.toLowerCase() === "content-type" &&
-                /(?:octet-stream|zip|compressed|x-tar|x-executable|x-msdownload)/i.test(h.value)),
-          );
-          approved = attachment
-            ? (await downloadAllowed?.(request.data.request.url)) === true
-            : await allowed(request.data.request.url, {
-                navigation,
-                ...(human !== undefined ? { human } : {}),
-              });
+          approved = await allowed(request.data.request.url, {
+            navigation,
+            ...(human !== undefined ? { human } : {}),
+          });
         } catch {
           /* Deny policy errors. */
         } finally {
@@ -157,10 +149,7 @@ export async function installOriginGuard(
     childEvents.set(sessionId, events);
     const init = (async () => {
       await send("Fetch.enable", {
-        patterns: [
-          { urlPattern: "*", requestStage: "Request" },
-          ...(downloadAllowed ? [{ urlPattern: "*", requestStage: "Response" }] : []),
-        ],
+        patterns: [{ urlPattern: "*", requestStage: "Request" }],
       });
       if (targetInfo.type === "iframe") {
         await send("Page.enable");
@@ -188,7 +177,7 @@ export async function installOriginGuard(
     }
     if (message.id !== undefined) {
       const waiter = pending.get(message.id);
-      if (waiter) {
+      if (waiter?.sessionId === event.data.sessionId) {
         pending.delete(message.id);
         clearTimeout(waiter.timer);
         if (message.error) waiter.reject(new Error("Browser target command failed"));
@@ -203,13 +192,30 @@ export async function installOriginGuard(
   }
   function detached(raw: unknown): void {
     const result = z.object({ sessionId: z.string() }).safeParse(raw);
-    if (result.success) {
-      const child = children.get(result.data.sessionId);
+    if (!result.success) return;
+    const detachedIds = new Set([result.data.sessionId]);
+    // A parent's transport owns all nested sessions, even without child detach events.
+    for (const id of detachedIds) {
+      const owner = children.get(id);
+      if (owner)
+        for (const [childId, child] of children)
+          if (child.parent === owner.send) detachedIds.add(childId);
+    }
+    for (const [id, waiter] of pending)
+      if (detachedIds.has(waiter.sessionId)) {
+        pending.delete(id);
+        clearTimeout(waiter.timer);
+        waiter.reject(new Error("Browser target detached"));
+      }
+    for (const id of detachedIds) {
+      const child = children.get(id);
       if (child) frameInspection?.detach(child.cdp);
-      children.delete(result.data.sessionId);
-      childEvents.delete(result.data.sessionId);
+      children.delete(id);
+      childEvents.get(id)?.removeAllListeners();
+      childEvents.delete(id);
     }
   }
+
   const rootPaused = (raw: unknown) => paused(root, raw);
   const rootAttached = (raw: unknown) => attached(root, raw);
   cdp.on("Fetch.requestPaused", rootPaused);
@@ -217,10 +223,7 @@ export async function installOriginGuard(
   cdp.on("Target.receivedMessageFromTarget", received);
   cdp.on("Target.detachedFromTarget", detached);
   await root("Fetch.enable", {
-    patterns: [
-      { urlPattern: "*", requestStage: "Request" },
-      ...(downloadAllowed ? [{ urlPattern: "*", requestStage: "Response" }] : []),
-    ],
+    patterns: [{ urlPattern: "*", requestStage: "Request" }],
   });
   await root("Target.setAutoAttach", {
     autoAttach: true,
