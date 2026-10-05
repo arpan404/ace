@@ -32,8 +32,9 @@ test("headroom names each provider's account with the most room and when the nex
   report(app, "codex-personal", { five_hour: [38, 3 * hour], seven_day: [22, 5 * day] });
   report(app, "codex-team", { five_hour: [100, 87 * minute] }, "exhausted");
   await app.open("/more/accounts");
+  const work = await screen.findByRole("article", { name: "Claude Code Work" });
 
-  const headroom = await screen.findByRole("list", { name: "Headroom now" });
+  const headroom = screen.getByRole("list", { name: "Headroom now" });
   const rows = within(headroom)
     .getAllByRole("listitem")
     .map((row) => row.textContent);
@@ -45,7 +46,6 @@ test("headroom names each provider's account with the most room and when the nex
   expect(rows.some((row) => row?.startsWith("OpenCode"))).toBe(false);
 
   // Each ring says how long until its window resets.
-  const work = await screen.findByRole("article", { name: "Claude Code Work" });
   expect(
     within(work).getByRole("meter", { name: "Weekly window" }).getAttribute("aria-valuetext"),
   ).toMatch(/^57% used, resets \w+ · in 2d$/);

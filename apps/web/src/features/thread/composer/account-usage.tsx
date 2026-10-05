@@ -4,6 +4,7 @@ import {
   accountLimit,
   accountName,
   atLimitLine,
+  formatClock,
   headroom,
   migrationTarget,
   quotaWindowShort,
@@ -12,7 +13,7 @@ import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
-import { formatClock, formatResetCountdown, WindowBar } from "@/features/accounts/index.ts";
+import { formatResetCountdown, WindowBar } from "@/features/accounts/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useNow } from "@/lib/time.ts";
