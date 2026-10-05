@@ -32,6 +32,12 @@ for (const version of versions) {
           checkpoints: expected.checkpoints.map((c) => c.t),
         });
         assertExpectations(result, expected);
+        for (const item of Object.values(result.final.view.items))
+          if (item.type === "notice")
+            expect(item.text).not.toMatch(
+              /(?:OpenCode (?:[\w-]+(?:[/.][\w-]+)+|HTTP [A-Z]+.*)|\b(?:frame|event)$|^[0-9a-f-]{32,36}$)/i,
+            );
+        if (version.path === "1.18.33") expect(result.diagnostics.length).toBeGreaterThan(0);
         expect(
           Object.values(result.final.view.items).filter(
             (i) => i.type === "notice" && i.level === "warning",

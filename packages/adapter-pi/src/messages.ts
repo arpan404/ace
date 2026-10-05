@@ -43,19 +43,6 @@ export function messageFacts(input: {
               },
       });
     });
-    if (!retained)
-      facts.push({
-        type: "item.upsert",
-        agent,
-        item: `${prefix}:message:${message}:native`,
-        draft: {
-          type: "notice",
-          level: "info",
-          complete: true,
-          text: "Pi final message",
-          raw: raw(input.data),
-        },
-      });
     const u = obj(m.usage),
       cost = obj(u.cost);
     if (typeof u.input === "number" && typeof u.output === "number")
