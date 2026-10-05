@@ -97,7 +97,12 @@ it("ACP fallback correlates ace input before the native prompt is logged", async
       command: process.execPath,
       args: [fake],
     }).createTranslator({ threadId: ThreadId.parse("session-test"), rootKey: "root" });
-    const facts = h.frames.flatMap((frame) => translator.translate(frame, frame.t));
+    const diagnostics: import("@ace/protocol").RawPayload[] = [];
+    const facts = h.frames.flatMap((frame) => {
+      const translated = translator.translate(frame, frame.t);
+      diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
+      return translated;
+    });
     expect(facts).toContainEqual(
       expect.objectContaining({
         type: "item.upsert",
@@ -107,6 +112,9 @@ it("ACP fallback correlates ace input before the native prompt is logged", async
     expect(
       facts.some((fact) => fact.type === "item.delta" && fact.append === "echoed context"),
     ).toBe(false);
+    expect(facts.some((fact) => fact.type === "item.upsert" && fact.draft.type === "notice")).toBe(
+      false,
+    );
     const inputFact = facts.find(
       (fact) => fact.type === "item.upsert" && fact.draft.type === "message",
     );
@@ -122,6 +130,8 @@ it("ACP fallback correlates ace input before the native prompt is logged", async
         }),
       }),
     );
+    // The echo is retained once, as raw evidence on the sent input, not again as a diagnostic.
+    expect(JSON.stringify(diagnostics)).not.toContain("echoed context");
     const after = h.frames.length;
     await h.session.send(input("user-echo"), "queue", "copied-user-command");
     const userFacts = h.frames

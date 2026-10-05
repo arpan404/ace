@@ -18,7 +18,7 @@ test("ACP and Cursor session info titles are available to the daemon", () => {
   );
 });
 
-test("adopting an ACP title retains unknown fields in a separate raw item", () => {
+test("adopting an ACP title keeps unknown fields in diagnostics, not the transcript", () => {
   const h = harness();
   h.ready();
   const events = h.update({
@@ -26,23 +26,19 @@ test("adopting an ACP title retains unknown fields in a separate raw item", () =
     title: "A readable title",
     futureMetadata: { providerExtension: "retain this" },
   });
-  expect(events).toEqual(
+  const notices = events.flatMap((event) =>
+    event.type === "item.created" && event.item.type === "notice" ? [event.item] : [],
+  );
+  expect(notices).toEqual([expect.objectContaining({ code: "thread_title" })]);
+  expect(h.diagnostics).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        type: "item.created",
-        item: expect.objectContaining({
-          type: "notice",
-          raw: expect.arrayContaining([
-            expect.objectContaining({
-              data: expect.objectContaining({
-                params: expect.objectContaining({
-                  update: expect.objectContaining({
-                    futureMetadata: { providerExtension: "retain this" },
-                  }),
-                }),
-              }),
+        data: expect.objectContaining({
+          params: expect.objectContaining({
+            update: expect.objectContaining({
+              futureMetadata: { providerExtension: "retain this" },
             }),
-          ]),
+          }),
         }),
       }),
     ]),
