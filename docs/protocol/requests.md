@@ -614,7 +614,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.reviewer.provider"
+    "providers.coder.reasoningEffort"
   ],
   "requestId": "example",
   "scope": {
@@ -1327,7 +1327,8 @@ Example:
 {
   "operation": {
     "deviceId": "ios:3c64aFf814c0ac3785dc4aAf3C0-E3-A8043",
-    "op": "shutdown"
+    "op": "install",
+    "path": "example"
   },
   "requestId": "1axvSxhS72S_PoUXz2VRqe9lh8Re_t5J3ZeXDDpCK4TS",
   "type": "devices.request"

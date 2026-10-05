@@ -65,6 +65,14 @@ export function adbShell(tokens: readonly string[]): string[] {
 const number = (value: number) => String(Math.round(value));
 export function androidInput(input: DeviceInput): string[] {
   switch (input.kind) {
+    case "pointer":
+      return adbShell([
+        "input",
+        "motionevent",
+        input.phase === "down" ? "DOWN" : input.phase === "move" ? "MOVE" : "UP",
+        number(input.x),
+        number(input.y),
+      ]);
     case "tap":
       return adbShell(["input", "tap", number(input.x), number(input.y)]);
     case "longPress":
@@ -139,7 +147,21 @@ export function simulatorButton(input: DeviceInput): string | undefined {
 }
 export function simulatorInput(input: DeviceInput): ScreenInput {
   let mapped: ScreenInput;
-  if (input.kind === "swipe" || input.kind === "longPress")
+  if (input.kind === "pointer") {
+    mapped =
+      input.phase === "cancel"
+        ? { kind: "pointer.cancel" }
+        : {
+            kind:
+              input.phase === "down"
+                ? "pointer.down"
+                : input.phase === "up"
+                  ? "pointer.up"
+                  : "pointer.move",
+            x: input.x,
+            y: input.y,
+          };
+  } else if (input.kind === "swipe" || input.kind === "longPress")
     mapped = {
       kind: "pointer.drag",
       x: input.x,

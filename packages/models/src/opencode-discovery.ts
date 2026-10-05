@@ -1,3 +1,4 @@
+import { connectedOpenCodeProviders } from "./opencode-connections.ts";
 import { parseVersion } from "@ace/provider-kit/discovery";
 import { discoverOpenCodeModels } from "@ace/adapter-opencode";
 import { z } from "zod";
@@ -12,33 +13,42 @@ export async function discoverOpenCodeCatalog(
   instance: ModelInstance,
   signal: AbortSignal,
   spawn: (options: SpawnOptions) => SupervisedProcess,
+  metadata?: (instance: ModelInstance, signal: AbortSignal) => Promise<unknown>,
 ): Promise<CatalogModel[]> {
   const version = await installedVersion(instance, signal, spawn);
-  const payload = await discoverOpenCodeModels(
-    {
-      discovery: { overrides: { opencode: instance.executable }, env: instance.env },
-      runtime: {
-        discover: async () => ({
-          opencode: {
-            installed: true,
-            path: instance.executable,
-            version,
-            auth: "unknown",
-            loginHint: "opencode auth login",
+  const connected = await connectedOpenCodeProviders(instance, signal, spawn);
+  if (!connected.size) return [];
+  const payload = metadata
+    ? await metadata(instance, signal)
+    : await discoverOpenCodeModels(
+        {
+          discovery: { overrides: { opencode: instance.executable }, env: instance.env },
+          runtime: {
+            discover: async () => ({
+              opencode: {
+                installed: true,
+                path: instance.executable,
+                version,
+                auth: "unknown",
+                loginHint: "opencode auth login",
+              },
+              claude: { installed: false, auth: "unknown", loginHint: "" },
+              codex: { installed: false, auth: "unknown", loginHint: "" },
+              cursor: { installed: false, auth: "unknown", loginHint: "" },
+            }),
+            spawn: (launch) =>
+              spawn({
+                ...launch,
+                args: [...instance.args, ...(launch.args ?? [])],
+                cwd: instance.cwd,
+              }),
           },
-          claude: { installed: false, auth: "unknown", loginHint: "" },
-          codex: { installed: false, auth: "unknown", loginHint: "" },
-          cursor: { installed: false, auth: "unknown", loginHint: "" },
-        }),
-        spawn: (launch) =>
-          spawn({ ...launch, args: [...instance.args, ...(launch.args ?? [])], cwd: instance.cwd }),
-      },
-    },
-    instance.cwd,
-    signal,
-  );
+        },
+        instance.cwd,
+        signal,
+      );
   signal.throwIfAborted();
-  const rows = normalizeOpenCodeV2(payload, instance);
+  const rows = normalizeOpenCodeV2(payload, instance, connected);
   if (rows.length) return rows;
   // Some v2 servers return no model metadata although `models` still lists choices.
   const proc = spawn({
@@ -64,7 +74,7 @@ export async function discoverOpenCodeCatalog(
         .max(256)
         .regex(/^[^\s/]+\/\S+$/)
         .parse(line.trim());
-      if (seen.has(id)) return;
+      if (!connected.has(id.slice(0, id.indexOf("/"))) || seen.has(id)) return;
       if (rows.length >= 512) throw new Error("Too many models");
       const separator = id.indexOf("/");
       rows.push(

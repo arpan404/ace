@@ -12,6 +12,8 @@ export interface PaletteCommand {
   keys?: string;
   /** A named glyph, or any icon (the thread menu's own). */
   icon: PaletteIcon | IconGlyph;
+  /** A project's tint (`projectTint`): its glyph wears the project's colour, as on Home. */
+  tint?: number;
   /** Destructive: drawn in the danger colour. */
   danger?: boolean;
   /** Why it can't run now; the row is shown dimmed with this as its detail. */

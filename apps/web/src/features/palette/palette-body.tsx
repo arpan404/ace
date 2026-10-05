@@ -213,7 +213,10 @@ export default function PaletteBody(props: { close(): void }) {
                     onClick={item.run}
                     className={cn(item.danger && "text-destructive [&_svg]:text-destructive")}
                   >
-                    <Glyph aria-hidden />
+                    <Glyph
+                      aria-hidden
+                      style={item.tint ? { color: `var(--project-${item.tint})` } : undefined}
+                    />
                     <span className="min-w-0 flex-1 truncate text-muted-foreground">
                       <span className={cn(!ranked && "text-foreground")}>
                         <Highlighted text={item.label} query={ranked ? query : ""} />

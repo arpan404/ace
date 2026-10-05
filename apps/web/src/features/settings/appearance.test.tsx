@@ -2,6 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { contrastRatio, parseOpaqueColor } from "@/theme/contrast.ts";
 
 const root = document.documentElement;
 afterEach(() => {
@@ -71,12 +72,13 @@ test("themes and accents are radio groups: arrow keys move and choose", async ()
   expect(root.getAttribute("data-theme")).toBe("light");
   expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Light" }));
 
-  const blue = screen.getByRole("radio", { name: "Blue" });
-  expect(blue.getAttribute("tabindex")).toBe("0");
-  expect(screen.getByRole("radio", { name: "Violet" }).getAttribute("tabindex")).toBe("-1");
-  blue.focus();
+  // By default the accent is the theme's own, and that swatch takes Tab.
+  const own = screen.getByRole("radio", { name: "Theme's own" });
+  expect(own.getAttribute("tabindex")).toBe("0");
+  expect(screen.getByRole("radio", { name: "Blue" }).getAttribute("tabindex")).toBe("-1");
+  own.focus();
   await userEvent.keyboard("{ArrowRight}");
-  expect(root.getAttribute("data-accent")).toBe("violet");
+  expect(root.getAttribute("data-accent")).toBe("blue");
 });
 
 test("a custom accent hex becomes the ring colour; status colours are untouched", async () => {
@@ -90,8 +92,42 @@ test("a custom accent hex becomes the ring colour; status colours are untouched"
   await userEvent.clear(hex);
   await userEvent.type(hex, "#ff8800");
   expect(root.getAttribute("data-accent")).toBe("custom");
-  expect(root.style.getPropertyValue("--accent-custom")).toBe("#ff8800");
+  expect(root.style.getPropertyValue("--ring")).toBe("#ff8800");
   expect(root.style.getPropertyValue("--status-working")).toBe("");
+});
+
+const ring = () => root.style.getPropertyValue("--ring");
+
+test("by default the accent follows the theme; a pinned accent stays through a theme change", async () => {
+  await harness().open("/settings/appearance");
+  const dark = ring();
+  await userEvent.click(await screen.findByRole("radio", { name: "Paper" }));
+  const paper = ring();
+  expect(paper).not.toBe(dark);
+
+  await userEvent.click(screen.getByRole("radio", { name: "Violet" }));
+  const violet = ring();
+  expect(violet).not.toBe(paper);
+  await userEvent.click(screen.getByRole("radio", { name: "Light" }));
+  await userEvent.click(screen.getByRole("radio", { name: "Paper" }));
+  expect(ring()).toBe(violet);
+});
+
+test("a white custom accent on Light keeps links and button labels readable", async () => {
+  await harness().open("/settings/appearance");
+  await userEvent.click(await screen.findByRole("radio", { name: "Light" }));
+  const hex = screen.getByRole("textbox", { name: "Custom accent hex" });
+  await userEvent.clear(hex);
+  await userEvent.type(hex, "#ffffff");
+  const style = (name: string) => {
+    const value = parseOpaqueColor(root.style.getPropertyValue(name));
+    if (!value) throw new Error(`${name} is not a colour`);
+    return value;
+  };
+  expect(root.style.getPropertyValue("--ring")).toBe("#ffffff");
+  // Links on the white reading column, labels on a white button.
+  expect(contrastRatio(style("--ring-text"), [255, 255, 255])).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(style("--ring-foreground"), style("--ring"))).toBeGreaterThanOrEqual(4.5);
 });
 
 test("density and glass apply to the document", async () => {

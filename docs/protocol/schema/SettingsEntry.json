@@ -9,7 +9,7 @@
       "$ref": "https://ace.local/protocol/v1/SettingsProvenance.json"
     },
     "value": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema1"
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema2"
     }
   },
   "required": [

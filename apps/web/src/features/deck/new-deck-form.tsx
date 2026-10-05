@@ -448,7 +448,7 @@ export function NewDeckForm() {
                 disabled={submitting || !choices?.length || noProjects}
               >
                 {submitting ? "Starting…" : "Start deck"}
-                <Kbd keys="mod+enter" variant="bare" className="text-primary-foreground/60" />
+                <Kbd keys="mod+enter" variant="bare" className="text-tint-foreground/60" />
               </Button>
             );
             // A disabled button shows no tooltip of its own; its wrapper says why.

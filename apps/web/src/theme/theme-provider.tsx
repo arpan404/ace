@@ -18,6 +18,7 @@ import {
   type Appearance,
   type BootTheme,
 } from "./appearance.ts";
+import { accentColours } from "./accent.ts";
 import { themeStylesheet } from "./css.ts";
 import { loadCustomThemes, saveCustomThemes } from "./custom-themes.ts";
 import { basePreset, presetThemes, type Theme } from "./presets.ts";
@@ -119,8 +120,11 @@ export function ThemeProvider(props: { environment: Environment; children: React
       "data-accent": appearance.accent,
       "data-density": appearance.density,
     };
+    const accent = accentColours(theme, appearance);
     const style: Record<string, string> = {
-      "--accent-custom": appearance.customAccent,
+      "--ring": accent.ring,
+      "--ring-foreground": accent.foreground,
+      "--ring-text": accent.text,
       "--glass": String(appearance.glass),
       "--transcript-size": `${transcriptSizes[appearance.transcriptSize].px}px`,
     };
@@ -133,7 +137,7 @@ export function ThemeProvider(props: { environment: Environment; children: React
       css,
     };
     writes.schedule(bootThemeKey, () => writeJson(storage, bootThemeKey, boot));
-  }, [root, storage, css, theme.id, theme.scheme, background, appearance, writes]);
+  }, [root, storage, css, theme, background, appearance, writes]);
 
   const update = useCallback(
     (next: Partial<Appearance>) => {

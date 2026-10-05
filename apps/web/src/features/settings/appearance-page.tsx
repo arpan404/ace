@@ -110,7 +110,7 @@ export function AppearanceSettings() {
         </SettingRow>
         <SettingRow
           {...settingRow("appearance.accent")}
-          description="Used for focus, links, selection and the new-activity marker. Status colours never change."
+          description="Primary actions, links, selection, focus and sliders. Theme follows each theme's own accent. Status colours never change."
         >
           <AccentPicker />
         </SettingRow>
@@ -166,20 +166,23 @@ function AccentPicker() {
       onKeyDown={onRadioKeys}
       className="flex flex-wrap items-center gap-2"
     >
-      {accentNames.map((name) => (
-        <Tip key={name} label={capitalised(name)}>
-          <button
-            type="button"
-            role="radio"
-            aria-label={capitalised(name)}
-            aria-checked={appearance.accent === name}
-            tabIndex={appearance.accent === name ? 0 : -1}
-            onClick={() => update({ accent: name })}
-            className={swatch}
-            style={{ background: `var(--accent-${name})` }}
-          />
-        </Tip>
-      ))}
+      {(["theme", ...accentNames] as const).map((name) => {
+        const label = name === "theme" ? "Theme's own" : capitalised(name);
+        return (
+          <Tip key={name} label={label}>
+            <button
+              type="button"
+              role="radio"
+              aria-label={label}
+              aria-checked={appearance.accent === name}
+              tabIndex={appearance.accent === name ? 0 : -1}
+              onClick={() => update({ accent: name })}
+              className={swatch}
+              style={{ background: `var(--accent-${name})` }}
+            />
+          </Tip>
+        );
+      })}
       <Tip label={`Custom colour (${appearance.customAccent.toUpperCase()})`}>
         <label
           className={cn(

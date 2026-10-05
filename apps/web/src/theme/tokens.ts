@@ -46,8 +46,9 @@ export const tokenGroups = [
     ],
   },
   {
-    name: "Accent presets",
+    name: "Accent",
     tokens: [
+      "--accent-theme",
       "--accent-blue",
       "--accent-violet",
       "--accent-teal",
@@ -69,6 +70,23 @@ export const tokenGroups = [
     ],
   },
   { name: "Diff", tokens: ["--diff-add", "--diff-del"] },
+  {
+    name: "Project badges",
+    tokens: [
+      "--project-1",
+      "--project-2",
+      "--project-3",
+      "--project-4",
+      "--project-5",
+      "--project-6",
+      "--project-7",
+      "--project-8",
+      "--project-9",
+      "--project-10",
+      "--project-11",
+      "--project-12",
+    ],
+  },
   { name: "Wallpaper", tokens: ["--wall", "--w1", "--w2", "--w3", "--w4"] },
   { name: "Shape", tokens: ["--radius-sm", "--radius", "--radius-lg", "--radius-xl"] },
 ] as const;
@@ -87,7 +105,9 @@ export const tokenHints: Partial<Record<TokenName, string>> = {
   "--card": "cards and files summary",
   "--bubble": "user message bubble",
   "--code": "code blocks and terminal",
-  "--primary": "ink buttons",
+  "--primary": "ink: tooltips and the user's bubble",
+  "--accent-theme": "this theme's own accent, used when the accent is set to Theme",
+  "--project-1": "project badge tints: text in the tint on a wash of it",
 };
 
 /** What a token's value is, so the editor can refuse what CSS would drop. */

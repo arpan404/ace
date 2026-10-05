@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import { ProviderConfigurations } from "@ace/protocol";
 import {
   ModelCatalog,
   ModelInstance,
@@ -27,12 +28,27 @@ const native = {
   })),
 };
 const rows = normalizeCodex(native, config);
+let preferences: ProviderConfigurations = [
+  {
+    provider: "codex",
+    hiddenModels: rows.map((row) => `hidden-${row.id}`),
+    shownModels: rows.map((row) => row.id),
+    favourites: rows.map((row) => row.id),
+    hiddenGroups: rows.map((row) => `hidden-${row.id}`),
+    shownGroups: rows.map((row) => `shown-${row.id}`),
+    customModels: Array.from({ length: 128 }, (_, index) => ({
+      id: `custom-${index}`,
+      displayName: `Custom ${index}`,
+    })),
+  },
+];
 const catalog = new ModelCatalog({
   storage: openModelStorage(":memory:"),
   instances: [config],
   discover: async () => rows,
   now: () => 1000,
   deadline: () => () => {},
+  preferences: () => preferences,
 });
 await catalog.refresh();
 const iterations = 100_000;
@@ -53,6 +69,17 @@ function measure(name: string, operation: () => unknown) {
   );
 }
 measure("cached instance page, 100 rows", () => catalog.list({ instance: "bench", limit: 100 }));
+measure("cached dense preferences, one final native row", () =>
+  catalog.list({ instance: "bench", limit: 1, offset: 511 }),
+);
+measure("cached dense preferences, final custom row", () =>
+  catalog.list({ instance: "bench", limit: 1, offset: 639 }),
+);
+measure("changed dense preferences, one row", () => {
+  preferences = ProviderConfigurations.parse(preferences);
+  catalog.configurationChanged();
+  return catalog.list({ instance: "bench", limit: 1 });
+});
 measure("strongest compatible fast policy", () =>
   catalog.resolve({
     instance: "bench",

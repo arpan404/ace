@@ -97,7 +97,7 @@ export class DeviceClient {
     return new ScreenFrameReader((frame) => {
       const id = this.streams.get(frame.header.sessionId);
       if (id) this.frameHubs.get(id)?.hub.publish({ frame, epoch: this.epoch });
-      else this.screenshots.retain(frame);
+      this.screenshots.retain(frame);
     });
   }
   getSnapshot(): DeviceClientSnapshot {
@@ -334,10 +334,15 @@ export class DeviceClient {
         try {
           if (pending.operation.op === "screenshot") {
             const image = this.screenshots.complete(message.requestId, message.data);
-            if (image)
-              this.frameHubs
-                .get(image.deviceId)
-                ?.hub.publish({ frame: image.frame, epoch: this.epoch, direct: true });
+            if (!image) {
+              pending.reject(
+                new DeviceClientError("invalid", "Screenshot pixels missing or mismatched"),
+              );
+              return;
+            }
+            this.frameHubs
+              .get(image.deviceId)
+              ?.hub.publish({ frame: image.frame, epoch: this.epoch, direct: true });
           }
           if (pending.operation.op === "list") {
             const found = inventory.parse(message.data);

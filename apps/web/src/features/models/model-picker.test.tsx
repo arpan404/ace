@@ -8,8 +8,13 @@ import { closeModelControl, openModelControl, openModelPicker } from "@/test/mod
 beforeEach(() => localStorage.clear());
 
 /** A Claude Code thread mid-turn, with its model picker open. */
-async function openPicker() {
+async function openPicker(options: { showDeprecated?: boolean } = {}) {
   const app = harness();
+  // Deprecated models are hidden unless the person shows them for the provider.
+  if (options.showDeprecated)
+    app.daemon.services.settings.seed({
+      "providers.configuration": [{ provider: "claude", hideDeprecated: false }],
+    });
   app.play(replayCursor()).runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
@@ -23,7 +28,7 @@ const names = (list: HTMLElement) =>
     .map((option) => option.getAttribute("aria-label"));
 
 test("the picker opens on the thread's provider, current models first and legacy ones last", async () => {
-  const { popover, list } = await openPicker();
+  const { popover, list } = await openPicker({ showDeprecated: true });
   expect(within(popover).getByRole("tab", { name: "Claude Code" }).ariaSelected).toBe("true");
   expect(names(list)).toEqual([
     "Opus 4.1, Claude Code",

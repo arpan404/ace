@@ -2,7 +2,8 @@ import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { accentNames } from "./presets.ts";
 
-export const AccentChoice = z.enum([...accentNames, "custom"]);
+/** "theme" follows the theme's own accent (`--accent-theme`); the rest pin one colour. */
+export const AccentChoice = z.enum(["theme", ...accentNames, "custom"]);
 export type AccentChoice = z.infer<typeof AccentChoice>;
 export const Density = z.enum(["comfortable", "compact"]);
 export type Density = z.infer<typeof Density>;
@@ -21,7 +22,7 @@ export const defaultTheme = "system";
 export const Appearance = z.object({
   /** "system", a preset id or a custom theme id. */
   theme: z.catch(z.string().check(z.minLength(1)), defaultTheme),
-  accent: z.catch(AccentChoice, "blue"),
+  accent: z.catch(AccentChoice, "theme"),
   customAccent: z.catch(HexColor, "#7AA2F7"),
   /** 0 = solid, 1 = the most wallpaper shows through. */
   glass: z.catch(z.number().check(z.gte(0), z.lte(1)), 1),
@@ -32,7 +33,7 @@ export type Appearance = z.infer<typeof Appearance>;
 
 export const defaultAppearance: Appearance = {
   theme: defaultTheme,
-  accent: "blue",
+  accent: "theme",
   customAccent: "#7AA2F7",
   glass: 1,
   density: "comfortable",

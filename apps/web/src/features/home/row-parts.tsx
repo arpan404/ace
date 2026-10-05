@@ -8,7 +8,7 @@ import {
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { formatSpan, type ProjectBadge, type TaskPill, type ThreadCard } from "@ace/ui-core";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
@@ -43,20 +43,16 @@ export function threadDetails(card: ThreadCard): string[] {
 }
 
 /**
- * Two letters on a tint of the project's own hue; the mix with the text colour suits any theme.
- * The colours are per project, so they live inline rather than as one-off CSS rules.
+ * Two letters in the project's tint (`--project-<n>`, AA on every surface) on a wash of it. The
+ * tint is per project, so only the variable is inline; the rule is shared.
  */
 export function ProjectMark(props: { badge: ProjectBadge; className?: string }) {
-  const { hue } = props.badge;
   return (
     <span
       aria-hidden
-      style={{
-        backgroundColor: `oklch(0.68 0.13 ${hue} / 0.2)`,
-        color: `color-mix(in oklab, oklch(0.64 0.15 ${hue}) 78%, var(--foreground))`,
-      }}
+      style={{ "--tint": `var(--project-${props.badge.tint})` } as CSSProperties}
       className={cn(
-        "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-[4px] px-[3px] text-[9px] leading-none font-semibold tracking-[0.02em]",
+        "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-[4px] bg-(--tint)/16 px-[3px] text-[9px] leading-none font-semibold tracking-[0.02em] text-(--tint)",
         props.className,
       )}
     >
