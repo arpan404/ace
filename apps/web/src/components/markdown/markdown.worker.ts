@@ -8,11 +8,16 @@ import { StreamRegistry } from "./stream-registry.ts";
 // last settled block on.
 const Input = z.union([
   z.object({ stream: z.string(), at: z.number(), append: z.string(), final: z.boolean() }),
+  z.object({ release: z.string() }),
   z.object({ code: z.string(), lang: z.string().optional(), hash: z.string() }),
 ]);
 const streams = new StreamRegistry(() => performance.now());
 serveOffThread(
   (input) => Input.parse(input),
   (input) =>
-    "code" in input ? codeLines(input.code, input.lang, input.hash) : streams.apply(input),
+    "code" in input
+      ? codeLines(input.code, input.lang, input.hash)
+      : "release" in input
+        ? streams.release(input.release)
+        : streams.apply(input),
 );

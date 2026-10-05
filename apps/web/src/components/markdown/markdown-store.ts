@@ -15,6 +15,8 @@ export interface MarkdownBackend {
   parallel: boolean;
   run(job: StreamJob): Promise<StreamReply>;
   local(job: StreamJob): StreamReply;
+  /** Drop the worker's parser for a stream no view shows any more. */
+  release(stream: string): void;
 }
 
 export interface MarkdownStoreOptions {
@@ -25,6 +27,8 @@ export interface MarkdownStoreOptions {
   interval(lastMs: number): number;
   /** Told of each update: the text's length and the worker's time. */
   updated?(update: { stream: string; chars: number; ms: number }): void;
+  /** What unwatched documents may hold, in UTF-16 units weighed as `park` does (16 Mi). */
+  parkedWeight?: number;
 }
 
 interface Wanted {
@@ -46,7 +50,15 @@ interface Stream {
   /** When the next paced job may go. */
   readyAt: number;
   listeners: Set<() => void>;
+  /** Bumped when the stream is parked: replies to jobs sent before then are ignored. */
+  epoch: number;
+  /** What a parked stream holds, in UTF-16 units (texts and blocks), for the cache's budget. */
+  weight: number;
 }
+
+/** Characters a document's blocks hold; their token trees cost about three times that. */
+const docChars = (doc: MarkdownDoc | undefined) =>
+  doc ? doc.blocks.reduce((sum, block) => sum + block.token.raw.length, 0) : 0;
 
 export class MarkdownStore {
   private options: MarkdownStoreOptions;
@@ -55,13 +67,14 @@ export class MarkdownStore {
    * Streams no view watches: enough for every message a person scrolls back through in a
    * session, so a row that mounts again shows its blocks at once.
    */
-  private parked = new LruCache<string, Stream>({
-    maxEntries: 400,
-    maxWeight: 16 * 1024 * 1024,
-    weigh: (stream) => (stream.sent?.text.length ?? 0) * 3 + 256,
-  });
+  private parked: LruCache<string, Stream>;
   constructor(options: MarkdownStoreOptions) {
     this.options = options;
+    this.parked = new LruCache<string, Stream>({
+      maxEntries: 400,
+      maxWeight: options.parkedWeight ?? 16 * 1024 * 1024,
+      weigh: (stream) => stream.weight,
+    });
   }
   /** Whether documents are built in a worker; otherwise they are built in place. */
   get parallel(): boolean {
@@ -72,12 +85,27 @@ export class MarkdownStore {
     stream.listeners.add(listener);
     return () => {
       stream.listeners.delete(listener);
-      if (stream.listeners.size || this.live.get(key) !== stream) return;
-      this.live.delete(key);
-      stream.waiting?.();
-      stream.waiting = undefined;
-      this.parked.set(key, stream);
+      if (!stream.listeners.size && this.live.get(key) === stream) this.park(stream);
     };
+  }
+  /**
+   * No view shows the stream: cancel what is queued, ignore replies still on their way, and
+   * free the worker's parser unless the text was final (a final job already did). The parked
+   * stream never changes again, so its weight holds.
+   */
+  private park(stream: Stream): void {
+    this.live.delete(stream.key);
+    stream.waiting?.();
+    stream.waiting = undefined;
+    stream.wanted = undefined;
+    stream.epoch++;
+    if (stream.busy || !stream.sent?.final) {
+      if (stream.sent || stream.busy) this.options.backend.release(stream.key);
+      stream.busy = false;
+      stream.sent = undefined;
+    }
+    stream.weight = (stream.sent?.text.length ?? 0) + docChars(stream.doc) * 3 + 256;
+    this.parked.set(stream.key, stream);
   }
   /** The document to show: the newest one built for this stream. */
   read(key: string): MarkdownDoc | undefined {
@@ -103,6 +131,8 @@ export class MarkdownStore {
         waiting: undefined,
         readyAt: 0,
         listeners: new Set(),
+        epoch: 0,
+        weight: 0,
       };
     }
     this.parked.delete(key);
@@ -111,6 +141,11 @@ export class MarkdownStore {
   }
   private pump(stream: Stream): void {
     const wanted = stream.wanted;
+    // The final text never waits for the pace.
+    if (wanted?.final && stream.waiting) {
+      stream.waiting();
+      stream.waiting = undefined;
+    }
     if (stream.busy || stream.waiting || !wanted) return;
     const sent = stream.sent;
     if (sent && sent.final === wanted.final && sent.text === wanted.text) {
@@ -144,12 +179,15 @@ export class MarkdownStore {
       return;
     }
     stream.busy = true;
+    const epoch = stream.epoch;
     void backend.run(job).then(
       (reply) => {
+        if (stream.epoch !== epoch) return;
         stream.busy = false;
         this.answer(stream, wanted, reply, now);
       },
       () => {
+        if (stream.epoch !== epoch) return;
         stream.busy = false;
         // The worker failed (it restarts on the next job): send the text whole, once more.
         stream.sent = undefined;

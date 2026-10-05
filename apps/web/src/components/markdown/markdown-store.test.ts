@@ -7,20 +7,30 @@ import { StreamRegistry, type StreamJob, type StreamReply } from "./stream-regis
  * A store against a real worker registry, with a hand-driven clock and timers, and replies
  * held until the test lets them through, as a busy worker would.
  */
-function harness(interval = 80) {
+function harness(interval = 80, parkedWeight?: number) {
   let now = 0;
   let registry = new StreamRegistry(() => now);
   const timers: { at: number; run: () => void; live: boolean }[] = [];
   const jobs: StreamJob[] = [];
-  const held: (() => void)[] = [];
+  const released: string[] = [];
+  const held: (() => Promise<StreamReply>)[] = [];
   const store = new MarkdownStore({
     backend: {
       parallel: true,
       run(job) {
         jobs.push(job);
-        return new Promise<StreamReply>((resolve) => held.push(() => resolve(registry.apply(job))));
+        const reply = Promise.withResolvers<StreamReply>();
+        held.push(() => {
+          reply.resolve(registry.apply(job));
+          return reply.promise;
+        });
+        return reply.promise;
       },
       local: (job) => registry.apply(job),
+      release(stream) {
+        released.push(stream);
+        registry.release(stream);
+      },
     },
     now: () => now,
     schedule(delayMs, run) {
@@ -31,17 +41,20 @@ function harness(interval = 80) {
       };
     },
     interval: () => interval,
+    ...(parkedWeight === undefined ? {} : { parkedWeight }),
   });
   let notified = 0;
-  store.watch("m", () => notified++);
+  const unwatch = store.watch("m", () => notified++);
   return {
     store,
     jobs,
+    released,
+    unwatch,
     notified: () => notified,
-    /** The worker answers the oldest job. */
+    /** The worker answers the oldest job; the store has handled the answer when this resolves. */
     async reply() {
-      held.shift()?.();
-      await new Promise((resolve) => setTimeout(resolve));
+      // The store's own handler was attached first, so it has run once this await resumes.
+      await held.shift()?.();
     },
     advance(ms: number) {
       now += ms;
@@ -152,16 +165,80 @@ test("blocks that settled keep their objects while the message grows", async () 
   expect(second?.blocks[1]).toBe(first?.blocks[1]);
 });
 
-test("a message scrolled away and back shows its blocks at once", async () => {
-  const { store, reply } = harness();
-  store.want("x", "# Title\n\nBody", true);
+test("a message scrolled away and back shows its blocks at once, with no new job", async () => {
+  const { store, reply, jobs } = harness();
   const stop = store.watch("x", () => {});
+  store.want("x", "# Title\n\nBody", true);
   await reply();
   stop();
+  // Mounted again: the first render reads the parked document; asking again sends nothing.
+  store.watch("x", () => {});
   expect(store.read("x")?.blocks.map((block) => block.token.type)).toEqual([
     "heading",
     "paragraph",
   ]);
+  store.want("x", "# Title\n\nBody", true);
+  expect(jobs).toHaveLength(1);
+});
+
+test("a final text that arrives while a paced update waits goes at once", async () => {
+  const { store, jobs, reply, advance, text } = harness(80);
+  store.want("m", "Hello", false);
+  await reply();
+  advance(5);
+  store.want("m", "Hello, wor", false);
+  // That update waits for its turn, 75 ms away...
+  expect(jobs).toHaveLength(1);
+  store.want("m", "Hello, world.", true);
+  // ...but the final text doesn't.
+  expect(jobs.at(-1)).toEqual({ stream: "m", at: 5, append: ", world.", final: true });
+  await reply();
+  expect(text()).toBe("Hello, world.");
+  // The cancelled wait sends nothing later.
+  advance(200);
+  expect(jobs).toHaveLength(2);
+});
+
+test("unmounting drops queued text, frees the worker's parser and ignores the reply on its way", async () => {
+  const { store, jobs, released, reply, advance, unwatch, text } = harness(10);
+  store.want("m", "Hello\n\nworld", false);
+  await reply();
+  const shown = store.read("m");
+  advance(20);
+  store.want("m", "Hello\n\nworld, and", false);
+  // A long replacement queues behind the job in flight.
+  store.want("m", "x".repeat(65_000), false);
+  unwatch();
+  expect(released).toEqual(["m"]);
+  await reply();
+  // The answer to the job sent before unmounting changes nothing, and nothing more is sent.
+  expect(store.read("m")).toBe(shown);
+  advance(100);
+  expect(jobs).toHaveLength(2);
+  // Mounted again, the text goes whole: the worker no longer holds the stream.
+  store.watch("m", () => {});
+  store.want("m", "Hello\n\nworld, and more", false);
+  expect(jobs.at(-1)).toMatchObject({ at: 0, append: "Hello\n\nworld, and more" });
+  await reply();
+  expect(text()).toBe("Hello | world, and more");
+});
+
+test("unwatched documents are kept by what they hold: the oldest go once the budget is spent", async () => {
+  // Room for two parked paragraphs of 600 characters: each weighs its text, its blocks three
+  // times over (their token trees) and a little more, about 2.7 K.
+  const { store, reply } = harness(10, 6_000);
+  const park = async (key: string) => {
+    const stop = store.watch(key, () => {});
+    store.want(key, `${key}: ${"word ".repeat(120)}`, true);
+    await reply();
+    stop();
+  };
+  await park("a");
+  await park("b");
+  await park("c");
+  expect(store.read("a")).toBeUndefined();
+  expect(store.read("b")).toBeDefined();
+  expect(store.read("c")).toBeDefined();
 });
 
 test("updates come 10 to 20 times a second: slower when they cost more, and when motion is reduced", () => {

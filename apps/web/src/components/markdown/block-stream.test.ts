@@ -66,9 +66,11 @@ describe("a streamed message settles into exactly the blocks of one full parse",
 });
 
 test("a block that settled while streaming is never revised: it is already the final block", () => {
-  // Reference definitions arriving late are the exception, covered on their own below.
+  // Reference definitions arriving after their references are the exception: they re-lex the
+  // settled blocks once (covered on their own below).
+  const late = new Set(["references", "nestedDefinitions", "prototypeLabels"]);
   for (const [name, text] of Object.entries(samples)) {
-    if (name === "references") continue;
+    if (late.has(name)) continue;
     const expected = fullParse(text);
     for (const [how, pieces] of chunkings(text)) {
       let count = 0;
@@ -96,6 +98,34 @@ test("a reference resolves in an earlier settled block once its definition arriv
   const after = stream(pieces).settled;
   expect(after).toEqual(fullParse(pieces.join("")));
   expect(JSON.stringify(after?.[0])).toContain("https://ace.dev/docs");
+});
+
+test("a definition inside a quote, settling after its reference, resolves it", () => {
+  const pieces = ["See [x][ref].\n\nOther.\n", "\n> [ref]: https://ace.dev\n"];
+  const settled = stream(pieces).settled;
+  expect(settled).toEqual(fullParse(pieces.join("")));
+  expect(JSON.stringify(settled[0])).toContain('"href":"https://ace.dev"');
+});
+
+test("labels named like object members are defined like any other", () => {
+  for (const label of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    // The reference settles (a paragraph follows it) before its definition arrives.
+    const pieces = [
+      `Use [${label}].\n\nNext paragraph.\n`,
+      `\n[${label}]: https://ace.dev/${label}\n\nEnd.\n`,
+    ];
+    const settled = stream(pieces).settled;
+    expect(settled, label).toEqual(fullParse(pieces.join("")));
+    expect(JSON.stringify(settled[0]), label).toContain(`https://ace.dev/${label}`);
+  }
+});
+
+test("an anchor left open in one paragraph keeps autolinks off in the next, as in a full parse", () => {
+  const pieces = ['before <a href="https://ace.dev">text\n\nwww.ace.dev\n', "\nlast\n"];
+  const settled = stream(pieces).settled;
+  expect(settled).toEqual(fullParse(pieces.join("")));
+  // www.ace.dev stays text: no second link inside the open anchor.
+  expect(JSON.stringify(settled[1])).not.toContain('"type":"link"');
 });
 
 test("only the open block is parsed again: the open part stays small as an answer grows", () => {
@@ -133,7 +163,7 @@ const replies = (pieces: readonly string[]) => {
 };
 
 describe("the markdown worker's streams", () => {
-  test("each finished block crosses to the page once, highlighted once", () => {
+  test("each finished block crosses to the page once, with its code highlighted", () => {
     const pieces = chunkings(longAnswer).find(([how]) => how === "16 characters at a time")?.[1];
     if (!pieces) throw new Error("no chunking");
     const sent = replies(pieces).flatMap(settledOf);
@@ -142,6 +172,15 @@ describe("the markdown worker's streams", () => {
     const code = fence?.token.type === "code" ? fence.token.text : "";
     expect(code).toContain("export function replay");
     expect(fence?.code).toEqual(highlight(code, "ts"));
+  });
+
+  test("a released stream is forgotten: its next append asks for the whole text", () => {
+    const streams = registry();
+    streams.apply({ stream: "m", at: 0, append: "Para one.\n\nPara", final: false });
+    streams.release("m");
+    expect(streams.apply({ stream: "m", at: 15, append: " two.", final: false })).toEqual({
+      resync: true,
+    });
   });
 
   test("a stream the worker doesn't hold, or holds at another length, is asked for whole", () => {

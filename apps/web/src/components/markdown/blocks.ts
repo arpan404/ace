@@ -12,7 +12,7 @@ import { highlight, type CodeToken } from "./highlight.ts";
 export interface MarkdownBlock {
   token: Token;
   /** Highlighted tokens of a settled fenced code block. */
-  code?: CodeToken[];
+  code?: CodeToken[] | undefined;
 }
 export interface MarkdownDoc {
   /** The settled blocks, then the open ones. */

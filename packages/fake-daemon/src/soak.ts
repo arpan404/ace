@@ -71,6 +71,8 @@ const answer =
 function answerDeltas(options: SoakOptions): string[] {
   if (options.answer) {
     const { text, chunk = 20 } = options.answer;
+    if (!Number.isInteger(chunk) || chunk < 1)
+      throw new RangeError(`answer.chunk must be a positive integer, not ${chunk}`);
     const pieces: string[] = [];
     for (let at = 0; at < text.length; at += chunk) pieces.push(text.slice(at, at + chunk));
     return pieces;

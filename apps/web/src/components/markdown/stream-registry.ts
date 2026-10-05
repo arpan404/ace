@@ -40,6 +40,11 @@ export class StreamRegistry {
   constructor(now: () => number) {
     this.now = now;
   }
+  /** No view shows the stream any more: drop its parser. */
+  release(stream: string): null {
+    this.streams.delete(stream);
+    return null;
+  }
   apply(job: StreamJob): StreamReply {
     const started = this.now();
     const stream = job.at === 0 ? new BlockStream() : this.streams.get(job.stream);

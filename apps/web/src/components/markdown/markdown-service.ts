@@ -15,9 +15,16 @@ const samples =
 export const markdownService = new MarkdownStore({
   backend: {
     parallel: markdownWorker.parallel,
-    // A markdown job answers with a stream reply.
-    run: (job) => markdownWorker.run(job) as Promise<StreamReply>,
+    run: (job) =>
+      markdownWorker.run(job).then((reply): StreamReply => {
+        if (reply && ("resync" in reply || "from" in reply)) return reply;
+        throw new Error("The markdown worker answered a stream job with something else");
+      }),
     local: (job) => localStreams.apply(job),
+    release(stream) {
+      if (markdownWorker.parallel) void markdownWorker.run({ release: stream }).catch(() => {});
+      else localStreams.release(stream);
+    },
   },
   now: () => performance.now(),
   schedule(delayMs, run) {

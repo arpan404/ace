@@ -4,7 +4,8 @@ import { longMarkdownAnswer } from "@ace/fake-daemon";
  * Markdown an agent writes, and the constructs that make streamed parsing hard: fences left
  * open across blank lines, lists that continue after a blank line, setext headings, tables
  * still growing, quotes with lazy lines, HTML blocks and reference definitions that arrive
- * after the references.
+ * after the references (top-level, nested, or named like object members), and inline HTML
+ * that leaves an anchor open across paragraphs.
  */
 
 const headings = `# Release notes
@@ -174,6 +175,50 @@ that runs over two lines'
 Not part of the title.
 `;
 
+const nestedDefinitions = `> [early]: https://ace.dev/early
+
+Use [early] after a definition inside a quote.
+
+See [the guide][ref] and [the list][listed] before their definitions.
+
+Other text.
+
+> [ref]: https://ace.dev/quoted
+
+- an item
+
+  [listed]: https://ace.dev/listed
+
+[ref]: https://ace.dev/ignored-the-quote-came-first
+
+Then [ref] and [listed] again.
+`;
+
+const prototypeLabels = `Labels named like object members: [constructor] and [__proto__] (marked lowers
+labels, so these two are the inherited ones), and [toString], which has no definition.
+
+A paragraph between, so the references above settle before their definitions arrive.
+
+[constructor]: https://ace.dev/constructor
+
+> [__proto__]: https://ace.dev/proto
+
+After: [constructor] [__proto__].
+`;
+
+const inlineHtml = `before <a href="https://ace.dev">text
+
+www.ace.dev stays text inside the open anchor
+
+last
+
+</a> after it www.ace.dev/x links again
+
+<code>raw *a*
+
+</code> and *b* <span>www.ace.dev/y</span>
+`;
+
 const crlf =
   "# Windows\r\n\r\nLine one\r\nline two\r\n\r\n- a\r\n- b\r\n\r\n```\r\ncode\r\n```\r\n";
 
@@ -198,6 +243,9 @@ export const markdownSamples: Record<string, string> = {
   quotes,
   references,
   titles,
+  nestedDefinitions,
+  prototypeLabels,
+  inlineHtml,
   crlf,
   spacing,
 };
