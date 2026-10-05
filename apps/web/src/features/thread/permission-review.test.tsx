@@ -59,7 +59,12 @@ test("a request ace sent on says why, in the thread and in Activity", async () =
   // Approved and denied requests never reached a person.
   expect(screen.queryByRole("article", { name: "Run rm -rf dist?" })).toBeNull();
 
-  await userEvent.click(screen.getByRole("link", { name: /Activity/ }));
+  // The rail's Activity; the sidebar's bell goes there too.
+  await userEvent.click(
+    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", {
+      name: /^Activity/,
+    }),
+  );
   const inActivity = await screen.findByRole("article", { name: /npm publish --dry-run/ });
   expect(within(inActivity).getByRole("region", { name: "ace's review" }).textContent).toContain(
     "Command is not in the low-risk allowlist",

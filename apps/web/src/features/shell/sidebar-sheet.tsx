@@ -4,12 +4,13 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 
 /**
- * The sidebar on a narrow window: a sheet over the content, opened from the header. It covers
- * the header's toggle, so it carries its own, at the end of the sidebar's top row.
+ * The rail and the sidebar on a narrow window: a sheet over the content, opened from the
+ * header. It covers the header's toggle, so it carries its own at the end of the top row.
  */
 export function SidebarSheet(props: {
   open: boolean;
   onOpenChange(open: boolean): void;
+  rail: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -17,10 +18,11 @@ export function SidebarSheet(props: {
       <SheetContent
         side="left"
         showCloseButton={false}
-        className="w-[min(320px,85vw)] gap-0 bg-[rgb(var(--sidebar-rgb))] p-0"
+        className="w-[min(344px,92vw)] flex-row gap-0 bg-[rgb(var(--sidebar-rgb))] p-0"
       >
         <SheetTitle className="sr-only">Sidebar</SheetTitle>
-        {props.children}
+        {props.rail}
+        <div className="flex min-w-0 flex-1 flex-col">{props.children}</div>
         <IconButton
           icon={SidebarSimpleIcon}
           label="Hide sidebar"

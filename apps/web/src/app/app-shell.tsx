@@ -4,10 +4,10 @@ import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts
 import { MoreMenuItems } from "@/features/more/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost } from "@/features/projects/index.ts";
-import { AppSidebar, GlobalHotkeys, SidebarFrame } from "@/features/shell/index.ts";
+import { AppSidebar, GlobalHotkeys, Rail, SidebarFrame } from "@/features/shell/index.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 
-/** Wallpaper, the one sidebar, and the selected view (its list in the sidebar, its column). */
+/** Wallpaper, the rail of views, the sidebar and the selected view (its list there, its column). */
 export function AppShell() {
   const shell = useRouteFocus();
   // The static boot shell from index.html fades into this one.
@@ -22,7 +22,7 @@ export function AppShell() {
         >
           Skip to content
         </a>
-        <SidebarFrame sidebar={<Sidebar />}>
+        <SidebarFrame rail={<ViewRail />} sidebar={<AppSidebar />}>
           <Outlet />
         </SidebarFrame>
         <CommandPalette />
@@ -34,11 +34,11 @@ export function AppShell() {
 }
 
 /**
- * The sidebar with what other slices own: Activity's count (the number its header shows; a
- * change re-renders only the sidebar) and More's menu.
+ * The rail with what other slices own: Activity's count (the number its header shows; a change
+ * re-renders only the rail) and More's menu.
  */
-function Sidebar() {
-  return <AppSidebar badges={{ activity: useNeedsYouCount() }} moreMenu={<MoreMenuItems />} />;
+function ViewRail() {
+  return <Rail badges={{ activity: useNeedsYouCount() }} moreMenu={<MoreMenuItems />} />;
 }
 
 /** After client-side navigation, move focus to the new view's title so keyboard and
