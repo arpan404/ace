@@ -285,7 +285,11 @@ export function formatWhen(instant: number, now: number): string {
   const startOfToday = new Date(now).setHours(0, 0, 0, 0);
   const days = Math.floor((new Date(instant).setHours(0, 0, 0, 0) - startOfToday) / day);
   if (days === 0) return `${target.getHours() >= 18 ? "Tonight" : "Today"} ${time}`;
-  if (days === 1) return target.getHours() < 6 ? `Tonight ${time}` : `Tomorrow ${time}`;
+  // Small hours after an evening read as tonight; after midnight they're tomorrow's.
+  if (days === 1)
+    return target.getHours() < 6 && new Date(now).getHours() >= 18
+      ? `Tonight ${time}`
+      : `Tomorrow ${time}`;
   if (days === -1) return `Yesterday ${time}`;
   if (days > 0 && days < 7)
     return `${target.toLocaleDateString("en-US", { weekday: "long" })} ${time}`;
