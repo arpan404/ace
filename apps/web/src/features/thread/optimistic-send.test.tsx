@@ -160,3 +160,18 @@ test("a draft written in another window replaces an idle composer's, and is offe
   await userEvent.click(screen.getByRole("button", { name: "Use that version" }));
   expect(message.value).toBe("Changed again elsewhere");
 });
+
+test("a message can go while its image uploads: it waits as its bubble, saying so", async () => {
+  const { app, feed, message } = await open("idle");
+  // The daemon is slow to take the upload.
+  app.daemon.holdRequests("context.request");
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File([new Uint8Array([137, 80, 78, 71])], "screen.png", { type: "image/png" }),
+  );
+  await userEvent.type(message, "Why is this banner orange?{Enter}");
+  expect(message.value).toBe("");
+  expect(within(feed).getByText("Why is this banner orange?")).toBeTruthy();
+  expect(await within(feed).findByText("Uploading an image…")).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
+});

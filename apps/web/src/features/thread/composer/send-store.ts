@@ -6,15 +6,7 @@
  * (`usePendingSends`) owns everything that was enqueued.
  */
 
-/** An attachment as this window saw it before the daemon had the message. */
-export interface LocalAttachment {
-  sha256: string | undefined;
-  name: string;
-  mimeType: string;
-  bytes: number;
-  /** A `blob:` URL for an image, owned by this store once the message is sent. */
-  previewUrl: string | undefined;
-}
+import type { LocalAttachment } from "@/components/attachment-format.ts";
 
 /** A message held back until its uploads finish; it has its command id already. */
 export interface StagedSend {
@@ -78,19 +70,29 @@ export function unstage(threadId: string, commandId: string): void {
 
 /*
  * Local attachment details by content hash: names and previews for a message the daemon hasn't
- * echoed yet. Bounded; the oldest previews are released first.
+ * echoed yet. This store owns the previews from here on; bounded, the oldest go first.
  */
 const localLimit = 64;
 const locals = new Map<string, LocalAttachment>();
 
-export function rememberAttachments(attachments: readonly LocalAttachment[]): void {
-  for (const attachment of attachments) {
-    if (!attachment.sha256) continue;
-    const old = locals.get(attachment.sha256);
+/**
+ * Remember the files a message carries (`local`, as the composer handed them over) under the
+ * hashes the daemon gave them (`ready`, in the same order, failed ones left out).
+ */
+export function rememberAttachments(
+  local: readonly LocalAttachment[],
+  ready: readonly { sha256: string; name: string }[],
+): void {
+  const unmatched = [...local];
+  for (const file of ready) {
+    const at = unmatched.findIndex((candidate) => candidate.name === file.name);
+    const attachment = at < 0 ? undefined : unmatched.splice(at, 1)[0];
+    if (!attachment) continue;
+    const old = locals.get(file.sha256);
     if (old?.previewUrl && old.previewUrl !== attachment.previewUrl)
       URL.revokeObjectURL(old.previewUrl);
-    locals.delete(attachment.sha256);
-    locals.set(attachment.sha256, attachment);
+    locals.delete(file.sha256);
+    locals.set(file.sha256, attachment);
   }
   while (locals.size > localLimit) {
     const [oldest] = locals.keys();

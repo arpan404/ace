@@ -4,6 +4,7 @@ import { preloadComposerParts } from "./composer/deferred-parts.tsx";
 import { DeferredInteractionCard } from "./interactions/deferred-card.ts";
 import { DeferredReviewNote, DeferredReviewSummary } from "./items/deferred-review.ts";
 import { preloadJump } from "./long/jump.ts";
+import { preloadAttachments } from "@/components/attachment-message.tsx";
 
 export { DeferredInteractionCard };
 
@@ -98,5 +99,6 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredCatchUpSlot.preload(),
     DeferredTurnKeys.preload(),
     preloadJump(),
+    preloadAttachments(),
   ]);
 }

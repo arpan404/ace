@@ -1,4 +1,5 @@
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { preloadAttachmentChips } from "./attachments.tsx";
 import { preloadComposerMenus } from "./deferred-menus.tsx";
 
 /*
@@ -46,6 +47,7 @@ export function preloadComposerParts(): Promise<unknown> {
     DeferredThreadUsage.preload(),
     DeferredSendStatus.preload(),
     DeferredLocalSends.preload(),
+    preloadAttachmentChips(),
   ]);
 }
 

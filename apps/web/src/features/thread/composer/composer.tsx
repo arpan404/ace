@@ -23,7 +23,7 @@ import { accept, insertAt, mentionsIn, triggerAt, type Trigger } from "./draft.t
 import { readDraft, recentFiles, rememberFile, writeDraft } from "./draft-store.ts";
 import { PrimaryAction } from "./primary-action.tsx";
 import { DeferredSuggestionList } from "./deferred-parts.tsx";
-import type { LocalAttachment } from "./send-store.ts";
+import type { LocalAttachment } from "@/components/attachment-format.ts";
 import { takeDraftsFor, type ReturnedDraft } from "./send-store.ts";
 import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
@@ -41,9 +41,18 @@ export interface ComposerHandle {
 export interface Draft {
   text: string;
   mentions: Mention[];
+  /** Files the daemon already holds. */
   attachments: { sha256: string }[];
-  /** The files as this window knows them (names, types, previews), for the pending bubble. */
-  local: LocalAttachment[];
+  /**
+   * Every file attached, handed over from the composer (`useAttachments().handOff()`): as the
+   * pending bubble shows them, the ones still uploading, and when they've all settled.
+   */
+  files: {
+    local: LocalAttachment[];
+    uploading: number;
+    settled: Promise<{ sha256: string; name: string }[]>;
+    release(): void;
+  };
   /** ⌘↵ / Ctrl+↵: the opposite of the follow-up default (steer instead of queue, or back). */
   opposite: boolean;
 }
@@ -92,6 +101,10 @@ export function Composer({
   status?: ReactNode;
   /** Why images can't be added, when the provider doesn't read them. */
   imagesUnavailable?: string | undefined;
+  /** What happens to an image the provider can't read, said on its chip and on Send. */
+  imagesNote?: string | undefined;
+  /** Send may go while files upload: the message waits as its bubble until they're done. */
+  sendsWhileUploading?: boolean | undefined;
   placeholder?: string | undefined;
   autoFocus?: boolean | undefined;
   /** Printable keys typed on the page (not in a field, menu or dialog) write here. */
@@ -250,7 +263,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   const failedUpload = attachments.items.some((item) => item.state === "failed");
   const blocked = off
     ? off
-    : attachments.uploading
+    : attachments.uploading && !props.sendsWhileUploading
       ? "Waiting for the files to upload"
       : failedUpload
         ? "Remove the file that didn't upload first"
@@ -265,13 +278,10 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
       text: text.trim(),
       mentions: mentionsIn(text, picked),
       attachments: attachments.ready.map((file) => ({ sha256: file.sha256 })),
-      local: attachments.items.map((file) => ({
-        sha256: file.sha256,
-        name: file.name,
-        mimeType: file.preview ? "image/*" : "application/octet-stream",
-        bytes: 0,
-        previewUrl: undefined,
-      })),
+      files: {
+        ...attachments.handOff(),
+        uploading: attachments.items.filter((file) => file.state === "uploading").length,
+      },
       opposite,
     };
     const before = { text, picked, files: attachments.ready };
@@ -279,7 +289,6 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     setText("");
     setCaret(0);
     setTheirs(undefined);
-    attachments.clear();
     setPicked(new Set());
     void props.onSubmit(draft).then((sent) => {
       if (sent || !draftKey || typed.current.trim()) return;
@@ -371,7 +380,12 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
         )}
       >
-        <AttachmentChips items={attachments.items} onRemove={attachments.remove} />
+        <AttachmentChips
+          items={attachments.items}
+          onRemove={attachments.remove}
+          onRetry={attachments.retry}
+          unsupported={props.imagesNote}
+        />
         <textarea
           ref={input}
           rows={1}
@@ -435,6 +449,11 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           <PrimaryAction
             mode={mode}
             blocked={blocked}
+            note={
+              attachments.items.some((file) => file.mimeType?.startsWith("image/"))
+                ? props.imagesNote
+                : undefined
+            }
             off={!!off}
             canSteer={props.canSteer !== false}
             stopping={!!props.stopping}

@@ -234,7 +234,7 @@ test("files and @ mentions work before the thread exists and arrive with it", as
     new File(["2026-10-03 resume seq 0"], "relay.log", { type: "text/plain" }),
   );
   const chips = screen.getByRole("list", { name: "Attachments" });
-  await waitFor(() => expect(within(chips).queryByRole("status")).toBeNull());
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   expect(within(chips).queryByText(/couldn't/i)).toBeNull();
 
   await userEvent.click(screen.getByRole("button", { name: "Send" }));

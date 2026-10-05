@@ -45,6 +45,8 @@ export function PrimaryAction(props: {
   canSteer?: boolean | undefined;
   /** A Stop is on its way: "Stopping…" until the turn ends. */
   stopping?: boolean | undefined;
+  /** Said with the hint, e.g. what the provider does with an image it can't read. */
+  note?: string | undefined;
   onSend(): void;
   onStop(): void;
 }) {
@@ -76,7 +78,9 @@ export function PrimaryAction(props: {
   const blocked = props.blocked;
   return (
     <Tip
-      label={blocked ?? hint(mode, props.canSteer !== false)}
+      label={
+        blocked ?? [hint(mode, props.canSteer !== false), props.note].filter(Boolean).join(" · ")
+      }
       {...(blocked ? {} : { keys: "enter" })}
       side="top"
     >

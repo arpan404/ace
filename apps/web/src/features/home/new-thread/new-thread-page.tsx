@@ -6,6 +6,7 @@ import {
   Composer,
   PermissionPicker,
   preloadComposerParts,
+  rememberAttachments,
   useDraftScope,
   usePermissionCapabilities,
   type Draft,
@@ -97,6 +98,8 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     const draftId = scope.draftId;
     // The new thread takes the draft scope over: keep it when this page closes, which is now.
     scope.adopt();
+    // Its first bubble shows the files as they were attached, until the daemon echoes them.
+    void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
     return create({
       project,
       provider: resolved.model.provider,

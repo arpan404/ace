@@ -13,7 +13,7 @@ import { ContextBar } from "./context-bar.tsx";
 import { ContextMeter } from "./context-meter.tsx";
 import { ControlsPending, DeferredQueueArea, DeferredThreadControls } from "./deferred-parts.tsx";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
-import { rememberAttachments } from "./send-store.ts";
+import { rememberAttachments, stage, unstage } from "./send-store.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
 
 /** Desktop widths put the caret in the composer when a thread opens; a phone's keyboard waits. */
@@ -89,22 +89,49 @@ export function ThreadComposer({
     // whether the message is a bubble (steered in) or a pill (queued).
     const other = followUp === "steer" ? "queue" : "steer";
     const delivery = busy ? (draft.opposite ? other : (followUp ?? "queue")) : undefined;
-    rememberAttachments(draft.local);
+    const { files } = draft;
+    // Files still uploading: the message waits as its bubble ("Uploading 2 images…") and goes
+    // when they're done (AT-2). A file that didn't upload sends it back to the composer.
+    if (files.uploading)
+      stage({
+        commandId,
+        threadId: props.thread.id,
+        text: draft.text,
+        attachments: files.local,
+        uploading: files.uploading,
+      });
+    const ready = await files.settled;
+    rememberAttachments(files.local, ready);
+    if (ready.length < files.local.length) {
+      unstage(props.thread.id, commandId);
+      toast.add({
+        title: "A file didn't upload",
+        description: "The message is back in the composer without it.",
+      });
+      return false;
+    }
     try {
-      await client.enqueue(
+      const saved = client.enqueue(
         {
           type: "thread.send",
           threadId,
           input: [{ type: "text", text: draft.text || "See the attached files." }],
-          context: { mentions: draft.mentions, attachments: draft.attachments },
+          context: {
+            mentions: draft.mentions,
+            attachments: ready.map((file) => ({ sha256: file.sha256 })),
+          },
           ...(delivery ? { delivery } : {}),
           ...(sent ? { options: sent.options } : {}),
         },
         commandId,
       );
+      // The outbox shows it at once under the same key, so the held bubble carries on.
+      unstage(props.thread.id, commandId);
+      await saved;
       if (sent) setSpent({ commandId, turn: sent });
       return true;
     } catch {
+      unstage(props.thread.id, commandId);
       toast.add({
         title: "Couldn't send the message",
         description: "This device couldn't save it. It is back in the composer.",
@@ -195,6 +222,12 @@ export function ThreadComposer({
               ? `${providerNames[meta.provider]} doesn't read images`
               : undefined
           }
+          imagesNote={
+            readsImages === false && meta
+              ? `${providerNames[meta.provider]} can't read images in this mode; it will get the file path`
+              : undefined
+          }
+          sendsWhileUploading
           controls={
             <Suspense fallback={<ControlsPending />}>
               <DeferredThreadControls.Component thread={props.thread} busy={busy} next={next} />
