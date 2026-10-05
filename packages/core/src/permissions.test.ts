@@ -125,3 +125,13 @@ test("shell verification is exact and cannot bless a different executable", () =
     }).decision,
   ).toBe("escalate");
 });
+
+test("outside browser uploads require a human even in full access", () => {
+  expect(
+    reviewPermission({
+      mode: "full-access",
+      target: { tool: "browser.upload", access: "execute", input: { paths: ["/outside/file"] } },
+      paths: ["outside"],
+    }),
+  ).toMatchObject({ decision: "escalate" });
+});

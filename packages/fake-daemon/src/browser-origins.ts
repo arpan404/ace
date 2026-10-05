@@ -11,6 +11,34 @@ export function bindFakeBrowserOrigins(
   settings: FakeSettings,
 ): void {
   let sequence = 0;
+  const privateGates = new Map<string, string>();
+  browser.bindPrivateLifecycle((threadId, paused) => {
+    if (!host.apply) return;
+    if (paused && !privateGates.has(threadId)) {
+      const key = `browser-private-${++sequence}`;
+      privateGates.set(threadId, key);
+      host.apply(threadId, [
+        {
+          type: "interaction.opened",
+          agent: "root",
+          interaction: key,
+          blocking: true,
+          request: {
+            kind: "plan_review",
+            title: "Private browser paused",
+            markdown: "Take over again and hand back control to resume the agent.",
+          },
+          raw: [{ type: "ace.browser.private", data: { key } }],
+        },
+      ]);
+    } else if (!paused) {
+      const key = privateGates.get(threadId);
+      if (key) {
+        host.apply(threadId, [{ type: "interaction.closed", interaction: key, state: "resolved" }]);
+        privateGates.delete(threadId);
+      }
+    }
+  });
   const pending = new Map<string, (option?: string) => void>();
   host.onResolved?.((threadId, key, resolution) => {
     pending.get(`${threadId}:${key}`)?.(
@@ -43,7 +71,11 @@ export function bindFakeBrowserOrigins(
         "read_only",
         "Read-only mode refuses agent browser navigation",
       );
-    if (decision === "allow" || decision === "page_grant") return;
+    if (decision === "page_grant") {
+      browser.originsPageGrant(threadId, origin, host.now());
+      return;
+    }
+    if (decision === "allow") return;
     if (!host.apply || !host.onResolved || !view.thread.rootAgentId)
       throw new BrowserOriginError(
         origin,
@@ -103,5 +135,6 @@ export function bindFakeBrowserOrigins(
         "Read-only mode refuses agent browser navigation",
       );
     if (option === "allow_thread") browser.originsGrant(threadId, origin, host.now());
+    else browser.originsPageGrant(threadId, origin, host.now());
   });
 }

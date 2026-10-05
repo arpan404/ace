@@ -1,6 +1,12 @@
 import { BrowserOrigin, type BrowserOriginGrant } from "@ace/protocol";
 import { BrowserOriginError, browserOrigin } from "@ace/browser/policy";
-import type { BrowserInput } from "@ace/protocol";
+import type {
+  BrowserInput,
+  BrowserTab,
+  BrowserDownload,
+  BrowserDialog,
+  BrowserEvaluateGrant,
+} from "@ace/protocol";
 import { pairPhoneFrame, sitePage } from "./preview-page.ts";
 
 /**
@@ -21,6 +27,13 @@ export interface BrowserView {
   closed: boolean;
   /** Where the page runs: the desktop app's embedded view, or the daemon's headless Chromium. */
   backend?: "embedded" | "headless";
+  status?: "ready" | "paused" | "recovering";
+  takeoverMode?: "shared" | "private";
+  tabs?: BrowserTab[];
+  activeTabId?: string;
+  downloads?: BrowserDownload[];
+  pending_dialog?: BrowserDialog;
+  reason?: string;
 }
 export interface ScreenFrame {
   sequence: number;
@@ -55,6 +68,10 @@ interface Entry {
 const clampDimension = (value: number) => Math.min(4096, Math.max(100, Math.round(value)));
 
 export class FakeBrowser {
+  private privateLifecycle: ((threadId: string, paused: boolean) => void) | undefined;
+  bindPrivateLifecycle(lifecycle: (threadId: string, paused: boolean) => void): void {
+    this.privateLifecycle = lifecycle;
+  }
   private navigatePolicy: ((threadId: string, url: string) => Promise<void>) | undefined;
   bindNavigation(policy: (threadId: string, url: string) => Promise<void>): void {
     this.navigatePolicy = policy;
@@ -64,13 +81,17 @@ export class FakeBrowser {
     if (!entry?.view || entry.view.closed) throw new Error("Browser closed");
     if (entry.view.controller !== "agent") throw new Error("Browser controlled by human");
     if (!this.navigatePolicy) throw new Error("Browser agent policy unavailable");
+    this.originsClearPage(threadId);
     await this.navigatePolicy(threadId, url);
     if (entry.view.controller !== "agent" || entry.view.closed)
       throw new Error("Browser controller changed during approval");
     entry.view = { ...entry.view, url: new URL(url).href };
+    this.updateTab(entry);
     entry.page = "site";
     this.paint(entry, entry.typed);
   }
+  private tabSequence = 0;
+  private evaluations = new Map<string, BrowserEvaluateGrant[]>();
   private origins = new Map<string, Map<string, BrowserOriginGrant>>();
   private entries = new Map<string, Entry>();
   private watchers = new Set<() => void>();
@@ -119,18 +140,46 @@ export class FakeBrowser {
     return this.entries.get(threadId)?.servers ?? [];
   }
   /** A person takes control through their client's connection (`owner`). */
-  async takeover(threadId: string, owner = "fake-connection"): Promise<void> {
+  async takeover(
+    threadId: string,
+    owner = "fake-connection",
+    mode: "shared" | "private" = "shared",
+  ): Promise<void> {
     const current = this.view(threadId)?.owner;
     if (current && current !== owner)
       throw new Error("Browser already controlled by another connection");
     this.control(threadId, "human", owner);
+    const view = this.view(threadId);
+    if (view) {
+      view.takeoverMode = mode;
+      view.status = "ready";
+      delete view.reason;
+    }
+    this.changed();
   }
   disconnect(owner: string): void {
     for (const [threadId, entry] of this.entries)
-      if (entry.view?.owner === owner) this.control(threadId, "agent");
+      if (entry.view?.owner === owner) {
+        if (entry.view.takeoverMode === "private") {
+          delete entry.view.owner;
+          entry.view.status = "paused";
+          entry.view.controller = "none";
+          entry.view.reason = "Private takeover disconnected; explicit handback required";
+          this.privateLifecycle?.(threadId, true);
+          this.changed();
+        } else this.control(threadId, "agent");
+      }
   }
   async handback(threadId: string): Promise<void> {
     this.control(threadId, "agent");
+    this.privateLifecycle?.(threadId, false);
+    const view = this.view(threadId);
+    if (view) {
+      view.takeoverMode = "shared";
+      view.status = "ready";
+      delete view.reason;
+    }
+    this.changed();
   }
   input(threadId: string, input: ForwardedInput): void {
     if (this.view(threadId)?.controller !== "human") return;
@@ -185,8 +234,19 @@ export class FakeBrowser {
         [...this.origins.values()].reduce((sum, entries) => sum + entries.size, 0) >= 16_384)
     )
       throw new Error("Browser origin grant limit; revoke an origin first");
-    if (!grants.has(origin)) grants.set(origin, { origin, grantedAt });
+    if (grants.get(origin)?.scope !== "thread")
+      grants.set(origin, { origin, grantedAt, scope: "thread" });
     this.origins.set(threadId, grants);
+  }
+  originsPageGrant(threadId: string, raw: string, grantedAt: number): void {
+    const origin = BrowserOrigin.parse(raw);
+    if (this.origins.get(threadId)?.get(origin)?.scope === "thread") return;
+    this.originsGrant(threadId, origin, grantedAt);
+    this.origins.get(threadId)?.set(origin, { origin, grantedAt, scope: "page" });
+  }
+  originsClearPage(threadId: string): void {
+    for (const [origin, grant] of this.origins.get(threadId) ?? [])
+      if (grant.scope === "page") this.origins.get(threadId)?.delete(origin);
   }
   originsRevoke(threadId: string, origin: string): void {
     this.origins.get(threadId)?.delete(BrowserOrigin.parse(origin));
@@ -214,6 +274,7 @@ export class FakeBrowser {
     if (parsed.hostname.endsWith(".invalid"))
       throw new Error(`net::ERR_NAME_NOT_RESOLVED at ${url}`);
     entry.view = { ...entry.view, url: parsed.href };
+    this.updateTab(entry);
     entry.page =
       local && entry.servers.some((server) => server.port === port && server.name === "web")
         ? "pair"
@@ -235,6 +296,12 @@ export class FakeBrowser {
       closed: false,
       ...(options.backend ? { backend: options.backend } : {}),
     };
+    const tabId = `tab-${++this.tabSequence}`;
+    entry.view.tabs = [{ tabId, url: options.url, title: "Fixture page" }];
+    entry.view.activeTabId = tabId;
+    entry.view.downloads = [];
+    entry.view.takeoverMode = "shared";
+    entry.view.status = "ready";
     entry.page = options.url === "about:blank" ? "site" : "pair";
     this.paint(entry, options.typed ?? "");
   }
@@ -251,9 +318,97 @@ export class FakeBrowser {
     entry.servers = [...entry.servers.filter((s) => s.port !== server.port), server];
     this.changed();
   }
+  tabsList(threadId: string): BrowserTab[] {
+    return this.view(threadId)?.tabs ?? [];
+  }
+  tabOpen(threadId: string, url = "about:blank"): void {
+    const view = this.view(threadId);
+    if (!view || view.closed) throw new Error("Browser closed");
+    if (
+      (view.tabs?.length ?? 0) >= 8 ||
+      [...this.entries.values()].reduce(
+        (sum, entry) => sum + (entry.view?.closed ? 0 : (entry.view?.tabs?.length ?? 0)),
+        0,
+      ) >= 32
+    )
+      throw new Error("Browser tab limit");
+    const tabId = `tab-${++this.tabSequence}`;
+    view.tabs = [...(view.tabs ?? []), { tabId, url, title: "Fixture page" }];
+    this.tabSwitch(threadId, tabId);
+  }
+  tabSwitch(threadId: string, tabId: string): void {
+    const entry = this.entries.get(threadId),
+      tab = entry?.view?.tabs?.find((candidate) => candidate.tabId === tabId);
+    if (!entry?.view || !tab) throw new Error("Browser tab unavailable");
+    entry.view.activeTabId = tabId;
+    entry.view.url = tab.url;
+    if (tab.pending_dialog) entry.view.pending_dialog = tab.pending_dialog;
+    else delete entry.view.pending_dialog;
+    entry.page = "site";
+    this.paint(entry, "");
+  }
+  tabClose(threadId: string, tabId: string): void {
+    const view = this.view(threadId);
+    if (!view?.tabs?.some((tab) => tab.tabId === tabId)) throw new Error("Browser tab unavailable");
+    if (view.tabs.length === 1) throw new Error("Close the browser to close its last tab");
+    view.tabs = view.tabs.filter((tab) => tab.tabId !== tabId);
+    if (view.activeTabId === tabId && view.tabs[0]) this.tabSwitch(threadId, view.tabs[0].tabId);
+    else this.changed();
+  }
+  dialogOpen(threadId: string, dialog: BrowserDialog): void {
+    const tab = this.tabsList(threadId).find((candidate) => candidate.tabId === dialog.tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    tab.pending_dialog = dialog;
+    const view = this.view(threadId);
+    if (view?.activeTabId === dialog.tabId) view.pending_dialog = dialog;
+    this.changed();
+  }
+  dialogAnswer(threadId: string, dialogId: string): void {
+    const view = this.view(threadId);
+    if (view?.pending_dialog?.dialogId !== dialogId) throw new Error("Dialog no longer pending");
+    const tab = this.tabsList(threadId).find((candidate) => candidate.tabId === view.activeTabId);
+    if (tab) delete tab.pending_dialog;
+    delete view.pending_dialog;
+    this.changed();
+  }
+  downloadsList(threadId: string): BrowserDownload[] {
+    return this.view(threadId)?.downloads ?? [];
+  }
+  downloadAdd(threadId: string, download: BrowserDownload): void {
+    const view = this.view(threadId);
+    if (view && (view.downloads?.length ?? 0) < 128) {
+      view.downloads = [...(view.downloads ?? []), download];
+      this.changed();
+    }
+  }
+  evaluateGrantsList(threadId: string): BrowserEvaluateGrant[] {
+    return this.evaluations.get(threadId) ?? [];
+  }
+  evaluateGrant(threadId: string, grant: BrowserEvaluateGrant): void {
+    const list = this.evaluateGrantsList(threadId);
+    if (list.length >= 256) throw new Error("Evaluate grant limit");
+    this.evaluations.set(threadId, [
+      ...list.filter((entry) => entry.origin !== grant.origin),
+      grant,
+    ]);
+    this.changed();
+  }
+  evaluateRevoke(threadId: string, origin: string): void {
+    this.evaluations.set(
+      threadId,
+      this.evaluateGrantsList(threadId).filter((entry) => entry.origin !== origin),
+    );
+    this.changed();
+  }
+  private updateTab(entry: Entry): void {
+    const tab = entry.view?.tabs?.find((candidate) => candidate.tabId === entry.view?.activeTabId);
+    if (tab && entry.view) tab.url = entry.view.url;
+  }
   close(threadId: string): void {
+    this.originsClearPage(threadId);
     const entry = this.entries.get(threadId);
     if (entry?.view) entry.view = { ...entry.view, closed: true, controller: "none" };
+    this.privateLifecycle?.(threadId, false);
     this.changed();
   }
   unforward(threadId: string, port: number): void {

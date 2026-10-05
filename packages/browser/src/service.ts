@@ -27,6 +27,18 @@ export type { BrowserServiceOptions } from "./service-options.ts";
 
 export class BrowserService {
   private options: BrowserServiceOptions;
+  private tabCount = 0;
+  private reserveTab = (): (() => void) => {
+    if (this.tabCount >= (this.options.maxTabs ?? 32)) throw new Error("Daemon browser tab limit");
+    this.tabCount++;
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.tabCount--;
+      }
+    };
+  };
   private sessions = new Map<string, BrowserSession>();
   private generations = new WeakMap<BrowserSession, number>();
   private sequence = 0;
@@ -100,7 +112,10 @@ export class BrowserService {
     if (this.closing) throw new Error("Browser service shutting down");
     const options = BrowserOpen.parse(raw);
     const existing = this.sessions.get(options.threadId);
-    if (existing && !existing.state.closed) return existing.state;
+    if (existing && !existing.state.closed) {
+      if (!options.background || existing.state.backend !== "embedded") return existing.state;
+      await existing.closeBy({ kind: "agent" });
+    }
     if (existing) await existing.close();
     const pending = this.opening.get(options.threadId);
     if (pending) return (await pending).state;
@@ -120,7 +135,9 @@ export class BrowserService {
   private async launch(options: BrowserOpen, scope: AbortController): Promise<BrowserSession> {
     const signal = AbortSignal.any([scope.signal, this.lifetime.signal]);
     setMaxListeners(33, signal);
-    const preference = (await this.options.backendPreference?.(options)) ?? "auto";
+    const preference = options.background
+      ? "headless"
+      : ((await this.options.backendPreference?.(options)) ?? "auto");
     const lossPolicy = (await this.options.backendLoss?.(options)) ?? "pause";
     const backend = preference !== "headless" && this.embedded ? this.embedded : this.headless;
     if (preference === "embedded" && backend.kind !== "embedded")
@@ -128,7 +145,9 @@ export class BrowserService {
     signal.throwIfAborted();
     const root = join(this.options.dataDir, "browser");
     await mkdir(root, { recursive: true, mode: 0o700 });
-    const workspaceKey = createHash("sha256").update(options.workspaceId).digest("hex");
+    const workspaceKey = createHash("sha256")
+      .update(`${options.workspaceId}:${options.threadId}`)
+      .digest("hex");
     const persistent = options.profile === "persistent";
     const profile = persistent
       ? join(root, "profiles", workspaceKey)
@@ -199,7 +218,24 @@ export class BrowserService {
           resume?.();
         }
       };
+      const dir = await mkdtemp(join(root, "session-"));
+      const downloadDir = join(dir, "downloads");
+      await mkdir(downloadDir, { mode: 0o700 });
       const request: BackendOpen = {
+        id: this.id,
+        reserveTab: this.reserveTab,
+        changed: () => session?.changed(),
+        downloadDir,
+        ...(this.options.maxDownloadBytes
+          ? { maxDownloadBytes: this.options.maxDownloadBytes }
+          : {}),
+        downloadAllowed: (url) =>
+          this.policyGate.run(
+            signal,
+            () => this.options.downloadPolicy?.(options.threadId, url, signal) ?? false,
+            65_000,
+          ),
+        artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
         options,
         profileDir: profile,
         signal,
@@ -269,7 +305,6 @@ export class BrowserService {
       };
       context = await backend.open(request);
       signal.throwIfAborted();
-      const dir = await mkdtemp(join(root, "session-"));
       const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
       session = new BrowserSession({
         threadId: options.threadId,
@@ -304,14 +339,42 @@ export class BrowserService {
           );
         },
         cancelPolicy: () => scope.abort(),
+        privatePaused: () => this.options.onPrivatePaused?.(options.threadId),
+        privateResumed: () => this.options.onPrivateResumed?.(options.threadId),
         ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
         ...(ffmpeg ? { ffmpeg } : {}),
         ...(this.options.evaluatePolicy
           ? {
-              evaluatePolicy: (threadId: string, url: string) =>
+              evaluatePolicy: (
+                threadId: string,
+                url: string,
+                mode?: "read-only" | "unrestricted",
+              ) =>
                 this.policyGate.run(
                   signal,
-                  () => this.options.evaluatePolicy?.(threadId, url, signal) ?? false,
+                  () => this.options.evaluatePolicy?.(threadId, url, signal, mode) ?? false,
+                  65_000,
+                ),
+            }
+          : {}),
+        ...(this.options.artifactAllowed
+          ? {
+              artifactAllowed: (path: string) =>
+                this.options.artifactAllowed?.(options.threadId, path) ?? false,
+            }
+          : {}),
+        ...(this.options.workspaceRoot
+          ? { workspaceRoot: () => this.options.workspaceRoot?.(options.threadId) ?? "" }
+          : {}),
+        ...(this.options.uploadPolicy
+          ? {
+              uploadPolicy: (paths: string[], commandSignal?: AbortSignal) =>
+                this.policyGate.run(
+                  commandSignal ? AbortSignal.any([signal, commandSignal]) : signal,
+                  () =>
+                    this.options.uploadPolicy?.(options.threadId, paths, commandSignal ?? signal) ??
+                    false,
+                  65_000,
                 ),
             }
           : {}),
@@ -321,6 +384,7 @@ export class BrowserService {
           await release();
         },
       });
+      if (this.options.isPrivatePaused?.(options.threadId)) session.restorePrivate();
       await session.live.start();
       this.sessions.set(options.threadId, session);
       this.generations.set(session, ++this.sequence);
@@ -353,6 +417,16 @@ export class BrowserService {
     if (!session || session.state.closed) throw new Error("Browser session not open");
     return session;
   }
+  evaluateGrantsList(threadId: string) {
+    return this.options.evaluateGrants?.list(threadId) ?? [];
+  }
+  evaluateGrantsRevoke(threadId: string, origin: string): void {
+    if (!this.options.evaluateGrants) throw new Error("Evaluate grants unavailable");
+    this.options.evaluateGrants.revoke(threadId, origin);
+  }
+  downloadsList(threadId: string) {
+    return this.get(threadId).state.downloads ?? [];
+  }
   originsList(threadId: string) {
     return this.options.origins?.list(threadId) ?? [];
   }
@@ -384,14 +458,18 @@ export class BrowserService {
     return this.get(threadId).execute(command, actor, signal);
   }
   /** Bound JPEG bytes from the owned page, without interpreting an artifact path. */
-  screenshot(threadId: string, signal?: AbortSignal): Promise<Uint8Array> {
-    return this.get(threadId).screenshot(signal);
+  screenshot(threadId: string, signal?: AbortSignal, tabId?: string): Promise<Uint8Array> {
+    return this.get(threadId).screenshot(signal, tabId);
   }
   input(threadId: string, input: unknown, connectionId: string): Promise<void> {
     return this.get(threadId).input(input, connectionId);
   }
-  takeover(threadId: string, connectionId: string): BrowserState {
-    return this.get(threadId).takeover(connectionId);
+  takeover(
+    threadId: string,
+    connectionId: string,
+    mode: "shared" | "private" = "shared",
+  ): BrowserState {
+    return this.get(threadId).takeover(connectionId, mode);
   }
   handback(threadId: string, connectionId: string): BrowserState {
     return this.get(threadId).handback(connectionId);

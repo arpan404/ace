@@ -2483,6 +2483,20 @@
                 ],
                 "type": "object"
               },
+              "filename": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "flags": {
+                "items": {
+                  "enum": [
+                    "executable",
+                    "archive"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "id": {
                 "minLength": 1,
                 "type": "string"

@@ -823,6 +823,30 @@
     },
     {
       "properties": {
+        "grants": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/BrowserEvaluateGrant.json"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.evaluate.grants",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "grants"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "blocked": {
           "$ref": "https://ace.local/protocol/v1/BrowserOriginBlock.json"
         },

@@ -32,7 +32,7 @@ Downloads report progress through `onDownload` and `browser.download.progress`.
 Production startup never searches personal Chrome installations or profiles.
 `detectChromium` remains a diagnostic and test discovery API; the trusted
 `executablePath` option supports CI and packaged executables, always with an
-ace-owned profile. Persistent profiles have exclusive workspace leases.
+ace-owned profile. Persistent profiles are isolated by workspace and thread.
 
 The desktop bridge contract is [ADR 0055](../../docs/adr/0055-browser-backends.md).
 `BrowserBackend` opens a session with a CDP transport and page operations.
@@ -47,13 +47,13 @@ It preserves subscriptions, advances frame sequence numbers and invalidates
 old refs. Pending commands fail and never replay.
 
 `execute` accepts commands defined by `BrowserCommand` in `@ace/protocol`.
-Screenshots and logs return local paths. Evaluate requires its own injected
+Client screenshots return local paths; logs return bounded inline entries. Evaluate requires its own injected
 approval and limits serialized output to 256 KiB of UTF-8. Renderer preflight
 uses primitive string operations; the daemon validates byte size and parses JSON,
 so page replacements of builtins cannot bypass the result cap. Navigation and intercepted HTTP,
 redirect and WebSocket requests allow exact loopback names, and ask the origin
 hook for every other site. The hook should store approval decisions outside this
-package. Service workers, downloads and popup pages are disabled. CDP interception
+package. Service workers and native permissions remain disabled. Headless sessions admit policy-checked popup tabs and quarantined downloads. CDP interception
 also attaches to isolated iframe and worker targets.
 One service-wide admission limit allows at most 32 unsettled approval hooks across
 navigation, HTTP/redirect/worker interception, WebSockets and evaluate. Excess
@@ -68,8 +68,7 @@ Snapshots include AX nodes, parent-child links, ignored-node markers and stable
 DOM refs. Only refs from the latest snapshot remain actionable. A navigation
 invalidates them; an unrelated DOM edit does not. Snapshot output is bounded to
 10,000 nodes, 512 KiB and AX depth 20. Documents with more than 20,000 live DOM
-nodes fail explicitly instead of collecting an arbitrarily large tree. AX snapshots
-describe the primary document; this version does not expose iframe element refs.
+nodes fail explicitly instead of collecting an arbitrarily large tree. AX snapshots include same-origin and cross-origin frames with frame-qualified refs.
 
 ## Live view and control
 
@@ -107,8 +106,8 @@ pointer and touch coordinates.
 Take-over is immediate. Agent input checks ownership when it reaches dispatch
 and after awaited preparation. An action already sent to Chromium may finish.
 Human commands and input require the same controlling connection; read commands
-remain available to viewers and agents. Disconnect returns control to the agent.
-Queued commands are capped at 32 per session. There are at most 8 sessions and
+remain available to viewers and agents. Shared disconnect returns control to the agent. Private takeover blocks agent reads and recordings; a private disconnect pauses until explicit human handback.
+Queued commands are capped at 32 per session. There are at most 8 sessions, 8 tabs per session, 32 tabs across the service and
 64 viewers per session. Reconnects must subscribe again. A closed browser also
 requires a fresh subscription after reopening.
 
@@ -159,8 +158,7 @@ Browser/encoder and transport costs are measured separately from the pure delive
 `headlessBackend` replaces the backend itself. `acquisition.fetch` and a pinned
 artifact replace the download boundary. `spawn` controls encoder and diagnostic
 processes. `now` and `id` remain injectable. The backend contract exposes native
-permission/download denial hooks. Both implementations deny permissions and
-downloads; Electron emits audit events after denying them locally.
+permission/download denial hooks. Both implementations deny permissions. The legacy Electron bridge denies downloads; the background headless backend quarantines approved downloads.
 
 New behavior tests cover a real socket fake desktop and a local HTTP archive
 server. Relay and acquisition benchmarks live in `bench/relay.ts` and
@@ -185,3 +183,34 @@ The queue and origin/evaluation policy checks are the same as the public browser
 
 The MCP browser and provider-composition behavior tests were written but not run.
 They need run at merge under the owner's current verification policy.
+
+## Background browser parity
+
+See [ADR 0067](../../docs/adr/0067-browser-parity.md) and the
+[UI wire handoff](../../docs/daemon/browser-parity-ui.md). The daemon's automatic
+backend is headless; agent open requests background operation explicitly. A human
+can retain the legacy embedded bridge by selecting it, but agent use converts an
+agent-owned embedded session to a fresh headless context. Human ownership blocks
+that conversion.
+
+`ace_browser_tabs` accepts operation list/open/switch/close and optional tabId/url.
+`ace_browser_open` also accepts newTab. Stable tab IDs select pages without any
+visible desktop view. `ace_browser_upload`, `dialog`, `hover`, `drag`, `select`,
+`check`, `uncheck`, `focus`, `find`, `network_body`, `record_start` and `record_stop`
+join the existing MCP commands. Actions select the active tab by default; an
+optional tabId selects it explicitly. Tab switching expires the old snapshot.
+
+Downloads need origin permission and the injected download policy. They have a
+64 MiB file cap, a 256 MiB session aggregate cap, and executable/archive flags.
+Completed downloads use the existing artifact sink. Uploads resolve workspace and
+artifact paths; outside paths need the injected upload policy. Dialogs remain in
+state as pending_dialog until answered. Read-only evaluate uses an isolated world
+and CDP throwOnSideEffect. It cannot read page-world variables and can refuse
+harmless operations it cannot prove safe. Full evaluation still needs the separate
+policy. The daemon wires these policies to canonical engine host interactions.
+
+Logs return entries inline, filtered by kind, level, URL substring and status,
+with at most 200 entries. Network bodies are retrieved individually, capped and
+redacted through @ace/redaction. No request bodies or response headers are kept.
+Private takeover excludes agent observations, logs, network inspection, downloads
+and recorded frames. Shared takeover retains agent observation access.

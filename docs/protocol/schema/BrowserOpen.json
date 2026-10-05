@@ -2,6 +2,10 @@
   "$id": "https://ace.local/protocol/v1/BrowserOpen.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "background": {
+      "default": false,
+      "type": "boolean"
+    },
     "headed": {
       "default": false,
       "type": "boolean"

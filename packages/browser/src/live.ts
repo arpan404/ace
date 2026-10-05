@@ -17,6 +17,7 @@ export class LiveCapture {
   private settings = captureSettings(false);
   private adapting = false;
   private closed = false;
+  private generation = 0;
   constructor(cdp: BrowserCdp, now: () => number, onFrame: (frame: BrowserFrame) => void) {
     this.cdp = cdp;
     this.now = now;
@@ -84,10 +85,12 @@ export class LiveCapture {
       this.lastAdapt = this.now();
       this.adapting = true;
       this.settings = settings;
+      const cdp = this.cdp,
+        generation = this.generation;
       void (async () => {
-        await this.cdp.send("Page.stopScreencast");
-        if (!this.closed)
-          await this.cdp.send("Page.startScreencast", {
+        await cdp.send("Page.stopScreencast");
+        if (!this.closed && generation === this.generation)
+          await cdp.send("Page.startScreencast", {
             format: "jpeg",
             quality: settings.quality,
             maxWidth: 1280,
@@ -103,12 +106,15 @@ export class LiveCapture {
   }
   detach(): void {
     this.closed = true;
+    this.generation++;
     clearInterval(this.timer);
     this.cdp.off("Page.screencastFrame", this.receive);
     this.fanout.invalidate();
   }
   async replace(cdp: BrowserCdp): Promise<void> {
+    const previous = this.cdp;
     this.detach();
+    await previous.send("Page.stopScreencast").catch(() => {});
     this.cdp = cdp;
     this.closed = false;
     this.lastFrame = -Infinity;
@@ -116,6 +122,7 @@ export class LiveCapture {
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.generation++;
     clearInterval(this.timer);
     this.cdp.off("Page.screencastFrame", this.receive);
     this.fanout.clear();

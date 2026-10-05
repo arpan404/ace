@@ -306,6 +306,7 @@
       "dependencies": {
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/redaction": "workspace:*",
         "playwright-core": "1.61.1",
         "yauzl": "3.2.0",
         "zod": "^4.6.5",

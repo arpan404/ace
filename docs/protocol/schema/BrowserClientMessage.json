@@ -122,6 +122,222 @@
     },
     {
       "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.tabs.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.tabs.open",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 8192,
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.tabs.switch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.tabs.close",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.downloads.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "accept": {
+          "type": "boolean"
+        },
+        "dialogId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "promptText": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.dialog.answer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId",
+        "dialogId",
+        "accept"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.evaluate.grants.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/BrowserOrigin.json"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.evaluate.grants.revoke",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "origin"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "command": {
           "$ref": "https://ace.local/protocol/v1/BrowserCommand.json"
         },
@@ -230,6 +446,14 @@
     },
     {
       "properties": {
+        "mode": {
+          "default": "shared",
+          "enum": [
+            "shared",
+            "private"
+          ],
+          "type": "string"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,

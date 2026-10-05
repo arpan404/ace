@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserDialog.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "defaultPrompt": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "dialogId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "alert",
+        "confirm",
+        "prompt",
+        "beforeunload"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "dialogId",
+    "tabId",
+    "type",
+    "message"
+  ],
+  "type": "object"
+}

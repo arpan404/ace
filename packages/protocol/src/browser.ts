@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  BrowserTab,
+  BrowserDownload,
+  BrowserDialog,
+  BrowserEvaluateGrant,
+} from "./browser-features.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 
 const short = z.string().min(1).max(256);
@@ -10,18 +16,24 @@ export const BrowserOpen = z.object({
   workspaceId: WorkspaceId,
   profile: z.enum(["ephemeral", "persistent"]).default("ephemeral"),
   headed: z.boolean().default(false),
+  background: z.boolean().default(false),
 });
 export type BrowserOpen = z.infer<typeof BrowserOpen>;
+const commandBase = z.object({ tabId: short.optional() });
 export const BrowserCommand = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("navigate"), url: z.string().max(8192), timeout }),
-  z.object({ action: z.literal("click"), ref: short }),
-  z.object({ action: z.literal("type"), ref: short, text: z.string().max(65_536) }),
-  z.object({ action: z.literal("press"), key: short, ref: short.optional() }),
-  z.object({ action: z.literal("scroll"), x: coordinate, y: coordinate }),
-  z.object({ action: z.literal("snapshot") }),
-  z.object({ action: z.literal("screenshot") }),
-  z.object({ action: z.literal("evaluate"), expression: z.string().max(65_536) }),
-  z.object({
+  commandBase.extend({ action: z.literal("navigate"), url: z.string().max(8192), timeout }),
+  commandBase.extend({ action: z.literal("click"), ref: short }),
+  commandBase.extend({ action: z.literal("type"), ref: short, text: z.string().max(65_536) }),
+  commandBase.extend({ action: z.literal("press"), key: short, ref: short.optional() }),
+  commandBase.extend({ action: z.literal("scroll"), x: coordinate, y: coordinate }),
+  commandBase.extend({ action: z.literal("snapshot") }),
+  commandBase.extend({ action: z.literal("screenshot") }),
+  commandBase.extend({
+    action: z.literal("evaluate"),
+    expression: z.string().max(65_536),
+    mode: z.enum(["read-only", "unrestricted"]).default("unrestricted"),
+  }),
+  commandBase.extend({
     action: z.literal("wait_for"),
     ref: short
       .optional()
@@ -43,9 +55,16 @@ export const BrowserCommand = z.discriminatedUnion("action", [
       .describe("Visible page text to wait for, matched as a substring."),
     timeout,
   }),
-  z.object({ action: z.literal("logs") }),
-  z.object({ action: z.literal("resize"), width: dimension, height: dimension }),
-  z.object({
+  commandBase.extend({
+    action: z.literal("logs"),
+    kind: z.enum(["console", "network"]).optional(),
+    level: short.optional(),
+    url: z.string().max(8192).optional(),
+    status: z.number().int().min(100).max(599).optional(),
+    limit: z.number().int().min(1).max(200).default(100),
+  }),
+  commandBase.extend({ action: z.literal("resize"), width: dimension, height: dimension }),
+  commandBase.extend({
     action: z.literal("emulate"),
     width: dimension,
     height: dimension,
@@ -54,6 +73,41 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     touch: z.boolean().default(false),
     colorScheme: z.enum(["light", "dark", "no-preference"]).default("light"),
   }),
+  commandBase.extend({
+    action: z.literal("tabs"),
+    operation: z.enum(["list", "open", "switch", "close"]).default("list"),
+    url: z.string().max(8192).optional(),
+  }),
+  commandBase.extend({
+    action: z.literal("upload"),
+    ref: short,
+    files: z.array(z.string().min(1).max(8192)).min(1).max(16),
+  }),
+  commandBase.extend({
+    action: z.literal("dialog"),
+    dialogId: short,
+    accept: z.boolean(),
+    promptText: z.string().max(4096).optional(),
+  }),
+  commandBase.extend({ action: z.literal("hover"), ref: short }),
+  commandBase.extend({ action: z.literal("drag"), ref: short, toRef: short }),
+  commandBase.extend({
+    action: z.literal("select"),
+    ref: short,
+    values: z.array(z.string().max(4096)).min(1).max(100),
+  }),
+  commandBase.extend({ action: z.literal("check"), ref: short }),
+  commandBase.extend({ action: z.literal("uncheck"), ref: short }),
+  commandBase.extend({ action: z.literal("focus"), ref: short }),
+  commandBase.extend({
+    action: z.literal("find"),
+    role: short,
+    name: z.string().max(1024),
+    exact: z.boolean().default(true),
+  }),
+  commandBase.extend({ action: z.literal("network_body"), requestId: short }),
+  commandBase.extend({ action: z.literal("record_start") }),
+  commandBase.extend({ action: z.literal("record_stop") }),
 ]);
 export type BrowserCommand = z.infer<typeof BrowserCommand>;
 export const BrowserInput = z.discriminatedUnion("kind", [
@@ -115,6 +169,7 @@ export const BrowserOrigin = z
 export const BrowserOriginGrant = z.object({
   origin: BrowserOrigin,
   grantedAt: z.number().finite(),
+  scope: z.enum(["thread", "page"]).optional(),
 });
 export type BrowserOriginGrant = z.infer<typeof BrowserOriginGrant>;
 export const BrowserOriginBlock = z.object({
@@ -133,6 +188,11 @@ export const BrowserState = z.object({
   reason: z.string().max(2048).optional(),
   pageStateLost: z.boolean().optional(),
   blocked: BrowserOriginBlock.optional(),
+  activeTabId: short.optional(),
+  tabs: z.array(BrowserTab).max(8).optional(),
+  downloads: z.array(BrowserDownload).max(128).optional(),
+  pending_dialog: BrowserDialog.optional(),
+  takeoverMode: z.enum(["shared", "private"]).optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
 export const BrowserFrame = z.object({
@@ -147,6 +207,8 @@ export const BrowserArtifact = z.object({
   path: z.string(),
   mimeType: z.string(),
   bytes: z.number().int().nonnegative(),
+  filename: z.string().max(256).optional(),
+  flags: z.array(z.enum(["executable", "archive"])).optional(),
 });
 export type BrowserArtifact = z.infer<typeof BrowserArtifact>;
 const base = z.object({ requestId: short, threadId: ThreadId });
@@ -156,11 +218,28 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("browser.origins.grant"), origin: BrowserOrigin }),
   base.extend({ type: z.literal("browser.origins.revoke"), origin: BrowserOrigin }),
   base.extend({ type: z.literal("browser.close") }),
+  base.extend({ type: z.literal("browser.tabs.list") }),
+  base.extend({ type: z.literal("browser.tabs.open"), url: z.string().max(8192).optional() }),
+  base.extend({ type: z.literal("browser.tabs.switch"), tabId: short }),
+  base.extend({ type: z.literal("browser.tabs.close"), tabId: short }),
+  base.extend({ type: z.literal("browser.downloads.list") }),
+  base.extend({
+    type: z.literal("browser.dialog.answer"),
+    tabId: short,
+    dialogId: short,
+    accept: z.boolean(),
+    promptText: z.string().max(4096).optional(),
+  }),
+  base.extend({ type: z.literal("browser.evaluate.grants.list") }),
+  base.extend({ type: z.literal("browser.evaluate.grants.revoke"), origin: BrowserOrigin }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
   base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
-  base.extend({ type: z.literal("browser.takeover") }),
+  base.extend({
+    type: z.literal("browser.takeover"),
+    mode: z.enum(["shared", "private"]).default("shared"),
+  }),
   base.extend({ type: z.literal("browser.handback") }),
   base.extend({ type: z.literal("browser.input"), input: BrowserInput }),
   base.extend({ type: z.literal("browser.recording.start") }),
@@ -189,6 +268,11 @@ export type BrowserDownloadProgress = z.infer<typeof BrowserDownloadProgress>;
 export const BrowserServerMessage = z.discriminatedUnion("type", [
   BrowserBackendLost,
   BrowserDownloadProgress,
+  z.object({
+    type: z.literal("browser.evaluate.grants"),
+    threadId: ThreadId,
+    grants: z.array(BrowserEvaluateGrant).max(256),
+  }),
   z.object({
     type: z.literal("browser.result"),
     requestId: short,

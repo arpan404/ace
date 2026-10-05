@@ -1,46 +1,26 @@
 import { NavigationPolicies } from "./policy-waits.ts";
 import { BrowserActionError } from "./action-error.ts";
-import { waitForBrowser } from "./wait.ts";
-import { BrowserOriginError, browserOrigin } from "./policy.ts";
+import { BrowserOriginError } from "./policy.ts";
 import { z } from "zod";
 import { join } from "node:path";
-import { writeFile } from "node:fs/promises";
-import type { BrowserBackendSession, BrowserBackend } from "./backend.ts";
+import type { BrowserBackendSession } from "./backend.ts";
 import type { BrowserOriginBlock, BrowserControllerLease } from "@ace/protocol";
 import {
   BrowserCommand,
   BrowserInput,
   type BrowserArtifact,
   type BrowserState,
-  type ThreadId,
 } from "@ace/protocol";
 import { LiveCapture } from "./live.ts";
 import { SessionLogs } from "./logs.ts";
 import { SnapshotRefs } from "./refs.ts";
 import { Recording } from "./recording.ts";
-import { evaluatePage } from "./evaluation.ts";
 import { keyEvent } from "./keyboard.ts";
-import type { ProcessSpawner } from "./io.ts";
-import { NavigationTask, type NavigationClock } from "./navigation.ts";
+import type { NavigationTask } from "./navigation.ts";
+import { executeBrowserCommand } from "./session-commands.ts";
 
-export type Actor = { kind: "agent" } | { kind: "human"; connectionId: string };
-export interface SessionOptions {
-  threadId: ThreadId;
-  backend: BrowserBackendSession;
-  backendKind: BrowserBackend["kind"];
-  dir: string;
-  now: () => number;
-  id: () => string;
-  navigationClock: NavigationClock;
-  ffmpeg?: string;
-  spawn?: ProcessSpawner;
-  cancelPolicy: () => void;
-  navigatePolicy: (url: string, actor: Actor, signal?: AbortSignal) => Promise<boolean>;
-  evaluatePolicy?: (threadId: string, url: string) => boolean | Promise<boolean>;
-  artifact: (artifact: BrowserArtifact) => void | Promise<void>;
-  state: (state: BrowserState) => void;
-  cleanup: () => Promise<void>;
-}
+import type { Actor, SessionOptions } from "./session-options.ts";
+export type { Actor, SessionOptions } from "./session-options.ts";
 const ScreenshotBytes = z
   .instanceof(Uint8Array)
   .refine((bytes) => bytes.byteLength <= 8 * 1024 * 1024, "Browser screenshot exceeds image limit");
@@ -54,6 +34,17 @@ const inputActions = new Set([
   "evaluate",
   "resize",
   "emulate",
+  "tabs",
+  "upload",
+  "dialog",
+  "hover",
+  "drag",
+  "select",
+  "check",
+  "uncheck",
+  "focus",
+  "record_start",
+  "record_stop",
 ]);
 
 export class BrowserSession {
@@ -63,10 +54,15 @@ export class BrowserSession {
   private options: SessionOptions;
   private controller: BrowserState["controller"] = "agent";
   private owner: string | undefined;
+  private takeoverMode: "shared" | "private" = "shared";
+  private privateEpoch = 0;
+  private activeTabId: string | undefined;
   private closed = false;
   private closing: Promise<void> | undefined;
   private tail: Promise<unknown> = Promise.resolve();
   private pending = 0;
+  private dialogWaiters = new Set<() => void>();
+  private dialogWork: Promise<void> | undefined;
   private recording: Recording | undefined;
   private paused = false;
   private blocked: BrowserOriginBlock | undefined;
@@ -110,8 +106,9 @@ export class BrowserSession {
     this.refs.invalidate();
     this.emit();
   }
-  log(entry: { kind: "console" | "network"; type: string; text: string }): void {
-    this.logs.append(entry.kind, { at: this.options.now(), type: entry.type, text: entry.text });
+  log(entry: import("./backend.ts").BackendLog): void {
+    if (this.takeoverMode === "private") return;
+    this.logs.append(entry.kind, { ...entry, at: this.options.now() });
   }
   suspend(reason: string): void {
     if (this.closed || this.paused) return;
@@ -154,10 +151,16 @@ export class BrowserSession {
   }
   constructor(options: SessionOptions) {
     this.options = options;
-    this.refs = new SnapshotRefs(options.backend.cdp);
+    this.refs = new SnapshotRefs(
+      options.backend.cdp,
+      options.backend.frames ? () => options.backend.frames?.() ?? Promise.resolve([]) : undefined,
+    );
+    this.activeTabId = options.backend.tabs?.active();
     this.logs = new SessionLogs(options.dir);
-    this.live = new LiveCapture(options.backend.cdp, options.now, (frame) =>
-      this.recording?.accept(frame),
+    this.live = new LiveCapture(
+      options.backend.cdp,
+      options.now,
+      (frame) => this.takeoverMode !== "private" && this.recording?.accept(frame),
     );
   }
 
@@ -173,18 +176,48 @@ export class BrowserSession {
       ...(this.pageStateLost ? { pageStateLost: true } : {}),
       ...(this.blocked ? { blocked: this.blocked } : {}),
       closed: this.closed,
+      takeoverMode: this.takeoverMode,
+      ...(this.options.backend.tabs
+        ? {
+            activeTabId: this.options.backend.tabs.active(),
+            tabs: this.options.backend.tabs.list(),
+            downloads: this.options.backend.tabs.downloads(),
+            pending_dialog: this.options.backend.tabs.dialog(),
+          }
+        : {}),
     };
   }
   private emit(): void {
     this.options.state(this.state);
   }
-  takeover(connectionId: string): BrowserState {
+  restorePrivate(): void {
+    this.takeoverMode = "private";
+    this.controller = "human";
+    this.paused = true;
+    this.reason = "Private browser interrupted; explicit handback required";
+    this.privateEpoch++;
+    this.refs.invalidate();
+    this.options.backend.privateMode?.(true);
+    this.syncLease();
+    this.emit();
+  }
+  takeover(connectionId: string, mode: "shared" | "private" = "shared"): BrowserState {
     if (this.closed) throw new BrowserActionError("browser_closed");
     if (this.owner && this.owner !== connectionId)
       throw new Error("Browser already controlled by another connection");
-    if (this.owner === connectionId) return this.state;
+    if (this.owner === connectionId && this.takeoverMode === mode) return this.state;
+    if (this.takeoverMode === "private" || mode === "private") {
+      this.refs.invalidate();
+      this.privateEpoch++;
+    }
+    this.takeoverMode = mode;
+    this.options.backend.privateMode?.(mode === "private");
     this.controller = "human";
     this.owner = connectionId;
+    if (this.paused && !this.pageStateLost) {
+      this.paused = false;
+      this.reason = undefined;
+    }
     if (!this.paused) this.syncLease();
     this.emit();
     return this.state;
@@ -193,18 +226,38 @@ export class BrowserSession {
     if (this.owner !== connectionId) throw new Error("Browser controller mismatch");
     this.controller = "agent";
     this.owner = undefined;
+    if (this.takeoverMode === "private") {
+      this.refs.invalidate();
+      this.privateEpoch++;
+    }
+    this.takeoverMode = "shared";
+    this.options.backend.privateMode?.(false);
+    if (this.paused && !this.pageStateLost) {
+      this.paused = false;
+      this.reason = undefined;
+    }
+    this.options.privateResumed?.();
     if (!this.paused) this.syncLease();
     this.emit();
     return this.state;
   }
   disconnect(connectionId: string): void {
-    if (this.owner === connectionId) this.handback(connectionId);
+    if (this.owner !== connectionId) return;
+    if (this.takeoverMode === "private") {
+      this.owner = undefined;
+      this.paused = true;
+      this.reason = "Private takeover disconnected; explicit handback required";
+      this.options.privatePaused?.();
+      this.syncLease();
+      this.emit();
+    } else this.handback(connectionId);
   }
   private check(actor: Actor, signal?: AbortSignal, generation = this.generation): void {
     signal?.throwIfAborted();
     // Report what blocks the action now before reporting that it went stale: a person who
     // still holds control must see "controlled by human", not a generic generation change.
     if (this.closed) throw new BrowserActionError("browser_closed");
+    this.readCheck(actor);
     if (this.paused) throw new BrowserActionError("browser_paused");
     if (actor.kind === "agent" && this.controller !== "agent")
       throw new BrowserActionError("human_controlled");
@@ -219,6 +272,27 @@ export class BrowserSession {
       (this.controller !== "human" || this.owner !== actor.connectionId)
     )
       throw new Error("Browser controller mismatch");
+  }
+  private readCheck(actor: Actor, epoch = this.privateEpoch): void {
+    if (actor.kind === "agent" && (this.takeoverMode === "private" || epoch !== this.privateEpoch))
+      throw new BrowserActionError("human_private");
+  }
+  changed(): void {
+    if (this.options.backend.tabs?.dialog()) for (const notify of this.dialogWaiters) notify();
+    if (this.closed) return;
+    this.emit();
+    if (this.options.backend.tabs?.active() !== this.activeTabId && !this.paused)
+      void this.enqueue(() => this.syncTab()).catch((error) => {
+        if (!this.closed)
+          this.suspend(error instanceof Error ? error.message : "Tab capture failed");
+      });
+  }
+  private async syncTab(): Promise<void> {
+    const tabId = this.options.backend.tabs?.active();
+    if (tabId === this.activeTabId) return;
+    this.activeTabId = tabId;
+    this.refs.replace(this.options.backend.cdp);
+    await this.live.replace(this.options.backend.cdp);
   }
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new BrowserActionError("browser_closed"));
@@ -235,38 +309,110 @@ export class BrowserSession {
   execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
     const command = BrowserCommand.parse(raw);
     const submittedGeneration = this.generation;
+    const privateEpoch = this.privateEpoch;
     return this.enqueue(async () => {
       signal?.throwIfAborted();
+      this.readCheck(actor, privateEpoch);
       if (this.closed) throw new BrowserActionError("browser_closed");
-      if (inputActions.has(command.action)) {
+      if (
+        inputActions.has(command.action) &&
+        !(command.action === "tabs" && command.operation === "list")
+      ) {
         this.check(actor, signal, submittedGeneration);
       }
       if (this.paused) throw new BrowserActionError("browser_paused");
       const generation = this.generation;
-      if (inputActions.has(command.action)) {
+      if (
+        inputActions.has(command.action) &&
+        !(command.action === "tabs" && command.operation === "list")
+      ) {
         await this.leaseReady;
         this.check(actor, signal, submittedGeneration);
       }
+      if (command.tabId && command.action !== "tabs") {
+        this.check(actor, signal, submittedGeneration);
+        await this.options.backend.tabs?.switch(command.tabId);
+      }
+      if (command.action !== "dialog") {
+        const pending_dialog = this.options.backend.tabs?.dialog();
+        if (pending_dialog)
+          return command.action === "tabs" && command.operation === "list"
+            ? {
+                activeTabId: this.options.backend.tabs?.active(),
+                tabs: this.options.backend.tabs?.list(),
+              }
+            : { pending_dialog };
+        await this.dialogWork;
+        this.readCheck(actor, privateEpoch);
+        if (
+          inputActions.has(command.action) &&
+          !(command.action === "tabs" && command.operation === "list")
+        )
+          this.check(actor, signal, submittedGeneration);
+      }
+      await this.syncTab();
+      this.readCheck(actor, privateEpoch);
       let result: unknown;
       try {
-        result = await this.run(command, actor, signal, submittedGeneration);
+        result =
+          command.action === "dialog"
+            ? await this.run(command, actor, signal, submittedGeneration)
+            : await this.runUntilDialog(() =>
+                this.run(command, actor, signal, submittedGeneration),
+              );
       } catch (error) {
         if (error instanceof BrowserOriginError) this.blockedNavigation(error.blocked);
         throw error;
       }
+      this.readCheck(actor, privateEpoch);
       if (this.paused || (generation !== this.generation && this.pageStateLost))
         throw new BrowserActionError("backend_changed");
       return result;
     });
   }
-  screenshot(signal?: AbortSignal): Promise<Uint8Array> {
+  /** Dialogs pause renderer replies; return their state so the next tool can answer. */
+  private async runUntilDialog(run: () => Promise<unknown>): Promise<unknown> {
+    let notify: (() => void) | undefined;
+    const dialog = new Promise<unknown>((resolve) => {
+      notify = () => {
+        const pending_dialog = this.options.backend.tabs?.dialog();
+        if (pending_dialog) resolve({ pending_dialog });
+      };
+      this.dialogWaiters.add(notify);
+    });
+    const work = run();
+    const settled = work.then(
+      () => {},
+      () => {},
+    );
+    this.dialogWork = settled;
+    void settled.then(() => {
+      if (this.dialogWork === settled) this.dialogWork = undefined;
+    });
+    notify?.();
+    try {
+      return await Promise.race([work, dialog]);
+    } finally {
+      if (notify) this.dialogWaiters.delete(notify);
+    }
+  }
+  screenshot(signal?: AbortSignal, tabId?: string): Promise<Uint8Array> {
+    const submittedGeneration = this.generation;
+    const privateEpoch = this.privateEpoch;
     return this.enqueue(async () => {
       signal?.throwIfAborted();
+      this.readCheck({ kind: "agent" }, privateEpoch);
       if (this.closed) throw new BrowserActionError("browser_closed");
       if (this.paused) throw new BrowserActionError("browser_paused");
+      if (tabId) {
+        this.check({ kind: "agent" }, signal, submittedGeneration);
+        await this.options.backend.tabs?.switch(tabId);
+      }
+      await this.syncTab();
       const generation = this.generation;
       const bytes = await this.options.backend.screenshot("jpeg");
       signal?.throwIfAborted();
+      this.readCheck({ kind: "agent" }, privateEpoch);
       if (this.paused || (generation !== this.generation && this.pageStateLost))
         throw new BrowserActionError("backend_changed");
       return ScreenshotBytes.parse(bytes);
@@ -290,6 +436,7 @@ export class BrowserSession {
   }
   closeBy(actor: Actor, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
+    this.readCheck(actor);
     if (actor.kind === "agent" && (this.controller === "human" || this.owner !== undefined))
       throw new BrowserActionError(
         "human_controlled",
@@ -300,150 +447,32 @@ export class BrowserSession {
       throw new Error("Browser controller mismatch");
     return this.close();
   }
-  private async run(
+  private run(
     command: BrowserCommand,
     actor: Actor,
     signal: AbortSignal | undefined,
     generation: number,
   ): Promise<unknown> {
-    const { backend: page, dir, id, evaluatePolicy, threadId } = this.options;
-    const cdp = page.cdp;
-    switch (command.action) {
-      case "navigate": {
-        if (!/^https?:\/\//i.test(command.url) || !browserOrigin(command.url))
-          throw new BrowserOriginError(
-            command.url,
-            "invalid_origin",
-            "Browser navigation requires an HTTP(S) URL without credentials",
-          );
-        const task = new NavigationTask(
-          actor.kind === "human",
-          command.timeout,
-          this.options.navigationClock,
-          signal,
-        );
-        this.policies.start(task);
+    const epoch = this.privateEpoch;
+    return executeBrowserCommand(command, actor, signal, generation, {
+      options: this.options,
+      refs: this.refs,
+      logs: this.logs,
+      policies: this.policies,
+      state: () => this.state,
+      read: () => this.readCheck(actor, epoch),
+      blocked: () => this.blocked,
+      clearBlocked: () => {
         this.blocked = undefined;
-        try {
-          const resume = task.pause();
-          let allowed: boolean;
-          try {
-            allowed = await task.run(() =>
-              this.options.navigatePolicy(command.url, actor, task.signal),
-            );
-          } finally {
-            resume();
-          }
-          if (!allowed)
-            throw new BrowserOriginError(
-              browserOrigin(command.url) ?? command.url,
-              browserOrigin(command.url) ? "approval_required" : "invalid_origin",
-              "Browser origin requires approval",
-            );
-          this.check(actor, task.signal, generation);
-          await task.run(() => page.navigate(command.url, command.timeout + 65_000, task.signal));
-          return this.state;
-        } catch (error) {
-          if (task.blocked)
-            throw new BrowserOriginError(
-              task.blocked.origin,
-              task.blocked.reason,
-              error instanceof Error ? error.message : "Browser navigation blocked",
-            );
-          if (task.deadlineExpired)
-            throw new BrowserOriginError(
-              task.expiredOrigin ?? browserOrigin(command.url) ?? command.url,
-              "timeout",
-              error instanceof Error ? error.message : "Browser navigation timed out",
-            );
-          throw error;
-        } finally {
-          // Only this page is stopped; sibling sessions share no cancellation.
-          if (task.signal.aborted) void page.cdp.send("Page.stopLoading").catch(() => {});
-          task.close();
-          this.policies.finish(task);
-        }
-      }
-      case "snapshot":
-        return this.refs.snapshot();
-      case "click": {
-        const dispatch = this.refDispatch(command.ref, actor, signal, generation);
-        const rect = await this.refs.bounds(command.ref, dispatch.prepare);
-        dispatch.send();
-        if (rect.width <= 0 || rect.height <= 0) throw new BrowserActionError("not_visible");
-        await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
-        return { ok: true };
-      }
-      case "type": {
-        const dispatch = this.refDispatch(command.ref, actor, signal, generation);
-        await this.refs.select(command.ref, dispatch.prepare);
-        dispatch.send();
-        await page.insertText(command.text);
-        return { ok: true };
-      }
-      case "press": {
-        const dispatch = command.ref
-          ? this.refDispatch(command.ref, actor, signal, generation)
-          : {
-              prepare: () => this.check(actor, signal, generation),
-              send: () => this.check(actor, signal, generation),
-            };
-        if (command.ref) await this.refs.focus(command.ref, dispatch.prepare);
-        dispatch.send();
-        await page.press(command.key);
-        return { ok: true };
-      }
-      case "scroll":
-        await page.wheel(command.x, command.y);
-        return { ok: true };
-      case "wait_for":
-        return waitForBrowser({
-          command,
-          cdp,
-          refs: this.refs,
-          clock: this.options.navigationClock,
-          policies: this.policies,
-          human: actor.kind === "human",
-          signal,
-          currentUrl: () => page.url(),
-          checkNavigation: () => {
-            if (this.blocked)
-              throw new BrowserOriginError(
-                this.blocked.origin,
-                this.blocked.reason,
-                "Browser navigation blocked while waiting",
-              );
-          },
-        });
-      case "screenshot": {
-        const path = join(dir, `${id()}.png`);
-        await writeFile(path, await page.screenshot("png"), { mode: 0o600 });
-        return { path, mimeType: "image/png" };
-      }
-      case "logs":
-        await this.logs.flush();
-        return this.logs.paths;
-      case "resize":
-        await page.resize(command.width, command.height);
-        return { ok: true };
-      case "emulate":
-        await page.resize(command.width, command.height);
-        await cdp.send("Emulation.setDeviceMetricsOverride", {
-          width: command.width,
-          height: command.height,
-          deviceScaleFactor: command.deviceScaleFactor,
-          mobile: command.mobile,
-        });
-        await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: command.touch });
-        await page.media(command.colorScheme);
-        return { ok: true };
-      case "evaluate": {
-        if (!(await evaluatePolicy?.(threadId, page.url())))
-          throw new BrowserActionError("evaluate_approval_required");
-        this.check(actor, signal, generation);
-        return evaluatePage(cdp, command.expression);
-      }
-    }
+      },
+      check: (...args) => this.check(...args),
+      refDispatch: (...args) => this.refDispatch(...args),
+      syncTab: () => this.syncTab(),
+      emit: () => this.emit(),
+      run: (...args) => this.run(...args),
+      beginRecording: (check) => this.beginRecording(check),
+      finishRecording: () => this.finishRecording(),
+    });
   }
   input(raw: unknown, connectionId: string): Promise<void> {
     const input = BrowserInput.parse(raw);
@@ -488,24 +517,37 @@ export class BrowserSession {
     });
   }
   startRecording(): Promise<void> {
-    return this.enqueue(async () => {
-      if (this.paused) throw new Error("Browser backend paused");
-      if (this.recording) throw new Error("Recording already started");
-      this.recording = await Recording.start(
-        join(this.options.dir, this.options.id()),
-        this.options.ffmpeg,
-        undefined,
-        this.options.spawn,
-      );
+    const epoch = this.privateEpoch;
+    return this.enqueue(() => this.beginRecording(() => this.readCheck({ kind: "agent" }, epoch)));
+  }
+  private async beginRecording(
+    check: () => void = () => this.readCheck({ kind: "agent" }),
+  ): Promise<void> {
+    check();
+    if (this.paused) throw new Error("Browser backend paused");
+    if (this.recording) throw new Error("Recording already started");
+    const recording = await Recording.start(
+      join(this.options.dir, this.options.id()),
+      this.options.ffmpeg,
+      undefined,
+      this.options.spawn,
+    );
+    try {
+      check();
       const data = await this.options.backend.screenshot("jpeg");
+      check();
       const viewport = this.options.backend.viewport();
-      this.recording.accept({
+      recording.accept({
         sequence: 0,
         timestamp: this.options.now(),
         data: data.toString("base64"),
         ...viewport,
       });
-    });
+      this.recording = recording;
+    } catch (error) {
+      await recording.stop().catch(() => {});
+      throw error;
+    }
   }
   stopRecording(): Promise<BrowserArtifact> {
     return this.enqueue(() => this.finishRecording());
@@ -520,8 +562,10 @@ export class BrowserSession {
   }
   close(): Promise<void> {
     this.closing ??= (async () => {
+      this.lastUrl = this.options.backend.url();
       this.closed = true;
       this.options.cancelPolicy();
+      this.options.privateResumed?.();
       this.controller = "none";
       this.owner = undefined;
       this.emit();

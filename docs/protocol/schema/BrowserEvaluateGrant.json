@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserEvaluateGrant.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "grantedAt": {
+      "type": "number"
+    },
+    "mode": {
+      "const": "read-only",
+      "type": "string"
+    },
+    "origin": {
+      "maxLength": 8192,
+      "type": "string"
+    }
+  },
+  "required": [
+    "origin",
+    "mode",
+    "grantedAt"
+  ],
+  "type": "object"
+}

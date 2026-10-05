@@ -1,4 +1,10 @@
-import type { BrowserOpen, BrowserControllerLease } from "@ace/protocol";
+import type {
+  BrowserOpen,
+  BrowserControllerLease,
+  BrowserTab,
+  BrowserDownload,
+  BrowserDialog,
+} from "@ace/protocol";
 
 /** Opaque CDP results are parsed by their owning operation before use. */
 export interface BrowserCdp {
@@ -7,12 +13,22 @@ export interface BrowserCdp {
   off(method: string, listener: (params: unknown) => void): unknown;
 }
 export interface BackendLog {
+  requestId?: string;
+  url?: string;
+  status?: number;
   kind: "console" | "network";
   type: string;
   text: string;
 }
 export interface BackendOpen {
   options: BrowserOpen;
+  id?(): string;
+  reserveTab?(): () => void;
+  changed?(): void;
+  downloadDir?: string;
+  maxDownloadBytes?: number;
+  downloadAllowed?(url: string): Promise<boolean>;
+  artifact?(artifact: import("@ace/protocol").BrowserArtifact): void | Promise<void>;
   profileDir: string;
   signal: AbortSignal;
   allowed(url: string, context?: { navigation?: boolean; human?: boolean }): Promise<boolean>;
@@ -27,6 +43,19 @@ export interface BackendOpen {
 }
 export interface BrowserBackendSession {
   readonly cdp: BrowserCdp;
+  tabs?: {
+    list(): BrowserTab[];
+    active(): string;
+    open(): Promise<string>;
+    switch(tabId: string): Promise<void>;
+    close(tabId: string): Promise<void>;
+    dialog(): BrowserDialog | undefined;
+    answer(dialogId: string, accept: boolean, promptText?: string): Promise<void>;
+    downloads(): BrowserDownload[];
+  };
+  privateMode?(enabled: boolean): void;
+  networkBody?(requestId: string): Promise<unknown>;
+  frames?(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>;
   url(): string;
   navigate(url: string, timeout: number, signal?: AbortSignal): Promise<void>;
   click(x: number, y: number): Promise<void>;

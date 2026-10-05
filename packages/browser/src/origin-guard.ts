@@ -1,7 +1,10 @@
+import { EventEmitter } from "node:events";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 
 const Paused = z.object({
+  responseStatusCode: z.number().optional(),
+  responseHeaders: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   requestId: z.string(),
   redirectedRequestId: z.string().optional(),
   request: z.object({ url: z.string() }),
@@ -18,6 +21,7 @@ const Response = z.object({
   id: z.number().optional(),
   method: z.string().optional(),
   params: z.unknown().optional(),
+  result: z.unknown().optional(),
   error: z.unknown().optional(),
 });
 type Send = (
@@ -31,6 +35,11 @@ export async function installOriginGuard(
   cdp: BrowserCdp,
   allowed: (url: string, context?: { navigation?: boolean; human?: boolean }) => Promise<boolean>,
   initiator: () => boolean = () => false,
+  downloadAllowed?: (url: string) => Promise<boolean>,
+  frameInspection?: {
+    attach(cdp: BrowserCdp, targetId: string): Promise<void>;
+    detach(cdp: BrowserCdp): void;
+  },
 ) {
   // Fetch redirects have new IDs. Carry the original actor along that chain.
   const actors = new Map<string, boolean>();
@@ -43,7 +52,8 @@ export async function installOriginGuard(
     if (frame.success && !frame.data.frame.parentId) mainFrame = frame.data.frame.id;
   };
   cdp.on("Page.frameNavigated", frameChanged);
-  const children = new Map<string, { send: Send; parent: Send }>();
+  const children = new Map<string, { send: Send; parent: Send; cdp: BrowserCdp; type: string }>();
+  const childEvents = new Map<string, EventEmitter>();
   const pending = new Map<
     number,
     {
@@ -104,10 +114,18 @@ export async function installOriginGuard(
       if (checks < 32 && !stopped) {
         checks++;
         try {
-          approved = await allowed(request.data.request.url, {
-            navigation,
-            ...(human !== undefined ? { human } : {}),
-          });
+          const attachment = request.data.responseHeaders?.some(
+            (h) =>
+              (h.name.toLowerCase() === "content-disposition" && /attachment/i.test(h.value)) ||
+              (h.name.toLowerCase() === "content-type" &&
+                /(?:octet-stream|zip|compressed|x-tar|x-executable|x-msdownload)/i.test(h.value)),
+          );
+          approved = attachment
+            ? (await downloadAllowed?.(request.data.request.url)) === true
+            : await allowed(request.data.request.url, {
+                navigation,
+                ...(human !== undefined ? { human } : {}),
+              });
         } catch {
           /* Deny policy errors. */
         } finally {
@@ -129,9 +147,25 @@ export async function installOriginGuard(
       return;
     }
     const send = sendChild(parent, sessionId);
-    children.set(sessionId, { send, parent });
+    const events = new EventEmitter();
+    const childCdp: BrowserCdp = {
+      send,
+      on: (method, listener) => events.on(method, listener),
+      off: (method, listener) => events.off(method, listener),
+    };
+    children.set(sessionId, { send, parent, cdp: childCdp, type: targetInfo.type });
+    childEvents.set(sessionId, events);
     const init = (async () => {
-      await send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
+      await send("Fetch.enable", {
+        patterns: [
+          { urlPattern: "*", requestStage: "Request" },
+          ...(downloadAllowed ? [{ urlPattern: "*", requestStage: "Response" }] : []),
+        ],
+      });
+      if (targetInfo.type === "iframe") {
+        await send("Page.enable");
+        await frameInspection?.attach(childCdp, targetInfo.targetId);
+      }
       await send("Target.setAutoAttach", {
         autoAttach: true,
         waitForDebuggerOnStart: true,
@@ -158,9 +192,10 @@ export async function installOriginGuard(
         pending.delete(message.id);
         clearTimeout(waiter.timer);
         if (message.error) waiter.reject(new Error("Browser target command failed"));
-        else waiter.resolve(undefined);
+        else waiter.resolve(message.result);
       }
     }
+    if (message.method) childEvents.get(event.data.sessionId)?.emit(message.method, message.params);
     if (message.method === "Fetch.requestPaused") paused(child.send, message.params);
     if (message.method === "Target.attachedToTarget") attached(child.send, message.params);
     if (message.method === "Target.receivedMessageFromTarget") received(message.params);
@@ -168,7 +203,12 @@ export async function installOriginGuard(
   }
   function detached(raw: unknown): void {
     const result = z.object({ sessionId: z.string() }).safeParse(raw);
-    if (result.success) children.delete(result.data.sessionId);
+    if (result.success) {
+      const child = children.get(result.data.sessionId);
+      if (child) frameInspection?.detach(child.cdp);
+      children.delete(result.data.sessionId);
+      childEvents.delete(result.data.sessionId);
+    }
   }
   const rootPaused = (raw: unknown) => paused(root, raw);
   const rootAttached = (raw: unknown) => attached(root, raw);
@@ -176,7 +216,12 @@ export async function installOriginGuard(
   cdp.on("Target.attachedToTarget", rootAttached);
   cdp.on("Target.receivedMessageFromTarget", received);
   cdp.on("Target.detachedFromTarget", detached);
-  await root("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
+  await root("Fetch.enable", {
+    patterns: [
+      { urlPattern: "*", requestStage: "Request" },
+      ...(downloadAllowed ? [{ urlPattern: "*", requestStage: "Response" }] : []),
+    ],
+  });
   await root("Target.setAutoAttach", {
     autoAttach: true,
     waitForDebuggerOnStart: true,
@@ -184,6 +229,8 @@ export async function installOriginGuard(
   });
   return {
     ready: () => initializing,
+    frameSessions: () =>
+      [...children.values()].filter((child) => child.type === "iframe").map((child) => child.cdp),
     close() {
       stopped = true;
       cdp.off("Page.frameNavigated", frameChanged);
@@ -196,7 +243,9 @@ export async function installOriginGuard(
         waiter.reject(new Error("Browser target closed"));
       }
       pending.clear();
+      for (const child of children.values()) frameInspection?.detach(child.cdp);
       children.clear();
+      childEvents.clear();
       actors.clear();
     },
   };

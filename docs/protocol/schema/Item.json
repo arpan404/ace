@@ -510,6 +510,20 @@
         "executionSource": {
           "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
         },
+        "filename": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "flags": {
+          "items": {
+            "enum": [
+              "executable",
+              "archive"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },

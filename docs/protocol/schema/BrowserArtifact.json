@@ -7,6 +7,20 @@
       "minimum": 0,
       "type": "integer"
     },
+    "filename": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "flags": {
+      "items": {
+        "enum": [
+          "executable",
+          "archive"
+        ],
+        "type": "string"
+      },
+      "type": "array"
+    },
     "mimeType": {
       "type": "string"
     },

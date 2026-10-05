@@ -84,9 +84,9 @@ it("an ace-owned first-use headless browser preserves the public policy, ref, sc
       Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     );
     const logs = z
-      .object({ console: z.string() })
+      .object({ entries: z.array(z.object({ text: z.string() })) })
       .parse(await service.execute("thread", { action: "logs" }));
-    expect(await readFile(logs.console, "utf8")).toContain("owned-marker");
+    expect(logs.entries.some((entry) => entry.text.includes("owned-marker"))).toBe(true);
     await service.execute("thread", { action: "navigate", url });
     await expect(service.execute("thread", { action: "type", ref, text: "stale" })).rejects.toThrow(
       "ref",

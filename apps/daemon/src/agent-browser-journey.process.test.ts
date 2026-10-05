@@ -154,10 +154,7 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
   expect(dimensions).toHaveLength(2);
   expect(Math.max(...dimensions)).toBeLessThanOrEqual(1536);
   expect(await call("ace_browser_evaluate", { expression: "window.innerWidth" })).toBe(2000);
-  expect(await call("ace_browser_logs")).toMatchObject({
-    console: expect.any(String),
-    network: expect.any(String),
-  });
+  expect(await call("ace_browser_logs")).toMatchObject({ entries: expect.any(Array) });
   const browser = f.daemon.browser;
   if (!browser) throw new Error("Browser missing");
   browser.takeover(thread.id, "person");
