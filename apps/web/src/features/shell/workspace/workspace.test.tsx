@@ -275,3 +275,26 @@ test("the new tab's tools are one Tab stop that arrow keys move through by row a
   await userEvent.keyboard("{Home}");
   expect(document.activeElement).toBe(first);
 });
+
+test("the command palette moves the showing tab and reopens the tab closed last", async () => {
+  await openColdStart();
+  await userEvent.keyboard("{Meta>}j{/Meta}");
+  const bottom = await screen.findByRole("region", { name: "Bottom panel" });
+  await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
+  await within(bottom).findByRole("tab", { name: "Logs", selected: true });
+
+  const run = async (query: string, label: RegExp) => {
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await userEvent.type(await screen.findByRole("combobox", { name: "Search commands" }), query);
+    await userEvent.click(await screen.findByRole("option", { name: label }));
+  };
+  await run("move tab", /^Move tab to side panel/);
+  const panel = await sidePanel();
+  await waitFor(() => expect(selected(panel).textContent).toBe("Logs"));
+
+  within(panel).getByRole("tab", { name: "Logs" }).focus();
+  await userEvent.keyboard("{Delete}");
+  await waitFor(() => expect(within(panel).queryByRole("tab", { name: "Logs" })).toBeNull());
+  await run("reopen", /^Reopen closed tab/);
+  expect(await within(panel).findByRole("tab", { name: "Logs", selected: true })).toBeTruthy();
+});
