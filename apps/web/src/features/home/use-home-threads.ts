@@ -11,11 +11,8 @@ import {
   type HomeGroups,
   type ProjectCount,
 } from "@ace/ui-core";
-import {
-  useOrganizeOverlay,
-  useOrganizerState,
-  usePendingActions,
-} from "@/features/organize/index.ts";
+import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
+import { usePendingActions } from "@/lib/pending-actions.ts";
 
 /** Home's threads: pinned and by project folder, and Settled apart, each in Home order. */
 export interface HomeList {

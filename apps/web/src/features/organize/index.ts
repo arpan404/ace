@@ -7,11 +7,5 @@
 export { SnoozeItems } from "./snooze-items.tsx";
 export { ThreadActionItems } from "./thread-action-items.tsx";
 export { useOrganizer, useOrganizerState } from "./use-organizer.ts";
-export {
-  useOrganizeOverlay,
-  useOverlaidEntry,
-  usePendingActions,
-  useRefusedTitle,
-  type PendingAction,
-} from "./overlay.ts";
+export { useOrganizeOverlay, useOverlaidEntry, useRefusedTitle } from "./overlay.ts";
 export { useThreadActions, type ThreadActions, type ThreadTarget } from "./use-thread-actions.ts";
