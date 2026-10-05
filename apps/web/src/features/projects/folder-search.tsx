@@ -214,8 +214,8 @@ export function FolderSearchBox(props: {
           onChange={(event) => type(event.target.value)}
           onKeyDown={onKeyDown}
           className={cn(
-            "h-full min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-subtle-foreground",
-            query.kind === "path" && "font-mono text-[12.5px]",
+            "h-full min-w-0 flex-1 bg-transparent text-ui text-foreground focus:outline-none placeholder:text-subtle-foreground",
+            query.kind === "path" && "font-mono text-sm",
           )}
         />
         {search.loading && rows.length > 0 && <Spinner label="Loading folders" />}
@@ -231,7 +231,7 @@ export function FolderSearchBox(props: {
                   type="button"
                   aria-current={at === all.length - 1 ? "location" : undefined}
                   onClick={() => browse(crumb.path)}
-                  className="inline-flex h-[22px] min-w-0 items-center gap-1 rounded-sm px-1.5 outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-[current]:text-foreground"
+                  className="inline-flex h-[22px] min-w-0 items-center gap-1 rounded-sm px-1.5 focus-ring transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-[current]:text-foreground"
                 >
                   {crumb.home && <Icon icon={HouseSimpleIcon} size={13} />}
                   <span className="truncate">{crumb.label}</span>
@@ -300,7 +300,7 @@ export function FolderSearchBox(props: {
         </p>
       )}
       <div className="flex min-h-5 min-w-0 items-center gap-3 text-xs text-subtle-foreground">
-        <span id={`${listId}-path`} className="min-w-0 flex-1 truncate font-mono text-[11.5px]">
+        <span id={`${listId}-path`} className="min-w-0 flex-1 truncate font-mono text-xs">
           {highlighted
             ? `${displayPath(highlighted.path, home?.path)}${props.several ? ` · ${highlighted.machine.name}` : ""}`
             : ""}
@@ -391,7 +391,7 @@ function FolderOption(props: {
       <span className="max-w-[60%] shrink-0 truncate text-foreground">
         <Name name={row.name} positions={row.positions} />
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-subtle-foreground">
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-subtle-foreground">
         {props.active ? displayPath(row.path, props.home) : ""}
       </span>
       {row.self && <Badge icon={ArrowElbowDownLeftIcon}>Open</Badge>}

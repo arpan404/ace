@@ -53,7 +53,7 @@ export function LocationField(props: {
       <div className="flex min-w-0 items-center gap-2 text-sm">
         <span className="font-medium text-muted-foreground">Location</span>
         <Icon icon={FolderSimpleIcon} size={14} className="text-subtle-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-foreground">
+        <span className="min-w-0 flex-1 truncate font-mono text-sm text-foreground">
           {state.location ? displayPath(state.location, state.home?.path) : "…"}
         </span>
       </div>
