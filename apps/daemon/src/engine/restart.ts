@@ -45,7 +45,30 @@ export function recoverEngine(
       // A stopped provider no longer owns an admitted continuation. Native history
       // remains the source for a new restart continuation, never the old input.
       repo.pending.finishContinuation(state.threadId);
-      const live = !state.processExit && lostWork(state) !== undefined;
+      const backend = repo.backend(state.threadId);
+      const interrupted = lostWork(state, 0, backend);
+      const live = !state.processExit && interrupted !== undefined;
+      if (live && backend === "cursor-sdk")
+        repo.apply(
+          state.threadId,
+          [
+            {
+              type: "item.upsert",
+              agent: state.rootKey ?? "root",
+              item: "recovery:uncertain",
+              draft: {
+                type: "notice",
+                level: "warning",
+                code: "recovery_uncertain",
+                title: "Recovery needed",
+                text: "Previous work needs reconciliation",
+                detail: interrupted,
+                complete: true,
+              },
+            },
+          ],
+          clock.now(),
+        );
       if (live)
         repo.apply(
           state.threadId,
