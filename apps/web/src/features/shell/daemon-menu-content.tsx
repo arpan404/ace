@@ -22,7 +22,7 @@ export function DaemonMenuContent() {
           <span aria-hidden className={cn("size-2 shrink-0 rounded-full", connectionDot[state])} />
           {connection.mode === "fake" ? "Fake daemon (dev)" : "Daemon"} · {connectionLabels[state]}
         </div>
-        <div className="truncate px-2.5 pt-0.5 pb-1.5 pl-[26px] font-mono text-xs text-muted-foreground">
+        <div className="truncate px-2.5 pt-0.5 pb-1.5 pl-7 font-mono text-xs text-muted-foreground">
           {connection.url}
         </div>
       </MenuGroup>

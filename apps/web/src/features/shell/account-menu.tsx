@@ -48,7 +48,7 @@ export function AccountMenu() {
           <span
             aria-hidden
             data-state={state}
-            className="absolute -right-0.5 -bottom-0.5 grid size-[13px] place-items-center rounded-full bg-rail"
+            className="absolute -right-0.5 -bottom-0.5 grid size-3.5 place-items-center rounded-full bg-rail"
           >
             <span className={cn("size-[9px] rounded-full", connectionDot[state])} />
           </span>
