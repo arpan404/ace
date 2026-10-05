@@ -1,4 +1,22 @@
 {
+  "apps/web/src/components/attachment-artifact.tsx": {
+    "text-size": 1
+  },
+  "apps/web/src/components/attachment-lightbox.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/components/attachment-markdown.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/components/attachment-message.tsx": {
+    "radius": 2
+  },
+  "apps/web/src/components/attachment-tiles.tsx": {
+    "radius": 3
+  },
+  "apps/web/src/components/attachment-unavailable.tsx": {
+    "radius": 1
+  },
   "apps/web/src/components/diff-stat.tsx": {
     "text-size": 1
   },
@@ -286,9 +304,6 @@
     "text-size": 4
   },
   "apps/web/src/features/thread/items/error-row.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/thread/items/event-divider.tsx": {
     "text-size": 1
   },
   "apps/web/src/features/thread/items/model-facing.tsx": {
