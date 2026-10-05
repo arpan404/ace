@@ -100,11 +100,7 @@ export function CardGraph(props: {
               d={edge.d}
               fill="none"
               strokeWidth={1.5}
-              className={
-                edge.hot
-                  ? "stroke-[color-mix(in_oklab,var(--ring)_55%,transparent)]"
-                  : "stroke-border"
-              }
+              className={edge.hot ? "stroke-ring/55" : "stroke-border"}
             />
           ))}
         </svg>

@@ -64,7 +64,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     registry.has("cursor") &&
     registry.get("cursor").adapter.backend === "cursor-sdk" &&
     !accountRegistry.get(defaultInstance.id) &&
-    !accountRegistry.list().some(({ instance }) => instance.provider === "cursor")
+    !accountRegistry
+      .list()
+      .some(({ instance }) => instance.provider === "cursor" && !instance.implicit)
   ) {
     // Preserve the SDK adapter's original home when it first enters accounts ownership.
     await accountRegistry.register(
@@ -89,8 +91,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           !accountRegistry.get(session.instanceId)
         )
           return adapter.openSession(session);
+        // Listing the normal CLI home must not enroll existing local sessions
+        // in registered-account scheduling. Explicit selection still binds it.
         return session.instanceId ||
-          accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+          accountRegistry.selectedProvider(adapter.provider) ||
+          accountRegistry
+            .list()
+            .some(({ instance }) => instance.provider === adapter.provider && !instance.implicit)
           ? bound.openSession(session)
           : adapter.openSession(session);
       },

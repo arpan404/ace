@@ -6,9 +6,10 @@ import { objectInput } from "./calls.ts";
 
 /*
  * A tab's channel-scoped state: the binary file channels it opened and its Preview (browser)
- * subscriptions. The host loads this module, with the client's service wire whose full
+ * subscriptions. The host initializes these with the client's service wire whose full
  * `ClientMessage` it decodes requests with, the first time a tab makes a `files.*` or
- * `browser.*` request, so the worker starts without it (ADR 0056).
+ * `browser.*` request. Keeping this small module in the host avoids a separate chunk's
+ * overhead while service schemas still load on demand (ADR 0056).
  */
 
 const ChannelReply = z.object({
