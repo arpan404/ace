@@ -26,17 +26,9 @@ export const DeferredSuggestionList = deferredComponent(() =>
 export const DeferredSendStatus = deferredComponent(() =>
   import("../items/send-status.tsx").then((module) => module.SendStatus),
 );
-/** This window's messages on their way, for the transcript (see `local-sends-view.ts`). */
+/** This window's messages on their way, for the transcript (see `LocalSendsView`). */
 export const DeferredLocalSends = deferredComponent(() =>
   import("../items/local-sends.tsx").then((module) => module.LocalSends),
-);
-/** A follow-up to one agent of the tree, in the Agents panel. */
-export const DeferredAgentComposer = deferredComponent(() =>
-  import("./agent-composer.tsx").then((module) => module.AgentComposer),
-);
-/** Says so when the daemon refuses a follow-up sent to one agent of the tree. */
-export const DeferredAgentSendWatch = deferredComponent(() =>
-  import("./agent-send-watch.tsx").then((module) => module.AgentSendWatch),
 );
 
 /** The thread's tokens and cost in the context meter's tooltip, read when the tooltip opens. */
@@ -58,7 +50,6 @@ export function preloadComposerParts(): Promise<unknown> {
     DeferredLocalSends.preload(),
     preloadAttachmentChips(),
     import("./send-message.ts"),
-    DeferredAgentComposer.preload(),
   ]);
 }
 

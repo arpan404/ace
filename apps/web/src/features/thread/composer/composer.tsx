@@ -1,4 +1,3 @@
-import type { Mention } from "@ace/protocol";
 import type { ComposerDraft } from "@ace/ui-core";
 import {
   Suspense,
@@ -19,16 +18,17 @@ import type { ThreadRef } from "../sources/index.ts";
 import { AddButton } from "./add-button.tsx";
 import { AttachmentChips, useAttachments } from "./attachments.tsx";
 import { ComposerCompact } from "./composer-compact.ts";
-import { accept, insertAt, mentionsIn, triggerAt, type Trigger } from "./draft.ts";
+import { accept, insertAt, mentionsIn, triggerAt, type Draft, type Trigger } from "./draft.ts";
 import { readDraft, recentFiles, rememberFile, writeDraft } from "./draft-store.ts";
 import { PrimaryAction } from "./primary-action.tsx";
 import { DeferredSuggestionList } from "./deferred-parts.tsx";
-import type { LocalAttachment } from "@/components/attachment-format.ts";
 import { takeDraftsFor, type ReturnedDraft } from "./send-store.ts";
 import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
 import { useDraftPersistence } from "./use-draft-persistence.ts";
 import { useTypeToFocus } from "./use-type-to-focus.ts";
+
+export type { Draft } from "./draft.ts";
 
 /** What other parts of the thread screen may ask of its composer. */
 export interface ComposerHandle {
@@ -36,25 +36,6 @@ export interface ComposerHandle {
   openAdd(): void;
   /** Put the caret in the message. */
   focus(): void;
-}
-
-export interface Draft {
-  text: string;
-  mentions: Mention[];
-  /** Files the daemon already holds. */
-  attachments: { sha256: string }[];
-  /**
-   * Every file attached, handed over from the composer (`useAttachments().handOff()`): as the
-   * pending bubble shows them, the ones still uploading, and when they've all settled.
-   */
-  files: {
-    local: LocalAttachment[];
-    uploading: number;
-    settled: Promise<{ sha256: string; name: string }[]>;
-    release(): void;
-  };
-  /** ⌘↵ / Ctrl+↵: the opposite of the follow-up default (steer instead of queue, or back). */
-  opposite: boolean;
 }
 
 /** Below this width the footer drops labels to icons; below `terse` the hint shortens. */

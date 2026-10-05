@@ -41,7 +41,7 @@ const ForkDialog = lazy(() =>
 import { Transcript } from "./transcript/transcript.tsx";
 import { AgentTranscript } from "./transcript/agent-transcript.tsx";
 import { SideChatComposer } from "./composer/side-chat-composer.tsx";
-import { DeferredAgentComposer } from "./composer/deferred-parts.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import {
@@ -87,7 +87,12 @@ function PendingThread(props: { threadId: string }) {
   );
 }
 
-/** The Agents panel's follow-up composer: its code loads with the composer's other parts. */
+/** The Agents panel's follow-up composer: its code loads while idle, after the thread paints. */
+const DeferredAgentComposer = deferredComponent(() =>
+  import("./composer/agent-composer.tsx").then((module) => module.AgentComposer),
+);
+
+/** The Agents panel's follow-up composer, in the panel's own slot. */
 function AgentComposer(props: ComponentProps<typeof DeferredAgentComposer.Component>) {
   return (
     <Suspense fallback={null}>
@@ -133,7 +138,10 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     [outer],
   );
   // Step details and interaction cards load once the transcript has painted.
-  useEffect(() => whenIdle(() => void preloadDeferred()), []);
+  useEffect(
+    () => whenIdle(() => void Promise.all([preloadDeferred(), DeferredAgentComposer.preload()])),
+    [],
+  );
   const title = useShownTitle(id, meta?.title);
   const composer = useRef<ComposerHandle>(null);
   const column = useRef<HTMLDivElement>(null);

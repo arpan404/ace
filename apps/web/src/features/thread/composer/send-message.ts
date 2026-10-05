@@ -1,6 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { ThreadId, type TurnOptions } from "@ace/protocol";
-import type { Draft } from "./composer.tsx";
+import type { Draft } from "./draft.ts";
 import { rememberAttachments, stage, unstage } from "./send-store.ts";
 
 /*

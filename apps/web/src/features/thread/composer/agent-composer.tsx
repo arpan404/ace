@@ -3,7 +3,12 @@ import { ThreadId, type CommandPayload } from "@ace/protocol";
 import { Suspense, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Composer, type Draft } from "./composer.tsx";
-import { DeferredAgentSendWatch } from "./deferred-parts.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+
+/** Says so when the daemon refuses a follow-up; loads with the first one sent. */
+const DeferredAgentSendWatch = deferredComponent(() =>
+  import("./agent-send-watch.tsx").then((module) => module.AgentSendWatch),
+);
 
 type Send = Extract<CommandPayload, { type: "thread.send" }>;
 
