@@ -25,8 +25,7 @@ export function FeedRow(props: {
       className={cn(
         "relative rounded-[10px] transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
         arrival,
-        props.selected &&
-          "bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] hover:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+        props.selected && "bg-foreground/8 hover:bg-foreground/8",
       )}
     >
       <button

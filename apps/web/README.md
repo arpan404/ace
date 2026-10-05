@@ -79,15 +79,18 @@ own list (composed in `app/app-shell.tsx`).
   Activity bell and Search (⌘K), New thread (⌘N), then the current view's list, the only part
   that scrolls. A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the
   sidebar's body through a portal, so it keeps the route's providers.
-- **Home's list** (`features/home`): Pinned, then a folder per project (named from the project
-  cache) with its threads in Home order, the folder that owes most first; five threads, then
-  Show more (for this visit of the list); the open thread always shows. Closed folders persist
-  on this device (`ace.home.folders`, the newest 200). The grouping and the row keys are
-  `homeRows` and `homeRowKey` in `@ace/ui-core`; each kind of row has its own key prefix, so no
-  thread id can take a folder's key. Each row is one line: the title, then marks for a snooze,
-  worktree, pull request and status that give way to Settle and Snooze on hover; what they mean
-  stays in the row's name and its tooltip. The Threads heading carries the project filter and
-  Add project (⇧⌘O) on hover.
+- **Home's list** (`features/home`): one flat list of tasks across projects, pinned first, then
+  Home order (needs you, work in motion, trouble, the rest, most recent first), then the
+  collapsible Settled section. `homeOrder`, `homeRows` and `homeRowKey` in `@ace/ui-core` build
+  it; threads and the Settled heading have their own key prefixes, so no thread id can take the
+  heading's key. Each row is a three-line card: the project's badge (`projectBadge`: initials on
+  a tint derived from the project id) and name, then a pin, a snooze and the status pill
+  (`taskPill`; a working thread counts its seconds) or the age; the title (medium when it needs
+  you or is unread, quiet once done and read); the branch or worktree, the diff or pull request
+  and the provider with its running subagents. A thread that needs you carries a warm tint. The
+  marks are decoration: the words stay in the row's name and its tooltip. Settle and Snooze float
+  over the first line on hover; ↑↓ (or j and k) move between rows. The Threads heading carries
+  the project filter and Add project (⇧⌘O) on hover.
 - `SidebarFrame` owns where they sit and stays mounted for the app's life. `⌘\` is bound there:
   it hides or shows the sidebar (the rail stays; persisted as `sidebarOpen` in `ace.layout`), and
   on a narrow window opens and closes the sheet without touching that choice.

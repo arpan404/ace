@@ -38,9 +38,11 @@ describe("Cursor SDK boundary replay", () => {
     });
     r.frame("message", { type: "future-message", vendor: { opaque: 7 } });
     expect(texts(r.state)).toEqual(["already streamed"]);
-    expect(JSON.stringify(r.state.items)).toContain('"opaque":7');
+    expect(JSON.stringify(r.diagnostics)).toContain('"opaque":7');
+    expect(JSON.stringify(r.state.items)).not.toContain('"opaque":7');
     r.frame("future-envelope", { retained: "future-channel" });
-    expect(JSON.stringify(r.state.items)).toContain("future-channel");
+    expect(JSON.stringify(r.diagnostics)).toContain("future-channel");
+    expect(JSON.stringify(r.state.items)).not.toContain("future-channel");
     expect(
       Object.values(r.state.items).some(
         (item) => item.type === "notice" && item.text.includes("No uncertain history"),

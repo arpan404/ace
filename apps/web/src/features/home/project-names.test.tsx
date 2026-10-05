@@ -38,11 +38,15 @@ function app() {
   return made;
 }
 
-test("Home's project folders and the thread header name the project, not its id", async () => {
+test("Home's task rows and the thread header name the project, not its id", async () => {
   await app().open("/");
   const nav = await screen.findByRole("navigation", { name: "Threads" });
-  const card = await within(nav).findByRole("link", { name: /Rotate the signing keys/ });
-  expect(await within(nav).findByRole("button", { name: "billing" })).toBeTruthy();
+  const card = await within(nav).findByRole("link", {
+    name: /^Rotate the signing keys\..*Project billing/,
+  });
+  // The row's badge and project line show the name, and its initials.
+  expect(within(card).getByText("billing")).toBeTruthy();
+  expect(within(card).getByText("BI")).toBeTruthy();
   expect(within(nav).queryByText(billing.id)).toBeNull();
 
   await userEvent.click(card);

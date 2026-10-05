@@ -182,11 +182,11 @@ export class MachinePool {
   }
   command(ref: MachineThreadRef, payload: ThreadCommand, options?: RequestOptions, id?: string) {
     assertThread(ref, payload);
-    return this.clientForThread(ref).command(payload, options, id);
+    return this.durableClient(ref.hostId).command(payload, options, id);
   }
   enqueue(ref: MachineThreadRef, payload: ThreadCommand, id?: string) {
     assertThread(ref, payload);
-    return this.clientForThread(ref).enqueue(payload, id);
+    return this.durableClient(ref.hostId).enqueue(payload, id);
   }
   request<Q extends ServiceRequest>(ref: MachineThreadRef, input: Q, options?: RequestOptions) {
     assertThread(ref, input);
@@ -198,7 +198,7 @@ export class MachinePool {
   }
   /** The caller must choose a machine before creating a thread. */
   create(hostId: string, payload: CreateCommand, options?: RequestOptions, id?: string) {
-    return this.client(hostId).command(payload, options, id);
+    return this.durableClient(hostId).command(payload, options, id);
   }
   projects(hostId: string) {
     return this.client(hostId).projects;
@@ -213,6 +213,19 @@ export class MachinePool {
     this.live.clear();
     this.order = [];
     this.notifications.emitAll();
+  }
+  /** A verified connection can save durable work while its transport is offline. */
+  private durableClient(hostId: string): ClientApi {
+    const live = this.live.get(hostId);
+    if (
+      this.closed ||
+      !live?.enabled ||
+      !live.client ||
+      !live.attached ||
+      live.state.status === "auth_failed"
+    )
+      throw new ClientError(live?.state.status === "auth_failed" ? "auth" : "offline");
+    return live.client;
   }
   private assertOpen(): void {
     if (this.closed) throw new ClientError("offline");
