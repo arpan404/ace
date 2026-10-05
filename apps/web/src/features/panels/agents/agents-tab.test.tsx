@@ -230,30 +230,31 @@ const spawn = (agent: string, item: string, child: string) =>
     detail: { kind: "agent.spawn", description: `Start ${child}`, childAgent: child },
   });
 
-test("Stop on an agent with subagents says how many go with it and asks first", async () => {
-  const nested: Scenario = {
-    thread: {
-      id: "thread-nested",
-      workspaceId: "relay",
-      title: "Sweep the resume callers",
-      provider: "claude",
+const nested: Scenario = {
+  thread: {
+    id: "thread-nested",
+    workspaceId: "relay",
+    title: "Sweep the resume callers",
+    provider: "claude",
+  },
+  steps: [
+    {
+      kind: "facts",
+      facts: [
+        facts.rootAgent("claude"),
+        facts.turn("root"),
+        spawn("root", "spawn-audit", "audit"),
+        facts.subagent("claude", "audit", "resume-sweep", "spawn-audit"),
+        facts.turn("audit", "spawn"),
+        spawn("audit", "spawn-probe", "probe"),
+        facts.subagent("claude", "probe", "web-probe", "spawn-probe", { parent: "audit" }),
+        facts.turn("probe", "spawn"),
+      ],
     },
-    steps: [
-      {
-        kind: "facts",
-        facts: [
-          facts.rootAgent("claude"),
-          facts.turn("root"),
-          spawn("root", "spawn-audit", "audit"),
-          facts.subagent("claude", "audit", "resume-sweep", "spawn-audit"),
-          facts.turn("audit", "spawn"),
-          spawn("audit", "spawn-probe", "probe"),
-          facts.subagent("claude", "probe", "web-probe", "spawn-probe", { parent: "audit" }),
-          facts.turn("probe", "spawn"),
-        ],
-      },
-    ],
-  };
+  ],
+};
+
+test("Stop on an agent with subagents says how many go with it and asks first", async () => {
   const app = harness();
   app.play(nested).runUntilBlocked();
   const panel = await openAgents(app, "/t/thread-nested");
@@ -273,7 +274,32 @@ test("Stop on an agent with subagents says how many go with it and asks first", 
     }),
   );
   await userEvent.click(within(panel).getByRole("button", { name: /Back to agents/ }));
+  // Its subagent stopped with it.
   expect(
     await within(panel).findByRole("treeitem", { name: "resume-sweep: Interrupted" }),
   ).toBeTruthy();
+  expect(
+    await within(panel).findByRole("treeitem", { name: "web-probe: Interrupted" }),
+  ).toBeTruthy();
+});
+
+test("in the tree, Stop on an agent with subagents asks the same question, and a row owns its subagents", async () => {
+  const app = harness();
+  app.play(nested).runUntilBlocked();
+  const panel = await openAgents(app, "/t/thread-nested");
+  const sweep = await within(panel).findByRole("treeitem", { name: /^resume-sweep:/ });
+  // The row owns the group its subagents are in.
+  const group = document.getElementById(sweep.getAttribute("aria-owns") ?? "");
+  expect(group?.getAttribute("role")).toBe("group");
+  expect(within(group as HTMLElement).getByRole("treeitem", { name: /^web-probe:/ })).toBeTruthy();
+
+  sweep.focus();
+  await userEvent.keyboard("s");
+  await userEvent.keyboard("{Enter}");
+  const ask = await screen.findByRole("dialog", { name: "Stop resume-sweep and its 1 subagent?" });
+  await userEvent.click(within(ask).getByRole("button", { name: "Stop all" }));
+  expect(
+    await within(panel).findByRole("treeitem", { name: "web-probe: Interrupted" }),
+  ).toBeTruthy();
+  expect(within(panel).getByRole("treeitem", { name: "resume-sweep: Interrupted" })).toBeTruthy();
 });

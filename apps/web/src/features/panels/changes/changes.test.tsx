@@ -87,10 +87,10 @@ test("split layout puts the removed line beside its replacement, and the choice 
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   await pickLayout(panel, "Split");
   const removed = within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/);
-  const row = removed.closest(".grid-cols-2");
-  expect(
-    row && within(row as HTMLElement).getByText(/const \{ events, coldStart \} = replayFrom/),
-  ).toBeTruthy();
+  // Split: the replacement sits on the removed line's row, beside it.
+  expect(removed.closest("[data-diff-row]")?.textContent).toMatch(
+    /const \{ events, coldStart \} = replayFrom/,
+  );
 
   await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
@@ -127,13 +127,17 @@ test("a chosen Split shows unified in a panel too narrow for two columns, and sp
       within(panel).getByRole("button", { name: "Diff layout: Split (needs a wider panel)" }),
     ).toBeTruthy();
     const removed = within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/);
-    expect(removed.closest(".grid-cols-2")).toBeNull();
+    // Unified: the removed line's row holds only it, not its replacement.
+    expect(removed.closest("[data-diff-row]")?.textContent).not.toMatch(
+      /const \{ events, coldStart \}/,
+    );
 
     width = 1000;
     act(() => resize.forEach((fire) => fire()));
     expect(within(panel).getByRole("button", { name: "Diff layout: Split" })).toBeTruthy();
     const again = within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/);
-    expect(again.closest(".grid-cols-2")).toBeTruthy();
+    // Split: the replacement sits on the same row, beside it.
+    expect(again.closest("[data-diff-row]")?.textContent).toMatch(/const \{ events, coldStart \}/);
   } finally {
     globalThis.ResizeObserver = original;
   }

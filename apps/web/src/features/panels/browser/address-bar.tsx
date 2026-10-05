@@ -173,7 +173,8 @@ export function AddressBar(props: {
               <span className="min-w-0 flex-1 truncate text-foreground">
                 {displayAddress(suggestion.url)}
               </span>
-              <span className="max-w-[45%] min-w-0 shrink truncate text-xs text-muted-foreground @max-[22.5rem]:hidden">
+              {/* Truncated rather than hidden: at the default 520px panel the popup is ~320px. */}
+              <span className="max-w-[45%] min-w-0 shrink truncate text-xs text-muted-foreground @max-[13rem]:hidden">
                 {suggestion.detail}
               </span>
             </li>

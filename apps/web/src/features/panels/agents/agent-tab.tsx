@@ -1,12 +1,5 @@
-import {
-  useAgent,
-  useAgentTree,
-  useIntentSender,
-  useItem,
-  useSidebarThread,
-} from "@ace/client-react";
+import { useAgent, useAgentTree, useItem, useSidebarThread } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
-import { ThreadId } from "@ace/protocol";
 import {
   agentName,
   agentStatusLabel,
@@ -16,21 +9,12 @@ import {
   isRunning,
   providerNames,
 } from "@ace/ui-core";
-import { ArrowLeftIcon, ArrowUpRightIcon, RobotIcon, StopIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, ArrowUpRightIcon, RobotIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useEffect, useId, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import {
-  Popover,
-  PopoverClose,
-  PopoverContent,
-  PopoverDescription,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -38,7 +22,8 @@ import { keymap } from "@/lib/keymap.ts";
 import { useNow } from "@/lib/time.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { AgentStatusMark } from "./agent-status.tsx";
-import { countSubagents, findAgentNode, stopLabel } from "./subagents.ts";
+import { StopAgent } from "./stop-agent.tsx";
+import { countSubagents, findAgentNode } from "./subagents.ts";
 import { useThreadParts } from "./thread-parts.ts";
 
 /**
@@ -64,7 +49,7 @@ export function AgentTab(props: TabViewProps) {
           <Kbd keys={keymap.agents.keys} />
         </Button>
         <span className="flex-1" />
-        {agent && <StopAgent threadId={props.scope} agent={agent} />}
+        {agent && <AgentStop threadId={props.scope} agent={agent} />}
       </div>
       {agent ? (
         <AgentDetail threadId={props.scope} agent={agent} />
@@ -79,71 +64,17 @@ export function AgentTab(props: TabViewProps) {
   );
 }
 
-/**
- * Stop: it stops the agent and everything under it, so it says how many subagents go with it
- * and, when any do, asks before stopping them all.
- */
-function StopAgent(props: { threadId: string; agent: Agent }) {
-  const stop = useIntentSender();
+/** The agent's Stop, with the subagents that go with it. */
+function AgentStop(props: { threadId: string; agent: Agent }) {
   const tree = useAgentTree(props.threadId);
-  const [asking, setAsking] = useState(false);
-  if (props.agent.origin === "root" || !isRunning(props.agent)) return null;
   const node = tree && findAgentNode(tree, props.agent.id);
-  const subagents = node ? countSubagents(node) : 0;
-  const label = stopLabel(agentName(props.agent), subagents);
-  const stopping = stop.intent?.state === "pending";
-  const send = () => {
-    setAsking(false);
-    void stop
-      .send({
-        type: "thread.interrupt",
-        threadId: ThreadId.parse(props.threadId),
-        agentId: props.agent.id,
-        cascade: true,
-      })
-      .catch(() => undefined);
-  };
-  const button = (
-    <Button
-      size="sm"
-      variant="ghost"
-      disabled={stopping}
-      aria-label={stopping ? undefined : label}
-      onClick={subagents ? undefined : send}
-    >
-      <StopIcon aria-hidden size={14} weight="fill" />
-      {stopping ? "Stopping…" : "Stop"}
-    </Button>
-  );
   return (
-    <>
-      {stop.intent?.state === "failed" && (
-        <span role="alert" className="truncate text-xs text-status-failed">
-          Couldn't stop: {stop.intent.error ?? "refused"}
-        </span>
-      )}
-      {subagents ? (
-        <Popover open={asking} onOpenChange={setAsking}>
-          <Tip label={label}>
-            <PopoverTrigger render={button} />
-          </Tip>
-          <PopoverContent align="end" className="w-[260px]">
-            <PopoverTitle className="text-ui font-medium">{label}?</PopoverTitle>
-            <PopoverDescription className="mt-1 text-sm text-muted-foreground">
-              Their work so far stays in the thread.
-            </PopoverDescription>
-            <div className="mt-3 flex justify-end gap-2">
-              <PopoverClose render={<Button size="sm" variant="ghost" />}>Cancel</PopoverClose>
-              <Button size="sm" variant="danger" onClick={send}>
-                Stop all
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
-      ) : (
-        <Tip label={label}>{button}</Tip>
-      )}
-    </>
+    <StopAgent
+      threadId={props.threadId}
+      agent={props.agent}
+      subagents={node ? countSubagents(node) : 0}
+      showFailure
+    />
   );
 }
 

@@ -183,6 +183,7 @@ function Unified(props: RowsProps) {
         return (
           <>
             <div
+              data-diff-row
               className={cn(
                 "group/line relative grid min-w-max grid-cols-[44px_44px_minmax(0,1fr)]",
                 props.wrap && "min-w-0",
@@ -231,7 +232,8 @@ function SplitRowView(props: RowsProps & { pair: SplitRow }) {
     );
   return (
     <>
-      <div className="grid min-w-0 grid-cols-2">
+      {/* One visual row: the old line beside the new one. */}
+      <div data-diff-row className="grid min-w-0 grid-cols-2">
         {sides.map(({ side, line, number }) => {
           const target = line && targetOf(line);
           return (

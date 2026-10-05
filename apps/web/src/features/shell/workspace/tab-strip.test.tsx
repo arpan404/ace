@@ -96,8 +96,14 @@ function Strip(props: { definition: WorkspaceDefinition }) {
   );
 }
 
-const tabBox = (name: string) =>
-  screen.getByRole("tab", { name: new RegExp(`^${name}`) }).closest<HTMLElement>("[data-tab-key]")!;
+/** The tab's own box, which the strip sizes. */
+function tabBox(name: string): HTMLElement {
+  const box = screen
+    .getByRole("tab", { name: new RegExp(`^${name}`) })
+    .closest<HTMLElement>("[data-tab-key]");
+  if (!box) throw new Error(`No tab box for ${name}`);
+  return box;
+}
 
 test("the showing tab grows to fit its badge when the badge arrives after the tab drew", async () => {
   stat = "";

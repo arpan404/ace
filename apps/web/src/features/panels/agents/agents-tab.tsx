@@ -24,7 +24,7 @@ import {
 import type { Agent, BackgroundTask } from "@ace/protocol";
 import { ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { createContext, use, useMemo, useState, type KeyboardEvent } from "react";
+import { createContext, use, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -33,19 +33,26 @@ import { useServerQueue } from "@/lib/server-queue.ts";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentStatusMark } from "./agent-status.tsx";
-import { countSubagents, stopLabel } from "./subagents.ts";
+import { StopAgent } from "./stop-agent.tsx";
+import { subagentCounts } from "./subagents.ts";
 import { AgentCounts, ThreadDeck } from "./tree-extras.tsx";
 
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground";
 
 /** The tree's roving focus and folded branches, shared by its rows. */
 interface TreeState {
+  /** Prefix of the tree's element ids. */
+  id: string;
+  /** Subagents under each agent, counted once for the whole tree. */
+  subagents: ReadonlyMap<string, number>;
   active: string | undefined;
   setActive(id: string): void;
   collapsed: ReadonlySet<string>;
   fold(id: string, open: boolean): void;
 }
 const Tree = createContext<TreeState>({
+  id: "agent-tree",
+  subagents: new Map(),
   active: undefined,
   setActive: () => {},
   collapsed: new Set(),
@@ -182,8 +189,12 @@ function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[] })
   const [active, setActive] = useState<string>();
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const first = props.nodes[0]?.id;
+  const treeId = useId();
+  const subagents = useMemo(() => subagentCounts(props.nodes), [props.nodes]);
   const state = useMemo<TreeState>(
     () => ({
+      id: treeId,
+      subagents,
       // The root holds the Tab stop until another row has had focus.
       active: active ?? first,
       setActive,
@@ -196,7 +207,7 @@ function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[] })
           return next;
         }),
     }),
-    [active, first, collapsed],
+    [treeId, subagents, active, first, collapsed],
   );
   return (
     <Tree value={state}>
@@ -219,6 +230,7 @@ function BranchNode(props: { threadId: string; node: AgentTreeNode; depth: numbe
   const tree = use(Tree);
   const parent = node.children.length > 0;
   const open = parent && !tree.collapsed.has(node.id);
+  const group = `${tree.id}-${node.id}`;
   return (
     <li role="none" className={useArrival()}>
       <AgentRow
@@ -226,10 +238,12 @@ function BranchNode(props: { threadId: string; node: AgentTreeNode; depth: numbe
         agentId={node.id}
         depth={props.depth}
         expanded={parent ? open : undefined}
-        subagents={countSubagents(node)}
+        owns={open ? group : undefined}
+        subagents={tree.subagents.get(node.id) ?? 0}
       />
       {open && (
-        <ul role="group">
+        // Owned by the row above (aria-owns): the tree item's children, in tree terms.
+        <ul role="group" id={group}>
           <Branch threadId={props.threadId} nodes={node.children} depth={props.depth + 1} />
         </ul>
       )}
@@ -243,6 +257,8 @@ function AgentRow(props: {
   depth: number;
   /** Has subagents: whether they show. */
   expanded: boolean | undefined;
+  /** The id of the group of subagents it shows. */
+  owns: string | undefined;
   subagents: number;
 }) {
   const tree = use(Tree);
@@ -255,7 +271,6 @@ function AgentRow(props: {
     status?.state === "working" && status.itemId ? status.itemId : "",
   );
   const now = useNow();
-  const stop = useIntentSender();
   if (!agent || !status) return null;
   const root = agent.origin === "root";
   const name = agentName(agent);
@@ -298,7 +313,6 @@ function AgentRow(props: {
   const open = () => {
     if (!root) workspace.open({ kind: "agent", id: agent.id, title: name });
   };
-  const stopName = stopLabel(name, props.subagents);
   return (
     <div className="group/agent flex items-center gap-1 rounded-lg hover:bg-accent">
       {/* The row is the tree item: Enter or a click opens the agent as its own tab. */}
@@ -307,6 +321,7 @@ function AgentRow(props: {
         data-agent={agent.id}
         aria-level={props.depth + 1}
         aria-expanded={props.expanded}
+        aria-owns={props.owns}
         aria-label={`${root ? "Main agent" : name}: ${label}`}
         aria-description={root ? undefined : `Opens ${name}`}
         tabIndex={tree.active === agent.id ? 0 : -1}
@@ -321,13 +336,11 @@ function AgentRow(props: {
         {body}
       </div>
       {running && !root && thread && (
-        <Button
-          size="sm"
-          variant="ghost"
-          data-stop
-          tabIndex={-1}
-          aria-label={stopName}
-          title={stopName}
+        <StopAgent
+          threadId={props.threadId}
+          agent={agent}
+          subagents={props.subagents}
+          inTree
           className="mr-1 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex"
           onKeyDown={(event) => {
             // Back to the row it belongs to.
@@ -338,17 +351,7 @@ function AgentRow(props: {
                 ?.focus();
             }
           }}
-          onClick={() =>
-            void stop.send({
-              type: "thread.interrupt",
-              threadId: thread.id,
-              agentId: agent.id,
-              cascade: true,
-            })
-          }
-        >
-          Stop
-        </Button>
+        />
       )}
     </div>
   );

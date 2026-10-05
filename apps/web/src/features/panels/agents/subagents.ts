@@ -22,3 +22,16 @@ export const stopLabel = (name: string, subagents: number) =>
   subagents
     ? `Stop ${name} and its ${subagents} ${subagents === 1 ? "subagent" : "subagents"}`
     : `Stop ${name}`;
+
+/** Every agent's subagent count in one pass, children before parents. */
+export function subagentCounts(nodes: readonly AgentTreeNode[]): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  const visit = (node: AgentTreeNode): number => {
+    let total = 0;
+    for (const child of node.children) total += 1 + visit(child);
+    counts.set(node.id, total);
+    return total;
+  };
+  for (const node of nodes) visit(node);
+  return counts;
+}

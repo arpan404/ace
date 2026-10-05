@@ -172,3 +172,22 @@ test("with the side panel open at its default width, Run, Open and Commit stay a
   const box = await title.boundingBox();
   expect(box && Math.round(box.width)).toBeGreaterThanOrEqual(Math.min(160, room.whole));
 });
+
+test("at the default 520px panel, address suggestions show their detail beside the address", async ({
+  page,
+}) => {
+  await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await sidePanel(page).getByRole("button", { name: "New tab" }).click();
+  await sidePanel(page)
+    .getByRole("combobox", { name: /Address/ })
+    .click();
+  await page.keyboard.type("local");
+  const suggestion = sidePanel(page)
+    .getByRole("listbox", { name: "Suggested addresses" })
+    .getByRole("option")
+    .first();
+  await expect(suggestion).toContainText("localhost:5173");
+  // The detail truncates if it must, but shows.
+  await expect(suggestion.getByText(/thread's browser|Dev server/)).toBeVisible();
+});

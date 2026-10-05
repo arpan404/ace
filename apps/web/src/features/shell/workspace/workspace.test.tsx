@@ -261,7 +261,9 @@ test("the new tab's tools are one Tab stop that arrow keys move through by row a
     .getAllByRole("button")
     .filter((button) => !(button.getAttribute("aria-label") ?? "").endsWith("options"));
   expect(cards.filter((card) => card.tabIndex === 0)).toHaveLength(1);
-  cards[0]!.focus();
+  const [first] = cards;
+  if (!first) throw new Error("No tools listed");
+  first.focus();
   // Two columns: down moves two tools on, right one.
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(cards[2]);
@@ -271,5 +273,5 @@ test("the new tab's tools are one Tab stop that arrow keys move through by row a
   expect(document.activeElement?.textContent).toMatch(/^Deck/);
   expect(cards.filter((card) => card.tabIndex === 0)).toEqual([document.activeElement]);
   await userEvent.keyboard("{Home}");
-  expect(document.activeElement).toBe(cards[0]);
+  expect(document.activeElement).toBe(first);
 });
