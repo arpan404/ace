@@ -76,6 +76,12 @@ export const ScreenFrameHeader = z.union([ScreenLegacyFrameHeader, ScreenV2Frame
 export type ScreenFrameHeader = z.infer<typeof ScreenFrameHeader>;
 export type ScreenLegacyFrameHeader = z.infer<typeof ScreenLegacyFrameHeader>;
 export const ScreenMode = z.enum(["background", "foreground"]);
+export const ScreenOpenedApp = z.object({
+  bundleId: ScreenBundle,
+  pid: z.number().int().positive(),
+  mode: z.literal("background"),
+});
+export type ScreenOpenedApp = z.infer<typeof ScreenOpenedApp>;
 export const ScreenGrantScope = z.enum(["turn", "thread", "always"]);
 export const ScreenGrant = z.object({
   bundleId: ScreenBundle,

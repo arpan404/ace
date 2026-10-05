@@ -1660,6 +1660,10 @@
       "bytes": 591,
       "sha256": "f24c14306212e723e217d22f08e5014695865d63ae7fac0d8012b776f4519dec"
     },
+    "schema/ScreenOpenedApp.json": {
+      "bytes": 498,
+      "sha256": "f6bc45f3e07014d9777f054825b014de9df2b52244abcc291034b3accbc0deb3"
+    },
     "schema/ScreenOperation.json": {
       "bytes": 10827,
       "sha256": "95cbe5927bece874f1597e0447de279ec43bf6e031d8e3320a0ed62147bfcdc6"
@@ -2445,10 +2449,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 489012,
-      "sha256": "f82f42d5c1e69f48f2d4f0574f968d25efd19b03b8d164ccd8aebf5e869416b8"
+      "bytes": 490935,
+      "sha256": "875f3a1e942ecef95c73ecdc5924d799eff3797a38dbeda3568b8c229fefbd32"
     }
   },
-  "input": "4df5837e21f57716722fddb91a95e1cb483ff309046377b9d89bd389661e2aae",
+  "input": "97b497e715f925d66677e2be15525a32af442f46df02626c2010cb054d256fea",
   "version": 1
 }
