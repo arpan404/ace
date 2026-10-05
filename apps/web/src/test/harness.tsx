@@ -12,6 +12,7 @@ import { fakeMachinePool } from "@/boot/fake-machines.ts";
 type ClientStorage = ReturnType<typeof memoryStorage>;
 import { DaemonConnectionContext } from "@/boot/connection.tsx";
 import { fakeConnection } from "@/boot/fake.ts";
+import { preloadProjectDialogs } from "@/features/projects/index.ts";
 import { preloadDeferred } from "@/features/thread/index.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
 
@@ -108,7 +109,7 @@ export function harness(
     play: (scenario: Scenario) => new ScenarioPlayer(daemon, scenario),
     async open(path: string) {
       // The browser warms these while idle after first paint; tests start with them warm.
-      await Promise.all([client.start(), preloadDeferred()]);
+      await Promise.all([client.start(), preloadDeferred(), preloadProjectDialogs()]);
       const machines = others.length
         ? await fakeMachinePool(others, (other) => fakeClient(other))
         : undefined;
