@@ -3,7 +3,7 @@ import { MachineDirectory, type MachineSecretStore } from "@ace/client/machines"
 import type { PortLike } from "@ace/client-worker";
 import { MachinePool } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
-import type { WorkerTarget } from "./worker-target.ts";
+import type { MachineTarget } from "./worker-target.ts";
 
 /*
  * The browser's and desktop renderer's machine pool (ADR 0059): the directory of the person's
@@ -15,7 +15,7 @@ import type { WorkerTarget } from "./worker-target.ts";
 export const directoryKey = "ace.machines";
 const tokenKey = (key: string) => `ace.machines.token.${key}`;
 
-/** A dedicated worker running `client-worker.ts`, as the pool needs it. */
+/** A dedicated worker running `machine-worker.ts`, as the pool needs it. */
 export interface SpawnedWorker {
   port: PortLike;
   terminate(): void;
@@ -60,7 +60,7 @@ const timers = {
 /** One dedicated client worker per machine; never shared between machines. */
 function dedicatedWorker(name: string): SpawnedWorker {
   // Vite bundles the worker from this literal constructor call.
-  const worker = new Worker(new URL("./client-worker.ts", import.meta.url), {
+  const worker = new Worker(new URL("./machine-worker.ts", import.meta.url), {
     type: "module",
     name,
   });
@@ -99,7 +99,7 @@ export function browserMachinePool(options: {
       if (entry.target.kind !== "direct")
         throw new ClientError("offline", "Relay machines aren't supported in this window yet");
       const worker = spawnWorker(`ace-machine-${entry.hostId}`);
-      const config: WorkerTarget = {
+      const config: MachineTarget = {
         url: socketUrl(entry.target.url),
         token,
         deviceId: entry.deviceId,

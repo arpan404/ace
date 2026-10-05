@@ -16,14 +16,13 @@ const host = new ClientHost({
     const target = WorkerTarget.parse(config);
     return {
       // Tabs reaching the same daemon as the same device share one client and one socket.
-      key: `${outboxKey(target)}\u0000${target.token}\u0000${target.hostId ?? ""}`,
+      key: `${outboxKey(target)}\u0000${target.token}`,
       create: () =>
         createBrowserClient({
           deviceId: target.deviceId,
           transport: () => webSocketTransport(() => new WebSocket(target.url)),
           credential: async () => target.token,
           storage: workerOutbox(target),
-          hostId: target.hostId,
         }),
     };
   },

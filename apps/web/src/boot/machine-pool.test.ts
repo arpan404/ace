@@ -4,9 +4,10 @@ import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { HostId } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { memoryKeyValue } from "@/test/harness.tsx";
-import { createBrowserClient, memoryStorage } from "./client.ts";
+import { Client } from "@ace/client";
+import { browserClientOptions, memoryStorage } from "./client.ts";
 import { browserMachinePool, directoryKey, type SpawnedWorker } from "./machine-pool.ts";
-import { WorkerTarget } from "./worker-target.ts";
+import { MachineTarget } from "./worker-target.ts";
 
 const token = "a".repeat(64);
 const timers = {
@@ -22,7 +23,7 @@ afterEach(async () => {
 
 /**
  * Daemons reachable at `ws://<name>.local:4242/`, and dedicated workers that run the client the
- * way `client-worker.ts` does: from the target the pool hands them, nothing else.
+ * way `machine-worker.ts` does: from the target the pool hands them, nothing else.
  */
 function network(...daemons: FakeDaemon[]) {
   const spawned: string[] = [];
@@ -30,7 +31,7 @@ function network(...daemons: FakeDaemon[]) {
     spawned.push(name);
     const host = new ClientHost({
       target(config) {
-        const target = WorkerTarget.parse(config);
+        const target = MachineTarget.parse(config);
         const daemon = daemons.find(
           (each) => target.url === `ws://${each.displayName}.local:4242/`,
         );
@@ -38,12 +39,14 @@ function network(...daemons: FakeDaemon[]) {
         return {
           key: target.url,
           create: () =>
-            createBrowserClient({
-              deviceId: target.deviceId,
-              transport: () => fakeTransport(daemon),
-              credential: async () => target.token,
-              storage: memoryStorage(),
-              hostId: target.hostId,
+            new Client({
+              ...browserClientOptions({
+                deviceId: target.deviceId,
+                transport: () => fakeTransport(daemon),
+                credential: async () => target.token,
+                storage: memoryStorage(),
+              }),
+              expectedHostId: HostId.parse(target.hostId),
             }),
         };
       },

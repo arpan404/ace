@@ -6,10 +6,15 @@ export const WorkerTarget = z.extend(DaemonTarget, {
   deviceId: z.string().check(z.minLength(1)),
   /** The outbox an older build kept in localStorage, to carry over once. */
   seed: z.nullable(z.string()),
-  /** A machine-pool entry's host: the client refuses a daemon that answers as another. */
-  hostId: z.optional(z.string().check(z.minLength(1))),
 });
 export type WorkerTarget = z.infer<typeof WorkerTarget>;
+
+/**
+ * What a machine-pool worker (`machine-worker.ts`) is handed: one machine's address, token and
+ * host id. Its client refuses a daemon that answers as another host.
+ */
+export const MachineTarget = z.extend(WorkerTarget, { hostId: z.string().check(z.minLength(1)) });
+export type MachineTarget = z.infer<typeof MachineTarget>;
 
 /** One client per daemon and device; the token is not part of it. */
 export const outboxKey = (target: { url: string; deviceId: string }) =>
