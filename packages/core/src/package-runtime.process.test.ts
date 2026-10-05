@@ -1,5 +1,14 @@
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import {
+  access,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +18,22 @@ import { z } from "zod";
 import { expect, test } from "vitest";
 const manifest = z.object({ name: z.string(), dependencies: z.record(z.string(), z.string()) });
 const execute = promisify(execFile);
+/**
+ * Finds a dependency's installed root the way Node's resolver walks node_modules.
+ * Resolving the package's main entry would fail for subpath-only packages.
+ */
+async function packageRoot(name: string, from: string): Promise<string> {
+  for (let directory = from; ; directory = dirname(directory)) {
+    const candidate = join(directory, "node_modules", name);
+    try {
+      await access(join(candidate, "package.json"));
+      return await realpath(candidate);
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+    }
+    if (dirname(directory) === directory) throw new Error(`No package root for ${name}`);
+  }
+}
 /** An isolated consumer cannot accidentally use a dependency from an ancestor checkout. */
 test("an isolated core consumer validates native wait targets and preserves active work", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "ace-core-consumer-"));
@@ -20,24 +45,8 @@ test("an isolated core consumer validates native wait targets and preserves acti
     const text = await readFile(packageJson, "utf8");
     await writeFile(join(target, "package.json"), text);
     const dependencies = manifest.parse(JSON.parse(text)).dependencies;
-    const require = createRequire(import.meta.url);
     for (const name of Object.keys(dependencies)) {
-      let directory = dirname(require.resolve(name));
-      while (true) {
-        const candidate = join(directory, "package.json");
-        try {
-          const parsed = z
-            .object({ name: z.string() })
-            .parse(JSON.parse(await readFile(candidate, "utf8")));
-          if (parsed.name === name) break;
-        } catch (error) {
-          if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT")
-            throw error;
-        }
-        const parent = dirname(directory);
-        if (parent === directory) throw new Error(`No package root for ${name}`);
-        directory = parent;
-      }
+      const directory = await packageRoot(name, dirname(packageJson));
       const link = join(target, "node_modules", name);
       await mkdir(dirname(link), { recursive: true });
       await symlink(directory, link, "dir");

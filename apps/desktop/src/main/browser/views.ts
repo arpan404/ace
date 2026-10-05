@@ -215,7 +215,8 @@ export class EmbeddedViews implements ViewHost {
           details.webContentsId === undefined
             ? undefined
             : this.byContents.get(details.webContentsId);
-        return callback({ cancel: !owner?.allowsSocket(details.url) });
+        if (!owner) return callback({ cancel: true });
+        return owner.checkSocket(details.url, (allowed) => callback({ cancel: !allowed }));
       }
       callback({ cancel: true });
     });
@@ -277,7 +278,6 @@ class EmbeddedPage implements ViewPage {
       // Flattened child sessions are not part of the relay; the daemon uses
       // Target.sendMessageToTarget, whose replies arrive on the root session.
       if (sessionId) return;
-      this.gate.event(method, params);
       if (method === "Page.javascriptDialogOpening")
         void this.send("Page.handleJavaScriptDialog", { accept: false }).catch(() => {});
       this.emit(method, params);
@@ -304,8 +304,8 @@ class EmbeddedPage implements ViewPage {
     for (const listener of this.listeners) listener(method, params);
   }
 
-  allowsSocket(url: string): boolean {
-    return this.gate.allows(url);
+  checkSocket(url: string, reply: (allowed: boolean) => void): void {
+    this.gate.request(url, (method, params) => this.emit(method, params), reply);
   }
 
   /** Bounds are in the window's DIPs; a hidden view keeps its last box. */
@@ -325,6 +325,10 @@ class EmbeddedPage implements ViewPage {
   }
 
   async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    if (method === "ace.webSocketDecision") {
+      this.gate.command(method, params);
+      return {};
+    }
     if (method === "Page.startScreencast") this.screencasting = true;
     else if (method === "Page.stopScreencast") this.screencasting = false;
     this.driven();
@@ -443,6 +447,7 @@ class EmbeddedPage implements ViewPage {
 
   private async destroy(): Promise<void> {
     this.options.forget();
+    this.gate.close();
     this.listeners.clear();
     this.blocked.clear();
     clearTimeout(this.throttleTimer);

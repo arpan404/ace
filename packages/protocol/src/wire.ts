@@ -17,7 +17,12 @@ import {
   ThreadReadStateRequest,
   ThreadReadStateResponse,
 } from "./long-thread.ts";
-import { MachinesRequest, MachinesResult } from "./machines.ts";
+import {
+  HostIdentityRequest,
+  HostIdentityResult,
+  MachinesRequest,
+  MachinesResult,
+} from "./machines.ts";
 import { PreviewRequest, PreviewResult } from "./preview-client.ts";
 import { ConductorRequest, ConductorResult, ConductorChanged } from "./conductor-client.ts";
 import { AutomationRequest, AutomationResponse } from "./automations.ts";
@@ -128,6 +133,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ThreadSearchRequest,
   ThreadCatchUpRequest,
   ThreadReadStateRequest,
+  HostIdentityRequest,
   MachinesRequest,
   ProvidersRequest,
   PreviewRequest,
@@ -184,6 +190,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ThreadSearchResponse,
   ThreadCatchUpResponse,
   ThreadReadStateResponse,
+  HostIdentityResult,
   MachinesResult,
   ProvidersResult,
   PreviewResult,

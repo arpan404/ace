@@ -34,6 +34,13 @@
           "minLength": 1,
           "type": "string"
         },
+        "browser.allowedOrigins": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/BrowserOrigin.json"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
         "browser.backend": {
           "enum": [
             "auto",
@@ -73,6 +80,10 @@
             "required",
             "optional"
           ],
+          "type": "string"
+        },
+        "host.displayName": {
+          "maxLength": 256,
           "type": "string"
         },
         "logs.retention": {

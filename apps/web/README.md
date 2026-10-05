@@ -375,6 +375,8 @@ Read ADR 0056. In short:
 - `bun run check:perf` runs the budgets; `bunx vite --mode perf` serves the app against an endless agent (`?rate=` events per second, `?history=` items of older history). `bun run --filter @ace/web-perf memory` measures heaps and DOM size; `MEMORY_MINUTES=60` for a long run.
 - Code on the first paint parses with `zod/mini`; classic Zod belongs to routes that parse protocol replies. Something only some screens show loads lazily: a whole surface through a route or `lazy()`, a piece of a screen through `deferredComponent` (`lib/deferred-component.tsx`), warmed with `whenIdle` (`lib/idle.ts`).
 - Icons draw only the weights in `icon-weights.ts` (regular, fill, duotone, bold); the build drops the others from every icon.
+- Everything the first paint loads is one chunk (`initialChunk` in `initial-preloads.ts`); lazy chunks import what they share with the shell from it.
+- Browser builds leave out the classic Zod methods listed in `zod-methods.ts` (string formats other than `url`, `uuid` and `date`, codecs, a few wrappers); calling one throws. Take a name off the list to use it.
 - `cn` uses tables compiled ahead of time; after upgrading `cn` or changing `lib/cn-extension.ts`, run `bun run --filter @ace/web cn:tables`.
 - A view over the whole thread list uses `useSidebarAll` (one key), never one key per thread. A virtualizer whose keys change over time calls `useForgetGoneRows`.
 - Timers that drive the UI pause while the page is hidden: use the shared clocks in `lib/time.ts` and `lib/page-visibility.ts` rather than your own `setInterval`.

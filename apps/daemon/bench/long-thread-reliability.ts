@@ -1,3 +1,4 @@
+import { writeSync } from "node:fs";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { statSync } from "node:fs";
@@ -5,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate, setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
+import { WebSocket } from "ws";
 import { Store, Engine, AdapterRegistry } from "../src/index.ts";
 import { startServer } from "../src/server.ts";
 import { publishHistory } from "../src/history-publisher.ts";
@@ -355,6 +357,10 @@ try {
     errors: errors.length,
   };
   subscription.release();
+} catch (error) {
+  // Publish failure before cleanup so a later subprocess deadline cannot hide it.
+  writeSync(2, JSON.stringify({ type: "acceptance.failed", error: String(error) }) + "\n");
+  throw error;
 } finally {
   await client.close();
   await server.close();

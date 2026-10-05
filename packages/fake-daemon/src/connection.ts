@@ -16,6 +16,8 @@ import type { FakeWireSession } from "./services-wire.ts";
 /** What a connection needs from the host. FakeDaemon implements it. */
 export interface Host {
   readonly hostId: HostId;
+  readonly displayName?: string;
+  readonly version?: string;
   readonly head: number;
   readonly duplicateEvents: boolean;
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean;
@@ -126,6 +128,18 @@ export class Connection {
   }
   private handle(message: ClientMessage): void {
     switch (message.type) {
+      case "host.identity": {
+        this.send({
+          type: "host.identity.result",
+          requestId: message.requestId,
+          identity: {
+            hostId: this.host.hostId,
+            displayName: this.host.displayName ?? "Fake machine",
+            version: this.host.version ?? "fake",
+          },
+        });
+        return;
+      }
       case "ping":
         this.send({ type: "pong" });
         return;
