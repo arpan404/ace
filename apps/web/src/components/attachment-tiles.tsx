@@ -8,10 +8,11 @@ import {
   FileVideoIcon,
   FileZipIcon,
 } from "@phosphor-icons/react";
-import { useState, type CSSProperties } from "react";
+import { Suspense, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ImageUrl, type ImageState } from "./attachment-bytes.tsx";
 import { UnavailableTile } from "./attachment-unavailable.tsx";
@@ -26,12 +27,40 @@ import {
 
 /*
  * A message's attachments: image thumbnails (one up to 320×240, two to four in a 2-column grid of
- * 160×120, more as three and a "+N" tile) and file chips with the name and size.
+ * 160×120, more as three and a "+N" tile) and file chips with the name and size. Clicking a
+ * thumbnail opens the lightbox, whose code loads only then.
  */
+
+const Lightbox = deferredComponent(() =>
+  import("./attachment-lightbox.tsx").then((module) => module.Lightbox),
+);
+
+/** The lightbox over `images`: `show` opens it at an image, `lightbox` is the element to render. */
+export function useLightbox(images: readonly ShownImage[]) {
+  const [open, setOpen] = useState<number>();
+  const opener = useRef<HTMLElement | null>(null);
+  const show = (index: number, element: HTMLElement) => {
+    opener.current = element;
+    setOpen(index);
+  };
+  const lightbox = open !== undefined && (
+    <Suspense fallback={null}>
+      <Lightbox.Component
+        images={images}
+        index={open}
+        onIndex={setOpen}
+        onClose={() => setOpen(undefined)}
+        finalFocus={opener}
+      />
+    </Suspense>
+  );
+  return { show, lightbox };
+}
 
 export function AttachmentTiles(props: Shown & { className?: string | undefined }) {
   const { images, files } = props;
   const { shown, more } = visibleImages(images.length);
+  const { show, lightbox } = useLightbox(images);
   return (
     <div className={cn("flex flex-col items-end gap-1.5", props.className)}>
       {images.length > 0 && (
@@ -39,25 +68,27 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
           aria-label={images.length === 1 ? "Image" : `${images.length} images`}
           className={cn("grid w-fit gap-1.5", images.length > 1 && "grid-cols-2")}
         >
-          {images.slice(0, shown).map((image) => (
+          {images.slice(0, shown).map((image, index) => (
             <li key={image.key}>
               <ImageTile
                 image={image}
                 size={tileSize(image, images.length)}
                 fit={images.length === 1 && !image.width ? "contain" : "cover"}
+                onOpen={(element) => show(index, element)}
               />
             </li>
           ))}
           {more > 0 && (
             <li>
-              <span
-                role="img"
-                aria-label={`${more} more images`}
+              <button
+                type="button"
+                aria-label={`Show ${more} more images`}
+                onClick={(event) => show(shown, event.currentTarget)}
                 style={{ width: 160, height: 120 }}
-                className="grid place-items-center rounded-[10px] bg-secondary text-lg font-medium text-muted-foreground"
+                className="grid place-items-center rounded-[10px] bg-secondary text-lg font-medium text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
               >
                 <span aria-hidden>+{more}</span>
-              </span>
+              </button>
             </li>
           )}
         </ul>
@@ -71,6 +102,7 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
           ))}
         </ul>
       )}
+      {lightbox}
     </div>
   );
 }
@@ -87,6 +119,7 @@ interface TileProps {
   size: { width: number; height: number };
   /** `contain` letterboxes an image whose shape isn't known instead of cropping it. */
   fit?: "cover" | "contain" | undefined;
+  onOpen(element: HTMLElement): void;
 }
 
 function Tile(props: TileProps & { url: ImageState }) {
@@ -98,7 +131,12 @@ function Tile(props: TileProps & { url: ImageState }) {
     return <UnavailableTile name={props.image.name} style={style} />;
   const ready = image.state === "ready" && painted === image.url;
   return (
-    <span style={style} className="relative block overflow-hidden rounded-[10px] bg-secondary">
+    <button
+      type="button"
+      onClick={(event) => props.onOpen(event.currentTarget)}
+      style={style}
+      className="relative block overflow-hidden rounded-[10px] bg-secondary"
+    >
       {!ready && <Skeleton className="absolute inset-0 h-auto rounded-[10px]" />}
       {image.state === "ready" && (
         <img
@@ -116,7 +154,7 @@ function Tile(props: TileProps & { url: ImageState }) {
           )}
         />
       )}
-    </span>
+    </button>
   );
 }
 

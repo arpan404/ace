@@ -1,13 +1,14 @@
 import { facts, fixtureImage, type FakeDaemon } from "@ace/fake-daemon";
 import type { Attachment, ContentPart } from "@ace/protocol";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 /*
- * Attachments in the transcript (AT-1): thumbnails from the daemon's attachment bytes and file
- * chips by name and size. jsdom has no object URLs, so they are stubbed at that boundary and
- * remember the blob each one stands for.
+ * Attachments in the transcript (AT-1, AT-2): thumbnails from the daemon's attachment bytes,
+ * file chips by name and size, and the lightbox. jsdom has no object URLs, so they are stubbed
+ * at that boundary and remember the blob each one stands for.
  */
 
 const objectUrls = new Map<string, Blob>();
@@ -116,11 +117,40 @@ test("files show their name, size and type, never the path they were stored at",
   expect(feed.textContent).not.toContain("/Users/");
 });
 
-test("more than four images show three and a +N tile", async () => {
+test("more than four images show three and a +N tile that opens the rest", async () => {
+  const user = userEvent.setup();
   const { feed } = await openMessage({
     parts: Array.from({ length: 5 }, () => ({ type: "image", mimeType: "image/png", url: dot })),
   });
   const grid = await within(feed).findByRole("list", { name: "5 images" });
-  expect(within(grid).getAllByRole("img", { name: "Attached image" })).toHaveLength(3);
-  expect(within(grid).getByRole("img", { name: "2 more images" })).toBeTruthy();
+  expect(within(grid).getAllByRole("img")).toHaveLength(3);
+  await user.click(within(grid).getByRole("button", { name: "Show 2 more images" }));
+  const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText("4 of 5")).toBeTruthy();
+});
+
+test("the lightbox steps through the message's images and gives focus back on Escape", async () => {
+  const user = userEvent.setup();
+  const { feed } = await openMessage({
+    attachments: [home],
+    parts: [{ type: "image", mimeType: "image/png", url: dot }],
+  });
+  const thumbnail = await within(feed).findByRole("button", { name: "home.png" });
+  await user.click(thumbnail);
+  const dialog = await screen.findByRole("dialog", { name: "home.png" });
+  expect(within(dialog).getByText("479 B · 1 of 2")).toBeTruthy();
+  const download = await within(dialog).findByRole("link", { name: "Download" });
+  expect(download.getAttribute("download")).toBe("home.png");
+  expect(objectUrls.get(download.getAttribute("href") ?? "")?.size).toBe(fixtureBytes);
+  expect(within(dialog).getByRole("button", { name: "Copy image" })).toBeTruthy();
+
+  await user.keyboard("{ArrowRight}");
+  expect(await screen.findByRole("dialog", { name: "Attached image" })).toBeTruthy();
+  expect(screen.getByText("2 of 2")).toBeTruthy();
+  await user.keyboard("{ArrowRight}");
+  expect(await screen.findByRole("dialog", { name: "home.png" })).toBeTruthy();
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(thumbnail);
 });
