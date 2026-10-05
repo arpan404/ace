@@ -1,68 +1,70 @@
-import { workbenchServices } from "@ace/fake-daemon";
+import { deckRuns, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-const planGate = "Deck plan needs your approval";
+const mergeGate = "Merge needs your approval: Server-side replay cursor";
+const escalation = "Escalated: Defer the first relay sync";
 const decks = () => screen.getByRole("navigation", { name: "Decks" });
 const section = (name: string) => within(decks()).getByRole("region", { name });
 const card = (name: RegExp) => screen.getByRole("button", { name });
 
 /** The design's daemon: four decks on the conductor, served over the wire. */
-async function open(path: string) {
+async function open(path: string, extra: Parameters<typeof deckRuns>[1] = []) {
   const app = harness();
-  app.daemon.seedServices(workbenchServices(Date.now()));
+  const now = Date.now();
+  app.daemon.seedServices({ ...workbenchServices(now), decks: deckRuns(now, extra) });
   await app.open(path);
   return app;
 }
 
-test("Deck opens on a gated deck and approving its plan deals the split card", async () => {
+test("Deck opens on the deck waiting on a decision; approving a card's merge deals what waited on it", async () => {
   await open("/deck");
 
-  const gate = await screen.findByRole("region", { name: planGate });
+  const gate = await screen.findByRole("region", { name: mergeGate });
   expect(screen.getByRole("heading", { level: 1, name: "Resumable relay streams" })).toBeTruthy();
-  expect(within(section("Gated")).getByText("Resumable relay streams")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /Simulator replay test/ })).toBeNull();
+  expect(within(section("Needs you")).getByText("Resumable relay streams")).toBeTruthy();
+  expect(within(gate).getByText(/passed review at 9f2c41a/)).toBeTruthy();
 
-  await userEvent.click(within(gate).getByRole("button", { name: "Approve plan" }));
+  await userEvent.click(within(gate).getByRole("button", { name: /^Approve merge/ }));
 
-  await waitFor(() => expect(screen.queryByRole("region", { name: planGate })).toBeNull());
-  expect(card(/Simulator replay test/).textContent).toContain("Planned");
-  expect(card(/Mobile cold-start replay/).textContent).toContain("Fixing, round 3");
+  await waitFor(() => expect(screen.queryByRole("region", { name: mergeGate })).toBeNull());
+  expect(card(/Server-side replay cursor/).textContent).toContain("Merged");
+  expect(card(/Migration note and docs/).textContent).toContain("Working");
   expect(within(section("Active")).getByText("Resumable relay streams")).toBeTruthy();
 });
 
-test("a plan gate's Review plan shows the plan, and Reject asks before it sends", async () => {
+test("declining a card's merge asks first, says what it does, and the deck carries on without it", async () => {
   await open("/deck/relay-streams");
-  const gate = await screen.findByRole("region", { name: planGate });
+  const gate = await screen.findByRole("region", { name: mergeGate });
 
-  await userEvent.click(within(gate).getByRole("button", { name: "Review plan" }));
-  const review = await screen.findByRole("dialog", { name: "The deck's plan" });
-  const cards = within(within(review).getByRole("list", { name: "Cards in this plan" }));
-  const titles = cards.getAllByRole("listitem").map((item) => item.firstChild?.textContent);
-  expect(titles).toContain("Client ack and buffer flush");
-  await userEvent.click(within(review).getByRole("button", { name: "Close" }));
+  await userEvent.click(within(gate).getByRole("button", { name: "Decline card…" }));
+  const confirm = await screen.findByRole("dialog", { name: "Decline Server-side replay cursor?" });
+  expect(confirm.textContent).toContain("The rest of the deck carries on.");
+  await userEvent.click(within(confirm).getByRole("button", { name: "Decline card" }));
 
-  await userEvent.click(within(gate).getByRole("button", { name: "More decisions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Reject…" }));
-  const confirm = await screen.findByRole("dialog", { name: "Reject this plan?" });
-  await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
-  // Nothing was sent: the gate stays open.
-  expect(screen.queryByText("Rejected · the deck keeps its current course")).toBeNull();
-  expect(screen.getByRole("region", { name: planGate })).toBeTruthy();
+  expect(
+    await screen.findByText("Declined Server-side replay cursor · the deck carries on"),
+  ).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("region", { name: mergeGate })).toBeNull());
+  expect(card(/Server-side replay cursor/).textContent).toContain("Declined");
+  // The card that needed it won't start, while the deck keeps dealing the rest.
+  expect(card(/Migration note and docs/).textContent).toContain("Won't start");
+  expect(card(/Client ack and buffer flush/).textContent).toContain("Fixing");
+  expect(screen.getByRole("button", { name: "Pause deck" })).toBeTruthy();
 });
 
 test("the plan ends in the merge, which waits for every card", async () => {
   await open("/deck/relay-streams");
-  await screen.findByRole("region", { name: planGate });
-  const merge = screen.getByRole("region", { name: "Merge" });
+  await screen.findByRole("region", { name: mergeGate });
+  const merge = screen.getByRole("row", { name: "Merge" });
   expect(merge.textContent).toMatch(/Needs all \d+/);
 });
 
-test("a card's lane names its accounts from the daemon and lists its review rounds", async () => {
+test("a card's lane names its accounts, and its rounds carry the reviewer's verdicts", async () => {
   await open("/deck/relay-streams");
-  await screen.findByRole("region", { name: planGate });
+  await screen.findByRole("region", { name: mergeGate });
 
   await userEvent.click(card(/Client ack and buffer flush/));
 
@@ -73,44 +75,133 @@ test("a card's lane names its accounts from the daemon and lists its review roun
     agents.getByRole("listitem", { name: "Reviewer, round 2: Claude Code · Work" }),
   ).toBeTruthy();
   const rounds = within(within(lane).getByRole("list", { name: "Review rounds" }));
-  expect(rounds.getAllByRole("listitem").map((round) => round.textContent)).toEqual([
-    "Round 1Changes required",
-    "Round 2Fixing",
-  ]);
+  const [first, second] = rounds.getAllByRole("listitem");
+  expect(first?.textContent).toContain("Changes required");
+  expect(first?.textContent).toContain("Buffer is cleared before the resume.ack arrives");
+  expect(second?.textContent).toContain("Fixing");
   expect(card(/Client ack and buffer flush/).ariaPressed).toBe("true");
 });
 
-test("each of a card's delegated agents opens its own thread", async () => {
-  const app = harness();
-  app.daemon.createThread({
-    id: "thread-dedupe",
-    workspaceId: "ace",
-    title: "Client ack",
-    provider: "codex",
-  });
-  app.daemon.seedServices(workbenchServices(Date.now()));
-  await app.open("/deck/relay-streams?card=client-ack");
-
-  const lane = await screen.findByRole("region", { name: "Lane: Client ack and buffer flush" });
-  const reviewer = await within(lane).findByRole("listitem", { name: /^Reviewer/ });
-  await userEvent.click(within(reviewer).getByRole("link", { name: /Open the reviewer/ }));
-
+test("arrow keys move between cards, Enter selects, and j and k step through the plan", async () => {
+  await open("/deck/relay-streams");
+  await screen.findByRole("region", { name: mergeGate });
+  const first = card(/Sequence numbers on every event/);
+  // One card in the plan is a tab stop; the rest are reached with the arrows.
   expect(
-    await screen.findByRole("heading", { level: 1, name: "Deck reviewer: client-ack" }),
-  ).toBeTruthy();
+    screen.getByRole("grid", { name: "Plan" }).querySelectorAll('[tabindex="0"]'),
+  ).toHaveLength(1);
+
+  first.focus();
+  await userEvent.keyboard("{ArrowRight}");
+  expect(document.activeElement?.textContent).toMatch(/Server-side replay cursor/);
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement?.textContent).toMatch(/Client ack and buffer flush/);
+  await userEvent.keyboard("{Enter}");
+  expect(card(/Client ack and buffer flush/).ariaPressed).toBe("true");
+  await userEvent.keyboard("{Escape}");
+  expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Cards" }));
+
+  await userEvent.keyboard("j");
+  await waitFor(() => expect(card(/Mobile cold-start replay/).ariaPressed).toBe("true"));
+  await userEvent.keyboard("k");
+  await waitFor(() => expect(card(/Client ack and buffer flush/).ariaPressed).toBe("true"));
 });
 
-test("approving an escalation lets its card carry on and clears the deck's gate", async () => {
+test("an escalation's Retry card starts a new round for it and clears the deck's gate", async () => {
   await open("/deck/mobile-cold-start");
 
-  const gate = await screen.findByRole("region", { name: "Escalated: Defer the first relay sync" });
+  const gate = await screen.findByRole("region", { name: escalation });
   expect(within(gate).getByText(/leaves the inbox empty/)).toBeTruthy();
   expect(card(/Defer the first relay sync/).textContent).toContain("Waiting for you");
 
-  await userEvent.click(within(gate).getByRole("button", { name: "Approve" }));
+  await userEvent.click(within(gate).getByRole("button", { name: /^Retry card/ }));
 
   await waitFor(() => expect(card(/Defer the first relay sync/).textContent).toContain("Fixing"));
-  expect(screen.queryByRole("region", { name: /^Escalated/ })).toBeNull();
+  expect(
+    await screen.findByText("Retrying Defer the first relay sync: a new round starts"),
+  ).toBeTruthy();
+  expect(screen.queryByRole("region", { name: escalation })).toBeNull();
+});
+
+test("a used-up budget is raised from the gate, which sends a budget above the deck's", async () => {
+  await open("/deck/settings-sync", ["budget"]);
+  const gate = await screen.findByRole("region", { name: "The deck used its budget" });
+  expect(
+    within(gate).getByText("50 of 50 lane starts used. Raise the budget to keep going."),
+  ).toBeTruthy();
+  expect(screen.getByText("50 of 50 lane starts")).toBeTruthy();
+
+  const field = within(gate).getByRole("spinbutton", { name: "New budget" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "40");
+  expect(
+    within(gate).getByRole("button", { name: "Raise the budget" }).hasAttribute("disabled"),
+  ).toBe(true);
+  await userEvent.clear(field);
+  await userEvent.type(field, "80");
+  await userEvent.click(within(gate).getByRole("button", { name: "Raise to 80" }));
+
+  expect(await screen.findByText("Budget raised to 80")).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "The deck used its budget" })).toBeNull(),
+  );
+  // The daemon took the raised budget: the deck now reads against it.
+  expect(await screen.findByText("50 of 80 lane starts")).toBeTruthy();
+});
+
+test("rejecting a budget is stopping the deck, and says so before it does", async () => {
+  await open("/deck/settings-sync", ["budget"]);
+  const gate = await screen.findByRole("region", { name: "The deck used its budget" });
+
+  await userEvent.click(within(gate).getByRole("button", { name: "More decisions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Stop the deck…" }));
+  const confirm = await screen.findByRole("dialog", { name: "Reject and cancel this deck?" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Cancel deck" }));
+
+  expect(await screen.findByText("This deck was cancelled.")).toBeTruthy();
+});
+
+test("an unresponsive lane's escalation says what happened in words, with the daemon's line on request", async () => {
+  await open("/deck/export-threads", ["unresponsive"]);
+  const gate = await screen.findByRole("region", { name: "Escalated: Markdown writer" });
+
+  expect(within(gate).getByText("Markdown writer's worker stopped responding.")).toBeTruthy();
+  await userEvent.click(within(gate).getByText("Details"));
+  expect(within(gate).getByText("Lane export-writer.worker is unresponsive")).toBeTruthy();
+});
+
+test("a plan gate's review shows each card's acceptance criteria, and approves from there", async () => {
+  await open("/deck/search-ranking", ["planning"]);
+  const gate = await screen.findByRole("region", { name: "Deck plan needs your approval" });
+
+  await userEvent.click(within(gate).getByRole("button", { name: "Review plan" }));
+  const review = await screen.findByRole("dialog", { name: "The deck's plan" });
+  expect(within(review).getByText(/^3 cards in 2 stages/)).toBeTruthy();
+  const judged = within(review).getByRole("list", { name: "How Recency score is judged" });
+  expect(judged.textContent).toContain("A thread active today ranks above");
+
+  await userEvent.click(within(review).getByRole("button", { name: /^Approve plan/ }));
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Deck plan needs your approval" })).toBeNull(),
+  );
+  expect(card(/Recency score/).textContent).toContain("Working");
+});
+
+test("rejecting a plan drafts another instead of cancelling the deck", async () => {
+  await open("/deck/search-ranking", ["planning"]);
+  const gate = await screen.findByRole("region", { name: "Deck plan needs your approval" });
+
+  await userEvent.click(within(gate).getByRole("button", { name: "More decisions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Draft a new plan…" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Draft a new plan?" })).getByRole("button", {
+      name: "Draft again",
+    }),
+  );
+
+  expect(await screen.findByText("Drafting a new plan")).toBeTruthy();
+  expect(await screen.findByText(/^Revision 2:/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Pause deck" })).toBeTruthy();
 });
 
 test("pausing a deck stops it until it is resumed", async () => {
@@ -123,42 +214,49 @@ test("pausing a deck stops it until it is resumed", async () => {
   expect(await screen.findByRole("button", { name: "Pause deck" })).toBeTruthy();
 });
 
-test("Lanes lists every card of the plan, merged and not yet dealt ones included", async () => {
-  await open("/deck/relay-streams");
-  await screen.findByRole("region", { name: planGate });
-  await userEvent.click(screen.getByRole("button", { name: "Lanes" }));
+test("Lanes groups the cards by what they need and opens a lane in place", async () => {
+  await open("/deck/relay-streams?tab=lanes");
+  const lanes = await screen.findByRole("table", { name: "Lanes" });
 
-  const lanes = screen.getByRole("list", { name: "Lanes" });
-  expect(within(lanes).getAllByRole("button")).toHaveLength(6);
+  const groups = within(lanes)
+    .getAllByRole("rowgroup")
+    .map((group) => group.getAttribute("aria-label"))
+    .filter(Boolean);
+  expect(groups).toEqual(["Needs you", "Working", "Planned", "Merged"]);
   expect(
-    within(lanes).getByRole("button", { name: /^Migration note and docs/ }).textContent,
+    within(within(lanes).getByRole("rowgroup", { name: "Planned" })).getByRole("button", {
+      name: /^Migration note and docs/,
+    }).textContent,
   ).toContain("Not dealt yet");
-  expect(
-    within(lanes).getByRole("button", { name: /Sequence numbers on every event/ }).textContent,
-  ).toContain("Round 1 · Approved");
-  await userEvent.click(within(lanes).getByRole("button", { name: /^Reconnect soak test/ }));
 
+  const soak = within(lanes).getByRole("button", { name: /^Reconnect soak test/ });
+  await userEvent.click(soak);
+  expect(soak.getAttribute("aria-expanded")).toBe("true");
   expect(await screen.findByRole("region", { name: "Lane: Reconnect soak test" })).toBeTruthy();
+  // Still on Lanes: opening a lane doesn't switch to the plan.
+  expect(screen.getByRole("table", { name: "Lanes" })).toBeTruthy();
 });
 
-test("the project filter narrows the deck list", async () => {
+test("the project filter narrows the deck list and is kept for the next visit", async () => {
   await open("/deck/relay-streams");
-  await screen.findByRole("region", { name: planGate });
+  await screen.findByRole("region", { name: mergeGate });
 
   await userEvent.click(screen.getByRole("button", { name: "Project: All projects" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "ace-mobile" }));
 
   await waitFor(() => expect(within(decks()).queryByText("Resumable relay streams")).toBeNull());
   expect(within(decks()).getByText("Mobile cold start under 1s")).toBeTruthy();
+  expect(localStorage.getItem("ace.deck.filter")).toBe("ace-mobile");
+  localStorage.removeItem("ace.deck.filter");
 });
 
-test("a daemon without decks invites the first one", async () => {
+test("a daemon without decks invites the first one, once, in the main pane", async () => {
   await harness().open("/deck");
 
   expect(
     await screen.findByRole("heading", { name: "Deal a goal to a team of agents" }),
   ).toBeTruthy();
-  expect(screen.getByText("No decks yet")).toBeTruthy();
+  expect(screen.queryByText("No decks yet")).toBeNull();
 });
 
 test("when the daemon can't list decks, Deck says so instead of inviting a first deck", async () => {
@@ -168,9 +266,7 @@ test("when the daemon can't list decks, Deck says so instead of inviting a first
   await app.open("/deck");
 
   const main = within(await screen.findByRole("main"));
-  expect(
-    await main.findByText("The daemon didn't answer. This loads again once it does."),
-  ).toBeTruthy();
+  expect(await main.findByText("Couldn't reach the daemon's Deck service.")).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Deal a goal to a team of agents" })).toBeNull();
   expect(screen.getByText("Couldn't load the list.")).toBeTruthy();
 
@@ -179,9 +275,17 @@ test("when the daemon can't list decks, Deck says so instead of inviting a first
   expect(await screen.findByRole("navigation", { name: "Decks" })).toBeTruthy();
 });
 
+test("a deck that isn't on the daemon offers the way back and a new deck", async () => {
+  await open("/deck/gone");
+  const missing = await screen.findByRole("heading", { level: 1, name: "This deck isn't here" });
+  expect(missing).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Back to Deck" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "New deck" })).toBeTruthy();
+});
+
 test("after the daemon connection drops, a deck follows the conductor again", async () => {
   const app = await open("/deck/mobile-cold-start");
-  await screen.findByRole("region", { name: "Escalated: Defer the first relay sync" });
+  await screen.findByRole("region", { name: escalation });
 
   app.daemon.disconnectAll();
   await userEvent.click(await screen.findByRole("button", { name: "Pause deck" }));

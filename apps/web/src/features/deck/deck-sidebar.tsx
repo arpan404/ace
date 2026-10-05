@@ -1,8 +1,16 @@
-import { CardsIcon } from "@phosphor-icons/react";
+import {
+  CardsIcon,
+  CheckCircleIcon,
+  CircleNotchIcon,
+  HandPalmIcon,
+  HourglassIcon,
+  PauseCircleIcon,
+  ProhibitIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Icon } from "@/components/icon.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
+import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -15,22 +23,52 @@ import {
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { deckGroup, deckRunSummary, formatAge, type DeckRun, type DeckGroup } from "@ace/ui-core";
 import { useNow } from "@/lib/time.ts";
-import { useDeckRetry, useDeckRuns } from "./deck-source.ts";
+import { useDeckMore, useDeckRetry, useDeckRuns } from "./deck-source.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
 const groups: readonly { id: DeckGroup; label: string }[] = [
-  { id: "gated", label: "Gated" },
+  { id: "gated", label: "Needs you" },
+  { id: "stopped", label: "Stopped" },
   { id: "active", label: "Active" },
   { id: "finished", label: "Finished" },
 ];
 
+/** The project filter, kept on this device across visits. */
+const filterKey = "ace.deck.filter";
+
+function storedFilter(): string {
+  try {
+    return localStorage.getItem(filterKey) ?? "all";
+  } catch {
+    return "all";
+  }
+}
+
+function useProjectFilter(): [string, (value: string) => void] {
+  const [value, setValue] = useState(storedFilter);
+  return [
+    value,
+    (next) => {
+      setValue(next);
+      try {
+        localStorage.setItem(filterKey, next);
+      } catch {
+        // Storage can be full or blocked; the filter still applies for this visit.
+      }
+    },
+  ];
+}
+
 /** Deck's list in the sidebar: New deck, then every deck grouped by what it needs. */
 export function DeckSidebar() {
-  const { ready, error, runs } = useDeckRuns();
+  const { ready, error, runs, more } = useDeckRuns();
   const retry = useDeckRetry();
-  const [project, setProject] = useState("all");
+  const older = useDeckMore();
+  const [stored, setProject] = useProjectFilter();
   const projectName = useProjectName();
   const projects = [...new Set(runs.map((run) => run.workspaceId))].toSorted();
+  // A remembered project with no decks any more shows everything rather than an empty list.
+  const project = stored === "all" || projects.includes(stored) || !ready ? stored : "all";
   const shown = project === "all" ? runs : runs.filter((run) => run.workspaceId === project);
   return (
     <ViewSidebar
@@ -60,11 +98,13 @@ export function DeckSidebar() {
       ) : error && !runs.length ? (
         <ViewSidebarError onRetry={retry} />
       ) : !shown.length ? (
-        <EmptyState
-          icon={CardsIcon}
-          title="No decks yet"
-          description="A deck splits a goal into cards, deals them to agents and merges the results."
-        />
+        // With no decks at all, the main pane invites the first one; nothing is said twice.
+        // WP-1: EmptyState variant="inline" once it lands.
+        runs.length > 0 && (
+          <p className="px-[11px] pt-3 text-sm text-muted-foreground">
+            No decks in {projectName(project)}.
+          </p>
+        )
       ) : (
         <nav aria-label="Decks">
           {groups.map((group) => {
@@ -81,15 +121,49 @@ export function DeckSidebar() {
               </ViewRowSection>
             ) : null;
           })}
+          {more && (
+            <button
+              type="button"
+              onClick={older}
+              className="mx-[11px] mt-2 rounded-xs text-sm font-medium text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+            >
+              {/* WP-1: focus-ring */}
+              Show older decks
+            </button>
+          )}
         </nav>
       )}
     </ViewSidebar>
   );
 }
 
-/** Gated decks by how long they have waited; the rest by their latest change. */
+/** Decks that need you by how long they have waited; the rest by their latest change. */
 const longestWaiting = (a: DeckRun, b: DeckRun) => (a.gate?.gatedAt ?? 0) - (b.gate?.gatedAt ?? 0);
 const latest = (a: DeckRun, b: DeckRun) => b.updatedAt - a.updatedAt;
+
+/**
+ * A deck's state at a glance, in its row's tile.
+ * WP-1: a `mark` slot on ViewRowBody would take the live spinner and needs-you dot instead.
+ */
+function markOf(run: DeckRun): IconGlyph {
+  if (run.gate) return HandPalmIcon;
+  switch (run.phase) {
+    case "merged":
+    case "finished":
+      return CheckCircleIcon;
+    case "cancelled":
+    case "stopping":
+      return ProhibitIcon;
+    case "failed":
+      return WarningCircleIcon;
+    case "paused":
+      return PauseCircleIcon;
+    case "waiting":
+      return HourglassIcon;
+    default:
+      return CircleNotchIcon;
+  }
+}
 
 function DeckRow(props: { run: DeckRun }) {
   const now = useNow();
@@ -98,7 +172,7 @@ function DeckRow(props: { run: DeckRun }) {
   return (
     <Link to="/deck/$runId" params={{ runId: run.id }} className={viewRowClass}>
       <ViewRowBody
-        icon={CardsIcon}
+        icon={markOf(run)}
         title={run.title}
         strong={!!run.gate}
         description={deckRunSummary(run)}
