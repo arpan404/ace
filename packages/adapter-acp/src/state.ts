@@ -15,6 +15,7 @@ export interface AgentState {
   background: boolean;
   suspended: boolean;
   segment: string;
+  inputKey?: string;
   stream?: { key: string; kind: string };
   cancelAt?: number;
   planTool?: ToolState;

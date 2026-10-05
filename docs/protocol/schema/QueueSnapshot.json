@@ -20,7 +20,8 @@
             "restart",
             "limit",
             "snooze",
-            "uncertain"
+            "uncertain",
+            "stopped"
           ],
           "type": "string"
         },

@@ -166,7 +166,7 @@ test("an intent with uncertain provider delivery is reported after restart witho
     expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
     expect(
       Object.values(transcript(restartedStore, id).items).some(
-        (item) => item.type === "notice" && item.text.includes("execution is uncertain"),
+        (item) => item.type === "notice" && item.detail?.includes("execution is uncertain"),
       ),
     ).toBe(true);
   } finally {
@@ -337,7 +337,8 @@ test("a frame persistence failure stops the session and reports later intents in
   expect(
     Object.values(transcript(h.store, id).items).some(
       (item) =>
-        item.type === "notice" && item.text.includes("Thread stopped after a persistence failure"),
+        item.type === "notice" &&
+        item.detail?.includes("Thread stopped after a persistence failure"),
     ),
   ).toBe(true);
 });

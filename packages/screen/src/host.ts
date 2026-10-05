@@ -9,7 +9,14 @@ import { ScreenManager } from "./manager.ts";
 export function localScreenManager(
   helperPath: string,
   artifactDirectory: string,
-  options: { manifest?: string | undefined } = {},
+  options: {
+    manifest?: string | undefined;
+    /**
+     * Development only: keep macOS permissions with the launching process (a terminal that
+     * already holds them) instead of the helper's own identity.
+     */
+    inheritResponsibility?: boolean | undefined;
+  } = {},
 ): ScreenManager {
   if (!["darwin", "win32", "linux"].includes(process.platform))
     throw new Error("No native helper for this platform");
@@ -31,6 +38,7 @@ export function localScreenManager(
     command: helperPath,
     ...(process.platform === "darwin"
       ? {
+          ...(options.inheritResponsibility ? { args: ["--inherit-responsibility"] } : {}),
           prepare: () =>
             installScreenHelper(helperPath, dirname(artifactDirectory), options.manifest),
         }

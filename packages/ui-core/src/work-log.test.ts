@@ -1,5 +1,6 @@
 import { Item, type ToolCall } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { stepLabels } from "./tool-labels.ts";
 import { describeStep, summarizeWork, workCounts, workLogHeadline } from "./work-log.ts";
 
 let ids = 0;
@@ -58,7 +59,7 @@ test("a step in flight keeps the log running and names what it is doing", () => 
     call({ kind: "shell", command: "bun run build" }, "running", 1000),
   ]);
   expect(summary.running).toBe(true);
-  expect(summary.current).toBe("shell call");
+  expect(summary.current).toBe("Running bun run build");
 });
 
 test("a step waiting for approval opens the log and failures are counted", () => {
@@ -128,7 +129,7 @@ test("the headline counts the elapsed time live while running and freezes when d
   const running = summarizeWork([call({ kind: "shell", command: "bun run build" }, "running", 0)]);
   expect(workLogHeadline(running, 12_000)).toMatchObject({
     label: "Working for 12s",
-    current: "shell call",
+    current: "Running bun run build",
   });
   const done = summarizeWork([
     call({ kind: "shell", command: "bun run build" }, "succeeded", 0, 4 * 60_000 + 12_000),
@@ -141,4 +142,178 @@ test("the headline counts the elapsed time live while running and freezes when d
 test("an instant burst of work still reads as one second", () => {
   const done = summarizeWork([call({ kind: "file.read", path: "a" }, "succeeded", 5, 5)]);
   expect(workLogHeadline(done, 5).label).toBe("Worked for 1s");
+});
+
+test("a wrapped command reads as the command inside it", () => {
+  const step = describeStep(
+    call({ kind: "shell", command: "/bin/zsh -lc 'bun install --frozen-lockfile'" }, "running", 0),
+  );
+  expect(step).toMatchObject({ verb: "Running", target: "bun install --frozen-lockfile" });
+});
+
+test("paths read relative to where the agent works, and skills by name", () => {
+  const cwd = "/Users/ada/.ace-next/worktrees/3359/app";
+  const read = describeStep(
+    call({ kind: "file.read", path: `${cwd}/src/app.tsx` }, "succeeded", 0, 1),
+    {
+      cwd,
+    },
+  );
+  expect(read).toMatchObject({ verb: "Read", target: "src/app.tsx", title: `${cwd}/src/app.tsx` });
+  const skill = describeStep(
+    call(
+      { kind: "file.read", path: "/Users/ada/.agents/skills/diagnosing-bugs/SKILL.md" },
+      "succeeded",
+      0,
+      1,
+    ),
+    { cwd },
+  );
+  expect(skill).toMatchObject({ verb: "Loaded skill", target: "diagnosing-bugs" });
+});
+
+test("a failed step says why: the exit code for commands, the error otherwise", () => {
+  const shell = describeStep(
+    call({ kind: "shell", command: "bun run test", exitCode: 1 }, "failed", 0, 1),
+  );
+  expect(shell).toMatchObject({ note: "exit 1", failed: true });
+  const item = call(
+    {
+      kind: "mcp",
+      server: "ace",
+      tool: "ace_browser_open",
+      arguments: { url: "https://youtube.com" },
+    },
+    "failed",
+    0,
+    1,
+  );
+  if (item.type === "tool_call") item.call.error = "Navigation blocked by the permission mode";
+  expect(describeStep(item, { labels: stepLabels })).toMatchObject({
+    verb: "Opened",
+    target: "youtube.com",
+    note: "Navigation blocked by the permission mode",
+  });
+});
+
+test("a step behind an approval carries the approval's outcome on its row", () => {
+  const item = call({ kind: "shell", command: "npm publish --dry-run" }, "awaiting_approval", 0);
+  const request = {
+    kind: "approval" as const,
+    title: "Run npm publish",
+    options: [
+      { id: "once", label: "Allow once", kind: "allow_once" as const },
+      { id: "deny", label: "Deny", kind: "deny" as const },
+    ],
+  };
+  const waiting = describeStep(item, {
+    interaction: { state: "pending", request },
+    labels: stepLabels,
+  });
+  expect(waiting).toMatchObject({ verb: "Run", note: "Waiting for your approval", needsYou: true });
+  const approved = describeStep(item, {
+    interaction: { state: "resolved", request, resolution: { kind: "approval", optionId: "once" } },
+    labels: stepLabels,
+  });
+  expect(approved).toMatchObject({ verb: "Running", note: "Approved by you", needsYou: false });
+  const clicked = describeStep(item, {
+    interaction: { state: "pending", request },
+    answering: "deny",
+    labels: stepLabels,
+  });
+  expect(clicked).toMatchObject({ note: "Denied by you", failed: true });
+});
+
+test("a command that failed and then passed on a re-run counts as retried, not failed", () => {
+  const summary = summarizeWork([
+    call({ kind: "shell", command: "bun run test", exitCode: 1 }, "failed", 0, 1),
+    call({ kind: "shell", command: "bun run lint", exitCode: 1 }, "failed", 1, 2),
+    call({ kind: "shell", command: "bun run test", exitCode: 0 }, "succeeded", 2, 3),
+  ]);
+  expect(summary).toMatchObject({ failed: 1, retried: 1 });
+  expect(workCounts(summary)).toBe("Ran 3 commands · 1 failed · 1 retried");
+  expect(summary.firstFailed).toBeDefined();
+  expect(workLogHeadline(summary, 3).firstFailed).toBe(summary.firstFailed);
+});
+
+/** The same as `call`, with the agent and turn set: what makes a re-run the same step. */
+const callIn = (
+  detail: ToolCall["detail"],
+  status: ToolCall["status"],
+  at: number,
+  where: { agentId?: string; runId?: string } = {},
+): Item => {
+  const item = call(detail, status, at, at + 1);
+  return Item.parse({ ...item, agentId: where.agentId ?? "root", runId: where.runId ?? "run-1" });
+};
+
+test("a success somewhere else retries nothing: the failure keeps its count and jump target", () => {
+  const failed = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/a", exitCode: 1 },
+    "failed",
+    0,
+  );
+  const elsewhere = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/b", exitCode: 0 },
+    "succeeded",
+    1,
+  );
+  expect(summarizeWork([failed, elsewhere])).toMatchObject({
+    failed: 1,
+    retried: 0,
+    firstFailed: failed.id,
+  });
+  const otherAgent = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/a", exitCode: 0 },
+    "succeeded",
+    1,
+    { agentId: "child" },
+  );
+  expect(summarizeWork([failed, otherAgent])).toMatchObject({ failed: 1, retried: 0 });
+  const otherTurn = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/a", exitCode: 0 },
+    "succeeded",
+    1,
+    { runId: "run-2" },
+  );
+  expect(summarizeWork([failed, otherTurn])).toMatchObject({ failed: 1, retried: 0 });
+  const again = callIn(
+    { kind: "shell", command: "bun run test", cwd: "/repo/a", exitCode: 0 },
+    "succeeded",
+    2,
+  );
+  expect(summarizeWork([failed, again])).toMatchObject({ failed: 0, retried: 1 });
+});
+
+test("reading other lines of a file doesn't retry a failed read", () => {
+  const failed = callIn(
+    { kind: "file.read", path: "src/a.ts", range: { start: 1, end: 20 } },
+    "failed",
+    0,
+  );
+  const other = callIn(
+    { kind: "file.read", path: "src/a.ts", range: { start: 40, end: 60 } },
+    "succeeded",
+    1,
+  );
+  expect(summarizeWork([failed, other])).toMatchObject({
+    failed: 1,
+    retried: 0,
+    firstFailed: failed.id,
+  });
+});
+
+test("before the tool wording loads (idle, after first paint), a step reads plainly", () => {
+  const mcp = call(
+    { kind: "mcp", server: "ace", tool: "ace_browser_open", arguments: { url: "https://x.dev" } },
+    "running",
+    0,
+  );
+  expect(describeStep(mcp)).toMatchObject({ verb: "Calling", target: "ace › ace_browser_open" });
+  const failed = call({ kind: "custom" }, "failed", 0, 1);
+  expect(describeStep(failed)).toMatchObject({ note: "Failed", failed: true });
+  // Commands unwrap without it: the live line never shows the login shell.
+  expect(
+    describeStep(call({ kind: "shell", command: "/bin/zsh -lc 'pwd'" }, "running", 0)).target,
+  ).toBe("pwd");
 });

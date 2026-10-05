@@ -15,6 +15,7 @@ import { MessageContext } from "./context.ts";
 import { ConductorCommandPayload } from "./conductor.ts";
 import {
   AgentId,
+  RunId,
   BackgroundTaskId,
   CommandId,
   DeviceId,
@@ -23,7 +24,7 @@ import {
   WorkspaceId,
 } from "./ids.ts";
 import { InteractionResolution } from "./interactions.ts";
-import { ContentPart } from "./items.ts";
+import { ContentPart, MessageOrigin } from "./items.ts";
 import { ProviderKind } from "./provider.ts";
 
 import { ReviewCommands } from "./review.ts";
@@ -38,7 +39,14 @@ export const ThreadCreateOptions = TurnOptions.and(z.object(AgentLaunchOptions.s
 export type ThreadCreateOptions = z.infer<typeof ThreadCreateOptions>;
 
 export const CommandPayload = z.discriminatedUnion("type", [
-  ThreadPrepareCommand,
+  /** Explicit duplicate-execution recovery; the replacement uses this command's id. */
+  z.object({
+    type: z.literal("queue.resend"),
+    threadId: ThreadId,
+    messageId: CommandId,
+    expectedRevision: z.number().int().nonnegative(),
+  }),
+  ThreadPrepareCommand.extend({ titleSource: z.enum(["person", "agent"]).optional() }),
   ThreadMarkReadCommand,
   z.object({
     type: z.literal("thread.permission.set"),
@@ -68,6 +76,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
     accountId: z.string().min(1).max(128).optional(),
 
     trigger: RunTrigger.optional(),
+    origin: MessageOrigin.optional(),
     ...AcpIdentity.partial().shape,
     model: z.string().min(1).max(256).optional(),
     account: z.string().min(1).max(256).optional(),
@@ -83,6 +92,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
     model: z.string().min(1).max(256).optional(),
     options: TurnOptions.optional(),
     trigger: RunTrigger.optional(),
+    origin: MessageOrigin.optional(),
     threadId: ThreadId,
     input: z.array(ContentPart).min(1),
     context: MessageContext.optional(),
@@ -94,6 +104,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("thread.interrupt"),
+    runId: RunId.optional(),
     threadId: ThreadId,
     /** Defaults to the root agent. */
     agentId: AgentId.optional(),

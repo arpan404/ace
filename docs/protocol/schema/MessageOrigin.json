@@ -1,0 +1,76 @@
+{
+  "$id": "https://ace.local/protocol/v1/MessageOrigin.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commandId": {
+      "$ref": "https://ace.local/protocol/v1/CommandId.json"
+    },
+    "from": {
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "type": "object"
+    },
+    "interactionId": {
+      "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+    },
+    "kind": {
+      "enum": [
+        "person",
+        "interaction_answer",
+        "subagent_result",
+        "handoff",
+        "spawn",
+        "parent_agent",
+        "restart",
+        "limit_resume",
+        "queue",
+        "automation",
+        "schedule",
+        "background_completion"
+      ],
+      "type": "string"
+    },
+    "lossy": {
+      "type": "boolean"
+    },
+    "parentThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "role": {
+      "type": "string"
+    },
+    "threadIds": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      },
+      "type": "array"
+    },
+    "to": {
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object"
+}
