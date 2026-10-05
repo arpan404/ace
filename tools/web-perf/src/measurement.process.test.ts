@@ -1,5 +1,5 @@
 import { chromium } from "@playwright/test";
-import { expect, test } from "vitest";
+import { expect, inject, test } from "vitest";
 import {
   observe,
   readRecord,
@@ -9,62 +9,89 @@ import {
   stepTurn,
 } from "@ace/web-perf";
 
+const launch = () => chromium.launch({ executablePath: inject("chromiumExecutable") });
+
 test("buffered tasks from before reset are excluded while a new blocker is counted", async () => {
-  const browser = await chromium.launch();
+  const browser = await launch();
   try {
     const page = await browser.newPage();
     await page.goto("about:blank");
     await page.setContent("<button>Block</button>");
     await page.evaluate(() => {
+      // These observers acknowledge native delivery, including Event Timing's
+      // post-paint delivery. Animation frames alone do not prove that happened.
+      // This helper must travel with the serialized browser-side callback.
+      // oxlint-disable-next-line unicorn/consistent-function-scoping
+      const delivered = (from: number) =>
+        Promise.all(
+          (["longtask", "event"] as const).map(
+            (type) =>
+              new Promise<void>((resolve) => {
+                const observer = new PerformanceObserver((list) => {
+                  if (
+                    list
+                      .getEntries()
+                      .some(
+                        (entry) =>
+                          entry.startTime >= from &&
+                          (type === "longtask"
+                            ? entry.duration >= 120
+                            : "interactionId" in entry && Number(entry.interactionId) > 0),
+                      )
+                  ) {
+                    observer.disconnect();
+                    resolve();
+                  }
+                });
+                const options = { type, buffered: true, durationThreshold: 16 };
+                observer.observe(options);
+              }),
+          ),
+        );
+      Object.assign(globalThis, {
+        aceBlockDelivered: delivered(performance.now()),
+        aceAwaitBlock: delivered,
+      });
       document.querySelector("button")?.addEventListener("click", () => {
         const began = performance.now();
         while (performance.now() - began < 130) {
-          /* real event timing */
+          /* deliberate real task and interaction */
         }
       });
     });
-    await page.evaluate(() => {
-      const start = performance.now();
-      while (performance.now() - start < 150) {
-        /* real main-thread task */
-      }
-    });
     await page.getByRole("button", { name: "Block" }).click();
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
-    );
+    await page.evaluate(() => Reflect.get(globalThis, "aceBlockDelivered"));
     // Installing the buffered observers and resetting in the same task forces
     // old delivery to arrive after reset, rather than depending on CDP scheduling.
     const start = await page.evaluate(
       ({ script }) => {
         const install = new Function(`return (${script})()`);
         install();
-        return Reflect.get(globalThis, "acePerfRecord").reset();
+        const windowStart = Reflect.get(globalThis, "acePerfRecord").reset();
+        // Registered after the measurement observers: their buffered callbacks
+        // run before this delivery acknowledgment resolves.
+        Object.assign(globalThis, {
+          aceBlockDelivered: Reflect.get(globalThis, "aceAwaitBlock")(0),
+        });
+        return windowStart;
       },
       { script: observe.toString() },
     );
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
-    );
+    await page.evaluate(() => Reflect.get(globalThis, "aceBlockDelivered"));
     expect((await readRecord(page, start)).longest).toBe(0);
     expect((await readRecord(page, start)).interactions).toBe(0);
     await page.evaluate(() => {
-      const blockingStart = performance.now();
-      while (performance.now() - blockingStart < 120) {
-        /* deliberate regression */
-      }
+      Object.assign(globalThis, {
+        aceBlockDelivered: Reflect.get(globalThis, "aceAwaitBlock")(performance.now()),
+      });
     });
-    await expect
-      .poll(async () => (await readRecord(page, start)).longest)
-      .toBeGreaterThanOrEqual(120);
+    // CDP evaluate is not a browser event-loop task for Long Tasks reporting.
+    // Dispatch a real input, then await both native observers instead of polling.
     await page.getByRole("button", { name: "Block" }).click();
-    await expect.poll(async () => (await readRecord(page, start)).interactions).toBeGreaterThan(0);
+    await page.evaluate(() => Reflect.get(globalThis, "aceBlockDelivered"));
+    const sample = await readRecord(page, start);
+    expect(sample.longest).toBeGreaterThanOrEqual(120);
+    expect(sample.interactions).toBeGreaterThan(0);
     const next = await resetRecord(page);
     expect((await readRecord(page, next)).longest).toBe(0);
   } finally {
@@ -73,7 +100,7 @@ test("buffered tasks from before reset are excluded while a new blocker is count
 });
 
 test("reading wheels move the real transcript before the journey continues", async () => {
-  const browser = await chromium.launch();
+  const browser = await launch();
   try {
     const page = await browser.newPage();
     await page.setContent(
@@ -91,11 +118,15 @@ test("reading wheels move the real transcript before the journey continues", asy
 });
 
 test("turn keys can acknowledge an in-window scroll without replacing the jump", async () => {
-  const browser = await chromium.launch();
+  const browser = await launch();
   try {
     const page = await browser.newPage();
     await page.setContent(
-      `<div role="status" aria-label="Jumped">Jumped to turn 137</div><div data-virtual-viewport style="height:200px;overflow:auto"><div role="feed" aria-label="Transcript" aria-busy="false"><article style="height:2000px">Transcript</article></div></div><script>document.onkeydown=()=>setTimeout(()=>{document.querySelector('[data-virtual-viewport]').scrollTop=500},25)</script>`,
+      `<div role="status" aria-label="Jumped">Jumped to turn 137</div><div data-virtual-viewport style="height:200px;overflow:auto"><div role="feed" aria-label="Transcript" aria-busy="false"><article style="height:2000px">Transcript</article></div></div><script>
+        const commit = new MessageChannel();
+        commit.port1.onmessage=()=>{document.querySelector('[data-virtual-viewport]').scrollTop=500};
+        document.onkeydown=()=>commit.port2.postMessage('scroll');
+      </script>`,
     );
     await stepTurn(page, "ArrowDown");
     expect(
@@ -110,7 +141,7 @@ test("turn keys can acknowledge an in-window scroll without replacing the jump",
 });
 
 test.each([137, 1777])("delayed Home/End commits still jump to turn %i", async (target) => {
-  const browser = await chromium.launch();
+  const browser = await launch();
   try {
     const page = await browser.newPage();
     await page.setContent(`
@@ -120,12 +151,17 @@ test.each([137, 1777])("delayed Home/End commits still jump to turn %i", async (
       <script>
         let position=777;
         const list=document.querySelector('[role=listbox]');
-        setTimeout(()=>{document.querySelector('span').textContent='2,001';list.focus()},50);
+        const commit = new MessageChannel();
+        commit.port1.onmessage=({data})=>{
+          if(data==='ready'){document.querySelector('span').textContent='2,001';list.focus();return;}
+          position=data;list.setAttribute('aria-activedescendant','turn-option-'+position);
+        };
+        commit.port2.postMessage('ready');
         list.onkeydown=e=>{
           e.preventDefault();
           if(e.key==='Enter'){document.querySelector('output').textContent=position;return;}
           const moves={Home:1,End:2001,PageDown:position+10,PageUp:position-10,ArrowDown:position+1,ArrowUp:position-1};
-          if(e.key in moves)setTimeout(()=>{position=moves[e.key];list.setAttribute('aria-activedescendant','turn-option-'+position)},25);
+          if(e.key in moves)commit.port2.postMessage(moves[e.key]);
         };
       </script>
     `);

@@ -29,4 +29,16 @@ scheduling interruption while leaving sustained slow work red.
 
 The journey retains its reading pauses and all wheel/key/search inputs. It also asserts scroll or window movement, completion of turn steps, selected search-hit counters and transcript highlights, and completion of filtered search results (including valid empty results). Preview runs spawn Vite directly and await its exit before deleting served files or repeating the workload.
 
-Review verification is static only by owner instruction. The new real-browser tests cover queued pre-reset task and event records, a post-reset blocker, delayed Home/End commits and transcript movement. They are written but **not executed (tests run at merge)**; updated performance numbers and preview overlap verification **need run at merge**. No product UI files were edited.
+The browser process tests resolve the installed Chromium executable in global setup,
+before the test runner redirects HOME and cache directories. Profiles and writable state
+still use the isolated test home. The measurement test blocks a real click handler:
+CDP `evaluate` work does not reliably generate Long Tasks entries. Native Long Tasks
+and Event Timing observers acknowledge both the buffered pre-reset delivery and the new
+interaction; animation frames or short polling deadlines are not delivery barriers.
+Navigation fixtures commit through message channels rather than elapsed-time delays.
+
+After the merge gate reported setup failures, the two permitted process test files were
+reproduced and verified independently. They cover worker initialization and retirement,
+queued pre-reset task and event records, a post-reset blocker, delayed Home/End commits
+and transcript movement. No product UI files were edited. Updated performance numbers
+and preview overlap verification still need run at merge.

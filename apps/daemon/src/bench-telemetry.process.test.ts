@@ -6,8 +6,12 @@ import { promisify } from "node:util";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { liveWorkerTelemetry } from "@ace/perf-kit";
+import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 
 const run = promisify(execFile);
+// Snapshot readiness is determined by lifecycle acknowledgments, not elapsed
+// time. A fixed injected clock keeps load out of the verdict; execFile and the
+// process project retain their shared timeout as the deadlock guard.
 
 test("retired isolates are excluded even when a caller retains their old samples", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ace-telemetry-test-"));
@@ -33,7 +37,7 @@ test("retired isolates are excluded even when a caller retains their old samples
           const retiredId = retired.threadId;
           const schema = z.object({threadId:z.number().int().nonnegative(),workerIds:z.array(z.number().int().positive()),pendingWorkerIds:z.array(z.number().int().positive()),generation:z.number().int().nonnegative()});
           const read = id => schema.parse(JSON.parse(readFileSync(join(process.env.ACE_PERF_TELEMETRY, id + '.json'), 'utf8')));
-          const snapshot = () => readWorkerSnapshot({read: async id=>read(id), now:()=>performance.now(), pause:()=>new Promise(r=>setTimeout(r,10)), timeoutMs:4000});
+          const snapshot = () => readWorkerSnapshot({read: async id=>read(id), now:()=>0, pause:()=>new Promise(r=>setTimeout(r,10)), timeoutMs:1});
           await snapshot();
           const retiredSample = read(retiredId);
           await retired.terminate();
@@ -41,7 +45,11 @@ test("retired isolates are excluded even when a caller retains their old samples
           await live.terminate();
         `,
       ],
-      { env: { ...process.env, ACE_PERF_TELEMETRY: directory }, timeout: 10_000 },
+      {
+        cwd: import.meta.dirname,
+        env: { ...process.env, ACE_PERF_TELEMETRY: directory },
+        timeout: PROCESS_TEST_TIMEOUT,
+      },
     );
     const isolate = z.object({ threadId: z.number(), workerIds: z.array(z.number()) });
     const data = z
@@ -60,7 +68,10 @@ test("sampling waits for worker initialization and follows retirement during fil
   const delayed = join(directory, "delay.mjs");
   await writeFile(
     delayed,
-    `await new Promise(resolve => setTimeout(resolve, 150)); await import(${JSON.stringify(new URL("../bench/telemetry.mjs", import.meta.url).href)});`,
+    `import { parentPort } from 'node:worker_threads';
+     import { once } from 'node:events';
+     await once(parentPort, 'message');
+     await import(${JSON.stringify(new URL("../bench/telemetry.mjs", import.meta.url).href)});`,
   );
   try {
     const { stdout } = await run(
@@ -81,14 +92,23 @@ test("sampling waits for worker initialization and follows retirement during fil
       const schema = z.object({threadId:z.number(),workerIds:z.array(z.number()),pendingWorkerIds:z.array(z.number()),generation:z.number()});
       const read = async id => schema.parse(JSON.parse(await readFile(join(directory, id+'.json'), 'utf8')));
       const sample = readOverride => readWorkerSnapshot({
-        read: readOverride ?? read, now: () => performance.now(),
-        pause: () => new Promise(resolve => setTimeout(resolve, 10)), timeoutMs: 4000,
+        read: readOverride ?? read, now: () => 0,
+        pause: () => new Promise(resolve => setTimeout(resolve, 10)), timeoutMs: 1,
       });
       const code = "import { parentPort } from 'node:worker_threads'; parentPort.postMessage('ready'); setInterval(() => {}, 1000)";
       const worker = new Worker(new URL('data:text/javascript,' + encodeURIComponent(code)), { execArgv:['--import',${JSON.stringify(delayed)}] });
       const id = worker.threadId;
       const ready = once(worker, 'message');
-      const starting = await sample();
+      let initializationObserved = false;
+      const starting = await sample(async requested => {
+        const data = await read(requested);
+        if (requested === 0 && !initializationObserved) {
+          if (!data.pendingWorkerIds.includes(id) || data.workerIds.includes(id)) throw Error('worker must be pending before initialization');
+          initializationObserved = true;
+          worker.postMessage('initialize');
+        }
+        return data;
+      });
       await ready;
       let retired = false;
       const ending = await sample(async requested => {
@@ -108,7 +128,7 @@ test("sampling waits for worker initialization and follows retirement during fil
       {
         cwd: import.meta.dirname,
         env: { ...process.env, ACE_PERF_TELEMETRY: directory },
-        timeout: 10_000,
+        timeout: PROCESS_TEST_TIMEOUT,
       },
     );
     const data = z
