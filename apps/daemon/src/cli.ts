@@ -10,6 +10,7 @@ import { readModelInstances } from "./models.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread, stubHandler } from "./commands.ts";
 import { accessRequest } from "./client-access.ts";
+import { readLocalToken } from "./local-token.ts";
 
 const HostConnection = z.object({
   origin: z.url().refine((value) => {
@@ -96,6 +97,12 @@ async function main(args: string[]): Promise<void> {
       );
     return;
   }
+  if (command === "token") {
+    if (args.length !== 1) throw new Error("Usage: ace token");
+    // Only the token on stdout, so `ace token | pbcopy` copies exactly what the app asks for.
+    process.stdout.write(`${readLocalToken(config.dataDir)}\n`);
+    return;
+  }
   if (command === "service") {
     process.stdout.write(
       JSON.stringify(await serviceCommand(config.dataDir, args.slice(1))) + "\n",
@@ -123,7 +130,7 @@ async function main(args: string[]): Promise<void> {
   }
   if (command !== "pair" && command !== "devices")
     throw new Error(
-      "Usage: ace start|status|service install|uninstall|start|stop|status|pair [scopes]|devices list|devices revoke <id>|doctor [--json]|support-bundle PATH [--include-threads]",
+      "Usage: ace start|status|token|service install|uninstall|start|stop|status|pair [scopes]|devices list|devices revoke <id>|doctor [--json]|support-bundle PATH [--include-threads]",
     );
   const { origin, token } = hostConnection(config.dataDir);
   if (command === "pair") {
@@ -158,7 +165,7 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   throw new Error(
-    "Usage: ace start|status|service install|uninstall|start|stop|status|pair [scopes]|devices list|devices revoke <id>|doctor [--json]|support-bundle PATH [--include-threads]",
+    "Usage: ace start|status|token|service install|uninstall|start|stop|status|pair [scopes]|devices list|devices revoke <id>|doctor [--json]|support-bundle PATH [--include-threads]",
   );
 }
 await main(process.argv.slice(2)).catch((error: unknown) => {
