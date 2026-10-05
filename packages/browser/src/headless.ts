@@ -1,3 +1,4 @@
+import { modelScreenshot } from "./model-screenshot.ts";
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
 import { cancellableCdp } from "./cancellable-cdp.ts";
 import { installOriginGuard } from "./origin-guard.ts";
@@ -148,7 +149,7 @@ export class HeadlessBackend implements BrowserBackend {
         press: (key) => page.keyboard.press(key),
         wheel: (x, y) => page.mouse.wheel(x, y),
         screenshot: (type) =>
-          page.screenshot({ type, ...(type === "jpeg" ? { quality: 70 } : {}), timeout: 10_000 }),
+          type === "jpeg" ? modelScreenshot(cdp) : page.screenshot({ type, timeout: 10_000 }),
         resize: (width, height) => page.setViewportSize({ width, height }),
         viewport: () => page.viewportSize() ?? { width: 1280, height: 720 },
         media: (colorScheme) => page.emulateMedia({ colorScheme }),

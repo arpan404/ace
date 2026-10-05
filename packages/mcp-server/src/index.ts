@@ -56,3 +56,7 @@ export {
   agentControlToolCatalog,
   type AgentControlPort,
 } from "./agent-control.ts";
+
+export { modelImage, ModelImageError, type ModelImage } from "./model-image.ts";
+
+export { modelImageGeometry } from "./image-geometry.ts";

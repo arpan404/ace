@@ -1,3 +1,4 @@
+import { staleRef } from "./action-error.ts";
 import type { BrowserCdp } from "./backend.ts";
 import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
 import { z } from "zod";
@@ -33,13 +34,13 @@ export class SnapshotRefs {
   }
   private async call(ref: string, functionDeclaration: string): Promise<unknown> {
     const backendNodeId = this.refs.get(ref);
-    if (backendNodeId === undefined) throw new Error("Stale or unknown browser ref");
+    if (backendNodeId === undefined) throw staleRef();
     const epoch = this.epoch;
     const { object } = ResolvedNode.parse(
       await this.cdp.send("DOM.resolveNode", { backendNodeId }),
     );
     try {
-      if (epoch !== this.epoch) throw new Error("Stale browser ref");
+      if (epoch !== this.epoch) throw staleRef();
       const response = CallResult.parse(
         await this.cdp.send("Runtime.callFunctionOn", {
           objectId: object.objectId,
@@ -47,6 +48,7 @@ export class SnapshotRefs {
           returnByValue: true,
         }),
       );
+      if (epoch !== this.epoch) throw staleRef();
       if (response.exceptionDetails) throw new Error("Browser element is detached or unavailable");
       return response.result.value;
     } finally {
@@ -89,34 +91,15 @@ export class SnapshotRefs {
     }`,
     );
   }
-  async wait(ref: string, state: "visible" | "hidden", timeout: number): Promise<void> {
-    const backendNodeId = this.refs.get(ref);
-    if (backendNodeId === undefined) throw new Error("Stale or unknown browser ref");
-    const { object } = ResolvedNode.parse(
-      await this.cdp.send("DOM.resolveNode", { backendNodeId }),
+  async visible(ref: string): Promise<boolean> {
+    return z.boolean().parse(
+      await this.call(
+        ref,
+        `function() {
+          const rect = this.getBoundingClientRect();
+          return this.isConnected && rect.width > 0 && rect.height > 0 && getComputedStyle(this).visibility !== 'hidden';
+        }`,
+      ),
     );
-    try {
-      const response = CallResult.parse(
-        await this.cdp.send("Runtime.callFunctionOn", {
-          objectId: object.objectId,
-          awaitPromise: true,
-          returnByValue: true,
-          arguments: [{ value: state }, { value: timeout }],
-          functionDeclaration: `function(state, timeout) { return new Promise((resolve, reject) => {
-          const element = this;
-          const timer = setTimeout(() => { cancelAnimationFrame(frame); reject(new Error('wait_for timeout')); }, timeout);
-          let frame;
-          function check() { const rect = element.getBoundingClientRect();
-            const visible = element.isConnected && rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== 'hidden';
-            if (visible === (state === 'visible')) { clearTimeout(timer); resolve(true); }
-            else frame = requestAnimationFrame(check);
-          } check();
-        }); }`,
-        }),
-      );
-      if (response.exceptionDetails) throw new Error("wait_for timeout or document closed");
-    } finally {
-      await this.cdp.send("Runtime.releaseObject", { objectId: object.objectId }).catch(() => {});
-    }
   }
 }

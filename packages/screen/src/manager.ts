@@ -1,6 +1,6 @@
 import { ScreenStopError } from "./stop-error.ts";
 import { ScreenAgentScope } from "@ace/protocol";
-import { agentOwner } from "./agent-binding.ts";
+import { agentOwner, ScreenDelegationError } from "./agent-binding.ts";
 import {
   ScreenAction,
   ScreenBundle,
@@ -419,7 +419,7 @@ export class ScreenManager {
         candidate.state.controller === "agent" &&
         candidate.owner === owner,
     );
-    if (!session) throw new Error("Screen delegation required");
+    if (!session) throw new ScreenDelegationError();
     session.controllerBinding?.authorize();
     this.authorize(session.state.target);
     return session.state.sessionId;
@@ -488,9 +488,11 @@ export class ScreenManager {
     actor: "human" | "agent",
     input: ScreenAction,
     owner = "local",
+    beforeDispatch?: () => void,
   ): Promise<void> {
     const action = ScreenAction.parse(input);
     await this.execute(id, actor, owner, async (session) => {
+      beforeDispatch?.();
       if (!session.helper.capabilities?.platform.startsWith("linux"))
         return session.helper.request({ op: "action", action });
       const scale = session.latest?.header.scale ?? 1;
@@ -510,6 +512,7 @@ export class ScreenManager {
             x: action.x / scale,
             y: action.y / scale,
           });
+          beforeDispatch?.();
           return session.helper.requestV2({ op: "scroll", dx: action.deltaX, dy: action.deltaY });
         case "key":
           throw new Error("Use a named key on protocol v2 helpers");

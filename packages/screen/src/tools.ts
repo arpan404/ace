@@ -1,3 +1,4 @@
+import { modelImage } from "@ace/mcp-server";
 import {
   ScreenAction,
   ScreenInput,
@@ -7,17 +8,23 @@ import {
 } from "@ace/protocol";
 import { z } from "zod";
 import type { ScreenManager } from "./manager.ts";
-const Screenshot = z.object({});
+const Screenshot = z.strictObject({});
 const [ClickAction, TypeAction, KeyAction, ScrollAction] = ScreenAction.options;
-const Click = ClickAction.omit({ kind: true });
-const Type = TypeAction.omit({ kind: true });
+const Click = ClickAction.omit({ kind: true }).strict();
+const Type = TypeAction.omit({ kind: true }).strict();
 const [, , , PointKey, , PointScroll] = ScreenInput.options;
-const Key = z.union([KeyAction.omit({ kind: true }), PointKey.omit({ kind: true })]);
-const Scroll = z.union([ScrollAction.omit({ kind: true }), PointScroll.omit({ kind: true })]);
+const Key = z.union([
+  KeyAction.omit({ kind: true }).strict(),
+  PointKey.omit({ kind: true }).strict(),
+]);
+const Scroll = z.union([
+  ScrollAction.omit({ kind: true }).strict(),
+  PointScroll.omit({ kind: true }).strict(),
+]);
 export const computerUseSchemas = {
-  screen_ui_tree: ScreenUITreeOptions,
-  screen_ui_find: ScreenUIFindOptions,
-  screen_ui_act: ScreenUIActOptions,
+  screen_ui_tree: ScreenUITreeOptions.strict(),
+  screen_ui_find: ScreenUIFindOptions.strict(),
+  screen_ui_act: ScreenUIActOptions.strict(),
   screen_screenshot: Screenshot,
   screen_click: Click,
   screen_type: Type,
@@ -29,19 +36,19 @@ export const computerUseTools = [
     name: "screen_ui_tree",
     description:
       "Use first: inspect the approved app's bounded accessibility tree with stable refs. Prefer semantic actions to pixel clicks.",
-    inputSchema: z.toJSONSchema(ScreenUITreeOptions),
+    inputSchema: z.toJSONSchema(computerUseSchemas.screen_ui_tree),
   },
   {
     name: "screen_ui_find",
     description:
       "Find accessible elements by role, name or text without requesting the entire tree. Use before screenshot searches.",
-    inputSchema: z.toJSONSchema(ScreenUIFindOptions),
+    inputSchema: z.toJSONSchema(computerUseSchemas.screen_ui_find),
   },
   {
     name: "screen_ui_act",
     description:
       "Act on a stable element ref using the OS accessibility API. Reply states whether synthesized input was needed.",
-    inputSchema: z.toJSONSchema(ScreenUIActOptions),
+    inputSchema: z.toJSONSchema(computerUseSchemas.screen_ui_act),
   },
   {
     name: "screen_screenshot",
@@ -74,7 +81,12 @@ export const computerUseTools = [
   },
 ];
 /** The MCP host supplies a session and owner from its scoped credential, never tool arguments. */
-export function computerUseHandler(manager: ScreenManager, sessionId: string, owner: string) {
+export function computerUseHandler(
+  manager: ScreenManager,
+  sessionId: string,
+  owner: string,
+  signal: AbortSignal = new AbortController().signal,
+) {
   return async (
     name: string,
     input: unknown,
@@ -84,22 +96,24 @@ export function computerUseHandler(manager: ScreenManager, sessionId: string, ow
       | { type: "text"; text: string }
     )[];
   }> => {
+    signal.throwIfAborted();
     if (name === "screen_screenshot") {
-      const frame = await manager.captureScreenshot(sessionId);
       Screenshot.parse(input);
+      const frame = await manager.captureScreenshot(sessionId);
+      const image = await modelImage({ payload: frame.payload, ...frame.header }, signal);
       return {
         content: [
           {
             type: "image",
-            data: frame.payload.toString("base64"),
+            data: image.payload.toString("base64"),
             mimeType: "image/jpeg",
           },
-          ...(frame.header.scale === undefined
+          ...(image.scale === undefined
             ? []
             : [
                 {
                   type: "text" as const,
-                  text: `Screenshot scale: ${frame.header.scale} pixels per target point. Divide screenshot coordinates by this scale for input; prefer UI refs.`,
+                  text: `Screenshot scale: ${image.scale} pixels per target point. Divide screenshot coordinates by this scale for input; prefer UI refs.`,
                 },
               ]),
         ],
@@ -108,10 +122,10 @@ export function computerUseHandler(manager: ScreenManager, sessionId: string, ow
     if (name === "screen_ui_tree" || name === "screen_ui_find" || name === "screen_ui_act") {
       const data =
         name === "screen_ui_tree"
-          ? await manager.uiTree(sessionId, input)
+          ? await manager.uiTree(sessionId, input, owner)
           : name === "screen_ui_find"
-            ? await manager.uiFind(sessionId, input)
-            : await manager.uiAct(sessionId, "agent", input, owner);
+            ? await manager.uiFind(sessionId, input, owner)
+            : await manager.uiAct(sessionId, "agent", input, owner, () => signal.throwIfAborted());
       return { content: [{ type: "text", text: JSON.stringify(data) }] };
     }
     let action: unknown;
@@ -145,8 +159,11 @@ export function computerUseHandler(manager: ScreenManager, sessionId: string, ow
       default:
         throw new Error("Unknown computer-use tool");
     }
-    if (v2) await manager.input(sessionId, "agent", v2, owner);
-    else await manager.action(sessionId, "agent", ScreenAction.parse(action), owner);
+    if (v2) await manager.input(sessionId, "agent", v2, owner, () => signal.throwIfAborted());
+    else
+      await manager.action(sessionId, "agent", ScreenAction.parse(action), owner, () =>
+        signal.throwIfAborted(),
+      );
     return { content: [{ type: "text", text: "Action completed" }] };
   };
 }

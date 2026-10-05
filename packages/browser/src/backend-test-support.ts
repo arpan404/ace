@@ -31,6 +31,10 @@ export class FakePage {
   };
   command(method: string, params?: Record<string, unknown>): unknown {
     if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+    if (method === "Page.getLayoutMetrics")
+      return { cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 1280, clientHeight: 720 } };
+    if (method === "Runtime.evaluate" && params?.["expression"] === "window.devicePixelRatio")
+      return { result: { value: 1 } };
     if (method === "Page.captureScreenshot") return { data: "AA==" };
     if (method === "Memory.getDOMCounters") return { nodes: 1 };
     if (method === "Accessibility.getFullAXTree")

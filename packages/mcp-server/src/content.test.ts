@@ -62,7 +62,9 @@ it("rich result validation rejects malformed and oversized content before exposi
   });
   expect(await f.call("screen_invalid", { large: false })).toMatchObject({
     isError: true,
-    content: [{ text: "Tool failed validation or execution" }],
+    content: [
+      { text: JSON.stringify({ code: "execution_failed", message: "Invalid MCP tool content" }) },
+    ],
   });
   expect(await f.call("screen_invalid", { large: true })).toMatchObject({
     isError: true,

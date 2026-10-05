@@ -1,3 +1,4 @@
+import { parseToolArguments, toolFailure } from "./tool-failure.ts";
 import { describeAceAction } from "./actions.ts";
 import { z } from "zod";
 import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
@@ -77,7 +78,7 @@ export class ToolRegistry {
       },
       async execute(value, context) {
         if (!withinJsonBudget(value, 64 * 1024)) throw new Error("Input budget exceeded");
-        const args = input.parse(value);
+        const args = parseToolArguments(input, value);
         context.signal.throwIfAborted();
         const result = await definition.run(args, context);
         if (!withinJsonBudget(result, 256 * 1024)) throw new ResultBudgetExceeded();
@@ -204,7 +205,7 @@ export class ToolRegistry {
       .catch((error: unknown) =>
         error instanceof ResultBudgetExceeded
           ? failure("Tool result too large")
-          : failure("Tool failed validation or execution"),
+          : toolFailure(error),
       )
       .finally(() => {
         this.active--;

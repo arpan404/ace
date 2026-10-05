@@ -1,3 +1,6 @@
+import { NavigationPolicies } from "./policy-waits.ts";
+import { BrowserActionError } from "./action-error.ts";
+import { waitForBrowser } from "./wait.ts";
 import { BrowserOriginError, browserOrigin } from "./policy.ts";
 import { z } from "zod";
 import { join } from "node:path";
@@ -67,19 +70,22 @@ export class BrowserSession {
   private recording: Recording | undefined;
   private paused = false;
   private blocked: BrowserOriginBlock | undefined;
-  private activeNavigation: NavigationTask | undefined;
+  private policies = new NavigationPolicies();
   get navigationTask(): NavigationTask | undefined {
-    return this.activeNavigation;
+    return this.policies.task;
   }
   initiatingHuman(): boolean {
-    return this.activeNavigation?.human ?? this.controller === "human";
+    return this.policies.task?.human ?? this.controller === "human";
   }
   blockedNavigation(blocked: BrowserOriginBlock, navigation?: NavigationTask): void {
     // A cancelled policy may settle after the next queued navigation starts.
-    if (navigation && navigation !== this.activeNavigation) return;
+    if (navigation && navigation !== this.policies.task) return;
     if (navigation) navigation.blocked = blocked;
     this.blocked = blocked;
     this.emit();
+  }
+  policyWait(url: string): () => void {
+    return this.policies.wait(url);
   }
   private lastUrl: string | undefined;
   private reason: string | undefined;
@@ -194,8 +200,14 @@ export class BrowserSession {
   disconnect(connectionId: string): void {
     if (this.owner === connectionId) this.handback(connectionId);
   }
-  private check(actor: Actor, signal?: AbortSignal): void {
+  private check(actor: Actor, signal?: AbortSignal, generation = this.generation): void {
     signal?.throwIfAborted();
+    if (generation !== this.generation)
+      throw new BrowserActionError(
+        "controller_changed",
+        "Browser control changed while the action was queued",
+        "Take a fresh snapshot and retry after control is handed back.",
+      );
     if (this.closed) throw new Error("Browser closed");
     if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
     if (actor.kind === "agent" && this.controller !== "agent")
@@ -220,19 +232,22 @@ export class BrowserSession {
   }
   execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
     const command = BrowserCommand.parse(raw);
+    const submittedGeneration = this.generation;
     return this.enqueue(async () => {
       signal?.throwIfAborted();
       if (this.closed) throw new Error("Browser closed");
-      if (inputActions.has(command.action)) this.check(actor, signal);
+      if (inputActions.has(command.action)) {
+        this.check(actor, signal, submittedGeneration);
+      }
       if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
       const generation = this.generation;
       if (inputActions.has(command.action)) {
         await this.leaseReady;
-        this.check(actor, signal);
+        this.check(actor, signal, submittedGeneration);
       }
       let result: unknown;
       try {
-        result = await this.run(command, actor, signal);
+        result = await this.run(command, actor, signal, submittedGeneration);
       } catch (error) {
         if (error instanceof BrowserOriginError) this.blockedNavigation(error.blocked);
         throw error;
@@ -255,7 +270,12 @@ export class BrowserSession {
       return ScreenshotBytes.parse(bytes);
     });
   }
-  private async run(command: BrowserCommand, actor: Actor, signal?: AbortSignal): Promise<unknown> {
+  private async run(
+    command: BrowserCommand,
+    actor: Actor,
+    signal: AbortSignal | undefined,
+    generation: number,
+  ): Promise<unknown> {
     const { backend: page, dir, id, evaluatePolicy, threadId } = this.options;
     const cdp = page.cdp;
     switch (command.action) {
@@ -272,7 +292,7 @@ export class BrowserSession {
           this.options.navigationClock,
           signal,
         );
-        this.activeNavigation = task;
+        this.policies.start(task);
         this.blocked = undefined;
         try {
           const resume = task.pause();
@@ -290,7 +310,7 @@ export class BrowserSession {
               browserOrigin(command.url) ? "approval_required" : "invalid_origin",
               "Browser origin requires approval",
             );
-          this.check(actor, task.signal);
+          this.check(actor, task.signal, generation);
           await task.run(() => page.navigate(command.url, command.timeout + 65_000, task.signal));
           return this.state;
         } catch (error) {
@@ -311,34 +331,50 @@ export class BrowserSession {
           // Only this page is stopped; sibling sessions share no cancellation.
           if (task.signal.aborted) void page.cdp.send("Page.stopLoading").catch(() => {});
           task.close();
-          if (this.activeNavigation === task) this.activeNavigation = undefined;
+          this.policies.finish(task);
         }
       }
       case "snapshot":
         return this.refs.snapshot();
       case "click": {
         const rect = await this.refs.bounds(command.ref);
-        this.check(actor, signal);
+        this.check(actor, signal, generation);
         if (rect.width <= 0 || rect.height <= 0) throw new Error("Browser element is not visible");
         await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
         return { ok: true };
       }
       case "type":
         await this.refs.select(command.ref);
-        this.check(actor, signal);
+        this.check(actor, signal, generation);
         await page.insertText(command.text);
         return { ok: true };
       case "press":
         if (command.ref) await this.refs.focus(command.ref);
-        this.check(actor, signal);
+        this.check(actor, signal, generation);
         await page.press(command.key);
         return { ok: true };
       case "scroll":
         await page.wheel(command.x, command.y);
         return { ok: true };
       case "wait_for":
-        await this.refs.wait(command.ref, command.state, command.timeout);
-        return { ok: true };
+        return waitForBrowser({
+          command,
+          cdp,
+          refs: this.refs,
+          clock: this.options.navigationClock,
+          policies: this.policies,
+          human: actor.kind === "human",
+          signal,
+          currentUrl: () => page.url(),
+          checkNavigation: () => {
+            if (this.blocked)
+              throw new BrowserOriginError(
+                this.blocked.origin,
+                this.blocked.reason,
+                "Browser navigation blocked while waiting",
+              );
+          },
+        });
       case "screenshot": {
         const path = join(dir, `${id()}.png`);
         await writeFile(path, await page.screenshot("png"), { mode: 0o600 });
@@ -364,17 +400,18 @@ export class BrowserSession {
       case "evaluate": {
         if (!(await evaluatePolicy?.(threadId, page.url())))
           throw new Error("Browser evaluate requires approval");
-        this.check(actor, signal);
+        this.check(actor, signal, generation);
         return evaluatePage(cdp, command.expression);
       }
     }
   }
   input(raw: unknown, connectionId: string): Promise<void> {
     const input = BrowserInput.parse(raw);
+    const generation = this.generation;
     return this.enqueue(async () => {
-      this.check({ kind: "human", connectionId });
+      this.check({ kind: "human", connectionId }, undefined, generation);
       await this.leaseReady;
-      this.check({ kind: "human", connectionId });
+      this.check({ kind: "human", connectionId }, undefined, generation);
       const cdp = this.options.backend.cdp;
       switch (input.kind) {
         case "mouse":

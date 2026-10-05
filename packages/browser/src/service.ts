@@ -161,8 +161,7 @@ export class BrowserService {
       ) => {
         const task = session?.navigationTask;
         const policySignal = task ? AbortSignal.any([signal, task.signal]) : signal;
-        const resume = originContext.navigation ? task?.pause() : undefined;
-        if (task && originContext.navigation) task.policyOrigin = browserOrigin(url);
+        const resume = originContext.navigation ? session?.policyWait(url) : undefined;
         try {
           const result = await allowedOrigin(
             options.threadId,
@@ -197,7 +196,6 @@ export class BrowserService {
             session?.blockedNavigation(error.blocked, task);
           throw error;
         } finally {
-          if (task && originContext.navigation) task.policyOrigin = undefined;
           resume?.();
         }
       };

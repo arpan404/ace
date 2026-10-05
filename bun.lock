@@ -74,6 +74,7 @@
         "@ace/adapter-testkit": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
+        "@cursor/sdk": "1.0.35",
         "@modelcontextprotocol/sdk": "1.31.0",
         "@types/ws": "^8.18.1",
         "jsqr": "1.4.0",

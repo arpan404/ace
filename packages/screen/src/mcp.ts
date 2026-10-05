@@ -29,7 +29,7 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
           riskClass,
           input,
           capability: "screen",
-          timeoutMs: 15_000,
+          timeoutMs: name === "screen_screenshot" ? 30_000 : 15_000,
           async run(args, { caller, signal }) {
             signal.throwIfAborted();
             const sessionId = manager.agentSession(caller);
@@ -37,6 +37,7 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
               manager,
               sessionId,
               agentOwner(caller),
+              signal,
             )(name, args);
             signal.throwIfAborted();
             if (manager.agentSession(caller) !== sessionId)
