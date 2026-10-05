@@ -142,10 +142,11 @@ export async function registerPi(
   context: ServiceContext,
   registry: AdapterRegistry,
 ): Promise<void> {
+  if (context.services.providerConfigurations?.for("pi").enabled === false) return;
   const discover = context.options.pi?.runtime?.discover ?? discoverPi;
-  const cli = await discover(
-    context.options.pi?.executable ? { executable: context.options.pi.executable } : {},
-  );
+  const executable =
+    context.services.providerConfigurations?.for("pi").binaryPath ?? context.options.pi?.executable;
+  const cli = await discover({ signal: context.signal, ...(executable ? { executable } : {}) });
   context.services.pi?.register(registry, cli);
 }
 export function createPiSocketSession(context: SocketContext): SocketService {

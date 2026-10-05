@@ -617,7 +617,7 @@ Example:
 ```json
 {
   "keys": [
-    "browser.backendLoss"
+    "browser.backend"
   ],
   "requestId": "example",
   "scope": {},

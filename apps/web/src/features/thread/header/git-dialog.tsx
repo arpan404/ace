@@ -157,7 +157,7 @@ export function GitDialog(props: {
                 aria-hidden
                 keys="mod+enter"
                 variant="bare"
-                className="text-primary-foreground/60"
+                className="text-tint-foreground/60"
               />
             </Button>
           </DialogFooter>

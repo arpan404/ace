@@ -61,6 +61,13 @@ const specs = {
   { command: string; authArgs: string[]; parse: (text: string) => AuthStatus; loginHint: string }
 >;
 
+/** The installed CLI command to restore when a user removes an executable override. */
+export function defaultProviderExecutable(provider: Provider | "pi" | "antigravity"): string {
+  if (provider === "pi") return "pi";
+  if (provider === "antigravity") return "agy";
+  return specs[provider].command;
+}
+
 function probeError(label: string, error: unknown): string {
   // Exception messages and CLI stderr can contain credentials or identities.
   return error instanceof Error && error.message === "Probe timed out"
@@ -137,10 +144,10 @@ export async function discoverProviders(
 
 /** No documented read-only login-status command: never enter the interactive login flow. */
 export async function discoverAntigravity(
-  options: DiscoveryOptions = {},
+  options: DiscoveryOptions & { executable?: string } = {},
 ): Promise<DiscoveryResult> {
   const env = { ...process.env, ...options.env };
-  const path = await findExecutable("agy", env);
+  const path = await findExecutable(options.executable ?? "agy", env);
   const result: DiscoveryResult = {
     installed: Boolean(path),
     auth: "unknown",

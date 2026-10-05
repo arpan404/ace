@@ -156,9 +156,10 @@ export class OpenCodeServer {
         this.authorization = this.options.attach.authorization;
         this.secrets = [...(this.options.secrets ?? []), this.authorization];
       } else {
-        const cli = (
-          await this.runtime.discover({ ...this.options.discovery, signal: this.controller.signal })
-        ).opencode;
+        const discovery = { ...this.options.discovery, signal: this.controller.signal };
+        const cli = this.options.runtime?.discover
+          ? (await this.runtime.discover(discovery)).opencode
+          : await this.runtime.discoverProvider("opencode", discovery);
         if (!cli.installed || !cli.path) throw new Error("OpenCode is not installed");
         expected = cli.version ?? "";
         if (!version(expected))

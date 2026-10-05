@@ -151,7 +151,27 @@ Rules:
 - Provider, ACP agent and model marks are `ProviderIcon` / `ProviderIconTip` from
   `components/ui/provider-icons.tsx`, never an inline logo. Which brand stands for what is
   `@ace/ui-core/provider-icons`; the marks are LobeHub Icons, regenerated with `bun run icons:providers`.
-- Colour only for diff +/− and the needs-you and failed dots. Use `text-muted-foreground` / `text-subtle-foreground` for hierarchy, and weights 400/500 (600 for titles only).
+  They draw in brand colour (gradients included); black-and-white brands draw in the text colour
+  at full strength. `variant="mono"` is for a tiny inline mark in the surrounding text colour.
+- Colour has jobs, never decoration:
+  - **Accent** (`--ring`): `bg-tint text-tint-foreground` as a fill (labels are black or white,
+    always AA), `text-link` as text (links, the current rail view: the accent nudged until it
+    reads at AA on every surface, so any custom colour stays legible), `bg-ring/10` for its soft
+    wash and `bg-ring/45` for drawn lines. Each theme has its own (`--accent-theme`);
+    Appearance can pin another.
+  - **Status** through `data-tone="working | needs-you | waiting | failed | done | idle"`, which
+    sets `--tone` (`styles/index.css`): `StatusPill`, `Dot`, the Activity tiles and the spinner
+    (working blue) read it. Words always carry the status too. Waiting and limited share the
+    violet: a thread held at a usage limit waits on its provider, not on you, so its row dot is a
+    hollow violet ring beside a violet Limited pill; amber is only for needs you.
+  - **Diff**: green added, red removed (`--diff-add`, `--diff-del`, `text-status-done/failed` for counts).
+  - **Projects**: `var(--project-${projectTint(id)})` from `@ace/ui-core`, twelve tints per theme
+    that read as text at AA; a badge draws its letters in the tint on a wash of it.
+- Greys: `text-muted-foreground` / `text-subtle-foreground` for hierarchy (both AA on every
+  surface, `theme/surfaces.ts`). Ink washes are the opacity shorthand on four steps only:
+  `bg-foreground/3` quiet fills, `/5` hover and fields, `/8` the selected row or tab, `/10` the
+  selected nav item or pressed state (`bun run check:ui` rejects raw `color-mix` washes).
+  Weights 400/500 (600 for titles only).
 - Keep files under ~400 lines (hard limit 1,500, `bun run check:size`).
 
 ## Workspace tabs (side and bottom docks)

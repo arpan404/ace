@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
+import { basePreset } from "@/theme/presets.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 const root = document.documentElement;
@@ -72,7 +73,7 @@ test("low-contrast text is warned about, and Reset to the preset clears it", asy
 
   await userEvent.click(screen.getByRole("button", { name: "Reset to Dark" }));
   expect(await screen.findByText("Contrast looks good.")).toBeTruthy();
-  expect(valueOf("--muted-foreground")).toBe("#9A9A9A");
+  expect(valueOf("--muted-foreground")).toBe(basePreset("dark").tokens["--muted-foreground"]);
   // Reset keeps the custom theme; it does not switch back to the preset.
   expect(appliedTheme()).toMatch(/^dark~/);
 });

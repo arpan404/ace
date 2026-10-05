@@ -1,4 +1,7 @@
 import { automaticTarget } from "@ace/accounts/availability";
+import { providerCommandDisabled } from "@ace/core";
+import { providerConfiguration } from "@ace/models/preferences";
+import { ProviderConfigurations } from "@ace/protocol";
 import {
   resolvePermissionMode,
   limitPermissionMode,
@@ -687,6 +690,32 @@ export class FakeDaemon implements Host {
       return previous.deviceId === command.deviceId
         ? previous.result
         : { commandId: command.id, ok: false, error: "forbidden" };
+    const payload = command.payload;
+    const configurations = ProviderConfigurations.parse(
+      this.services.settings.get("providers.configuration"),
+    );
+    if (
+      providerCommandDisabled(payload, {
+        thread: (id) => {
+          const thread = this.threads.get(id)?.view.thread;
+          return thread
+            ? {
+                provider: thread.provider,
+                instanceId:
+                  thread.instanceId ?? thread.execution?.instanceId ?? thread.live?.account,
+                parentThreadId: thread.lineage?.parentThreadId,
+              }
+            : undefined;
+        },
+        defaultInstance: (provider) =>
+          provider === "cursor"
+            ? this.services.accounts.find((account) => account.provider === provider)?.id
+            : undefined,
+        enabled: (provider, instance) =>
+          providerConfiguration(configurations, provider, instance).enabled !== false,
+      })
+    )
+      return { commandId: command.id, ok: false, error: "provider_disabled" };
     const refusal = this.refusals.get(command.payload.type);
     if (refusal) return { commandId: command.id, ok: false, error: refusal };
     let result: CommandResult;

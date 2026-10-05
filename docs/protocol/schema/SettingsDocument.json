@@ -2,12 +2,12 @@
   "$id": "https://ace.local/protocol/v1/SettingsDocument.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": {
-    "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema6"
+    "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema7"
   },
   "properties": {
     "settings": {
       "additionalProperties": {
-        "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
+        "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema6"
       },
       "properties": {
         "app.openAtLogin": {
@@ -57,10 +57,10 @@
           "type": "string"
         },
         "clients.keybindings": {
-          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
+          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
         },
         "clients.theme": {
-          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema3"
+          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
         },
         "conductor.maxFixRounds": {
           "maximum": 100,
@@ -153,7 +153,7 @@
         },
         "plugins.preferences": {
           "additionalProperties": {
-            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema2"
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema3"
           },
           "propertyNames": {
             "maxLength": 256,
@@ -200,6 +200,9 @@
             "priority"
           ],
           "type": "string"
+        },
+        "providers.configuration": {
+          "$ref": "https://ace.local/protocol/v1/ProviderConfigurations.json"
         },
         "providers.default": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

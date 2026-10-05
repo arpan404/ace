@@ -1,5 +1,6 @@
 import { CatalogModel, ProviderKind } from "@ace/protocol";
 import { z } from "zod";
+import { freezeCatalogModel } from "./freeze.ts";
 
 export const CachedEntry = z
   .object({
@@ -25,15 +26,7 @@ export const CachedEntry = z
         model.id === `${model.nativeProviderId}/${model.nativeModelId}`
       )
         model.nativeModelId = model.id;
-      for (const tier of model.serviceTiers) {
-        Object.freeze(tier.parameters);
-        Object.freeze(tier);
-      }
-      Object.freeze(model.serviceTiers);
-      Object.freeze(model.reasoningEfforts);
-      Object.freeze(model.inputModalities);
-      Object.freeze(model.raw);
-      Object.freeze(model);
+      freezeCatalogModel(model);
     }
     Object.freeze(entry.models);
     return entry;
