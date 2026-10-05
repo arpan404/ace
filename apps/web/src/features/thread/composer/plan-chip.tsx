@@ -5,6 +5,7 @@ import {
   planLabel,
   planProgress,
   planShown,
+  planTip,
   planTodos,
   samePlanStep,
   todoMarks,
@@ -13,6 +14,7 @@ import { ListChecksIcon } from "@phosphor-icons/react";
 import { useCallback } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
 const noKeys: readonly never[] = [];
@@ -55,13 +57,15 @@ export function PlanChip(props: { threadId: string }) {
   return (
     <div className="mb-2 flex justify-center">
       <Popover>
-        <PopoverTrigger
-          aria-label={`${label}: ${progress.done} of ${progress.total} done`}
-          className="fx-rise-in glass inline-flex h-7 items-center gap-[7px] rounded-full px-2.5 text-sm text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:text-foreground"
-        >
-          <Icon icon={ListChecksIcon} size={14} />
-          <span className="font-medium text-foreground tabular-nums">{label}</span>
-        </PopoverTrigger>
+        <Tip label={planTip(progress)} side="top">
+          <PopoverTrigger
+            aria-label={`${label}: ${progress.done} of ${progress.total} done`}
+            className="fx-rise-in glass inline-flex h-7 items-center gap-[7px] rounded-full px-2.5 text-sm text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:text-foreground"
+          >
+            <Icon icon={ListChecksIcon} size={14} />
+            <span className="font-medium text-foreground tabular-nums">{label}</span>
+          </PopoverTrigger>
+        </Tip>
         <PopoverContent side="top" align="center" sideOffset={8} className="w-[320px] p-2">
           <ul aria-label="Plan" className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
             {progress.todos.map((todo, index) => {

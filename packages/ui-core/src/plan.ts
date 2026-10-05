@@ -76,6 +76,12 @@ export function planLabel(progress: PlanProgress): string {
   return `Plan ${progress.done}/${progress.total}`;
 }
 
+/** The chip's tooltip: the item in progress ("Now: Fix the cursor"), else how far it is. */
+export function planTip(progress: PlanProgress): string {
+  const now = progress.todos.find((todo) => todo.status === "in_progress");
+  return now ? `Now: ${now.content}` : `${progress.done} of ${progress.total} done`;
+}
+
 /** Each item's status as a glyph (☐ ▸ ✓ ✕) and in words for assistive tech. */
 export const todoMarks: Record<TodoEntry["status"], { glyph: string; words: string }> = {
   pending: { glyph: "☐", words: "To do" },

@@ -1,6 +1,13 @@
 import { Item, Thread, type TodoEntry } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { latestPlanStep, planLabel, planProgress, planShown, type PlanReader } from "./plan.ts";
+import {
+  latestPlanStep,
+  planLabel,
+  planProgress,
+  planShown,
+  planTip,
+  type PlanReader,
+} from "./plan.ts";
 
 const todo = (content: string, status: TodoEntry["status"]): TodoEntry => ({ content, status });
 
@@ -86,6 +93,9 @@ test("progress counts completed items and reads 'Plan 3/7'", () => {
   ]);
   expect(planLabel(progress)).toBe("Plan 3/7");
   expect(progress.settled).toBe(false);
+  // The tooltip names what the agent is on now.
+  expect(planTip(progress)).toBe("Now: d");
+  expect(planTip(planProgress([todo("a", "completed"), todo("b", "pending")]))).toBe("1 of 2 done");
 });
 
 test("the chip stays while the turn runs and goes once everything is done and the turn ended", () => {
