@@ -45,9 +45,15 @@ it("MCP completion keeps all arguments after output-only and duplicate terminal 
     { rawOutput: { content: "later output" } },
     { status: "completed", future: 1 },
   ]) {
+    const before = h.diagnostics.length;
     const events = h.update({ sessionUpdate: "tool_call_update", toolCallId: "mcp", ...update });
     expectArguments(h);
-    expect(JSON.stringify(events)).toContain(JSON.stringify(update).slice(1, -1));
+    expect(
+      events.some((event) => event.type === "item.created" && event.item.type === "notice"),
+    ).toBe(false);
+    expect(JSON.stringify(h.diagnostics.slice(before))).toContain(
+      JSON.stringify(update).slice(1, -1),
+    );
     expect(h.state.status.state).toBe("done");
   }
 });
@@ -139,6 +145,7 @@ function completedRefreshBytes(fields: number) {
   end(h);
   let bytes = 0;
   for (let n = 0; n < 100; n++) {
+    const before = h.diagnostics.length;
     const events = h.update({
       sessionUpdate: "tool_call_update",
       toolCallId: "mcp",
@@ -146,9 +153,11 @@ function completedRefreshBytes(fields: number) {
       rawOutput: { content: "late" },
       future: "latest",
     });
+    const diagnostics = JSON.stringify(h.diagnostics.slice(before));
     bytes += Buffer.byteLength(JSON.stringify(events));
     bytes += Buffer.byteLength(JSON.stringify(h.translated()));
-    expect(JSON.stringify(events)).toContain('"future":"latest"');
+    bytes += Buffer.byteLength(diagnostics);
+    expect(diagnostics).toContain('"future":"latest"');
   }
   const tool = required(h.tools()[0]);
   const raw = JSON.stringify(tool.call.raw);
@@ -238,6 +247,7 @@ it("late Cursor extension requests preserve assembled terminal input without res
     status: "completed",
   });
   end(h);
+  const before = h.diagnostics.length;
   const events = h.frame("recv", {
     id: 101,
     method: "cursor/future",
@@ -249,7 +259,10 @@ it("late Cursor extension requests preserve assembled terminal input without res
   });
   const raw = JSON.stringify(required(h.tools()[0]).call.raw);
   for (const value of ["first", "middle", "last"]) expect(raw).toContain(`"${value}"`);
-  expect(JSON.stringify(events)).toContain("extension-metadata");
+  const diagnostics = JSON.stringify(h.diagnostics.slice(before));
+  expect(diagnostics).toContain("extension-metadata");
+  expect(diagnostics).not.toContain('"middle":"middle"');
+  expect(JSON.stringify(events)).not.toContain("extension-metadata");
   expect(JSON.stringify(events)).not.toContain('"middle":"middle"');
   expect(h.state.status.state).toBe("done");
 });

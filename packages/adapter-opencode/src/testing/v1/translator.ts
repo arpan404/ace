@@ -12,8 +12,14 @@ export class OpenCodeTranslator implements Translator {
   constructor(init: { threadId: ThreadId; rootKey: Key }) {
     this.state = new TranslationState(init);
   }
+  takeDiagnostics() {
+    const pending = this.state.diagnostics;
+    this.state.diagnostics = [];
+    return pending;
+  }
   translate(frame: Frame, now: number): Fact[] {
-    // Provider frames are JSON. Invalid shapes remain available as raw notices.
+    // Keep diagnostics only until the next frame, as on the live translators.
+    this.state.diagnostics = [];
     try {
       return this.frame(frame, now);
     } catch {
@@ -85,7 +91,7 @@ export class OpenCodeTranslator implements Translator {
             outcome: "failed",
             error: { kind: "network", message: string(data.message, "Prompt delivery failed") },
           },
-          ...this.state.notice(frame.data, "request.failed"),
+          ...this.state.notice(frame.data, "request.failed", "OpenCode prompt delivery failed"),
         ];
       }
     }
@@ -340,7 +346,7 @@ export class OpenCodeTranslator implements Translator {
       ];
     }
     if (frame.dir === "recv" && number(data.status) >= 400)
-      return this.state.notice(frame.data, "HTTP error");
+      return this.state.notice(frame.data, "HTTP error", "OpenCode request failed");
     return this.state.notice(frame.data, `HTTP ${string(data.method)} ${path}`);
   }
   taskOwner(task: string): string | undefined {

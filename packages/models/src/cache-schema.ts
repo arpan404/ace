@@ -17,6 +17,14 @@ export const CachedEntry = z
   )
   .transform((entry) => {
     for (const model of entry.models) {
+      // Before the execution-ID fix, OpenCode caches stored the bare model component.
+      // Repair only that proven old shape, including fresh caches restored at startup.
+      if (
+        model.provider === "opencode" &&
+        model.nativeProviderId &&
+        model.id === `${model.nativeProviderId}/${model.nativeModelId}`
+      )
+        model.nativeModelId = model.id;
       for (const tier of model.serviceTiers) {
         Object.freeze(tier.parameters);
         Object.freeze(tier);

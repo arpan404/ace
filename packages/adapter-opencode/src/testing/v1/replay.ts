@@ -19,6 +19,7 @@ export function harness() {
   });
   const translator = new OpenCodeTranslator({ threadId: state.threadId, rootKey: "root" });
   const view = createThreadView(thread);
+  const diagnostics: import("@ace/protocol").RawPayload[] = [];
   let sequence = 0;
   let eventSequence = 0;
   const accept = (facts: Fact[], now: number) => {
@@ -40,9 +41,11 @@ export function harness() {
   };
   return {
     view,
+    diagnostics,
     translator,
     feed(frame: Frame) {
       accept(translator.translate(frame, frame.t), frame.t);
+      diagnostics.push(...translator.takeDiagnostics());
     },
     tick(now: number) {
       accept([...translator.tick(now), { type: "tick" }], now);

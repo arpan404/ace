@@ -11,7 +11,13 @@ export interface Transport {
   send(text: string): void;
   close(): void;
 }
+export interface IntentRecords {
+  load(): Promise<readonly string[]>;
+  write(id: string, value: string | null): Promise<void>;
+}
 export interface Storage {
+  /** Record-level persistence. Legacy load/save remain supported for portable hosts. */
+  records?: IntentRecords;
   load(): Promise<string | null>;
   save(value: string): Promise<void>;
 }

@@ -14,7 +14,7 @@ export function openRequest(
   updateTool: (owner: AgentState, update: Data) => void,
 ): boolean {
   if (s.requests.has(id)) {
-    s.notice(facts, frame, method, "Duplicate pending ACP request");
+    s.notice(facts, frame, method);
     return true;
   }
   const request = interactionRequest(method, params, s.quirks.provider === "antigravity");
@@ -28,7 +28,7 @@ export function openRequest(
     if (method.startsWith("cursor/") && tool) {
       retainToolRaw(tool, raw(frame, method), {});
       if (tool.finalized && !["pending", "running", "awaiting_approval"].includes(tool.status)) {
-        s.notice(facts, frame, method, "Tool metadata", owner);
+        s.notice(facts, frame, method, undefined, owner);
         return true;
       }
       facts.push({

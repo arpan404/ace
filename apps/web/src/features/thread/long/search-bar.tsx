@@ -305,7 +305,7 @@ function HitRow(props: { hit: SearchHit; active: boolean; other: boolean; onOpen
               // Runs are positional slices of one snippet; their order never changes.
               // oxlint-disable-next-line react/no-array-index-key
               key={index}
-              className="rounded-[2px] bg-[color-mix(in_oklab,var(--ring)_38%,transparent)] text-foreground"
+              className="rounded-[2px] bg-ring/38 text-foreground"
             >
               {run.text}
             </mark>
