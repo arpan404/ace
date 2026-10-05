@@ -18,7 +18,7 @@ it("the SDK host admits large normal tool results through blobs and output chunk
   const imageData = (
     await (
       await import("node:fs/promises")
-    ).readFile(new URL("../../context/fixtures/colours.png", import.meta.url))
+    ).readFile(new URL("../../context/fixtures/colours.jpg", import.meta.url))
   ).toString("base64");
 
   const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-large-host-")));
@@ -129,12 +129,12 @@ it("the SDK host admits large normal tool results through blobs and output chunk
       commandId: "command",
       input: [
         { type: "text", text: "synthetic" },
-        { type: "image", mimeType: "image/png", url: `data:image/png;base64,${imageData}` },
+        { type: "image", mimeType: "image/jpeg", url: `data:image/jpeg;base64,${imageData}` },
       ],
     });
     expect(sdkInput).toEqual({
       text: "synthetic",
-      images: [{ url: `data:image/png;base64,${imageData}` }],
+      images: [{ url: `data:image/jpeg;base64,${imageData}` }],
     });
     expect(Object.values(state.items).find((item) => item.type === "tool_call")).toMatchObject({
       complete: true,

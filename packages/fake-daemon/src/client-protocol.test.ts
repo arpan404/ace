@@ -980,8 +980,14 @@ test("fake draft images appear as attachment metadata and serve fixture bytes on
       ],
     });
     expect(
-      (await f.client.attachmentBytes({ threadId: created.threadId, sha256, variant: "original" }))
-        .bytes,
+      (
+        await f.client.attachmentBytes({
+          threadId: created.threadId,
+          sha256,
+          variant: "original",
+          maxBytes: bytes.length,
+        })
+      ).bytes,
     ).toEqual(bytes);
     expect((await f.client.attachmentBytes({ threadId: created.threadId, sha256 })).bytes).toEqual(
       bytes,

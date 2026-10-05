@@ -276,7 +276,11 @@ test("a resumed native echo resolves attachments even when the daemon stopped be
     const command = Command.parse({
       id: "resume",
       deviceId: "reader",
-      payload: { type: "thread.resume", threadId: h.threadId },
+      payload: {
+        type: "thread.resume",
+        threadId: h.threadId,
+        expectedRevision: restarted.queue(h.threadId).revision,
+      },
     });
     const resumed = h.store.recordCommand(command.id, command.deviceId, () => {
       if (!restarted) throw new Error("Missing engine");
