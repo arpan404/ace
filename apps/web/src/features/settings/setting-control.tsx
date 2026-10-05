@@ -53,7 +53,7 @@ export function DisabledReason(props: { reason: string | undefined; children: Re
         render={
           <span
             tabIndex={props.reason ? 0 : undefined}
-            className="inline-flex rounded-md focus-ring"
+            className="inline-flex rounded-md focus-ring *:flex-1"
           />
         }
       >
