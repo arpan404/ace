@@ -19,7 +19,15 @@
       "maxLength": 4096,
       "type": "string"
     },
+    "description": {
+      "maxLength": 2048,
+      "type": "string"
+    },
     "input": {},
+    "origin": {
+      "const": "ace",
+      "type": "string"
+    },
     "paths": {
       "items": {
         "maxLength": 4096,
@@ -28,6 +36,15 @@
       },
       "maxItems": 128,
       "type": "array"
+    },
+    "riskClass": {
+      "enum": [
+        "read-only",
+        "thread-write",
+        "agent-execution",
+        "external-effect"
+      ],
+      "type": "string"
     },
     "tool": {
       "maxLength": 256,

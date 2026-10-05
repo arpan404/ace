@@ -8,6 +8,8 @@
     "tool_call",
     "notice",
     "compaction",
+    "delegation.started",
+    "delegation.settled",
     "artifact"
   ],
   "type": "string"

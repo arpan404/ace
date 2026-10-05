@@ -317,8 +317,20 @@ export async function openPiSession(
     get nativeSessionFile() {
       return nativeFile;
     },
-    async send(input: ContentPart[], delivery: "steer" | "queue") {
+    async send(
+      input: ContentPart[],
+      delivery: "steer" | "queue",
+      _commandId?: string,
+      origin?: "ace",
+    ) {
       check();
+      if (origin === "ace") {
+        const content = piInput(input).message;
+        await rpc.request("prompt", {
+          message: `/ace-context ${controlSecret} ${Buffer.from(content).toString("base64")}`,
+        });
+        return;
+      }
       await rpc.request("prompt", {
         ...piInput(input),
         streamingBehavior: delivery === "steer" ? "steer" : "followUp",

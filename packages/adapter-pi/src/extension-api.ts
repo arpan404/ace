@@ -1,5 +1,9 @@
 /** Structural subset of the version-pinned public Pi extension API. No provider internals. */
 export interface PiExtensionApi {
+  sendMessage?(
+    message: { customType: string; content: string; display: boolean; details: unknown },
+    options: { triggerTurn: boolean; deliverAs: "followUp" },
+  ): void;
   appendEntry(customType: string, data: unknown): void;
   registerCommand(
     name: string,
