@@ -23,7 +23,7 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
   return (
     <div className="group/answer text-prose leading-[1.6] tracking-[-0.005em]">
       {name && <p className="mb-1 text-ui font-medium text-muted-foreground">{name}</p>}
-      <Prose text={text} />
+      <Prose text={text} stream={`${props.threadId}/${props.itemId}`} streaming={streaming} />
       {streaming && (
         <span
           role="status"

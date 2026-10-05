@@ -1,6 +1,7 @@
 import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import type { WorkspaceDefinition } from "./definition.ts";
+import type { CloseWarning } from "./registry.ts";
 import {
   emptyWorkspace,
   seedWorkspace,
@@ -8,6 +9,7 @@ import {
   ScopeWorkspaceSchema,
   type Dock,
   type ScopeWorkspace,
+  type WorkspaceTab,
 } from "./model.ts";
 
 /*
@@ -24,6 +26,15 @@ export interface PreferredSizes {
   bottom: number;
 }
 export const defaultSizes: PreferredSizes = { right: 520, bottom: 240 };
+
+/** A closed tab, kept so Reopen closed tab can put it back where it was. */
+export interface ClosedTab {
+  tab: WorkspaceTab;
+  dock: Dock;
+  index: number;
+}
+/** Closed tabs kept per scope. */
+const closedCapacity = 10;
 
 const storageKey = "ace.workspace";
 /** The shell layout's old single panel state (before per-thread workspaces); sizes carry over. */
@@ -52,6 +63,11 @@ export class WorkspaceStore {
   /** A change was kept in memory only (a drag still moving); the next persist writes it. */
   private dirty = false;
   private readonly definitions = new Map<string, WorkspaceDefinition>();
+  /** Per scope, the tabs closed most recently, newest last. Memory only. */
+  private readonly closed = new Map<string, ClosedTab[]>();
+  private confirmer: ((warning: CloseWarning) => Promise<boolean>) | undefined;
+  /** Questions asked while no dialog was registered. */
+  private readonly unasked: { warning: CloseWarning; answer(agreed: boolean): void }[] = [];
 
   constructor(options: { storage?: KeyValueStorage | undefined; capacity?: number } = {}) {
     this.storage = options.storage;
@@ -146,6 +162,48 @@ export class WorkspaceStore {
     for (const listener of this.globalListeners) listener();
   }
 
+  /**
+   * The dialog that asks before closing tabs that would stop something (the screen's). Without
+   * one, such tabs close at once.
+   */
+  setConfirm(confirm: (warning: CloseWarning) => Promise<boolean>): () => void {
+    this.confirmer = confirm;
+    // Questions asked before the dialog had loaded are asked now.
+    for (const { warning, answer } of this.unasked.splice(0)) void confirm(warning).then(answer);
+    return () => {
+      if (this.confirmer === confirm) this.confirmer = undefined;
+    };
+  }
+
+  /**
+   * Ask whether to close tabs that would stop something. With no dialog yet, the question waits
+   * for one rather than answering yes: closing never ends a shell unasked.
+   */
+  confirmClose(warning: CloseWarning): Promise<boolean> {
+    if (this.confirmer) return this.confirmer(warning);
+    return new Promise((answer) => this.unasked.push({ warning, answer }));
+  }
+
+  /** Keep a closed tab for Reopen closed tab (the last `closedCapacity` per scope). */
+  rememberClosed(scope: string, closed: ClosedTab): void {
+    const list = this.closed.get(scope) ?? [];
+    list.push(closed);
+    if (list.length > closedCapacity) list.shift();
+    this.closed.set(scope, list);
+  }
+
+  /** The most recently closed tab of a scope that `accept` lets come back, forgetting it. */
+  takeClosed(scope: string, accept: (closed: ClosedTab) => boolean): ClosedTab | undefined {
+    const list = this.closed.get(scope) ?? [];
+    for (let closed = list.pop(); closed; closed = list.pop()) if (accept(closed)) return closed;
+    return undefined;
+  }
+
+  /** Whether the scope has a closed tab to reopen. */
+  hasClosed(scope: string): boolean {
+    return !!this.closed.get(scope)?.length;
+  }
+
   subscribe(scope: string, listener: () => void): () => void {
     let set = this.listeners.get(scope);
     if (!set) this.listeners.set(scope, (set = new Set()));
@@ -173,6 +231,7 @@ export class WorkspaceStore {
       this.scopes.delete(scope);
       this.seeded.delete(scope);
       this.definitions.delete(scope);
+      this.closed.delete(scope);
     }
   }
 

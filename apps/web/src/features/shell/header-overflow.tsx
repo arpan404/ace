@@ -34,7 +34,18 @@ export function Overflow(props: {
       >
         {props.actions && <div className={row}>{props.actions}</div>}
         {props.actions && props.tools && <span aria-hidden className={rule} />}
-        {props.tools && <div className={row}>{props.tools}</div>}
+        {props.tools && (
+          <div
+            className={row}
+            // A panel toggle opens a panel over the header (a sheet on a phone): the ⋯ steps
+            // aside instead of staying open under it, where Escape would close it first.
+            onClick={(event) => {
+              if ((event.target as Element).closest("[data-dock-toggle]")) setOpen(false);
+            }}
+          >
+            {props.tools}
+          </div>
+        )}
         {(props.actions || props.tools) && props.menu && <span aria-hidden className={rule} />}
         {props.menu && (
           <Menu>

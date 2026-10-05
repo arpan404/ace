@@ -87,10 +87,7 @@ export function PageView(props: {
       onMouseUp={send("mouseReleased")}
       onWheel={onWheel}
       onKeyDown={onKeyDown}
-      className={cn(
-        className,
-        "cursor-default outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
-      )}
+      className={cn(className, "cursor-default outline-none focus-ring-inset")}
     >
       {image}
     </div>

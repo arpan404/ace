@@ -7,14 +7,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "node src/bundle.ts && node --expose-gc src/soak.ts && node src/browser.ts && node src/memory.ts && node src/long-thread.ts",
+    "check": "node src/bundle.ts && node --expose-gc src/soak.ts && node src/browser.ts && node src/memory.ts && node src/long-thread.ts && node src/markdown-stream.ts",
     "check:static": "node src/bundle.ts && node --expose-gc src/soak.ts",
     "soak": "node --expose-gc src/soak.ts",
     "bundle": "node src/bundle.ts",
     "browser": "node src/browser.ts",
     "memory": "node src/memory.ts",
     "long-thread": "node src/long-thread.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "markdown-stream": "node src/markdown-stream.ts"
   },
   "dependencies": {
     "@ace/client": "workspace:*",

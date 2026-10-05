@@ -50,22 +50,24 @@ Example:
   "defaultTier": "example",
   "deprecated": false,
   "displayName": "example",
-  "favourite": true,
+  "favourite": false,
   "hidden": false,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
-  "instanceId": "example",
   "isDefault": false,
-  "modelConfigId": "example",
+  "isNew": true,
   "nativeModelId": "example",
-  "provider": "cursor",
+  "nativeProviderId": "example",
+  "provider": "codex",
+  "providerEnabled": false,
   "raw": {
     "json": "example",
     "truncated": false
   },
   "reasoningEfforts": [],
-  "serviceTiers": []
+  "serviceTiers": [],
+  "visibilityReason": "provider_hidden"
 }
 ```
 
@@ -85,9 +87,7 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "installationId": "example",
-  "instanceId": "example"
+  "acpAgentId": "example"
 }
 ```
 
@@ -116,9 +116,8 @@ Example:
   "enabled": true,
   "instance": "example",
   "instanceId": "example",
-  "lastRefreshedAt": 5,
-  "provider": "claude",
-  "refreshing": true,
+  "provider": "codex",
+  "refreshing": false,
   "stale": true
 }
 ```
@@ -141,10 +140,9 @@ Example:
 
 ```json
 {
-  "instance": "example",
-  "limit": 4,
+  "acpAgentId": "example",
   "offset": 2,
-  "provider": "codex"
+  "provider": "claude"
 }
 ```
 
@@ -163,8 +161,7 @@ Example:
 ```json
 {
   "instances": [],
-  "models": [],
-  "nextOffset": 4
+  "models": []
 }
 ```
 
@@ -187,22 +184,19 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "model": {
     "acpAgentId": "example",
-    "deprecated": true,
+    "defaultEffort": "example",
+    "deprecated": false,
     "displayName": "example",
-    "favourite": true,
     "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
-    "isDefault": true,
-    "isNew": true,
-    "legacy": true,
+    "isDefault": false,
+    "modelConfigId": "example",
     "nativeModelId": "example",
-    "nativeProviderId": "example",
-    "provider": "codex",
+    "provider": "acp",
     "raw": {
       "json": "example",
       "truncated": false
@@ -255,13 +249,13 @@ Example:
 
 ```json
 {
-  "effort": "example",
+  "acpAgentId": "example",
+  "imageInput": false,
+  "installationId": "example",
   "instance": "example",
   "instanceId": "example",
-  "preferenceOrder": [],
-  "provider": "claude",
-  "role": "example",
-  "tier": "example"
+  "model": "example",
+  "role": "example"
 }
 ```
 
@@ -279,12 +273,6 @@ Example:
 
 ```json
 {
-  "options": {
-    "acpAgentId": "example",
-    "installationId": "example",
-    "instance": "example",
-    "offset": 5
-  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -304,6 +292,11 @@ Example:
 
 ```json
 {
+  "filter": {
+    "acpAgentId": "example",
+    "installationId": "example",
+    "provider": "claude"
+  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -325,12 +318,14 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
+    "acpAgentId": "example",
     "imageInput": true,
     "installationId": "example",
     "instance": "example",
     "instanceId": "example",
-    "provider": "codex",
+    "model": "example",
+    "preferenceOrder": [],
+    "provider": "acp",
     "role": "example"
   },
   "type": "models.resolve"
@@ -353,8 +348,32 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": false,
-    "reason": "example"
+    "effort": "example",
+    "model": {
+      "defaultTier": "example",
+      "deprecated": true,
+      "displayName": "example",
+      "favourite": true,
+      "hidden": false,
+      "id": "example",
+      "inputModalities": [],
+      "installationId": "example",
+      "instance": "example",
+      "isDefault": true,
+      "legacy": true,
+      "nativeModelId": "example",
+      "provider": "antigravity",
+      "raw": {
+        "json": "example",
+        "truncated": false
+      },
+      "reasoningEfforts": [],
+      "resolvedModelId": "example",
+      "serviceTiers": []
+    },
+    "ok": true,
+    "reason": "example",
+    "stale": true
   },
   "type": "models.result"
 }
@@ -377,6 +396,6 @@ Example:
 {
   "id": "example",
   "name": "example",
-  "parameters": {}
+  "speed": "standard"
 }
 ```

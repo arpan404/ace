@@ -4,7 +4,7 @@ import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
 import { applyDelivery, usageSnapshotKey, rebuildAgentChildren } from "@ace/projection";
-import type { ThreadView, EventBatch, Progress, ItemsPage } from "@ace/protocol";
+import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
 import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
 import type { ThreadKey, ThreadReader } from "./readers.ts";
 import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
@@ -98,6 +98,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   }
   truncated(id: string) {
     return this.clipped.has(id);
+  }
+  appended(previous: Item, next: Item) {
+    return this.messageDeltas.appended(previous, next);
   }
   private own<T>(record: Record<string, T> | undefined, id: string): T | undefined {
     return record && Object.hasOwn(record, id) ? record[id] : undefined;

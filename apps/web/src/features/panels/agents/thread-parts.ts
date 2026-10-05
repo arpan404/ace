@@ -30,6 +30,11 @@ export interface ThreadParts {
     placeholder: string;
     unavailable?: { reason: string; describedBy: string; short?: string | undefined } | undefined;
   }>;
+  /**
+   * Fork the thread from its latest finished turn (opens the fork form); undefined until a
+   * turn has finished.
+   */
+  fork?: (() => void) | undefined;
   /** The deck a thread works for, with its lanes. */
   DeckOfThread?: ComponentType<{
     runId: string;

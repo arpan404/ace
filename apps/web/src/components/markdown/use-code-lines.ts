@@ -22,9 +22,9 @@ export function useCodeLines(code: string | undefined, lang: string | undefined)
     if (code === undefined || !hash || ready.get(hash)) return;
     let live = true;
     markdownWorker.run({ code, lang, hash }).then(
-      (output) => {
+      (lines) => {
         // A code job answers with lines.
-        const lines = output as CodeLines;
+        if (!lines || !("lines" in lines)) return;
         ready.set(hash, lines);
         if (live) setDone(lines);
       },

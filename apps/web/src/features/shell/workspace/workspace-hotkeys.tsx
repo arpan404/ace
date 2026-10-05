@@ -25,25 +25,42 @@ export function WorkspaceHotkeys(props: {
   actions: WorkspaceActions;
 }) {
   const { workspace, actions } = props;
-  useHotkey(keymap.rightPanel.keys, () => actions.toggle("right"));
-  useHotkey(keymap.bottomPanel.keys, () => actions.toggle("bottom"));
-  useHotkey(keymap.fullView.keys, () =>
-    withViewTransition(() => actions.setExpanded(!workspace.expanded)),
+  useHotkey(keymap.rightPanel.keys, () => actions.toggle("right"), { id: "rightPanel" });
+  useHotkey(keymap.bottomPanel.keys, () => actions.toggle("bottom"), { id: "bottomPanel" });
+  useHotkey(
+    keymap.fullView.keys,
+    () => withViewTransition(() => actions.setExpanded(!workspace.expanded)),
+    { id: "fullView" },
   );
-  useHotkey(keymap.newTab.keys, () => actions.newTab(targetDock(workspace) ?? "right"));
-  useHotkey(keymap.closeTab.keys, () => {
-    const dock = targetDock(workspace);
-    const tab = dock && shownTab(workspace[dock]);
-    if (tab) actions.close(tab.key);
+  useHotkey(keymap.newTab.keys, () => actions.newTab(targetDock(workspace) ?? "right"), {
+    id: "newTab",
   });
-  useHotkey(keymap.nextTab.keys, () => {
-    const dock = targetDock(workspace);
-    if (dock) actions.cycle(dock, 1);
-  });
-  useHotkey(keymap.previousTab.keys, () => {
-    const dock = targetDock(workspace);
-    if (dock) actions.cycle(dock, -1);
-  });
+  useHotkey(
+    keymap.closeTab.keys,
+    () => {
+      const dock = targetDock(workspace);
+      const tab = dock && shownTab(workspace[dock]);
+      if (tab) void actions.close(tab.key);
+    },
+    { id: "closeTab" },
+  );
+  useHotkey(keymap.reopenTab.keys, () => actions.reopen(), { id: "reopenTab" });
+  useHotkey(
+    keymap.nextTab.keys,
+    () => {
+      const dock = targetDock(workspace);
+      if (dock) actions.cycle(dock, 1);
+    },
+    { id: "nextTab" },
+  );
+  useHotkey(
+    keymap.previousTab.keys,
+    () => {
+      const dock = targetDock(workspace);
+      if (dock) actions.cycle(dock, -1);
+    },
+    { id: "previousTab" },
+  );
   // Bound from first paint: the definition names each tool's shortcut, so they work before the
   // kinds' code has loaded (the action waits for it).
   return Object.entries(props.definition.shortcuts ?? {}).map(([kind, shortcut]) => (
@@ -52,6 +69,6 @@ export function WorkspaceHotkeys(props: {
 }
 
 function KindShortcut(props: { shortcut: KeymapId; onPress(): void }) {
-  useHotkey(keymap[props.shortcut].keys, props.onPress);
+  useHotkey(keymap[props.shortcut].keys, props.onPress, { id: props.shortcut });
   return null;
 }

@@ -11,7 +11,7 @@ export function workerZod(): Plugin {
     name: "ace:worker-zod",
     transform(code, id) {
       if (
-        !/(?:\/packages\/client-worker\/src\/wire|\/apps\/web\/src\/boot\/(?:worker-target|connection-settings))\.ts$/.test(
+        !/(?:\/packages\/client-worker\/src\/wire|\/apps\/web\/src\/boot\/(?:worker-target|machine-target|connection-settings))\.ts$/.test(
           id,
         )
       )

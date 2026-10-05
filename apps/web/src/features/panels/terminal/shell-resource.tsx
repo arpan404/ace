@@ -200,7 +200,7 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
       </Tip>
       <code
         title={props.command}
-        className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12px] text-foreground"
+        className="min-w-0 truncate rounded-xs bg-secondary px-1.5 py-px font-mono text-sm text-foreground"
       >
         {props.command}
       </code>
@@ -271,7 +271,8 @@ function ShellButtons(props: TabViewProps) {
         shortcut="findInTerminal"
         onClick={() => setTabUi(terminalUi, tab.key, { find: true })}
       />
-      <SessionsMenu scope={scope} dock={dock} />
+      {/* The bottom panel shows the sessions for every tab (`dock-sessions.tsx`). */}
+      {dock === "right" && <SessionsMenu scope={scope} dock={dock} />}
     </>
   );
 }
