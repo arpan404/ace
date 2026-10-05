@@ -50,6 +50,27 @@ test("paired read operate and admin devices need explicit projects scope for pat
           ? { kind: "directories" }
           : { kind: "error", code: "forbidden" },
       });
+      for (const operation of [
+        { op: "fs.search", query: "project" },
+        { op: "fs.complete", path: `${path}/` },
+        { op: "workspace.clone.validate", url: "arpan404/ace" },
+      ]) {
+        client.send(
+          ProjectsRequest.parse({ type: "projects.request", requestId: "picker-scope", operation }),
+        );
+        expect(await until(client, (message) => message.type === "projects.result")).toMatchObject({
+          result: scopes.includes("projects")
+            ? {
+                kind:
+                  operation.op === "fs.search"
+                    ? "search"
+                    : operation.op === "fs.complete"
+                      ? "completion"
+                      : "cloneUrl",
+              }
+            : { kind: "error", code: "forbidden" },
+        });
+      }
       client.send({
         type: "command",
         command: Command.parse({

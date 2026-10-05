@@ -9,7 +9,7 @@ import { failureMessage } from "@/lib/daemon-command.ts";
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { contextPages } from "./context-pages.ts";
-import { usePermissionCapabilities, useSetThreadPermission } from "./permission-hooks.ts";
+import { usePermissionCapabilities, useThreadPermission } from "./permission-hooks.ts";
 
 /** At most this many open pages are offered; the rest are a tab away. */
 const shownPages = 3;
@@ -22,12 +22,14 @@ export function ThreadContextRows(props: { thread: ThreadRef; onInsert(text: str
   const meta = useThreadMeta(props.thread.id);
   const workspace = useScopeWorkspace(props.thread.id);
   const toast = useToast();
-  const set = useSetThreadPermission(props.thread.id);
+  const permission = useThreadPermission(props.thread.id, meta?.permission);
   const { capabilities, loading } = usePermissionCapabilities(
     meta?.provider,
     meta?.capabilities?.permissions,
   );
-  const mode = meta?.permission?.override ?? meta?.permission?.effective;
+  const mode =
+    (permission.chosen !== undefined ? permission.chosen : meta?.permission?.override) ??
+    meta?.permission?.effective;
   const provider = meta ? providerNames[meta.provider] : "This provider";
   const planReason =
     loading || !meta
@@ -44,17 +46,18 @@ export function ThreadContextRows(props: { thread: ThreadRef; onInsert(text: str
         icon={<Icon icon={ListChecksIcon} />}
         reason={planReason}
         disabled={!!planReason}
-        onClick={() =>
-          void set("read-only").then(
-            () =>
-              toast.add({
-                title: "Approvals: Read only",
-                description: "The agent plans from its next turn; switch back to let it act.",
-              }),
-            (error: unknown) =>
+        onClick={() => {
+          // The approvals chip shows the change at once; only a refusal takes it back.
+          toast.add({
+            title: "Approvals: Read only",
+            description: "The agent plans from its next turn; switch back to let it act.",
+          });
+          void permission
+            .change("read-only")
+            .catch((error: unknown) =>
               toast.add({ title: "Couldn't change approvals", description: failureMessage(error) }),
-          )
-        }
+            );
+        }}
       >
         Plan first
       </MenuItem>

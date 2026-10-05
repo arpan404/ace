@@ -1,9 +1,14 @@
 import type { ExecutionOptions, Thread } from "@ace/protocol";
 
-/** What a thread runs on: a switch waiting for its next turn, else its execution or live fields. */
+/** What a thread runs on: a switch waiting for its next turn, else what it runs on now. */
 export function runsOn(meta: Thread | undefined) {
   if (!meta) return undefined;
   if (meta.switch?.state === "queued") return meta.switch.selection;
+  return runsNow(meta);
+}
+
+/** What a thread's agent runs on now, before any switch waiting for its next turn. */
+export function runsNow(meta: Thread) {
   return (
     meta.execution ?? {
       provider: meta.provider,

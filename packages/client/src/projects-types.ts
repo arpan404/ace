@@ -16,6 +16,10 @@ type Input<T extends ProjectCommand["type"]> = Omit<
   Extract<z.input<typeof ProjectCommand>, { type: T }>,
   "type"
 >;
+type PickerInput<T extends ProjectsRequest["operation"]["op"]> = Omit<
+  Extract<z.input<typeof ProjectsRequest>["operation"], { op: T }>,
+  "op"
+>;
 type BrowseInput = Omit<
   Extract<z.input<typeof ProjectsRequest>["operation"], { op: "fs.browse" }>,
   "op"
@@ -51,6 +55,9 @@ export interface ProjectCalls {
   home(options?: RequestOptions): Promise<ProjectsResult>;
   recentFolders(limit?: number, options?: RequestOptions): Promise<ProjectsResult>;
   browse(input: BrowseInput, options?: RequestOptions): Promise<ProjectsResult>;
+  search(input: PickerInput<"fs.search">, options?: RequestOptions): Promise<ProjectsResult>;
+  complete(input: PickerInput<"fs.complete">, options?: RequestOptions): Promise<ProjectsResult>;
+  validateCloneUrl(url: string, options?: RequestOptions): Promise<ProjectsResult>;
   cancelClone(commandId: string, options?: RequestOptions): Promise<ProjectsResult>;
 }
 export interface ProjectsApi extends ProjectCalls {

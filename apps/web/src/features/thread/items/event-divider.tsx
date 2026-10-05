@@ -1,5 +1,5 @@
 import type { ThreadReader } from "@ace/client";
-import { useAgent, useItem, useThread } from "@ace/client-react";
+import { useItem, useThread } from "@ace/client-react";
 import type { Item, ProviderKind } from "@ace/protocol";
 import {
   echoesEarlierError,
@@ -12,7 +12,6 @@ import {
   providerNames,
   repeatsEarlierEvent,
   settledResults,
-  stepPath,
   systemInput,
   taskPrompt,
   type ErrorInput,
@@ -21,7 +20,6 @@ import {
   type InputKind,
 } from "@ace/ui-core";
 import {
-  ArchiveIcon,
   ArrowClockwiseIcon,
   ArrowsLeftRightIcon,
   ClockCounterClockwiseIcon,
@@ -33,6 +31,7 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useId, useState } from "react";
+import { ArtifactLine } from "@/components/attachment-artifact.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -218,7 +217,7 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         </Marker>
       );
     case "artifact":
-      return <Artifact threadId={props.threadId} agentId={item.agentId ?? ""} path={item.path} />;
+      return <ArtifactLine threadId={props.threadId} path={item.path} mimeType={item.mimeType} />;
     case "message":
       return (
         <QuietText
@@ -267,20 +266,6 @@ function QuietText(props: { text: string }) {
         )}
       </div>
     </div>
-  );
-}
-
-function Artifact(props: { threadId: string; agentId: string; path: string }) {
-  const agent = useAgent(props.threadId, props.agentId);
-  const path = stepPath(props.path, { cwd: agent?.cwd });
-  return (
-    <p className="flex items-center gap-2 text-ui text-muted-foreground">
-      <ArchiveIcon aria-hidden size={16} className="text-subtle-foreground" />
-      Saved{" "}
-      <code title={path.full} className="font-mono text-[12.5px] text-foreground">
-        {path.text}
-      </code>
-    </p>
   );
 }
 
