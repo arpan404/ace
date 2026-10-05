@@ -552,9 +552,9 @@ for (const theme of ["dark", "light"] as const)
     });
 
 /*
- * Narrow windows, the sidebar as icons, keyboard focus and reduced motion. At 390px the
- * sidebar is a sheet opened from the header; below 1152px the panels float over the transcript
- * instead of squeezing it.
+ * Narrow windows, the rail's tooltips, project folders, keyboard focus and reduced motion. At
+ * 390px the rail and sidebar are a sheet opened from the header; below 1152px the panels float
+ * over the transcript instead of squeezing it.
  */
 const sized: Record<string, { width: number; height: number; setup: Setup }> = {
   "mobile-thread": { width: 390, height: 844, setup: openThread("/t/thread-dedupe") },
@@ -575,22 +575,33 @@ const sized: Record<string, { width: number; height: number; setup: Setup }> = {
   "tablet-thread": { width: 1024, height: 768, setup: openThread("/t/thread-dedupe") },
   "tablet-panel": { width: 1024, height: 768, setup: rightTab("/t/thread-cold-start", /^Changes/) },
   "tablet-activity": { width: 1024, height: 768, setup: visit("/activity", "Activity") },
-  // The sidebar collapsed to a column of icons, a tooltip naming one.
-  "sidebar-icons": {
+  // A rail icon's tooltip: its name and shortcut.
+  "rail-tooltip": {
     width: 1440,
     height: 900,
     setup: async (page) => {
       await openThread("/t/thread-dedupe")(page);
-      await page.getByRole("button", { name: "Collapse sidebar" }).click();
       await page
         .getByRole("navigation", { name: "Views" })
         .getByRole("link", { name: "Deck" })
         .hover();
-      await page.getByText("G D").waitFor();
+      await page.getByRole("tooltip").waitFor();
     },
   },
-  // Keyboard only: Tab through the sidebar's views, the list, the composer and the panel tabs.
-  "focus-sidebar": {
+  // A project folder closed: its threads go, the folder says one of them needs you.
+  "home-folder-closed": {
+    width: 1440,
+    height: 900,
+    setup: async (page) => {
+      await openThread("/t/thread-dedupe")(page);
+      await threadList(page)
+        .getByRole("button", { name: /^relay/ })
+        .click();
+      await expect(threadList(page).getByRole("link", { name: /^Retry budget/ })).toHaveCount(0);
+    },
+  },
+  // Keyboard only: Tab through the rail, the list, the composer and the panel tabs.
+  "focus-rail": {
     width: 1440,
     height: 900,
     setup: async (page) => {

@@ -10,20 +10,17 @@ import type { WorkspaceStore } from "./workspace/store.ts";
  * workspace store (`lib/workspace`), which reads the same storage.
  */
 export const ShellLayout = z.object({
-  /** The sidebar is on screen (⌘\ hides it completely). */
+  /** The sidebar beside the rail is on screen (⌘\ hides it; the rail stays). */
   sidebarOpen: z.catch(z.boolean(), true),
-  /** Shown, the sidebar is a narrow column of icons rather than the full one. */
-  sidebarCollapsed: z.catch(z.boolean(), false),
 });
 export type ShellLayout = z.infer<typeof ShellLayout>;
 
-const defaultLayout: ShellLayout = { sidebarOpen: true, sidebarCollapsed: false };
+const defaultLayout: ShellLayout = { sidebarOpen: true };
 const storageKey = "ace.layout";
 
 interface LayoutValue {
   layout: ShellLayout;
   setSidebarOpen(open: boolean): void;
-  setSidebarCollapsed(collapsed: boolean): void;
   paletteOpen: boolean;
   setPaletteOpen(open: boolean): void;
   /** A screen is showing its right dock now (not just remembered open), so a crowded window
@@ -79,7 +76,6 @@ export function LayoutProvider(props: {
       storage,
       workspaceStore,
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
-      setSidebarCollapsed: (collapsed) => change((p) => ({ ...p, sidebarCollapsed: collapsed })),
     }),
     [layout, paletteOpen, rightPanel, setRightPanel, change, storage, workspaceStore],
   );
