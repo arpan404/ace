@@ -58,6 +58,10 @@ export interface EngineOptions {
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
+  onSessionOpenFailure?: (
+    thread: ThreadId,
+    details: import("@ace/protocol").ProviderErrorDetails,
+  ) => void;
   onProviderDiagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void;
   aceToolAction?: typeof import("@ace/mcp-server").aceToolAction;
   mcp?: (
@@ -128,6 +132,7 @@ export class Engine {
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
+      ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
       ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
       ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),
       registry: this.registry,

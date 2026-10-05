@@ -10501,6 +10501,8 @@ true
 | --- | --- | --- | --- |
 | code | yes | string | {"minLength":1,"maxLength":256} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| title | no | string | {"maxLength":256} |
+| detail | no | string | {"maxLength":2048} |
 | model | no | string | {"minLength":1,"maxLength":256} |
 
 Example:
@@ -10558,7 +10560,7 @@ Type: ["claude","codex","opencode","cursor","antigravity","acp","pi"]. See JSON 
 Example:
 
 ```json
-"pi"
+"codex"
 ```
 
 ## ProvidersRequest
@@ -10575,6 +10577,7 @@ Example:
 
 ```json
 {
+  "operation": "list",
   "requestId": "example",
   "type": "providers.request"
 }
@@ -10596,8 +10599,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": true,
-    "providers": []
+    "error": "forbidden",
+    "ok": false
   },
   "type": "providers.result"
 }
@@ -10628,14 +10631,15 @@ Example:
 
 ```json
 {
+  "accountLabel": "example",
   "auth": "unknown",
-  "checkedAt": 6,
+  "authEvidence": "credentials_configured",
+  "error": "example",
   "installed": null,
   "loginHint": "example",
-  "path": "example",
-  "provider": "claude",
-  "refreshing": true,
-  "runtime": "cli",
+  "provider": "opencode",
+  "refreshing": false,
+  "runtime": "cursor-sdk",
   "stale": true
 }
 ```
@@ -10659,8 +10663,8 @@ Example:
 
 ```json
 {
-  "exitCode": 5,
-  "signal": 7
+  "exitCode": 9,
+  "signal": 9
 }
 ```
 
@@ -10681,8 +10685,8 @@ Example:
 
 ```json
 {
+  "allowOther": false,
   "id": "example",
-  "multiSelect": false,
   "options": [],
   "text": "example"
 }
@@ -10704,13 +10708,12 @@ Example:
 
 ```json
 {
-  "delivery": "steer",
+  "delivery": "queue",
   "id": "example",
   "input": [
     {
-      "mimeType": "example",
-      "path": "example",
-      "type": "file"
+      "text": "example",
+      "type": "text"
     }
   ],
   "state": "uncertain"
@@ -10734,6 +10737,8 @@ Example:
 
 ```json
 {
+  "after": "example",
+  "limit": 7,
   "requestId": "example",
   "threadId": "example",
   "type": "queue.get"
@@ -10751,8 +10756,9 @@ Example:
 ```json
 [
   {
-    "text": "example",
-    "type": "text"
+    "mimeType": "example",
+    "type": "image",
+    "url": "example"
   }
 ]
 ```
@@ -10779,9 +10785,9 @@ Example:
   "messages": [],
   "next": "example",
   "paused": false,
-  "reason": "restart",
-  "resumeAt": null,
-  "revision": 1,
+  "reason": null,
+  "resumeAt": 4,
+  "revision": 3,
   "threadId": "example",
   "total": 5
 }
@@ -10804,12 +10810,12 @@ Example:
   "queue": {
     "messages": [],
     "next": "example",
-    "paused": false,
-    "reason": "uncertain",
-    "resumeAt": 9,
-    "revision": 4,
+    "paused": true,
+    "reason": null,
+    "resumeAt": null,
+    "revision": 9,
     "threadId": "example",
-    "total": 9
+    "total": 3
   },
   "requestId": "example",
   "type": "queue.result"
@@ -10835,9 +10841,9 @@ Example:
 {
   "messages": [],
   "paused": false,
-  "reason": null,
-  "resumeAt": 2,
-  "revision": 2,
+  "reason": "restart",
+  "resumeAt": null,
+  "revision": 7,
   "threadId": "example"
 }
 ```
@@ -10858,9 +10864,9 @@ Example:
 ```json
 {
   "paused": true,
-  "reason": "restart",
-  "resumeAt": 8,
-  "revision": 5
+  "reason": "limit",
+  "resumeAt": null,
+  "revision": 1
 }
 ```
 

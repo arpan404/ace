@@ -336,6 +336,10 @@
                             "minLength": 1,
                             "type": "string"
                           },
+                          "detail": {
+                            "maxLength": 2048,
+                            "type": "string"
+                          },
                           "model": {
                             "maxLength": 256,
                             "minLength": 1,
@@ -351,6 +355,10 @@
                               "acp",
                               "pi"
                             ],
+                            "type": "string"
+                          },
+                          "title": {
+                            "maxLength": 256,
                             "type": "string"
                           }
                         },

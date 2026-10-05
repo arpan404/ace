@@ -102,6 +102,7 @@ export async function harness(
     provider?: ProviderKind;
     capabilities?: Capabilities;
     nativeAdapter?: ProviderAdapter;
+    onSessionOpenFailure?: EngineOptions["onSessionOpenFailure"];
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-engine-"));
@@ -167,6 +168,7 @@ export async function harness(
     idleMs: options.idleMs ?? 30_000,
     silenceMs: 100,
     onError: (error) => errors.push(error),
+    ...(options.onSessionOpenFailure ? { onSessionOpenFailure: options.onSessionOpenFailure } : {}),
   });
   const server = await startServer({
     port: 0,

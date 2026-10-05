@@ -453,3 +453,23 @@ it("binds the root before queued input when session creation and root traffic sh
     await session.close("shutdown");
   }
 });
+
+it("ACP open failures preserve structured causes and redact launch credentials", async () => {
+  const secret = "private-acp-launch-secret";
+  const failed = setup(cursorQuirks, false, {
+    now: () => 0,
+    spawn: () => {
+      throw {
+        code: "launch_failed",
+        title: "CLI launch failed",
+        detail: `Cannot launch; api_key=${secret}`,
+      };
+    },
+  });
+  const failure: unknown = await failed.catch((error: unknown) => error);
+  expect(failure).toMatchObject({ code: "launch_failed", title: "CLI launch failed" });
+  expect(failure).toBeInstanceOf(Error);
+  if (!(failure instanceof Error)) throw new Error("Expected opening failure");
+  expect(failure.message).toContain("Cannot launch");
+  expect(failure.message).not.toContain(secret);
+});

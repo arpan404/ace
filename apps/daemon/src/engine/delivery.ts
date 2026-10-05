@@ -32,7 +32,9 @@ export async function executeIntent(
     try {
       await sessions.open(actor);
     } catch (error) {
-      throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error));
+      throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error), {
+        cause: error,
+      });
     }
     await repo.store.writable();
     if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
