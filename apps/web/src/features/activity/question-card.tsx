@@ -1,4 +1,4 @@
-import type { Interaction, InteractionRequest } from "@ace/protocol";
+import type { Interaction } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { questionOptions } from "@ace/ui-core";
@@ -12,18 +12,7 @@ import {
 } from "./card-frame.tsx";
 import { confirmations, useAnswer } from "./use-answer.ts";
 
-export function requestTitle(request: InteractionRequest): string {
-  switch (request.kind) {
-    case "approval":
-      return request.title;
-    case "question":
-      return request.questions[0]?.text ?? "Question";
-    case "plan_review":
-      return request.title ?? "Review the plan";
-    case "elicitation":
-      return request.message;
-  }
-}
+export { requestTitle } from "./request-title.ts";
 
 const numberKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
 

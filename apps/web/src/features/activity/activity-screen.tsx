@@ -7,6 +7,7 @@ import { useActivityState } from "./activity-state.tsx";
 import { ItemDetail } from "./item-detail.tsx";
 import { NeedsYouPage } from "./needs-you-page.tsx";
 import { NotificationPreferencesDialog } from "./notification-preferences.tsx";
+import { PickedBar } from "./picked-bar.tsx";
 import { useNeedsYouCount } from "./use-needs-you.ts";
 
 /**
@@ -35,6 +36,7 @@ export function ActivityScreen() {
       ) : (
         <EmptyState title="Select an item to see it here" />
       )}
+      <PickedBar />
       <NotificationPreferencesDialog open={prefsOpen} onOpenChange={setPrefsOpen} />
     </Screen>
   );

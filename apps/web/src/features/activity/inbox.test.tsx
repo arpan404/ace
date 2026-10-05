@@ -226,12 +226,36 @@ test("H snoozes the focused card's thread, which leaves Needs you until it wakes
   await waitFor(() => expect(main().queryByRole("article", { name: title })).toBeNull());
 });
 
-test("X picks the focused card for a batch action", async () => {
+test("X picks the focused card, and the picked threads snooze together", async () => {
   await openActivity();
   const cards = await main().findAllByRole("article");
-  await waitFor(() => expect(cards[0]?.getAttribute("aria-current")).toBe("true"));
+  const first = cards[0] as HTMLElement;
+  const title = first.getAttribute("aria-label") ?? "";
+  await waitFor(() => expect(first.getAttribute("aria-current")).toBe("true"));
   await userEvent.keyboard("x");
-  expect(within(cards[0] as HTMLElement).getByText("Picked")).toBeTruthy();
+  expect(within(first).getByText("Picked")).toBeTruthy();
+  const bar = within(screen.getByRole("toolbar", { name: "Picked items" }));
+  expect(bar.getByText("1 picked")).toBeTruthy();
+  // No batch approval, ever.
+  expect(bar.queryByRole("button", { name: /Approve/ })).toBeNull();
+  await userEvent.click(bar.getByRole("button", { name: "Snooze" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "1 hour" }));
+  await waitFor(() => expect(main().queryByRole("article", { name: title })).toBeNull());
+  expect(screen.queryByRole("toolbar", { name: "Picked items" })).toBeNull();
+});
+
+test("Shift-clicking feed rows picks them, and the picked ones are marked read together", async () => {
+  const { feed } = await openActivity();
+  const user = userEvent.setup();
+  await user.keyboard("{Shift>}");
+  await user.click(rowOf(feed, "Checks failed on #74"));
+  await user.click(rowOf(feed, mention));
+  await user.keyboard("{/Shift}");
+  const bar = within(screen.getByRole("toolbar", { name: "Picked items" }));
+  expect(bar.getByText("2 picked")).toBeTruthy();
+  await userEvent.click(bar.getByRole("button", { name: "Mark read" }));
+  await waitFor(() => expect(within(rowOf(feed, mention)).queryByText("Unread")).toBeNull());
+  expect(within(rowOf(feed, "Checks failed on #74")).queryByText("Unread")).toBeNull();
 });
 
 test("the first run says it once: one line in the list, one state in the main column", async () => {
