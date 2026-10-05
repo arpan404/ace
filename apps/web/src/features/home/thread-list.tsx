@@ -9,6 +9,7 @@ import { SettledRow } from "./settled-row.tsx";
 import { HomeMachine, useHomeMachine } from "./thread-details.ts";
 import { ThreadRow } from "./thread-row.tsx";
 import type { HomeList } from "./use-home-threads.ts";
+import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 
@@ -27,7 +28,8 @@ const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, j: 1, k: -1 }
  * visible rows mount. Up and Down (or j and k) move between rows; Tab still walks each row's
  * actions.
  * Rows that arrive (a new thread, an unsnooze) rise in, rows that go (settle, snooze, archive)
- * fade where they were, and the rest slide to their new places.
+ * fade where they were, and the rest slide to their new places. While the person points at the
+ * list or moves through it by keyboard, rows keep their places (`useHeldRows`).
  */
 export function ThreadList(props: { list: HomeList }) {
   const { active, settled } = props.list;
@@ -38,7 +40,9 @@ export function ThreadList(props: { list: HomeList }) {
     () => homeRows(active, settled, { settledOpen }),
     [active, settled, settledOpen],
   );
-  const { rows: drawn, moving } = useListMotion(rows, homeRowKey);
+  const hold = useListHold();
+  const held = useHeldRows(rows, hold.state, props.list.needsYou);
+  const { rows: drawn, moving } = useListMotion(held, homeRowKey);
   const viewport = useRef<HTMLDivElement>(null);
   // oxlint-disable-next-line react-compiler/incompatible-library -- the virtualizer's callbacks are unstable by design.
   const virtualizer = useVirtualizer({
@@ -79,6 +83,7 @@ export function ThreadList(props: { list: HomeList }) {
     <HomeMachine value={home}>
       <div
         ref={viewport}
+        {...hold.handlers}
         data-virtual-viewport=""
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-4"
       >

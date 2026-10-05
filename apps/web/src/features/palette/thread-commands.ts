@@ -51,7 +51,7 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
         },
       ];
     });
-    const projects = projectCounts(entries, state).map((project): PaletteCommand => ({
+    const projects = projectCounts(entries).map((project): PaletteCommand => ({
       id: `project-${project.id}`,
       label: project.id,
       detail: `${project.threads} thread${project.threads === 1 ? "" : "s"}`,

@@ -1,5 +1,5 @@
-// How this device shows the Home list (project filter, Settled open, the unread baseline and
-// threads hiding for Undo). The organization itself (settled, snoozed, pinned, read, titles,
+// How this device shows the Home list (project filter, Settled open and the unread baseline).
+// The organization itself (settled, snoozed, pinned, read, titles,
 // deletion) is the daemon's and arrives on each thread list entry.
 import { useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";

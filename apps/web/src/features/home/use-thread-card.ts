@@ -4,17 +4,18 @@ import { threadCard, type ThreadCard } from "@ace/ui-core";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useCardDetails } from "./thread-details.ts";
-import { useOrganizer } from "@/features/organize/index.ts";
+import { useOrganizer, useOverlaidEntry } from "@/features/organize/index.ts";
 
 /**
- * One Home row's view model, live: its own list entry (so other threads' updates skip it), the
- * shared minute clock, and the card wording from @ace/ui-core.
+ * One Home row's view model, live: its own list entry (so other threads' updates skip it) with
+ * any organize action not yet confirmed, the shared minute clock, and the card wording from
+ * @ace/ui-core.
  */
 export function useThreadCard(
   threadId: string,
   settled: boolean,
 ): { entry: ThreadListEntry; card: ThreadCard } | undefined {
-  const entry = useSidebarThread(threadId);
+  const entry = useOverlaidEntry(useSidebarThread(threadId));
   const details = useCardDetails(entry);
   const organizer = useOrganizer();
   const now = useNow();

@@ -5,6 +5,7 @@ import {
   ClockIcon,
   DotsThreeIcon,
   LightningIcon,
+  PauseIcon,
   PencilSimpleIcon,
   TrashIcon,
   WarningIcon,
@@ -15,30 +16,40 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Textarea } from "@/components/ui/input.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
+import type { PendingQueued } from "./queued-pending.ts";
 import { queuedText, type QueueControls } from "./use-queue.ts";
 
 /**
  * The daemon's queue for this thread, as pills above the composer: each waiting message with
  * Send now, Edit, Move up and down and Remove. A message the daemon can't vouch for (it may
- * have reached the agent before a restart) can only be removed.
+ * have reached the agent before a restart) can only be removed. A message just queued shows at
+ * once, from this window's outbox, and can be changed once the daemon has it (UX audit SY-7).
+ * After Stop the queue waits ("paused after Stop") rather than dropping anything (CMP-1).
  */
-export function QueuedPills(props: { queue: QueueControls }) {
-  const { page } = props.queue;
-  if (!page?.messages.length) return null;
-  const hidden = page.total - page.messages.length;
+export function QueuedPills(props: { queue: QueueControls; pending?: readonly PendingQueued[] }) {
+  const { page, messages } = props.queue;
+  const pending = props.pending ?? [];
+  if (!messages.length && !pending.length) return null;
+  const hidden = page ? page.total - page.messages.length : 0;
+  const stopped = !!page?.paused && String(page.reason) === "stopped";
   return (
     <div className="mb-2 flex flex-col items-center gap-1.5">
       <ul aria-label="Queued messages" className="flex w-full flex-col items-center gap-1.5">
-        {page.messages.map((message, index) => (
+        {messages.map((message, index) => (
           <QueuedPill
             key={message.id}
             message={message}
             index={index}
-            last={index === page.messages.length - 1}
+            last={index === messages.length - 1 && !pending.length}
+            stopped={stopped}
             queue={props.queue}
           />
+        ))}
+        {pending.map((message) => (
+          <SavingPill key={message.id} message={message} />
         ))}
       </ul>
       {hidden > 0 && (
@@ -50,16 +61,37 @@ export function QueuedPills(props: { queue: QueueControls }) {
   );
 }
 
+/** A queued message on its way to the daemon: shown, not yet changeable. */
+function SavingPill(props: { message: PendingQueued }) {
+  const text = queuedText(props.message);
+  return (
+    <li
+      aria-busy
+      className="fx-rise-in glass inline-flex h-7 max-w-full items-center gap-[7px] rounded-full pr-2.5 pl-2.5 text-sm text-muted-foreground"
+    >
+      <Icon icon={ClockIcon} size={14} />
+      <span className="shrink-0">Queued</span>
+      <span className="min-w-0 truncate font-medium text-foreground">
+        {text || "Attached files"}
+      </span>
+      <Spinner label="Sending to the daemon" />
+    </li>
+  );
+}
+
 function QueuedPill(props: {
   message: QueuedMessage;
   index: number;
   last: boolean;
+  /** The queue waits because the person pressed Stop. */
+  stopped: boolean;
   queue: QueueControls;
 }) {
   const { message, queue } = props;
   const [editing, setEditing] = useState(false);
   const text = queuedText(message);
   const uncertain = message.state === "uncertain";
+  const busy = queue.busy(message.id);
   const files =
     (message.context?.attachments.length ?? 0) + (message.context?.mentions.length ?? 0);
   if (editing)
@@ -67,10 +99,12 @@ function QueuedPill(props: {
       <li className="w-full">
         <EditQueued
           text={text}
-          busy={queue.busy}
+          busy={busy}
           onCancel={() => setEditing(false)}
           onSave={async (next) => {
-            if (await queue.edit(message, next)) setEditing(false);
+            // The pill shows the new text at once; a refusal takes it back with a toast.
+            setEditing(false);
+            await queue.edit(message, next);
           }}
         />
       </li>
@@ -81,8 +115,10 @@ function QueuedPill(props: {
         "fx-rise-in glass inline-flex h-7 max-w-full items-center gap-[7px] rounded-full pr-1 pl-2.5 text-sm text-muted-foreground",
       )}
     >
-      <Icon icon={uncertain ? WarningIcon : ClockIcon} size={14} />
-      <span className="shrink-0">{uncertain ? "May have been sent" : "Queued"}</span>
+      <Icon icon={uncertain ? WarningIcon : props.stopped ? PauseIcon : ClockIcon} size={14} />
+      <span className="shrink-0">
+        {uncertain ? "May have been sent" : props.stopped ? "Queued · paused after Stop" : "Queued"}
+      </span>
       <span className="min-w-0 truncate font-medium text-foreground">
         {text || "Attached files"}
       </span>
@@ -100,7 +136,7 @@ function QueuedPill(props: {
                 label={`Queued message options: ${text}`}
                 size="sm"
                 className="size-5"
-                disabled={queue.busy}
+                disabled={busy}
               />
             }
           />
@@ -132,14 +168,17 @@ function QueuedPill(props: {
           </MenuContent>
         </Menu>
       )}
-      <IconButton
-        icon={XIcon}
-        label="Remove from queue"
-        size="sm"
-        className="size-5"
-        disabled={queue.busy}
-        onClick={() => queue.remove(message)}
-      />
+      {busy ? (
+        <Spinner label="Saving the change" />
+      ) : (
+        <IconButton
+          icon={XIcon}
+          label="Remove from queue"
+          size="sm"
+          className="size-5"
+          onClick={() => queue.remove(message)}
+        />
+      )}
     </li>
   );
 }
