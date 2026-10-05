@@ -114,12 +114,13 @@ test.each([137, 1777])("delayed Home/End commits still jump to turn %i", async (
   try {
     const page = await browser.newPage();
     await page.setContent(`
-      <aside aria-label="Turns"><div><h2>Turns</h2><span>2,001</span></div>
+      <aside aria-label="Turns"><div><h2>Turns</h2><span></span></div>
       <div role="listbox" aria-label="Turns of this thread" tabindex="0" aria-activedescendant="turn-option-777"></div></aside>
       <output aria-label="Jump"></output>
       <script>
         let position=777;
-        const list=document.querySelector('[role=listbox]'); list.focus();
+        const list=document.querySelector('[role=listbox]');
+        setTimeout(()=>{document.querySelector('span').textContent='2,001';list.focus()},50);
         list.onkeydown=e=>{
           e.preventDefault();
           if(e.key==='Enter'){document.querySelector('output').textContent=position;return;}

@@ -13,6 +13,8 @@ export async function selectTurn(page: Page, target: number): Promise<void> {
     .locator("..")
     .locator("span")
     .first();
+  await expect(count).toHaveText(/^\d[\d,]*$/);
+  await expect(list).toBeFocused();
   const end = target > turnCount / 2;
   await page.keyboard.press(end ? "End" : "Home");
   if (end) {
