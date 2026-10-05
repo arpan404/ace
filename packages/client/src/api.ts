@@ -47,7 +47,6 @@ export interface ThreadSource extends ThreadReader {
 }
 /** The thread list with keyed change notification. */
 export interface SidebarSource extends SidebarReader {
-  observe(tap: ChangeTap): () => void;
   select<T>(
     keys: readonly SidebarKey[],
     read: (sidebar: SidebarReader) => T,

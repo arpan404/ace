@@ -177,27 +177,21 @@ test("mismatched command, enqueue, request and one-way controls have no effects 
       }),
     ).toMatchObject({ ok: true, result: { text: "Synthetic fixture page" } });
   }
-  const closed = new Promise<void>((resolve) => {
-    const stop = client.onMessage((message) => {
-      if (message.type === "browser.result" && message.requestId === "correct-close") {
-        stop();
-        resolve();
-      }
-    });
-    cleanup.push(async () => stop());
-  });
   f.pool.send(ref("host", "other"), {
     type: "browser.close",
     requestId: "correct-close",
     threadId: wrong,
   });
-  await bounded(closed, 2000);
+  // One-way replies are consumed inside the worker. Read the routed effect instead.
   expect(
-    await f.pool.request(ref("host", "other"), {
-      type: "browser.execute",
-      threadId: wrong,
-      command: { action: "snapshot" },
-    }),
+    await bounded(
+      f.pool.request(ref("host", "other"), {
+        type: "browser.execute",
+        threadId: wrong,
+        command: { action: "snapshot" },
+      }),
+      2000,
+    ),
   ).toMatchObject({ ok: false, error: "Browser closed" });
   expect(
     await f.pool.request(ref("host"), {
