@@ -9,7 +9,6 @@ import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient } from "./boot/daemon.ts";
 import { desktopTarget, hasDesktopBridge } from "./boot/desktop.ts";
 import { StartingScreen } from "./features/connect/index.ts";
-import { markSeen } from "./features/thread/index.ts";
 import { profileName, setProfileName } from "./lib/profile.ts";
 import "./styles/index.css";
 
@@ -27,8 +26,7 @@ async function content() {
   // The fake daemon is only bundled in `vite --mode fake`.
   if (import.meta.env.MODE === "fake") {
     const fake = (await import("./boot/fake.ts")).bootFake();
-    const { client, seen } = fake;
-    for (const mark of seen) markSeen(mark.threadId, mark.itemId);
+    const { client } = fake;
     if (!profileName(localStorage)) setProfileName(localStorage, fake.profileName);
     await client.start();
     return (

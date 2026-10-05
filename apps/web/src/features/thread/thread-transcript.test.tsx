@@ -152,9 +152,17 @@ test("stopping a background task waits for the daemon to report it stopped", asy
 });
 
 test("returning to a thread marks where the new activity starts", async () => {
-  const { script, feed } = await openReplay("background");
+  const { app, script, feed } = await openReplay("background");
   await within(feed).findByText("Running in background");
   expect(screen.queryByRole("separator", { name: "New activity" })).toBeNull();
+  // Following the live end for a moment records how far this device read, on the daemon.
+  await waitFor(
+    async () =>
+      expect(
+        (await app.client.threadReadState({ threadId: "thread-replay-cursor" })).updatedAt,
+      ).not.toBeNull(),
+    { timeout: 3_000 },
+  );
 
   // The rail's Activity; the sidebar's bell goes there too.
   await userEvent.click(
