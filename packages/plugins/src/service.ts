@@ -35,6 +35,8 @@ export class PluginService {
           type: "plugins.review",
           review: await this.manager.prepare(request),
         });
+      case "plugins.origins":
+        return PluginResponse.parse({ type: "plugins.origins", origins: this.manager.origins() });
       case "plugins.marketplace":
         return PluginResponse.parse({
           type: "plugins.marketplace",

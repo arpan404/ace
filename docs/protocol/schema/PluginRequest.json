@@ -143,6 +143,19 @@
     {
       "additionalProperties": false,
       "properties": {
+        "type": {
+          "const": "plugins.origins",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "ref": {
           "maxLength": 8192,
           "type": "string"

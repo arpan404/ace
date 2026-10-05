@@ -191,8 +191,19 @@ test("a repository's marketplace lists its plugins at the default branch, stagin
     commit: review.review.commit,
     hash: review.review.hash,
   });
-  // The install remembers where it came from, so Update and the plugin page can say.
-  expect(await service.handle({ type: "plugins.list" })).toMatchObject({
-    installs: [{ name: "sample", repository: f.repo, ref: "HEAD" }],
+  // The install remembers where it came from, so Update and the plugin page can say. It is
+  // its own request: a list reply keeps the shape older clients parse strictly.
+  expect(await service.handle({ type: "plugins.origins" })).toEqual({
+    type: "plugins.origins",
+    origins: [{ name: "sample", repository: f.repo, ref: "HEAD" }],
   });
+  const list = await service.handle({ type: "plugins.list" });
+  if (list.type !== "plugins.list") throw new Error("Expected list");
+  expect(Object.keys(list.installs[0] ?? {}).toSorted()).toEqual([
+    "acceptedAt",
+    "commit",
+    "hash",
+    "name",
+    "version",
+  ]);
 });

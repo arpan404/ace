@@ -3,6 +3,7 @@ import {
   type PluginAvailability,
   type PluginComponent,
   type PluginInstall,
+  type PluginOrigin,
 } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
 import { z } from "zod";
@@ -117,8 +118,10 @@ export function skillCatalog(
   installs: readonly PluginInstall[],
   availability: readonly PluginAvailability[],
   components: readonly PluginComponent[],
+  origins: readonly PluginOrigin[] = [],
 ): Skill[] {
   const policy = new Map(availability.map((entry) => [entry.name, entry]));
+  const from = new Map(origins.map((origin) => [origin.name, origin]));
   const plugins = installs
     .toSorted((a, b) => a.name.localeCompare(b.name))
     .map((install): Skill => {
@@ -137,8 +140,8 @@ export function skillCatalog(
           version: install.version,
           commit: install.commit,
           acceptedAt: install.acceptedAt,
-          repository: install.repository,
-          ref: install.ref,
+          repository: from.get(install.name)?.repository,
+          ref: from.get(install.name)?.ref,
         },
       };
     });

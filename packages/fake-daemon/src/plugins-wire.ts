@@ -61,8 +61,10 @@ export class FakePluginsWire {
   private installs = new Map<string, PluginInstall>();
   private policies = new Map<string, PluginAvailability>();
   private marketplace = new Map<string, FakePlugin>();
-  /** Where each review's plugin was fetched from, kept on the install it becomes. */
+  /** Where each review's plugin was fetched from, kept for the install it becomes. */
   private sources = new Map<string, { repository: string; ref: string }>();
+  /** Where each installed plugin came from (`plugins.origins`). */
+  private origins = new Map<string, { repository: string; ref: string }>();
   private counter = 0;
   private availability(name: string) {
     const policy = this.policies.get(name);
@@ -81,10 +83,12 @@ export class FakePluginsWire {
         commit: "b".repeat(40),
         hash: fingerprint(JSON.stringify(plugin.components)),
         acceptedAt: plugin.acceptedAt,
+      });
+      this.installs.set(install.name, install);
+      this.origins.set(install.name, {
         repository: `https://github.com/ace-fixtures/${plugin.name}.git`,
         ref: "main",
       });
-      this.installs.set(install.name, install);
       this.components.set(install.name, components);
       if (plugin.enabled !== undefined || plugin.providers)
         this.policies.set(plugin.name, {
@@ -147,16 +151,15 @@ export class FakePluginsWire {
           throw new Error("review_mismatch");
         if (!this.installs.has(review.name) && this.installs.size >= 256)
           throw new Error("install_limit");
-        const origin = this.sources.get(review.id) ?? this.installs.get(review.name);
+        const origin = this.sources.get(review.id) ?? this.origins.get(review.name);
         const install = PluginInstall.parse({
           name: review.name,
           version: review.version,
           commit: review.commit,
           hash: review.hash,
           acceptedAt: 0,
-          ...(origin?.repository ? { repository: origin.repository } : {}),
-          ...(origin?.ref ? { ref: origin.ref } : {}),
         });
+        if (origin) this.origins.set(install.name, origin);
         this.installs.set(install.name, install);
         const components = this.prepared.get(review.id);
         if (components) this.components.set(install.name, components);
@@ -170,7 +173,16 @@ export class FakePluginsWire {
         this.prepared.delete(request.id);
         this.sources.delete(request.id);
         return reply({ type: "plugins.cancelled", id: request.id });
+      case "plugins.origins":
+        return reply({
+          type: "plugins.origins",
+          origins: [...this.installs.keys()].flatMap((name) => {
+            const origin = this.origins.get(name);
+            return origin ? [Object.assign({ name }, origin)] : [];
+          }),
+        });
       case "plugins.remove":
+        this.origins.delete(request.name);
         this.installs.delete(request.name);
         this.policies.delete(request.name);
         this.components.delete(request.name);

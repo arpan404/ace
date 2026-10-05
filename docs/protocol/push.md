@@ -614,9 +614,8 @@ Example:
 {
   "requestId": "example",
   "response": {
-    "plugins": [],
-    "ref": "example",
-    "type": "plugins.marketplace"
+    "origins": [],
+    "type": "plugins.origins"
   },
   "type": "pluginResult"
 }

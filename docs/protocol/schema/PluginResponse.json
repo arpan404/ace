@@ -236,6 +236,27 @@
     {
       "additionalProperties": false,
       "properties": {
+        "origins": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PluginOrigin.json"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "type": {
+          "const": "plugins.origins",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "origins"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "entries": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/PluginReviewEntry.json"

@@ -6,6 +6,7 @@ import {
   PluginInstall,
   PluginListing,
   PluginName,
+  PluginOrigin,
   PluginReview,
   PluginReviewOffset,
 } from "@ace/protocol/plugins";
@@ -252,13 +253,18 @@ export class PluginManager {
   pending(): PluginReview[] {
     return this.registry.reviews().map((value) => value.review);
   }
-  /** Installed plugins, each with the repository and ref it came from. */
   list(): PluginInstall[] {
-    return this.registry
-      .installs()
-      .map((value) =>
-        PluginInstall.parse({ ...value.install, repository: value.repository, ref: value.ref }),
-      );
+    return this.registry.installs().map((value) => value.install);
+  }
+  /** Where each installed plugin came from: the repository and ref Update fetches again. */
+  origins(): PluginOrigin[] {
+    return this.registry.installs().map((value) =>
+      PluginOrigin.parse({
+        name: value.install.name,
+        repository: value.repository,
+        ref: value.ref,
+      }),
+    );
   }
   private async catalogSnapshots(): Promise<PluginSnapshot[]> {
     const currentRevision = this.registry.revision();
