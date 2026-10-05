@@ -1,4 +1,4 @@
-import { lazy, type ComponentType, type LazyExoticComponent } from "react";
+import { lazy, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import type { Dock, OpenRequest, ScopeWorkspace, WorkspaceTab } from "./model.ts";
 
@@ -58,6 +58,19 @@ export interface TabKindOptions {
   load(): Promise<TabModule>;
   /** Called after a tab of this kind closed (release a session it alone held). */
   onClose?(scope: string, tab: WorkspaceTab): void;
+  /**
+   * What closing these tabs would stop (a terminal's running shell), so the shell asks before
+   * closing them; undefined closes them at once. Called with every tab of this kind that one
+   * close would remove: Close other tabs asks once for all of them.
+   */
+  closeWarning?(scope: string, tabs: readonly ClosingTab[]): CloseWarning | undefined;
+  /** The close button's tooltip ("End session"); default "Close <title>". */
+  closeLabel?: string;
+  /**
+   * Whether a closed tab can come back with Reopen closed tab (a terminal whose shell ended
+   * can't). Default: yes.
+   */
+  reopenable?(scope: string, tab: WorkspaceTab): boolean;
   /** How the launcher's Suggested opens a file with this kind, when it can. */
   fromFile?(path: string): Omit<OpenRequest, "dock">;
   /**
@@ -75,6 +88,21 @@ export interface TabKindOptions {
    * Loaded with the kinds, so keep it small and load its body on demand.
    */
   Overlay?: ComponentType<{ scope: string }>;
+}
+
+/** A tab about to close, as `closeWarning` sees it. */
+export interface ClosingTab {
+  tab: WorkspaceTab;
+  dock: Dock;
+  title: string;
+}
+
+/** The question the shell asks before closing tabs that would stop something. */
+export interface CloseWarning {
+  title: string;
+  description: ReactNode;
+  /** The danger button's label ("End"). */
+  confirm: string;
 }
 
 type LazyView = LazyExoticComponent<ComponentType<TabViewProps>>;

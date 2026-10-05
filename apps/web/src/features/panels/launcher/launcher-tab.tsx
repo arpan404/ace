@@ -63,7 +63,7 @@ export function LauncherTab(props: TabViewProps) {
     if (!kind || kind.docks.includes(props.dock)) actions.replace(props.tab.key, request);
     else {
       actions.open(request);
-      actions.close(props.tab.key);
+      void actions.close(props.tab.key);
     }
   };
   const other = props.dock === "right" ? "bottom" : "right";

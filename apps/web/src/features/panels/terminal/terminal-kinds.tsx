@@ -1,6 +1,7 @@
 import { TerminalIcon, TerminalWindowIcon } from "@phosphor-icons/react";
-import { defineTabKind } from "@/lib/workspace/index.ts";
-import { requestTerminalEnd } from "./closing.ts";
+import { Kbd } from "@/components/ui/kbd.tsx";
+import { defineTabKind, type ClosingTab, type CloseWarning } from "@/lib/workspace/index.ts";
+import { requestTerminalEnd, terminalEnded } from "./closing.ts";
 import {
   isPendingTerminal,
   shellKind as shellKindId,
@@ -28,7 +29,43 @@ export const terminalKind = defineTabKind({
   onClose: (scope, tab) => {
     if (!isPendingTerminal(tab.id)) requestTerminalEnd({ threadId: scope, terminalId: tab.id });
   },
+  closeLabel: "End session",
+  closeWarning: endWarning,
+  // Its shell ended with the tab: there is nothing to come back to.
+  reopenable: () => false,
 });
+
+/** Ask before ending shells that may still run something (a dev server, a build). */
+function endWarning(scope: string, tabs: readonly ClosingTab[]): CloseWarning | undefined {
+  const live = tabs.filter(
+    ({ tab }) => !isPendingTerminal(tab.id) && !terminalEnded(scope, tab.id),
+  );
+  const first = live[0];
+  if (!first) return undefined;
+  const hide = (
+    <Kbd shortcut={first.dock === "bottom" ? "bottomPanel" : "rightPanel"} variant="outline" />
+  );
+  if (live.length === 1)
+    return {
+      title: `End ${first.title}?`,
+      description: (
+        <>Its shell and anything running in it stop. Hide the panel ({hide}) to keep it running.</>
+      ),
+      confirm: "End",
+    };
+  const names = live.map((each) => each.title);
+  const listed = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return {
+    title: `End ${live.length} shells?`,
+    description: (
+      <>
+        Closing them ends {listed}, and anything running in them. Hide the panel ({hide}) to keep
+        them running.
+      </>
+    ),
+    confirm: `End ${live.length} shells`,
+  };
+}
 
 export const shellKind = defineTabKind({
   kind: shellKindId,

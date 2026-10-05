@@ -7,7 +7,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
+import { Tip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
 import type {
@@ -35,14 +35,28 @@ const dotPlace = { top: 3, left: "calc(50% + 5px)" };
 /** Fewer title pixels than this read as noise: the tab folds to its icon instead. */
 const leastTitle = 32;
 
-/** A tab's natural and least labelled widths, read however narrow it is drawn now. */
-export function measureTab(element: HTMLElement): { natural: number; least: number } {
+/** A badge's dot, drawn in its place when the strip is a little short. */
+const dotWidth = 6;
+
+/**
+ * A tab's natural and least labelled widths, read however narrow it is drawn now, and what
+ * its badge frees by giving way to its dot.
+ */
+export function measureTab(element: HTMLElement): {
+  natural: number;
+  least: number;
+  badge: number;
+} {
   const title = element.querySelector<HTMLElement>("[data-tab-title]")?.scrollWidth ?? 0;
   const badge = element.querySelector<HTMLElement>("[data-tab-badge]")?.scrollWidth ?? 0;
   // +1: scrollWidth rounds, and half a pixel short would ellipsize the showing tab's title.
   const fixed =
     1 + tabChrome(element.dataset.closeRoom === "true") + (badge > 0 ? badgeGap + badge : 0);
-  return { natural: fixed + title, least: fixed + Math.min(title, leastTitle) };
+  return {
+    natural: fixed + title,
+    least: fixed + Math.min(title, leastTitle),
+    badge: Math.max(0, badge - dotWidth),
+  };
 }
 
 /**
@@ -67,6 +81,10 @@ export function TabItem(props: {
   width: number | undefined;
   /** Folded to its icon: the strip is short and this isn't the showing tab. */
   iconOnly: boolean;
+  /** Drawn narrower than its title: the tooltip carries the whole title. */
+  clipped: boolean;
+  /** Drawn with its badge's dot in place of the badge (the strip is a little short). */
+  badgeDot: boolean;
   onKeyDown(event: KeyboardEvent<HTMLButtonElement>): void;
   onDragOver(event: DragEvent<HTMLElement>, side: DropSide): void;
 }) {
@@ -78,6 +96,8 @@ export function TabItem(props: {
   const Badge = kind?.Badge;
   const closable = !tab.pinned;
   const iconOnly = props.iconOnly && !props.active;
+  const badgeDot = props.badgeDot && !iconOnly;
+  const closeLabel = kind?.closeLabel ?? "Close";
   // Pinned per-thread tools (Changes, Agents) fold to icons first, and together (`fitTabs`).
   const tool = !!kind?.singleton && !!kind.pinned && !!tab.pinned;
   return (
@@ -118,89 +138,112 @@ export function TabItem(props: {
             )}
           />
         )}
-        <button
-          type="button"
-          role="tab"
-          id={tabDomId(props.dock, tab.key, "tab")}
-          aria-controls={tabDomId(props.dock, tab.key, "panel")}
-          aria-selected={props.active}
-          aria-label={iconOnly ? title : undefined}
-          tabIndex={props.focusable ? 0 : -1}
-          title={title}
-          onClick={() => actions.activate(tab.key)}
-          onAuxClick={(event) => {
-            // Middle-click closes, as in a browser.
-            if (event.button === 1 && closable) actions.close(tab.key);
-          }}
-          onKeyDown={props.onKeyDown}
-          className={cn(
-            "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-[7px] pl-2 text-sm font-medium whitespace-nowrap text-muted-foreground outline-none",
-            "transition-[color,background-color,box-shadow] duration-(--dur-1)",
-            "hover:text-foreground hover:not-aria-selected:bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)]",
-            "focus-visible:text-foreground focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_70%,transparent)]",
-            "aria-selected:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] aria-selected:text-foreground",
-            iconOnly
-              ? "justify-center gap-0 px-0"
-              : !closable
-                ? "pr-2.5"
-                : props.active
-                  ? "pr-7"
-                  : // The strip sized the tab, so making room for the close never moves it.
-                    "pr-2.5 group-focus-within/tab:pr-7 group-hover/tab:pr-7",
-          )}
-        >
-          {kind?.TabIcon ? (
-            <kind.TabIcon
-              scope={props.scope}
-              tab={tab}
-              className="shrink-0 text-current opacity-80"
-            />
-          ) : (
-            <Icon
-              icon={kind?.icon ?? XIcon}
-              size={14}
-              active={props.active}
-              className="shrink-0 text-current opacity-80"
-            />
-          )}
-          {/* Folded, the title and badge keep their width to measure but take no room. */}
-          <span data-tab-title className={cn("min-w-0 truncate", iconOnly && "w-0")}>
-            {title}
-          </span>
-          {Badge && (
-            <span
-              data-tab-badge
-              className={cn(
-                "flex min-w-0 shrink-0 items-center empty:hidden",
-                iconOnly && "w-0 overflow-hidden",
-              )}
-            >
-              <Badge scope={props.scope} tab={tab} />
+        {/* Folded or clipped, the tab's whole title shows as a tooltip (on keyboard focus too). */}
+        <Tooltip disabled={!iconOnly && !props.clipped}>
+          <TooltipTrigger
+            delay={400}
+            render={
+              <button
+                type="button"
+                role="tab"
+                id={tabDomId(props.dock, tab.key, "tab")}
+                aria-controls={tabDomId(props.dock, tab.key, "panel")}
+                aria-selected={props.active}
+                aria-label={iconOnly ? title : undefined}
+                tabIndex={props.focusable ? 0 : -1}
+                onClick={() => actions.activate(tab.key)}
+                onAuxClick={(event) => {
+                  // Middle-click closes, as in a browser.
+                  if (event.button === 1 && closable) void actions.close(tab.key);
+                }}
+                onKeyDown={(event) => {
+                  // Shift+F10 opens the tab's menu from the keyboard (Mac keyboards have no
+                  // context-menu key), anchored under the tab.
+                  if (event.key === "F10" && event.shiftKey) {
+                    event.preventDefault();
+                    openMenuFromKeyboard(event.currentTarget);
+                    return;
+                  }
+                  props.onKeyDown(event);
+                }}
+                className={cn(
+                  "focus-ring flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pl-2 text-sm font-medium whitespace-nowrap text-muted-foreground",
+                  "transition-[color,background-color,box-shadow] duration-(--dur-1)",
+                  "hover:text-foreground hover:not-aria-selected:bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)]",
+                  "focus-visible:text-foreground",
+                  "aria-selected:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] aria-selected:text-foreground",
+                  iconOnly
+                    ? "justify-center gap-0 px-0"
+                    : !closable
+                      ? "pr-2.5"
+                      : props.active
+                        ? "pr-7"
+                        : // The strip sized the tab, so making room for the close never moves it.
+                          "pr-2.5 group-focus-within/tab:pr-7 group-hover/tab:pr-7 pointer-coarse:pr-7",
+                )}
+              />
+            }
+          >
+            {kind?.TabIcon ? (
+              <kind.TabIcon
+                scope={props.scope}
+                tab={tab}
+                className="shrink-0 text-current opacity-80"
+              />
+            ) : (
+              <Icon
+                icon={kind?.icon ?? XIcon}
+                size={14}
+                active={props.active}
+                className="shrink-0 text-current opacity-80"
+              />
+            )}
+            {/* Folded, the title and badge keep their width to measure but take no room. */}
+            <span data-tab-title className={cn("min-w-0 truncate", iconOnly && "w-0")}>
+              {title}
             </span>
-          )}
-          {/* Folded, a badge keeps its signal as a dot at the icon's corner (Changes: "has
-              changes"); the badge above stays, out of sight, for the layout pass to measure. */}
-          {Badge && iconOnly && (
-            <span
-              aria-hidden
-              data-tab-dot
-              style={dotPlace}
-              className="pointer-events-none absolute flex empty:hidden"
-            >
-              <Badge scope={props.scope} tab={tab} folded />
-            </span>
-          )}
-        </button>
+            {Badge && (
+              <span
+                data-tab-badge
+                className={cn(
+                  "flex min-w-0 shrink-0 items-center empty:hidden",
+                  (iconOnly || badgeDot) && "w-0 overflow-hidden",
+                )}
+              >
+                <Badge scope={props.scope} tab={tab} />
+              </span>
+            )}
+            {/* Short of room, the badge gives way to its dot beside the title (Changes: "has
+                changes"); the badge above stays, out of sight, for the layout pass to measure. */}
+            {Badge && badgeDot && (
+              <span aria-hidden data-tab-dot className="flex shrink-0 empty:hidden">
+                <Badge scope={props.scope} tab={tab} folded />
+              </span>
+            )}
+            {/* Folded, a badge keeps its signal as a dot at the icon's corner. */}
+            {Badge && iconOnly && (
+              <span
+                aria-hidden
+                data-tab-dot
+                style={dotPlace}
+                className="pointer-events-none absolute flex empty:hidden"
+              >
+                <Badge scope={props.scope} tab={tab} folded />
+              </span>
+            )}
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{title}</TooltipContent>
+        </Tooltip>
         {closable && !iconOnly && (
-          <Tip label={`Close ${title}`} shortcut="closeTab">
+          <Tip label={kind?.closeLabel ?? `Close ${title}`} shortcut="closeTab">
             <button
               type="button"
               tabIndex={-1}
-              aria-label={`Close ${title}`}
-              onClick={() => actions.close(tab.key)}
+              aria-label={`${closeLabel} ${title}`}
+              onClick={() => void actions.close(tab.key)}
               className={cn(
-                "absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-[5px] text-subtle-foreground outline-none",
-                "opacity-0 transition-[opacity,background-color,color] duration-(--dur-1) group-hover/tab:opacity-100 hover:bg-accent hover:text-foreground",
+                "absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-xs text-subtle-foreground outline-none",
+                "opacity-0 transition-[opacity,background-color,color] duration-(--dur-1) group-hover/tab:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground",
                 props.active && "opacity-100",
               )}
             >
@@ -242,13 +285,29 @@ export function TabItem(props: {
           Move right
         </MenuItem>
         <MenuSeparator />
-        <MenuItem keys={keymap.closeTab.keys} onClick={() => actions.close(tab.key)}>
-          Close tab
+        <MenuItem keys={keymap.closeTab.keys} onClick={() => void actions.close(tab.key)}>
+          {kind?.closeLabel ?? "Close tab"}
         </MenuItem>
-        <MenuItem disabled={props.count < 2} onClick={() => actions.closeOthers(tab.key)}>
+        <MenuItem disabled={props.count < 2} onClick={() => void actions.closeOthers(tab.key)}>
           Close other tabs
+        </MenuItem>
+        <MenuItem keys={keymap.reopenTab.keys} onClick={() => actions.reopen()}>
+          Reopen closed tab
         </MenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** Open a tab's context menu from the keyboard, anchored under its bottom-left corner. */
+function openMenuFromKeyboard(tab: HTMLElement): void {
+  const rect = tab.getBoundingClientRect();
+  tab.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left,
+      clientY: rect.bottom,
+    }),
   );
 }

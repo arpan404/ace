@@ -83,9 +83,13 @@ export function TabStrip(props: {
     else if (event.key === "End") goTo(last);
     else if ((event.key === "Delete" || event.key === "Backspace") && !tab.pinned) {
       const next = state.tabs[index + 1] ?? state.tabs[index - 1];
-      actions.close(tab.key);
-      if (next) focusNext.current = next.key;
-      setAnnouncement(`${titleOf(tab.key)} closed`);
+      const title = titleOf(tab.key);
+      // A tab that asks first (a running shell) keeps focus until the answer is yes.
+      void actions.close(tab.key).then((closed) => {
+        if (!closed) return;
+        if (next) tabButton(scroller.current, next.key)?.focus();
+        setAnnouncement(`${title} closed`);
+      });
     } else return;
     event.preventDefault();
   };
@@ -150,6 +154,8 @@ export function TabStrip(props: {
             entering={entering.has(tab.key)}
             width={fit?.widths.get(tab.key)}
             iconOnly={fit?.icons.has(tab.key) ?? false}
+            clipped={fit?.clipped.has(tab.key) ?? false}
+            badgeDot={fit?.dots.has(tab.key) ?? false}
             onKeyDown={onKeyDown(index)}
             onDragOver={(event, side) => {
               event.stopPropagation();

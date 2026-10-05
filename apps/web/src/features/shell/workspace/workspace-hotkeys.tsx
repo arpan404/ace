@@ -34,8 +34,9 @@ export function WorkspaceHotkeys(props: {
   useHotkey(keymap.closeTab.keys, () => {
     const dock = targetDock(workspace);
     const tab = dock && shownTab(workspace[dock]);
-    if (tab) actions.close(tab.key);
+    if (tab) void actions.close(tab.key);
   });
+  useHotkey(keymap.reopenTab.keys, () => actions.reopen());
   useHotkey(keymap.nextTab.keys, () => {
     const dock = targetDock(workspace);
     if (dock) actions.cycle(dock, 1);

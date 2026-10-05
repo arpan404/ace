@@ -19,6 +19,9 @@ import {
 } from "@/lib/workspace/index.ts";
 import { clampToBounds, type Bounds } from "./bounds.ts";
 import { TabContent } from "./tab-content.tsx";
+
+// The close question ships with the docks: a tab can only be closed once its dock has loaded.
+export { CloseConfirm } from "./close-confirm.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 
 /** The floating dock's scrim and leading-edge shadow (inline: one-off values, ADR 0056 CSS budget). */

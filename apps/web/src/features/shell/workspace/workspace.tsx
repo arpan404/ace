@@ -22,6 +22,7 @@ import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
 // the screen's first paint: the thread route stays within its budget (ADR 0056).
 const loadDock = () => import("./dock.tsx");
 const WorkspaceDock = lazy(() => loadDock().then((m) => ({ default: m.WorkspaceDock })));
+const CloseConfirm = lazy(() => loadDock().then((m) => ({ default: m.CloseConfirm })));
 
 /** Hold the docks back until the kinds (icons, titles, views) have loaded too. */
 function DockWhenReady(props: { definition: WorkspaceDefinition; children: ReactNode }) {
@@ -147,6 +148,11 @@ export function Workspace(props: {
     <div ref={outer} className="relative flex min-h-0 flex-1 flex-col">
       <WorkspaceHotkeys workspace={workspace} definition={definition} actions={actions} />
       <KindOverlays scope={scope} definition={definition} />
+      {(shown.right || shown.bottom) && (
+        <Suspense fallback={null}>
+          <CloseConfirm />
+        </Suspense>
+      )}
       <div className="relative flex min-h-0 flex-1">
         {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
         <div hidden={expanded} className="relative flex min-w-0 flex-1 flex-col">

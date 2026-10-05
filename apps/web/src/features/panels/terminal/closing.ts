@@ -31,3 +31,23 @@ export function onTerminalEnd(listener: (end: TerminalEnd) => void): () => void 
   for (const end of waiting.splice(0)) listener(end);
   return () => listeners.delete(listener);
 }
+
+/** Whether a client knows a terminal's shell has ended; undefined when it doesn't know. */
+export type TerminalProbe = (threadId: string, terminalId: string) => boolean | undefined;
+
+const probes = new Set<TerminalProbe>();
+
+/** Answer whether terminals have ended (each client's services do, once loaded). */
+export function onTerminalProbe(probe: TerminalProbe): () => void {
+  probes.add(probe);
+  return () => probes.delete(probe);
+}
+
+/**
+ * Whether a terminal's shell has ended, as far as any client knows. Unknown counts as still
+ * running: closing its tab asks first rather than ending a shell blind.
+ */
+export function terminalEnded(threadId: string, terminalId: string): boolean {
+  for (const probe of probes) if (probe(threadId, terminalId)) return true;
+  return false;
+}

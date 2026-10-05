@@ -19,7 +19,9 @@ import {
   type Dock,
   type OpenRequest,
   type ScopeWorkspace,
+  type WorkspaceTab,
 } from "./model.ts";
+import type { ClosingTab } from "./registry.ts";
 import type { WorkspaceStore } from "./store.ts";
 
 /** A request from a feature: the dock defaults to the kind's preferred one. */
@@ -36,8 +38,15 @@ export interface WorkspaceActions {
   /** A new launcher tab in `dock` (default right). */
   newTab(dock?: Dock): void;
   activate(key: string): void;
-  close(key: string): void;
-  closeOthers(key: string): void;
+  /**
+   * Close a tab. One whose kind warns (a terminal's running shell) asks first; resolves whether
+   * it closed. Tabs that don't ask close before this returns.
+   */
+  close(key: string): Promise<boolean>;
+  /** Close the dock's other unpinned tabs, asking once if any of them warn. */
+  closeOthers(key: string): Promise<boolean>;
+  /** Bring back the tab closed most recently, where it was. Returns whether one came back. */
+  reopen(): boolean;
   move(key: string, toIndex: number): void;
   moveToDock(key: string, dock: Dock, index?: number): void;
   setPinned(key: string, pinned: boolean): void;
@@ -89,6 +98,37 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       const fresh = launcher(workspace, dock);
       return fresh ? openTab(workspace, fresh) : workspace;
     });
+  /** After a tab closed: release what it alone held, and keep it for Reopen closed tab. */
+  const closed = (tab: WorkspaceTab, dock: Dock, index: number) => {
+    store.rememberClosed(scope, { tab, dock, index });
+    definition()?.kind(tab.kind)?.onClose?.(scope, tab);
+  };
+  /**
+   * Close `tabs` with `run`: at once, or once the person agrees when a kind warns what closing
+   * them would stop (asked once for all of them).
+   */
+  const guard = (tabs: readonly WorkspaceTab[], run: () => void): Promise<boolean> => {
+    const current = definition();
+    const workspace = store.get(scope);
+    const byKind = new Map<string, ClosingTab[]>();
+    for (const tab of tabs) {
+      const where = findTab(workspace, tab.key);
+      if (!where) continue;
+      const list = byKind.get(tab.kind) ?? [];
+      list.push({ tab, dock: where.dock, title: current?.title(tab) ?? tab.title ?? tab.kind });
+      byKind.set(tab.kind, list);
+    }
+    for (const [kind, closing] of byKind) {
+      const warning = current?.kind(kind)?.closeWarning?.(scope, closing);
+      if (warning)
+        return store.confirmClose(warning).then((agreed) => {
+          if (agreed) run();
+          return agreed;
+        });
+    }
+    run();
+    return Promise.resolve(true);
+  };
   const actions: WorkspaceActions = {
     open: (open) => withKinds(() => change((workspace) => openTab(workspace, request(open)))),
     toggleKind: (kind) =>
@@ -122,17 +162,53 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       }),
     activate: (key) => change((workspace) => activateTab(workspace, key)),
     close: (key) => {
-      const tab = findTab(store.get(scope), key)?.tab;
-      change((workspace) => closeTab(workspace, key));
-      if (tab) definition()?.kind(tab.kind)?.onClose?.(scope, tab);
+      const found = findTab(store.get(scope), key);
+      if (!found) return Promise.resolve(false);
+      return guard([found.tab], () => {
+        const now = findTab(store.get(scope), key);
+        if (!now) return;
+        change((workspace) => closeTab(workspace, key));
+        closed(now.tab, now.dock, now.index);
+      });
     },
     closeOthers: (key) => {
-      const before = store.get(scope);
-      change((workspace) => closeOtherTabs(workspace, key));
-      const after = store.get(scope);
-      for (const dock of ["right", "bottom"] as const)
-        for (const tab of before[dock].tabs)
-          if (!findTab(after, tab.key)) definition()?.kind(tab.kind)?.onClose?.(scope, tab);
+      const found = findTab(store.get(scope), key);
+      if (!found) return Promise.resolve(false);
+      const dockTabs = store.get(scope)[found.dock].tabs;
+      const others = dockTabs.filter((tab) => !tab.pinned && tab.key !== key);
+      return guard(others, () => {
+        const before = store.get(scope);
+        change((workspace) => closeOtherTabs(workspace, key));
+        const after = store.get(scope);
+        for (const dock of ["right", "bottom"] as const)
+          before[dock].tabs.forEach((tab, index) => {
+            if (!findTab(after, tab.key)) closed(tab, dock, index);
+          });
+      });
+    },
+    reopen: () => {
+      const current = definition();
+      const back = store.takeClosed(scope, ({ tab }) => {
+        const kind = current?.kind(tab.kind);
+        if (current && !kind) return false;
+        if (findTab(store.get(scope), tab.key)) return false;
+        return kind?.reopenable?.(scope, tab) ?? true;
+      });
+      if (!back) return false;
+      const { tab, dock, index } = back;
+      change((workspace) => {
+        const opened = openTab(workspace, {
+          kind: tab.kind,
+          id: tab.id,
+          title: tab.title,
+          data: tab.data,
+          pinned: tab.pinned,
+          dock,
+        });
+        const at = Math.min(index, opened[dock].tabs.length - 1);
+        return moveTab(opened, tab.key, at);
+      });
+      return true;
     },
     move: (key, toIndex) => change((workspace) => moveTab(workspace, key, toIndex)),
     moveToDock: (key, dock, index) =>
