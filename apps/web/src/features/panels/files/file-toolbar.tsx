@@ -155,6 +155,7 @@ export function FileToolbar(props: {
             icon={MagnifyingGlassIcon}
             label={props.readable ? "Find in file" : "Find works on text files"}
             keys="mod+f"
+            resolve={false}
             pressed={props.finding}
             disabled={!props.readable}
             className={tool}

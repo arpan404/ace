@@ -21,7 +21,6 @@ import { MenuItem } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { readOutputText } from "@/lib/output-read.ts";
-import { keymap } from "@/lib/keymap.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
@@ -170,7 +169,7 @@ function ShellOutput(props: TabViewProps & { task: BackgroundTask }) {
           </MenuItem>
           <MenuItem
             icon={<MagnifyingGlassIcon aria-hidden size={16} />}
-            keys={keymap.findInTerminal.keys}
+            shortcut="findInTerminal"
             onClick={() => setTabUi(terminalUi, tab.key, { find: true })}
           >
             Find

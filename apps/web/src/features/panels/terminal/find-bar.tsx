@@ -152,6 +152,7 @@ export function FindBar(props: {
         icon={CaretUpIcon}
         label="Previous match"
         keys="shift+enter"
+        resolve={false}
         size="sm"
         disabled={count === 0}
         onClick={() => step(-1)}
@@ -160,11 +161,19 @@ export function FindBar(props: {
         icon={CaretDownIcon}
         label="Next match"
         keys="enter"
+        resolve={false}
         size="sm"
         disabled={count === 0}
         onClick={() => step(1)}
       />
-      <IconButton icon={XIcon} label="Close find" keys="escape" size="sm" onClick={close} />
+      <IconButton
+        icon={XIcon}
+        label="Close find"
+        keys="escape"
+        resolve={false}
+        size="sm"
+        onClick={close}
+      />
     </div>
   );
 }

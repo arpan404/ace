@@ -47,10 +47,19 @@ function MenuContent({
   );
 }
 
-/** The trailing shortcut text: a keymap id, or keys (a default follows its rebinding). */
-function useShortcutText(shortcut: KeymapId | undefined, keys: string | undefined) {
+/**
+ * The trailing shortcut text: a keymap id, or keys (a default follows its rebinding unless
+ * `resolve` is false).
+ */
+function useShortcutText(
+  shortcut: KeymapId | undefined,
+  keys: string | undefined,
+  resolve: boolean,
+) {
   const resolved = useResolvedKeymap();
-  const shown = shortcut ? resolved[shortcut] : keys && resolveKeys(keys, resolved);
+  const shown = shortcut
+    ? resolved[shortcut]
+    : keys && (resolve ? resolveKeys(keys, resolved) : keys);
   return shown ? formatKeys(shown) : undefined;
 }
 
@@ -64,6 +73,7 @@ function MenuItem({
   icon,
   shortcut,
   keys,
+  resolve = true,
   danger,
   reason,
   children,
@@ -72,10 +82,12 @@ function MenuItem({
   icon?: ReactNode;
   shortcut?: KeymapId;
   keys?: string;
+  /** False: `keys` are this item's own, never a rebindable shortcut's. */
+  resolve?: boolean;
   danger?: boolean;
   reason?: string | undefined;
 }) {
-  const shortcutText = useShortcutText(shortcut, keys);
+  const shortcutText = useShortcutText(shortcut, keys, resolve);
   if (reason)
     // Two lines: the row grows past 30px, and only the label and icon dim when disabled, so
     // the reason keeps its contrast.
