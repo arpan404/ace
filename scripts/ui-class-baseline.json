@@ -36,6 +36,9 @@
   "apps/web/src/components/ui/scroll-area.tsx": {
     "bare-outline": 1
   },
+  "apps/web/src/components/ui/step-slider.tsx": {
+    "bare-outline": 1
+  },
   "apps/web/src/features/accounts/account-card.tsx": {
     "text-size": 1
   },
@@ -83,29 +86,8 @@
   "apps/web/src/features/automations/recent-runs.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/connect/connection-screen.tsx": {
-    "text-size": 1,
+  "apps/web/src/features/connect/connect-card.tsx": {
     "radius": 1
-  },
-  "apps/web/src/features/connect/daemon-form.tsx": {
-    "text-size": 3,
-    "radius": 1
-  },
-  "apps/web/src/features/connect/handoff-screen.tsx": {
-    "text-size": 1,
-    "radius": 1
-  },
-  "apps/web/src/features/deck/card-graph.tsx": {
-    "text-size": 4
-  },
-  "apps/web/src/features/deck/deck-tabs.tsx": {
-    "text-size": 2
-  },
-  "apps/web/src/features/deck/lane-detail.tsx": {
-    "text-size": 2
-  },
-  "apps/web/src/features/deck/new-deck-form.tsx": {
-    "text-size": 2
   },
   "apps/web/src/features/devices/device-screen.tsx": {
     "radius": 1
@@ -135,9 +117,6 @@
   },
   "apps/web/src/features/models/model-picker-panel.tsx": {
     "bare-outline": 1
-  },
-  "apps/web/src/features/models/model-popover.tsx": {
-    "text-size": 1
   },
   "apps/web/src/features/more/more-sidebar.tsx": {
     "text-size": 1
