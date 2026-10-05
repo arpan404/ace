@@ -5,6 +5,7 @@ export { ClientError, defaultLimits } from "./types.ts";
 export type {
   ClientOptions,
   ConnectionState,
+  ConnectionInfo,
   Transport,
   TransportEvents,
   Storage,
@@ -18,6 +19,7 @@ export type { Selection, ChangeTap } from "./observable.ts";
 export { Notifications } from "./observable.ts";
 export type {
   ClientApi,
+  ConnectionControl,
   ThreadSource,
   SidebarSource,
   Lease,

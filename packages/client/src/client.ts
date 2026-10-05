@@ -36,8 +36,8 @@ import {
   type SettingsScope,
   type SettingsLayer,
 } from "@ace/protocol";
-import type { ClientApi, RegistryQuery } from "./api.ts";
-import { Connection } from "./connection.ts";
+import type { ClientApi, ConnectionControl, RegistryQuery } from "./api.ts";
+import { Connection, sameConnectionInfo } from "./connection.ts";
 import { WireCodec, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
@@ -51,6 +51,7 @@ import {
   defaultLimits,
   type ClientOptions,
   type RequestOptions,
+  type ConnectionInfo,
   type ConnectionState,
 } from "./types.ts";
 
@@ -58,7 +59,7 @@ export type { RegistryQuery } from "./api.ts";
 type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
 
-export class Client implements ClientApi {
+export class Client implements ClientApi, ConnectionControl {
   /** Project calls forward through `command`/`request`; pushes arrive through `onMessage`. */
   readonly projects: ProjectsApi = { ...projectCalls(this), ...projectEvents(this) };
   private options: ClientOptions;
@@ -215,6 +216,16 @@ export class Client implements ClientApi {
   }
   connectionState(): Selection<ConnectionState> {
     return this.notifications.select(["connection"], () => this.state);
+  }
+  connectionInfo(): Selection<ConnectionInfo> {
+    return this.notifications.select(
+      ["connection"],
+      () => this.connection.info(),
+      sameConnectionInfo,
+    );
+  }
+  reconnectNow(): void {
+    this.connection.reconnectNow();
   }
   intent(id: string): Selection<Intent | undefined> {
     return this.notifications.select([`intent:${id}`], () => this.intents.get(id));
