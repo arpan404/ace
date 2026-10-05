@@ -1,4 +1,5 @@
 import { CursorHostSlots } from "@ace/adapter-cursor";
+import type { SdkDiscoveryOptions } from "@ace/provider-kit/sdk";
 import { discoverClaudeModels } from "@ace/adapter-claude";
 import {
   spawnSupervised,
@@ -18,6 +19,7 @@ import type { CatalogModel } from "@ace/protocol";
 export type DiscoveryOptions = {
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   cursorSlots?: CursorHostSlots;
+  cursorDiscovery?: SdkDiscoveryOptions;
   /** Selected launch environment stays local to supervised SDK workers, never catalog rows. */
   cursorEnv?: NodeJS.ProcessEnv;
   cursorEnvironment?(instance: ModelInstance): NodeJS.ProcessEnv;
@@ -34,6 +36,7 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       const driver = createCursorAccountDriver({
         launchEnv: { ...options.cursorEnv, ...instance.env },
         slots: cursorSlots,
+        ...(options.cursorDiscovery ? { discovery: options.cursorDiscovery } : {}),
         ...(options.cursorEnvironment
           ? { environment: () => options.cursorEnvironment?.(instance) ?? {} }
           : {}),

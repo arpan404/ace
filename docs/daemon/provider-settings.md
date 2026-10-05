@@ -46,6 +46,13 @@ Account fields replace provider fields when present, including arrays. Omitted f
 
 Visibility precedence is disabled provider, hidden group, hidden individual model, explicit shown model, deprecated/legacy default, provider's own hidden flag, then favourites-only. `shownGroups` unmasks its corresponding group; `shownModels` does not unmask a hidden group. If an ID appears in both individual lists, hide wins. Showing or favouriting a model does not authorize an unconnected upstream provider.
 
+Manually added `customModels` are an explicit opt-in: they remain selectable even
+when OpenCode reports no connected upstreams. They support user-owned routers and
+IDs absent from discovery. They do not prove authentication or entitlement; the
+user's CLI decides whether the exact ID can run. Ordinary discovery and visibility
+switches never add disconnected upstream models. Provider/account disable still
+hides and refuses custom selections.
+
 The settings API replaces the entire array. Clients should read/subscribe, modify their intended row, and preserve other rows. Existing settings last-writer-wins behavior applies; there is no compare-and-swap endpoint.
 
 ## Catalog, names and refresh
@@ -66,4 +73,18 @@ OpenCode discovery reads only its credential-free `auth list --standalone --form
 
 Disabled providers do not start metadata probes or new sessions; cached/custom rows remain returned as hidden. `providers.request` with `operation: "list"` retains the provider card with `enabled: false`. Attempts to create, prepare, send, fork, resume, switch, merge, resume queues or change model/mode on a disabled selection return a failed command result with `error: "provider_disabled"`. Persisted thread snapshots/history remain readable. Existing running work is not interrupted automatically; interrupt remains available.
 
-Re-enabling a provider discovers missing adapters without rebinding existing account owners. Explicit global binary paths can admit a missing native CLI without a daemon restart. Preferences affect the next session launch; running sessions keep their process. A binary change fences old discovery results and invalidates incompatible catalog metadata. Account binary overrides apply after account assignment. CLI runtimes honor binary overrides; Cursor SDK module resolution retains its existing SDK configuration. Generic ACP installations retain their registry admission/launch plan; this setting does not install or create ACP agents.
+Re-enabling a provider discovers missing adapters without rebinding existing account owners. Cursor SDK activation admits its default account/catalog and initializes authentication even after disabled startup without a Cursor CLI or explicit SDK home. Socket auth requests and explicit model refresh wait for pending activation; cached catalog queries remain immediate. Both source and destination must be enabled for a fork merge, including patch merges.
+
+Explicit global binary paths can admit a missing native CLI without a daemon restart. Preferences affect the next session launch; running sessions keep their process. A binary change fences old discovery results and invalidates incompatible catalog metadata. Account binary overrides apply after account assignment. CLI runtimes honor binary overrides; Cursor SDK module resolution retains its existing SDK configuration. Generic ACP `binaryPath` values are ignored: the registry-approved launch plan's command is authoritative even if a session requests another executable. This setting does not install or create ACP agents.
+
+## UI follow-up for the Claude web agent
+
+Use `Client.settingsGet` and `Client.settingsSet` for preferences; use
+`Client.request({type: "settings.subscribe", ...})` and `Client.onMessage` for
+`settings.changed`, releasing with `Client.send({type: "settings.unsubscribe", ...})`.
+Use `Client.request` with `models.list`, `models.refresh`, and `models.resolve`
+for the catalog. Build model/group switches, favourites-only
+controls, parsed labels, hidden-selection badges, disabled-provider read-only
+states and refresh animation with the polling contract above. Omit the binary-path
+editor for registry-backed ACP and SDK-backed Cursor. No UI source is part of this
+backend revision.

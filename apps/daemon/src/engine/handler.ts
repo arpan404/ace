@@ -1,4 +1,4 @@
-import { permissionResolutionError } from "@ace/core";
+import { providerCommandDisabled, permissionResolutionError } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
@@ -34,44 +34,27 @@ export function engineHandler(
   return {
     handle(command: Command, context): CommandResult {
       const payload = command.payload;
-      const launchKinds = [
-        "thread.create",
-        "thread.prepare",
-        "thread.send",
-        "thread.fork",
-        "thread.switch",
-        "thread.resume",
-        "queue.resume",
-        "thread.merge",
-        "thread.model.set",
-        "thread.mode.set",
-      ];
-      if (providerEnabled && launchKinds.includes(payload.type)) {
-        const thread =
-          "threadId" in payload && payload.threadId
-            ? repo.store.getThread(ThreadId.parse(payload.threadId))
-            : undefined;
-        const provider =
-          "provider" in payload
-            ? payload.provider
-            : "selection" in payload && payload.selection
-              ? payload.selection.provider
-              : thread?.provider;
-        const instance =
-          ("instanceId" in payload ? payload.instanceId : undefined) ??
-          ("accountId" in payload ? payload.accountId : undefined) ??
-          ("account" in payload ? payload.account : undefined) ??
-          ("selection" in payload && payload.selection
-            ? payload.selection.instanceId
-            : undefined) ??
-          (thread
-            ? repo.session(thread.id).instanceId
-            : provider && registry.has(provider)
+      if (
+        providerEnabled &&
+        providerCommandDisabled(payload, {
+          thread(id) {
+            const thread = repo.store.getThread(id);
+            return thread
+              ? {
+                  provider: thread.provider,
+                  instanceId: repo.session(id).instanceId,
+                  parentThreadId: thread.lineage?.parentThreadId,
+                }
+              : undefined;
+          },
+          defaultInstance: (provider) =>
+            registry.has(provider)
               ? selectInstance?.(provider, registry.get(provider).adapter.backend)
-              : undefined);
-        if (provider && !providerEnabled(provider, instance))
-          return { commandId: command.id, ok: false, error: "provider_disabled" };
-      }
+              : undefined,
+          enabled: providerEnabled,
+        })
+      )
+        return { commandId: command.id, ok: false, error: "provider_disabled" };
       if ("threadId" in payload && payload.threadId) {
         const id = ThreadId.parse(payload.threadId);
         if (repo.store.workspaceReservations.threadReserved(id))

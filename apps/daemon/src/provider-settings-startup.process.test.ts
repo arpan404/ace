@@ -44,10 +44,15 @@ else process.exit(9);
 `,
     { mode: 0o700 },
   );
+  // Both PATH discovery and an explicit override would run a real fixture if suppression broke.
+  await writeFile(join(home, "codex"), await readFile(executable, "utf8"), { mode: 0o700 });
   const disabled = ProviderKind.options.map((provider) => ({ provider, enabled: false }));
+  const startupDisabled = disabled.map((row) =>
+    row.provider === "codex" ? { ...row, binaryPath: executable } : row,
+  );
   await writeFile(
     join(home, "settings.json"),
-    JSON.stringify({ version: 2, settings: { "providers.configuration": disabled } }),
+    JSON.stringify({ version: 2, settings: { "providers.configuration": startupDisabled } }),
   );
   daemon = await startDaemon({
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
@@ -64,7 +69,10 @@ else process.exit(9);
     history: { instances: [] },
   });
   await daemon.models.refresh();
-  expect(daemon.models.list().instances).toEqual([]);
+  expect(daemon.models.list().instances).toMatchObject([
+    { provider: "codex", enabled: false, refreshing: false },
+  ]);
+  expect(daemon.models.list().models).toEqual([]);
   await expect(readFile(marker, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   const token = await readFile(daemon.tokenPath, "utf8");
   for (const id of ["desktop", "phone"]) {

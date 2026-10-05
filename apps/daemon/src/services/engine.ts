@@ -10,7 +10,8 @@ import { daemonClaudeAdapter } from "./claude.ts";
 import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
-import { bindCursorSdk, createInstance } from "@ace/accounts";
+import { bindCursorSdk } from "@ace/accounts";
+import { activateCursorProvider } from "./cursor-activation.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
@@ -82,19 +83,6 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       : {};
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
-  if (
-    accounts &&
-    accountRegistry &&
-    registry.has("cursor") &&
-    registry.get("cursor").adapter.backend === "cursor-sdk" &&
-    !accountRegistry.get(defaultInstance.id) &&
-    !accountRegistry.list().some(({ instance }) => instance.provider === "cursor")
-  ) {
-    // Preserve the SDK adapter's original home when it first enters accounts ownership.
-    await accountRegistry.register(
-      createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor SDK" }),
-    );
-  }
   const bindProvider = (source: ProviderAdapter) => {
     const adapter = configuredAdapter(source, services.providerConfigurations);
     if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
@@ -126,6 +114,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       : withDaemonMcp(context, wrapped);
   };
   registry.bindSessions(bindProvider);
+  await activateCursorProvider(context, registry);
   if (!engineOptions.registry) {
     let update = Promise.resolve();
     let enabled = new Set(
@@ -163,8 +152,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
             registry,
           );
           registry.bindSessions(bindProvider);
+          await activateCursorProvider(context, registry);
         })
         .catch((error: unknown) => log.log("warn", "Provider enable discovery failed", error));
+      services.providerActivation = update;
     });
     resources.own(() => {
       stop?.();

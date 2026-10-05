@@ -50,7 +50,7 @@ export function createAcpAdapter(
       if (options.resolveLaunch) {
         const plan = await options.resolveLaunch(ctx);
         return openAcpSession(ctx, quirks, {
-          command: ctx.executable ?? plan.command,
+          command: plan.command,
           args: [...plan.args],
           env: { ...ctx.env, ...plan.env },
           version: plan.version,

@@ -15,6 +15,9 @@ export async function startModels(context: ServiceContext): Promise<void> {
     config.dataDir,
     options.modelInstances ?? [],
     {
+      ...(options.engine?.cursor?.discovery
+        ? { cursorDiscovery: options.engine.cursor.discovery }
+        : {}),
       ...options.modelDiscovery,
       cursorSlots: cursorHosts(context),
       cursorEnv: options.engine?.cursor?.env ?? process.env,
@@ -125,12 +128,19 @@ export function createModelsSession(context: SocketContext): SocketService {
             modelFailure("Model catalog is not configured");
             return true;
           }
+          const catalog = options.models;
           if (modelRequests >= 8) {
             modelFailure("Too many catalog requests");
             return true;
           }
           modelRequests++;
-          const task = handleModelRequest(options.models, message)
+          const request =
+            message.type === "models.refresh"
+              ? Promise.resolve(options.providerActivation).then(() =>
+                  handleModelRequest(catalog, message),
+                )
+              : handleModelRequest(catalog, message);
+          const task = request
             .then(send, () => modelFailure("Model catalog request failed"))
             .finally(() => {
               modelRequests--;

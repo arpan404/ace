@@ -1,4 +1,4 @@
-import { configuredModels, providerConfiguration } from "./preferences.ts";
+import { createModelView, providerConfiguration } from "./preferences.ts";
 import type { ProviderConfigurations } from "@ace/protocol";
 import { createHash } from "node:crypto";
 import { normalizeAcp } from "./normalize.ts";
@@ -33,7 +33,13 @@ type State = {
   flight?: Promise<ModelInstanceStatus>;
   probeRevision?: string;
   abort?: AbortController;
+  view?: {
+    preferences: ProviderConfigurations;
+    entry?: CacheEntry;
+    models: ReturnType<typeof createModelView>;
+  };
 };
+const emptyPreferences: ProviderConfigurations = [];
 function cacheRevision(instance: ModelInstance): string {
   return instance.provider === "opencode"
     ? createHash("sha256")
@@ -63,6 +69,7 @@ export type CatalogOptions = {
   timeoutMs?: number;
   retryMs?: number;
   concurrency?: number;
+  /** Keep the snapshot stable between updates; replace it or call configurationChanged on edits. */
   preferences?: () => ProviderConfigurations;
 };
 export class ModelCatalog implements ModelCatalogApi {
@@ -112,17 +119,23 @@ export class ModelCatalog implements ModelCatalogApi {
           .digest("hex")
       : cacheRevision(config);
   }
-  #models(state: State): CatalogModel[] {
-    return configuredModels(
+  #models(state: State) {
+    const preferences = this.#options.preferences?.() ?? emptyPreferences;
+    if (state.view?.preferences === preferences && state.view.entry === state.entry)
+      return state.view.models;
+    const models = createModelView(
       state.entry?.models ?? [],
       state.config.provider,
       state.config.id,
-      this.#configuration(state.config),
+      providerConfiguration(preferences, state.config.provider, state.config.id),
     );
+    state.view = { preferences, ...(state.entry ? { entry: state.entry } : {}), models };
+    return models;
   }
   /** Fence disabled flights immediately; enabling resumes ordinary lazy discovery. */
   configurationChanged(): void {
     for (const state of this.#states.values()) {
+      delete state.view;
       if (
         this.#configuration(state.config).enabled === false ||
         (state.probeRevision && state.probeRevision !== this.#revision(state.config))
@@ -137,6 +150,9 @@ export class ModelCatalog implements ModelCatalogApi {
   }
   hasProvider(provider: ModelInstance["provider"]): boolean {
     return (this.#providers.get(provider)?.size ?? 0) > 0;
+  }
+  hasInstance(instance: string): boolean {
+    return this.#states.has(instance);
   }
   registerInstance(input: InstanceInput): void {
     if (this.#closed) throw new Error("Catalog closed");
@@ -281,9 +297,14 @@ export class ModelCatalog implements ModelCatalogApi {
         skipped -= rows.length;
         continue;
       }
-      const page = rows.slice(skipped, skipped + remaining);
-      models.push(...page);
-      remaining -= page.length;
+      const end = Math.min(rows.length, skipped + remaining);
+      for (let position = skipped; position < end; position++) {
+        const row = rows.at(position);
+        if (row) {
+          models.push(row);
+          remaining--;
+        }
+      }
       skipped = 0;
       if (!remaining) break;
     }

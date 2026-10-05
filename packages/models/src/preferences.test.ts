@@ -9,9 +9,12 @@ const row = CatalogModel.parse({
   provider: "opencode",
   instance: "work",
   displayName: "Claude Opus 4.8",
-  reasoningEfforts: [],
-  serviceTiers: [],
-  inputModalities: [],
+  reasoningEfforts: ["high"],
+  serviceTiers: [
+    { id: "priority", name: "Fast", speed: "fast", parameters: { service_tier: "priority" } },
+  ],
+  inputModalities: ["text", "image"],
+  contextWindow: 200000,
   isDefault: true,
   hidden: false,
   deprecated: true,
@@ -59,5 +62,12 @@ test("a custom id cannot overwrite provider capabilities or the provider's displ
     customModels: [{ id: row.id, displayName: "Wrong name" }],
   });
   expect(rows).toHaveLength(1);
-  expect(rows[0]?.displayName).toBe("Claude Opus 4.8");
+  expect(rows[0]).toMatchObject({
+    displayName: "Claude Opus 4.8",
+    reasoningEfforts: ["high"],
+    serviceTiers: row.serviceTiers,
+    inputModalities: ["text", "image"],
+    contextWindow: 200000,
+  });
+  expect(rows[0]?.custom).not.toBe(true);
 });

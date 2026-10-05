@@ -21,3 +21,8 @@ export {
 export type { RiskDecision, PathRisk } from "./permissions.ts";
 
 export { ExpiryMap } from "./expiry-map.ts";
+export {
+  providerCommandDisabled,
+  type ProviderAdmissionFacts,
+  type ProviderThread,
+} from "./provider-admission.ts";

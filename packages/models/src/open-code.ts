@@ -59,13 +59,18 @@ export function normalizeOpenCodeV2(
   if (parsed.location.directory !== instance.cwd)
     throw new Error("OpenCode model location mismatch");
   const seen = new Set<string>();
-  const available = parsed.data.filter((native) => {
+  const available: z.infer<typeof V2Model>[] = [];
+  for (const raw of parsed.data) {
+    // Catalog metadata for providers without a connection cannot affect usable rows.
+    const provider = V2Provider.safeParse(raw);
+    if (connected && (!provider.success || !connected.has(provider.data.providerID))) continue;
+    const native = V2Model.parse(raw);
     const id = `${native.providerID}/${native.modelID}`;
-    if ((connected && !connected.has(native.providerID)) || seen.has(id)) return false;
+    if (seen.has(id)) continue;
     seen.add(id);
-    return true;
-  });
-  if (available.length > 512) throw new Error("Too many connected models");
+    available.push(native);
+    if (available.length > 512) throw new Error("Too many connected models");
+  }
   return available.map((native) => {
     const model = base(instance, `${native.providerID}/${native.modelID}`, native.name, native);
     model.nativeProviderId = native.providerID;
@@ -82,27 +87,25 @@ export function normalizeOpenCodeV2(
   });
 }
 import { z } from "zod";
+const V2Provider = z.object({ providerID: z.string().min(1).max(256) });
+const V2Model = z
+  .object({
+    id: z.string().min(1).max(256),
+    modelID: z.string().min(1).max(256),
+    providerID: z.string().min(1).max(256),
+    name: z.string().min(1).max(256),
+    enabled: z.boolean(),
+    status: z.string(),
+    limit: z
+      .object({ context: z.number().int().positive(), output: z.number().int().positive() })
+      .passthrough(),
+    capabilities: z.object({ input: z.record(z.string(), z.boolean()) }).passthrough(),
+    variants: z.array(z.object({ id: z.string().min(1).max(256) }).passthrough()).max(32),
+  })
+  .passthrough();
 const V2Catalog = z
   .object({
     location: z.object({ directory: z.string() }),
-    data: z
-      .array(
-        z
-          .object({
-            id: z.string().min(1).max(256),
-            modelID: z.string().min(1).max(256),
-            providerID: z.string().min(1).max(256),
-            name: z.string().min(1).max(256),
-            enabled: z.boolean(),
-            status: z.string(),
-            limit: z
-              .object({ context: z.number().int().positive(), output: z.number().int().positive() })
-              .passthrough(),
-            capabilities: z.object({ input: z.record(z.string(), z.boolean()) }).passthrough(),
-            variants: z.array(z.object({ id: z.string().min(1).max(256) }).passthrough()).max(32),
-          })
-          .passthrough(),
-      )
-      .max(8192),
+    data: z.array(z.unknown()).max(8192),
   })
   .passthrough();

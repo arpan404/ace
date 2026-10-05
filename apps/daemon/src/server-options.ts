@@ -43,6 +43,7 @@ export interface ServerOptions {
   devices?: DevicesService;
   accounts?: AccountService;
   cursorAuth?: CursorAuthService;
+  providerActivation?: Promise<void>;
   commands?: CommandService;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;

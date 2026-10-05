@@ -70,3 +70,39 @@ Final follow-up gate: 606 tests passed, four existing skips; format, lint,
 typecheck and the 1,500-line check passed for all 255 source files. Command:
 `VITEST_MAX_WORKERS=4 bun run check --testTimeout=30000 --hookTimeout=30000`.
 No CI was run or watched.
+
+## PR 129 provider-settings review follow-up
+
+This section is a static mutation plan. Unlike the historical audits above,
+**all cases are not executed (tests run at merge)** under the owner's rule.
+No passing regression or killed-mutation claim is made for this revision.
+
+M = `src/provider-settings.process.test.ts`; P = `src/preferences.test.ts`.
+
+| #   | Mutation the regression is designed to kill           | Public behavior/assertion                                                                                                                                  |
+| --- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Remove connected upstream filtering                   | M connected discovery excludes the unconnected row and includes both credential and env connections                                                        |
+| 2   | Remove qualified-ID deduplication                     | M connected discovery returns one local qualified ID despite duplicate native rows                                                                         |
+| 3   | Expand empty connections into global discovery        | M empty-connection fixture throws if metadata is requested and expects no rows                                                                             |
+| 4   | Remove fallback upstream filtering                    | M ID-only fallback ignores 600 unconnected rows before its 512 usable-model cap                                                                            |
+| 5   | Remove fallback deduplication                         | M ID-only fallback returns its repeated connected ID only once                                                                                             |
+| 6   | Ignore provider disable during discovery              | M disabled discovery reports no error despite a fixture that would throw if launched                                                                       |
+| 7   | Ignore custom executable                              | M enabled discovery succeeds only with its configured executable                                                                                           |
+| 8   | Remove binary-revision admission fences               | M late discovery before notification cannot expose old-model; no cancellation conceals the revision failure                                                |
+| 9   | Reject explicit hidden selection                      | M hidden selection resolves explicitly with its hidden flag                                                                                                |
+| 10  | Admit hidden automatic selection                      | M favourites-only with no favourites refuses automatic resolution                                                                                          |
+| 11  | Admit disabled explicit selection                     | M provider disable refuses the previously resolvable explicit ID                                                                                           |
+| 12  | Account-enable overrides global-disable               | P disabled-provider preference remains disabled despite enabled account override                                                                           |
+| 13  | Individual-show overrides group-hide                  | P hidden group remains hidden with individual show until group show is supplied                                                                            |
+| 14  | Stop default deprecated hiding                        | P deprecated rows hide unless explicitly shown or hideDeprecated is false                                                                                  |
+| 15  | Custom collision overwrites native metadata           | P exact-ID collision preserves name, high effort, priority tier, text/image and 200k context; no custom flag                                               |
+| 16  | Ignore provider-supplied name                         | `src/display-name.test.ts` supplied name wins over ID parsing                                                                                              |
+| 17  | Launch replacement instead of approved ACP executable | `packages/adapter-acp/src/provider-settings.process.test.ts` approved marker exists and replacement marker is absent                                       |
+| 18  | Skip Cursor activation after disabled startup         | `apps/daemon/src/provider-settings-cursor.process.test.ts` existing socket obtains default-account auth, private-home models and accounts after enablement |
+
+Additional regressions cover malformed disconnected OpenCode metadata, explicit
+custom-ID opt-ins, page order/settings-generation invalidation, immutable cached
+custom rows, shared admission defaults and context/patch merges into disabled
+destinations. The startup suppression fixture now installs a named fake Codex CLI
+and a disabled executable override so a forbidden probe produces an observable
+marker. All runtime assertions and mutation discrimination **need run at merge**.

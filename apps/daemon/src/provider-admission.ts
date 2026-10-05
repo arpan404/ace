@@ -14,7 +14,7 @@ export function configuredAdapter(
       const configuration = settings?.for(adapter.provider, context.instanceId);
       if (configuration?.enabled === false) throw new Error("Provider disabled in Settings");
       const executable =
-        configuration?.binaryPath ??
+        (adapter.provider !== "acp" ? configuration?.binaryPath : undefined) ??
         (initialOverride && adapter.provider !== "acp"
           ? defaultProviderExecutable(adapter.provider)
           : undefined);

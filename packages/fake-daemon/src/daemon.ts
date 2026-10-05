@@ -1,3 +1,4 @@
+import { providerCommandDisabled } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { ProviderConfigurations } from "@ace/protocol";
 import {
@@ -611,42 +612,31 @@ export class FakeDaemon implements Host {
         ? previous.result
         : { commandId: command.id, ok: false, error: "forbidden" };
     const payload = command.payload;
+    const configurations = ProviderConfigurations.parse(
+      this.services.settings.get("providers.configuration"),
+    );
     if (
-      [
-        "thread.create",
-        "thread.prepare",
-        "thread.send",
-        "thread.fork",
-        "thread.switch",
-        "thread.resume",
-        "queue.resume",
-        "thread.merge",
-        "thread.model.set",
-        "thread.mode.set",
-      ].includes(payload.type)
-    ) {
-      const thread =
-        "threadId" in payload && payload.threadId
-          ? this.threads.get(payload.threadId)?.view.thread
-          : undefined;
-      const provider =
-        "provider" in payload
-          ? payload.provider
-          : "selection" in payload && payload.selection
-            ? payload.selection.provider
-            : thread?.provider;
-      const configurations = ProviderConfigurations.parse(
-        this.services.settings.get("providers.configuration"),
-      );
-      const instance =
-        ("instanceId" in payload ? payload.instanceId : undefined) ??
-        ("accountId" in payload ? payload.accountId : undefined) ??
-        ("account" in payload ? payload.account : undefined) ??
-        ("selection" in payload && payload.selection ? payload.selection.instanceId : undefined) ??
-        thread?.instanceId;
-      if (provider && providerConfiguration(configurations, provider, instance).enabled === false)
-        return { commandId: command.id, ok: false, error: "provider_disabled" };
-    }
+      providerCommandDisabled(payload, {
+        thread: (id) => {
+          const thread = this.threads.get(id)?.view.thread;
+          return thread
+            ? {
+                provider: thread.provider,
+                instanceId:
+                  thread.instanceId ?? thread.execution?.instanceId ?? thread.live?.account,
+                parentThreadId: thread.lineage?.parentThreadId,
+              }
+            : undefined;
+        },
+        defaultInstance: (provider) =>
+          provider === "cursor"
+            ? this.services.accounts.find((account) => account.provider === provider)?.id
+            : undefined,
+        enabled: (provider, instance) =>
+          providerConfiguration(configurations, provider, instance).enabled !== false,
+      })
+    )
+      return { commandId: command.id, ok: false, error: "provider_disabled" };
     const refusal = this.refusals.get(command.payload.type);
     if (refusal) return { commandId: command.id, ok: false, error: refusal };
     let result: CommandResult;

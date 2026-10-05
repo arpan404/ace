@@ -46,6 +46,7 @@ export interface Services {
   devices?: DevicesService;
   accounts?: AccountService;
   cursorAuth?: CursorAuthService;
+  providerActivation?: Promise<void>;
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
   files?: FilesService;

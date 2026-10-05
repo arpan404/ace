@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
+import { transitionHarness } from "./transition-test-support.ts";
 
 test("disabling a provider rejects new work while existing thread history remains readable", async () => {
   let enabled = true;
@@ -37,6 +38,48 @@ test("disabling a provider rejects new work while existing thread history remain
     await h.close();
   }
 });
+
+test.each([undefined, "patch"])(
+  "an enabled fork cannot merge %s into a disabled destination",
+  async (patch) => {
+    let parentDisabled = false;
+    const h = transitionHarness({
+      providerEnabled: (provider) => !parentDisabled || provider !== "codex",
+    });
+    try {
+      const parent = await h.create();
+      const fork = h.command({
+        type: "thread.fork",
+        threadId: parent,
+        point: { type: "turn", runId: h.finishedRun(parent).id },
+        input: "fork",
+        budgetBytes: 4096,
+        selection: { provider: "claude", instanceId: "fork-account", options: {} },
+      });
+      if (!fork.ok || !fork.forkThreadId) throw new Error("Missing fork");
+      await h.engine.flush();
+      const item = Object.values(h.store.snapshotThread(fork.forkThreadId).items).find(
+        (row) => row.type === "message",
+      );
+      if (!item) throw new Error("Missing fork message");
+      const before = h.store.snapshotThread(parent);
+      parentDisabled = true;
+      expect(
+        h.command({
+          type: "thread.merge",
+          threadId: fork.forkThreadId,
+          summary: "merge",
+          citations: [{ threadId: fork.forkThreadId, itemId: item.id }],
+          ...(patch ? { patch: "diff --git a/file b/file\n" } : {}),
+        }),
+      ).toMatchObject({ ok: false, error: "provider_disabled" });
+      await h.engine.flush();
+      expect(h.store.snapshotThread(parent)).toEqual(before);
+    } finally {
+      await h.close();
+    }
+  },
+);
 
 test("explicit disabled accounts are refused before a new thread is admitted", async () => {
   const frames = scriptFrames();

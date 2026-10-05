@@ -157,12 +157,24 @@ test("OpenCode discovers only credential and environment connected upstreams and
     ...instance("opencode"),
     cwd: home.path,
     args: [script],
-    env: { FAKE_PROVIDER: "opencode" },
+    env: {
+      FAKE_PROVIDER: "opencode",
+      FAKE_CONNECTIONS: JSON.stringify([
+        { id: "local", connections: [{ type: "env" }] },
+        { id: "credential", connections: [{ type: "credential" }] },
+        { id: "unconnected", connections: [] },
+      ]),
+    },
   };
   const discover = createModelDiscovery({
     opencode: async () => ({
       location: { directory: home.path },
-      data: [native("unconnected"), native("local", "legacy"), native("local", "legacy")],
+      data: [
+        native("unconnected"),
+        native("local", "legacy"),
+        native("local", "legacy"),
+        native("credential"),
+      ],
     }),
   });
   expect(await discover(config, new AbortController().signal)).toMatchObject([
@@ -172,6 +184,12 @@ test("OpenCode discovers only credential and environment connected upstreams and
       displayName: "Provider supplied name",
       legacy: true,
       deprecated: true,
+    },
+    {
+      id: "credential/model",
+      nativeProviderId: "credential",
+      displayName: "Provider supplied name",
+      deprecated: false,
     },
   ]);
 });
@@ -218,7 +236,7 @@ test("OpenCode's id-only fallback excludes unconnected providers before imposing
     env: {
       FAKE_PROVIDER: "opencode",
       FAKE_MODEL_IDS: [
-        "other/not-usable",
+        ...Array.from({ length: 600 }, (_, index) => `other/m${index}`),
         "local/muse-spark-1.3-contributor",
         "local/muse-spark-1.3-contributor",
       ].join("\n"),
@@ -234,6 +252,132 @@ test("OpenCode's id-only fallback excludes unconnected providers before imposing
       displayName: "Muse Spark 1.3 Contributor",
     },
   ]);
+});
+
+test("malformed metadata from unconnected OpenCode providers does not reject connected models", async () => {
+  const home = await workspace();
+  cleanup.push(home.close);
+  const script = await fakeCli(home.path);
+  const config = {
+    ...instance("opencode"),
+    cwd: home.path,
+    args: [script],
+    env: { FAKE_PROVIDER: "opencode" },
+  };
+  const discover = createModelDiscovery({
+    opencode: async () => ({
+      location: { directory: home.path },
+      data: [
+        { ...native("unconnected"), limit: { context: 1000 } },
+        { ...native("local"), extension: { future: true } },
+      ],
+    }),
+  });
+  expect(await discover(config, new AbortController().signal)).toMatchObject([
+    {
+      id: "local/model",
+      contextWindow: 1000,
+      displayName: "Provider supplied name",
+      raw: { json: expect.stringContaining('"future":true') },
+    },
+  ]);
+});
+
+test("a manually configured OpenCode id remains an explicit opt-in with no discovered connections", async () => {
+  const home = await workspace();
+  cleanup.push(home.close);
+  const config = { ...instance("opencode"), cwd: home.path };
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(join(home.path, "custom.sqlite")),
+    instances: [config],
+    now: () => 1,
+    deadline: () => () => {},
+    discover: async () => [],
+    preferences: () => [
+      {
+        provider: "opencode",
+        customModels: [{ id: "unconnected/exact-ID", displayName: "My router" }],
+      },
+    ],
+  });
+  cleanup.push(() => catalog.close());
+  await catalog.refresh();
+  expect(catalog.list().models).toMatchObject([
+    { id: "unconnected/exact-ID", nativeProviderId: "unconnected", custom: true, hidden: false },
+  ]);
+  expect(
+    catalog.resolve({ provider: "opencode", role: "worker", model: "unconnected/exact-ID" }),
+  ).toMatchObject({ ok: true, model: { id: "unconnected/exact-ID", custom: true } });
+});
+
+test("paged cached models retain row order and update visibility across preference and discovery revisions", async () => {
+  const home = await workspace();
+  cleanup.push(home.close);
+  const config = { ...instance(), cwd: home.path };
+  const nativeRows = normalizeCodex(
+    { data: Array.from({ length: 512 }, (_, index) => codexPayload(`m${index}`).data[0]) },
+    config,
+  );
+  let preferences: ProviderConfigurations = [
+    {
+      provider: "codex",
+      hiddenModels: nativeRows.map((row) => row.id),
+      customModels: Array.from({ length: 128 }, (_, index) => ({
+        id: `custom-${index}`,
+        displayName: `Custom ${index}`,
+      })),
+    },
+  ];
+  let discovered = nativeRows;
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(join(home.path, "pages.sqlite")),
+    instances: [config],
+    now: () => 1,
+    deadline: () => () => {},
+    preferences: () => preferences,
+    discover: async () => discovered,
+  });
+  cleanup.push(() => catalog.close());
+  await catalog.refresh();
+  const custom = catalog.list({ limit: 1, offset: 512 }).models[0];
+  if (!custom) throw new Error("Missing custom fixture row");
+  expect(() => {
+    custom.displayName = "Changed";
+  }).toThrow(TypeError);
+  expect(() => custom.reasoningEfforts.push("invented")).toThrow(TypeError);
+  expect(catalog.list({ limit: 1, offset: 512 }).models[0]).toMatchObject({
+    displayName: "Custom 0",
+    reasoningEfforts: [],
+  });
+  for (let repeat = 0; repeat < 2; repeat++) {
+    expect(catalog.list({ limit: 1, offset: 511 })).toMatchObject({
+      models: [{ id: "m511", hidden: true }],
+      nextOffset: 512,
+    });
+    expect(catalog.list({ limit: 1, offset: 512 })).toMatchObject({
+      models: [{ id: "custom-0", hidden: false }],
+      nextOffset: 513,
+    });
+    const last = catalog.list({ limit: 1, offset: 639 });
+    expect(last).toMatchObject({
+      models: [{ id: "custom-127" }],
+    });
+    expect(last.nextOffset).toBeUndefined();
+  }
+  preferences = [{ provider: "codex", favourites: ["m511"], shownModels: ["m511"] }];
+  catalog.configurationChanged();
+  const updated = catalog.list({ limit: 1, offset: 511 });
+  expect(updated).toMatchObject({
+    models: [{ id: "m511", hidden: false, favourite: true }],
+  });
+  expect(updated.nextOffset).toBeUndefined();
+  discovered = normalizeCodex(codexPayload("replacement"), config);
+  await catalog.refresh();
+  const refreshed = catalog.list({ limit: 1 });
+  expect(refreshed).toMatchObject({
+    models: [{ id: "replacement", hidden: false, favourite: false }],
+  });
+  expect(refreshed.nextOffset).toBeUndefined();
 });
 
 test("OpenCode's empty connection status never expands into the global catalog", async () => {
@@ -282,6 +426,39 @@ test("a binary change fences an older refresh and retains only metadata from the
   catalog.configurationChanged();
   old.resolve(normalizeCodex(codexPayload("old-model"), config));
   await flight;
+  await catalog.refresh();
+  expect(catalog.list().models.map((row) => row.id)).toEqual(["new-model"]);
+});
+
+test("a binary revision rejects a late discovery even before its change notification arrives", async () => {
+  const home = await workspace();
+  cleanup.push(home.close);
+  const config = { ...instance(), cwd: home.path };
+  let preferences: ProviderConfigurations = [{ provider: "codex", binaryPath: "/old-cli" }];
+  const old = deferred<ReturnType<typeof normalizeCodex>>();
+  const started = deferred<void>();
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(join(home.path, "late.sqlite")),
+    instances: [config],
+    now: () => 1,
+    deadline: () => () => {},
+    preferences: () => preferences,
+    discover: async (selected) => {
+      if (selected.executable === "/old-cli") {
+        started.resolve();
+        return old.promise;
+      }
+      return normalizeCodex(codexPayload("new-model"), config);
+    },
+  });
+  cleanup.push(() => catalog.close());
+  const flight = catalog.refresh();
+  await started.promise;
+  // Do not notify/abort: this exercises revision validation independently of cancellation.
+  preferences = [{ provider: "codex", binaryPath: "/new-cli" }];
+  old.resolve(normalizeCodex(codexPayload("old-model"), config));
+  await flight;
+  expect(catalog.list().models.map((row) => row.id)).not.toContain("old-model");
   await catalog.refresh();
   expect(catalog.list().models.map((row) => row.id)).toEqual(["new-model"]);
 });

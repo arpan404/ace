@@ -1,5 +1,6 @@
 import { CatalogModel, ProviderKind } from "@ace/protocol";
 import { z } from "zod";
+import { freezeCatalogModel } from "./freeze.ts";
 
 export const CachedEntry = z
   .object({
@@ -16,17 +17,7 @@ export const CachedEntry = z
       ) && new Set(entry.models.map((model) => model.id)).size === entry.models.length,
   )
   .transform((entry) => {
-    for (const model of entry.models) {
-      for (const tier of model.serviceTiers) {
-        Object.freeze(tier.parameters);
-        Object.freeze(tier);
-      }
-      Object.freeze(model.serviceTiers);
-      Object.freeze(model.reasoningEfforts);
-      Object.freeze(model.inputModalities);
-      Object.freeze(model.raw);
-      Object.freeze(model);
-    }
+    for (const model of entry.models) freezeCatalogModel(model);
     Object.freeze(entry.models);
     return entry;
   });

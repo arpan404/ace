@@ -8,6 +8,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 
 export function startCursorAuth(context: ServiceContext): void {
   const { services, resources, now, id, config, options } = context;
+  if (services.cursorAuth) return;
   const registry = services.accountRegistry;
   const binding = services.cursorAccounts;
   if (!registry || !binding) return;
@@ -73,19 +74,20 @@ export function createCursorAuthSession(context: SocketContext): SocketService {
           requestId: request.requestId,
           code: "forbidden",
         });
-      else if (!context.options.cursorAuth)
-        context.send({
-          type: "cursor.auth.error",
-          requestId: request.requestId,
-          code: "unavailable",
-          reason: "service_unavailable",
-        });
       else if (pending >= 8)
         context.send({ type: "cursor.auth.error", requestId: request.requestId, code: "busy" });
       else {
         pending++;
-        const task = context.options.cursorAuth
-          .handle(device, request)
+        const task = Promise.resolve(context.options.providerActivation)
+          .then(
+            () =>
+              context.options.cursorAuth?.handle(device, request) ?? {
+                type: "cursor.auth.error" as const,
+                requestId: request.requestId,
+                code: "unavailable" as const,
+                reason: "service_unavailable" as const,
+              },
+          )
           .then((event) => {
             if (context.connected() && context.authorize(scope)) context.send(event);
           })
