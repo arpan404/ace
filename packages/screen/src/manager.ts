@@ -261,7 +261,20 @@ export class ScreenManager {
       epoch = session.epoch;
     if (mode === "foreground") {
       if (!this.access) throw new Error("Host approval unavailable");
-      await this.access.foreground(this.state(id), reason, signal);
+      const cancelled = new AbortController();
+      const unwatch = this.watch(() => {
+        if (epoch !== session.epoch || session.state.lifecycle !== "live")
+          cancelled.abort(new Error("Controller changed"));
+      });
+      try {
+        await this.access.foreground(
+          this.state(id),
+          reason,
+          AbortSignal.any([signal, cancelled.signal]),
+        );
+      } finally {
+        unwatch();
+      }
     }
     signal.throwIfAborted();
     if (epoch !== session.epoch || session.state.lifecycle !== "live")
@@ -343,8 +356,8 @@ export class ScreenManager {
           bundle,
           holder?.state.sessionId ?? pending ?? "starting",
           holder?.owner ??
+            this.pendingOwners.get(pending ?? holder?.state.sessionId ?? "") ??
             holder?.state.controller ??
-            this.pendingOwners.get(pending ?? "") ??
             "starting",
         );
     }

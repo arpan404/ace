@@ -302,14 +302,15 @@ test("secure-field audit steps omit text and a takeover cancels pending foregrou
   if (!interaction) throw new Error("Missing foreground gate");
   expect(screen.state(state.sessionId).mode).toBe("background");
   screen.controller(state.sessionId, "human", "human");
+  await cancelled;
+  expect(h.store.getInteraction(interaction.id)?.state).toBe("expired");
   expect(
     h.command({
       type: "interaction.resolve",
       interactionId: interaction.id,
       resolution: { kind: "approval", optionId: "allow_once" },
     }).ok,
-  ).toBe(true);
-  await cancelled;
+  ).toBe(false);
   expect(screen.state(state.sessionId)).toMatchObject({
     controller: "human",
     mode: "background",
