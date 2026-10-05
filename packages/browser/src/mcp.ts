@@ -10,20 +10,28 @@ const actions = {
   },
   click: {
     riskClass: "external-effect",
-    description: "Click the approved browser element identified by its semantic ref.",
+    description:
+      "Click a ref from ace_browser_snapshot. After a navigation-triggering click, wait_for url or text, then snapshot again. Old document refs expire.",
   },
   type: {
     riskClass: "external-effect",
-    description: "Type text into the approved browser element.",
+    description:
+      "Replace all text in an editable element using a snapshot ref. For focused keyboard input use press. Snapshot again after navigation.",
   },
-  press: { riskClass: "external-effect", description: "Press a key in the approved browser." },
+  press: {
+    riskClass: "external-effect",
+    description:
+      "Press a Playwright key such as Enter, Tab, Escape or Control+a. Optionally focus ref first. For a submitting key, wait_for url or text afterward.",
+  },
   scroll: {
     riskClass: "external-effect",
-    description: "Scroll the approved browser by the requested coordinates.",
+    description:
+      "Scroll by x horizontal and y vertical pixel deltas; these are distances, not a target point.",
   },
   snapshot: {
     riskClass: "read-only",
-    description: "Read the approved browser's bounded page snapshot and semantic refs.",
+    description:
+      "Read the current page accessibility tree. Use node refs for click/type/press. Refs stay stable within a document and expire on navigation; only the latest snapshot grants actionable refs.",
   },
   screenshot: { riskClass: "read-only", description: "Read a screenshot of the approved browser." },
   evaluate: {
@@ -32,7 +40,8 @@ const actions = {
   },
   wait_for: {
     riskClass: "read-only",
-    description: "Wait for an approved browser element to become visible or hidden.",
+    description:
+      "Wait after click/press: pass url for an exact destination loaded through DOMContentLoaded, text for visible page text, or ref plus state (visible/hidden) for an existing element. Choose exactly one of url, text or ref. Safe when navigation already finished; take a fresh snapshot afterward.",
   },
   logs: {
     riskClass: "read-only",
@@ -54,6 +63,7 @@ const actions = {
 /** Agents use the human-opened browser and its existing origin/evaluate policy. */
 export function browserToolkit(
   service: Pick<BrowserService, "execute" | "screenshot">,
+  startupReserveMs = 0,
 ): BrowserToolkit {
   return {
     capability: "browser",
@@ -68,7 +78,10 @@ export function browserToolkit(
             Object.fromEntries(Object.entries(command.shape).filter(([key]) => key !== "action")),
           ),
           capability: "browser",
-          timeoutMs: action === "navigate" ? 100_000 : 35_000,
+          timeoutMs: Math.min(
+            300_000,
+            startupReserveMs + (action === "navigate" || action === "wait_for" ? 100_000 : 35_000),
+          ),
           async run(args, { caller, signal }) {
             signal.throwIfAborted();
             if (action === "screenshot") {

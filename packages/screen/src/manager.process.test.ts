@@ -53,6 +53,10 @@ it("live screenshots and MCP actions use the approved session and human takeover
   expect(await tool("screen_screenshot", {})).toEqual({
     content: [
       { type: "image", data: Buffer.from("jpeg-0").toString("base64"), mimeType: "image/jpeg" },
+      {
+        type: "text",
+        text: expect.stringContaining("Legacy input uses pixels in this 100x100 model image"),
+      },
     ],
   });
   screen.controller(id, "human", "human-1");
