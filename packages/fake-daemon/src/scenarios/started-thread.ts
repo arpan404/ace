@@ -1,19 +1,9 @@
 import type { Fact } from "@ace/core";
 import { CommandId, type CommandPayload, type ProviderKind } from "@ace/protocol";
+import { provisionalTitle } from "@ace/ui-core";
 import { message, rootAgent } from "./facts.ts";
 
 type CreateThread = Extract<CommandPayload, { type: "thread.create" }>;
-
-const titleLimit = 60;
-
-/** First line of the request, trimmed to a list-sized title, like the daemon's default. */
-export function defaultTitle(text: string): string {
-  const line = text.trim().split("\n")[0]?.trim() ?? "";
-  if (line.length <= titleLimit) return line || "New thread";
-  const cut = line.slice(0, titleLimit);
-  const space = cut.lastIndexOf(" ");
-  return `${space > 30 ? cut.slice(0, space) : cut}…`;
-}
 
 /**
  * What the fake daemon does with `thread.create`: the thread appears with the person's
@@ -27,14 +17,12 @@ export function startedThread(
   thread: { id: string; workspaceId: string; title: string; provider: ProviderKind };
   facts: Fact[];
 } {
-  const text = request.input
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("\n");
   return {
     thread: {
       id,
       workspaceId: request.workspaceId,
-      title: request.title ?? defaultTitle(text),
+      // The daemon's provisional title rule (TN-1): prose only, mentions and chips left out.
+      title: request.title ?? provisionalTitle(request.input),
       provider: request.provider,
     },
     facts: [

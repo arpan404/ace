@@ -12,7 +12,7 @@ import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { RunCheckpoints } from "./run-client.ts";
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
-import { ImportedProvenance } from "./history.ts";
+import { ImportedProvenance } from "./imported-provenance.ts";
 import { ProviderKind, Capabilities } from "./provider.ts";
 
 /** What started a run. Agents can start runs without anyone asking. */

@@ -15,19 +15,19 @@ const buttonVariants = cva(
         /** The quiet default: a 7% ink fill. */
         secondary:
           "bg-secondary text-foreground hover:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_7%)] aria-expanded:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_7%)]",
-        /** Ink button for the one primary action on a surface. */
+        /** The accent, for the one primary action on a surface. */
         primary:
-          "bg-primary text-primary-foreground hover:bg-[color-mix(in_oklab,var(--primary),var(--background)_14%)]",
+          "bg-tint text-tint-foreground hover:bg-[color-mix(in_oklab,var(--ring),var(--background)_14%)]",
         ghost:
           "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
         outline:
           "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent aria-expanded:bg-accent",
         danger:
           "bg-secondary text-destructive hover:bg-[color-mix(in_oklab,var(--secondary),var(--destructive)_12%)]",
-        link: "h-auto bg-transparent px-0 text-foreground underline-offset-4 hover:underline",
+        link: "h-auto bg-transparent px-0 text-link underline-offset-4 hover:underline",
       },
       size: {
-        sm: "h-[26px] rounded-sm px-2.5 text-[12px] touch-hit-lg",
+        sm: "h-[26px] rounded-sm px-2.5 text-sm touch-hit-lg",
         default: "h-[30px] rounded-md px-3 text-ui",
         lg: "h-9 rounded-card px-4 text-base",
       },

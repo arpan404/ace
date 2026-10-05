@@ -28,6 +28,40 @@
     },
     {
       "properties": {
+        "kind": {
+          "const": "pointer",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "down",
+            "move",
+            "up",
+            "cancel"
+          ],
+          "type": "string"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "phase",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "durationMs": {
           "default": 500,
           "maximum": 10000,

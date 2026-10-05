@@ -5,7 +5,7 @@ import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.
 import { ProviderKind } from "./provider.ts";
 import { InteractionResolution } from "./interactions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
-import { AccountInstanceId } from "./accounts.ts";
+import { AccountInstanceId } from "./account-ids.ts";
 import { AutomationRequest } from "./automations.ts";
 
 const key = z

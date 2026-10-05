@@ -177,7 +177,7 @@ function Extras(props: { threadId: string }) {
       )}
       {limited && (
         <Chip>
-          <Dot tone="needs-you" />
+          <Dot tone="limited" />
           Limited · usage limit reached
         </Chip>
       )}

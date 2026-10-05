@@ -1,4 +1,4 @@
-import { dedupeReconnect, replayCursor } from "@ace/fake-daemon";
+import { dedupeReconnect, replayCursor, teamAtLimit } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -90,4 +90,29 @@ test("the card floats in the gutter beside a wide column, insets narrower text, 
   expect(summaryPlacement(1400)).toBe("gutter");
   expect(summaryPlacement(1076)).toBe("inset");
   expect(summaryPlacement(560)).toBe("inline");
+});
+
+test("a thread held at a usage limit shows the same waiting tone on its row's pill and its summary's dot, never needs-you amber", async () => {
+  const app = harness();
+  for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
+  await app.open("/t/thread-limit-flags");
+  await screen.findByRole("feed", { name: "Transcript" });
+
+  const list = screen.getByRole("navigation", { name: "Threads" });
+  const row = within(list).getByRole("link", { name: /Remove the legacy feature-flag reader/ });
+  const pill = await waitFor(() => {
+    const found = within(row).getByText("Limited").closest<HTMLElement>("[data-tone]");
+    expect(found).not.toBeNull();
+    return found;
+  });
+
+  await userEvent.click(screen.getByRole("button", { name: "Pin thread summary" }));
+  const card = await screen.findByRole("complementary", { name: "Thread summary" });
+  const chip = (await within(card).findByText(/Limited · usage limit reached/)).closest(
+    "div, span",
+  );
+  const dot = chip?.querySelector<HTMLElement>('[data-slot="dot"]');
+
+  expect(pill?.dataset.tone).toBe("waiting");
+  expect(dot?.dataset.tone).toBe(pill?.dataset.tone);
 });

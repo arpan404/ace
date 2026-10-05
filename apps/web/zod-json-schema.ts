@@ -63,14 +63,19 @@ interface Node {
 const isNode = (value: unknown): value is Node =>
   typeof value === "object" && value !== null && typeof (value as Node).type === "string";
 
-/** `schema.meta(annotations)`: the span from the end of `schema` to the closing parenthesis. */
+/** A metadata or description annotation, from the receiver's end to the closing parenthesis. */
 function metaCall(node: Node): [number, number] | undefined {
   if (node.type !== "CallExpression" || (node["arguments"] as unknown[]).length !== 1) return;
   const callee = node["callee"];
   if (!isNode(callee) || callee.type !== "MemberExpression" || callee["computed"]) return;
   const property = callee["property"];
   const object = callee["object"];
-  if (!isNode(property) || property["name"] !== "meta" || !isNode(object)) return;
+  if (
+    !isNode(property) ||
+    !["meta", "describe"].includes(String(property["name"])) ||
+    !isNode(object)
+  )
+    return;
   return [object.end, node.end];
 }
 
@@ -78,15 +83,28 @@ function metaCall(node: Node): [number, number] | undefined {
  * Schema annotations (`.meta({...})`: constraint prose, examples, JSON Schema keywords) only
  * feed JSON Schema generation, which browser builds don't bundle (see above), and parsing never
  * reads them. They are several kilobytes of prose in the client worker, so browser builds drop
- * each `.meta(annotations)` call from protocol sources. The call returns a registered copy of
+ * each `.meta(annotations)` and `.describe(text)` call from protocol sources. The call returns a registered copy of
  * its receiver, so the receiver alone parses identically. Removed spans become whitespace, so
- * every other position, and the sourcemap, is unchanged; reading `.meta()` returns undefined.
+ * every other position, and the sourcemap, is unchanged. The unused registry is stubbed too,
+ * so metadata reads return undefined and attempts to register new metadata fail explicitly.
  */
 export function zodWithoutMetadata(): Plugin {
   return {
     name: "ace:zod-without-metadata",
+    load(id) {
+      if (!id.endsWith("zod/v4/core/registries.js")) return null;
+      return `
+        const unavailable = () => { throw new Error("Zod metadata isn't bundled in the browser build."); };
+        export const $input = Symbol("ZodInput");
+        export const $output = Symbol("ZodOutput");
+        export const $ZodRegistry = unavailable;
+        export const registry = unavailable;
+        export const globalRegistry = { get: () => undefined, add: unavailable };
+      `;
+    },
     transform(code, id) {
-      if (!protocolSource.test(id) || !code.includes(".meta(")) return null;
+      if (!protocolSource.test(id) || (!code.includes(".meta(") && !code.includes(".describe(")))
+        return null;
       const spans: [number, number][] = [];
       const visit = (value: unknown): void => {
         if (Array.isArray(value)) {

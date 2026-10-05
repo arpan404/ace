@@ -12,6 +12,7 @@ import {
   type CommandPayload,
   type ProjectsRequest as Request,
   type ServerMessage,
+  type ProjectsResult,
 } from "@ace/protocol";
 import { Store } from "./store.ts";
 import { Projects, type ProjectsOptions } from "./projects.ts";
@@ -122,4 +123,27 @@ export async function until(
     const message = await client.next();
     if (predicate(message)) return message;
   }
+}
+
+let pickerSequence = 0;
+export async function pickerRead(
+  client: Client,
+  operation: Request["operation"],
+): Promise<ProjectsResult["result"]> {
+  const requestId = `picker-regression-${++pickerSequence}`;
+  client.send(ProjectsRequest.parse({ type: "projects.request", requestId, operation }));
+  const reply = await until(
+    client,
+    (message) => message.type === "projects.result" && message.requestId === requestId,
+  );
+  if (reply.type !== "projects.result") throw new Error("Expected projects result");
+  return reply.result;
+}
+export async function finishPickerIndex(client: Client, query: string, limit = 100) {
+  for (let slice = 0; slice < 64; slice++) {
+    const result = await pickerRead(client, { op: "fs.search", query, limit, showHidden: false });
+    if (result.kind !== "search") throw new Error(JSON.stringify(result));
+    if (!result.indexing) return result;
+  }
+  throw new Error("Index exceeded the request slice bound");
 }

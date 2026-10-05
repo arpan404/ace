@@ -50,9 +50,11 @@ export async function openPiSession(
   ctx.signal.throwIfAborted();
   const io = { ...runtime, ...options.runtime };
   const cli =
-    options.cli ??
+    (ctx.executable ? undefined : options.cli) ??
     (await io.discover({
-      ...(options.executable ? { executable: options.executable } : {}),
+      ...((ctx.executable ?? options.executable)
+        ? { executable: ctx.executable ?? options.executable }
+        : {}),
       ...(ctx.env ? { env: ctx.env } : {}),
       signal: ctx.signal,
     }));

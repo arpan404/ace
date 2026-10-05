@@ -33,6 +33,7 @@ export function transitionHarness(
     configureFails?: boolean;
     maxActiveThreads?: number;
     beforeFork?(context: SessionContext): Promise<void>;
+    providerEnabled?: EngineOptions["providerEnabled"];
     prepareWorkspace?(id: ThreadId): Promise<string>;
   } = {},
 ) {
@@ -209,6 +210,7 @@ export function transitionHarness(
   }
   const errors: unknown[] = [];
   const engineOptions = {
+    ...(options.providerEnabled ? { providerEnabled: options.providerEnabled } : {}),
     registry,
     clock,
     onError: (error: unknown) => errors.push(error),

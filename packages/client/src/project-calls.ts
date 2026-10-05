@@ -46,6 +46,21 @@ export function projectCalls(client: ProjectsClient): ProjectCalls {
         { type: "projects.request", operation: { op: "fs.browse", ...input } },
         options,
       ),
+    search: (input, options) =>
+      client.request(
+        { type: "projects.request", operation: { op: "fs.search", ...input } },
+        options,
+      ),
+    complete: (input, options) =>
+      client.request(
+        { type: "projects.request", operation: { op: "fs.complete", ...input } },
+        options,
+      ),
+    validateCloneUrl: (url, options) =>
+      client.request(
+        { type: "projects.request", operation: { op: "workspace.clone.validate", url } },
+        options,
+      ),
     cancelClone: (commandId, options) =>
       client.request(
         { type: "projects.request", operation: { op: "workspace.clone.cancel", commandId } },

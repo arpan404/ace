@@ -19,7 +19,9 @@ import {
 async function open(page: Page, title: string) {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
-  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  await expect(
+    page.getByRole("button", { name: "Account and connection", exact: true }),
+  ).toBeAttached();
   await page
     .getByRole("navigation", { name: "Threads" })
     .getByRole("link", { name: new RegExp(title) })

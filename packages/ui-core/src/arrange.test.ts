@@ -10,7 +10,6 @@ const state = (patch: Partial<OrganizerState> = {}): OrganizerState => ({
   baseline: 0,
   project: null,
   settledOpen: false,
-  hiding: new Set(),
   ...patch,
 });
 
@@ -70,16 +69,14 @@ test("threads the daemon settled go to Settled, except one that needs you again"
   expect(result.active).toEqual(["asks", "fresh"]);
 });
 
-test("archived, deleted and hiding threads leave Home and its project counts", () => {
+test("archived and deleted threads leave Home and its project counts", () => {
   const entries = [
     entry("kept", { state: "done" }, now, { workspaceId: "web" }),
     entry("archived", { state: "done" }, now, { archivedAt: now }),
     entry("deleted", { state: "done" }, now, { deletedAt: now }),
-    entry("hiding", { state: "done" }, now),
   ];
-  const organised = state({ hiding: new Set(["hiding"]) });
-  expect(arrange(entries, organised, now).active).toEqual(["kept"]);
-  expect(projectCounts(entries, organised)).toEqual([{ id: "web", threads: 1 }]);
+  expect(arrange(entries, state(), now).active).toEqual(["kept"]);
+  expect(projectCounts(entries)).toEqual([{ id: "web", threads: 1 }]);
 });
 
 test("the project filter keeps only that project's threads", () => {

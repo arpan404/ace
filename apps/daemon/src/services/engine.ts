@@ -1,3 +1,5 @@
+import { configuredAdapter } from "../provider-admission.ts";
+import { configuredDiscovery } from "../provider-discovery.ts";
 import { logFields, logMetadata } from "@ace/diagnostics";
 import { cursorHosts } from "./cursor-hosts.ts";
 import { openCursorMcp } from "./cursor-mcp.ts";
@@ -10,6 +12,7 @@ import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { bindCursorSdk, createInstance } from "@ace/accounts";
+import { activateCursorProvider } from "./cursor-activation.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
@@ -33,10 +36,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const registry =
     engineOptions.registry ??
     (await discoverAdapters(
-      engineOptions.adapterDiscovery,
+      configuredDiscovery(context, engineOptions.adapterDiscovery),
       (cli) => daemonClaudeAdapter(context, cli),
       (adapters) => registerPi(context, adapters),
       cursorOptions,
+      services.providerConfigurations?.for("cursor").enabled === false
+        ? async () => ({ installed: false, supported: false })
+        : undefined,
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
   context.signal.throwIfAborted();
@@ -58,22 +64,24 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       : {};
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
-  if (
-    accounts &&
-    accountRegistry &&
-    registry.has("cursor") &&
-    registry.get("cursor").adapter.backend === "cursor-sdk" &&
-    !accountRegistry.get(defaultInstance.id) &&
-    !accountRegistry
-      .list()
-      .some(({ instance }) => instance.provider === "cursor" && !instance.implicit)
-  ) {
-    // Preserve the SDK adapter's original home when it first enters accounts ownership.
-    await accountRegistry.register(
-      createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor SDK" }),
-    );
-  }
-  registry.bindSessions((adapter) => {
+  // Preserve the SDK adapter's original home when it first enters accounts ownership.
+  const registerCursorSdkHome = async () => {
+    if (
+      accounts &&
+      accountRegistry &&
+      registry.has("cursor") &&
+      registry.get("cursor").adapter.backend === "cursor-sdk" &&
+      !accountRegistry.get(defaultInstance.id) &&
+      !accountRegistry
+        .list()
+        .some(({ instance }) => instance.provider === "cursor" && !instance.implicit)
+    )
+      await accountRegistry.register(
+        createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor SDK" }),
+      );
+  };
+  const bindProvider = (source: ProviderAdapter) => {
+    const adapter = configuredAdapter(source, services.providerConfigurations);
     if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
       return withDaemonMcp(context, adapter);
     const sdkBinding =
@@ -103,14 +111,69 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       },
     };
     // Cursor SDK owns its scoped HTTP lease, including account identity.
-    return adapter.backend === "cursor-sdk" ? wrapped : withDaemonMcp(context, wrapped);
-  });
+    return adapter.backend === "cursor-sdk"
+      ? configuredAdapter(wrapped, services.providerConfigurations)
+      : withDaemonMcp(context, wrapped);
+  };
+  await registerCursorSdkHome();
+  registry.bindSessions(bindProvider);
+  await activateCursorProvider(context, registry);
+  if (!engineOptions.registry) {
+    let update = Promise.resolve();
+    let enabled = new Set(
+      (services.providerConfigurations?.current() ?? [])
+        .filter((row) => !row.instance && row.enabled === false)
+        .map((row) => row.provider),
+    );
+    const stop = services.providerConfigurations?.listen(() => {
+      const disabled = new Set(
+        (services.providerConfigurations?.current() ?? [])
+          .filter((row) => !row.instance && row.enabled === false)
+          .map((row) => row.provider),
+      );
+      const needsDiscovery =
+        [...enabled].some((provider) => !disabled.has(provider)) ||
+        (services.providerConfigurations?.current() ?? []).some(
+          (row) =>
+            !row.instance && row.enabled !== false && row.binaryPath && !registry.has(row.provider),
+        );
+      enabled = disabled;
+      if (!needsDiscovery) return;
+      update = update
+        .then(async () => {
+          context.signal.throwIfAborted();
+          await discoverAdapters(
+            configuredDiscovery(context, engineOptions.adapterDiscovery),
+            (cli) => daemonClaudeAdapter(context, cli),
+            async (adapters) => {
+              if (!adapters.has("pi")) await registerPi(context, adapters);
+            },
+            cursorOptions,
+            services.providerConfigurations?.for("cursor").enabled === false
+              ? async () => ({ installed: false, supported: false })
+              : undefined,
+            registry,
+          );
+          await registerCursorSdkHome();
+          registry.bindSessions(bindProvider, { unboundOnly: true });
+          await activateCursorProvider(context, registry);
+        })
+        .catch((error: unknown) => log.log("warn", "Provider enable discovery failed", error));
+      services.providerActivation = update;
+    });
+    resources.own(() => {
+      stop?.();
+      return update;
+    });
+  }
   const ports = recoveryPorts(context, (id) => engine.sessionMetadata(id));
   const aceAction = engineOptions.aceToolAction ?? services.mcp?.action;
   const engine = new Engine(store, {
     ...acp,
     ...engineOptions,
     registry,
+    providerEnabled: (provider, instance) =>
+      services.providerConfigurations?.for(provider, instance).enabled !== false,
     ...(aceAction ? { aceToolAction: aceAction } : {}),
     permissionSettings:
       engineOptions.permissionSettings ??

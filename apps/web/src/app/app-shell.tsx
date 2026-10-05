@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts";
 import { MoreMenuItems } from "@/features/more/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
-import { ProjectsHost } from "@/features/projects/index.ts";
+import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
 import { AppSidebar, GlobalHotkeys, Rail, SidebarFrame } from "@/features/shell/index.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
@@ -40,23 +40,39 @@ export function AppShell() {
         >
           Skip to content
         </a>
-        <SidebarFrame rail={<ViewRail />} sidebar={<AppSidebar />}>
+        <SidebarFrame rail={<ViewRail />} sidebar={<ShellSidebar />}>
           <Outlet />
         </SidebarFrame>
         <CommandPalette />
-        <GlobalHotkeys />
+        <ShellHotkeys />
         <ActivityNotifier />
       </div>
     </ProjectsHost>
   );
 }
 
-/**
- * The rail with what other slices own: Activity's count (the number its header shows; a change
- * re-renders only the rail) and More's menu.
- */
+/** The rail with what other slices own: More's menu. */
 function ViewRail() {
-  return <Rail badges={{ activity: useNeedsYouCount() }} moreMenu={<MoreMenuItems />} />;
+  return <Rail moreMenu={<MoreMenuItems />} />;
+}
+
+/**
+ * The sidebar with what other slices own: Activity's count on its bell (the number Activity's
+ * header shows; a change re-renders only the sidebar) and Add project for an empty world.
+ */
+function ShellSidebar() {
+  const projects = useProjectDialogs();
+  return (
+    <AppSidebar
+      needsYou={useNeedsYouCount()}
+      onAddProject={() => projects.open({ kind: "add", tab: "open" })}
+    />
+  );
+}
+
+function ShellHotkeys() {
+  const projects = useProjectDialogs();
+  return <GlobalHotkeys onAddProject={() => projects.open({ kind: "add", tab: "open" })} />;
 }
 
 /** Where focus already is on purpose; a navigation must not pull it out of these. */

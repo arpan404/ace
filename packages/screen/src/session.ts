@@ -18,6 +18,8 @@ export type Session = {
   latest: Frame | undefined;
   epoch: number;
   owner: string | undefined;
+  pointerDown: boolean;
+  pointerCleanup?: Promise<void>;
   controllerBinding: ControllerBinding | undefined;
   recording: Recording | undefined;
   completedRecording: Recording | undefined;
@@ -47,6 +49,7 @@ export function createSession(
     latest: undefined,
     epoch: 0,
     owner: undefined,
+    pointerDown: false,
     controllerBinding: undefined,
     recording: undefined,
     completedRecording: undefined,

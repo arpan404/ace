@@ -41,7 +41,7 @@ test("a draft and its uploaded files survive a reload, and go once the message i
     new File(["route table"], "routes.txt", { type: "text/plain" }),
   );
   const chips = screen.getByRole("list", { name: "Attachments" });
-  await waitFor(() => expect(within(chips).queryByRole("status")).toBeNull());
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   cleanup();
 
   // A browser reload retains the daemon, including its scoped upload bytes.
