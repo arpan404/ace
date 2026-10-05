@@ -9,6 +9,9 @@
       ],
       "type": "string"
     },
+    "blocked": {
+      "$ref": "https://ace.local/protocol/v1/BrowserOriginBlock.json"
+    },
     "closed": {
       "type": "boolean"
     },

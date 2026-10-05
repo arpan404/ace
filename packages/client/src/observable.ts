@@ -86,29 +86,24 @@ export class Notifications {
     const updates = new Set<() => void>();
     for (const key of changed)
       for (const listener of this.keys.get(key) ?? []) updates.add(listener);
-    run(updates);
+    notifyObservers(updates, undefined);
   }
   emitAll(): void {
     this.version++;
     this.announce("all");
     const updates = new Set<() => void>();
     for (const set of this.keys.values()) for (const listener of set) updates.add(listener);
-    run(updates);
+    notifyObservers(updates, undefined);
   }
   private announce(keys: ReadonlySet<string> | "all"): void {
-    for (const tap of this.taps) {
-      try {
-        tap(keys);
-      } catch {
-        /* A tap cannot stop committed state delivery. */
-      }
-    }
+    notifyObservers(this.taps, keys);
   }
 }
-function run(updates: ReadonlySet<() => void>): void {
-  for (const update of updates) {
+/** Consumer exceptions cannot interrupt delivery of already committed facts. */
+export function notifyObservers<T>(observers: Iterable<(value: T) => void>, value: T): void {
+  for (const observer of observers) {
     try {
-      update();
+      observer(value);
     } catch {
       /* An observer cannot stop committed state delivery. */
     }

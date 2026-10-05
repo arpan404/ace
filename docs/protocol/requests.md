@@ -127,6 +127,22 @@ Example:
 }
 ```
 
+### host.identity
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"host.identity"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "host.identity"
+}
+```
+
 ### machines.request
 
 | Field | Required | Type | Constraints |
@@ -360,7 +376,7 @@ Example:
 }
 ```
 
-### Variant 17
+### Variant 18
 
 Type: union. See JSON Schema for constraints.
 
@@ -545,7 +561,7 @@ Example:
 
 ```json
 {
-  "key": "providers.reviewer.provider",
+  "key": "providers.coder.reasoningEffort",
   "requestId": "example",
   "scope": {
     "threadId": "example"
@@ -594,7 +610,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.planner.provider"
+    "providers.reviewer.reasoningEffort"
   ],
   "requestId": "example",
   "scope": {},
@@ -703,7 +719,7 @@ Example:
 }
 ```
 
-### Variant 34
+### Variant 35
 
 Type: union. See JSON Schema for constraints.
 
@@ -1218,6 +1234,64 @@ Example:
 }
 ```
 
+### browser.origins.list
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.origins.list"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.origins.list"
+}
+```
+
+### browser.origins.grant
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.origins.grant"` |  |
+| origin | yes | [BrowserOrigin.json](schema/BrowserOrigin.json) |  |
+
+Example:
+
+```json
+{
+  "origin": "https://youtube.com",
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.origins.grant"
+}
+```
+
+### browser.origins.revoke
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.origins.revoke"` |  |
+| origin | yes | [BrowserOrigin.json](schema/BrowserOrigin.json) |  |
+
+Example:
+
+```json
+{
+  "origin": "https://youtube.com",
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.origins.revoke"
+}
+```
+
 ### browser.close
 
 | Field | Required | Type | Constraints |
@@ -1250,9 +1324,7 @@ Example:
 ```json
 {
   "command": {
-    "action": "wait_for",
-    "ref": "example",
-    "state": "visible"
+    "action": "snapshot"
   },
   "requestId": "example",
   "threadId": "example",
