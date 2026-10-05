@@ -85,6 +85,15 @@ export interface ServerOptions {
   log?: (error: unknown) => void;
   health?: () => Promise<DiagnosticsHealth>;
   context?: {
+    readAttachment?(
+      device: string,
+      thread: string,
+      hash: string,
+      variant: "original" | "thumbnail",
+      offset: number,
+      limit: number,
+      access?: () => boolean,
+    ): Promise<{ mimeType: string; bytes: number; data: Buffer }>;
     draftWorkspace?(device: string, draftId: string): Promise<string>;
     handle(device: string, request: ContextRequest, access?: () => boolean): Promise<ContextResult>;
   };

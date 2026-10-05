@@ -3,7 +3,7 @@ import { describeAceAction } from "./actions.ts";
 import { z } from "zod";
 import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
 import type { McpAttribution, McpCapability } from "@ace/protocol";
-import { specTypeSchemas, type CallToolResult, type Tool } from "@modelcontextprotocol/server";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
 import type { Principal } from "./credentials.ts";
 
@@ -31,6 +31,7 @@ export const nodeScheduler: Scheduler = {
     return () => clearTimeout(timer);
   },
 };
+const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
 function noop(): void {}
 interface Entry {
   /** Built on first list or schema read: JSON Schema per tool would otherwise sit idle in heap. */
@@ -137,6 +138,10 @@ export class ToolRegistry {
     let built: Tool | undefined;
     return () => (built ??= this.build(name, description, input, timeoutMs, output, riskClass));
   }
+  /**
+   * Built from trusted definitions and Zod-generated JSON schemas, without loading the MCP SDK;
+   * the SDK validates the wire representation when an MCP client connects.
+   */
   private build(
     name: string,
     description: string,
@@ -145,7 +150,7 @@ export class ToolRegistry {
     output?: z.ZodObject,
     riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"],
   ): Tool {
-    const parsed = specTypeSchemas.Tool["~standard"].validate({
+    return {
       name,
       description,
       ...(riskClass
@@ -158,13 +163,19 @@ export class ToolRegistry {
           }
         : {}),
       _meta: { "ace/timeoutMs": timeoutMs, "ace/riskClass": riskClass ?? "external-effect" },
-      inputSchema: { ...z.toJSONSchema(input, { io: "input" }), type: "object" },
+      inputSchema: JsonObjectSchema.parse({
+        ...z.toJSONSchema(input, { io: "input" }),
+        type: "object",
+      }),
       ...(output
-        ? { outputSchema: { ...z.toJSONSchema(output, { io: "output" }), type: "object" } }
+        ? {
+            outputSchema: JsonObjectSchema.parse({
+              ...z.toJSONSchema(output, { io: "output" }),
+              type: "object",
+            }),
+          }
         : {}),
-    });
-    if (parsed.issues) throw new Error("Invalid tool descriptor");
-    return parsed.value;
+    };
   }
   action(name: string, input: unknown) {
     const tool = name.startsWith("mcp__ace__") ? name.slice("mcp__ace__".length) : name;

@@ -486,6 +486,32 @@ it("binds the root before queued input when session creation and root traffic sh
   }
 });
 
+it("negotiated ACP image prompts carry native MIME and base64 instead of file references", async () => {
+  const imageData = (
+    await (
+      await import("node:fs/promises")
+    ).readFile(new URL("../../context/fixtures/colours.png", import.meta.url))
+  ).toString("base64");
+
+  const h = await setup();
+  try {
+    await h.session.send(
+      [
+        ...input("ok"),
+        { type: "image", mimeType: "image/png", url: `data:image/png;base64,${imageData}` },
+      ],
+      "queue",
+    );
+    const frame = h.frames.find((f) => f.dir === "send" && method(f, "session/prompt"));
+    expect(object(object(frame?.data).params).prompt).toEqual([
+      { type: "text", text: "ok" },
+      { type: "image", mimeType: "image/png", data: imageData },
+    ]);
+  } finally {
+    await h.session.close("user");
+  }
+});
+
 it("ACP open failures preserve structured causes and redact launch credentials", async () => {
   const secret = "private-acp-launch-secret";
   const failed = setup(

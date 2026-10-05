@@ -147,8 +147,10 @@ it("attributes concurrent builtin intents to each credential's own node", async 
       },
     },
   );
-  const root = await h.connect(scope("root", ["notify", "agents"]));
-  const child = await h.connect(scope("child", ["notify", "agents"]));
+  const [root, child] = await Promise.all([
+    h.connect(scope("root", ["notify", "agents"])),
+    h.connect(scope("child", ["notify", "agents"])),
+  ]);
   const responses = await Promise.all([
     root.client.callTool({ name: "ace_notify_user", arguments: { text: "Help" } }),
     child.client.callTool({

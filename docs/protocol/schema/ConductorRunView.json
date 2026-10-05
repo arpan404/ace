@@ -2,6 +2,28 @@
   "$id": "https://ace.local/protocol/v1/ConductorRunView.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "baseBranch": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "branch": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "budget": {
       "minimum": 0,
       "type": "number"
@@ -25,6 +47,30 @@
           "id": {
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
             "type": "string"
+          },
+          "reviews": {
+            "items": {
+              "properties": {
+                "summary": {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                "verdict": {
+                  "enum": [
+                    "pass",
+                    "changes_required"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "verdict",
+                "summary"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4,
+            "type": "array"
           },
           "revision": {
             "type": [
@@ -50,6 +96,18 @@
       },
       "maxItems": 256,
       "type": "array"
+    },
+    "deadline": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "delegations": {
       "default": [],
@@ -216,6 +274,14 @@
       "maxItems": 64,
       "type": "array"
     },
+    "merge": {
+      "enum": [
+        "auto-after-verification",
+        "ask",
+        "PR-only"
+      ],
+      "type": "string"
+    },
     "needsUser": {
       "items": {
         "properties": {
@@ -319,6 +385,13 @@
           "type": "null"
         }
       ]
+    },
+    "planApproval": {
+      "enum": [
+        "required",
+        "auto"
+      ],
+      "type": "string"
     },
     "planApproved": {
       "type": "boolean"

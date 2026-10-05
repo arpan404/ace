@@ -2,9 +2,9 @@ import type { ClientApi, ThreadReader } from "@ace/client";
 import { useClient, useThread } from "@ace/client-react";
 import type { ThreadCatchUpResponse } from "@ace/protocol";
 import { catchUpHasNews } from "@ace/ui-core";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { documentVisibility } from "@/lib/page-visibility.ts";
+import { usePageVisible } from "@/lib/page-visibility.ts";
 import { useWatched, type ThreadNav } from "./nav.tsx";
 
 /*
@@ -67,14 +67,6 @@ export function useCatchUp(threadId: string): {
     catchUp: shown,
     dismiss: () => setDismissed(since),
   };
-}
-
-function usePageVisible(): boolean {
-  return useSyncExternalStore(
-    documentVisibility.watch,
-    documentVisibility.visible,
-    documentVisibility.visible,
-  );
 }
 
 /**
