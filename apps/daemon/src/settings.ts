@@ -111,6 +111,8 @@ export function settingsSession(options: {
               : request.scope;
           const scope = settingsScope(options.store, wireScope);
           if (request.type === "settings.set") {
+            if (request.key === "browser.allowedOrigins" && request.layer.kind !== "global")
+              throw new SettingsError("validation", "Browser allowlist is a global user setting");
             const layer: Layer =
               request.layer.kind === "global"
                 ? { kind: "global" }

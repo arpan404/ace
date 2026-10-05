@@ -1,7 +1,14 @@
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 
-const Paused = z.object({ requestId: z.string(), request: z.object({ url: z.string() }) });
+const Paused = z.object({
+  requestId: z.string(),
+  redirectedRequestId: z.string().optional(),
+  request: z.object({ url: z.string() }),
+  resourceType: z.string().optional(),
+  frameId: z.string().optional(),
+});
+const FrameTree = z.object({ frameTree: z.object({ frame: z.object({ id: z.string() }) }) });
 const Attached = z.object({
   sessionId: z.string(),
   targetInfo: z.object({ targetId: z.string(), type: z.string() }),
@@ -22,8 +29,20 @@ type Send = (
  * Nested target sessions use the public CDP Target API, not Playwright internals. */
 export async function installOriginGuard(
   cdp: BrowserCdp,
-  allowed: (url: string) => Promise<boolean>,
+  allowed: (url: string, context?: { navigation?: boolean; human?: boolean }) => Promise<boolean>,
+  initiator: () => boolean = () => false,
 ) {
+  // Fetch redirects have new IDs. Carry the original actor along that chain.
+  const actors = new Map<string, boolean>();
+  const frameTree = FrameTree.safeParse(await cdp.send("Page.getFrameTree"));
+  let mainFrame = frameTree.success ? frameTree.data.frameTree.frame.id : undefined;
+  const frameChanged = (raw: unknown) => {
+    const frame = z
+      .object({ frame: z.object({ id: z.string(), parentId: z.string().optional() }) })
+      .safeParse(raw);
+    if (frame.success && !frame.data.frame.parentId) mainFrame = frame.data.frame.id;
+  };
+  cdp.on("Page.frameNavigated", frameChanged);
   const children = new Map<string, { send: Send; parent: Send }>();
   const pending = new Map<
     number,
@@ -64,12 +83,31 @@ export async function installOriginGuard(
   function paused(send: Send, raw: unknown): void {
     const request = Paused.safeParse(raw);
     if (!request.success) return;
+    const navigation =
+      send === root &&
+      mainFrame !== undefined &&
+      request.data.resourceType === "Document" &&
+      request.data.frameId === mainFrame;
+    let human: boolean | undefined;
+    if (navigation) {
+      const previous = request.data.redirectedRequestId;
+      human = previous ? actors.get(previous) === true : initiator();
+      if (previous) actors.delete(previous);
+      if (actors.size >= 256) {
+        const oldest = actors.keys().next().value;
+        if (oldest !== undefined) actors.delete(oldest);
+      }
+      actors.set(request.data.requestId, human);
+    }
     void (async () => {
       let approved = false;
       if (checks < 32 && !stopped) {
         checks++;
         try {
-          approved = await allowed(request.data.request.url);
+          approved = await allowed(request.data.request.url, {
+            navigation,
+            ...(human !== undefined ? { human } : {}),
+          });
         } catch {
           /* Deny policy errors. */
         } finally {
@@ -148,6 +186,7 @@ export async function installOriginGuard(
     ready: () => initializing,
     close() {
       stopped = true;
+      cdp.off("Page.frameNavigated", frameChanged);
       cdp.off("Fetch.requestPaused", rootPaused);
       cdp.off("Target.attachedToTarget", rootAttached);
       cdp.off("Target.receivedMessageFromTarget", received);
@@ -158,6 +197,7 @@ export async function installOriginGuard(
       }
       pending.clear();
       children.clear();
+      actors.clear();
     },
   };
 }

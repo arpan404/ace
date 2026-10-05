@@ -1,3 +1,4 @@
+import { BrowserOrigin } from "./browser.ts";
 import { PermissionMode } from "./permissions.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
@@ -25,6 +26,7 @@ export const SettingsValues = z.object({
   "providers.planner.model": name,
   "providers.planner.tier": tier,
   "providers.planner.reasoningEffort": effort,
+  "browser.allowedOrigins": z.array(BrowserOrigin).max(256),
   "browser.backend": z.enum(["auto", "embedded", "headless"]),
   "browser.backendLoss": z.enum(["pause", "headless"]),
   "permissions.defaultMode": PermissionMode,
