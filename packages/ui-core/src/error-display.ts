@@ -179,3 +179,54 @@ function sentence(code: string): string {
   const words = code.replace(/[_-]+/g, " ").trim();
   return words ? words[0]!.toUpperCase() + words.slice(1) : code;
 }
+
+/** The parts of a notice an echo check reads; structured fields are read when present. */
+interface NoticeLike {
+  type: string;
+  level?: string;
+  text?: string;
+  agentId?: string | undefined;
+  runId?: string | undefined;
+}
+
+const noticeCode = (notice: NoticeLike) => {
+  const record = notice as unknown as Record<string, unknown>;
+  const details = record["details"];
+  const code =
+    typeof record["code"] === "string"
+      ? record["code"]
+      : typeof details === "object" && details !== null && "code" in details
+        ? String(details.code)
+        : undefined;
+  return describeProviderError({ text: notice.text ?? "", code }).code;
+};
+
+/**
+ * True when the notice at `index` is only the code of the error just before it (IR-12): the
+ * provider reported one failure twice, as text and as a bare code. It must be the same failure
+ * (same code), from the same agent and run, with no work between them; any other bare code is
+ * its own failure and shows.
+ */
+export function echoesEarlierError(
+  order: readonly string[],
+  index: number,
+  item: (id: string) => NoticeLike | undefined,
+  span = 3,
+): boolean {
+  const echo = item(order[index] ?? "");
+  if (echo?.type !== "notice" || !isBareErrorCode(echo.text ?? "")) return false;
+  const code = noticeCode(echo);
+  for (let at = index - 1; at >= Math.max(0, index - span); at--) {
+    const earlier = item(order[at] ?? "");
+    if (!earlier) continue;
+    if (earlier.type !== "notice") return false;
+    if (earlier.level !== "error") continue;
+    return (
+      earlier.agentId === echo.agentId &&
+      earlier.runId === echo.runId &&
+      !isBareErrorCode(earlier.text ?? "") &&
+      noticeCode(earlier) === code
+    );
+  }
+  return false;
+}

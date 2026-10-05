@@ -2,6 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import type { Item, ProviderKind } from "@ace/protocol";
 import {
+  echoesEarlierError,
   handoffSummary,
   inputLine,
   isBareErrorCode,
@@ -26,7 +27,6 @@ import {
   ClockCounterClockwiseIcon,
   InfoIcon,
   LightningIcon,
-  QueueIcon,
   TerminalWindowIcon,
   WarningIcon,
   type Icon as PhosphorIcon,
@@ -46,7 +46,6 @@ const icons: Record<EventIcon, PhosphorIcon> = {
   restart: ArrowClockwiseIcon,
   resume: ClockCounterClockwiseIcon,
   background: TerminalWindowIcon,
-  queue: QueueIcon,
   switch: ArrowsLeftRightIcon,
   automation: LightningIcon,
 };
@@ -117,19 +116,14 @@ function useRepeats(threadId: string, itemId: string, kind: InputKind | undefine
   return useThread(threadId, ["order"], read) ?? false;
 }
 
-/** A bare error code ("model_not_found") right after the error it belongs to (IR-12). */
+/** A bare error code that only repeats the error just above it (IR-12). */
 function useEchoedCode(threadId: string, item: Item | undefined): boolean {
   const echo = item?.type === "notice" && isBareErrorCode(item.text);
   const id = item?.id ?? "";
   const read = useCallback(
     (reader: ThreadReader) => {
       if (!echo) return false;
-      const index = reader.order.indexOf(id);
-      for (let at = index - 1; at >= Math.max(0, index - 3); at--) {
-        const earlier = reader.item(reader.order[at] ?? "");
-        if (earlier?.type === "notice" && earlier.level === "error") return true;
-      }
-      return false;
+      return echoesEarlierError(reader.order, reader.order.indexOf(id), (key) => reader.item(key));
     },
     [echo, id],
   );
