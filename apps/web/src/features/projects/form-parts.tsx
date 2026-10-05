@@ -1,11 +1,9 @@
-import { FolderSimpleIcon, GitBranchIcon, WarningCircleIcon } from "@phosphor-icons/react";
-import { displayPath } from "@ace/ui-core";
-import { useId, useState, type ReactNode } from "react";
+import { GitBranchIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { useId, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { DialogClose, DialogFooter } from "@/components/ui/dialog.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { FolderBrowser } from "./folder-browser.tsx";
 
 /** A labelled text field with its live problem under it. */
 export function TextField(props: {
@@ -59,7 +57,7 @@ export function Problem(props: { children: ReactNode; action?: ReactNode }) {
   return (
     <div role="alert" className="flex items-start gap-2 rounded-md bg-secondary px-3 py-2 text-ui">
       <Icon icon={WarningCircleIcon} className="mt-px text-status-failed" />
-      <p className="min-w-0 flex-1 text-foreground">{props.children}</p>
+      <div className="min-w-0 flex-1 text-foreground">{props.children}</div>
       {props.action}
     </div>
   );
@@ -88,55 +86,5 @@ export function Footer(props: { children: ReactNode; note?: ReactNode; closeLabe
       <DialogClose render={<Button variant="ghost">{props.closeLabel ?? "Cancel"}</Button>} />
       {props.children}
     </DialogFooter>
-  );
-}
-
-/**
- * Where a new project goes: the folder shown, and Change… to browse the daemon's folders for
- * another. The location is the folder selected in the browser, else the one open in it.
- */
-export function LocationField(props: {
-  path: string | undefined;
-  onPath(path: string): void;
-  selected: string | undefined;
-  onSelect(path: string | undefined): void;
-  home: string | undefined;
-  roots: readonly string[];
-  start: string | undefined;
-  disabled?: boolean;
-}) {
-  const [browsing, setBrowsing] = useState(false);
-  const location = props.selected ?? props.path;
-  return (
-    <div className="grid gap-1.5">
-      <span className="text-sm font-medium text-muted-foreground">Location</span>
-      <div className="flex min-w-0 items-center gap-2 text-ui">
-        <Icon icon={FolderSimpleIcon} size={14} className="text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
-          {location ? displayPath(location, props.home) : "…"}
-        </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={props.disabled}
-          aria-expanded={browsing}
-          onClick={() => setBrowsing(!browsing)}
-        >
-          {browsing ? "Done" : "Change…"}
-        </Button>
-      </div>
-      {browsing && (
-        <FolderBrowser
-          label="Folders for the new project"
-          path={props.path}
-          onPath={props.onPath}
-          selected={props.selected}
-          onSelect={props.onSelect}
-          home={props.home}
-          roots={props.roots}
-          start={props.start}
-        />
-      )}
-    </div>
   );
 }
