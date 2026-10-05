@@ -546,6 +546,18 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
+  screenTurn(threadId: ThreadId): string | undefined {
+    const state = this.repo.state(threadId);
+    if (!state) return undefined;
+    const root = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
+    const status = this.repo.store.getThread(threadId)?.status.state;
+    return (
+      root?.activeRun ??
+      (status === "working" || status === "waiting" || status === "needs_you"
+        ? root?.lastRun
+        : undefined)
+    );
+  }
   openHostApproval(
     threadId: ThreadId,
     key: string,

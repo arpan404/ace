@@ -203,9 +203,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   });
   resources.own(() => engine.close());
   await engine.ready();
-  engine.bindHostInteractions((command) => services.browserOrigins?.resolve(command));
+  engine.bindHostInteractions(
+    (command) =>
+      services.screenApprovals?.resolve(command) ?? services.browserOrigins?.resolve(command),
+  );
   services.engine = engine;
   services.browserOrigins?.recover();
+  services.screenApprovals?.recover();
   services.handler = engine.handler;
 }
 
