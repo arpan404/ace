@@ -9,6 +9,7 @@ import {
   nextOptions,
   optionEffort,
   permissionLabel,
+  permissionPendingNote,
   pickerModelsFromChoices,
   pickerProviders,
   reconcileNextOptions,
@@ -47,7 +48,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
     meta?.provider,
     meta?.capabilities?.permissions,
   );
-  const summary = threadPermissionSummary(meta?.permission, capabilities);
+  const summary = threadPermissionSummary(meta?.permission, capabilities, { defaultMode });
   const change = (mode: PermissionMode | null) =>
     void set(mode).then(
       () =>
@@ -69,7 +70,10 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
           ? "The daemon didn't say how this thread is approved"
           : undefined
       }
-      pending={summary?.pending}
+      next={summary?.next}
+      // The daemon has no field yet for why a change waits; when it reports one ("busy"),
+      // pass it here and the note says the running command must finish first.
+      note={summary?.next && permissionPendingNote()}
       inherited={summary?.inherited}
       defaultMode={defaultMode}
       onChange={change}
