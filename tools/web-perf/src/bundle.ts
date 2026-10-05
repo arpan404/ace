@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { z } from "zod";
 import { budgets } from "./budgets.ts";
+import { workerBreakdown } from "./worker-breakdown.ts";
 
 /*
  * Bundle budgets per route (ADR 0056): builds the web app once into a temporary directory and
@@ -14,6 +15,7 @@ import { budgets } from "./budgets.ts";
 
 const web = new URL("../../../apps/web/", import.meta.url).pathname;
 const out = mkdtempSync(join(tmpdir(), "ace-web-bundle-"));
+const analyze = process.argv.includes("--analyze");
 const Manifest = z.record(
   z.string(),
   z.object({
@@ -31,6 +33,7 @@ const kb = (bytes: number) => bytes / 1024;
 try {
   execFileSync("bunx", ["vite", "build", "--manifest", "--outDir", out, "--emptyOutDir"], {
     cwd: web,
+    env: { ...process.env, ACE_WORKER_ANALYZE: analyze ? "1" : "0" },
     stdio: ["ignore", "ignore", "inherit"],
   });
   const manifest = Manifest.parse(
@@ -136,6 +139,7 @@ try {
         budgets.bundle.workerTotalKb,
       );
   }
+  if (analyze) process.stdout.write(workerBreakdown(out));
   if (failures.length) {
     process.stderr.write(`bundle budgets exceeded:\n${failures.join("\n")}\n`);
     process.exitCode = 1;

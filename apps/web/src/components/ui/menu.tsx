@@ -3,8 +3,9 @@ import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
-import { formatKeys, type KeymapId } from "@/lib/keymap.ts";
+import { describeKeys, type KeymapId } from "@/lib/keymap.ts";
 import {
+  layers,
   menuDanger,
   menuItem,
   menuLabel,
@@ -35,7 +36,7 @@ function MenuContent({
         align={align}
         sideOffset={sideOffset}
         anchor={anchor}
-        className="isolate z-[110] outline-none"
+        className={cn(layers.popup, "isolate outline-none [-webkit-app-region:no-drag]")}
       >
         <MenuPrimitive.Popup
           data-slot="menu-content"
@@ -60,7 +61,7 @@ function useShortcutText(
   const shown = shortcut
     ? resolved[shortcut]
     : keys && (resolve ? resolveKeys(keys, resolved) : keys);
-  return shown ? formatKeys(shown) : undefined;
+  return shown ? describeKeys(shown) : undefined;
 }
 
 /**

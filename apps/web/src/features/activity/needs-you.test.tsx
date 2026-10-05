@@ -21,7 +21,7 @@ test("answering an approval in Activity resolves it and takes it off the sidebar
   await app.open("/activity");
 
   const approval = await card(approvalTitle);
-  const views = screen.getByRole("navigation", { name: "Views" });
+  const views = screen.getByRole("navigation", { name: "App" });
   // The approval and the three Deck decisions the Activity feed also holds.
   expect(await within(views).findByLabelText("4 need you")).toBeTruthy();
 

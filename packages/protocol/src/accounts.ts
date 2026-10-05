@@ -1,11 +1,12 @@
 import { NativeSessionId } from "./ids.ts";
 import { z } from "zod";
 import { AcpIdentity } from "./agent-registry.ts";
+import { AccountId, AccountInstanceId } from "./account-ids.ts";
+
+export { AccountId, AccountInstanceId } from "./account-ids.ts";
 
 export const NativeAccountProvider = z.enum(["codex", "claude", "opencode", "cursor", "pi"]);
 export const AccountProvider = z.enum([...NativeAccountProvider.options, "acp"]);
-export const AccountInstanceId = z.string().min(1).max(256);
-export const AccountId = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/);
 export const AccountAssignment = z.object({
   instanceId: AccountInstanceId.optional(),
   role: z.string().min(1).max(64),

@@ -17,6 +17,7 @@ import { matchesChord } from "@/lib/hotkeys.ts";
 import { parseChord } from "@/lib/keymap.ts";
 import { IconButton } from "./icon-button.tsx";
 import { Kbd } from "./kbd.tsx";
+import { layers } from "./menu-styles.ts";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -27,7 +28,8 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 z-[100] bg-black/30 transition-opacity duration-(--dur-2) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-starting-style:opacity-0",
+        layers.overlay,
+        "fixed inset-0 bg-black/30 [-webkit-app-region:no-drag] transition-opacity duration-(--dur-2) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-starting-style:opacity-0",
         className,
       )}
       {...props}
@@ -85,7 +87,8 @@ function DialogContent({
         data-size={size}
         finalFocus={finalFocus ?? returnFocus}
         className={cn(
-          "glass fixed top-1/2 left-1/2 z-[101] flex max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl bg-popover p-5 text-ui text-popover-foreground outline-none",
+          layers.modal,
+          "glass fixed top-1/2 left-1/2 flex max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl bg-popover p-5 text-ui text-popover-foreground outline-none [-webkit-app-region:no-drag]",
           "transition-[opacity,transform] duration-(--dur-2) ease-spring data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-ending-style:ease-exit data-starting-style:translate-y-[calc(-50%+var(--rise))] data-starting-style:scale-[0.97] data-starting-style:opacity-0",
           sizes[size],
           className,
