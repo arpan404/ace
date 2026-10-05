@@ -72,7 +72,7 @@ export function ModelControl(props: {
         <Suspense
           fallback={
             // The effort pane's footprint, so the popover doesn't jump when its code arrives.
-            <div className="grid h-32 w-[280px] place-items-center">
+            <div className="grid h-32 w-70 place-items-center">
               <Spinner label="Loading" />
             </div>
           }

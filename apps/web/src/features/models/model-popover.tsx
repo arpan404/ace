@@ -36,7 +36,7 @@ export function ModelPopover(props: {
     );
   // Each pane fades in on its own as the popover resizes to it, as quick as a hover.
   return (
-    <div key={pane} className="fx-view-in" style={paneIn}>
+    <div key={pane} className="fx-view-in [animation-duration:var(--dur-1)]">
       {pane === "picker" ? (
         <ModelPickerPanel
           models={view.models}
@@ -56,8 +56,6 @@ export function ModelPopover(props: {
   );
 }
 
-const paneIn = { animationDuration: "var(--dur-1)" };
-
 function EffortPanel(props: {
   view: ModelControlView;
   actions: ModelControlActions;
@@ -69,7 +67,7 @@ function EffortPanel(props: {
   const index = steps.indexOf(view.effort ?? defaultStep);
   const title = view.effort ? effortLabel(view.effort) : "Default effort";
   return (
-    <div className="flex w-[280px] flex-col gap-3 p-3">
+    <div className="flex w-70 flex-col gap-3 p-3">
       <div className="grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-start gap-1">
         <Tip label={view.fastReason ?? (view.fast ? "Fast: on" : "Fast: off")} side="top">
           <button

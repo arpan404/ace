@@ -100,7 +100,7 @@ function StepSlider(props: {
         onPointerUp={release}
         onPointerCancel={release}
         onLostPointerCapture={release}
-        className="group relative h-[22px] w-full cursor-pointer touch-none rounded-full bg-secondary outline-none select-none data-disabled:cursor-default data-disabled:opacity-50 data-dragging:cursor-grabbing"
+        className="group relative h-5.5 w-full cursor-pointer touch-none rounded-full bg-secondary outline-none select-none data-disabled:cursor-default data-disabled:opacity-50 data-dragging:cursor-grabbing"
       >
         <span
           aria-hidden
@@ -121,7 +121,7 @@ function StepSlider(props: {
         <span
           aria-hidden
           className={cn(
-            "absolute top-1/2 size-[26px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.3),0_0_0_0.5px_rgb(0_0_0/0.12)] group-focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--ring)] group-data-dragging:scale-110",
+            "absolute top-1/2 size-6.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.3),0_0_0_0.5px_rgb(0_0_0/0.12)] group-focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--ring)] group-data-dragging:scale-110",
             glide,
           )}
           style={{ left: at(value, count) }}
