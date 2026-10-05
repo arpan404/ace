@@ -1,13 +1,12 @@
 import { z } from "zod";
 import {
-  DeviceId,
   Notification,
   NotificationDevice,
   NotificationAddress,
   NotificationPreferences,
   PresenceUpdate,
-  ThreadId,
-} from "@ace/protocol";
+} from "@ace/protocol/notifications";
+import { DeviceId, ThreadId } from "@ace/protocol/ids";
 
 import { MetadataEvent } from "./metadata.ts";
 

@@ -7,23 +7,6 @@ import { parseLimitReset } from "./reset-time.ts";
 export function initialQuota(): AccountQuota {
   return { auth: "unknown", observedAt: 0, windows: {}, blockers: {}, usage: {} };
 }
-export function availability(
-  state: AccountQuota,
-  now: number,
-): "available" | "near_limit" | "exhausted" | "logged_out" | "unknown" {
-  if (state.auth === "logged_out") return "logged_out";
-  if (state.auth !== "logged_in") return "unknown";
-  if (state.blockers.overflow) return "exhausted";
-  const fallback = state.blockers.limitError;
-  if (fallback && (fallback.resetsAt === null || fallback.resetsAt > now)) return "exhausted";
-  let near = false;
-  for (const window of Object.values(state.windows)) {
-    if (window.resetsAt !== null && window.resetsAt <= now) continue;
-    if (window.usedPercent >= 100) return "exhausted";
-    if (window.usedPercent >= 80) near = true;
-  }
-  return near ? "near_limit" : "available";
-}
 export type QuotaFact = {
   provider: "codex" | "claude" | "opencode" | "cursor" | "acp" | "pi";
   /** ProviderPayload from encoded bytes. Uncertified input is blocked without traversal. */

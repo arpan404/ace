@@ -1,5 +1,6 @@
 import { Client } from "@ace/client";
 import {
+  accountLimit,
   FakeDaemon,
   ScenarioPlayer,
   facts,
@@ -7,8 +8,8 @@ import {
   flakyCheckout,
   type Scenario,
 } from "@ace/fake-daemon";
-import { DeviceId, InteractionId } from "@ace/protocol";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { DeviceId, InteractionId, type ThreadListEntry } from "@ace/protocol";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import {
   ClientProvider,
@@ -16,6 +17,7 @@ import {
   useInteractions,
   useItemInteraction,
   useItem,
+  useSidebarIndex,
   type AgentTreeNode,
 } from "./index.ts";
 
@@ -194,6 +196,37 @@ test("the agent tree re-nests a subagent when it is linked under another parent"
   await act(async () => script.step());
   await act(async () => {});
   expect(screen.getByLabelText("tree").textContent).toBe("[[[[]]]]");
+});
+
+test("an index over the thread list re-reads only the threads a change names", async () => {
+  const { daemon, client } = setup();
+  new ScenarioPlayer(daemon, accountLimit("thread-a", "A")).runThrough("limited");
+  const b = new ScenarioPlayer(daemon, accountLimit("thread-b", "B"));
+  b.step();
+  await client.start();
+  const picked: string[] = [];
+  const limited = (entry: ThreadListEntry) => {
+    picked.push(entry.id);
+    return entry.status.state === "limited" ? entry.id : undefined;
+  };
+  function Limited() {
+    const ids = useSidebarIndex(limited);
+    return <output aria-label="limited">{(ids ?? []).join(",")}</output>;
+  }
+  render(
+    <ClientProvider client={client}>
+      <Limited />
+    </ClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByLabelText("limited").textContent).toBe("thread-a"));
+
+  picked.length = 0;
+  await act(async () => b.step());
+  await waitFor(() =>
+    expect(screen.getByLabelText("limited").textContent).toBe("thread-a,thread-b"),
+  );
+  // Thread A didn't change, so it wasn't read again.
+  expect(new Set(picked)).toEqual(new Set(["thread-b"]));
 });
 
 test("an answered question remains attached to its loaded item", async () => {

@@ -24,7 +24,7 @@ export function clientView(
     Lane,
     "id" | "agentId" | "role" | "workstream" | "account" | "model" | "generation" | "status"
   >[],
-  nodes: readonly Pick<Node, "id" | "state" | "fixRounds" | "mergedRevision">[],
+  nodes: readonly Pick<Node, "id" | "state" | "fixRounds" | "mergedRevision" | "reviews">[],
 ): ConductorRunView {
   const gates = Object.values(root.gates);
   const index = new Map(nodes.map((node) => [node.id, node]));
@@ -34,6 +34,9 @@ export function clientView(
     updatedAt: root.updatedAt,
     plan: root.plan,
     planApproved: root.planApproved,
+    planApproval: root.spec.policies.planApproval,
+    merge: root.spec.policies.merge,
+    deadline: root.spec.constraints.deadline,
     needsUser: gates
       .slice(0, 64)
       .map((gate) => Object.assign({}, gate, { message: gate.message.slice(0, 2048) })),
@@ -45,6 +48,10 @@ export function clientView(
       state: index.get(workstream.id)?.state,
       fixRounds: index.get(workstream.id)?.fixRounds,
       revision: index.get(workstream.id)?.mergedRevision,
+      reviews: index
+        .get(workstream.id)
+        ?.reviews.slice(-4)
+        .map((review) => ({ verdict: review.verdict, summary: review.summary.slice(0, 512) })),
     })),
     truncated: gates.length > 64 || lanes.length > 64,
   });

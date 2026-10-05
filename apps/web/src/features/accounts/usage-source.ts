@@ -74,6 +74,15 @@ export function useModelUsage(range: UsageRange) {
   });
 }
 
+/** Usage per account and provider over the whole range, busiest first. */
+export function useAccountUsage(range: UsageRange, enabled: boolean) {
+  return useDaemonQuery({
+    queryKey: key(range, "account"),
+    enabled: range.ready && enabled,
+    read: (client, signal) => summary(client, range, ["account", "provider"], signal),
+  });
+}
+
 /** Threads whose session totals are read, busiest first, how many at once, and a page's rows. */
 const threadLimit = 50;
 const readsAtOnce = 8;

@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
+import { useNow } from "@/lib/time.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
 import type { CatalogState } from "./control-view.ts";
 
@@ -99,7 +100,8 @@ const none: never[] = [];
 export function useModelChoices(): readonly ModelChoice[] {
   const models = useModelCatalog();
   const accounts = settled(useAccountViews());
-  return useMemo(() => modelChoices(models ?? [], accounts ?? []), [models, accounts]);
+  const now = useNow();
+  return useMemo(() => modelChoices(models ?? [], accounts ?? [], now), [models, accounts, now]);
 }
 
 /**

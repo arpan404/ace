@@ -1,15 +1,16 @@
 import { z } from "zod";
 import {
   AgentId,
-  AgentStatus,
   BackgroundTaskId,
-  BackgroundTask,
-  Event,
   InteractionId,
   ThreadId,
-  ThreadStatus,
   Timestamp,
-} from "@ace/protocol";
+  EventSequence,
+} from "@ace/protocol/ids";
+import { AgentStatus } from "@ace/protocol/agent-status";
+import { BackgroundTask } from "@ace/protocol/background";
+import { ThreadStatus } from "@ace/protocol/thread-status";
+import type { Event } from "@ace/protocol";
 import { InteractionLink, interactionLink } from "./model.ts";
 
 const idBound = z.string().max(200);
@@ -80,7 +81,7 @@ const Payload = z.discriminatedUnion("type", [
 ]);
 export const MetadataEvent = z
   .object({
-    seq: Event.shape.seq,
+    seq: EventSequence,
     at: Timestamp,
     threadId: ThreadId.and(idBound),
     payload: Payload,

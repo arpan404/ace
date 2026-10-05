@@ -12,10 +12,16 @@ export type CardState =
   | "fixing"
   | "merging"
   | "escalated"
+  /** You rejected its merge or escalation: it never merges. */
+  | "declined"
   | "merged";
 export interface Round {
   label: string;
   verdict: string;
+  /** What the reviewer said, when the daemon reports the round's review. */
+  summary?: string | undefined;
+  /** How the verdict reads: passed, sent back, or still open. */
+  tone?: "done" | "needs-you" | "working" | undefined;
 }
 export interface LaneRole {
   /** The account's label ("Claude Code · Work"), or "Account removed" when the daemon doesn't list it. */
@@ -83,12 +89,24 @@ export interface DeckCard {
   startedAt: number | undefined;
   updatedAt: number | undefined;
 }
+/** What the conductor asks (`needsUser[].kind`): each is decided its own way. */
+export type GateAsk =
+  | "plan"
+  | "merge"
+  | "escalation"
+  | "budget"
+  | "deadline"
+  | "destructive"
+  | "provider";
 export interface Gate {
   id: string;
-  /** Budget, deadline and destructive-change gates read as escalations. */
+  /** Budget, deadline and destructive-change gates read as escalations; `ask` tells them apart. */
   kind: "plan" | "merge" | "escalation" | "provider";
+  ask: GateAsk;
   title: string;
   body: string;
+  /** The daemon's own line, when `body` puts it in words: shown on request. */
+  detail: string | undefined;
   /** The card the gate is about, when it is about one. */
   workstream: string | null;
   /** When the deck began waiting on it; 0 when the daemon didn't record it. */
@@ -99,8 +117,12 @@ export interface Gate {
 export type DeckPhase =
   | "planning"
   | "dealing"
+  /** Running, but waiting for a free account or a lane's move to finish: it resumes by itself. */
+  | "waiting"
   | "merging"
   | "merged"
+  /** Done with some cards declined: everything that could merge did. */
+  | "finished"
   | "paused"
   /** Cancel was accepted; lanes are still stopping. */
   | "stopping"
@@ -130,6 +152,18 @@ export interface DeckRun {
   partial: boolean;
   /** The plan the gate asks about: each workstream's objective and how it is judged. */
   plan: DeckPlan | null;
+  /** The branch cards merge into and the one it started from, once the daemon reports them. */
+  branch: string | null;
+  baseBranch: string | null;
+  /** "auto" when the plan starts without asking; unknown on daemons that don't say. */
+  planApproval: "required" | "auto" | undefined;
+  /**
+   * How reviewed cards land: merged into the Deck branch (asking first, or not), or pushed as a
+   * pull request from it that the person merges. Unknown on daemons that don't say.
+   */
+  merge: "ask" | "auto-after-verification" | "PR-only" | undefined;
+  /** When the deck stops on its own, if it has a deadline. */
+  deadline: number | null;
 }
 
 export interface DeckPlan {
@@ -151,24 +185,71 @@ export function planEnds(cards: readonly Pick<DeckCard, "id" | "dependencies">[]
 
 /**
  * Where the plan ends: one merge after every card that nothing else waits on. "Needs all 6"
- * until the deck merges.
+ * until the deck merges; an ended deck says why nothing more will.
  */
 export function deckMerge(run: DeckRun): { detail: string; done: boolean; dependencies: string[] } {
   const dependencies = planEnds(run.cards);
-  const done = run.phase === "merged";
-  const detail = done
-    ? "Merged"
-    : run.phase === "merging"
-      ? "Merging"
-      : `Needs all ${run.cards.length}`;
-  return { detail, done, dependencies };
+  const { merged, total } = deckProgress(run);
+  // Cards integrate into the Deck's own branch; PR-only decks end at a pull request from it,
+  // which the person merges. Nothing here lands on the base branch.
+  const into = run.branch ? ` into ${run.branch}` : "";
+  const landed =
+    run.merge === "PR-only" ? `PR open${run.branch ? ` from ${run.branch}` : ""}` : `Merged${into}`;
+  const ended: Partial<Record<DeckPhase, string>> = {
+    merged: landed,
+    finished:
+      run.merge === "PR-only"
+        ? `${merged} of ${total} in the PR`
+        : `Merged ${merged} of ${total}${into}`,
+    merging: "Merging",
+    cancelled: "Won't merge",
+    stopping: "Won't merge",
+    failed: "On hold",
+  };
+  const detail = ended[run.phase];
+  return {
+    detail: detail ?? `Needs all ${total}`,
+    done: run.phase === "merged" || run.phase === "finished",
+    dependencies,
+  };
 }
 
-export type DeckGroup = "gated" | "active" | "finished";
+/** Declined cards and the planned cards that wait on one, directly or not: none will run. */
+export function heldCards(
+  cards: readonly { id: string; dependencies: readonly string[]; state: string }[],
+): ReadonlySet<string> {
+  const known = heldMemo.get(cards);
+  if (known) return known;
+  // One pass over the edges: each card is visited once from the declined ones.
+  const dependants = new Map<string, { id: string; state: string }[]>();
+  for (const card of cards)
+    for (const id of card.dependencies) {
+      const list = dependants.get(id);
+      if (list) list.push(card);
+      else dependants.set(id, [card]);
+    }
+  const queue = cards.filter((card) => card.state === "declined").map((card) => card.id);
+  const held = new Set(queue);
+  for (let at = 0; at < queue.length; at++)
+    for (const next of dependants.get(queue[at] ?? "") ?? [])
+      if (next.state === "planned" && !held.has(next.id)) {
+        held.add(next.id);
+        queue.push(next.id);
+      }
+  heldMemo.set(cards, held);
+  return held;
+}
+/** Each card list is a run's snapshot: its closure is worked out once, not per card. */
+const heldMemo = new WeakMap<object, ReadonlySet<string>>();
+
+/** Sidebar groups, in order: decks that need you, stopped ones, moving ones, ended ones. */
+export type DeckGroup = "gated" | "stopped" | "active" | "finished";
 
 export function deckGroup(run: DeckRun): DeckGroup {
   if (run.gate) return "gated";
-  if (run.phase === "merged" || run.phase === "cancelled") return "finished";
+  if (run.phase === "failed") return "stopped";
+  if (run.phase === "merged" || run.phase === "finished" || run.phase === "cancelled")
+    return "finished";
   return "active";
 }
 
@@ -181,39 +262,50 @@ export function deckProgress(run: DeckRun): { merged: number; total: number } {
 const busy = (card: DeckCard) =>
   card.state === "working" || card.state === "fixing" || card.state === "in_review";
 
-/** The second line of a deck in the sidebar. */
-export function deckRunSummary(run: DeckRun): string {
-  const { merged, total } = deckProgress(run);
-  const tally = `${merged} of ${total} merged`;
-  if (run.gate) {
-    const ask = {
-      merge: "Merge needs approval",
-      escalation: "Escalation needs you",
-      provider: "An agent needs your answer",
-      plan: "Deck plan needs approval",
-    }[run.gate.kind];
-    return `${ask} · ${tally}`;
-  }
+const askLabels: Record<GateAsk, string> = {
+  plan: "Plan needs approval",
+  merge: "Merge needs approval",
+  escalation: "Needs your decision",
+  budget: "Budget used up",
+  deadline: "Deadline passed",
+  destructive: "Change needs approval",
+  provider: "An agent asked you",
+};
+
+/** What a deck is doing, in a few words: the sidebar row and the lane tab's header. */
+export function deckState(run: DeckRun): string {
+  if (run.gate) return askLabels[run.gate.ask];
   switch (run.phase) {
     case "planning":
       return "Drafting the plan";
     case "dealing": {
       const lanes = run.cards.filter(busy).length;
-      return `Dealing · ${lanes} ${lanes === 1 ? "lane" : "lanes"} active`;
+      return lanes ? `${lanes} ${lanes === 1 ? "lane" : "lanes"} working` : "Dealing";
     }
+    case "waiting":
+      return "Waiting for an account";
     case "merging":
       return "Merging";
     case "paused":
-      return `Paused · ${tally}`;
+      return "Paused";
     case "stopping":
-      return "Stopping its lanes";
+      return "Stopping";
     case "merged":
-      return `Merged ${total} ${total === 1 ? "card" : "cards"}`;
+      return run.merge === "PR-only" ? "PR open" : "Merged";
+    case "finished":
+      return "Finished";
     case "cancelled":
-      return `Cancelled · ${tally}`;
+      return "Cancelled";
     case "failed":
-      return `Stopped · ${tally}`;
+      return "Stopped";
   }
+}
+
+/** The second line of a deck in the sidebar: "2/6 merged · Merge needs approval". */
+export function deckRunSummary(run: DeckRun): string {
+  const { merged, total } = deckProgress(run);
+  if (!total) return deckState(run);
+  return `${merged}/${total} merged · ${deckState(run)}`;
 }
 
 export type DeckStepState = "done" | "current" | "todo";
@@ -225,17 +317,28 @@ export interface DeckStep {
 /** Goal → Plan approved → Dealing · n of m merged → Merge. */
 export function deckSteps(run: DeckRun): DeckStep[] {
   const { merged, total } = deckProgress(run);
-  const finished = run.phase === "merged";
+  const finished = run.phase === "merged" || run.phase === "finished";
   const ended = run.phase === "cancelled" || run.phase === "stopping";
   const dealing = run.planApproved && !finished;
-  const plan = run.planApproved ? "Plan approved" : run.plan ? "Plan ready" : "Drafting the plan";
-  const last = finished
-    ? "Merged"
-    : run.phase === "cancelled"
-      ? "Cancelled"
-      : run.phase === "stopping"
-        ? "Stopping"
-        : "Merge";
+  const plan = run.planApproved
+    ? run.planApproval === "auto"
+      ? "Plan auto-approved"
+      : "Plan approved"
+    : run.plan
+      ? "Plan ready"
+      : "Drafting the plan";
+  const last =
+    run.phase === "finished"
+      ? "Finished"
+      : finished
+        ? run.merge === "PR-only"
+          ? "PR open"
+          : "Merged"
+        : run.phase === "cancelled"
+          ? "Cancelled"
+          : run.phase === "stopping"
+            ? "Stopping"
+            : "Merge";
   return [
     { label: "Goal", state: "done" },
     { label: plan, state: run.planApproved ? "done" : "current" },
@@ -250,7 +353,8 @@ export function deckSteps(run: DeckRun): DeckStep[] {
 
 /** The Deck stepper: its steps, and whether the current one is held rather than moving. */
 export function deckStepper(run: DeckRun): { steps: DeckStep[]; paused: boolean } {
-  const held = ["paused", "stopping", "cancelled", "failed"].includes(run.phase) || !!run.gate;
+  const held =
+    ["paused", "stopping", "cancelled", "failed", "waiting"].includes(run.phase) || !!run.gate;
   return { steps: deckSteps(run), paused: held };
 }
 
@@ -323,8 +427,11 @@ export function cardStatus(
   if (moving && run.phase === "paused") return { label: "Paused", mark: "dot", tone: "idle" };
   if (moving && run.phase === "stopping")
     return { label: "Stopping", mark: "spinner", tone: "waiting" };
+  if (card.state === "declined") return { label: "Declined", mark: "dot", tone: "idle" };
   if (card.state !== "merged" && run.phase === "cancelled")
     return { label: "Cancelled", mark: "dot", tone: "idle" };
+  if (card.state === "planned" && heldCards(run.cards).has(card.id))
+    return { label: "Won't start", mark: "dot", tone: "idle" };
   const hold = card.lane?.status ? laneHold[card.lane.status] : undefined;
   if (hold && (card.state === "working" || card.state === "fixing" || card.state === "in_review"))
     return { ...hold, mark: "dot" };
@@ -344,6 +451,36 @@ export function cardStatus(
     case "merged":
       return { label: "Merged", mark: "check", tone: "done" };
   }
+}
+
+/** Lanes in the order to look at them, each group named: what needs you comes first. */
+export function laneGroups(run: DeckRun): { label: string; cards: DeckCard[] }[] {
+  const groups = [
+    { label: "Needs you", cards: [] as DeckCard[] },
+    { label: "Working", cards: [] as DeckCard[] },
+    { label: "In review", cards: [] as DeckCard[] },
+    { label: "Planned", cards: [] as DeckCard[] },
+    { label: "Merged", cards: [] as DeckCard[] },
+    { label: "Declined", cards: [] as DeckCard[] },
+  ];
+  const [needsYou, working, review, planned, merged, declined] = groups;
+  for (const card of run.cards) {
+    const tone = cardStatus(card, run).tone;
+    const group =
+      tone === "needs-you"
+        ? needsYou
+        : card.state === "merged"
+          ? merged
+          : card.state === "declined"
+            ? declined
+            : card.state === "in_review"
+              ? review
+              : card.state === "planned"
+                ? planned
+                : working;
+    group?.cards.push(card);
+  }
+  return groups.filter((group) => group.cards.length > 0);
 }
 
 /** The card a deck opens on: the one most likely to need a look. */

@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { app, BrowserWindow, nativeTheme, screen, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, nativeTheme, screen, shell } from "electron";
 import type { WindowState } from "../../shared/contract.ts";
 import { isAppUrl, isExternalUrl } from "../csp.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
-import { macTitleBarCss, translucentCss, windowOptions } from "./options.ts";
+import { macTitleBarCss, titleBarSymbolColor, windowOptions } from "./options.ts";
+import { WindowMaterial } from "./transparency.ts";
 
 export interface MainWindowOptions {
   url: string;
@@ -17,10 +18,7 @@ export interface MainWindowOptions {
 
 /** Reduce transparency (macOS) turns the glass solid, as `prefers-reduced-transparency` does. */
 export function reducedTransparency(): boolean {
-  return (
-    process.platform === "darwin" &&
-    systemPreferences.getUserDefault("reduceTransparency", "boolean") === true
-  );
+  return process.platform === "darwin" && nativeTheme.prefersReducedTransparency;
 }
 
 export function windowState(window: BrowserWindow): WindowState {
@@ -71,11 +69,26 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   contents.on("will-attach-webview", (event) => event.preventDefault());
   contents.on("did-navigate-in-page", (_event, url) => options.onRoute(new URL(url).pathname));
   contents.on("did-navigate", (_event, url) => options.onRoute(new URL(url).pathname));
-  const translucent = !reduced && (process.platform === "darwin" || process.platform === "win32");
-  contents.on("dom-ready", () => {
-    if (translucent) void contents.insertCSS(translucentCss);
-    if (process.platform === "darwin") void contents.insertCSS(macTitleBarCss);
+  const material = new WindowMaterial({
+    platform: process.platform,
+    window,
+    page: contents,
+    reducedTransparency: reduced,
   });
+  contents.on("dom-ready", () => {
+    material.pageLoaded();
+    if (process.platform === "darwin") void contents.insertCSS(macTitleBarCss).catch(() => {});
+  });
+  // Appearance and Reduce Transparency can change while ace runs.
+  const themeChanged = () => {
+    if (window.isDestroyed()) return;
+    const dark = nativeTheme.shouldUseDarkColors;
+    if (process.platform === "win32")
+      window.setTitleBarOverlay({ symbolColor: titleBarSymbolColor(dark) });
+    material.update(reducedTransparency(), dark);
+  };
+  nativeTheme.on("updated", themeChanged);
+  window.once("closed", () => nativeTheme.off("updated", themeChanged));
   // Retry while the dev server starts. Packaged builds load from disk; if that ever fails,
   // a few retries are enough and an endless reload loop would only burn CPU.
   let retries = app.isPackaged ? 3 : Number.POSITIVE_INFINITY;

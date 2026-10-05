@@ -25,6 +25,18 @@ export interface Scheduler {
   set(delayMs: number, callback: () => void): () => void;
 }
 export type ConnectionState = "connecting" | "ready" | "reconnecting" | "offline" | "fatal";
+/** The connection's state and retry schedule, for "retrying in 12s · Retry now". */
+export interface ConnectionInfo {
+  state: ConnectionState;
+  /** Failed attempts since the connection was last healthy; reconnect backoff grows with it. */
+  attempt: number;
+  /** When the scheduled reconnect runs; absent unless one is waiting (and without `now`). */
+  nextRetryAt?: number;
+  /** When the current state began. */
+  since?: number;
+  /** When the connection last became ready. */
+  lastReadyAt?: number;
+}
 export interface ClientOptions {
   deviceId: DeviceId;
   /** Pin a directory entry before subscriptions or durable intents can replay. */
@@ -35,6 +47,8 @@ export interface ClientOptions {
   scheduler: Scheduler;
   random(): number;
   id(): string;
+  /** Wall-clock milliseconds for `connectionInfo()` timestamps; without it they are left out. */
+  now?(): number;
   limits?: Partial<Limits>;
 }
 export interface Limits {

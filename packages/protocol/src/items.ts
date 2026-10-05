@@ -2,6 +2,7 @@ import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { DelegationOutcome } from "./agent-control.ts";
 import { MergedForkContext, ExecutionSource } from "./thread-transitions.ts";
+import { Attachment } from "./context.ts";
 import { z } from "zod";
 import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind, RawPayload } from "./provider.ts";
@@ -66,6 +67,8 @@ export const AgentItem = z.discriminatedUnion("type", [
     type: z.literal("message"),
     role: z.enum(["user", "assistant"]),
     parts: z.array(ContentPart),
+    /** Thread-scoped content ids, resolved by this item's daemon connection. */
+    attachments: z.array(Attachment).max(64).optional(),
     /** Message ace did not send itself: task notifications, injected results. */
     synthetic: z.boolean().default(false),
     origin: MessageOrigin.optional(),
