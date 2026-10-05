@@ -3,12 +3,14 @@ import { useConnectionState, useIntent, usePendingSends, useThreadMeta } from "@
 import { provisionalTitle, providerNames, type TurnActivity } from "@ace/ui-core";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
+import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
+import { startedTitle } from "./composer/send-store.ts";
 import { UserMessage } from "./items/user-message.tsx";
 import { readingColumn } from "./lib/column.ts";
 import { ActivityLine } from "./transcript/live-footer.tsx";
@@ -46,7 +48,8 @@ export function PendingThreadView(props: { threadId: string }) {
   const projectName = useProjectName();
   const payload = entry?.payload;
   const workspaceId = payload?.type === "thread.create" ? payload.workspaceId : undefined;
-  const title = payload ? provisionalTitle(payload.input) : "New thread";
+  const title =
+    startedTitle(commandId) ?? (payload ? provisionalTitle(payload.input) : "New thread");
   const failed = entry?.state === "failed" || intent?.state === "failed";
   if (!entry && !intent && ready)
     return (
@@ -83,6 +86,9 @@ export function PendingThreadView(props: { threadId: string }) {
               </div>
             </div>
             {payload && !failed && <ActivityLine activity={startingLine(payload, !!realId)} />}
+            <Suspense fallback={null}>
+              <DeferredLocalSends.Component threadId={props.threadId} />
+            </Suspense>
           </div>
         </div>
       </div>

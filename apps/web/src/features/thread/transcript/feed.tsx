@@ -30,7 +30,8 @@ import {
   DeferredTurnKeys,
 } from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
-import { useTranscriptBlocks } from "../items/pending-sends.ts";
+import { DeferredLocalSends } from "../composer/deferred-parts.tsx";
+import { useLocalSendsView } from "../items/local-sends-view.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
@@ -153,7 +154,12 @@ export function Feed(props: FeedProps) {
   const window = jump.window;
   const detached = !!window && !jump.joined;
   // The person's messages on their way join the live tail as the bubbles their items become.
-  const blocks = useTranscriptBlocks(threadId, useBlocks(threadId), !detached);
+  const built = useBlocks(threadId);
+  const local = useLocalSendsView(threadId);
+  const blocks = useMemo(
+    () => (local && !detached ? local.merge(built) : built),
+    [local, built, detached],
+  );
   const order = useItemOrder(threadId) ?? none;
   const runOrdinals = useRunOrdinals(threadId);
   const { seqTurns } = props;
@@ -505,6 +511,11 @@ export function Feed(props: FeedProps) {
                 activity={liveBlock ? undefined : activity}
                 inline={inline}
               />
+            )}
+            {!detached && (
+              <Suspense fallback={null}>
+                <DeferredLocalSends.Component threadId={threadId} />
+              </Suspense>
             )}
           </div>
         </div>

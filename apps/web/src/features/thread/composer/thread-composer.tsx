@@ -11,18 +11,14 @@ import type { ThreadRef } from "../sources/index.ts";
 import { Composer, type ComposerHandle, type Draft } from "./composer.tsx";
 import { ContextBar } from "./context-bar.tsx";
 import { ContextMeter } from "./context-meter.tsx";
-import {
-  ControlsPending,
-  DeferredQueueNotice,
-  DeferredQueuedPills,
-  DeferredThreadControls,
-} from "./deferred-parts.tsx";
+import { ControlsPending, DeferredQueueArea, DeferredThreadControls } from "./deferred-parts.tsx";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
-import { focusOpenRequest, wideEnoughToFocus } from "./focus-on-open.ts";
 import { rememberAttachments } from "./send-store.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
-import { useQueue } from "./use-queue.ts";
-import { useQueuedPending } from "./queued-pending.ts";
+
+/** Desktop widths put the caret in the composer when a thread opens; a phone's keyboard waits. */
+const wideEnoughToFocus = () =>
+  typeof matchMedia === "function" && matchMedia("(min-width: 768px)").matches;
 
 const composerInset = {
   paddingLeft: "var(--transcript-gutter)",
@@ -57,8 +53,6 @@ export function ThreadComposer({
   const client = useClient();
   const toast = useToast();
   const meta = useThreadMeta(props.thread.id);
-  const queue = useQueue(props.thread.id);
-  const queuedPending = useQueuedPending(props.thread.id, queue.page);
   const [setting] = useDaemonSetting("threads.followUpBehavior", {
     threadId: ThreadId.parse(props.thread.id),
   });
@@ -153,7 +147,16 @@ export function ThreadComposer({
   useEffect(() => {
     if (!focusOnOpen || !asking || asked.current) return;
     asked.current = true;
-    return focusOpenRequest(box.current?.parentElement ?? document.body);
+    const root = box.current?.parentElement ?? document.body;
+    let cancel: (() => void) | undefined;
+    let live = true;
+    void import("./focus-on-open.ts").then((module) => {
+      if (live) cancel = module.focusOpenRequest(root);
+    });
+    return () => {
+      live = false;
+      cancel?.();
+    };
   }, [focusOnOpen, asking]);
   const readsImages = meta?.capabilities?.imageInput;
 
@@ -168,14 +171,7 @@ export function ThreadComposer({
     >
       <div className={`relative ${readingColumn}`}>
         <Suspense fallback={null}>
-          <DeferredQueueNotice.Component
-            threadId={props.thread.id}
-            status={props.status}
-            queue={queue}
-          />
-          {(!!queue.page?.messages.length || queuedPending.length > 0) && (
-            <DeferredQueuedPills.Component queue={queue} pending={queuedPending} />
-          )}
+          <DeferredQueueArea.Component threadId={props.thread.id} status={props.status} />
         </Suspense>
         <Composer
           ref={composer}

@@ -2,15 +2,10 @@ import type { PendingSend, ThreadReader } from "@ace/client";
 import { useThread, usePendingSends } from "@ace/client-react";
 import type { QueuePage } from "@ace/protocol";
 import { useMemo, useSyncExternalStore } from "react";
-import * as z from "zod/mini";
 import { useLayout } from "@/lib/layout.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
-import {
-  dismissedSends,
-  loadDismissed,
-  stagedSends,
-  type StagedSend,
-} from "../composer/send-store.ts";
+import { dismissedSends, loadDismissed } from "../composer/dismissed-sends.ts";
+import { stagedSends, type StagedSend } from "../composer/send-store.ts";
 import { blockItems, type Block } from "../transcript/blocks.ts";
 
 /*
@@ -25,20 +20,14 @@ import { blockItems, type Block } from "../transcript/blocks.ts";
 /** The transcript key of a command's message: the item id the daemon admits it under. */
 export const inputItemId = (commandId: string) => `input:${commandId}`;
 
-const DeliveryFailure = z.object({
-  type: z.literal("notice"),
-  code: z.string(),
-  commandId: z.string(),
-});
-
 /** Notices the daemon wrote because a message it accepted couldn't be delivered. */
 function readFailures(reader: ThreadReader): ReadonlyMap<string, string> {
   const failures = new Map<string, string>();
   for (const id of reader.order) {
     const item = reader.item(id);
     if (item?.type !== "notice" || !item.code?.startsWith("delivery_")) continue;
-    const parsed = DeliveryFailure.safeParse(item);
-    if (parsed.success) failures.set(parsed.data.commandId, id);
+    // The daemon names the command on the notice (SY-1); older daemons don't.
+    if ("commandId" in item && typeof item.commandId === "string") failures.set(item.commandId, id);
   }
   return failures;
 }
@@ -114,7 +103,7 @@ export interface LocalSends {
 }
 
 /** The command a transcript key was admitted for (`input:<commandId>`). */
-function commandOf(itemId: string): string | undefined {
+export function commandOf(itemId: string): string | undefined {
   return itemId.startsWith("input:") ? itemId.slice("input:".length) : undefined;
 }
 
@@ -151,25 +140,4 @@ export function withLocalSends(blocks: readonly Block[], local: LocalSends): rea
   for (const send of local.pending) add(send.commandId);
   for (const send of local.staged) add(send.commandId);
   return added.length ? [...kept, ...added] : kept;
-}
-
-/**
- * The live transcript's blocks with this window's messages on their way (`withLocalSends`).
- * `live: false` (a jumped window of older history) leaves the blocks as they are.
- */
-export function useTranscriptBlocks(
-  threadId: string,
-  blocks: readonly Block[],
-  live: boolean,
-): readonly Block[] {
-  const pending = usePendingSends(threadId);
-  const staged = useStaged(threadId);
-  const dismissed = useDismissedSends();
-  const queued = useQueuedCommands(threadId);
-  const failures = useDeliveryFailures(threadId);
-  return useMemo(
-    () =>
-      live ? withLocalSends(blocks, { pending, staged, dismissed, queued, failures }) : blocks,
-    [live, blocks, pending, staged, dismissed, queued, failures],
-  );
 }

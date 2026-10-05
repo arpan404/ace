@@ -1,8 +1,13 @@
 import { useItem } from "@ace/client-react";
 import { FileIcon } from "@phosphor-icons/react";
 import { formatClock } from "@ace/ui-core";
+import { Suspense } from "react";
+import { DeferredSendStatus } from "../composer/deferred-parts.tsx";
+import { inputText } from "../composer/send-store.ts";
 import { leasable } from "../lib/pending-thread-id.ts";
-import { inputText, SendStatus, useLocalSend } from "./send-status.tsx";
+import { useLocalSendsView, type LocalSend } from "./local-sends-view.ts";
+
+const nothing: LocalSend = {};
 
 /**
  * The person's message: a right-aligned bubble; its time shows on hover, keeping the column
@@ -12,7 +17,8 @@ import { inputText, SendStatus, useLocalSend } from "./send-status.tsx";
  */
 export function UserMessage(props: { threadId: string; itemId: string }) {
   const item = useItem(leasable(props.threadId), props.itemId);
-  const local = useLocalSend(props.threadId, props.itemId);
+  const local: LocalSend = useLocalSendsView(props.threadId)?.find(props.itemId) ?? nothing;
+  const noticeId = local.noticeId;
   const message = item?.type === "message" ? item : undefined;
   const parts = message?.parts ?? local.send?.payload.input;
   const text = message
@@ -25,6 +31,17 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
   // Images come from the daemon; only inline data, blobs and web URLs are loaded.
   const images = (parts ?? []).flatMap((part) =>
     part.type === "image" && /^(data:image\/|blob:|https?:)/.test(part.url) ? [part] : [],
+  );
+  const saying =
+    !!local.staged ||
+    noticeId !== undefined ||
+    local.send?.state === "saving" ||
+    local.send?.state === "sent" ||
+    local.send?.state === "failed";
+  const time = (
+    <span className="mt-[5px] pr-1 text-xs text-subtle-foreground opacity-0 transition-opacity duration-(--dur-1) group-focus-within/bubble:opacity-100 group-hover/bubble:opacity-100">
+      {message ? formatClock(message.createdAt) : "\u00a0"}
+    </span>
   );
   return (
     <div className="group/bubble flex flex-col items-end">
@@ -58,17 +75,20 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
       </div>
       {/* One line under the bubble: how its sending goes, else its time on hover. Both are
           the same height, so the row doesn't move when "Sending…" goes. */}
-      <SendStatus
-        threadId={props.threadId}
-        itemId={props.itemId}
-        send={local.send}
-        staged={local.staged}
-        otherwise={
-          <span className="mt-[5px] pr-1 text-xs text-subtle-foreground opacity-0 transition-opacity duration-(--dur-1) group-focus-within/bubble:opacity-100 group-hover/bubble:opacity-100">
-            {message ? formatClock(message.createdAt) : "\u00a0"}
-          </span>
-        }
-      />
+      {saying ? (
+        <Suspense fallback={time}>
+          <DeferredSendStatus.Component
+            threadId={props.threadId}
+            itemId={props.itemId}
+            send={local.send}
+            staged={local.staged}
+            noticeId={noticeId}
+            otherwise={time}
+          />
+        </Suspense>
+      ) : (
+        time
+      )}
     </div>
   );
 }

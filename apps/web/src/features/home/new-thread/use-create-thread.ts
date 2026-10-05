@@ -7,7 +7,9 @@ import {
   type PermissionMode,
 } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
+import { provisionalTitle } from "@ace/ui-core";
 import { useCallback, useState } from "react";
+import { rememberTitle } from "@/features/thread/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
 
@@ -80,8 +82,11 @@ export function useCreateThread(): {
     async (request: CreateRequest) => {
       setError(undefined);
       const commandId = crypto.randomUUID();
+      const payload = createPayload(request);
+      // Its header and row read the provisional title at once (the daemon titles it the same way).
+      rememberTitle(commandId, provisionalTitle(payload.input));
       // The pending entry is visible before the outbox has saved it: open it now.
-      const saved = client.enqueue(createPayload(request), commandId);
+      const saved = client.enqueue(payload, commandId);
       rememberProvider(storage, request.provider);
       void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
       try {

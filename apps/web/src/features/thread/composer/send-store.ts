@@ -1,6 +1,3 @@
-import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import * as z from "zod/mini";
-
 /*
  * What this window knows about messages on their way that the client's outbox doesn't (UX audit
  * SY-2, SY-3): a message still waiting for its files to upload before it can be enqueued, the
@@ -32,7 +29,7 @@ export interface StagedSend {
 type Listener = () => void;
 
 /** A tiny observable map, read through `useSyncExternalStore`. */
-class Observable<T> {
+export class Observable<T> {
   private listeners = new Set<Listener>();
   private value: T;
   constructor(value: T) {
@@ -108,33 +105,6 @@ export function localAttachment(sha256: string): LocalAttachment | undefined {
   return locals.get(sha256);
 }
 
-/*
- * Failed sends the person has acted on (Retry sent a new one, Edit took it back). The outbox
- * keeps failed intents for a while, also across reloads, so the choice is kept on this device.
- */
-const dismissedKey = "ace.sends.dismissed";
-const dismissedLimit = 200;
-const Dismissed = z.array(z.string());
-let dismissedLoaded: ReadonlySet<string> | undefined;
-export const dismissedSends = new Observable<ReadonlySet<string>>(new Set());
-
-export function loadDismissed(storage: KeyValueStorage | undefined): ReadonlySet<string> {
-  if (!dismissedLoaded) {
-    dismissedLoaded = new Set(readJson(storage, dismissedKey, Dismissed, []));
-    dismissedSends.seed(dismissedLoaded);
-  }
-  return dismissedSends.get();
-}
-
-export function dismissSend(storage: KeyValueStorage | undefined, commandId: string): void {
-  const next = new Set(loadDismissed(storage));
-  next.add(commandId);
-  const kept = [...next].slice(-dismissedLimit);
-  dismissedLoaded = new Set(kept);
-  dismissedSends.set(dismissedLoaded);
-  writeJson(storage, dismissedKey, kept);
-}
-
 /** A message given back to the composer: what Edit restores. */
 export interface ReturnedDraft {
   text: string;
@@ -164,13 +134,32 @@ export function returnDraft(key: string, draft: ReturnedDraft): boolean {
   return true;
 }
 
+/** The text a message carries, as written. */
+export function inputText(input: readonly { type: string; text?: string }[]): string {
+  return input.flatMap((part) => (part.type === "text" && part.text ? [part.text] : [])).join("");
+}
+
+/*
+ * Provisional titles of threads this window started (UX audit TN-1), by their create command:
+ * New thread works them out as it sends, so the thread's header and its row read them at once.
+ */
+const titles = new Map<string, string>();
+
+export function rememberTitle(commandId: string, title: string): void {
+  titles.set(commandId, title);
+  if (titles.size > 64) titles.delete(titles.keys().next().value ?? "");
+}
+
+export function startedTitle(commandId: string): string | undefined {
+  return titles.get(commandId);
+}
+
 /** Test seam: forget everything this window held. */
 export function resetSendStore(): void {
   stagedSends.set(new Map());
   for (const attachment of locals.values())
     if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
   locals.clear();
-  dismissedLoaded = undefined;
-  dismissedSends.set(new Set());
   takers.clear();
+  titles.clear();
 }

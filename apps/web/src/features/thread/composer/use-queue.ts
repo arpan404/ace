@@ -13,7 +13,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
-import { dismissSend } from "./send-store.ts";
+import { dismissSend } from "./dismissed-sends.ts";
 
 /** The text of a queued message, as the person wrote it. */
 export const queuedText = (message: Pick<QueuedMessage, "input">) =>

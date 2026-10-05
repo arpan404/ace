@@ -125,6 +125,9 @@ export function Composer({
 }
 
 function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onReplaced(): void }) {
+  // Kept out of the compiler, as it was before: memoizing every handler here costs the
+  // thread route ~5 KB of code for a component that re-renders per keystroke anyway.
+  "use no memo";
   const { storage } = useLayout();
   const [restored] = useState(() =>
     props.draftKey ? readDraft(storage, props.draftKey) : undefined,

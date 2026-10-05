@@ -3,6 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { resetDismissed } from "./composer/dismissed-sends.ts";
 import { resetSendStore } from "./composer/send-store.ts";
 import { resetStops } from "./composer/stop-state.ts";
 
@@ -15,6 +16,7 @@ import { resetStops } from "./composer/stop-state.ts";
 beforeEach(() => {
   localStorage.clear();
   resetSendStore();
+  resetDismissed();
   resetStops();
 });
 

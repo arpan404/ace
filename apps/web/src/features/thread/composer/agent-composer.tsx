@@ -1,7 +1,11 @@
 import { useClient, useThreadMeta } from "@ace/client-react";
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, type CommandPayload } from "@ace/protocol";
+import { Suspense, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Composer, type Draft } from "./composer.tsx";
+import { DeferredAgentSendWatch } from "./deferred-parts.tsx";
+
+type Send = Extract<CommandPayload, { type: "thread.send" }>;
 
 /**
  * A follow-up to one agent of the tree, in the thread composer's own shell, input and footer.
@@ -29,16 +33,22 @@ export function AgentComposer(props: {
     workspaceId: meta?.workspaceId ?? "",
     title: meta?.title ?? "",
   };
+  const draftKey = `agent:${props.threadId}:${props.agentId}`;
+  // The last follow-up sent: if the daemon refuses it, say why and offer it back (SY-3).
+  const [sent, setSent] = useState<{ id: string; payload: Send }>();
   const submit = async (draft: Draft) => {
     if (!props.target) return false;
+    const payload: Send = {
+      type: "thread.send",
+      threadId: ThreadId.parse(props.target),
+      input: [{ type: "text", text: draft.text || "See the attached files." }],
+      context: { mentions: draft.mentions, attachments: draft.attachments },
+      delivery: "queue",
+    };
     try {
-      await client.enqueue({
-        type: "thread.send",
-        threadId: ThreadId.parse(props.target),
-        input: [{ type: "text", text: draft.text || "See the attached files." }],
-        context: { mentions: draft.mentions, attachments: draft.attachments },
-        delivery: "queue",
-      });
+      const id = crypto.randomUUID();
+      setSent({ id, payload });
+      await client.enqueue(payload, id);
       return true;
     } catch {
       toast.add({
@@ -49,15 +59,26 @@ export function AgentComposer(props: {
     }
   };
   return (
-    <Composer
-      thread={thread}
-      draftKey={`agent:${props.threadId}:${props.agentId}`}
-      keepsAttachments={!!props.target}
-      busy={false}
-      label={props.label}
-      placeholder={props.placeholder}
-      unavailable={props.unavailable}
-      onSubmit={submit}
-    />
+    <>
+      {sent && (
+        <Suspense fallback={null}>
+          <DeferredAgentSendWatch.Component
+            commandId={sent.id}
+            payload={sent.payload}
+            draftKey={draftKey}
+          />
+        </Suspense>
+      )}
+      <Composer
+        thread={thread}
+        draftKey={draftKey}
+        keepsAttachments={!!props.target}
+        busy={false}
+        label={props.label}
+        placeholder={props.placeholder}
+        unavailable={props.unavailable}
+        onSubmit={submit}
+      />
+    </>
   );
 }

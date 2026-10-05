@@ -1,8 +1,3 @@
-/** Desktop widths put the caret in the composer when a thread opens; a phone's keyboard waits. */
-export function wideEnoughToFocus(): boolean {
-  return typeof matchMedia === "function" && matchMedia("(min-width: 768px)").matches;
-}
-
 /**
  * Focus the first option of the open request the agent is asking (an approval, a question)
  * once its card has rendered. Cards load after the transcript paints, so this looks again on
