@@ -1,3 +1,4 @@
+import type { WorkspaceChangeReservation } from "./engine/workspace-change.ts";
 import { moveThread } from "./thread-move.ts";
 import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
 import { hostname, homedir } from "node:os";
@@ -29,7 +30,7 @@ export interface WorkspaceRuntimeOptions {
     id: ThreadId,
     commandId: string,
     effect: () => Promise<ThreadDetails>,
-    reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean },
+    reservation: WorkspaceChangeReservation,
     commit?: () => void,
   ): Promise<void>;
   forgeRunner?: (cwd: string) => CommandRunner;

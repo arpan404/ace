@@ -16,7 +16,7 @@ import {
 } from "@ace/core";
 import type { PermissionSettings } from "./permissions.ts";
 import { z } from "zod";
-import { changeEngineWorkspace } from "./workspace-change.ts";
+import { changeEngineWorkspace, type WorkspaceChangeReservation } from "./workspace-change.ts";
 import { CommandId, ProviderKind, ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
@@ -646,7 +646,7 @@ export class Engine {
     id: ThreadId,
     commandId: string,
     effect: () => Promise<import("@ace/protocol").ThreadDetails>,
-    reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean } = {
+    reservation: WorkspaceChangeReservation = {
       roots: [this.repo.session(id).cwd],
       hasOwnedWork: () => false,
     },

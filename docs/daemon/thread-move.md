@@ -18,13 +18,17 @@ its updated timestamp orders it as a recent change. A following
 base branch, repository, PR and diff metadata are cleared and later refreshed
 from the destination. Historical events and checkpoint records remain unchanged.
 
-For an engine-managed thread, the existing workspace fence closes idle sessions
+For an engine-managed thread, the existing workspace fence closes the thread's idle session
 and captures a history handoff before rebinding execution. The destination cwd,
 cleared native resume id, move events and successful command receipt commit in
 one SQLite transaction. New sends use a fresh provider session in the destination.
 A restart cannot observe a committed move with the old execution binding. A crash
 before that commit leaves the existing workspace-change fence and uncertain
 action receipt, so execution stays blocked pending explicit recovery.
+
+Other threads in either project retain their sessions and terminals. Root reservations
+still serialize this rebind against concurrent Git/worktree changes. Pending peer inputs
+are woken when the reservation is released.
 
 A thread with no engine session moves atomically without starting a provider.
 Moving to its current registered project is a successful no-op. The fake daemon

@@ -3,6 +3,13 @@ import type { ThreadId, ThreadDetails } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import { handoff } from "./transition-history.ts";
 
+export interface WorkspaceChangeReservation {
+  roots: readonly string[];
+  hasOwnedWork(id: ThreadId): boolean;
+  /** Binding-only changes select one thread; Git changes fence every owner of the roots. */
+  threads?: readonly ThreadId[];
+}
+
 /** Persist a fence before closing a session or mutating Git. A restart retains the fence until explicit retry. */
 export async function changeEngineWorkspace(
   repo: EngineRepository,
@@ -12,7 +19,7 @@ export async function changeEngineWorkspace(
   closeSession: (id: ThreadId) => Promise<void>,
   effect: () => Promise<ThreadDetails>,
   wake: (id: ThreadId) => void,
-  reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean },
+  reservation: WorkspaceChangeReservation,
   commit: () => void = () => {},
 ): Promise<void> {
   const state = repo.requireState(id);
@@ -58,7 +65,8 @@ export async function changeEngineWorkspace(
       now(),
     );
   const roots = repo.store.workspaceReservations.roots(id, reservation.roots);
-  const owners = [...new Set([id, ...repo.store.workspaceReservations.owners(roots)])];
+  const rootOwners = repo.store.workspaceReservations.owners(roots);
+  const owners = [...new Set([id, ...(reservation.threads ?? rootOwners)])];
   repo.store.atomic(() => {
     for (const owner of owners) {
       const peer = repo.state(owner);
@@ -114,6 +122,6 @@ export async function changeEngineWorkspace(
   } finally {
     if (safeToRelease) repo.store.workspaceReservations.release(commandId);
     repo.transitions.releaseGuards(commandId);
-    for (const owner of owners) wake(owner);
+    for (const owner of new Set([id, ...rootOwners])) wake(owner);
   }
 }

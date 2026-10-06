@@ -264,3 +264,49 @@ test("owned terminals block moving even after exit until their owner closes them
     await f.close();
   }
 });
+
+test("moving a settled thread leaves another thread's owned terminal available in the source project", async () => {
+  const f = await world();
+  try {
+    const created = await f.command({
+      type: "thread.create",
+      workspaceId: f.workspace,
+      provider: "codex",
+      input: [{ type: "text", text: "Peer" }],
+    });
+    if (created.type !== "commandResult" || !created.threadId)
+      throw new Error("Peer thread missing");
+    const peer = created.threadId;
+    await f.engine.flush();
+    f.client.send({
+      type: "terminal.request",
+      requestId: "peer-open",
+      operation: { op: "open", threadId: peer, name: "Peer shell", cols: 80, rows: 24 },
+    });
+    const opened = await until(
+      f.client,
+      (message) => message.type === "terminal.result" && message.requestId === "peer-open",
+    );
+    if (opened.type !== "terminal.result" || !opened.terminal)
+      throw new Error("Peer terminal missing");
+    expect(
+      await f.command({ type: "thread.move", threadId: f.id, workspaceId: f.target }),
+    ).toMatchObject({ ok: true });
+    f.client.send({
+      type: "terminal.request",
+      requestId: "peer-list",
+      operation: { op: "list", threadId: peer },
+    });
+    expect(
+      await until(
+        f.client,
+        (message) => message.type === "terminal.result" && message.requestId === "peer-list",
+      ),
+    ).toMatchObject({
+      terminals: [expect.objectContaining({ id: opened.terminal.id, threadId: peer })],
+    });
+    expect(f.store.getThread(peer)?.workspaceId).toBe(f.workspace);
+  } finally {
+    await f.close();
+  }
+});

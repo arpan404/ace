@@ -6,7 +6,13 @@ import * as facts from "./scenarios/facts.ts";
 function world() {
   let at = 1000;
   const daemon = new FakeDaemon({ clock: () => ++at });
-  daemon.createThread({ id: "source", workspaceId: "old", title: "History", provider: "codex" });
+  daemon.createThread({
+    id: "source",
+    workspaceId: "old",
+    title: "History",
+    provider: "codex",
+    details: { mode: "local", worktree: "/fake/old", branch: "old-branch", head: "a".repeat(40) },
+  });
   daemon.createThread({
     id: "destination",
     workspaceId: "new",
@@ -22,8 +28,22 @@ function world() {
 test("the fake moves a thread's history and pin while clearing old repository details", () => {
   const f = world();
   f.command({ type: "thread.pin", threadId: "source", pinned: true, order: 512.5 });
-  f.daemon.apply("source", [facts.rootAgent("codex")]);
+  f.daemon.apply("source", [
+    facts.rootAgent("codex", "/fake/old"),
+    facts.turn("root"),
+    facts.message("root", "answer", "assistant", "Retained answer"),
+    facts.endTurn("root"),
+  ]);
   const before = view(f.daemon);
+  expect(Object.values(before.items)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: "message",
+        parts: [{ type: "text", text: "Retained answer" }],
+      }),
+    ]),
+  );
+  expect(before.thread.details?.branch).toBe("old-branch");
   const payload = {
     type: "thread.move" as const,
     threadId: "source",
@@ -36,7 +56,9 @@ test("the fake moves a thread's history and pin while clearing old repository de
     pinOrder: 512.5,
     details: { mode: "local", workspace: { id: "new" }, worktree: "/fake/new" },
   });
-  expect(view(f.daemon)?.items).toEqual(before?.items);
+  expect(view(f.daemon).items).toEqual(before.items);
+  expect(view(f.daemon).thread.details?.branch).toBeUndefined();
+  expect(view(f.daemon).thread.details?.head).toBeUndefined();
   const seq = f.daemon.head;
   expect(f.command(payload, "move")).toMatchObject({ ok: true });
   expect(f.daemon.head).toBe(seq);
