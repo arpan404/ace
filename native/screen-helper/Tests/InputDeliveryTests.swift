@@ -1,8 +1,20 @@
 import XCTest
+import ScreenCaptureKit
 import AppKit
 @testable import ScreenHelper
 
 final class InputDeliveryTests: XCTestCase {
+    func testBackgroundTypingRetainsTheSelectedSimulatorWindowAndUnicode() throws {
+        let event = try windowKeyEvent(.keyDown, windowId: 42, character: "é", keyCode: 0, modifiers: [], timestamp: 1)
+        var window: Int?, text: String?
+        try deliverInput(event, mode: "background", pid: 99, permission: { true }) { posted, destination in
+            XCTAssertEqual(destination, .process(99))
+            let key = NSEvent(cgEvent: posted)
+            window = key?.windowNumber; text = key?.characters
+        }
+        XCTAssertEqual(window, 42)
+        XCTAssertEqual(text, "é")
+    }
     func testBackgroundUnicodeIsDeliveredOnlyToTheSelectedProcess() throws {
         let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
         let units = Array("こんにちは 👋".utf16)
@@ -53,6 +65,13 @@ final class InputDeliveryTests: XCTestCase {
         }
         XCTAssertEqual(release, .foreground)
         XCTAssertNil(held.target)
+    }
+
+    func testCaptureRestartsSystemInterruptionsButHonoursUserCancellationAndPermissionDenial() {
+        XCTAssertTrue(recoverableCaptureError(NSError(domain: SCStreamError.errorDomain, code: SCStreamError.failedApplicationConnectionInterrupted.rawValue)))
+        XCTAssertFalse(recoverableCaptureError(NSError(domain: SCStreamError.errorDomain, code: SCStreamError.userDeclined.rawValue)))
+        if #available(macOS 14.0, *) { XCTAssertFalse(recoverableCaptureError(NSError(domain: SCStreamError.errorDomain, code: SCStreamError.userStopped.rawValue))) }
+        XCTAssertFalse(recoverableCaptureError(NSError(domain: "other", code: SCStreamError.internalError.rawValue)))
     }
 
 }

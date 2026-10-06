@@ -4,6 +4,9 @@
   "oneOf": [
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -46,6 +49,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -98,6 +104,9 @@
         "bundleId": {
           "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
         },
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -142,6 +151,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -188,6 +200,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -230,6 +245,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -275,6 +293,9 @@
         "enabled": {
           "type": "boolean"
         },
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -318,6 +339,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -370,6 +394,9 @@
           },
           "maxItems": 64,
           "type": "array"
+        },
+        "humanDeviceInput": {
+          "type": "boolean"
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
@@ -437,6 +464,9 @@
           "maxItems": 64,
           "type": "array"
         },
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -503,6 +533,9 @@
           },
           "maxItems": 64,
           "type": "array"
+        },
+        "humanDeviceInput": {
+          "type": "boolean"
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
@@ -608,6 +641,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -650,6 +686,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -700,6 +739,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -748,6 +790,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -790,6 +835,9 @@
     },
     {
       "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -834,6 +882,9 @@
       "properties": {
         "action": {
           "$ref": "https://ace.local/protocol/v1/ScreenAction.json"
+        },
+        "humanDeviceInput": {
+          "type": "boolean"
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
@@ -892,6 +943,9 @@
           "maximum": 60,
           "minimum": 1,
           "type": "integer"
+        },
+        "humanDeviceInput": {
+          "type": "boolean"
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"

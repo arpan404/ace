@@ -91,7 +91,8 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         if codec == "h264" { pendingVideo.offer(changed) }
         else { publishImage(changed) }
     }
-    func stream(_ stream: SCStream, didStopWithError error: Error) { exit(1) }
+    var onStopped: ((SCStream, Error) -> Void)?
+    func stream(_ stream: SCStream, didStopWithError error: Error) { onStopped?(stream, error) }
 }
 
 /// The capturable displays, applications and listed windows at one moment.
@@ -106,9 +107,10 @@ struct ShareableContent {
     private var output: CaptureOutput?
     private var configuration: (filter: SCContentFilter, config: SCStreamConfiguration)?
     private var capturing = false
+    private var stoppedStream: SCStream?
+    private var recovery: Task<Void, Never>?
     private var initialRequest: Request?
     private var capturedWindowId: UInt32?
-    private var captureDensity = 1.0
     private var settings: StreamSettings?
     private var cachedContent: (at: UInt64, content: ShareableContent)?
     struct PointerPress { let window: SCWindow; let application: NSRunningApplication; let button: String; let location: CGPoint; let mode: String }
@@ -123,6 +125,7 @@ struct ShareableContent {
     var synthesizedInput = false
     var mode = "background"
     var secureInputAllowed = false
+    var humanDeviceInput = false
     let writer: FrameWriter
     let runtime: NativeRuntime
     init(writer: FrameWriter, runtime: NativeRuntime) { self.writer = writer; self.runtime = runtime }
@@ -182,29 +185,32 @@ struct ShareableContent {
         // A window is captured at the screen's pixel density, so a phone screen stays legible;
         // a whole display stays at points to bound its encoding cost.
         let density = target.kind != "display" ? Self.pixelDensity(of: frame, on: content.displays) : 1
-        captureDensity = density
         let scale = min(density, min(3840 / frame.width, 2160 / frame.height))
         width = max(1, Int(frame.width * scale)); height = max(1, Int(frame.height * scale))
         let config = SCStreamConfiguration()
         config.width = width; config.height = height; config.queueDepth = 3
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         config.scalesToFit = true
+        if #available(macOS 14.0, *) { config.captureResolution = .best }
         config.pixelFormat = kCVPixelFormatType_32BGRA; config.showsCursor = false
         let output = CaptureOutput(writer: writer, sessionId: session, version: request.version, scale: Double(width) / frame.width, targetWidth: frame.width, runtime: runtime)
         if target.kind != "display" { output.onResize = { [weak self] in Task { @MainActor in await self?.refit() } } }
+        output.onStopped = { [weak self] stream, error in
+            Task { @MainActor in self?.captureStopped(stream, error: error) }
+        }
         self.output = output; self.configuration = (filter, config); self.target = target
         do { if request.version == 1 || request.capture == true { try await setCapturing(true) } } catch { self.stream = nil; self.configuration = nil; self.output = nil; self.target = nil; throw error }
     }
     func configureStream(_ settings: StreamSettings) async throws {
-        guard ["jpeg", "h264"].contains(settings.codec), (64...3840).contains(settings.maxWidth), (64...2160).contains(settings.maxHeight),
+        guard ["jpeg", "h264"].contains(settings.codec), (64...3840).contains(settings.maxWidth), (64...3840).contains(settings.maxHeight),
               (1...60).contains(settings.fps), (128000...20000000).contains(settings.bitrate), let configuration, let output else {
             throw HelperError("Invalid stream settings", code: "bounds")
         }
         self.settings = settings
         let config = configuration.config
         let scale = min(Double(settings.maxWidth) / frame.width, Double(settings.maxHeight) / frame.height)
-        config.width = max(2, Int(frame.width * min(scale, captureDensity)) / 2 * 2)
-        config.height = max(2, Int(frame.height * min(scale, captureDensity)) / 2 * 2)
+        config.width = max(2, Int(frame.width * scale) / 2 * 2)
+        config.height = max(2, Int(frame.height * scale) / 2 * 2)
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(settings.fps))
         await output.configure(settings, targetWidth: frame.width)
         try await stream?.updateConfiguration(config)
@@ -236,9 +242,11 @@ struct ShareableContent {
             output.markInitial(); try await created.startCapture(); stream = created; capturing = true
         }
         if !enabled && capturing, let stream {
-            try await stream.stopCapture(); await output.drain(); await output.finish()
+            recovery?.cancel(); recovery = nil
+            if stoppedStream !== stream { try await stream.stopCapture() }
+            await output.drain(); await output.finish()
             try stream.removeStreamOutput(output, type: .screen)
-            self.stream = nil; capturing = false
+            self.stream = nil; stoppedStream = nil; capturing = false
         }
         return after
     }
@@ -250,8 +258,7 @@ struct ShareableContent {
               window.frame.width > 0, window.frame.height > 0,
               abs(window.frame.width - frame.width) >= 1 || abs(window.frame.height - frame.height) >= 1 else { return }
         let density = Self.pixelDensity(of: window.frame, on: content.displays)
-        captureDensity = density
-        let scale = min(density, min(Double(settings?.maxWidth ?? 3840) / window.frame.width, Double(settings?.maxHeight ?? 2160) / window.frame.height))
+        let scale = settings.map { min(Double($0.maxWidth) / window.frame.width, Double($0.maxHeight) / window.frame.height) } ?? min(density, min(3840 / window.frame.width, 2160 / window.frame.height))
         let config = configuration.config
         config.width = max(2, Int(window.frame.width * scale) / 2 * 2); config.height = max(2, Int(window.frame.height * scale) / 2 * 2)
         do { try await stream.updateConfiguration(config) } catch { return }
@@ -259,7 +266,44 @@ struct ShareableContent {
         if let settings { await output?.configure(settings, targetWidth: frame.width) }
         output?.markInitial()
     }
+    private func captureStopped(_ failed: SCStream, error: Error) {
+        guard stream === failed, capturing else { return }
+        stoppedStream = failed
+        FileHandle.standardError.write(Data("screen-helper: capture stopped: \(error)\n".utf8))
+        guard recoverableCaptureError(error as NSError) else { exit(1) }
+        recovery?.cancel()
+        recovery = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for attempt in 0..<3 {
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 100_000_000)
+                    guard self.capturing, self.stream === failed, let configuration = self.configuration, let output = self.output else { return }
+                    // Recheck permission and the exact window without activation or reselection.
+                    guard CGPreflightScreenCaptureAccess() else { throw HelperError("Screen Recording permission revoked", code: "permission_denied") }
+                    self.cachedContent = nil
+                    var filter = configuration.filter
+                    if let target = self.target, target.kind == "window" {
+                        let content = try await self.content()
+                        guard let window = content.windows.first(where: { $0.windowID == target.windowId && $0.owningApplication?.bundleIdentifier == target.bundleId }) else { throw unavailableWindow(target) }
+                        try validateCaptureWindow(window, displays: content.displays)
+                        filter = SCContentFilter(desktopIndependentWindow: window)
+                        self.captureWindow = window
+                    }
+                    await output.drain(); await output.finish(); output.markInitial()
+                    let replacement = SCStream(filter: filter, configuration: configuration.config, delegate: output)
+                    try replacement.addStreamOutput(output, type: .screen, sampleHandlerQueue: output.queue)
+                    try await replacement.startCapture()
+                    if Task.isCancelled || !self.capturing || self.stream !== failed { try? await replacement.stopCapture(); return }
+                    try? failed.removeStreamOutput(output, type: .screen)
+                    self.stream = replacement; self.configuration = (filter, configuration.config); self.stoppedStream = nil; self.recovery = nil
+                    return
+                } catch is CancellationError { return }
+                catch { if attempt == 2 { FileHandle.standardError.write(Data("screen-helper: capture recovery failed: \(error)\n".utf8)); exit(1) } }
+            }
+        }
+    }
     func stop() async throws {
+        recovery?.cancel(); recovery = nil
         try releasePointer()
         if capturing { _ = try await setCapturing(false) }
         if let output { writer.retire(output.sessionId) }

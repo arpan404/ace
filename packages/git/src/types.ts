@@ -23,6 +23,7 @@ export interface GitOptions {
   maxPatchBytes?: number;
   now?: () => Date | Promise<Date>;
   tempDirectory?: string;
+  /** Per-service LRU entry limit across all root/thread pairs, 1..4096; default 128. */
   checkpointCounterCacheSize?: number;
 }
 

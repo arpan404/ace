@@ -2,7 +2,7 @@
 import type { ScreenFrameHeader, ScreenStreamSettings } from "@ace/protocol";
 import type { PortableFrame } from "@ace/screen/frames-client";
 
-const even = (value: number) => Math.max(64, Math.floor(value / 2) * 2);
+const even = (value: number) => Math.max(64, Math.ceil(value / 2) * 2);
 export type DeviceConnection = "local" | "remote" | "relay";
 /** Panel dimensions are physical pixels. Preserve aspect ratio in the native capture. */
 export function deviceStreamProfile(
@@ -13,15 +13,19 @@ export function deviceStreamProfile(
 ): ScreenStreamSettings {
   const limits =
     connection === "local"
-      ? [1920, 2160, 60, 6000000]
+      ? [3840, 3840, 60, 12000000]
       : connection === "remote"
         ? [1080, 1440, 30, 2500000]
         : [720, 1280, 30, 1200000];
   const factor = 1 / (1 + Math.max(0, Math.min(3, pressure)) * 0.5);
   return {
     codec: video ? "h264" : "jpeg",
-    maxWidth: even(Math.min(panel.width, limits[0] ?? 1920) * factor),
-    maxHeight: even(Math.min(panel.height, limits[1] ?? 2160) * factor),
+    maxWidth: even(
+      Math.min(panel.width, limits[0] ?? 3840) * (connection === "local" ? 1 : factor),
+    ),
+    maxHeight: even(
+      Math.min(panel.height, limits[1] ?? 2160) * (connection === "local" ? 1 : factor),
+    ),
     fps: pressure ? 30 : (limits[2] ?? 30),
     bitrate: Math.max(128000, Math.round((limits[3] ?? 2500000) * factor * factor)),
   };
@@ -39,7 +43,7 @@ export interface DeviceRendererPorts {
   decoder(
     header: ScreenFrameHeader,
     output: (image: DecodedDeviceFrame) => void,
-    error: () => void,
+    error: (reason?: "unsupported" | "decode") => void,
   ): DeviceDecoder;
   video(image: DecodedDeviceFrame, header: ScreenFrameHeader): void;
   image(frame: PortableFrame): Promise<void>;
@@ -63,8 +67,12 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
   let pending: { header: ScreenFrameHeader; resolve(): void; cancel(): void } | undefined;
   let epoch = 0;
   let cancelKeyframe: (() => void) | undefined;
+  let cancelRecovery: (() => void) | undefined;
+  let decodeFailures = 0;
   const reset = () => {
     epoch++;
+    cancelRecovery?.();
+    cancelRecovery = undefined;
     cancelKeyframe?.();
     cancelKeyframe = undefined;
     requested = false;
@@ -77,6 +85,7 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
   };
   const recover = () => {
     waiting = true;
+    if (cancelRecovery) return;
     if (!requested) {
       requested = true;
       ports.keyframe();
@@ -94,6 +103,23 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
       ports.fallback();
     }
   };
+  const recoverDecode = () => {
+    ports.pressure();
+    reset();
+    decodeFailures++;
+    if (decodeFailures === 1) recover();
+    else {
+      // Repeated corrupt IDRs must not create a tight request/decode loop.
+      const stamp = epoch;
+      cancelRecovery = ports.schedule(
+        () => {
+          cancelRecovery = undefined;
+          if (stamp === epoch && !closed && !failed) recover();
+        },
+        Math.min(1000, decodeFailures * 100),
+      );
+    }
+  };
   return {
     async render(frame: PortableFrame): Promise<void> {
       if (closed) return;
@@ -105,6 +131,7 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
         previous = -1;
         requested = false;
         failed = false;
+        decodeFailures = 0;
       }
       if (seq <= previous) return;
       const gap = previous >= 0 && seq !== previous + 1;
@@ -146,7 +173,10 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
               h,
               (image) => {
                 try {
-                  if (!closed && stamp === epoch && pending) ports.video(image, pending.header);
+                  if (!closed && stamp === epoch && pending) {
+                    ports.video(image, pending.header);
+                    decodeFailures = 0;
+                  }
                 } finally {
                   image.close();
                   if (stamp === epoch) {
@@ -156,8 +186,10 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
                   }
                 }
               },
-              () => {
-                if (stamp === epoch) fallback();
+              (reason = "unsupported") => {
+                if (stamp !== epoch) return;
+                if (reason === "decode") recoverDecode();
+                else fallback();
               },
             );
           } catch {
@@ -169,11 +201,20 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
       }
       if (!decoder) return;
       await new Promise<void>((resolve) => {
-        pending = { header: h, resolve, cancel: ports.schedule(fallback, 500) };
+        pending = {
+          header: h,
+          resolve,
+          cancel: ports.schedule(() => {
+            // A scheduling stall says nothing about codec support. Drop the decode and
+            // recover from a keyframe; only an actual decoder error negotiates JPEG.
+            recoverDecode();
+          }, 500),
+        };
         try {
           decoder?.decode(frame);
         } catch {
-          fallback();
+          // A bad chunk or decoder state does not make the codec unsupported.
+          recoverDecode();
         }
       });
     },
@@ -218,13 +259,21 @@ export function deviceCanvasRenderer(
       return () => clearTimeout(timer);
     },
     decoder: (header, output, error) => {
-      const decoder = new VideoDecoder({ output, error });
-      decoder.configure({
-        codec: header.videoCodec ?? "avc1.42E01F",
-        codedWidth: header.width,
-        codedHeight: header.height,
-        optimizeForLatency: true,
+      const decoder = new VideoDecoder({
+        output,
+        error: (failure) => error(failure.name === "NotSupportedError" ? "unsupported" : "decode"),
       });
+      try {
+        decoder.configure({
+          codec: header.videoCodec ?? "avc1.42E01F",
+          codedWidth: header.width,
+          codedHeight: header.height,
+          optimizeForLatency: true,
+        });
+      } catch (failure) {
+        decoder.close();
+        throw failure;
+      }
       return {
         get decodeQueueSize() {
           return decoder.decodeQueueSize;

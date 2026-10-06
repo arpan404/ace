@@ -1,3 +1,4 @@
+import { humanDeviceInput } from "./device-input-policy.ts";
 import { SessionObservations } from "./session-observations.ts";
 import { TargetBusyError } from "./target-busy.ts";
 import { ScreenAccessPolicy } from "./access-policy.ts";
@@ -400,11 +401,14 @@ export class ScreenManager {
         if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
         if (input.kind === "pointer.down") session.pointerDown = true;
         return session.helper
-          .request({ op: "input", input }, () => {
-            validate();
-            beforeDispatch?.();
-            validate();
-          })
+          .request(
+            { op: "input", input, humanDeviceInput: humanDeviceInput(actor, session.state.target) },
+            () => {
+              validate();
+              beforeDispatch?.();
+              validate();
+            },
+          )
           .then((result) => {
             if (input.kind === "pointer.up" || input.kind === "pointer.cancel")
               session.pointerDown = false;
@@ -428,11 +432,18 @@ export class ScreenManager {
     await this.execute(id, actor, owner, (session, validate) => {
       if (session.helper.capabilities?.platform !== "macos")
         throw new Error("Window buttons need the macOS helper");
-      return session.helper.request({ op: "button.press", name }, () => {
-        validate();
-        beforeDispatch?.();
-        validate();
-      });
+      return session.helper.request(
+        {
+          op: "button.press",
+          name,
+          humanDeviceInput: humanDeviceInput(actor, session.state.target),
+        },
+        () => {
+          validate();
+          beforeDispatch?.();
+          validate();
+        },
+      );
     });
   }
   async namedKey(

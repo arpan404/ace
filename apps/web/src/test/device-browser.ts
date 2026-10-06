@@ -16,7 +16,7 @@ interface Owned {
 /**
  * The browser under a device screen, recorded: jsdom has no 2D canvas, `createImageBitmap` or
  * WebCodecs. `webCodecs` decides what the page finds: none (an older browser), a decoder that
- * decodes every chunk, or one that fails on the first chunk as a broken stream would.
+ * decodes every chunk, or one that reports an unsupported codec on the first chunk.
  */
 export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
   const events: ScreenEvent[] = [];
@@ -56,7 +56,7 @@ export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
           // A failed decoder closes itself before reporting, as WebCodecs specifies.
           this.state = "closed";
           events.push("decoder failed");
-          this.init.error(new DOMException("Unsupported stream", "EncodingError"));
+          this.init.error(new DOMException("Unsupported stream", "NotSupportedError"));
           return;
         }
         const frame = new FakeVideoFrame();

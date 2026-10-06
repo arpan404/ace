@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "benchmark": "node benchmark.ts",
     "benchmark:history": "node benchmark-history.ts",
+    "benchmark:counters": "node --expose-gc benchmark-counters.ts",
     "benchmark:diff": "node benchmark-diff.ts"
   },
   "dependencies": {

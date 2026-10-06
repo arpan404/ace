@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it, onTestFinished } from "vitest";
+import { z } from "zod";
 import { nodeBinary } from "@ace/provider-kit/testing";
 import { DevicePlatform, type Device } from "./index.ts";
 
@@ -37,6 +38,7 @@ async function fixture(platform = "linux") {
     else if (args.some(arg => arg.includes('resolve-activity'))) console.log('dev.example/.MainActivity');
     else if (args.some(arg => arg.includes("'wm' 'size'"))) console.log('Physical size: 1080x2400'+(process.env.DEVICE_OVERRIDE==='1'?'\\nOverride size: 720x1600':''));
     else if (args.some(arg => arg.includes("'settings' 'get'"))) console.log('0');
+    else if(args[2]==='shell' && args[3]==='-T') { const child=require('node:child_process').spawn('/bin/sh',[],{env:process.env,stdio:'inherit'}); child.on('exit',code=>process.exit(code??1)); }
     else if(args[2]==='shell' && (args[3].startsWith("'input'") || args[3].startsWith("'am'") || args[3].startsWith('input ') || args[3].startsWith('am '))) { require('node:child_process').execFileSync('/bin/sh', ['-c', args[3]], {env:process.env,stdio:'inherit'}); }
     else if (args.includes('logcat')) { process.stdout.write('x'.repeat(32768)+'\\n'); }
   `,
@@ -79,7 +81,9 @@ async function fixture(platform = "linux") {
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map((line): unknown => JSON.parse(line));
+      .map((line) =>
+        z.object({ tool: z.string(), args: z.array(z.string()) }).parse(JSON.parse(line)),
+      );
   return { home, sdk, bin, journal, state, tree, env, manager, commands };
 }
 function android(): Device {
@@ -93,6 +97,22 @@ function android(): Device {
 function ios(): Device {
   return { id: `ios:${udid}`, platform: "ios", name: "iPhone", state: "shutdown" };
 }
+
+it("concurrent Android taps share a transport and reach the emulator in order", async () => {
+  const f = await fixture();
+  await writeFile(f.state, "booted");
+  await f.manager.list();
+  await Promise.all(
+    Array.from({ length: 10 }, (_, x) => f.manager.input(android(), { kind: "tap", x, y: 20 })),
+  );
+  const commands = await f.commands();
+  expect(commands.filter((entry) => entry.tool === "input").map((entry) => entry.args)).toEqual(
+    Array.from({ length: 10 }, (_, x) => ["tap", String(x), "20"]),
+  );
+  expect(
+    commands.filter((entry) => entry.tool === "adb" && entry.args.includes("-T")),
+  ).toHaveLength(1);
+});
 
 it("discovers an SDK outside PATH and keeps an AVD identity through boot and shutdown", async () => {
   const f = await fixture();
@@ -176,14 +196,17 @@ it("maps Android gestures, keys and text to the selected emulator with shell-saf
     tool: "adb",
     args: ["-s", "emulator-5554", "install", "-r", join(f.home, "Example.apk")],
   });
-  for (const line of [
-    "'input' 'tap' '15' '25'",
-    "'input' 'swipe' '10' '20' '10' '20' '900'",
-    "'input' 'swipe' '1' '2' '3' '4' '350'",
-    "'input' 'keyevent' '4'",
-    "'input' 'text' 'a'\\'';$(echo%sunsafe)%s&%sb'",
+  for (const args of [
+    ["tap", "15", "25"],
+    ["swipe", "10", "20", "10", "20", "900"],
+    ["swipe", "1", "2", "3", "4", "350"],
+    ["keyevent", "4"],
+    ["text", "a';$(echo%sunsafe)%s&%sb"],
   ])
-    expect(commands).toContainEqual({ tool: "adb", args: ["-s", "emulator-5554", "shell", line] });
+    expect(commands).toContainEqual({ tool: "input", args });
+  expect(
+    commands.filter((command) => command.tool === "adb" && command.args.includes("-T")),
+  ).toHaveLength(1);
   expect(commands).toContainEqual({
     tool: "adb",
     args: [
@@ -213,8 +236,8 @@ it("refreshes Android semantic targets and refuses a stale node after its identi
   expect(ref).toBeDefined();
   await f.manager.uiAct(android(), { ref, action: "press" });
   expect(await f.commands()).toContainEqual({
-    tool: "adb",
-    args: ["-s", "emulator-5554", "shell", "'input' 'tap' '60' '50'"],
+    tool: "input",
+    args: ["tap", "60", "50"],
   });
   await writeFile(f.journal, "");
   await writeFile(f.tree, (await readFile(f.tree, "utf8")).replaceAll("Launch", "Delete"));
@@ -335,6 +358,20 @@ it("passes gesture duration to idb in seconds and identifies the chosen Simulato
     "idb",
     "require('node:fs').appendFileSync(process.env.DEVICE_JOURNAL, JSON.stringify({tool:'idb',args:process.argv.slice(2)})+'\\n');",
   );
+  await f.manager.input(ios(), { kind: "type", text: "hello 👋" });
+  expect(await f.commands()).toContainEqual({
+    tool: "idb",
+    args: ["ui", "text", "hello 👋", "--udid", udid],
+  });
+  await f.manager.input(ios(), { kind: "key", key: "enter" });
+  await f.manager.input(ios(), { kind: "key", key: "home" });
+  await f.manager.input(ios(), { kind: "key", key: "power" });
+  for (const args of [
+    ["ui", "key", "40"],
+    ["ui", "button", "HOME"],
+    ["ui", "button", "LOCK"],
+  ])
+    expect(await f.commands()).toContainEqual({ tool: "idb", args: [...args, "--udid", udid] });
   await f.manager.input(ios(), { kind: "longPress", x: 20, y: 40, durationMs: 750 });
   await f.manager.input(ios(), { kind: "swipe", x: 20, y: 40, toX: 80, toY: 60, durationMs: 1500 });
   expect(await f.commands()).toContainEqual({

@@ -167,3 +167,69 @@ it("a Simulator lease revoked during a permission read prevents native input dis
   await rejected;
   await expect(readFile(f.journal)).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+it("human Simulator taps, swipes and typing bypass agent focus rejection while agents remain guarded", async () => {
+  const f = await files();
+  const screen = new ScreenManager({
+    ...command,
+    env: { GESTURE_JOURNAL: f.journal, REJECT_BACKGROUND_FOCUS: "1" },
+    platform: "darwin",
+    nextId: ids(),
+    recordingDirectory: f.root,
+    publishArtifact: async () => {},
+  });
+  const devices = new DevicePlatform({
+    platform: "darwin",
+    home: f.root,
+    env: { PATH: "" },
+    screen,
+  });
+  onTestFinished(async () => {
+    await devices.close();
+    await screen.close();
+  });
+  await screen.enable(true);
+  await screen.approve(target.bundleId, true);
+  const state = await screen.start(target);
+  screen.controller(state.sessionId, "human", "user");
+  const human = { sessionId: state.sessionId, actor: "human", owner: "user" } as const;
+  await devices.input(simulator, { kind: "tap", x: 20, y: 40 }, human);
+  await devices.input(
+    simulator,
+    { kind: "swipe", x: 20, y: 40, toX: 80, toY: 60, durationMs: 100 },
+    human,
+  );
+  await devices.input(simulator, { kind: "type", text: "hello" }, human);
+  const delivered = (await readFile(f.journal, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line): unknown => JSON.parse(line));
+  expect(delivered).toEqual([
+    {
+      target: "com.apple.iphonesimulator:1",
+      input: { kind: "pointer.click", x: 20, y: 40, button: "left" },
+    },
+    {
+      target: "com.apple.iphonesimulator:1",
+      input: {
+        kind: "pointer.drag",
+        x: 20,
+        y: 40,
+        toX: 80,
+        toY: 60,
+        durationMs: 100,
+        button: "left",
+      },
+    },
+    { target: "com.apple.iphonesimulator:1", input: { kind: "text.type", text: "hello" } },
+  ]);
+  screen.controller(state.sessionId, "agent", "agent");
+  await expect(
+    devices.input(
+      simulator,
+      { kind: "tap", x: 20, y: 40 },
+      { sessionId: state.sessionId, actor: "agent", owner: "agent" },
+    ),
+  ).rejects.toMatchObject({ code: "foreground_required" });
+  expect((await readFile(f.journal, "utf8")).trim().split("\n")).toHaveLength(3);
+});

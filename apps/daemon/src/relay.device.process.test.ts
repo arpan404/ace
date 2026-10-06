@@ -22,6 +22,7 @@ import { createDevThread } from "./commands.ts";
 import { allows, type Scope } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { startFilesRelay } from "./files-relay.ts";
+import { deviceInputProcess } from "./testing/device-input-process.ts";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -127,23 +128,28 @@ async function fixture() {
   const reader = paired(["read"]);
   const active = new Map<string, string>([["emulator-5554", "Pixel"]]);
   const inputs: string[] = [];
+  const probe: NonNullable<ConstructorParameters<typeof DevicePlatform>[0]["probe"]> = async (
+    _command,
+    args,
+  ) => {
+    const command = args.join(" ");
+    let stdout = "";
+    if (command === "-list-avds") stdout = "Pixel\nTablet\n";
+    else if (command === "devices -l")
+      stdout =
+        "List of devices attached\n" +
+        [...active.keys()].map((serial) => `${serial} device`).join("\n");
+    else if (command.endsWith("emu avd name")) stdout = `${active.get(args[1] ?? "")}\nOK\n`;
+    else if (command.endsWith("wait-for-device")) active.set(args[1] ?? "", "Tablet");
+    else if (command.includes("input")) inputs.push(command);
+    return { stdout, stderr: "", code: 0 };
+  };
   const platform = new DevicePlatform({
     platform: "linux",
     home: root,
     env: { ANDROID_HOME: sdk },
-    async probe(_command, args) {
-      const command = args.join(" ");
-      let stdout = "";
-      if (command === "-list-avds") stdout = "Pixel\nTablet\n";
-      else if (command === "devices -l")
-        stdout =
-          "List of devices attached\n" +
-          [...active.keys()].map((serial) => `${serial} device`).join("\n");
-      else if (command.endsWith("emu avd name")) stdout = `${active.get(args[1] ?? "")}\nOK\n`;
-      else if (command.endsWith("wait-for-device")) active.set(args[1] ?? "", "Tablet");
-      else if (command.includes("input")) inputs.push(command);
-      return { stdout, stderr: "", code: 0 };
-    },
+    probe,
+    spawn: deviceInputProcess(probe),
   });
   const captures = new Map<string, Capture>();
   let id = 0;

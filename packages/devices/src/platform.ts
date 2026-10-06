@@ -17,6 +17,7 @@ import {
   adbShell,
   androidInput,
   simulatorButton,
+  simulatorHID,
   simulatorInput,
   simulatorIdentity,
   simulatorRuntime,
@@ -326,15 +327,16 @@ export class DevicePlatform {
           undefined,
           authorize,
         );
-      } else await this.android.adb(device, androidInput(input), undefined, authorize);
+      } else await this.android.input(device, androidInput(input), authorize ?? (() => {}));
       return;
     }
-    // idb types into a Simulator in the background; window key events need it in front.
-    if (input.kind === "type") {
+    // Native device HID keeps Simulator behind ace when idb is installed.
+    const hid = simulatorHID(input);
+    if (hid) {
       const idb = await findExecutable("idb", this.options.env);
       if (idb) {
         authorize?.();
-        await this.run(idb, ["ui", "text", input.text, "--udid", nativeId(device)]);
+        await this.run(idb, [...hid, "--udid", nativeId(device)]);
         return;
       }
     }

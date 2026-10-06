@@ -1,0 +1,12 @@
+{
+  "hostLoadAtStart": 13.1875,
+  "idleRssBytes": 227246080,
+  "idleRssBudgetBytes": 268435456,
+  "idleThreads": 14,
+  "idleWorkers": 1,
+  "startupMs": 915.8272919999999,
+  "eventsPerSecond": 414.90633302201815,
+  "p99Ms": 3.97998046875,
+  "shutdownMs": 62.943082999998296,
+  "violations": []
+}

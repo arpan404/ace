@@ -46,6 +46,7 @@ for await (const line of createInterface({ input: process.stdin })) {
         uiTree: false,
         semanticActions: [],
         codecs: ["jpeg"],
+        background: process.env["REJECT_BACKGROUND_FOCUS"] === "1",
         permissions: { screen: "granted", input: "granted" },
       };
       break;
@@ -69,6 +70,20 @@ for await (const line of createInterface({ input: process.stdin })) {
           : `${request.target.bundleId}:${request.target.kind === "window" ? request.target.windowId : "app"}`;
       break;
     case "input":
+      if (process.env["REJECT_BACKGROUND_FOCUS"] === "1" && !request.humanDeviceInput) {
+        console.log(
+          JSON.stringify({
+            version: request.version,
+            id: request.id,
+            ok: false,
+            error: {
+              code: "foreground_required",
+              message: "Focus changed during human input; the human's desktop was retained",
+            },
+          }),
+        );
+        continue;
+      }
       await appendFile(journal, JSON.stringify({ target: captured, input: request.input }) + "\n");
       if (process.env["HOLD_DRAG"] === "1") {
         held = request;

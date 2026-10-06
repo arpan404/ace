@@ -1,0 +1,163 @@
+{
+  "qualification": "failed: macOS console locked; no input acknowledgement",
+  "consoleLocked": true,
+  "failures": ["page.waitForFunction: Timeout 2500ms exceeded."],
+  "errors": [
+    {
+      "type": "devices.result",
+      "requestId": "c84fe160-7247-43ce-b6b4-5ec1eb68d78c",
+      "ok": false,
+      "error": {
+        "code": "foreground_required",
+        "message": "Simulator needs foreground input for this interaction: Could not activate approved target",
+        "hint": "Bring the selected Simulator window forward before retrying, or install idb for native device input. ace will not change your desktop focus for an agent."
+      }
+    },
+    {
+      "type": "devices.result",
+      "requestId": "4326b0d2-b573-46c6-a983-9c8e50f6a326",
+      "ok": false,
+      "error": {
+        "code": "foreground_required",
+        "message": "Simulator needs foreground input for this interaction: Could not activate approved target",
+        "hint": "Bring the selected Simulator window forward before retrying, or install idb for native device input. ace will not change your desktop focus for an agent."
+      }
+    }
+  ],
+  "acknowledgements": [
+    {
+      "at": 1791290887823,
+      "ack": false,
+      "inputAt": 0,
+      "kind": "tap"
+    }
+  ],
+  "hostLoad": [290.80810546875, 142.38916015625, 83.9345703125],
+  "sourceClock": {
+    "offset": 0,
+    "uncertainty": 0
+  },
+  "displays": [
+    {
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 2560,
+        "height": 1440
+      },
+      "scaleFactor": 1
+    },
+    {
+      "bounds": {
+        "x": 2560,
+        "y": 146,
+        "width": 1920,
+        "height": 1080
+      },
+      "scaleFactor": 1
+    }
+  ],
+  "packaged": true,
+  "fps": 28.319938767699963,
+  "codecs": {
+    "h264": 76
+  },
+  "capture": {
+    "p50": 10.616943359375,
+    "p95": 18.056884765625,
+    "samples": 74
+  },
+  "source": {
+    "p50": 31,
+    "p95": 45,
+    "samples": 66
+  },
+  "inputs": {
+    "tap": {
+      "p50": null,
+      "p95": null,
+      "samples": 0
+    },
+    "swipe": {
+      "p50": null,
+      "p95": null,
+      "samples": 0
+    },
+    "type": {
+      "p50": null,
+      "p95": null,
+      "samples": 0
+    }
+  },
+  "resolution": {
+    "width": 300,
+    "height": 638,
+    "css": {
+      "width": 299.515625,
+      "height": 636.96875
+    },
+    "dpr": 1
+  },
+  "requests": [
+    {
+      "op": "stream.configure",
+      "deviceId": "ios:5A7B3186-2AFF-415F-8C89-DA0EAD85C67F",
+      "settings": {
+        "codec": "jpeg",
+        "maxWidth": 496,
+        "maxHeight": 700,
+        "fps": 60,
+        "bitrate": 12000000
+      }
+    },
+    {
+      "op": "stream.configure",
+      "deviceId": "ios:5A7B3186-2AFF-415F-8C89-DA0EAD85C67F",
+      "settings": {
+        "codec": "h264",
+        "maxWidth": 496,
+        "maxHeight": 700,
+        "fps": 60,
+        "bitrate": 12000000
+      }
+    },
+    {
+      "op": "stream.configure",
+      "deviceId": "ios:5A7B3186-2AFF-415F-8C89-DA0EAD85C67F",
+      "settings": {
+        "codec": "h264",
+        "maxWidth": 496,
+        "maxHeight": 700,
+        "fps": 30,
+        "bitrate": 5333333
+      }
+    },
+    {
+      "op": "stream.configure",
+      "deviceId": "ios:5A7B3186-2AFF-415F-8C89-DA0EAD85C67F",
+      "settings": {
+        "codec": "h264",
+        "maxWidth": 496,
+        "maxHeight": 638,
+        "fps": 30,
+        "bitrate": 5333333
+      }
+    }
+  ],
+  "gpu": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+  }
+}
