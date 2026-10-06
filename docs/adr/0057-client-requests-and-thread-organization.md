@@ -29,3 +29,13 @@ A cached catalog never authorizes current physical source bytes. Source reads op
 Context mention reads use the same persisted execution binding as scripts, Git and checkpoints. An unready isolated binding cannot fall back to the registered project. Draft adoption continues to authorize against the logical project root; composition reads the actual prepared execution root.
 
 Integration train 3 keeps these services in the named startup graph: workspace actions initialize before engine admission; preview, organization, automation and conductor initialization follow endpoint publication. Optional failures degrade by service name. Context combines draft ownership and execution-root authority with the agent-control family reference policy and queue attachment retention. The ADR moved to 0057 because main allocated 0056 to in-app devices, now [ADR 0064](0064-in-app-devices.md).
+
+
+### Moving between projects
+
+`thread.move` changes registration and execution together while preserving history and
+organization, including pins. It refuses the same live work and terminal ownership as
+delete, and refuses isolated/inherited nonlocal execution roots. It never transfers Git
+branches or worktrees. Idle managed sessions close through the existing workspace fence;
+the new cwd, cleared resume id, events and receipt commit atomically. The next session
+receives a history handoff. See [thread moves](../daemon/thread-move.md).

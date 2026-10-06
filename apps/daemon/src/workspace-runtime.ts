@@ -1,3 +1,4 @@
+import { moveThread } from "./thread-move.ts";
 import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
 import { hostname, homedir } from "node:os";
 import { join } from "node:path";
@@ -29,6 +30,7 @@ export interface WorkspaceRuntimeOptions {
     commandId: string,
     effect: () => Promise<ThreadDetails>,
     reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean },
+    commit?: () => void,
   ): Promise<void>;
   forgeRunner?: (cwd: string) => CommandRunner;
   gitService?: WorkspaceGit;
@@ -214,6 +216,15 @@ export class WorkspaceRuntime {
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
       if (!id) throw new Error("invalid_command");
       const threadId = ThreadId.parse(id);
+      if (p.type === "thread.move")
+        return moveThread(
+          this.store,
+          command,
+          this.now,
+          (owner) => this.hasOwnedWork(owner),
+          this.options.changeWorkspace,
+          allowed,
+        );
       if (p.type === "thread.workspace.set") {
         if (!this.options.changeWorkspace) return { ok: false, error: "engine_unavailable" };
         if (this.hasOwnedWork(threadId)) return { ok: false, error: "terminal_owned" };

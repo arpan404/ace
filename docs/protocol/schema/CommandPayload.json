@@ -622,6 +622,26 @@
     },
     {
       "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.move",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "allowUncommitted": {
           "default": false,
           "type": "boolean"

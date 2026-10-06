@@ -13,6 +13,7 @@ export async function changeEngineWorkspace(
   effect: () => Promise<ThreadDetails>,
   wake: (id: ThreadId) => void,
   reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean },
+  commit: () => void = () => {},
 ): Promise<void> {
   const state = repo.requireState(id);
   const thread = repo.store.getThread(id);
@@ -95,6 +96,7 @@ export async function changeEngineWorkspace(
         context: [],
       });
       status("applied", details);
+      commit();
       repo.store.workspaceReservations.release(commandId);
     });
   } catch (error) {

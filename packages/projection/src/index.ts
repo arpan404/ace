@@ -139,6 +139,7 @@ export function updateThread(thread: Thread, event: Event): void {
     }
   }
   if (payload.type === "thread.updated") {
+    if (payload.workspaceId !== undefined) thread.workspaceId = payload.workspaceId;
     if (payload.permission !== undefined) thread.permission = structuredCopy(payload.permission);
     if (payload.backend !== undefined) thread.backend = payload.backend;
     if (payload.capabilities !== undefined)
@@ -362,3 +363,5 @@ export type { SettlePolicy } from "./organization.ts";
 
 export { liveMetadata, boundedLiveModel } from "./live-metadata.ts";
 export { digestFromCounters, digestContributions, mergeTurnDigests } from "./long-thread-merge.ts";
+
+export { threadMoveError, movedThreadDetails, threadMoveEvents } from "./thread-move.ts";

@@ -159,6 +159,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"thread.updated"` |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | backend | no | ["acp","cursor-sdk"] |  |
 | capabilities | no | [Capabilities.json](schema/Capabilities.json) |  |
 | permission | no | [PermissionState.json](schema/PermissionState.json) |  |
@@ -178,12 +179,11 @@ Example:
 ```json
 {
   "execution": {
-    "options": {},
-    "provider": "claude"
+    "provider": "antigravity"
   },
   "lineage": {
-    "lossy": true,
-    "mode": "native",
+    "lossy": false,
+    "mode": "portable",
     "parentAgentId": "example",
     "parentThreadId": "example",
     "point": {
@@ -191,9 +191,17 @@ Example:
       "type": "turn"
     }
   },
-  "provider": "codex",
+  "permission": {
+    "effective": "read-only",
+    "override": "read-only",
+    "pending": true
+  },
+  "provider": "cursor",
+  "status": {
+    "on": "rate_limit",
+    "state": "waiting"
+  },
   "title": "example",
-  "titleSource": "provisional",
   "type": "thread.updated"
 }
 ```
@@ -211,35 +219,26 @@ Example:
 {
   "agent": {
     "background": true,
-    "createdAt": 9,
+    "createdAt": 8,
     "cwd": "example",
     "endedAt": 1,
-    "fidelity": "full",
+    "fidelity": "summary",
     "id": "example",
-    "lineage": {
-      "lossy": true,
-      "mode": "portable",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "runId": "example",
-        "type": "turn"
-      }
-    },
-    "model": "example",
+    "name": "example",
     "native": {
       "acpAgentId": "example",
-      "instanceId": "example",
-      "nativeId": "example",
+      "forkedFromNativeId": "example",
+      "installationId": "example",
       "path": "example",
-      "provider": "cursor"
+      "provider": "claude"
     },
     "origin": "root",
     "parentId": "example",
     "role": "example",
-    "spawnedBy": null,
+    "spawnedBy": "example",
     "status": {
-      "state": "starting"
+      "lastSignalAt": 2,
+      "state": "unresponsive"
     },
     "threadId": "example"
   },
@@ -261,9 +260,8 @@ Example:
 {
   "agentId": "example",
   "status": {
-    "activity": "retrying",
+    "activity": "compacting",
     "detail": "example",
-    "itemId": "example",
     "state": "working"
   },
   "type": "agent.status"
@@ -297,20 +295,14 @@ Example:
   "agentId": "example",
   "childThreadId": "example",
   "cwd": "example",
-  "lineage": {
-    "lossy": true,
-    "mode": "portable",
-    "parentAgentId": "example",
-    "parentThreadId": "example",
-    "point": {
-      "runId": "example",
-      "type": "turn"
-    }
-  },
-  "model": "example",
+  "endedAt": 5,
   "name": "example",
-  "role": "example",
-  "spawnedBy": "example",
+  "native": {
+    "acpAgentId": "example",
+    "installationId": "example",
+    "instanceId": "example",
+    "provider": "codex"
+  },
   "type": "agent.updated"
 }
 ```
@@ -328,7 +320,7 @@ Example:
 ```json
 {
   "checkpoints": {
-    "after": "example",
+    "before": "example",
     "state": "pending"
   },
   "runId": "example",
@@ -350,6 +342,7 @@ Example:
 ```json
 {
   "agentId": "example",
+  "commandId": "example",
   "nativeInputId": "example",
   "type": "input.admitted"
 }
@@ -368,24 +361,12 @@ Example:
 {
   "run": {
     "agentId": "example",
-    "checkpoints": {
-      "after": "example",
-      "error": "example",
-      "state": "unavailable"
-    },
     "endedAt": 3,
-    "executionSource": {
-      "nativeSessionId": "example",
-      "selection": {
-        "provider": "pi"
-      }
-    },
     "id": "example",
-    "ordinal": 6,
     "startedAt": 5,
     "state": "active",
     "threadId": "example",
-    "trigger": "unknown"
+    "trigger": "limit_resume"
   },
   "type": "run.started"
 }

@@ -650,6 +650,7 @@ export class Engine {
       roots: [this.repo.session(id).cwd],
       hasOwnedWork: () => false,
     },
+    commit: () => void = () => {},
   ): Promise<void> {
     if (this.closing || this.workspaceChanges.has(id))
       throw new Error("workspace_change_in_progress");
@@ -667,6 +668,7 @@ export class Engine {
       effect,
       (owner) => this.wake(owner),
       { ...reservation, roots: [...reservation.roots, this.repo.session(id).cwd] },
+      commit,
     ).finally(() => this.workspaceChanges.delete(id));
     this.workspaceChanges.set(id, change);
     return change;
