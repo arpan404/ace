@@ -1,5 +1,6 @@
 import { git, repository, connect, command, queue } from "./thread-creation-test-support.ts";
 import { DeliveryNotStarted } from "./engine/delivery.ts";
+import { GitError } from "@ace/git";
 import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -81,6 +82,61 @@ test("worktree creation refuses an unusable repository before accepting the firs
     await client.close();
     await server.close();
     await runtime.close();
+    await h.close();
+  }
+});
+
+test("a prepared workspace retains its first draft while admission is quarantined and delivers it after recovery", async () => {
+  let quarantined = true;
+  const h = transitionHarness({
+    prepareWorkspace: async () => {
+      throw new Error("Prepared workspace must not be prepared again");
+    },
+    assertWorkspaceAvailable: async () => {
+      if (quarantined) throw new GitError("git_quarantined", "Cleanup is unconfirmed");
+    },
+  });
+  const server = await startServer({
+    store: h.store,
+    engine: h.engine,
+    handler: h.engine.handler,
+    port: 0,
+    hostId: "host",
+    token,
+  });
+  const client = await connect(server.url);
+  const threadId = ThreadId.parse("quarantined");
+  const input = [{ type: "text" as const, text: "Keep this prepared draft" }];
+  try {
+    expect(
+      await command(client, "create", {
+        type: "thread.create",
+        threadId,
+        workspaceId: h.workspace,
+        provider: "codex",
+        input,
+      }),
+    ).toMatchObject({ ok: true, threadId });
+    await h.engine.flush();
+    expect(h.inputs).toEqual([]);
+    expect(await queue(client, threadId)).toMatchObject({
+      paused: true,
+      messages: [{ id: "create", state: "queued", input }],
+    });
+    quarantined = false;
+    expect(
+      await command(client, "resume", {
+        type: "queue.resume",
+        threadId,
+        expectedRevision: (await queue(client, threadId)).revision,
+      }),
+    ).toMatchObject({ ok: true });
+    await h.engine.flush();
+    expect(h.inputs.map((entry) => entry.text)).toEqual(["Keep this prepared draft"]);
+    expect((await queue(client, threadId)).messages).toEqual([]);
+  } finally {
+    await client.close();
+    await server.close();
     await h.close();
   }
 });

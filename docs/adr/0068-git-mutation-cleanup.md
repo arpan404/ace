@@ -53,8 +53,12 @@ Timeout, close cancellation, abort, stream failure and unexpected signal exit
 first quarantine the captured root and descendant leases synchronously. The
 caller receives its original typed error with `GitError.cleanup`. Restore also
 retains `safetyCheckpointId`. The runtime cancels timers, detaches stream consumers,
-destroys its descriptors and drops its process reference. It does not wait for
+destroys its descriptors and releases its call registration. It does not wait for
 process `close` or the cleanup receipt to reject or finish service shutdown.
+Shutdown separately drains the owned leader's `exit` notification with an
+injected one-second deadline before allowing its worker to exit. This drain
+never waits for inherited pipes and never retires a mutation lease; leader exit
+or the drain deadline supplies no escaped-descendant containment evidence.
 Queued callers acquire the released scheduling lock, then explicitly reject
 with `git_quarantined`; durable quarantine continues to own mutation access.
 The service checks quarantine before even verifying its executable.
@@ -91,8 +95,10 @@ is quarantined. Malformed, oversized and excessive records fail closed. Restart,
 service close and pipe destruction never erase an uncertain intent.
 
 Workspace command receipts and unavailable turn checkpoints expose
-`git_quarantined`. Ready workspace preparation checks the same fence before a
-provider session opens. Before-send checkpoint preparation rejects quarantine
+`git_quarantined`. A separate workspace-admission port checks the same fence
+before a provider session opens, including roots already prepared at creation.
+It never repeats preparation of an already-ready root. Before-send checkpoint
+preparation rejects quarantine
 after recording its unavailable state, so it cannot deliver another turn into an
 uncertain workspace. Ordinary checkpoint failures retain their existing behaviour. Deck exposes the same execution error, retains its pending
 integration/preparation effect and stays nonterminal. Restart retries that

@@ -88,3 +88,23 @@ export function killTree(
   } else child.kill("SIGKILL");
   return Promise.resolve();
 }
+
+/** Drain the owned leader without waiting for inherited pipes or claiming containment. */
+export function drainProcessExit(
+  child: ChildProcessWithoutNullStreams,
+  schedule: GitProcessRuntime["scheduleTimeout"],
+): Promise<void> {
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    let cancel: (() => void) | undefined;
+    const finish = () => {
+      cancel?.();
+      child.off("exit", finish);
+      resolve();
+    };
+    child.once("exit", finish);
+    // Shutdown remains bounded even if a supervisor or the OS cannot stop the
+    // leader. Durable quarantine and its cleanup receipt remain independent.
+    cancel = schedule(finish, 1000);
+  });
+}

@@ -35,6 +35,7 @@ export function transitionHarness(
     beforeFork?(context: SessionContext): Promise<void>;
     providerEnabled?: EngineOptions["providerEnabled"];
     prepareWorkspace?(id: ThreadId): Promise<string>;
+    assertWorkspaceAvailable?: EngineOptions["assertWorkspaceAvailable"];
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-transition-"));
@@ -218,6 +219,9 @@ export function transitionHarness(
     ...(options.maxActiveThreads ? { limits: { maxActiveThreads: options.maxActiveThreads } } : {}),
     ...(options.io ? { transitions: options.io } : {}),
     ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),
+    ...(options.assertWorkspaceAvailable
+      ? { assertWorkspaceAvailable: options.assertWorkspaceAvailable }
+      : {}),
     ...(options.recovery ? { recovery: options.recovery } : {}),
     ...(options.preferences ? { preferences: options.preferences } : {}),
   };

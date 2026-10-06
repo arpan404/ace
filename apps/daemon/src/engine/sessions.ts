@@ -30,6 +30,7 @@ interface SessionDependencies {
   repo: EngineRepository;
   permissionSettings?: import("./permissions.ts").PermissionSettings;
   prepareWorkspace?(id: ThreadId): Promise<string>;
+  assertWorkspaceAvailable?(cwd: string): Promise<void>;
   registry: AdapterRegistry;
   clock: EngineClock;
   closing(): boolean;
@@ -104,7 +105,6 @@ export class Sessions {
       );
       const entity = this.dependencies.repo.store.getThread(actor.id);
       if (entity?.deletedAt !== undefined) throw new Error("Thread deleted");
-      if (metadata.workspaceReady) await this.dependencies.prepareWorkspace?.(actor.id);
       if (!metadata.workspaceReady) {
         if (!this.dependencies.prepareWorkspace)
           throw new Error("Worktree preparation unavailable");
@@ -150,6 +150,7 @@ export class Sessions {
       errorEnvironment = context?.env;
       errorSecrets = [...(context?.mcp?.secrets ?? []), ...(aceMcp ? [aceMcp.bearer] : [])];
       await this.dependencies.repo.store.writable();
+      await this.dependencies.assertWorkspaceAvailable?.(metadata.cwd);
       this.dependencies.repo.store.workspaceReservations.assertAvailable(metadata.cwd);
       const codexContext = {
         getPermissionMode: async () => {

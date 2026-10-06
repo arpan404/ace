@@ -207,6 +207,11 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           prepareWorkspace: (id) =>
             services.workspaceActions?.prepare(id) ??
             Promise.reject(new Error("Workspace unavailable")),
+          assertWorkspaceAvailable: async (cwd) => {
+            await engineOptions.assertWorkspaceAvailable?.(cwd);
+            if (!services.workspaceActions) throw new Error("Workspace unavailable");
+            await services.workspaceActions.git.assertMutationAvailable(cwd);
+          },
           machine: services.workspaceActions.machine,
           beforeSend: async (threadId, commandId) => {
             await engineOptions.beforeSend?.(threadId, commandId);

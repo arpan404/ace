@@ -8,7 +8,7 @@ import {
 import type { CleanupResult } from "@ace/provider-kit/cleanup";
 import { z } from "zod";
 import { Readable, type Writable } from "node:stream";
-import { killTree, processRuntime } from "./process-runtime.ts";
+import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
 import { stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
@@ -45,6 +45,7 @@ export class GitCli {
   private readonly runtime: GitProcessRuntime;
   private readonly calls = new Set<Promise<Output>>();
   private readonly cancellations = new Set<() => void>();
+  private readonly drains = new Set<Promise<void>>();
   private closed = false;
   private closing: Promise<void> | undefined;
 
@@ -95,7 +96,9 @@ export class GitCli {
     if (this.closing) return this.closing;
     this.closed = true;
     for (const cancel of this.cancellations) cancel();
-    this.closing = Promise.allSettled(this.calls).then(() => {});
+    this.closing = Promise.allSettled(this.calls)
+      .then(() => Promise.allSettled(this.drains))
+      .then(() => {});
     return this.closing;
   }
   call(cwd: string, args: string[], options: CallOptions = {}): Promise<Output> {
@@ -208,6 +211,12 @@ export class GitCli {
       const kill = () => {
         if (stopped) return;
         stopped = true;
+        const drain = drainProcessExit(child, this.runtime.scheduleTimeout);
+        this.drains.add(drain);
+        void drain.then(
+          () => this.drains.delete(drain),
+          () => this.drains.delete(drain),
+        );
         const leases = ownership.leases;
         let cleanup: Promise<CleanupResult>;
         try {
