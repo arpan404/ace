@@ -98,3 +98,21 @@ test("Codex starts with a lifetime-scoped ace lease and redacts the native conne
     await h.dispose();
   }
 });
+
+test("a native fork shows inherited asks and answers before its first new turn", async () => {
+  const h = await sessionHarness(false, "", {
+    nativeSessionId: "source-native",
+    point: { type: "turn", nativeId: "source-turn" },
+  });
+  try {
+    const messages = Object.values(h.replay.state.items).filter((i) => i.type === "message");
+    const text = JSON.stringify(messages);
+    expect(text).toContain("ask private native earlier context");
+    expect(text).toContain("private native selected context");
+    expect(text).not.toContain("private native future secret");
+    expect(messages.filter((i) => i.type === "message" && i.role === "user")).toHaveLength(2);
+    expect(messages.filter((i) => i.type === "message" && i.role === "assistant")).toHaveLength(2);
+  } finally {
+    await h.dispose();
+  }
+});

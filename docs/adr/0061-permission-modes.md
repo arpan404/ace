@@ -99,3 +99,25 @@ and [RPC confirmation contract](https://raw.githubusercontent.com/badlogic/pi-mo
 Resume/read history reconstructs transcript and background work. It does not prove a live answer transport: historical questions and plans never open interactions, and their native question identities remain terminal on duplicate notifications. A fresh server request owns a process-scoped key. Stale resolution returns `interaction_unavailable`; it never writes to a replacement process. The engine retains durable interaction outcomes and generation fencing (WP5).
 
 Each Codex exit emits bounded, redacted `codex-session-exit` diagnostic evidence: process-generation token, deliberate flag, retirement reason, native reason, code, signal, and a 4 KiB stderr tail. Planned idle/user/shutdown retirement is distinct from native disconnect and failed-open cleanup. This evidence uses the existing provider diagnostic sink; the daemon currently persists that sink only at debug level. WP5 must wire this specific exit record at ordinary log levels as part of its engine logging ownership.
+
+## QA correction: Ask admission and Codex workspace writes
+
+The October 5 QA shell-edit reproduction established that Ask and Auto-review
+must not share Codex's writable sandbox. Ask now explicitly uses read-only at
+thread start, resume, fork and each engine-owned turn. Native escalation remains
+on-request with the user reviewer. A shell write is held until the user grants
+that action, and denial leaves the workspace unchanged. Sandboxed read commands
+can run without asking. The picker describes approval for edits and risky actions,
+and Codex's Ask guarantee discloses those read exceptions.
+
+Claude, OpenCode and Pi retain their pre-execution tool gates and now publish
+Ask guarantees separately from Auto-review. Their surfaced Ask approvals remain
+pending for a person. Cursor SDK and generic ACP, including the Cursor CLI and
+Antigravity ACP profiles, do not offer Ask because their contracts cannot
+promise a human decision before mutations. ACP rejects explicit Ask before
+spawning its CLI. An Auto-review guarantee can no longer imply Ask support at
+engine admission. Existing Auto-review behavior remains governed by the provider
+guarantees above.
+
+The regressions use isolated scripted CLIs and existing recorded Codex, Claude
+and OpenCode approval flows. No recorder or subscription prompts were run.

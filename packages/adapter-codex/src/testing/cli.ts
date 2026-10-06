@@ -1,4 +1,5 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
+import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
@@ -54,6 +55,8 @@ for await (const line of createInterface({ input: process.stdin })) {
   const method = str(frame["method"]);
   const id = frame["id"];
   if (!method && id === 100) {
+    if (pendingKind === "shell-edit" && obj(frame["result"])["decision"] === "accept")
+      appendFileSync("README.md", "QA approval test\n");
     message(JSON.stringify(frame["result"]), "response-proof");
     notify("serverRequest/resolved", { threadId: "native", requestId: 100 });
     end();
@@ -82,7 +85,25 @@ for await (const line of createInterface({ input: process.stdin })) {
     const boundary = sourceHistory.findIndex((turn) => turn.id === p["lastTurnId"]);
     forkHistory = sourceHistory.slice(0, boundary + 1);
     respond({
-      thread: { id: "fork-native", cwd: process.cwd(), status: { type: "idle" }, turns: [] },
+      thread: {
+        id: "fork-native",
+        cwd: process.cwd(),
+        status: { type: "idle" },
+        turns: p["excludeTurns"]
+          ? []
+          : forkHistory.map((turn) => ({
+              id: turn.id,
+              status: "completed",
+              items: [
+                {
+                  id: `ask-${turn.id}`,
+                  type: "userMessage",
+                  content: [{ type: "text", text: `ask ${turn.text}` }],
+                },
+                { id: `reply-${turn.id}`, type: "agentMessage", text: turn.text },
+              ],
+            })),
+      },
       model: "fake-model",
     });
   } else if (method === "thread/settings/update") {
@@ -168,6 +189,29 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (text === "shell-edit") {
+      pendingKind = text;
+      respond({ turn: { id: "turn" } });
+      active.set("native", "turn");
+      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
+      if (obj(p["sandboxPolicy"])["type"] === "readOnly") {
+        write({
+          id: 100,
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "native",
+            turnId: "turn",
+            itemId: "edit",
+            command: "printf 'QA approval test\\n' >> README.md",
+            availableDecisions: ["accept", "decline"],
+          },
+        });
+      } else {
+        appendFileSync("README.md", "QA approval test\n");
+        end();
+      }
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "overlap-policy") {
       if (p["threadId"] === "child") {
         respond({ turn: { id: "child-next" } });

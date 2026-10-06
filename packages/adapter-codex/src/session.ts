@@ -316,7 +316,7 @@ export async function openCodexSession(
               ...params,
               threadId: ctx.fork.nativeSessionId,
               ...(ctx.fork.point.type === "turn" ? { lastTurnId: ctx.fork.point.nativeId } : {}),
-              excludeTurns: true,
+              excludeTurns: false,
               deferGoalContinuation: true,
             }
           : ctx.resume

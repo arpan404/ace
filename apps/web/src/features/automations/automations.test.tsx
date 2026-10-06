@@ -528,3 +528,29 @@ test("on a phone, Automations opens on its list rather than the first automation
     globalThis.matchMedia = original;
   }
 });
+
+test("an explicit automation model is saved as the provider model and survives editing", async () => {
+  const { app } = await open("/automations/new");
+  await heading("New automation");
+  await userEvent.type(field("Name"), "Explicit model QA");
+  await userEvent.type(field("What should the agent do?"), "Reply QA_AUTOMATION_OK");
+  await choose("Agent", "Codex");
+  await choose("Model", "Codex · personal · GPT-5 Codex");
+  await userEvent.click(screen.getByRole("button", { name: "Create automation" }));
+  await heading("Explicit model QA");
+  const reply = await app.client.request({ type: "automation.list" });
+  const saved = reply.automations?.find((automation) => automation.title === "Explicit model QA");
+  expect(saved?.model).toBe("gpt-5-codex");
+  await userEvent.click(screen.getByRole("link", { name: "Edit prompt" }));
+  await heading("Edit automation");
+  expect(screen.getByRole("combobox", { name: "Model" }).textContent).toContain("GPT-5 Codex");
+}, 20_000);
+
+test("saving an old automation repairs its catalog row model identity", async () => {
+  const { app } = await open("/automations/auto-pr-review/edit");
+  await heading("Edit automation");
+  await userEvent.type(field("Name"), " repaired");
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await heading("Review pull requests on open repaired");
+  expect((await stored(app, "auto-pr-review"))?.model).toBe("gpt-5-codex");
+}, 20_000);

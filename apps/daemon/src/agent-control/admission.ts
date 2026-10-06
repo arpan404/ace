@@ -1,7 +1,7 @@
 import { delegationModel } from "./models.ts";
 import { callerThread } from "./authorization.ts";
 import { admitDelegation, delegationBudget } from "@ace/orchestrator";
-import { pickInstance } from "@ace/accounts";
+import { pickInstance, explicitInstance } from "@ace/accounts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import {
   Command,
@@ -96,11 +96,17 @@ export class DelegationAdmission {
             ) ?? [])
         : [];
       const selected = provider.success
-        ? pickInstance(
-            { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
-            candidates,
-            now,
-          )
+        ? input.accountId && candidates[0]
+          ? explicitInstance(
+              { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
+              candidates[0],
+              now,
+            )
+          : pickInstance(
+              { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
+              candidates,
+              now,
+            )
         : undefined;
       if (provider.success && (input.accountId || candidates.length > 0) && !selected)
         throw new Error("Account unavailable or quota exhausted");
@@ -173,9 +179,9 @@ export class DelegationAdmission {
         const provider = AccountProvider.parse(r.request.provider);
         if (
           !account ||
-          !pickInstance(
+          !explicitInstance(
             { provider, role: r.request.role, estimatedLoad: r.request.estimatedLoad },
-            [account],
+            account,
             this.deps.clock.now(),
           )
         )
