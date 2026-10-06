@@ -333,6 +333,7 @@ export class Engine {
     return actor;
   }
   providerAvailability(provider: ProviderKind) {
+    if (!this.registry.has(provider)) return { installed: false, auth: "unknown" as const };
     const { installed, auth } = this.registry.get(provider).discovery;
     return { installed, auth };
   }

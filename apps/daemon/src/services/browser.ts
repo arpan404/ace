@@ -196,7 +196,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
             )
           )?.value ?? "auto",
         );
-        return preference === "auto" ? "headless" : preference;
+        return preference;
       }),
     backendLoss:
       options.browser?.backendLoss ??
@@ -247,6 +247,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
   let stopRevocation: (() => void) | undefined;
   const browser = connectBrowser(options.browser, {
     connectionId: sessionId,
+    local: context.local ?? false,
     authorize: (threadId, workspaceId, access) => {
       const id = ThreadId.parse(threadId);
       const thread = options.store.getThread(id);

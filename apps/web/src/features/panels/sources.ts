@@ -166,5 +166,6 @@ export interface PreviewSource {
   heldAs(threadId: string): string | undefined;
   input(threadId: string, input: ForwardedInput): void;
   /** Size the page's viewport to the pane, in CSS pixels (BrowserCommand `resize`, 100–4096). */
+  capture?(threadId: string, width: number, height: number, devicePixelRatio: number): void;
   resize(threadId: string, width: number, height: number): void;
 }

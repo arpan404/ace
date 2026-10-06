@@ -81,3 +81,33 @@ it("recovery overflow closes the owned lease and expires interactions without re
   expect(h.projection.view.thread.status.state).not.toBe("done");
   expect(Object.values(h.projection.view.interactions)[0]?.state).toBe("expired");
 });
+
+it("a dropped local stream recovers without replaying a prompt and native progress releases its upstream retry", async () => {
+  const h = await setup();
+  const sessionID = h.session.nativeSessionId;
+  await h.publish("session.execution.started");
+  await h.publish("session.retry.scheduled", {
+    attempt: 2,
+    at: 2000,
+    error: { message: "ECONNRESET: socket closed unexpectedly" },
+  });
+  expect(h.projection.view.thread.status).toEqual({ state: "waiting", on: "network" });
+  await h.control("/test/state", { active: { [sessionID]: { type: "running" } } });
+  const recovered = h.recovered();
+  await h.control("/test/drop", {});
+  await recovered;
+  expect(h.projection.view.thread.status).toEqual({ state: "waiting", on: "network" });
+  await h.publish("session.text.delta", {
+    assistantMessageID: "resumed",
+    ordinal: 0,
+    delta: "Recovered",
+  });
+  expect(h.projection.view.thread.status.state).toBe("working");
+  expect(
+    array(await h.control("/test/requests"))
+      .map(object)
+      .filter((request) => String(request.path).endsWith("/prompt")),
+  ).toHaveLength(0);
+  await h.publish("session.execution.succeeded");
+  expect(h.projection.view.thread.status.state).toBe("done");
+});
