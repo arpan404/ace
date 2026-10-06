@@ -37,6 +37,16 @@ const view = (state: BrowserState): BrowserView => ({
   reason: state.reason,
   backend: state.backend,
   pageStateLost: state.pageStateLost,
+  tabs: state.tabs?.map((tab) => ({
+    tabId: tab.tabId,
+    url: tab.url,
+    title: tab.title,
+    pendingDialog: tab.pending_dialog,
+  })),
+  activeTabId: state.activeTabId,
+  downloads: state.downloads,
+  pendingDialog: state.pending_dialog,
+  takeoverMode: state.takeoverMode,
 });
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
@@ -130,8 +140,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       | "browser.handback"
       | "browser.close",
     threadId: string,
+    mode?: "shared" | "private",
   ) => {
-    const reply = await client.request({ type, threadId: ThreadId.parse(threadId) });
+    const reply =
+      type === "browser.takeover" && mode
+        ? await client.request({ type, threadId: ThreadId.parse(threadId), mode })
+        : await client.request({ type, threadId: ThreadId.parse(threadId) });
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
   };
@@ -363,8 +377,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       held.delete(threadId);
       await call("browser.close", threadId);
     },
-    async takeover(threadId) {
-      const state = BrowserState.safeParse(await call("browser.takeover", threadId));
+    async takeover(threadId, mode) {
+      const state = BrowserState.safeParse(await call("browser.takeover", threadId, mode));
       held.set(threadId, state.success ? state.data.owner : undefined);
     },
     heldAs(threadId) {
