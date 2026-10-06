@@ -163,6 +163,7 @@ export class BrowserSession {
     if (this.closed) throw new BrowserActionError("browser_closed");
     if (!this.ownership.prepareTakeover(connectionId, mode)) return this.state;
     if (mode === "private") this.options.privatePaused?.();
+    this.options.clearPageGrants?.();
     if (this.ownership.mode === "private" || mode === "private") this.refs.invalidate();
     this.ownership.takeover(connectionId, mode, this.options.now());
     this.options.backend.privateMode?.(mode === "private");
@@ -177,6 +178,7 @@ export class BrowserSession {
   handback(connectionId: string): BrowserState {
     const wasPrivate = this.ownership.mode === "private";
     this.ownership.handback(connectionId, this.options.now());
+    this.options.clearPageGrants?.();
     if (wasPrivate) this.refs.invalidate();
     this.options.backend.privateMode?.(false);
     if (this.paused && !this.pageStateLost) {
@@ -348,6 +350,10 @@ export class BrowserSession {
       blocked: () => this.blocked,
       clearBlocked: () => {
         this.blocked = undefined;
+      },
+      finishNavigation: () => {
+        // A late approval belongs to the submitting lease, never to a takeover or handback.
+        if (generation !== this.ownership.generation) this.options.clearPageGrants?.();
       },
       check: (...args) => this.check(...args),
       refDispatch: (ref) => this.refs.dispatch(ref, () => this.check(actor, signal, generation)),

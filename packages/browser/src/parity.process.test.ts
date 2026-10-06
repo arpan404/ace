@@ -169,7 +169,7 @@ it.skipIf(!executablePath)(
     ])
       await expect(
         f.execute({ action: "evaluate", mode: "read-only", expression }),
-      ).rejects.toThrow();
+      ).rejects.toThrow("Read-only evaluation refused side effects or failed");
     expect(await f.evaluate("document.body.innerHTML")).toBe(beforeBody);
     expect(f.service.state("thread").url).toBe(beforeUrl);
     expect(f.writes()).toBe(beforeWrites);

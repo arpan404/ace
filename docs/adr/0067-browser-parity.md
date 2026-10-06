@@ -47,6 +47,10 @@ share cookies, storage, permissions or page objects, even in one workspace.
 The user's personal browser profile is never opened. Heavy Chromium code and
 MCP descriptor registration remain behind first-use loading boundaries.
 
+Failed browser startup removes its unpublished session directory. Successful
+session directories retain their artifacts after close. Concurrent headless
+opens share the service's verified Chromium acquisition.
+
 `ace_browser_tabs` lists, opens, switches and closes tabs. `ace_browser_open`
 accepts `newTab`. Commands can select `tabId`; selection and input remain serialized
 within a thread. Another thread can work while one thread waits for approval.
@@ -123,6 +127,12 @@ cannot access the page world's JavaScript variables. It is not an OS sandbox or 
 formal proof against browser bugs. It neither rolls back concurrent page activity
 nor promises that the page itself stops its network writes. Unrestricted evaluation
 retains the existing explicit approval boundary and ten-second execution budget.
+
+Redirects retain the initiating actor across takeover. Page-only origin grants
+expire on takeover and handback. If an older navigation finishes after its
+controller generation changes, its late page approvals expire too; an Allow once
+decision cannot become consent for the replacement lease. Explicit thread grants
+remain durable.
 
 Logs return at most 200 retained console/network entries inline, with kind, level,
 URL-substring and HTTP-status filters. Each entry is bounded; older entries drop.

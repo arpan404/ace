@@ -17,6 +17,8 @@ export interface SessionOptions {
   /** Persist private ownership before takeover, and retain it through disconnect. */
   privatePaused?: () => void;
   privateResumed?: () => void;
+  /** Expire page-only origin consent when its controller lease changes. */
+  clearPageGrants?: () => void;
   navigatePolicy: (url: string, actor: Actor, signal?: AbortSignal) => Promise<boolean>;
   evaluatePolicy?: (
     threadId: string,

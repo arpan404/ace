@@ -26,6 +26,7 @@ interface CommandContext {
   read(): void;
   blocked(): BrowserOriginBlock | undefined;
   clearBlocked(): void;
+  finishNavigation(): void;
   check(actor: Actor, signal?: AbortSignal, generation?: number): void;
   refDispatch(
     ref: string,
@@ -107,6 +108,7 @@ export async function executeBrowserCommand(
         if (task.signal.aborted) void page.cdp.send("Page.stopLoading").catch(() => {});
         task.close();
         context.policies.finish(task);
+        context.finishNavigation();
       }
     }
     case "snapshot":

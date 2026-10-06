@@ -213,7 +213,11 @@ it("concurrent headless opens share one verified download instead of running com
     service.open({ threadId: "one", workspaceId: "workspace" }),
     service.open({ threadId: "two", workspaceId: "workspace" }),
   ]);
-  expect(results.every((result) => result.status === "rejected")).toBe(true);
+  for (const result of results)
+    expect(result).toMatchObject({
+      status: "rejected",
+      reason: { message: "Launch boundary reached after installation" },
+    });
   expect(f.downloads).toBe(1);
   expect(await readdir(join(f.home, "browser"))).toEqual([]);
   expect(await readdir(join(f.home, "chromium"))).toHaveLength(1);

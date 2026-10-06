@@ -25,13 +25,16 @@ export class BrowserProfiles {
     try {
       await mkdir(profile, { recursive: true, mode: 0o700 });
       dir = await mkdtemp(join(this.root, "session-"));
-      const downloadDir = join(dir, "downloads");
+      const sessionDir = dir;
+      const downloadDir = join(sessionDir, "downloads");
       await mkdir(downloadDir, { mode: 0o700 });
       return {
         dir,
         downloadDir,
         root: this.root,
         profile,
+        // Failed startup has no published artifacts; retain successful session files only.
+        discard: () => rm(sessionDir, { recursive: true, force: true }),
         release: async () => {
           this.leases.delete(profile);
           if (!persistent) await rm(profile, { recursive: true, force: true });
