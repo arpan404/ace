@@ -5,6 +5,7 @@ import { defineConfig } from "vite";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads } from "./initial-preloads.ts";
+import { initialBundle } from "./initial-bundle.ts";
 import { reactPlugins } from "./react-plugins.ts";
 import { zodWithoutJsonSchema, zodWithoutMetadata } from "./zod-json-schema.ts";
 import { droppedWorkerZodMethods, zodWithoutUnusedMethods } from "./zod-methods.ts";
@@ -26,6 +27,7 @@ export default defineConfig({
     zodWithoutMetadata(),
     zodWithoutUnusedMethods(),
     preloads.plugin,
+    initialBundle(),
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: {

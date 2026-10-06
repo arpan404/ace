@@ -7,7 +7,7 @@ import {
 import { cn } from "@/lib/cn.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
+import { HeaderMenu } from "./sidebar-menu.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -145,10 +145,9 @@ export function AppHeader(
         {(titleMenu || (props.summary && !phone)) && (
           <span className="flex shrink-0 items-center gap-0.5">
             {titleMenu && (
-              <Menu>
-                <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
-                <MenuContent>{props.menu}</MenuContent>
-              </Menu>
+              <HeaderMenu trigger={<IconButton icon={DotsThreeIcon} label="More actions" />}>
+                {props.menu}
+              </HeaderMenu>
             )}
             {!phone && props.summary}
           </span>
@@ -195,10 +194,9 @@ function Overflow(props: { actions: ReactNode; tools?: ReactNode; menu: ReactNod
   const [wanted, setWanted] = useState(false);
   if (!props.actions && !props.tools && props.menu)
     return (
-      <Menu>
-        <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
-        <MenuContent align="end">{props.menu}</MenuContent>
-      </Menu>
+      <HeaderMenu align="end" trigger={<IconButton icon={DotsThreeIcon} label="More actions" />}>
+        {props.menu}
+      </HeaderMenu>
     );
   const label = props.menu || props.tools ? "More actions" : "Actions";
   return (

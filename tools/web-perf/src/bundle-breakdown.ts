@@ -13,16 +13,31 @@ const Chunks = z.array(
 
 /** Rendered module lengths are before minification; only chunk gzip sizes are additive budgets. */
 export function workerBreakdown(out: string): string {
-  const chunks = Chunks.parse(JSON.parse(readFileSync(join(out, "worker-bundle.json"), "utf8")));
-  const lines = ["\nClient worker analyzer (Rolldown rendered bytes, before minification):"];
+  return bundleBreakdown(out, "worker-bundle.json", "Client worker", 15);
+}
+
+export function initialBreakdown(out: string): string {
+  return bundleBreakdown(out, "initial-bundle.json", "Initial page", 50);
+}
+
+function bundleBreakdown(out: string, file: string, label: string, moduleLimit: number): string {
+  const chunks = Chunks.parse(JSON.parse(readFileSync(join(out, file), "utf8")));
+  const lines = [`\n${label} analyzer (Rolldown rendered bytes, before minification):`];
   for (const eager of [true, false]) {
     const selected = chunks.filter((chunk) => chunk.eager === eager);
+    if (!selected.length) continue;
     const modules = selected.flatMap((chunk) => chunk.modules);
     const packages = new Map<string, number>();
     for (const module of modules) {
       const name = module.id.includes("/zod/")
         ? "zod"
-        : (module.id.match(/packages\/([^/]+)\//)?.[1] ?? "web / bundler");
+        : (module.id.match(/packages\/([^/]+)\//)?.[1] ??
+          module.id
+            .match(/node_modules\/((?:@[^/]+\/)?[^/]+)\//g)
+            ?.at(-1)
+            ?.replace(/^node_modules\//, "")
+            .replace(/\/$/, "") ??
+          "web / bundler");
       packages.set(name, (packages.get(name) ?? 0) + module.bytes);
     }
     lines.push(eager ? "Eager:" : "Lazy:");
@@ -32,7 +47,7 @@ export function workerBreakdown(out: string): string {
     }
     for (const [name, bytes] of [...packages].toSorted((a, b) => b[1] - a[1]))
       lines.push(`  ${name}: ${bytes} rendered bytes`);
-    for (const module of modules.toSorted((a, b) => b.bytes - a.bytes).slice(0, 15))
+    for (const module of modules.toSorted((a, b) => b.bytes - a.bytes).slice(0, moduleLimit))
       lines.push(`    ${module.bytes.toString().padStart(6)}  ${module.id}`);
   }
   return `${lines.join("\n")}\n`;
