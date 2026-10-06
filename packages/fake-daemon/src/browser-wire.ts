@@ -10,6 +10,7 @@ export function fakeBrowserSession(
   send: (message: ServerMessage) => void,
   connectionId: string,
 ) {
+  const recording = new Set<string>();
   const subscriptions = new Map<
     string,
     {
@@ -61,6 +62,44 @@ export function fakeBrowserSession(
       }
       let result: unknown;
       switch (message.type) {
+        case "browser.tabs.list":
+          result = browser.tabsList(id);
+          break;
+        case "browser.downloads.list":
+          result = browser.downloadsList(id);
+          break;
+        case "browser.evaluate.grants.list":
+          result = browser.evaluateGrantsList(id);
+          break;
+        case "browser.evaluate.grants.revoke":
+          browser.evaluateRevoke(id, message.origin);
+          result = browser.evaluateGrantsList(id);
+          break;
+        case "browser.tabs.open":
+        case "browser.tabs.switch":
+        case "browser.tabs.close":
+        case "browser.dialog.answer": {
+          if (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
+            throw new Error("Browser controller mismatch");
+          const pending_dialog = browser.view(id)?.pending_dialog;
+          if (pending_dialog && message.type !== "browser.dialog.answer") {
+            result = { pending_dialog };
+            break;
+          }
+          if (message.type === "browser.tabs.open") {
+            browser.tabOpen(id);
+            if (message.url) browser.navigate(id, message.url, host.now());
+          } else if (message.type === "browser.tabs.switch") browser.tabSwitch(id, message.tabId);
+          else if (message.type === "browser.tabs.close") browser.tabClose(id, message.tabId);
+          else {
+            browser.dialogAnswer(id, message.dialogId);
+          }
+          result =
+            message.type === "browser.dialog.answer"
+              ? { ok: true }
+              : { activeTabId: browser.view(id)?.activeTabId, tabs: browser.tabsList(id) };
+          break;
+        }
         case "browser.origins.list":
           result = browser.originsList(id);
           break;
@@ -89,20 +128,26 @@ export function fakeBrowserSession(
             await download.done;
             progress("ready", download.total);
           }
-          browser.drive(id, { url: "about:blank" });
+          if (!browser.view(id) || browser.view(id)?.closed)
+            browser.drive(id, {
+              url: "about:blank",
+              backend: message.options.background ? "headless" : "embedded",
+            });
+          result = BrowserState.parse(browser.view(id));
           break;
         }
         case "browser.close":
           browser.close(id);
           break;
         case "browser.takeover":
-          await browser.takeover(id, connectionId);
+          await browser.takeover(id, connectionId, message.mode);
           result = BrowserState.parse(browser.view(id));
           break;
         case "browser.handback":
           if (browser.view(id)?.owner !== connectionId)
             throw new Error("Browser controller mismatch");
           await browser.handback(id);
+          result = BrowserState.parse(browser.view(id));
           break;
         case "browser.input":
           if (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
@@ -114,13 +159,36 @@ export function fakeBrowserSession(
           const command = message.command;
           // As the daemon's browser service: a client acts as a person, and a person's commands
           // (navigate, resize, emulate) need the control lease; reads never do.
-          const reads = ["snapshot", "screenshot", "logs", "wait_for"];
+          const reads = ["snapshot", "screenshot", "logs", "wait_for", "find", "network_body"];
           if (
             !reads.includes(command.action) &&
             (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
           )
             throw new Error("Browser controller mismatch");
-          if (command.action === "navigate") {
+          const pending_dialog = browser.view(id)?.pending_dialog;
+          if (
+            pending_dialog &&
+            command.action !== "dialog" &&
+            !(command.action === "tabs" && command.operation === "list")
+          ) {
+            result = { pending_dialog };
+            break;
+          }
+          if (command.tabId && command.action !== "tabs" && command.action !== "dialog")
+            browser.tabSwitch(id, command.tabId);
+          if (command.action === "tabs") {
+            if (command.operation === "open") {
+              browser.tabOpen(id);
+              if (command.url) browser.navigate(id, command.url, host.now());
+            } else if (command.operation === "switch" && command.tabId)
+              browser.tabSwitch(id, command.tabId);
+            else if (command.operation === "close" && command.tabId)
+              browser.tabClose(id, command.tabId);
+            result = { activeTabId: browser.view(id)?.activeTabId, tabs: browser.tabsList(id) };
+          } else if (command.action === "dialog") {
+            browser.dialogAnswer(id, command.dialogId);
+            result = { ok: true };
+          } else if (command.action === "navigate") {
             browser.navigate(id, command.url, host.now());
             result = BrowserState.parse(browser.view(id));
           } else if (command.action === "type") browser.type(id, command.text);
@@ -128,7 +196,7 @@ export function fakeBrowserSession(
           else if (command.action === "emulate") browser.resize(id, command.width, command.height);
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };
           else if (command.action === "screenshot") result = browser.frame(id);
-          else if (command.action === "logs") result = [];
+          else if (command.action === "logs") result = { entries: [], limit: command.limit };
           else if (command.action === "evaluate")
             throw new Error("evaluation_unavailable_in_fixture");
           break;
@@ -210,8 +278,14 @@ export function fakeBrowserSession(
           break;
         }
         case "browser.recording.start":
-        case "browser.recording.stop":
-          throw new Error("recording_unavailable_in_fixture");
+          if (browser.view(id)?.takeoverMode === "private") throw new Error("human_private");
+          recording.add(id);
+          break;
+        case "browser.recording.stop": {
+          if (!recording.delete(id)) throw new Error("No browser recording");
+          result = { path: `/fake/browser/${id}/player.html`, mimeType: "text/html", bytes: 128 };
+          break;
+        }
       }
       send({
         type: "browser.result",

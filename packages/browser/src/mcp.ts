@@ -45,7 +45,8 @@ const actions = {
   },
   logs: {
     riskClass: "read-only",
-    description: "Read the approved browser's retained console logs.",
+    description:
+      "Read bounded console and network entries inline, filtered by kind, level, URL or status.",
   },
   resize: {
     riskClass: "external-effect",
@@ -54,6 +55,51 @@ const actions = {
   emulate: {
     riskClass: "external-effect",
     description: "Change the approved browser's device emulation settings.",
+  },
+  tabs: {
+    riskClass: "external-effect",
+    description:
+      "List, open, switch or close this thread's background tabs. Use operation and tabId. Tab ids are stable; take a fresh snapshot after switching.",
+  },
+  upload: {
+    riskClass: "external-effect",
+    description:
+      "Set a file input ref with workspace or thread artifact files. Outside paths require human approval.",
+  },
+  dialog: {
+    riskClass: "external-effect",
+    description:
+      "Answer a pending dialog by dialogId: accept or dismiss, with optional promptText.",
+  },
+  hover: { riskClass: "external-effect", description: "Move the pointer over a snapshot ref." },
+  drag: { riskClass: "external-effect", description: "Drag a snapshot ref to toRef." },
+  select: {
+    riskClass: "external-effect",
+    description: "Select option values in a native select element.",
+  },
+  check: {
+    riskClass: "external-effect",
+    description: "Check a checkbox or radio from a snapshot ref.",
+  },
+  uncheck: { riskClass: "external-effect", description: "Uncheck a checkbox from a snapshot ref." },
+  focus: { riskClass: "external-effect", description: "Focus a snapshot ref." },
+  find: {
+    riskClass: "read-only",
+    description:
+      "Find elements by accessible role and name in all frames. Returns current snapshot refs.",
+  },
+  network_body: {
+    riskClass: "read-only",
+    description: "Read one bounded, redacted text response body by requestId from logs.",
+  },
+  record_start: {
+    riskClass: "external-effect",
+    description:
+      "Start recording this thread's browser using the artifact pipeline. Private takeover excludes frames.",
+  },
+  record_stop: {
+    riskClass: "external-effect",
+    description: "Stop recording and announce a thread artifact.",
   },
 } satisfies Record<
   BrowserCommand["action"],
@@ -78,14 +124,15 @@ export function browserToolkit(
             Object.fromEntries(Object.entries(command.shape).filter(([key]) => key !== "action")),
           ),
           capability: "browser",
-          timeoutMs: Math.min(
-            300_000,
-            startupReserveMs + (action === "navigate" || action === "wait_for" ? 100_000 : 35_000),
-          ),
+          timeoutMs: Math.min(300_000, startupReserveMs + 100_000),
           async run(args, { caller, signal }) {
             signal.throwIfAborted();
             if (action === "screenshot") {
-              const bytes = await service.screenshot(caller.threadId, signal);
+              const bytes = await service.screenshot(
+                caller.threadId,
+                signal,
+                typeof args["tabId"] === "string" ? args["tabId"] : undefined,
+              );
               signal.throwIfAborted();
               return {
                 content: [

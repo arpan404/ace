@@ -56,6 +56,29 @@ it("taking control during an agent's slow redirect never grants the destination 
   expect(f.resolve(interaction, "allow_once").ok).toBe(true);
   await navigation;
   expect(f.browser.originsList(f.thread.id)).toEqual([]);
+  expect(
+    await owner.request({ type: "browser.handback", requestId: "back", threadId: f.thread.id }),
+  ).toMatchObject({ ok: true });
+  const nextApproval = f.opened();
+  const nextNavigation = expect(f.navigation(server.destination)).rejects.toMatchObject({
+    blocked: { origin: new URL(server.destination).origin, reason: "denied" },
+  });
+  expect(f.resolve(await nextApproval, "deny").ok).toBe(true);
+  await nextNavigation;
+});
+it("handback before a late redirect approval cannot retain consent from the previous agent lease", async () => {
+  const server = await redirectServer();
+  const f = await originFixture("ask", undefined, server.backend);
+  const navigation = f.navigation(`${server.origin}/slow`);
+  await server.entered;
+  f.browser.takeover(f.thread.id, "owner");
+  const opened = f.opened();
+  server.release();
+  const interaction = await opened;
+  f.browser.handback(f.thread.id, "owner");
+  expect(f.resolve(interaction, "allow_once").ok).toBe(true);
+  await navigation;
+  expect(f.browser.originsList(f.thread.id)).toEqual([]);
 });
 it("denying an agent redirect returns its typed block and publishes the same blocked state to the wire viewer", async () => {
   const server = await redirectServer();

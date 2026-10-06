@@ -7,6 +7,13 @@
     },
     "origin": {
       "$ref": "https://ace.local/protocol/v1/BrowserOrigin.json"
+    },
+    "scope": {
+      "enum": [
+        "thread",
+        "page"
+      ],
+      "type": "string"
     }
   },
   "required": [

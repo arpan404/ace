@@ -2,6 +2,9 @@
 
 Date: 2026-10-02. Status: proposed. Amends ADR 0009.
 
+The background backend default, tabs, files and private-control behavior is amended by
+[ADR 0067](0067-browser-parity.md).
+
 ## Decision
 
 Browser automation runs in ace's browser. New sessions prefer the connected

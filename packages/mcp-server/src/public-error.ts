@@ -18,6 +18,7 @@ export const PublicToolCode = z.enum([
   "stale_ref",
   "controller_changed",
   "human_controlled",
+  "human_private",
   "browser_paused",
   "browser_closed",
   "backend_changed",
@@ -100,6 +101,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   controller_changed: {
     message: "Browser control changed while the action was queued",
     hint: "Take a fresh snapshot and retry after control is handed back.",
+  },
+  human_private: {
+    message: "Browser is private while a human has control",
+    hint: "Wait for explicit human handback. A disconnect does not restore agent access.",
   },
   human_controlled: {
     message: "Browser controlled by human",

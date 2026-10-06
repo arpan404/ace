@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { privateBrowserOwnership } from "../browser-private.ts";
+import { browserArtifactAccess } from "../browser-artifacts.ts";
+import { BrowserApprovals } from "../browser-approvals.ts";
 import { BrowserOrigins } from "../browser-origins.ts";
 import { BrowserService } from "@ace/browser";
 import {
@@ -10,6 +13,7 @@ import {
   BrowserBackendPreference,
   BrowserBackendLossPolicy,
 } from "@ace/protocol";
+import { InteractionId as importInteractionId } from "@ace/protocol";
 import { desktopCredential } from "../browser-desktop.ts";
 import { settingsScope } from "../settings.ts";
 import type { ServiceContext } from "./types.ts";
@@ -82,11 +86,95 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   services.browserOrigins = origins;
   resources.own(() => origins.close());
   resources.onShutdown(() => origins.close());
+  const approvals = new BrowserApprovals(
+    {
+      store,
+      now,
+      id,
+      mode: async (threadId) =>
+        services.engine?.permissionAuthority(threadId) ??
+        store.getThread(threadId)?.permission?.effective ??
+        PermissionMode.parse(
+          (
+            await services.settings?.get(
+              "permissions.defaultMode",
+              settingsScope(store, { threadId }),
+            )
+          )?.value ?? "auto-review",
+        ),
+      root: (threadId) =>
+        services.engine?.rootAgent(threadId) ?? store.getThread(threadId)?.rootAgentId,
+      open: (interaction) => {
+        if (services.engine) {
+          const raw = interaction.raw.find((entry) => entry.type === "ace.browser.permission");
+          const key = z
+            .object({ key: z.string() })
+            .parse(raw && "data" in raw ? raw.data : undefined).key;
+          const interactionId = services.engine.openHostApproval(
+            interaction.threadId,
+            key,
+            interaction.request,
+            interaction.raw,
+          );
+          const opened = store.getInteraction(interactionId);
+          if (!opened) throw new Error("Browser approval unavailable");
+          return opened;
+        }
+        store.appendEvents(
+          interaction.threadId,
+          [{ type: "interaction.opened", interaction }],
+          now(),
+        );
+        return interaction;
+      },
+      close: (threadId, key, result, rawInteractionId) => {
+        if (services.engine) services.engine.resolveHostApproval(threadId, key, result);
+        else {
+          const interactionId = importInteractionId.parse(rawInteractionId);
+          if (interactionId)
+            store.appendEvents(
+              threadId,
+              [{ type: "interaction.closed", interactionId, closedAt: now(), ...result }],
+              now(),
+            );
+        }
+      },
+    },
+    options.browser?.navigationClock ?? {
+      set: (delay, work) => {
+        const timer = setTimeout(work, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+  );
+  services.browserApprovals = approvals;
+  resources.own(() => approvals.close());
+  resources.onShutdown(() => approvals.close());
   const browser = new BrowserService({
     ...options.browser,
     dataDir: config.dataDir,
     originPolicy: (request) => origins.allowed(request),
     origins,
+    ...privateBrowserOwnership(context),
+    evaluatePolicy:
+      options.browser?.evaluatePolicy ??
+      ((threadId, url, signal, mode, expression) =>
+        approvals.evaluate(threadId, url, signal, mode, expression)),
+    evaluateGrants: approvals,
+    downloadPolicy:
+      options.browser?.downloadPolicy ??
+      ((threadId, url, signal) => approvals.downloads(threadId, url, signal)),
+    uploadPolicy:
+      options.browser?.uploadPolicy ??
+      ((threadId, paths, signal) => approvals.upload(threadId, paths, signal)),
+    artifactAllowed: options.browser?.artifactAllowed ?? browserArtifactAccess(store),
+    workspaceRoot:
+      options.browser?.workspaceRoot ??
+      ((threadId) => {
+        const binding = store.executionWorkspace(ThreadId.parse(threadId));
+        if (!binding.ready) throw new Error("workspace_preparing");
+        return binding.path;
+      }),
     onNavigation: (threadId) => origins.clearPage(threadId),
     cleanup: {
       ...options.browser?.cleanup,
@@ -99,15 +187,17 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     id,
     backendPreference:
       options.browser?.backendPreference ??
-      (async (open) =>
-        BrowserBackendPreference.parse(
+      (async (open) => {
+        const preference = BrowserBackendPreference.parse(
           (
             await services.settings?.get(
               "browser.backend",
               settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
             )
           )?.value ?? "auto",
-        )),
+        );
+        return preference === "auto" ? "headless" : preference;
+      }),
     backendLoss:
       options.browser?.backendLoss ??
       (async (open) =>
@@ -140,7 +230,10 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     },
   });
   resources.own(() => browser.close());
-  if (services.engine || options.handler) origins.recover();
+  if (services.engine || options.handler) {
+    origins.recover();
+    approvals.recover();
+  }
   services.browser = browser;
 }
 

@@ -2,6 +2,9 @@
 
 Date: 2026-10-02. Status: accepted.
 
+Tab, file, inspection, profile and private-control behavior is superseded by
+[ADR 0067](0067-browser-parity.md).
+
 ## Context
 
 The competitor inventories at `/tmp/ace-orch/research-t3code.md` and

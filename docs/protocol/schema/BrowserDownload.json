@@ -1,0 +1,62 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserDownload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "downloadId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "filename": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "flags": {
+      "items": {
+        "enum": [
+          "executable",
+          "archive"
+        ],
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "mimeType": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "pending",
+        "complete",
+        "denied",
+        "failed",
+        "too_large"
+      ],
+      "type": "string"
+    },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "downloadId",
+    "tabId",
+    "filename",
+    "bytes",
+    "mimeType",
+    "flags",
+    "state"
+  ],
+  "type": "object"
+}

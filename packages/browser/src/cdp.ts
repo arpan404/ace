@@ -27,7 +27,11 @@ export const Bounds = z.object({
 export const Screencast = z.object({
   sessionId: z.number().int(),
   data: z.string().max(4 * 1024 * 1024),
-  metadata: z.object({ deviceWidth: z.number(), deviceHeight: z.number() }),
+  metadata: z.object({
+    deviceWidth: z.number(),
+    deviceHeight: z.number(),
+    timestamp: z.number().finite().optional(),
+  }),
 });
 export interface SnapshotNode {
   id: string;

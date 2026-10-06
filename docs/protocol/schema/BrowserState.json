@@ -2,6 +2,11 @@
   "$id": "https://ace.local/protocol/v1/BrowserState.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "activeTabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "backend": {
       "enum": [
         "embedded",
@@ -23,6 +28,13 @@
       ],
       "type": "string"
     },
+    "downloads": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/BrowserDownload.json"
+      },
+      "maxItems": 128,
+      "type": "array"
+    },
     "owner": {
       "maxLength": 256,
       "minLength": 1,
@@ -30,6 +42,9 @@
     },
     "pageStateLost": {
       "type": "boolean"
+    },
+    "pending_dialog": {
+      "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"
     },
     "reason": {
       "maxLength": 2048,
@@ -40,6 +55,20 @@
         "ready",
         "paused",
         "recovering"
+      ],
+      "type": "string"
+    },
+    "tabs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/BrowserTab.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "takeoverMode": {
+      "enum": [
+        "shared",
+        "private"
       ],
       "type": "string"
     },
