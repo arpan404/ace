@@ -1,39 +1,65 @@
 /*
  * Files the agents changed across threads, read from the daemon in every mode: the thread list
  * names the threads, and each thread's newest page of items (`items.page`) carries the changes
- * its tool calls made, which `@ace/ui-core` groups by path the way the Changes tab does. A file
- * the agent created whole downloads as it wrote it.
+ * its tool calls made, which `@ace/ui-core` groups by path the way the Changes tab does. Any file
+ * that still exists downloads from the thread's checkout (`ClientApi.downloadFile`).
  */
 import type { ClientApi } from "@ace/client";
-import { useSidebarIds } from "@ace/client-react";
+import { useClient, useSidebarLoaded } from "@ace/client-react";
+import { ThreadId } from "@ace/protocol";
 import { threadFiles, type ChangedFile } from "@ace/ui-core";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { UnavailableError, useFakeBackend, type FakeBackend } from "@/boot/fake-backend.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
 export type { ChangedFile } from "@ace/ui-core";
 
 /** The most recently active threads the page reads, and how many it reads at once. */
-const threadLimit = 40;
+export const threadLimit = 40;
 const parallel = 4;
 const itemsPerThread = 200;
 
 const key = ["files", "changed"] as const;
-/** Uploads land in this pseudo-thread until the transfer protocol names a destination. */
-export const uploadsThread = { id: "uploads", title: "Uploaded by you" };
+export interface ChangedFiles {
+  files: ChangedFile[];
+  /** More threads exist than the page reads (`threadLimit`). */
+  capped: boolean;
+}
 
-async function readChangedFiles(client: ClientApi, signal: AbortSignal): Promise<ChangedFile[]> {
+/** How often the page reads again while it is open (and on focus or reopen). */
+const refreshMs = 30_000;
+
+/**
+ * The `limit` most recently updated threads, newest first, in one pass over the list: a short
+ * sorted window instead of sorting the whole history.
+ */
+function recent<T extends { updatedAt: number }>(threads: Iterable<T>, limit: number): T[] {
+  const top: T[] = [];
+  for (const thread of threads) {
+    if (top.length === limit && (top.at(-1)?.updatedAt ?? 0) >= thread.updatedAt) continue;
+    let at = top.length;
+    while (at > 0 && (top[at - 1]?.updatedAt ?? 0) < thread.updatedAt) at--;
+    top.splice(at, 0, thread);
+    if (top.length > limit) top.pop();
+  }
+  return top;
+}
+
+/*
+ * Every read takes the newest threads' items as they are now. Nothing is kept between reads:
+ * a thread's list entry doesn't change when its tool calls do (its `updatedAt` can stay put),
+ * so a per-thread cache keyed on it would go stale, and it would only grow with history.
+ */
+async function readChangedFiles(client: ClientApi, signal: AbortSignal): Promise<ChangedFiles> {
   const lease = client.threads();
   let threads;
+  let total = 0;
   try {
     const list = lease.store;
-    threads = list.ids
-      .flatMap((id) => {
-        const thread = list.thread(id);
-        return thread && thread.deletedAt === undefined ? [thread] : [];
-      })
-      .toSorted((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, threadLimit);
+    const live = list.ids.flatMap((id) => {
+      const thread = list.thread(id);
+      return thread && thread.deletedAt === undefined ? [thread] : [];
+    });
+    total = live.length;
+    threads = recent(live, threadLimit);
   } finally {
     lease.release();
   }
@@ -52,64 +78,51 @@ async function readChangedFiles(client: ClientApi, signal: AbortSignal): Promise
       )),
     );
   }
-  return files.flat();
+  return { files: files.flat(), capped: total > threadLimit };
 }
 
-// TODO(client-gaps): files transfers. Uploads ride `files.request`'s binary channels, which
-// `ClientApi` can't carry (only `downloadArtifact` over a separate authenticated socket exists
-// in @ace/client), and the daemon starts its files service only with ACE_WORKSPACE_ROOT. Until
-// then uploads go to the fake backend in fake mode and are unavailable against a real daemon.
-async function loaded(backend: Promise<FakeBackend> | null): Promise<FakeBackend> {
-  if (!backend) throw new UnavailableError("Uploads");
-  return backend;
-}
-
-/** Changed files across threads, newest thread first, plus this session's fake uploads. */
+/**
+ * Changed files across threads, newest thread first. One query for the page: it reads again
+ * every 30s while open, on focus and on reopen, and the list on screen stays meanwhile (a
+ * spinner, never the skeleton again).
+ */
 export function useChangedFiles() {
-  const ids = useSidebarIds();
-  const backend = useFakeBackend();
+  const loaded = useSidebarLoaded();
   return useDaemonQuery({
-    queryKey: [...key, ids],
-    enabled: ids !== undefined,
-    read: async (client, signal) => {
-      const uploads = backend
-        ? (await backend).files.filter((file) => file.threadId === uploadsThread.id)
-        : [];
-      return [...uploads, ...(await readChangedFiles(client, signal))];
-    },
+    queryKey: key,
+    enabled: loaded,
+    read: readChangedFiles,
+    refetchInterval: refreshMs,
+    staleTime: 0,
   });
 }
 
-/** Whether this daemon can take uploads (fake mode only, until the transfer protocol lands). */
-export function useUploadsAvailable(): boolean {
-  return useFakeBackend() !== null;
+/** Downloads above this go through the thread's Files panel, which streams to disk. */
+export const downloadLimit = 64 * 1024 * 1024;
+
+export class DownloadTooLarge extends Error {
+  constructor() {
+    super("Files over 64 MB download from the thread's Files panel.");
+    this.name = "DownloadTooLarge";
+  }
 }
 
-/** Send a local file into a project's worktree. */
-export function useUploadFile() {
-  const backend = useFakeBackend();
-  const queries = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: { workspaceId: string; file: File; now: number }) => {
-      const fake = await loaded(backend);
-      const path = `uploads/${input.file.name}`;
-      const text = await input.file.text();
-      fake.files = [
-        {
-          threadId: uploadsThread.id,
-          threadTitle: uploadsThread.title,
-          workspaceId: input.workspaceId,
-          path,
-          changes: [{ path, kind: "add", newText: text }],
-          updatedAt: input.now,
-          text,
-        },
-        ...fake.files.filter(
-          (entry) => !(entry.threadId === uploadsThread.id && entry.path === path),
-        ),
-      ];
-      return path;
-    },
-    onSuccess: () => queries.invalidateQueries({ queryKey: key }),
-  });
+/** The bytes of a file in a thread's checkout, as it is now. */
+export function useDownloadFile() {
+  const client = useClient();
+  return async (file: Pick<ChangedFile, "threadId" | "path">): Promise<Blob> => {
+    const parts: Uint8Array<ArrayBuffer>[] = [];
+    let size = 0;
+    for await (const chunk of client.downloadFile({
+      threadId: ThreadId.parse(file.threadId),
+      op: "download",
+      path: file.path,
+      offset: 0,
+    })) {
+      size += chunk.length;
+      if (size > downloadLimit) throw new DownloadTooLarge();
+      parts.push(new Uint8Array(chunk));
+    }
+    return new Blob(parts);
+  };
 }

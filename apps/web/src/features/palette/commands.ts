@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { openNewTerminal } from "@/features/panels/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
+import { pageTitle, settingsIndex } from "@/features/settings/index.ts";
 import { views, type View } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
@@ -36,6 +37,7 @@ const groupOrder = [
   "Projects",
   "Actions",
   "Theme",
+  "Settings",
 ] as const;
 const orderOf = (group: PaletteGroup) => {
   const index = groupOrder.indexOf(group.value as (typeof groupOrder)[number]);
@@ -259,6 +261,18 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
         ],
       },
     ];
+    // Single settings, from Settings' own index (rows read their titles from it). They only
+    // show for a query: "accent" opens Appearance at the Accent row.
+    groups.push({
+      value: "Settings",
+      items: settingsIndex.map((entry): PaletteCommand => ({
+        id: `setting-${entry.id}`,
+        label: entry.title,
+        detail: pageTitle(entry.page),
+        icon: "view",
+        run: run(() => void navigate({ to: entry.page, hash: entry.id })),
+      })),
+    });
     return groups;
   }, [
     close,

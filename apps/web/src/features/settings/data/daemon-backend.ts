@@ -63,6 +63,7 @@ export function daemonSettingsBackend(
       state: "not_installed",
       version: undefined,
       via: "via ACP",
+      added: true,
       accounts: [],
     }));
     return [...statuses.map(providerInstall), ...added];
@@ -83,7 +84,9 @@ export function daemonSettingsBackend(
     },
     providers,
     rediscover: providers,
+    canAddAcpAgent: access.canAddAcpAgent,
     addAcpAgent: (agent) => access.addAcpAgent(agent),
+    removeAcpAgent: (name) => access.removeAcpAgent(name),
     models,
     async refreshModels(provider) {
       await client.request({ type: "models.refresh", filter: { provider } });

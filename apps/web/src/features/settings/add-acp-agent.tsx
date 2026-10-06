@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { DisabledReason } from "./setting-control.tsx";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 
 const AcpAgent = z.object({
@@ -49,6 +50,14 @@ export function AddAcpAgent() {
       formApi.reset();
     },
   });
+  if (!backend.canAddAcpAgent)
+    return (
+      <DisabledReason reason="Needs a newer daemon">
+        <Button size="sm" disabled>
+          Add
+        </Button>
+      </DisabledReason>
+    );
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Button size="sm" onClick={() => setOpen(true)}>

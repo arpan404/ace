@@ -1,50 +1,56 @@
 import { useId } from "react";
-import { SettingRow } from "@/components/setting-row.tsx";
-import { Input } from "@/components/ui/input.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import type { DesktopCategory, DesktopQuietHours } from "@/boot/desktop-settings.ts";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
+import { settingRow } from "./settings-index.ts";
 
 const defaultQuietHours: DesktopQuietHours = { start: 22 * 60, end: 8 * 60 };
 
 const clock = (minutes: number) =>
   `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-function minutesOf(value: string): number | undefined {
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
-  return match ? Number(match[1]) * 60 + Number(match[2]) : undefined;
-}
+
+/** Every quarter hour of the day, 24-hour: unambiguous in every locale, nothing clipped. */
+const quarterHours: SelectOption<string>[] = Array.from({ length: 96 }, (_, index) => {
+  const label = clock(index * 15);
+  return { value: String(index * 15), label };
+});
 
 /**
  * Which notifications this computer shows, and when. The desktop app owns and applies these;
- * a phone keeps its own. In a browser there is nothing here to configure.
+ * a phone keeps its own. A browser has no system notifications to configure.
  */
 export function NotificationSettings() {
   const desktop = useDesktopPreferences();
   if (!desktop.available)
     return (
-      <section className="mt-7" aria-label="Notifications">
+      <SettingSection label="This computer" scope="computer">
         <p className="max-w-[60ch] text-ui leading-normal text-muted-foreground">
-          Notifications on a computer are set in the ace desktop app, and a phone keeps its own. In
-          this browser, choose which changes show a toast from Activity.
+          Notifications on a computer are set in the ace desktop app, and a phone keeps its own.
         </p>
-      </section>
+      </SettingSection>
     );
   if (!desktop.value) return null;
   return (
-    <section className="mt-7" aria-label="Notifications">
+    <SettingSection label={settingRow("notifications.system").title} card scope="computer">
       <CategorySwitch
         category="needsYou"
         title="Needs you"
         description="Approvals, questions and escalations."
       />
       <CategorySwitch
+        category="failed"
+        title="Failures"
+        description="Failed runs and unresponsive agents."
+      />
+      <CategorySwitch
         category="finished"
         title="Thread done"
         description="When a thread settles with no open items."
       />
-      <CategorySwitch category="failed" title="Failures and unresponsive agents" />
       <QuietHoursRow />
-    </section>
+    </SettingSection>
   );
 }
 
@@ -54,7 +60,7 @@ function CategorySwitch(props: { category: DesktopCategory; title: string; descr
   if (!value) return null;
   const notifications = value.notifications;
   return (
-    <SettingRow title={props.title} description={props.description} htmlFor={id}>
+    <SettingRow title={props.title} description={props.description} htmlFor={id} inline>
       <Switch
         id={id}
         // The desktop shows a category unless it is switched off.
@@ -80,16 +86,16 @@ function QuietHoursRow() {
   const quiet = notifications.quietHours;
   const save = (quietHours: DesktopQuietHours | null) =>
     void update({ notifications: { ...notifications, quietHours } });
-  const change = (edge: "start" | "end", text: string) => {
-    const minutes = minutesOf(text);
-    if (!quiet || minutes === undefined) return;
+  const change = (edge: "start" | "end", minutes: number) => {
+    if (!quiet) return;
     const next = { ...quiet, [edge]: minutes };
     // An empty window means nothing; the stored one stays.
     if (next.start !== next.end) save(next);
   };
+  const row = settingRow("notifications.quietHours");
   return (
     <SettingRow
-      title="Quiet hours"
+      {...row}
       htmlFor={id}
       description={
         quiet
@@ -97,30 +103,32 @@ function QuietHoursRow() {
           : "Silence notifications on this computer overnight."
       }
     >
-      {quiet && (
-        <>
-          <Input
-            type="time"
-            aria-label="Quiet hours start"
-            value={clock(quiet.start)}
-            onChange={(event) => change("start", event.target.value)}
-            className="h-7 w-[92px] font-mono text-[12px]"
-          />
-          <span className="text-sm text-subtle-foreground">to</span>
-          <Input
-            type="time"
-            aria-label="Quiet hours end"
-            value={clock(quiet.end)}
-            onChange={(event) => change("end", event.target.value)}
-            className="h-7 w-[92px] font-mono text-[12px]"
-          />
-        </>
-      )}
-      <Switch
-        id={id}
-        checked={quiet !== null}
-        onCheckedChange={(on) => save(on ? defaultQuietHours : null)}
-      />
+      <span className="flex items-center justify-end gap-2">
+        {quiet && (
+          <>
+            <Select
+              label="Quiet hours start"
+              className="min-w-0 tabular-nums"
+              value={String(quiet.start - (quiet.start % 15))}
+              options={quarterHours}
+              onValueChange={(next) => change("start", Number(next))}
+            />
+            <span className="text-sm text-muted-foreground">to</span>
+            <Select
+              label="Quiet hours end"
+              className="min-w-0 tabular-nums"
+              value={String(quiet.end - (quiet.end % 15))}
+              options={quarterHours}
+              onValueChange={(next) => change("end", Number(next))}
+            />
+          </>
+        )}
+        <Switch
+          id={id}
+          checked={quiet !== null}
+          onCheckedChange={(on) => save(on ? defaultQuietHours : null)}
+        />
+      </span>
     </SettingRow>
   );
 }

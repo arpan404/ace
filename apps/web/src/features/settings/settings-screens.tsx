@@ -3,9 +3,13 @@ import { AppearanceSettings } from "./appearance-page.tsx";
 import { GeneralSettings } from "./general-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
-import { ProviderSettings, RediscoverButton } from "./providers-page.tsx";
+import { Link, Navigate } from "@tanstack/react-router";
+import { usePhone } from "@/lib/breakpoints.ts";
+import { Screen } from "@/features/shell/index.ts";
+import { ProviderSettings } from "./providers-page.tsx";
 import { RemoteDevices } from "./remote-page.tsx";
 import { SettingsBody } from "./settings-body.tsx";
+import { SettingsPageLinks } from "./settings-nav.tsx";
 
 /* One screen per Settings page: its title, lede and actions around the page body. */
 
@@ -28,9 +32,16 @@ export function AppearanceSettingsScreen() {
 export function ProviderSettingsScreen() {
   return (
     <SettingsBody
-      page="Providers & accounts"
-      lede="ace uses the CLIs installed on this machine and their own logins. Manage quota and scheduling under Usage & accounts."
-      actions={<RediscoverButton />}
+      page="Providers"
+      lede={
+        <>
+          ace uses the CLIs installed on this machine and their own logins. Quota and scheduling
+          live in{" "}
+          <Link to="/more/accounts" className="font-medium text-foreground hover:underline">
+            Usage &amp; accounts ›
+          </Link>
+        </>
+      }
     >
       <ProviderSettings />
     </SettingsBody>
@@ -58,7 +69,10 @@ export function NotificationSettingsScreen() {
 
 export function KeyboardSettingsScreen() {
   return (
-    <SettingsBody page="Keyboard">
+    <SettingsBody
+      page="Keyboard"
+      lede="Click a shortcut and press the new keys. Changes apply at once on every device using this daemon."
+    >
       <KeyboardShortcuts />
     </SettingsBody>
   );
@@ -69,5 +83,21 @@ export function AdvancedSettingsScreen() {
     <SettingsBody page="Advanced">
       <AdvancedSettings />
     </SettingsBody>
+  );
+}
+
+/**
+ * `/settings`: on a phone, the list of pages (the sidebar is a sheet there, so this is the way
+ * in); wider, General.
+ */
+export function SettingsIndexScreen() {
+  const phone = usePhone();
+  if (!phone) return <Navigate to="/settings/general" replace />;
+  return (
+    <Screen title="Settings">
+      <nav aria-label="Settings" className="h-full overflow-auto px-2 pt-4 pb-20">
+        <SettingsPageLinks />
+      </nav>
+    </Screen>
   );
 }

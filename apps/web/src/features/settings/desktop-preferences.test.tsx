@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -85,13 +85,17 @@ test("quiet hours set in the desktop app are the hours the desktop applies", asy
   );
   expect(await screen.findByText(/^22:00 to 08:00\./)).toBeTruthy();
 
-  // Time fields report whole values, never partial keystrokes.
-  fireEvent.change(screen.getByLabelText("Quiet hours start"), { target: { value: "23:30" } });
+  // 24-hour quarter hours: 22:00 reads as 22:00 in every locale.
+  const start = screen.getByRole("combobox", { name: "Quiet hours start" });
+  expect(start.textContent).toContain("22:00");
+  await userEvent.click(start);
+  await userEvent.click(await screen.findByRole("option", { name: "23:30" }));
   await waitFor(() =>
     expect(machine.stored().notifications.quietHours).toEqual({ start: 23 * 60 + 30, end: 480 }),
   );
   // A window that starts when it ends is not saved.
-  fireEvent.change(screen.getByLabelText("Quiet hours start"), { target: { value: "08:00" } });
+  await userEvent.click(screen.getByRole("combobox", { name: "Quiet hours start" }));
+  await userEvent.click(await screen.findByRole("option", { name: "08:00" }));
   expect(machine.stored().notifications.quietHours).toEqual({ start: 23 * 60 + 30, end: 480 });
 
   await userEvent.click(screen.getByRole("switch", { name: "Quiet hours" }));

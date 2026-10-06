@@ -5,44 +5,44 @@
       "sha256": "e00c22cba7d23cc595db036f61e738239b3c7fc5bfd7317f3e2abe909e09cc45"
     },
     "automations.md": {
-      "bytes": 9339,
-      "sha256": "86730519db857b0db163ef6abd19f304bce339a273e02ca3bc2731220fe7cef8"
+      "bytes": 9220,
+      "sha256": "c7510e84e0e15abad6df258059a99316aa756911fbcc27eba429639095d4354c"
     },
     "commands.md": {
       "bytes": 37185,
       "sha256": "f56e9a2aa9d8e3519c22b4665b867ac2fecd91fbe4cd045020f446587fe6f584"
     },
     "conductor.md": {
-      "bytes": 27957,
-      "sha256": "49f5d3a0abeb06a49645f74a8614cb7ed755511ad0f42a1a40ff8d61df6f048f"
+      "bytes": 28536,
+      "sha256": "c432c07f00a21e15d068660a40980a044fe6bd60ca72e388b8cab51e9c0ce3c6"
     },
     "events.md": {
-      "bytes": 19235,
-      "sha256": "db410be986e08bd3c71d4ec902bf0a6f8a7a8ba1385983edcafdfa45e2d1ae2d"
+      "bytes": 20613,
+      "sha256": "02fe3e062cf4742de9fb3378abada7e5b9bb2a9f3aa56a9b13e687f094a5d360"
     },
     "forge.md": {
-      "bytes": 15983,
-      "sha256": "e623eeaa9f2062a49abb900d95c4ef445b2843e053cb222aebd5911e4a895e81"
+      "bytes": 16105,
+      "sha256": "1476d29be139da2edb32de4a79a1764b0b9731ec1d15cb8b1dcea6292471f30d"
     },
     "mcp.md": {
-      "bytes": 80492,
-      "sha256": "3024f277c076399e87186a76d3a5bf16c5032acca0a691ac31552ed77c89282a"
+      "bytes": 81458,
+      "sha256": "ae43fe7c9e04587b56074003fb900389e3d2a3f66d756298f8b30200c5fe954d"
     },
     "models.md": {
-      "bytes": 12288,
-      "sha256": "b414c97287d2950d35ef56dd3b554c53c6ecfd4c685b95750ce7d338a11be916"
+      "bytes": 10903,
+      "sha256": "76d9d59018a463c13df7278dd08f5da8a8d4edbd519f933506a344e4fddc58c5"
     },
     "orchestration.md": {
-      "bytes": 27652,
-      "sha256": "00bdf0ac5a304bd20c5958909b70bc9a8b4afaf0e48de94b0351bb444ae8dbcb"
+      "bytes": 27449,
+      "sha256": "7153591fc0eec1f1ff984053d699f87461f745eea01e42999ccc1e6ab962711d"
     },
     "push.md": {
-      "bytes": 63235,
-      "sha256": "799cc547c65888fc8e33e958e94c2b937452225aa5cf0143d9941dc1bd6eb293"
+      "bytes": 66643,
+      "sha256": "9b50369d299fb72e8f2ce24502f42693762102dc13faa66e7bf95c236256bc4d"
     },
     "requests.md": {
-      "bytes": 50399,
-      "sha256": "d592df4e5b9672fef9e62f9026d2c748a3b09aaa2f2239abb3a08c54409872fd"
+      "bytes": 50489,
+      "sha256": "9e65d039c2489506b7ef62dd890368ebdcca42a4aa006d7feff046f28fb6dfbb"
     },
     "schema/AccountAssignment.json": {
       "bytes": 504,
@@ -1256,17 +1256,25 @@
       "bytes": 721,
       "sha256": "13c0dce77cf8002db79242c621bb3be52c31a4f83d3d9f8c4d0afba9256361db"
     },
+    "schema/PluginListing.json": {
+      "bytes": 462,
+      "sha256": "64b8358c0795bc4b5305f027d9e0666444a94b25170258b1275c9574804dbcc4"
+    },
     "schema/PluginName.json": {
       "bytes": 312,
       "sha256": "0b1805ecbd1b3b325af92d2110cbea339586b5801dc3faa18a760cd78b4a369b"
     },
+    "schema/PluginOrigin.json": {
+      "bytes": 486,
+      "sha256": "90d215c4691aee358267d3ea4fcee3cb22b85c7414d769cad0ead8a18f0d4116"
+    },
     "schema/PluginRequest.json": {
-      "bytes": 5687,
-      "sha256": "98f90336e27f7664b9849f52928a9aea6c9b2fecd0a733c00d2da80db8f7f654"
+      "bytes": 6370,
+      "sha256": "47b1149bd1c568f1698224e423485007e182fa2b44cf5bc4931d2012f4df0715"
     },
     "schema/PluginResponse.json": {
-      "bytes": 5332,
-      "sha256": "c78131dd37924dd016d056c4da288a683b43c306543e0c9313ff1971076bdf92"
+      "bytes": 6334,
+      "sha256": "5ace01789f2127f0c09522cfe5c175c996d9abb242b902e5a40f784ab48daf95"
     },
     "schema/PluginReview.json": {
       "bytes": 1044,
@@ -2465,10 +2473,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 482688,
-      "sha256": "0be00c1dc510d351b5a37a01284ad0bb5319b66fde4a2996219f229f681cd51b"
+      "bytes": 483326,
+      "sha256": "409003d50fab529fa81fa6587660e0cd2d29688f5e8c62fcc9bfad20817a397f"
     }
   },
-  "input": "748c94b16017d5a2c3fc3a12aedffb8b3fe4f849e4a144731b303225dad9d575",
+  "input": "8f6e739226dbbeb1f3dab7cd48df0a6ddce5ea15ea4722301c7bef73129b1400",
   "version": 1
 }

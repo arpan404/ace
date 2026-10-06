@@ -50,23 +50,21 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
   "defaultSource": "built-in",
-  "deprecated": true,
+  "deprecated": false,
   "displayName": "example",
-  "group": "current",
-  "hidden": false,
+  "favourite": false,
+  "hidden": true,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
   "isDefault": false,
-  "isNew": false,
-  "legacy": true,
   "nativeModelId": "example",
-  "provider": "claude",
+  "nativeProviderId": "example",
+  "provider": "antigravity",
   "raw": {
     "json": "example",
-    "truncated": true
+    "truncated": false
   },
   "reasoningEfforts": [],
   "serviceTiers": []
@@ -89,7 +87,6 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
   "instanceId": "example"
 }
 ```
@@ -117,11 +114,9 @@ Example:
 ```json
 {
   "instance": "example",
-  "lastRefreshedAt": 6,
-  "provider": "pi",
-  "refreshedAt": 9,
+  "provider": "opencode",
   "refreshing": false,
-  "stale": true
+  "stale": false
 }
 ```
 
@@ -143,8 +138,9 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "limit": 3
+  "instance": "example",
+  "instanceId": "example",
+  "provider": "acp"
 }
 ```
 
@@ -163,7 +159,8 @@ Example:
 ```json
 {
   "instances": [],
-  "models": []
+  "models": [],
+  "nextOffset": 9
 }
 ```
 
@@ -187,36 +184,29 @@ Example:
 ```json
 {
   "model": {
-    "aliases": [],
-    "custom": false,
-    "defaultTier": "example",
+    "contextWindow": 4,
     "deprecated": false,
     "displayName": "example",
     "hidden": false,
     "id": "example",
     "inputModalities": [],
+    "installationId": "example",
     "instance": "example",
-    "instanceId": "example",
     "isDefault": false,
-    "modelConfigId": "example",
+    "isNew": true,
     "nativeModelId": "example",
-    "provider": "acp",
+    "nativeProviderId": "example",
+    "provider": "antigravity",
     "raw": {
       "json": "example",
       "truncated": false
     },
     "reasoningEfforts": [],
-    "serviceTiers": [],
-    "visibilityReason": "deprecated"
+    "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": false,
-  "tier": {
-    "id": "example",
-    "name": "example",
-    "parameters": {}
-  }
+  "stale": true
 }
 ```
 
@@ -259,10 +249,6 @@ Example:
 
 ```json
 {
-  "effort": "example",
-  "imageInput": true,
-  "model": "example",
-  "provider": "antigravity",
   "role": "example",
   "tier": "example"
 }
@@ -282,10 +268,6 @@ Example:
 
 ```json
 {
-  "options": {
-    "installationId": "example",
-    "offset": 9
-  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -305,11 +287,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "installationId": "example",
-    "instance": "example",
-    "instanceId": "example"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -332,11 +309,7 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "acpAgentId": "example",
-    "imageInput": true,
     "instance": "example",
-    "model": "example",
-    "preferenceOrder": [],
-    "provider": "cursor",
     "role": "example"
   },
   "type": "models.resolve"
@@ -359,40 +332,9 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "model": {
-      "acpAgentId": "example",
-      "aliases": [],
-      "contextWindow": 8,
-      "defaultEffort": "example",
-      "defaultTier": "example",
-      "deprecated": false,
-      "displayName": "example",
-      "favourite": false,
-      "hidden": false,
-      "id": "example",
-      "inputModalities": [],
-      "installationId": "example",
-      "instance": "example",
-      "isDefault": false,
-      "legacy": false,
-      "nativeModelId": "example",
-      "provider": "acp",
-      "raw": {
-        "json": "example",
-        "truncated": false
-      },
-      "reasoningEfforts": [],
-      "selectorMethod": "session/set_config_option",
-      "serviceTiers": [],
-      "visibilityReason": "provider_disabled"
-    },
-    "ok": true,
-    "reason": "example",
-    "stale": true,
-    "tier": {
-      "id": "example",
-      "name": "example"
-    }
+    "instances": [],
+    "models": [],
+    "nextOffset": 4
   },
   "type": "models.result"
 }
@@ -414,8 +356,6 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example",
-  "parameters": {},
-  "speed": "fast"
+  "name": "example"
 }
 ```
