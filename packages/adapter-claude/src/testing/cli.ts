@@ -130,6 +130,16 @@ for await (const line of lines) {
     const text = parts.map((p) => object(p)["text"] ?? "image").join(" ");
     write({ type: "system", subtype: "init", session_id: session, cwd: process.cwd() });
     write({ type: "system", subtype: "fake_input", input: data });
+    if (process.env["ACE_TEST_DELEGATION_RESULT"] === "1")
+      write({
+        type: "assistant",
+        session_id: session,
+        message: {
+          id: `delegation-${++id}`,
+          role: "assistant",
+          content: [{ type: "text", text: "Claude delegated result" }],
+        },
+      });
     if (text === "permission-gate" && preToolCallback) {
       write({
         type: "control_request",
