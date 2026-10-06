@@ -1,7 +1,7 @@
 import { modelScreenshot } from "./model-screenshot.ts";
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
 import { cancellableCdp } from "./cancellable-cdp.ts";
-import { installOriginGuard } from "./origin-guard.ts";
+import { HeadlessTabs } from "./headless-tabs.ts";
 import { chromiumCloser, type ChromiumCleanupRuntime } from "./chromium-close.ts";
 import { launchContext, type ContextLauncher } from "./io.ts";
 
@@ -38,7 +38,8 @@ export class HeadlessBackend implements BrowserBackend {
       headless: true,
       viewport: { width: 1280, height: 720 },
       serviceWorkers: "block",
-      acceptDownloads: false,
+      acceptDownloads: true,
+      ...(request.downloadDir ? { downloadsPath: request.downloadDir } : {}),
       chromiumSandbox: true,
       timeout: 30_000,
       handleSIGINT: false,
@@ -50,13 +51,13 @@ export class HeadlessBackend implements BrowserBackend {
     const sessionSignal = AbortSignal.any([request.signal, sessionLifetime.signal]);
     let closed = false;
     let closing: Promise<void> | undefined;
-    let guard: Awaited<ReturnType<typeof installOriginGuard>> | undefined;
+    let tabs: HeadlessTabs | undefined;
     const close = (): Promise<void> => {
       if (closing) return closing;
       closed = true;
       sessionLifetime.abort();
       request.signal.removeEventListener("abort", abort);
-      guard?.close();
+      tabs?.stop();
       // Cancellation and explicit teardown share the original process-close promise.
       // Repeated Playwright closes can otherwise finish before that shutdown completes.
       closing = closer.close();
@@ -79,81 +80,64 @@ export class HeadlessBackend implements BrowserBackend {
           route.close();
         }
       });
-      const page = context.pages()[0] ?? (await context.newPage());
-      context.on("page", (popup) => {
-        if (popup !== page) void popup.close().catch(() => {});
-      });
-      page.on("dialog", (dialog) => {
-        void dialog.dismiss().catch(() => {});
-      });
-      page.on("download", (download) => {
-        request.downloadDenied?.({
-          url: download.url().slice(0, 8192),
-          suggestedFilename: download.suggestedFilename().slice(0, 256),
-        });
-        void download.cancel().catch(() => {});
-      });
-      const cdp = await context.newCDPSession(page);
+      tabs = new HeadlessTabs(context, request);
+      await tabs.start();
+      const ownedTabs = tabs;
+      const page = () => ownedTabs.current().page;
+      const cdp = () => ownedTabs.current().cdp;
       const stopLoading = () => {
-        void cdp.send("Page.stopLoading").catch(() => {});
+        void cdp()
+          .send("Page.stopLoading")
+          .catch(() => {});
       };
-      await cdp.send("Page.enable");
-      guard = await installOriginGuard(cdp, request.allowed, request.initiator);
       context.once("close", () => {
-        guard?.close();
+        ownedTabs.stop();
         if (!closed) request.lost("Headless browser closed");
       });
-      page.once("close", () => {
-        if (!closed) request.lost("Browser page closed");
-      });
-      // Fetch is the single HTTP policy owner for the page and attached targets.
-      // A second Playwright route would independently intercept the same request.
-      page.on("framenavigated", (frame) => {
-        if (frame === page.mainFrame()) request.navigation();
-      });
-      page.on("console", (message) =>
-        request.log({ kind: "console", type: message.type(), text: message.text() }),
-      );
-      page.on("pageerror", (error) =>
-        request.log({ kind: "console", type: "pageerror", text: error.message }),
-      );
-      context.on("response", (response) =>
-        request.log({
-          kind: "network",
-          type: "response",
-          text: `${response.status()} ${response.request().method()} ${response.url()}`,
-        }),
-      );
-      context.on("requestfailed", (req) =>
-        request.log({
-          kind: "network",
-          type: "failed",
-          text: `${req.method()} ${req.url()} ${req.failure()?.errorText ?? ""}`,
-        }),
-      );
       return {
-        cdp: cancellableCdp(cdp, sessionSignal),
-        url: () => page.url(),
+        get cdp() {
+          return cancellableCdp(cdp(), sessionSignal);
+        },
+        tabs: {
+          list: () => ownedTabs.list(),
+          active: () => ownedTabs.active(),
+          open: () => ownedTabs.open(),
+          switch: (id) => ownedTabs.switch(id),
+          close: (id) => ownedTabs.close(id),
+          dialog: () => ownedTabs.dialog(),
+          answer: (id, accept, text) => ownedTabs.answer(id, accept, text),
+          downloads: () => ownedTabs.downloads.list(),
+        },
+        frames: () => ownedTabs.frames(),
+        privateMode: (enabled) => {
+          ownedTabs.inspection.privacy(enabled);
+          ownedTabs.downloads.privacy(enabled);
+        },
+        networkBody: (id) => ownedTabs.inspection.body(id),
+        url: () =>
+          ownedTabs.list().find((tab) => tab.tabId === ownedTabs.active())?.url ?? "about:blank",
         navigate: async (url, _timeout, signal) => {
           signal?.addEventListener("abort", stopLoading, { once: true });
           try {
             signal?.throwIfAborted();
             // The session's load budget pauses during policy waits.
-            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 0 });
+            await page().goto(url, { waitUntil: "domcontentloaded", timeout: 0 });
           } finally {
             signal?.removeEventListener("abort", stopLoading);
           }
         },
-        click: (x, y) => page.mouse.click(x, y),
-        insertText: (text) => page.keyboard.insertText(text),
-        press: (key) => page.keyboard.press(key),
-        wheel: (x, y) => page.mouse.wheel(x, y),
+        click: (x, y) => page().mouse.click(x, y),
+        insertText: (text) => page().keyboard.insertText(text),
+        press: (key) => page().keyboard.press(key),
+        wheel: (x, y) => page().mouse.wheel(x, y),
         screenshot: (type) =>
-          type === "jpeg" ? modelScreenshot(cdp) : page.screenshot({ type, timeout: 10_000 }),
-        resize: (width, height) => page.setViewportSize({ width, height }),
-        viewport: () => page.viewportSize() ?? { width: 1280, height: 720 },
-        media: (colorScheme) => page.emulateMedia({ colorScheme }),
-        controller: async () => {},
+          type === "jpeg" ? modelScreenshot(cdp()) : page().screenshot({ type, timeout: 10_000 }),
+        resize: (width, height) => page().setViewportSize({ width, height }),
+        viewport: () => page().viewportSize() ?? { width: 1280, height: 720 },
+        media: (colorScheme) => page().emulateMedia({ colorScheme }),
+        controller: async (lease) => {
+          ownedTabs.lease(lease.controller);
+        },
         close,
       };
     } catch (error) {

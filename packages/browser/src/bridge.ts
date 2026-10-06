@@ -7,7 +7,18 @@ function requiredAccess(message: BrowserClientMessage): "read" | "operate" {
     return "read";
   if (
     message.type === "browser.execute" &&
-    ["snapshot", "screenshot", "logs", "wait_for"].includes(message.command.action)
+    ["snapshot", "screenshot", "logs", "wait_for", "find", "network_body"].includes(
+      message.command.action,
+    )
+  )
+    return "read";
+  if (
+    [
+      "browser.tabs.list",
+      "browser.downloads.list",
+      "browser.evaluate.grants.list",
+      "browser.origins.list",
+    ].includes(message.type)
   )
     return "read";
   return "operate";
@@ -69,6 +80,50 @@ export function connectBrowser(
         pending++;
         counted = true;
         switch (message.type) {
+          case "browser.tabs.list":
+            respond(service.state(threadId).tabs ?? []);
+            break;
+          case "browser.downloads.list":
+            respond(service.downloadsList(threadId));
+            break;
+          case "browser.evaluate.grants.list":
+            respond(service.evaluateGrantsList(threadId));
+            break;
+          case "browser.evaluate.grants.revoke":
+            service.evaluateGrantsRevoke(threadId, message.origin);
+            respond(service.evaluateGrantsList(threadId));
+            break;
+          case "browser.tabs.open":
+          case "browser.tabs.switch":
+          case "browser.tabs.close":
+            respond(
+              await service.execute(
+                threadId,
+                {
+                  action: "tabs",
+                  operation: message.type.split(".")[2],
+                  ...("tabId" in message ? { tabId: message.tabId } : {}),
+                  ...("url" in message ? { url: message.url } : {}),
+                },
+                { kind: "human", connectionId: options.connectionId },
+              ),
+            );
+            break;
+          case "browser.dialog.answer":
+            respond(
+              await service.execute(
+                threadId,
+                {
+                  action: "dialog",
+                  tabId: message.tabId,
+                  dialogId: message.dialogId,
+                  accept: message.accept,
+                  promptText: message.promptText,
+                },
+                { kind: "human", connectionId: options.connectionId },
+              ),
+            );
+            break;
           case "browser.origins.list":
             respond(service.originsList(threadId));
             break;
@@ -109,7 +164,7 @@ export function connectBrowser(
             respond(null);
             break;
           case "browser.takeover":
-            respond(service.takeover(threadId, options.connectionId));
+            respond(service.takeover(threadId, options.connectionId, message.mode));
             break;
           case "browser.handback":
             respond(service.handback(threadId, options.connectionId));

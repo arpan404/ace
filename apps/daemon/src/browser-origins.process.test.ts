@@ -52,7 +52,9 @@ it("the backend policy grants human main documents and allows temporary cross-or
 it("full access opens new origins without human work and keeps the allowance page-only", async () => {
   const f = await originFixture("full-access");
   expect(await f.navigation()).toMatchObject({ url: expect.stringContaining("youtube.com") });
-  expect(f.browser.originsList(f.thread.id)).toEqual([]);
+  expect(f.browser.originsList(f.thread.id)).toMatchObject([
+    { origin: "https://youtube.com", scope: "page" },
+  ]);
   const backend = f.headless.opens[0];
   expect(await backend?.allowed("wss://youtube.com/live")).toBe(true);
   expect(await backend?.allowed("https://cdn.example/image")).toBe(true);
@@ -108,7 +110,9 @@ it.each(["ask", "auto-review"] as const)(
       });
     expect(f.resolve(interaction, "allow_once").ok).toBe(true);
     expect(await first).toMatchObject({ url: expect.stringContaining("youtube.com") });
-    expect(f.browser.originsList(f.thread.id)).toEqual([]);
+    expect(f.browser.originsList(f.thread.id)).toMatchObject([
+      { origin: "https://youtube.com", scope: "page" },
+    ]);
     expect(await f.headless.opens[0]?.allowed("wss://youtube.com/socket")).toBe(true);
     const again = f.opened();
     const second = f.navigation();
@@ -177,7 +181,7 @@ it("the global user allowlist permits exact origins and matching WebSockets, wit
     }),
   ).rejects.toThrow("global user setting");
 });
-it("grant management requires browser operate and thread authority and grants work without a human lease", async () => {
+it("grant changes require operate while authorized viewers can list effective grants", async () => {
   const f = await originFixture();
   const readonly = f.store.devices.create("Viewer", ["read"], 1000);
   const viewer = await f.client(readonly.token, readonly.device.id);
@@ -192,7 +196,7 @@ it("grant management requires browser operate and thread authority and grants wo
           threadId: f.thread.id,
           origin: "https://youtube.com",
         }),
-      ).toMatchObject({ ok: false });
+      ).toMatchObject({ ok: connection === viewer && type === "browser.origins.list" });
   expect(
     await owner.request({
       type: "browser.origins.grant",
@@ -231,6 +235,7 @@ it("engine browser approvals keep the tree needing a human and resolve without n
     level: "silent",
     sink: { async write() {}, async close() {} },
   });
+  let browserId = 0;
   const context: import("./services/types.ts").ServiceContext = {
     config: {
       dataDir: h.home,
@@ -243,7 +248,7 @@ it("engine browser approvals keep the tree needing a human and resolve without n
     options: { browser: { headlessBackend: new FakeHeadless(), ffmpeg: "/nonexistent" } },
     store: h.store,
     now: h.clock.now,
-    id: () => "browser-host-approval",
+    id: () => `browser-host-${++browserId}`,
     log,
     resources,
     signal: new AbortController().signal,
@@ -253,7 +258,11 @@ it("engine browser approvals keep the tree needing a human and resolve without n
   try {
     const threadId = await h.create();
     await startBrowser(context);
-    h.engine.bindHostInteractions((command) => context.services.browserOrigins?.resolve(command));
+    h.engine.bindHostInteractions(
+      (command) =>
+        context.services.browserApprovals?.resolve(command) ??
+        context.services.browserOrigins?.resolve(command),
+    );
     // A later host owner, such as Deck, must not replace the browser owner.
     h.engine.bindHostInteractions(() => undefined);
     readyServices(context.services);
@@ -294,6 +303,69 @@ it("engine browser approvals keep the tree needing a human and resolve without n
     expect(h.store.getThread(threadId)?.status.state).toBe("working");
     expect(h.adapter.commands.some((entry) => entry.type === "resolve")).toBe(false);
     expect(browser.originsList(threadId)).toMatchObject([{ origin: "https://youtube.com" }]);
+    const evaluating = browser.execute(threadId, { action: "evaluate", expression: "1" });
+    await h.engine.flush();
+    await expect.poll(() => h.store.getThread(threadId)?.status.state).toBe("needs_you");
+    const state = h.store.acquireThread(threadId);
+    const approval = Object.values(state.interactions).find(
+      (entry) =>
+        entry.state === "pending" &&
+        entry.request.kind === "approval" &&
+        entry.request.target?.tool === "browser.evaluate",
+    );
+    if (!approval) throw new Error("Evaluate approval unavailable");
+    expect(approval.request).toMatchObject({
+      target: { tool: "browser.evaluate", input: { expression: "1", mode: "unrestricted" } },
+    });
+    expect(h.store.getThread(threadId)?.status.state).toBe("needs_you");
+    expect(
+      h.engine.handler.handle(
+        Command.parse({
+          id: "allow-evaluate",
+          deviceId: "owner",
+          payload: {
+            type: "interaction.resolve",
+            interactionId: approval.id,
+            resolution: { kind: "approval", optionId: "allow_once" },
+          },
+        }),
+        h.store,
+      ),
+    ).toMatchObject({ ok: true });
+    expect(await evaluating).toBe(1);
+    browser.takeover(threadId, "private-owner", "private");
+    expect(h.store.getThread(threadId)?.status.state).toBe("needs_you");
+    browser.disconnect("private-owner");
+    expect(h.store.getThread(threadId)?.status.state).toBe("needs_you");
+    const privateGate = Object.values(h.store.snapshotThread(threadId).interactions).find(
+      (entry) =>
+        entry.state === "pending" && entry.raw.some((raw) => raw.type === "ace.browser.private"),
+    );
+    if (!privateGate) throw new Error("Private gate missing");
+    expect(
+      h.engine.handler.handle(
+        Command.parse({
+          id: "cannot-dismiss-private",
+          deviceId: "owner",
+          payload: {
+            type: "interaction.resolve",
+            interactionId: privateGate.id,
+            resolution: { kind: "plan_review", decision: "approve" },
+          },
+        }),
+        h.store,
+      ),
+    ).toMatchObject({ ok: false, error: "private_handback_required" });
+    expect(h.store.getThread(threadId)?.status.state).toBe("needs_you");
+    await expect(browser.execute(threadId, { action: "snapshot" })).rejects.toMatchObject({
+      code: "human_private",
+    });
+    browser.takeover(threadId, "returning-owner", "private");
+    browser.handback(threadId, "returning-owner");
+    await h.engine.flush();
+    expect(h.store.getThread(threadId)?.status.state).toBe("working");
+    h.store.releaseThread(threadId);
+    expect(h.adapter.commands.some((entry) => entry.type === "resolve")).toBe(false);
     expect(h.errors).toEqual([]);
   } finally {
     await resources.close();

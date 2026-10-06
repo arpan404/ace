@@ -162,3 +162,7 @@ Streaming markdown is now parsed paragraph-wise:
 | Long tasks                                    | none      | none            |
 
 The remaining remounts are open blocks that change kind as they grow, such as a table's header line, which is a paragraph until its delimiter row arrives.
+
+## Amendment (2026-10-05): initial JS budget 270 → 272 KB
+
+Main reached 269.7 KB gzip of initial JS. Browser parity (#153) adds protocol schemas the page validates (0.6 KB) and the computer-use UI (#155) adds about 0.6 KB of shell wiring. The owner accepted a 2 KB raise rather than blocking both features on sub-kilobyte overruns. An initial-JS diet PR is in progress and is expected to restore at least 10 KB of headroom, after which this budget returns to 270 KB or lower.

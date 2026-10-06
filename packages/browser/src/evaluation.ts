@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import { CallResult } from "./cdp.ts";
 import { decodeEvaluationValue, serializeEvaluationValue } from "./evaluation-value.ts";
@@ -22,4 +23,37 @@ export async function evaluatePage(cdp: BrowserCdp, expression: string): Promise
   } catch {
     throw new Error("Browser evaluate failed or timed out");
   }
+}
+
+/** V8 refuses calls whose side effects cannot be proven absent. No promises or page-world builtins. */
+export async function evaluateReadOnly(
+  cdp: BrowserCdp,
+  expression: string,
+  check: () => void,
+): Promise<unknown> {
+  const tree = z
+    .object({ frameTree: z.object({ frame: z.object({ id: z.string() }) }) })
+    .parse(await cdp.send("Page.getFrameTree"));
+  check();
+  const world = z.object({ executionContextId: z.number() }).parse(
+    await cdp.send("Page.createIsolatedWorld", {
+      frameId: tree.frameTree.frame.id,
+      worldName: "ace-read-only",
+      grantUniveralAccess: false,
+    }),
+  );
+  check();
+  const response = CallResult.parse(
+    await cdp.send("Runtime.evaluate", {
+      expression: `(${serializeEvaluationValue})((${expression}))`,
+      contextId: world.executionContextId,
+      throwOnSideEffect: true,
+      timeout: 1000,
+      returnByValue: true,
+      awaitPromise: false,
+    }),
+  );
+  if (response.exceptionDetails)
+    throw new Error("Read-only evaluation refused side effects or failed");
+  return decodeEvaluationValue(response.result.value);
 }

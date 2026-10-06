@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserTab.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "pending_dialog": {
+      "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"
+    },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 8192,
+      "type": "string"
+    }
+  },
+  "required": [
+    "tabId",
+    "url",
+    "title"
+  ],
+  "type": "object"
+}

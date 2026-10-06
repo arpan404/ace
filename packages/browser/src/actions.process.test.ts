@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { executablePath, fixture, ref } from "./test-support.ts";
 import { z } from "zod";
@@ -62,20 +62,41 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
     ).toEqual([390, 2, true, 1]);
   }, 60_000);
 
-  it("captures console and network results in grep-able bounded log files", async () => {
+  it("returns console and network results inline without host paths", async () => {
     const f = await fixture();
     await f.navigate();
     await f.evaluate(
       "fetch('/data').then(r=>r.text()).then(text=>console.log('network-complete '+text))",
     );
+    const rawLogs = await f.execute({ action: "logs" });
+    expect(rawLogs).not.toHaveProperty("console");
+    expect(rawLogs).not.toHaveProperty("network");
+    expect(rawLogs).not.toHaveProperty("path");
     const logs = z
-      .object({ console: z.string(), network: z.string() })
-      .parse(await f.execute({ action: "logs" }));
-    expect(await readFile(logs.console, "utf8")).toContain("console-marker");
-    expect(await readFile(logs.console, "utf8")).toContain("network-complete response-data");
-    expect(await readFile(logs.network, "utf8")).toContain(`200 GET ${f.url}/data`);
-    expect((await stat(logs.console)).mode & 0o777).toBe(0o600);
-  }, 60_000);
+      .object({
+        limit: z.number().int().max(200),
+        entries: z.array(
+          z
+            .object({
+              text: z.string(),
+              kind: z.string(),
+              status: z.number().optional(),
+              url: z.string().optional(),
+            })
+            .passthrough(),
+        ),
+      })
+      .strict()
+      .parse(rawLogs);
+    for (const entry of logs.entries) expect(entry).not.toHaveProperty("path");
+    expect(logs.entries.some((entry) => entry.text.includes("console-marker"))).toBe(true);
+    expect(
+      logs.entries.some((entry) => entry.text.includes("network-complete response-data")),
+    ).toBe(true);
+    expect(
+      logs.entries.some((entry) => entry.status === 200 && entry.url === `${f.url}/data`),
+    ).toBe(true);
+  }, 60000);
 
   it("denies evaluate separately from navigation and rejects external and file origins", async () => {
     const f = await fixture({ evaluatePolicy: () => false });

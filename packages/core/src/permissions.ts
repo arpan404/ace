@@ -91,6 +91,11 @@ export function reviewPermission(input: {
   ].join(" ");
   if (paths.includes("secret") || containsSecretReference(text))
     return { decision: "escalate", reason: "Secret or credential access requires a human" };
+  if (target?.tool === "browser.upload")
+    return {
+      decision: "escalate",
+      reason: "Uploading outside workspace/artifacts requires a human",
+    };
   if (mode === "full-access") return { decision: "approve", reason: "Full access" };
   if (!target) return { decision: "escalate", reason: "Provider did not supply an exact action" };
   if (paths.includes("outside"))

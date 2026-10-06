@@ -911,6 +911,8 @@ export class FakeDaemon implements Host {
             return { commandId, ok: false, error: "already_resolved" };
           const pending = host.interaction(key);
           if (!pending) return { commandId, ok: false, error: "not_found" };
+          if (pending.raw.some((raw) => raw.type === "ace.browser.private"))
+            return { commandId, ok: false, error: "private_handback_required" };
           const browserOriginApproval = pending.raw.some(
             (raw) => raw.type === "ace.browser.origin",
           );
