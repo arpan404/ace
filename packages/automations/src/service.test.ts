@@ -14,6 +14,7 @@ it("fills trigger variables and persists a successful result with its thread", a
     {
       idempotencyKey: run.id,
       automationId: "triage",
+      title: "Triage",
       provider: "codex",
       model: "test-model",
       workspace: "/project",
