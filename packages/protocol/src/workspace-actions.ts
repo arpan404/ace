@@ -19,6 +19,26 @@ export const InstalledEditor = z.object({
 });
 export type InstalledEditor = z.infer<typeof InstalledEditor>;
 export const EditorLaunch = z.object({ editor: InstalledEditor, path: z.string().max(4096) });
+/** A repository-relative path as git reports it. */
+const repoPath = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((path) => !path.includes("\0"))
+  .meta({ "x-ace-constraint": "Repository-relative path without NUL bytes." });
+/** One file `git status` reports in a thread's checkout, with its lines changed against HEAD. */
+export const GitStatusFile = z.object({
+  path: repoPath,
+  /** A rename's old path. */
+  from: repoPath.optional(),
+  status: z.enum(["added", "modified", "deleted", "renamed", "untracked"]),
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+  binary: z.boolean().default(false),
+});
+export type GitStatusFile = z.infer<typeof GitStatusFile>;
+/** The most files one `git.status` read returns. */
+export const gitStatusLimit = 500;
 export const WorkspaceActionRequest = z.object({
   type: z.literal("workspace.request"),
   requestId: id,
@@ -33,6 +53,8 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("branches.list"), workspaceId: WorkspaceId }),
     z.object({ op: z.literal("thread.details"), threadId: ThreadId }),
     z.object({ op: z.literal("pr.status"), threadId: ThreadId }),
+    /** The files a commit of the thread's checkout would take, as `git status` reports them. */
+    z.object({ op: z.literal("git.status"), threadId: ThreadId }),
     z.object({
       op: z.literal("runs.list"),
       threadId: ThreadId,
@@ -60,6 +82,12 @@ export const WorkspaceActionResult = z.object({
     }),
     z.object({ kind: z.literal("details"), details: ThreadDetails }),
     z.object({ kind: z.literal("pr"), status: ForgePrStatus.nullable() }),
+    z.object({
+      kind: z.literal("gitStatus"),
+      files: z.array(GitStatusFile).max(gitStatusLimit),
+      /** More files changed than `files` holds. */
+      truncated: z.boolean(),
+    }),
     z.object({
       kind: z.literal("runs"),
       runs: z.array(Run).max(100),
@@ -107,6 +135,15 @@ export const WorkspaceCommands = [
       .string()
       .regex(/^[a-f0-9]{40,64}$/)
       .nullable(),
+    /**
+     * Commit only these paths; every change when absent. A rename names both its paths, so a
+     * full `git.status` page can need twice its file count.
+     */
+    paths: z
+      .array(repoPath)
+      .min(1)
+      .max(2 * gitStatusLimit)
+      .optional(),
   }),
   z.object({
     type: z.literal("git.push"),

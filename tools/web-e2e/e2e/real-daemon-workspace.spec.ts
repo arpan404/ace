@@ -41,8 +41,13 @@ test("Run, a terminal and Commit work on a real daemon's checkout", async ({ pag
   await page.keyboard.press("Enter");
   await expect(shell).toContainText("42");
 
-  // Closing its tab ends that shell in the daemon; the script's terminal is still listed.
-  await bottom.getByRole("button", { name: "Close Terminal" }).click();
+  // Closing its tab ends that shell in the daemon, once confirmed; the script's terminal is
+  // still listed.
+  await bottom.getByRole("button", { name: "End session Terminal" }).click();
+  await page
+    .getByRole("dialog", { name: "End Terminal?" })
+    .getByRole("button", { name: "End", exact: true })
+    .click();
   await bottom.getByRole("tab", { name: "greet" }).click();
   await bottom.getByRole("button", { name: /^Terminal sessions/ }).click();
   const sessions = page.getByRole("menu");

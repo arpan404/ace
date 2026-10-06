@@ -102,3 +102,35 @@ plus normalized rows. No complete listing is joined and split again.
 Run `bun run --filter @ace/models bench` for non-gating list, resolve and streaming
 parser measurements.
 See [ADR 0036](../../docs/adr/0036-model-catalog.md) for sources and tradeoffs.
+
+Catalog views remove pseudo-defaults, embedding, reranking, media-only and internal
+endpoints. Unknown chat model names remain usable. Grouped selectors deduplicate
+by their canonical identity. Claude aliases with a reported resolved ID map to one
+canonical row and remain accepted by `models.resolve`. Provider-qualified OpenCode
+routes remain separate choices because they use different connections. Legacy and
+deprecated metadata sets `group: "legacy"`; these choices hide by default.
+Sorting uses the provider family order and descending natural versions, then a
+stable ID order. Cleanup runs once per catalog/settings revision, outside delta paths.
+
+`providers.configuration` supports `defaultModel` per provider and per instance.
+An account field overrides the provider field; null resets that account to the
+built-in policy. Missing, hidden, disabled or deprecated user defaults fall back
+to usable reported models, without generating an ID. The selected row has
+`isDefault: true` and `defaultSource: "built-in" | "user"` on `models.list`.
+
+| Provider          | Built-in preference           | Fallback                                                                        |
+| ----------------- | ----------------------------- | ------------------------------------------------------------------------------- |
+| Claude            | `claude-opus-5-5`             | Newest available Opus, then Sonnet, then Haiku                                  |
+| Codex             | `gpt-6.1-sol`                 | Next Sol, then Codex/GPT families                                               |
+| Cursor            | `auto`                        | Best available reported model                                                   |
+| OpenCode          | Scoped `model.default` result | Connected `opencode-go/muse-spark-1.3-contributor`, then available family order |
+| Pi                | `get_state.model`             | Available family order                                                          |
+| ACP / Antigravity | Current reported selector     | First usable choice in stable order                                             |
+
+New threads, delegation and next-turn selections use these defaults. Existing
+`default` selections resolve through the same policy. Cold engine recovery migrates
+stored selections when metadata is available; session opening resolves again if the
+cache was empty. A CLI never receives a pseudo-default model ID. When no model has
+been reported, session opening omits the model instead of inventing an ID. Generic
+ACP discovery still never creates a session; its catalog comes only from authorized
+session selectors. Explicit unavailable IDs continue to fail catalog resolution.

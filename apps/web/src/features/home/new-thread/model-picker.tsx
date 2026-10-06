@@ -1,5 +1,6 @@
 import {
   accountTag,
+  distinctModelOptions,
   modelControlName,
   pickerProviders,
   speedControl,
@@ -29,13 +30,23 @@ export function ModelPicker(props: {
   onFast(on: boolean): void;
   onReset(): void;
 }) {
-  const { model, account, effort, fast } = props.resolved;
+  const { model, account, effort, fast, provider } = props.resolved;
   const compact = useComposerCompact();
   const statuses = useProviderStatuses();
   const catalog = useModelCatalogState();
-  // Discovery found no provider CLI: say so rather than waiting for models that won't come.
+  // Say what's missing rather than wait for models that won't come or make one up.
   const none = props.options !== undefined && props.options.models.length === 0;
-  const empty = none ? "No provider CLI installed" : "Loading models…";
+  const installed = (statuses.data ?? []).some((status) => status.state !== "not_installed");
+  const empty = !props.options
+    ? { label: "Loading models…", aria: "loading" }
+    : none && !installed
+      ? { label: "No provider CLI installed", aria: "no provider installed" }
+      : none
+        ? { label: "No models available", aria: "no models available" }
+        : {
+            label: `No models on ${account ? accountTag(account.label) : "this account"}`,
+            aria: "no models on this account",
+          };
   const tag = account ? accountTag(account.label) : undefined;
   const efforts = model?.efforts ?? [];
   const speed = speedControl({
@@ -55,7 +66,8 @@ export function ModelPicker(props: {
     fast: speed.on,
   };
   const name = details && modelControlName(details);
-  const models: PickerModel[] = (props.options?.models ?? []).map((option) => ({
+  // One row per model in the list; each account keeps its own default and capabilities.
+  const models: PickerModel[] = distinctModelOptions(props.options?.models ?? []).map((option) => ({
     key: option.key,
     provider: option.provider,
     label: option.label,
@@ -63,12 +75,13 @@ export function ModelPicker(props: {
     legacy: option.legacy,
   }));
   const view: ModelControlView = {
-    provider: model?.provider,
+    provider,
     label: model?.label,
-    placeholder: empty,
-    ariaLabel: `Model: ${name ?? (none ? "no provider installed" : "loading")}`,
-    tip: details ? modelControlName({ ...details, provider: model.provider }) : empty,
-    disabled: !model,
+    placeholder: empty.label,
+    ariaLabel: `Model: ${name ?? empty.aria}`,
+    tip: details ? modelControlName({ ...details, provider: model.provider }) : empty.label,
+    // An account without models can still move to another model or account.
+    disabled: !model && (props.options === undefined || none),
     modelKey: model?.key,
     efforts,
     defaultStop: model?.defaultEffort === undefined,
@@ -79,7 +92,7 @@ export function ModelPicker(props: {
     fastReason: speed.reason,
     canReset: effort !== model?.defaultEffort || speed.on !== !!model?.fastDefault,
     accounts: (props.options?.accounts ?? [])
-      .filter((option) => option.provider === model?.provider)
+      .filter((option) => option.provider === provider)
       .map((option) => ({ id: option.id, label: accountTag(option.label), detail: option.usage })),
     account: account?.id,
     models,

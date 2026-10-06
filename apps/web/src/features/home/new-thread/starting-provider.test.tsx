@@ -1,15 +1,10 @@
 import { workbench } from "@ace/fake-daemon";
 import type { KeyValueStorage } from "@ace/ui-core";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
-import {
-  chooseModel,
-  closeModelControl,
-  openModelControl,
-  openModelPicker,
-} from "@/test/model-control.ts";
+import { chooseModel, closeModelControl } from "@/test/model-control.ts";
 
 /** A daemon where the person never picked a default provider in Settings. */
 function app(storage: KeyValueStorage = memoryKeyValue()) {
@@ -25,10 +20,6 @@ const listed = (made: ReturnType<typeof harness>) => {
 const model = () => screen.findByRole("button", { name: /^Model: / });
 /** The thread this page started, once its create lands (its id is made from the command's). */
 const isNew = (id: string) => /^thread-[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id);
-async function started(made: ReturnType<typeof harness>) {
-  await waitFor(() => expect(listed(made).some((t) => isNew(t.id))).toBe(true));
-  return listed(made).find((t) => isNew(t.id));
-}
 
 async function send(text: string) {
   await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), `${text}{Enter}`);
@@ -63,24 +54,26 @@ test("New thread falls back to the first installed, logged-in provider", async (
   expect((await model()).getAttribute("aria-label")).toMatch(/^Model: Sonnet 4\.5 \(OpenCode\)/);
 });
 
-test("on a daemon without a model catalog, New thread starts on the installed CLI, not Claude Code", async () => {
+test("an installed CLI whose catalog lists no models shows an empty state, not a made-up default", async () => {
   const made = app();
   const { services } = made.daemon;
   services.models = [];
-  services.accounts = [];
   services.installed = new Set(["codex"]);
   await made.open("/new?project=relay");
 
-  // One name for the provider's default, on the chip and in the picker alike.
-  expect((await model()).getAttribute("aria-label")).toBe("Model: Codex · Default");
-  const picker = await openModelPicker(await openModelControl());
-  expect(within(picker).getByRole("option", { name: /^Codex · Default/ })).toBeTruthy();
-  expect(within(picker).queryByRole("option", { name: /^Claude Code · Default/ })).toBeNull();
-  await closeModelControl();
+  const chip = await screen.findByRole("button", { name: "Model: no models available" });
+  expect(chip.textContent).toBe("No models available");
 
-  await send("Explain the restart backoff");
-  const created = await started(made);
-  expect(created).toMatchObject({ provider: "codex" });
+  // Nothing to start on: the message stays in the composer and no thread is created.
+  const field = await screen.findByRole("combobox", { name: "Message" });
+  await userEvent.type(field, "Explain the restart backoff{Enter}");
+  // The composer empties on Enter; a message that wasn't started comes back into it.
+  await waitFor(async () =>
+    expect(
+      ((await screen.findByRole("combobox", { name: "Message" })) as HTMLTextAreaElement).value,
+    ).toBe("Explain the restart backoff"),
+  );
+  expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
 });
 
 test("the default provider picked in Settings wins over the last-used one", async () => {

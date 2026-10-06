@@ -28,11 +28,10 @@ Example:
       "author": "example",
       "body": "example",
       "file": null,
-      "id": 1,
-      "kind": "inline",
-      "line": 5,
+      "id": 3,
+      "kind": "issue",
+      "line": 2,
       "replyTo": null,
-      "reviewState": "example",
       "updatedAt": "example"
     },
     "type": "review"
@@ -43,15 +42,15 @@ Example:
     "pr": {
       "number": 2,
       "repository": {
-        "forge": "github",
-        "host": "9d08eOUzA6",
-        "name": "Si",
-        "owner": "MGNxCigeWf/QWCa0Zso/5a"
+        "forge": "gitlab",
+        "host": "uDO",
+        "name": "7hxESNUsVD",
+        "owner": "gnCN6L/aE/SEFer"
       }
     },
     "threadId": "example"
   },
-  "linkGeneration": 3,
+  "linkGeneration": 6,
   "type": "auto-fix"
 }
 ```
@@ -80,7 +79,7 @@ Example:
   "jobId": null,
   "name": "example",
   "status": "pending",
-  "url": null
+  "url": "example"
 }
 ```
 
@@ -101,12 +100,12 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 9,
+      "number": 8,
       "repository": {
-        "forge": "github",
-        "host": "Yv1U2YjuN",
-        "name": "Mn0gp6Eh",
-        "owner": "tCO/nC/6LlhaEA/EFer37hx/SNUsVD/jF"
+        "forge": "gitlab",
+        "host": "2Z9kDUgVF",
+        "name": "d5US1s2_N",
+        "owner": "Cg/2E9g6_WYqYn/_L/.wskfzI/q.m_quF5Gi/D/dc2VLGV/h.fIVCvKGx"
       }
     },
     "threadId": "example"
@@ -140,9 +139,9 @@ Example:
   },
   "repository": {
     "forge": "github",
-    "host": "x3W2Z9kDUg",
-    "name": "skfz",
-    "owner": "EhCgP-2E9/_WYqYnh_LM."
+    "host": "tS-j2Ev",
+    "name": "6LJx4P",
+    "owner": "PlGFx/kqm_/e./AG7hp/w"
   },
   "threadId": "example",
   "type": "forge.pr.create"
@@ -162,12 +161,12 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 4,
+      "number": 8,
       "repository": {
         "forge": "gitlab",
-        "host": ".na",
-        "name": "PlGFx",
-        "owner": "uF5/bD/dc2VLGV/h.fIVCvKGx/d5US1s2_N/sMsS-j2Dv"
+        "host": "bX",
+        "name": "WOOhJ",
+        "owner": "P-K5ALI/6WWD3uVKDoW/wE4FsKLdm_/i_s/0uNkK0btP/lQN-/X92wkON7/euOZloFrbS/GGP-bjvX"
       }
     },
     "threadId": "example"
@@ -190,15 +189,15 @@ Example:
 ```json
 {
   "body": "example",
-  "commentId": 4,
+  "commentId": 2,
   "link": {
     "pr": {
-      "number": 6,
+      "number": 2,
       "repository": {
         "forge": "github",
-        "host": "rn",
-        "name": "CAG7hp_wH6L",
-        "owner": "f"
+        "host": "jfk0wD-wYN",
+        "name": "3dSeib8.VeV",
+        "owner": "VSq2pC9diS"
       }
     },
     "threadId": "example"
@@ -221,18 +220,18 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 1,
+      "number": 10,
       "repository": {
         "forge": "gitlab",
-        "host": "FXfbXNQ-",
-        "name": "oFr",
-        "owner": "5ALIZ76/D3uVKDoW4/E4Fs/Ldm_ni_/U0uN/K0/t/wlQN-PX9/wkON71euOZ"
+        "host": "6xLl5d",
+        "name": "gOrJR5Q_",
+        "owner": "_N1r4/x"
       }
     },
     "threadId": "example"
   },
   "reviewers": [
-    "NFGO9bjv"
+    "QwfIS"
   ],
   "type": "forge.review.request"
 }
@@ -254,17 +253,17 @@ Example:
   "headSha": "example",
   "link": {
     "pr": {
-      "number": 7,
+      "number": 10,
       "repository": {
-        "forge": "gitlab",
-        "host": "XPPiK",
-        "name": "7",
-        "owner": "k5iej0wC/YM1V/q2pC9diS/7/dSeib8.VeV/gH/6xKk5c/_N1r4/cx/gOrJR5Q_/zRwfJSx737j"
+        "forge": "github",
+        "host": "37ka7OsyUhp",
+        "name": "4y473MxpE4H",
+        "owner": "HXj/5T9pVQmL/sLqCT/w"
       }
     },
     "threadId": "example"
   },
-  "method": "merge",
+  "method": "squash",
   "type": "forge.pr.merge"
 }
 ```
@@ -285,12 +284,12 @@ Example:
   "headSha": "example",
   "link": {
     "pr": {
-      "number": 10,
+      "number": 3,
       "repository": {
         "forge": "github",
-        "host": "hpnHXktT",
-        "name": "E4H",
-        "owner": "T9pVQmLAsL/Tbw74/473Mx"
+        "host": "d2s0Dkh",
+        "name": "AaNTQ",
+        "owner": "8/LXj56u/dhS55qnR5u/yPzQX/.-dbEg2.li/RdN/4Tw556UK"
       }
     },
     "threadId": "example"
@@ -323,10 +322,11 @@ Example:
   "author": "example",
   "body": "example",
   "file": "example",
-  "id": 7,
-  "kind": "inline",
-  "line": null,
-  "replyTo": 8,
+  "id": 9,
+  "kind": "review",
+  "line": 4,
+  "replyTo": null,
+  "reviewState": "example",
   "updatedAt": "example"
 }
 ```
@@ -350,7 +350,6 @@ Example:
 {
   "base": "example",
   "branch": "example",
-  "draft": true,
   "summary": "example",
   "template": {
     "body": "example",
@@ -377,12 +376,12 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 2,
+      "number": 1,
       "repository": {
-        "forge": "github",
-        "host": "KFMXk56v2ei",
-        "name": "BwzSazQ9Eo",
-        "owner": "55qnR5uy/zQX3.-db/g2.lim/dNR4Tw55/UKxAaNTQqAR"
+        "forge": "gitlab",
+        "host": "Epm7-jHzoYw",
+        "name": "Yn8",
+        "owner": "RGXNpWLEk5/4AVB5m/djJX/r/EV/6eKmG49/qmBwBsxx_RG"
       }
     },
     "threadId": "example"
@@ -405,34 +404,34 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 2,
+      "number": 9,
       "repository": {
-        "forge": "gitlab",
-        "host": "jHzoYw2RGYN",
-        "name": "r",
-        "owner": "WLE/MD4AVB5mvd/JX"
+        "forge": "github",
+        "host": "KhXh",
+        "name": "m-4-WhAGzj1",
+        "owner": "X/QOnXWwH_OGy/d2q/TVz1rsMEfW/Kz/c_QF76MrYcV/r/WrWe4o5bc/vmXoR3OkP/kFJ/u"
       }
     },
     "threadId": "example"
   },
   "status": {
     "checks": [],
-    "ci": "unknown",
+    "ci": "failure",
     "comments": [],
     "headSha": "example",
-    "mergeability": "mergeable",
+    "mergeability": "unknown",
     "raw": null,
     "ref": {
-      "number": 4,
+      "number": 5,
       "repository": {
-        "forge": "github",
-        "host": "N6fKnG497",
-        "name": "-QOnXWwH_OG",
-        "owner": "mBw/xx_R/pYn8_t/KgXg/X"
+        "forge": "gitlab",
+        "host": "FLAoqnYYySP",
+        "name": "kf",
+        "owner": "WMRqd8Z.T/kZzHaC0"
       }
     },
     "reviewThreads": [],
-    "state": "draft",
+    "state": "closed",
     "title": "example",
     "url": "example"
   },
@@ -453,34 +452,33 @@ Example:
 {
   "intent": {
     "context": {
-      "check": {
-        "completedAt": "example",
-        "conclusion": "example",
-        "id": "example",
-        "jobId": null,
-        "name": "example",
-        "status": "failure",
-        "url": "example"
+      "comment": {
+        "author": "example",
+        "body": "example",
+        "file": null,
+        "id": 7,
+        "kind": "inline",
+        "line": null,
+        "replyTo": null,
+        "updatedAt": "example"
       },
-      "logTail": "example",
-      "logUnavailable": true,
-      "truncated": true,
-      "type": "ci"
+      "type": "review"
     },
     "headSha": "example",
     "key": "example",
     "link": {
       "pr": {
-        "number": 2,
+        "number": 4,
         "repository": {
           "forge": "github",
-          "host": "TVA1ssMEgX",
-          "name": "qd8Z.TkM",
-          "owner": "Kz/_/F76MrYcV/r/WrWe4o5bc/vmXoR3OkP/kFJ/u/m-4-WhAGzj1/X-FLAopmYY/SPUWM"
+          "host": "b.",
+          "name": "tT0.",
+          "owner": "tXd7G_/I5AgX/zW3PKQ3DN"
         }
       },
       "threadId": "example"
     },
+    "linkGeneration": 7,
     "type": "auto-fix"
   },
   "type": "forge.auto-fix.queued"
@@ -503,12 +501,12 @@ Example:
   "generation": 1,
   "link": {
     "pr": {
-      "number": 4,
+      "number": 7,
       "repository": {
         "forge": "github",
-        "host": "YTggb.",
-        "name": "tT0.",
-        "owner": "tXd7G_/I5AgX/zW3PKQ3DN"
+        "host": "p",
+        "name": "8JEg",
+        "owner": "T/LFsG/fd/_f4r/ZSCek/RN/ZtsB/KwXUCchT/N87Er0d31wT/wtW4n/Q7vO1ky"
       }
     },
     "threadId": "example"
@@ -529,12 +527,12 @@ Example:
 
 ```json
 {
-  "number": 7,
+  "number": 9,
   "repository": {
-    "forge": "gitlab",
-    "host": "tNT05.wa",
-    "name": "ZtsB",
-    "owner": "bT./FsGifdr/f/ryZSCekfRN"
+    "forge": "github",
+    "host": "wkhvvvLUrF0",
+    "name": "d8m8MMyq",
+    "owner": "HV8htE/FIoQ6/_./lJlNQPEM5/Pq6o4mEyR/z4AbbKERUJh/8UFo.xv/Njy/jnEM/o81W0Rq8"
   }
 }
 ```
@@ -562,22 +560,22 @@ Example:
 ```json
 {
   "checks": [],
-  "ci": "success",
+  "ci": "none",
   "comments": [],
   "headSha": "example",
-  "mergeability": "unknown",
+  "mergeability": "conflicting",
   "raw": null,
   "ref": {
-    "number": 4,
+    "number": 1,
     "repository": {
       "forge": "gitlab",
-      "host": "YVDd",
-      "name": "0EHV8h",
-      "owner": "T9/7Er0d31wTCw/W4nK/7vO1kyv8/EgReu.v/gv/vLUq"
+      "host": "ds9EaVW1p",
+      "name": "QJ_zfjE",
+      "owner": "B/OMm/ADBtn/DW/r-Vq/m26iuk."
     }
   },
   "reviewThreads": [],
-  "state": "closed",
+  "state": "open",
   "title": "example",
   "url": "example"
 }
@@ -598,10 +596,10 @@ Example:
 
 ```json
 {
-  "forge": "gitlab",
-  "host": "pQ6ga.",
-  "name": "bBC",
-  "owner": "lJlNQPEM5/q6o4mEyR/z4AbbKERUJh/8UFo.xv/Njy/jnEM/o81W0Rq8/d8m8MMyq/7Vcr9E_VW0"
+  "forge": "github",
+  "host": "9oAKC2d",
+  "name": "CctkwKRD",
+  "owner": "VTupmgC/8K/qSjz_o/B/LoqL7ISqOq/_lED6/e/77fEtgqKTQY/51OxXOfmt/qarVIaeiN0/Yt"
 }
 ```
 
@@ -626,8 +624,8 @@ Example:
   "file": "example",
   "id": "example",
   "line": null,
-  "outdated": false,
-  "resolved": true
+  "outdated": true,
+  "resolved": false
 }
 ```
 
@@ -645,12 +643,12 @@ Example:
 ```json
 {
   "pr": {
-    "number": 7,
+    "number": 6,
     "repository": {
-      "forge": "github",
-      "host": "BEBuo",
-      "name": "_zfjEag",
-      "owner": "DW/-VqL/26i/k.MQ"
+      "forge": "gitlab",
+      "host": "nsJIztIB",
+      "name": "4dtqfXjeUrt",
+      "owner": "pVjdk"
     }
   },
   "threadId": "example"

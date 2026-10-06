@@ -13,10 +13,11 @@ import { nextGitStep, type GitStep } from "@ace/ui-core";
 import { useMutation } from "@tanstack/react-query";
 import { launchEditor } from "@/boot/editor-launch.ts";
 import { EditorIcon } from "@/components/editor-icon.tsx";
-import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import { Dot } from "@/components/ui/dot.tsx";
+import { MenuGroup, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { findRunningTerminal } from "@/features/panels/index.ts";
+import { findRunningTerminal, useRunningTerminalNames } from "@/features/panels/index.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useEditors } from "@/lib/editors.ts";
 import { keymap } from "@/lib/keymap.ts";
@@ -78,7 +79,7 @@ export function RunButton(props: { thread: ThreadRef }) {
       const terminalId = running?.id ?? (await sources.workspace.runScript(props.thread, script));
       workspace.open({ kind: "terminal", id: terminalId, title: script.name });
     } catch (error) {
-      toast.add({ title: `Couldn't run ${script.command}`, description: failure(error) });
+      toast.error({ title: `Couldn't run ${script.command}`, description: failure(error) });
     }
   };
   // Loading, unreadable or none: the caret's menu says which, so a click always explains.
@@ -88,7 +89,7 @@ export function RunButton(props: { thread: ThreadRef }) {
       ? ["Couldn't read this project's scripts", "Try again, or check the daemon's log"]
       : first
         ? undefined
-        : ["No scripts in this project", "Add one to package.json and it shows here"];
+        : ["No scripts found", "Add one to package.json, a Makefile, justfile or Procfile"];
   return (
     <SplitButton
       variant="ghost"
@@ -106,19 +107,62 @@ export function RunButton(props: { thread: ThreadRef }) {
             {query.isError && <MenuItem onClick={() => void query.refetch()}>Try again</MenuItem>}
           </>
         ) : (
-          scripts?.map((script, index) => (
-            <MenuItem
-              key={script.id}
-              icon={<PlayIcon aria-hidden size={16} />}
-              onClick={() => void run(script)}
-            >
-              <span className="font-mono text-[12px]">{script.command}</span>
-              {index === 0 && <span className="ml-3 text-xs text-subtle-foreground">default</span>}
-            </MenuItem>
-          ))
+          scripts && (
+            <ScriptRows
+              threadId={props.thread.id}
+              scripts={scripts}
+              agentCommands={shells.map((shell) => shell.command)}
+              onRun={(script) => void run(script)}
+            />
+          )
         )
       }
     />
+  );
+}
+
+/**
+ * The Run menu's scripts. One already running (in a terminal of yours, or an agent's shell
+ * running the same command) says so, and picking it shows that terminal instead of starting
+ * another. Rendered only while the menu is open, so the terminals are read only then.
+ */
+function ScriptRows(props: {
+  threadId: string;
+  scripts: readonly Script[];
+  agentCommands: readonly string[];
+  onRun(script: Script): void;
+}) {
+  const terminals = useRunningTerminalNames(props.threadId);
+  return (
+    <MenuGroup>
+      <MenuLabel>Scripts</MenuLabel>
+      {props.scripts.map((script, index) => {
+        const running =
+          terminals.has(script.name) || props.agentCommands.includes(script.command.trim());
+        return (
+          <MenuItem
+            key={script.id}
+            icon={<PlayIcon aria-hidden size={16} />}
+            aria-label={`${script.command}${index === 0 ? ", default" : ""}${running ? ", running: shows its terminal" : ""}`}
+            onClick={() => props.onRun(script)}
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="min-w-0 flex-1 truncate font-mono text-sm">{script.command}</span>
+              <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                {index === 0 && "default"}
+                {running && (
+                  <>
+                    {index === 0 && <span aria-hidden>·</span>}
+                    <Dot tone="done" />
+                    running
+                  </>
+                )}
+              </span>
+            </span>
+          </MenuItem>
+        );
+      })}
+    </MenuGroup>
   );
 }
 
@@ -142,7 +186,7 @@ export function OpenButton(props: { thread: ThreadRef }) {
       toast.add({ title: `Opened in ${editor.name}` });
     },
     onError: (error) =>
-      toast.add({ title: "Couldn't open the editor", description: error.message }),
+      toast.error({ title: "Couldn't open the editor", description: error.message }),
   });
   return (
     <SplitButton

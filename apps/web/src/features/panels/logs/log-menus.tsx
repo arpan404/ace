@@ -72,7 +72,7 @@ const sameIds = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((id, i) => id === b[i]);
 
 const trigger =
-  "inline-flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-ui font-medium text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent aria-expanded:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]";
+  "inline-flex h-7 min-w-0 items-center gap-1 rounded-md px-2 text-ui font-medium text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent aria-expanded:bg-accent focus-ring";
 
 /** Thread, one agent (with its subagents) or the daemon: swaps this tab's source in place. */
 export function ScopeMenu(props: {

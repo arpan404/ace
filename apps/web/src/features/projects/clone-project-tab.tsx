@@ -1,47 +1,98 @@
-import { KeyIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, KeyIcon } from "@phosphor-icons/react";
 import {
   childFolder,
   cloneProgress,
   cloneUrlProblem,
   displayPath,
+  freeName,
+  parentFolder,
   projectNameProblem,
   repositoryName,
 } from "@ace/ui-core";
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Kbd } from "@/components/ui/kbd.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { Footer, LocationField, Problem, TextField } from "./form-parts.tsx";
+import { applePlatform } from "@/lib/keymap.ts";
+import type { Machine } from "@/lib/machines.ts";
+import { Footer, Problem, TextField } from "./form-parts.tsx";
+import { LocationField, useLocation } from "./location-field.tsx";
+import { projectReads } from "./project-commands.ts";
 import type { CloneControl } from "./use-clone-run.ts";
-import { useFolderListing, useHostHome } from "./use-folders.ts";
+import { useRecentFolders } from "./use-folders.ts";
 
 /**
- * Clone repository: an HTTPS, SSH or git@ address, checked as you type, cloned into a folder
- * on the daemon's machine with the person's own Git credentials. Progress comes from Git;
- * Cancel stops it, and a failed sign-in points to the person's Git setup, never to a password
- * field: ace doesn't take credentials.
+ * Only GitHub shorthand (`owner/repo`, `github.com/owner/repo`) goes to the daemon to be read.
+ * Anything else, a spelled-out address included, is checked here, so nothing with a scheme or
+ * a user name in it is sent before Clone.
  */
-export function CloneProjectTab(props: { offline: boolean; clone: CloneControl }) {
-  const home = useHostHome().data;
-  const { run } = props.clone;
+const shorthand = (value: string) => /^[^\s:@]+\/[^\s:@]+$/.test(value);
+const notCloneable =
+  "That isn't an address ace can clone. Use https://…, ssh://…, git@host:owner/repo, or owner/repo for GitHub.";
+
+/**
+ * The daemon's reading of what was pasted (`workspace.clone.validate`): the address to clone
+ * (GitHub `owner/repo` becomes its HTTPS address) and the folder it suggests. Nothing is
+ * fetched from the network.
+ */
+function useCloneAddress(machine: Machine, value: string, enabled: boolean) {
+  const client = machine.client;
+  return useQuery({
+    queryKey: ["projects", "clone-url", machine.id, value],
+    queryFn: ({ signal }) => {
+      if (!client) throw new Error("offline");
+      return projectReads(client).validateClone(value, signal);
+    },
+    enabled: enabled && client !== undefined,
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+  });
+}
+
+/**
+ * Clone: an HTTPS, SSH or git@ address, or GitHub's owner/repo, checked as you type and cloned
+ * with the person's own Git credentials into a folder on the chosen machine. The destination is
+ * suggested (beside the machine's latest project, named after the repository and free there).
+ * Progress shows inline with Cancel; a failed clone offers Retry. ace never takes credentials.
+ */
+export function CloneProjectTab(props: {
+  machine: Machine;
+  machines: readonly Machine[];
+  clone: CloneControl;
+}) {
+  const { machine, clone } = props;
+  const { run } = clone;
   const previous = run.status === "failed" ? run.input : undefined;
   const [url, setUrl] = useState(previous?.url ?? "");
   const [name, setName] = useState<string>();
   const [touched, setTouched] = useState(false);
-  const [path, setPath] = useState<string>();
-  const [selected, setSelected] = useState<string>();
+  const only = useMemo(() => [machine], [machine]);
+  const latest = useRecentFolders(only).folders[0];
+  const place = useLocation({
+    machine,
+    machines: props.machines,
+    suggested: previous?.parent ?? (latest ? parentFolder(latest.path) : undefined),
+  });
   const running = run.status === "running";
-  const parent = running ? run.input.parent : (selected ?? path ?? previous?.parent ?? home?.start);
-  const folder = running ? run.input.name : (name ?? repositoryName(url));
-  const siblings = useFolderListing(parent, true).entries?.map((entry) => entry.name);
-  const urlProblem = cloneUrlProblem(url.trim());
-  const nameProblem = projectNameProblem(folder, running ? [] : siblings);
+  const value = url.trim();
+  const local = value && !shorthand(value) ? cloneUrlProblem(value) : undefined;
+  const checked = useCloneAddress(machine, value, value !== "" && shorthand(value));
+  const urlProblem = !value
+    ? "Paste the repository's address."
+    : (local ?? (checked.error ? notCloneable : undefined));
+  const parent = running ? run.input.parent : place.location;
+  const suggestion = checked.data?.name ?? repositoryName(value);
+  const folder = running ? run.input.name : (name ?? freeName(suggestion, place.siblings ?? []));
+  const nameProblem = projectNameProblem(folder, running ? [] : place.siblings);
+  const address = checked.data?.url ?? value;
 
   const submit = () => {
     setTouched(true);
     if (!parent || urlProblem || nameProblem || running) return;
-    props.clone.dismiss();
-    props.clone.start({ parent, name: folder, url: url.trim() });
+    clone.dismiss();
+    clone.start({ parent, name: folder, url: address }, machine);
   };
 
   return (
@@ -52,20 +103,30 @@ export function CloneProjectTab(props: { offline: boolean; clone: CloneControl }
         event.preventDefault();
         submit();
       }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" || !(applePlatform ? event.metaKey : event.ctrlKey)) return;
+        event.preventDefault();
+        submit();
+      }}
     >
       <TextField
         label="Repository address"
         value={running ? run.input.url : url}
-        onChange={(value) => {
-          setUrl(value);
-          if (value.trim()) setTouched(true);
+        onChange={(next) => {
+          setUrl(next);
+          if (next.trim()) setTouched(true);
         }}
-        placeholder="https://github.com/owner/repo.git or git@github.com:owner/repo.git"
+        placeholder="owner/repo, https://github.com/owner/repo.git or git@host:owner/repo.git"
         problem={urlProblem}
-        showProblem={touched}
+        showProblem={touched && !checked.isFetching}
         mono
         autoFocus
         disabled={running}
+        hint={
+          !running && checked.data && checked.data.url !== value
+            ? `Clones ${checked.data.url}`
+            : undefined
+        }
       />
       <TextField
         label="Folder name"
@@ -77,37 +138,38 @@ export function CloneProjectTab(props: { offline: boolean; clone: CloneControl }
         disabled={running}
         hint={
           parent && folder && !nameProblem
-            ? `Clones into ${displayPath(childFolder(parent, folder), home?.path)}`
+            ? `Clones into ${displayPath(childFolder(parent, folder), place.home?.path)}`
             : undefined
         }
       />
-      <LocationField
-        path={running ? run.input.parent : (path ?? previous?.parent ?? home?.start)}
-        onPath={setPath}
-        selected={running ? undefined : selected}
-        onSelect={setSelected}
-        home={home?.path}
-        roots={home?.roots ?? []}
-        start={home?.start}
-        disabled={running}
-      />
+      {!running && <LocationField state={place} several={props.machines.length > 1} />}
       {running ? (
         <>
           <CloneProgress
             phase={run.phase}
             percent={run.percent}
             cancelling={run.cancelling}
-            onCancel={props.clone.cancel}
+            onCancel={clone.cancel}
+            machine={props.machines.length > 1 ? run.machine.name : undefined}
           />
           {run.cancelProblem && <Problem>{run.cancelProblem}</Problem>}
         </>
       ) : run.status === "failed" ? (
-        <Problem>{run.problem.message}</Problem>
+        <Problem
+          action={
+            <Button size="sm" onClick={clone.retry}>
+              <Icon icon={ArrowClockwiseIcon} size={14} />
+              Retry
+            </Button>
+          }
+        >
+          {run.problem.message}
+        </Problem>
       ) : (
         <p className="flex items-start gap-2 text-sm text-subtle-foreground">
           <Icon icon={KeyIcon} size={14} className="mt-px" />
-          Git signs in with your own setup on the daemon's machine: its SSH keys and credential
-          helper. ace never asks for or stores credentials.
+          Git signs in with your own setup on that machine: its SSH keys and credential helper. ace
+          never asks for or stores credentials.
         </p>
       )}
       <Footer
@@ -115,8 +177,13 @@ export function CloneProjectTab(props: { offline: boolean; clone: CloneControl }
           ? { closeLabel: "Hide", note: "The clone carries on while this is hidden." }
           : {})}
       >
-        <Button type="submit" variant="primary" disabled={running || props.offline || !parent}>
-          {running ? "Cloning…" : run.status === "failed" ? "Try again" : "Clone"}
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={running || machine.client === undefined || !parent}
+        >
+          {running ? "Cloning…" : "Clone"}
+          {!running && <Kbd aria-hidden keys="mod+enter" variant="on-primary" />}
         </Button>
       </Footer>
     </form>
@@ -128,6 +195,7 @@ function CloneProgress(props: {
   percent: number | undefined;
   cancelling: boolean;
   onCancel(): void;
+  machine: string | undefined;
 }) {
   const { label, value } = cloneProgress(props.phase, props.percent);
   return (
@@ -136,6 +204,7 @@ function CloneProgress(props: {
         <Spinner />
         <span className="flex-1 text-foreground" aria-live="polite">
           {props.cancelling ? "Cancelling…" : label}
+          {props.machine && <span className="text-subtle-foreground"> · on {props.machine}</span>}
         </span>
         {value !== undefined && (
           <span className="text-sm text-muted-foreground tabular-nums">{value}%</span>
@@ -154,7 +223,7 @@ function CloneProgress(props: {
         className="h-1 overflow-hidden rounded-full bg-input"
       >
         <div
-          className="h-full origin-left bg-ring transition-transform duration-(--dur-3) ease-smooth"
+          className="h-full origin-left bg-ring transition-transform duration-(--dur-1) ease-smooth"
           style={{ transform: `scaleX(${(value ?? 4) / 100})` }}
         />
       </div>

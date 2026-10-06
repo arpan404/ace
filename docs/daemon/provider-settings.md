@@ -34,6 +34,7 @@ The value defaults to `[]`. Each row has required `provider: ProviderKind` and t
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `instance: string`                      | Existing catalog/account instance ID; omitted means provider-wide defaults. It does not create an account. |
 | `enabled: boolean`                      | Defaults true. A provider-wide false overrides every account row.                                          |
+| `defaultModel: string \| null`          | Preferred catalog ID or alias. Omission inherits; null resets to the built-in policy.                      |
 | `binaryPath: string`                    | Absolute executable path on the daemon host. Omission uses the installed/default binary.                   |
 | `customModels: {id, displayName}[]`     | Exact custom IDs and labels; defaults empty. Discovery metadata wins on ID collision.                      |
 | `hiddenModels`, `shownModels`: string[] | Catalog `id` values; default empty. Explicit show can reveal deprecated/provider-hidden models.            |
@@ -77,6 +78,34 @@ Re-enabling a provider discovers missing adapters without rebinding existing acc
 
 Explicit global binary paths can admit a missing native CLI without a daemon restart. Preferences affect the next session launch; running sessions keep their process. A binary change fences old discovery results and invalidates incompatible catalog metadata. Account binary overrides apply after account assignment. CLI runtimes honor binary overrides; Cursor SDK module resolution retains its existing SDK configuration. Generic ACP `binaryPath` values are ignored: the registry-approved launch plan's command is authoritative even if a session requests another executable. This setting does not install or create ACP agents.
 
+## Explicit default models
+
+Catalogs contain concrete choices and aliases, with no pseudo `default` row.
+`models.list` marks the available default with `isDefault: true` and
+`defaultSource: "built-in" | "user"`. Hidden, legacy, deprecated and disabled
+choices cannot become the automatic default. An unavailable user preference
+falls back to the built-in policy without manufacturing a model ID.
+
+| Provider | Built-in preference                                                      | Fallback from reported usable choices           |
+| -------- | ------------------------------------------------------------------------ | ----------------------------------------------- |
+| Claude   | `claude-opus-5-5`                                                        | Newest available Opus, then Sonnet, then Haiku  |
+| Codex    | `gpt-6.1-sol`                                                            | Next Sol, then Codex/GPT and reasoning families |
+| Cursor   | `auto`                                                                   | Ranked available chat families                  |
+| OpenCode | Scoped configured default, then `opencode-go/muse-spark-1.3-contributor` | Ranked models on connected upstreams            |
+| Pi       | Its own `get_state.model`                                                | Ranked available chat families                  |
+| ACP      | Current authorized session selector                                      | Stable order of available selectors             |
+
+Execution without a native account selects only its `provider-cli-default`
+catalog. ACP resolves by the full `acpAgentId`, `installationId`, `instanceId`
+identity; its opaque catalog `instance` ID is not the account ID. Creation,
+delegation, model controls and resume share this scope rule.
+
+Legacy persisted `default` selections migrate from retained catalog choices at
+startup without starting discovery. If the cache is empty, the sentinel remains
+until that thread resumes. Session opening discovers its own catalog and stores
+the concrete model for display and launch. When no usable choice is known, the
+CLI model argument is omitted. A pseudo default never reaches a CLI model flag.
+
 ## UI follow-up for the Claude web agent
 
 Use `Client.settingsGet` and `Client.settingsSet` for preferences; use
@@ -88,3 +117,9 @@ controls, parsed labels, hidden-selection badges, disabled-provider read-only
 states and refresh animation with the polling contract above. Omit the binary-path
 editor for registry-backed ACP and SDK-backed Cursor. No UI source is part of this
 backend revision.
+
+Add the default picker per provider and account, preserving other configuration
+fields and rows. Offer provider inheritance by omitting `defaultModel`, and a
+built-in reset by setting it to null. Read the concrete default badge and source
+from `models.list`, and display `group: "legacy"` separately. New-thread and
+delegation pickers should reflect the selected account's resolved default.

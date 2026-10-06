@@ -103,8 +103,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
   };
   try {
     const context = { home, env: process.env };
+    const logDirectory = join(config.dataDir, "logs");
     const sink = await createFileSink({
-      directory: join(config.dataDir, "logs"),
+      directory: logDirectory,
       fileBytes: 1024 * 1024,
       totalBytes: 8 * 1024 * 1024,
       context,
@@ -159,7 +160,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
           },
         };
       },
-      logs: log.stats,
+      logs: () => ({ ...log.stats(), directory: logDirectory }),
     });
     resources.own(() => health.close());
     const startup = new ServiceStartup(serviceContext, { ...systemStartup, ...options.startup });

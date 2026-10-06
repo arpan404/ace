@@ -125,6 +125,7 @@
         "@ace/client": "workspace:*",
         "@ace/client-react": "workspace:*",
         "@ace/client-worker": "workspace:*",
+        "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/ui-core": "workspace:*",

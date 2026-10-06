@@ -1,3 +1,4 @@
+import { lazy } from "react";
 import { defineWorkspace } from "@/lib/workspace/index.ts";
 import { openNewTerminal } from "./terminal/tabs.ts";
 
@@ -36,5 +37,7 @@ export const threadWorkspace = defineWorkspace({
       open: (actions, workspace, dock) => openNewTerminal(actions, workspace, dock),
     },
   },
+  // The bottom panel always offers the thread's shells, whichever tab shows (Logs, a launcher).
+  dockActions: { bottom: lazy(() => import("./terminal/dock-sessions.tsx")) },
   kinds: () => import("./thread-kinds.tsx"),
 });

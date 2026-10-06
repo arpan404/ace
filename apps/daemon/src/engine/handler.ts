@@ -1,5 +1,7 @@
-import { provisionalTitle } from "./thread-title.ts";
+import { isDefaultSelection } from "@ace/models";
+import { ModelSelectionError, type EngineModels } from "./models.ts";
 import { providerCommandDisabled, permissionResolutionError } from "@ace/core";
+import { provisionalTitle } from "./thread-title.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
@@ -31,6 +33,7 @@ export function engineHandler(
   ) => string | undefined,
   machine?: { host: string; name: string },
   providerEnabled?: (provider: import("@ace/protocol").ProviderKind, instance?: string) => boolean,
+  models?: EngineModels,
 ): CommandHandler {
   return {
     handle(command: Command, context): CommandResult {
@@ -153,6 +156,17 @@ export function engineHandler(
           let { cwd } = creation;
           const { entry, acpIdentity, instanceId, handoff } = creation;
           deliveryCommand = creation.deliveryCommand;
+          let model: string | undefined;
+          try {
+            model = models
+              ? models.select(p.provider, p.model, instanceId, acpIdentity)
+              : isDefaultSelection(p.model)
+                ? undefined
+                : p.model;
+          } catch (error) {
+            if (error instanceof ModelSelectionError) return fail("model_unavailable");
+            throw error;
+          }
           const at = now();
           const prepared = context.preparedWorkspace;
           threadId = ThreadId.parse(prepared?.id ?? p.threadId ?? nextId());
@@ -197,7 +211,7 @@ export function engineHandler(
               provider: p.provider,
               options: ExecutionOptions.parse(p.options ?? {}),
               ...(instanceId ? { instanceId } : {}),
-              ...(p.model === undefined ? {} : { model: p.model }),
+              ...(model === undefined ? {} : { model }),
             },
             cwd,
             workspaceReady: Boolean(prepared),
@@ -219,7 +233,7 @@ export function engineHandler(
               },
               live: {
                 provider: p.provider,
-                ...(p.model ? { model: p.model } : {}),
+                ...(model ? { model } : {}),
                 ...(instanceId ? { account: instanceId } : {}),
                 options: ExecutionOptions.parse(p.options ?? {}),
                 subagentCount: 0,
