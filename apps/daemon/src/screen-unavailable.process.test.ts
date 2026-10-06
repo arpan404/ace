@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { fixture } from "./socket-test-support.ts";
 
-test("a daemon without a helper finishes the screen refresh with an unavailable status and an empty session list", async () => {
+test("a daemon without a helper consistently refuses screen operations with screen_disabled", async () => {
   const f = await fixture();
   try {
     const client = await f.connect();
@@ -16,8 +16,8 @@ test("a daemon without a helper finishes the screen refresh with an unavailable 
     expect(await client.next()).toMatchObject({
       type: "screen.result",
       requestId: "sessions",
-      ok: true,
-      data: [],
+      ok: false,
+      errorCode: "screen_disabled",
     });
     client.send({
       type: "screen.request",
