@@ -1,6 +1,9 @@
+import { within } from "./repository-paths.ts";
+export { within } from "./repository-paths.ts";
+import { serial } from "./lock.ts";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import { GitCli, textOutput } from "./cli.ts";
 import { decode, hash } from "./decode.ts";
 import { CheckpointNumbers } from "./checkpoint-numbers.ts";
@@ -23,6 +26,16 @@ export class Repository {
     this.numbers = new CheckpointNumbers(cli, counterCapacity);
     this.now = now;
     this.tempDirectory = tempDirectory;
+  }
+
+  async serial<T>(root: string, operation: () => Promise<T>): Promise<T> {
+    let canonical: string;
+    try {
+      canonical = await realpath(root);
+    } catch {
+      throw new GitError("not_a_repo", `Repository path does not exist: ${root}`);
+    }
+    return serial(canonical, operation, this.cli.leaseId, this.cli.leaseSchedule);
   }
 
   async root(repo: string): Promise<string> {
@@ -116,9 +129,4 @@ export class Repository {
     if (result.exitCode !== 0) throw new GitError("invalid_ref", `Commit not found: ${ref}`);
     return hash(textOutput(result));
   }
-}
-
-export function within(parent: string, path: string): boolean {
-  const rel = relative(parent, path);
-  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
 }

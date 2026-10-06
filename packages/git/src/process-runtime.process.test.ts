@@ -4,7 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { GitService } from "./index.ts";
+import { GitError, GitService } from "./index.ts";
 import { execute, repository, scratch } from "./test-repo.ts";
 
 test("the injected spawner can route an executable to real Git", async () => {
@@ -97,9 +97,13 @@ test.each(["darwin", "win32"] as const)(
       // Callbacks can register the taskkill helper deadline; expire only the original calls.
       const due = Array.from(deadlines);
       for (const expire of due) expire();
-      // The public rejection follows pipe closure, including inherited descendant pipes.
+      // The response is independent of the separately supervised termination effects.
       await rejected;
       await exited.promise;
+      const failure = await operation.catch((error: unknown) => error);
+      if (!(failure instanceof GitError) || !failure.cleanup)
+        throw new Error("Missing cleanup receipt");
+      expect(await failure.cleanup.settled).toMatchObject({ status: "unconfirmed" });
       // Parent exit can precede descendant pipe closure. Probe after the public operation settles.
       await rejected;
       expect(() => process.kill(pids.parent, 0)).toThrow(

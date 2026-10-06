@@ -1,3 +1,4 @@
+import { isMutationUnavailable } from "@ace/git";
 import {
   StartSpec,
   ConductorStore,
@@ -177,8 +178,9 @@ export class ConductorRuntime {
           const oldest = this.errors.keys().next().value;
           if (oldest) this.errors.delete(oldest);
         }
-        const message =
-          error instanceof Error && /^deck_[a-z_]+$/.test(error.message)
+        const message = isMutationUnavailable(error)
+          ? "git_quarantined"
+          : error instanceof Error && /^deck_[a-z_]+$/.test(error.message)
             ? error.message
             : "conductor_execution_failed";
         errorChanged = this.errors.get(id) !== message;

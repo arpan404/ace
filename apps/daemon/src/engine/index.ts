@@ -56,6 +56,7 @@ export interface EngineOptions {
   limits?: Partial<EngineLimits>;
   beforeSend?(threadId: ThreadId, commandId: import("@ace/protocol").CommandId): Promise<void>;
   prepareWorkspace?(threadId: ThreadId): Promise<string>;
+  assertWorkspaceAvailable?(cwd: string): Promise<void>;
   machine?: { host: string; name: string };
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;
@@ -153,6 +154,9 @@ export class Engine {
       ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
       ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
       ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),
+      ...(options.assertWorkspaceAvailable
+        ? { assertWorkspaceAvailable: options.assertWorkspaceAvailable }
+        : {}),
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,

@@ -5,7 +5,6 @@ import { parseIndex, parseTree, type IndexEntry } from "./parse-index.ts";
 import type { Repository } from "./repository.ts";
 import { textOutput } from "./cli.ts";
 import { transferTree } from "./object-transfer.ts";
-import { serial } from "./lock.ts";
 import { removeIndexSubtrees } from "./temporary-index.ts";
 import { GitError } from "./types.ts";
 
@@ -140,7 +139,7 @@ export async function flattenNested(
       });
     };
     if (heldRoots.has(nested)) await capture();
-    else await serial(nested, capture);
+    else await repository.serial(nested, capture);
   }
 }
 

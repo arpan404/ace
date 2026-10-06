@@ -1,7 +1,6 @@
 import { nestedPaths, nestedRoot, type NestedWorktree, type SnapshotOwnership } from "./nested.ts";
 import { parseTree } from "./parse-index.ts";
 import { transferTree } from "./object-transfer.ts";
-import { serial } from "./lock.ts";
 import { removeIndexSubtrees, withIndex } from "./temporary-index.ts";
 import { hash, malformed } from "./decode.ts";
 import { textOutput } from "./cli.ts";
@@ -29,7 +28,7 @@ export async function withNestedWorktrees<T>(
       const path = paths[index];
       if (path === undefined) return complete(children);
       const child = await nestedRoot(repository, parent, path);
-      return serial(child, async () => {
+      return repository.serial(child, async () => {
         return discover(child, async (descendants) => {
           children.push({ path, root: child, children: descendants });
           return acquire(index + 1);
