@@ -49,7 +49,7 @@ export interface PreviewServer {
   source: "listener" | "terminal" | "launch";
 }
 export type ForwardedInput =
-  | { kind: "mouse"; event: "mousePressed" | "mouseReleased"; x: number; y: number }
+  | { kind: "mouse"; event: "mouseMoved" | "mousePressed" | "mouseReleased"; x: number; y: number }
   | { kind: "key"; event: "keyDown"; key: string; text?: string };
 
 interface Entry {

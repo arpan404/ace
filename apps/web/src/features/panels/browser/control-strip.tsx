@@ -19,15 +19,20 @@ const action =
 export function ControlStrip(props: {
   view: BrowserView;
   busy: boolean;
+  heldHere?: boolean;
   onToggle(): void;
   onPrivate(): void;
 }) {
   const driver = useBrowserDriver(props.view.threadId);
   const { view } = props;
+  const elsewhere = view.controller === "human" && props.heldHere === false;
   const privately = view.takeoverMode === "private";
   let text;
   let mark;
-  if (privately && view.controller !== "human") {
+  if (elsewhere) {
+    mark = <Dot tone="needs-you" />;
+    text = <>Another device has control · agents wait until they hand it back</>;
+  } else if (privately && view.controller !== "human") {
     // Disconnected while private: the gate holds, nobody drives until you take it back.
     mark = <LockSimpleIcon aria-hidden size={13} className="text-status-needs-you" />;
     text = <>Private and paused · agents can't see this page until you hand it back</>;
@@ -77,7 +82,12 @@ export function ControlStrip(props: {
         </span>
       )}
       {privately && view.controller !== "human" ? (
-        <button type="button" disabled={props.busy} onClick={props.onPrivate} className={action}>
+        <button
+          type="button"
+          disabled={props.busy || elsewhere}
+          onClick={props.onPrivate}
+          className={action}
+        >
           Take back privately
         </button>
       ) : (
@@ -87,7 +97,7 @@ export function ControlStrip(props: {
               <Tip label="Sign in or handle something private: agents can't see the page meanwhile">
                 <button
                   type="button"
-                  disabled={props.busy}
+                  disabled={props.busy || elsewhere}
                   onClick={props.onPrivate}
                   className={action}
                 >
@@ -98,7 +108,7 @@ export function ControlStrip(props: {
             <Tip label={keymap.takeControl.label} shortcut="takeControl">
               <button
                 type="button"
-                disabled={props.busy}
+                disabled={props.busy || elsewhere}
                 onClick={props.onToggle}
                 className={action}
               >
@@ -126,7 +136,7 @@ export function useControl(source: PreviewSource, threadId: string, view: Browse
   };
   const toggle = () => {
     if (!view) return;
-    const human = view.controller === "human";
+    const human = !!source.heldAs(threadId);
     run(human ? "Couldn't hand back control" : "Couldn't take control", () =>
       human ? source.handback(threadId) : source.takeover(threadId),
     );

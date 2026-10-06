@@ -21,6 +21,16 @@ export const BrowserOpen = z.object({
 export type BrowserOpen = z.infer<typeof BrowserOpen>;
 const commandBase = z.object({ tabId: short.optional() });
 export const BrowserCommand = z.discriminatedUnion("action", [
+  commandBase.extend({ action: z.literal("navigation_history") }),
+  commandBase.extend({
+    action: z.literal("history"),
+    direction: z.enum(["back", "forward", "reload"]),
+  }),
+  commandBase.extend({
+    action: z.literal("find_text"),
+    text: z.string().max(4096),
+    forward: z.boolean().default(true),
+  }),
   commandBase.extend({ action: z.literal("navigate"), url: z.string().max(8192), timeout }),
   commandBase.extend({ action: z.literal("click"), ref: short }),
   commandBase.extend({ action: z.literal("type"), ref: short, text: z.string().max(65_536) }),

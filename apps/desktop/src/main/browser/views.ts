@@ -9,13 +9,15 @@ import {
 } from "electron";
 import type { BrowserOpen } from "@ace/protocol";
 import type { BrowserPlacement } from "../../shared/contract.ts";
-import { appChord, replayChord } from "../shortcuts.ts";
+import { emit } from "../ipc.ts";
+import { BrowserShortcut } from "../../shared/contract.ts";
+import { replayChord } from "../shortcuts.ts";
 import type { ViewHost, ViewPage } from "./backend.ts";
-import { parseChord } from "./keys.ts";
 import { PartitionPool } from "./partition-pool.ts";
-import { PlacementBook, toWindowBounds, type Rect } from "./placement.ts";
-import { WebSocketGate } from "./socket-gate.ts";
-import { throttleDecision } from "./throttle.ts";
+import { PlacementBook, toWindowBounds } from "./placement.ts";
+import { EmbeddedPage } from "./page.ts";
+import { EmbeddedPageGroup } from "./page-group.ts";
+import { clearPartition } from "./partition-cleanup.ts";
 
 /** The app window whose renderer asked to place a view, and that renderer's page zoom. */
 export interface PlacementHost {
@@ -26,6 +28,7 @@ export interface PlacementHost {
 }
 
 export interface ViewHostOptions {
+  preload?: string | undefined;
   window(): BaseWindow | undefined;
   platform: NodeJS.Platform;
   log(message: string): void;
@@ -38,30 +41,23 @@ const passive = new Set(["about:", "data:", "blob:", "devtools:"]);
 const fetched = new Set(["http:", "https:"]);
 const sockets = new Set(["ws:", "wss:"]);
 
-/** A hidden view the agent has not driven for this long runs its timers at background rate. */
-const throttleIdleMs = 30_000;
-
-/** Removes `navigator.serviceWorker` before any page script runs (ADR 0055: no workers). */
-const blockServiceWorkers = `Object.defineProperty(Navigator.prototype, "serviceWorker", { get() { return undefined; }, configurable: false });`;
-
 const digest = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 32);
 
 /**
  * The app's in-app browser: Electron's own Chromium in `WebContentsView`s drawn inside a
- * thread's Browser panel. Persistent profiles get one partition per workspace and ephemeral
+ * thread's Browser panel. Persistent profiles get one partition per workspace/thread pair and ephemeral
  * ones an in-memory partition from a pool, cleared before it is lent again; never the app's
- * session or the person's Chrome profile. Popups, downloads, permission prompts, dialogs and
- * service workers are refused before a view is reported open, and each refusal is reported
- * as an audit event. A hidden view the agent is not driving is background-throttled.
+ * session or the person's Chrome profile. Popups stay in managed tabs, dialogs await answers and downloads wait for
+ * daemon consent. Permissions and service workers remain refused and audited. A hidden view the agent is not driving is background-throttled.
  */
 export class EmbeddedViews implements ViewHost {
-  private pages = new Map<string, EmbeddedPage>();
+  private pages = new Map<string, EmbeddedPageGroup>();
   private byContents = new Map<number, EmbeddedPage>();
-  /** Partitions already given their handlers: the pool's few, plus one per workspace. */
+  /** Partitions already given their handlers: the pool's few, plus one per persistent thread. */
   private configured = new Set<string>();
   private ephemeralPartitions = new PartitionPool("ace-browser-ephemeral-");
   private placements = new PlacementBook();
-  private hosts = new Map<number, BaseWindow>();
+  private hosts = new Map<number, PlacementHost>();
   private options: ViewHostOptions;
 
   constructor(options: ViewHostOptions) {
@@ -70,6 +66,7 @@ export class EmbeddedViews implements ViewHost {
 
   async open(request: {
     sessionId: string;
+    downloadDir?: string | undefined;
     options: BrowserOpen;
     viewport: { width: number; height: number };
   }): Promise<ViewPage> {
@@ -79,64 +76,71 @@ export class EmbeddedViews implements ViewHost {
     if (this.pages.has(threadId)) throw new Error("This thread already has an embedded view");
     const ephemeral = profile !== "persistent";
     const pool = this.ephemeralPartitions;
-    const partition = ephemeral ? pool.acquire() : `persist:ace-browser-${digest(workspaceId)}`;
-    let view: WebContentsView;
-    let partitionSession: Session;
-    try {
-      partitionSession = this.configure(partition);
-      view = new WebContentsView({
-        webPreferences: {
-          partition,
-          sandbox: true,
-          contextIsolation: true,
-          nodeIntegration: false,
-          webviewTag: false,
-          // Full speed while driven or shown; `EmbeddedPage` throttles it when neither.
-          backgroundThrottling: false,
-          spellcheck: false,
-        },
-      });
-    } catch (error) {
-      // Nothing ran in the partition, so it is still clean.
-      if (ephemeral) pool.release(partition, true);
-      throw error;
-    }
-    view.setVisible(false);
-    view.setBounds({ x: 0, y: 0, ...request.viewport });
-    window.contentView.addChildView(view);
-    const page = new EmbeddedPage({
-      view,
-      session: partitionSession,
-      released: ephemeral ? (cleared) => pool.release(partition, cleared) : undefined,
-      window,
-      platform: this.options.platform,
-      log: this.options.log,
-      forward: (accelerator) => this.forward(threadId, accelerator),
-      forget: () => {
-        if (this.pages.get(threadId) === page) {
+    const partition = ephemeral
+      ? pool.acquire()
+      : `persist:ace-browser-${digest(`${workspaceId}:${threadId}`)}`;
+    const partitionSession = this.configure(partition);
+    const group = new EmbeddedPageGroup(
+      async () => {
+        const view = new WebContentsView({
+          webPreferences: {
+            partition,
+            sandbox: true,
+            contextIsolation: true,
+            nodeIntegration: false,
+            // Electron requires this for iframe preloads. The OS sandbox disables
+            // the Node engine, and context isolation keeps the narrow bridge separate.
+            nodeIntegrationInSubFrames: true,
+            webviewTag: false,
+            backgroundThrottling: false,
+            spellcheck: false,
+          },
+        });
+        view.setVisible(false);
+        view.setBounds({ x: 0, y: 0, ...request.viewport });
+        window.contentView.addChildView(view);
+        const page = new EmbeddedPage({
+          view,
+          downloadDir: request.downloadDir,
+          session: partitionSession,
+          released: undefined,
+          window,
+          platform: this.options.platform,
+          log: this.options.log,
+          forward: (accelerator) => this.forward(threadId, accelerator),
+          forget: () => this.byContents.delete(view.webContents.id),
+        });
+        this.byContents.set(view.webContents.id, page);
+        try {
+          await page.prepare(request.viewport);
+          return page;
+        } catch (error) {
+          await page.close();
+          throw error;
+        }
+      },
+      async () => {
+        if (this.pages.get(threadId) === group) {
           this.pages.delete(threadId);
-          // Its renderers place it again if the thread's page opens again.
           this.placements.forget(threadId);
         }
-        this.byContents.delete(view.webContents.id);
+        if (ephemeral) pool.release(partition, await clearPartition(partitionSession));
       },
-    });
-    this.pages.set(threadId, page);
-    this.byContents.set(view.webContents.id, page);
-    // The renderer may have placed the thread's view before this one opened (a reopen).
-    this.apply(threadId);
+    );
+    this.pages.set(threadId, group);
     try {
-      await page.prepare(request.viewport);
+      await group.openTab();
+      this.apply(threadId);
+      return group;
     } catch (error) {
-      await page.close();
+      await group.close();
       throw error;
     }
-    return page;
   }
 
   /** Draw (or hide) a thread's view where a renderer's Browser tab shows its page. */
   place(placement: BrowserPlacement, host: PlacementHost): void {
-    this.hosts.set(host.id, host.window);
+    this.hosts.set(host.id, host);
     const { threadId } = placement;
     // Hiding a thread with no view here releases the claim: nothing of it is kept.
     if (!placement.visible && !this.pages.has(threadId)) {
@@ -148,6 +152,7 @@ export class EmbeddedViews implements ViewHost {
       bounds,
       visible: placement.visible,
       owner: placement.owner,
+      device: placement.device,
     });
     this.apply(threadId);
   }
@@ -168,19 +173,26 @@ export class EmbeddedViews implements ViewHost {
   private forward(threadId: string, accelerator: string): void {
     const host = this.placements.resolve(threadId).host;
     const contents = host === undefined ? undefined : webContents.fromId(host);
-    if (contents && !contents.isDestroyed())
-      replayChord(contents, accelerator, this.options.platform);
+    if (contents && !contents.isDestroyed()) {
+      contents.focus();
+      const shortcut = BrowserShortcut.safeParse({ threadId, accelerator });
+      if (shortcut.success) emit(contents, "browser.shortcut", shortcut.data);
+      else replayChord(contents, accelerator, this.options.platform);
+    }
   }
 
   private apply(threadId: string): void {
     const page = this.pages.get(threadId);
     if (!page) return;
     const placement = this.placements.resolve(threadId);
-    const window = placement.host === undefined ? undefined : this.hosts.get(placement.host);
+    const host = placement.host === undefined ? undefined : this.hosts.get(placement.host);
+    const window = host?.window;
     page.place({
       window: window && !window.isDestroyed() ? window : undefined,
       bounds: placement.bounds,
       visible: placement.visible,
+      zoom: host?.zoom ?? 1,
+      device: placement.device,
     });
     this.options.onClaim?.(threadId, placement.owner);
   }
@@ -189,6 +201,8 @@ export class EmbeddedViews implements ViewHost {
     const partitionSession = sessions.fromPartition(partition);
     if (this.configured.has(partition)) return partitionSession;
     this.configured.add(partition);
+    if (this.options.preload)
+      partitionSession.registerPreloadScript({ type: "frame", filePath: this.options.preload });
     const page = (contents: WebContents | null | undefined) =>
       contents ? this.byContents.get(contents.id) : undefined;
     partitionSession.setPermissionRequestHandler((contents, permission, callback, details) => {
@@ -201,6 +215,7 @@ export class EmbeddedViews implements ViewHost {
     partitionSession.setPermissionCheckHandler(() => false);
     partitionSession.setDevicePermissionHandler(() => false);
     partitionSession.on("will-download", (event, item, contents) => {
+      if (page(contents)?.download(item)) return;
       event.preventDefault();
       page(contents)?.emit("ace.downloadDenied", {
         url: item.getURL().slice(0, 8192),
@@ -232,327 +247,6 @@ export class EmbeddedViews implements ViewHost {
       callback({ cancel: true });
     });
     return partitionSession;
-  }
-}
-
-interface PageOptions {
-  view: WebContentsView;
-  session: Session;
-  /** Ephemeral sessions: the partition was cleared (or not) and may go back to its pool. */
-  released: ((cleared: boolean) => void) | undefined;
-  window: BaseWindow;
-  platform: NodeJS.Platform;
-  log(message: string): void;
-  /** Replays an app shortcut the person pressed in the page into the app's own page. */
-  forward(accelerator: string): void;
-  forget(): void;
-}
-
-class EmbeddedPage implements ViewPage {
-  private options: PageOptions;
-  private contents: WebContents;
-  private listeners = new Set<(method: string, params: unknown) => void>();
-  private blocked = new Set<() => void>();
-  private gate = new WebSocketGate();
-  private nativeInput = false;
-  /**
-   * Set only while this page itself dispatches an input event (a relayed CDP `Input.*`
-   * command or a key press). Chromium runs Electron's input hooks synchronously inside that
-   * dispatch, so the events it sees then are exactly the injected ones; a person's own events
-   * arrive as separate tasks and never see it set. See `inject`.
-   */
-  private injecting = 0;
-  private lastBlocked = 0;
-  private placed = false;
-  private closing: Promise<void> | undefined;
-  private detachedSent = false;
-  private lastDrivenAt = Date.now();
-  private screencasting = false;
-  private throttled = false;
-  private throttleTimer: ReturnType<typeof setTimeout> | undefined;
-
-  constructor(options: PageOptions) {
-    this.options = options;
-    this.contents = options.view.webContents;
-    const contents = this.contents;
-    contents.setWindowOpenHandler(() => ({ action: "deny" }));
-    contents.on("will-attach-webview", (event) => event.preventDefault());
-    contents.on("before-input-event", (event, input) => {
-      // The app's shortcuts keep working while the page has focus, whoever controls it; keys
-      // an agent sends are the page's.
-      const chord = this.injecting > 0 ? undefined : appChord(input, options.platform);
-      if (chord) {
-        event.preventDefault();
-        if (input.type === "keyDown" && !input.isAutoRepeat) options.forward(chord);
-        return;
-      }
-      if (this.allowInput()) return;
-      event.preventDefault();
-      if (input.type === "keyDown") this.reportBlocked();
-    });
-    contents.on("before-mouse-event", (event, mouse) => {
-      if (this.allowInput()) return;
-      event.preventDefault();
-      if (mouse.type === "mouseDown" || mouse.type === "mouseWheel") this.reportBlocked();
-    });
-    contents.debugger.on("message", (_event, method: string, params: unknown, sessionId) => {
-      // Flattened child sessions are not part of the relay; the daemon uses
-      // Target.sendMessageToTarget, whose replies arrive on the root session.
-      if (sessionId) return;
-      if (method === "Page.javascriptDialogOpening")
-        void this.send("Page.handleJavaScriptDialog", { accept: false }).catch(() => {});
-      this.emit(method, params);
-    });
-    contents.debugger.on("detach", (_event, reason) => this.detached(reason));
-    contents.on("render-process-gone", (_event, details) => this.detached(details.reason));
-    contents.on("destroyed", () => this.detached("Browser view destroyed"));
-  }
-
-  /** Attach CDP and install the refusals before the daemon sees the view. */
-  async prepare(viewport: { width: number; height: number }): Promise<void> {
-    // A view that never navigated has no renderer, and CDP domains wait for one forever.
-    await this.contents.loadURL("about:blank");
-    this.contents.debugger.attach("1.3");
-    await this.send("Page.enable");
-    await this.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: blockServiceWorkers,
-      runImmediately: true,
-    });
-    await this.resize(viewport.width, viewport.height);
-  }
-
-  emit(method: string, params: unknown): void {
-    for (const listener of this.listeners) listener(method, params);
-  }
-
-  checkSocket(url: string, reply: (allowed: boolean) => void): void {
-    this.gate.request(url, (method, params) => this.emit(method, params), reply);
-  }
-
-  /** Bounds are in the window's DIPs; a hidden view keeps its last box. */
-  place(target: { window: BaseWindow | undefined; bounds: Rect | undefined; visible: boolean }) {
-    const view = this.options.view;
-    const current = this.options.window;
-    if (target.window && target.window !== current) {
-      if (!current.isDestroyed()) current.contentView.removeChildView(view);
-      target.window.contentView.addChildView(view);
-      this.options.window = target.window;
-    }
-    if (target.bounds) view.setBounds(target.bounds);
-    this.placed = target.visible && target.bounds !== undefined;
-    // Hidden views stay alive (and attached) but stop painting, and send no frames.
-    view.setVisible(this.placed);
-    this.updateThrottle();
-  }
-
-  async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
-    if (method === "ace.webSocketDecision") {
-      this.gate.command(method, params);
-      return {};
-    }
-    if (method === "Page.startScreencast") this.screencasting = true;
-    else if (method === "Page.stopScreencast") this.screencasting = false;
-    this.driven();
-    this.gate.command(method, params);
-    if (!method.startsWith("Input.")) return this.send(method, params);
-    return this.inject(() => this.send(method, params));
-  }
-
-  /**
-   * Run a synchronous input dispatch whose events must pass the native gate: the daemon only
-   * relays input that its sender may give (an agent, or the person who holds the lease
-   * elsewhere). No time window is opened: an event the dispatch doesn't produce synchronously
-   * is treated as the person's and gated, so a change in Chromium fails closed.
-   */
-  private inject<T>(dispatch: () => T): T {
-    this.injecting++;
-    try {
-      return dispatch();
-    } finally {
-      this.injecting--;
-    }
-  }
-
-  onEvent(listener: (method: string, params: unknown) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  onBlockedInput(listener: () => void): () => void {
-    this.blocked.add(listener);
-    return () => this.blocked.delete(listener);
-  }
-
-  navigate(url: string, timeoutMs: number): Promise<string> {
-    this.driven();
-    const contents = this.contents;
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (error?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        contents.off("dom-ready", ready);
-        contents.off("did-fail-load", failed);
-        if (error) reject(error);
-        else resolve(contents.getURL());
-      };
-      const ready = () => finish();
-      const failed = (
-        _event: unknown,
-        code: number,
-        description: string,
-        _url: string,
-        isMainFrame: boolean,
-      ) => {
-        // -3 is ERR_ABORTED: a newer navigation replaced this one.
-        if (isMainFrame && code !== -3)
-          finish(new Error(description || `Navigation failed (${code})`));
-      };
-      const timer = setTimeout(() => finish(new Error("Navigation timed out")), timeoutMs);
-      contents.on("dom-ready", ready);
-      contents.on("did-fail-load", failed);
-      this.send("Page.navigate", { url })
-        .then((result) => {
-          if (typeof result !== "object" || result === null) return;
-          if ("errorText" in result && typeof result.errorText === "string" && result.errorText)
-            finish(new Error(result.errorText));
-          // No loader: a same-document navigation, which fires no DOMContentLoaded.
-          else if (!("loaderId" in result) || !result.loaderId) finish();
-        })
-        .catch((error: unknown) =>
-          finish(error instanceof Error ? error : new Error(String(error))),
-        );
-    });
-  }
-
-  async press(key: string): Promise<void> {
-    this.driven();
-    const press = parseChord(key, this.options.platform);
-    const { keyCode, modifiers } = press;
-    this.inject(() => {
-      this.contents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
-      if (press.text)
-        this.contents.sendInputEvent({ type: "char", keyCode: press.text, modifiers });
-      this.contents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
-    });
-    // Let the page handle the keys before the daemon reports the press done.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-
-  async resize(width: number, height: number): Promise<void> {
-    this.driven();
-    await this.send("Emulation.setDeviceMetricsOverride", {
-      width,
-      height,
-      deviceScaleFactor: 0,
-      mobile: false,
-    });
-    // A view the renderer is not showing takes the requested size itself.
-    if (!this.placed) this.options.view.setBounds({ x: 0, y: 0, width, height });
-  }
-
-  setNativeInput(enabled: boolean): void {
-    this.nativeInput = enabled;
-    this.updateThrottle();
-  }
-
-  url(): string {
-    return this.contents.isDestroyed() ? "about:blank" : this.contents.getURL() || "about:blank";
-  }
-
-  close(): Promise<void> {
-    this.closing ??= this.destroy();
-    return this.closing;
-  }
-
-  private async destroy(): Promise<void> {
-    this.options.forget();
-    this.gate.close();
-    this.listeners.clear();
-    this.blocked.clear();
-    clearTimeout(this.throttleTimer);
-    const { view, window, session, released } = this.options;
-    if (!window.isDestroyed()) window.contentView.removeChildView(view);
-    const contents = this.contents;
-    if (!contents.isDestroyed()) {
-      if (contents.debugger.isAttached()) contents.debugger.detach();
-      contents.close();
-    }
-    if (released) released(await clearPartition(session));
-  }
-
-  /** The agent used the view: full speed now, and throttled again once it goes quiet. */
-  private driven(): void {
-    this.lastDrivenAt = Date.now();
-    if (this.throttled) this.updateThrottle();
-    // One pending check at a time, however many commands arrive (frame acks are commands).
-    else this.throttleTimer ??= setTimeout(() => this.updateThrottle(), throttleIdleMs);
-  }
-
-  private updateThrottle(): void {
-    clearTimeout(this.throttleTimer);
-    this.throttleTimer = undefined;
-    if (this.closing || this.contents.isDestroyed()) return;
-    const decision = throttleDecision(
-      {
-        visible: this.placed,
-        nativeInput: this.nativeInput,
-        screencasting: this.screencasting,
-        lastDrivenAt: this.lastDrivenAt,
-      },
-      Date.now(),
-      throttleIdleMs,
-    );
-    if (decision.throttle !== this.throttled) {
-      this.throttled = decision.throttle;
-      this.contents.setBackgroundThrottling(decision.throttle);
-    }
-    if (!decision.throttle && decision.recheckInMs !== undefined)
-      this.throttleTimer = setTimeout(() => this.updateThrottle(), decision.recheckInMs);
-  }
-
-  private send(method: string, params?: Record<string, unknown>): Promise<unknown> {
-    if (this.contents.isDestroyed()) return Promise.reject(new Error("Browser view closed"));
-    return this.contents.debugger.sendCommand(method, params ?? {});
-  }
-
-  private allowInput(): boolean {
-    return this.nativeInput || this.injecting > 0;
-  }
-
-  /** At most one take-control request a second, however fast the person clicks. */
-  private reportBlocked(): void {
-    const now = Date.now();
-    if (now - this.lastBlocked < 1_000) return;
-    this.lastBlocked = now;
-    for (const listener of this.blocked) listener();
-  }
-
-  /** The view went away without the daemon asking: tell it once, as CDP would. */
-  private detached(reason: string): void {
-    if (this.closing || this.detachedSent) return;
-    this.detachedSent = true;
-    this.emit("Inspector.detached", { reason });
-  }
-}
-
-/**
- * Everything an ephemeral session left behind (storage, cookies, caches, auth, DNS, open
- * connections), so the partition can serve the next session. False if any of it failed.
- */
-async function clearPartition(session: Session): Promise<boolean> {
-  try {
-    await session.closeAllConnections();
-    await session.clearData();
-    await session.clearStorageData();
-    await session.clearCache();
-    await session.clearAuthCache();
-    await session.clearHostResolverCache();
-    await session.clearCodeCaches({});
-    return true;
-  } catch {
-    return false;
   }
 }
 

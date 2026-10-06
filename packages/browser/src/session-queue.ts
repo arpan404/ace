@@ -2,6 +2,8 @@ import type { BrowserCommand, BrowserDialog } from "@ace/protocol";
 import { BrowserActionError } from "./action-error.ts";
 
 const inputActions = new Set([
+  "history",
+  "find_text",
   "navigate",
   "click",
   "type",

@@ -57,8 +57,7 @@ type Phase =
  * One browser tab: its own address and history over the thread's single live page. Going
  * somewhere opens the page if there is none (downloading Chromium the first time), takes the
  * control lease from an agent, navigates, and records where the page landed. Back and Forward
- * re-open this tab's earlier addresses; the relay has no history commands, so a page's own
- * state (forms, scroll) isn't restored.
+ * use the backend's document history so forms and scroll position survive traversal.
  */
 export function useBrowserTab(source: PreviewSource, threadId: string, tab: WorkspaceTab) {
   const page = usePage(source, threadId);
@@ -92,6 +91,42 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
 
   // The page moved on its own (a link, a redirect, an agent): this tab follows it.
   const liveUrl = bound ? live.url : undefined;
+  const [loadedHistory, setNativeHistory] = useState<{
+    key: string;
+    back: boolean;
+    forward: boolean;
+  }>();
+  const activeTab = live?.activeTabId;
+  const historyKey = `${threadId}|${activeTab ?? ""}|${liveUrl ?? ""}`;
+  const nativeHistory = loadedHistory?.key === historyKey ? loadedHistory : undefined;
+  useEffect(() => {
+    let current = true;
+    if (bound && source.navigationHistory)
+      void source
+        .navigationHistory(threadId)
+        .then((value) => {
+          if (current) setNativeHistory({ ...value, key: historyKey });
+        })
+        .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [source, threadId, historyKey, bound]);
+  const navigateHistory = async (direction: "back" | "forward" | "reload") => {
+    try {
+      if (!source.heldAs(threadId)) await source.takeover(threadId);
+      await source.navigateHistory?.(threadId, direction);
+    } catch (error) {
+      setState({
+        phase: "failed",
+        url: liveUrl ?? data.url ?? "",
+        failure: describeBrowserFailure(
+          error instanceof Error ? error.message : String(error),
+          liveUrl ?? "",
+        ),
+      });
+    }
+  };
   useEffect(() => {
     if (owner === undefined && liveUrl !== undefined) bindPage(threadId, tab.key);
   }, [owner, liveUrl, threadId, tab.key]);
@@ -114,7 +149,7 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
         if (!workspaceId) throw new Error("The thread's project isn't known yet.");
         await source.open(threadId, workspaceId);
       }
-      if (source.view(threadId)?.controller !== "human") await source.takeover(threadId);
+      if (!source.heldAs(threadId)) await source.takeover(threadId);
       const emulation = viewportById(data.viewport).emulation;
       if (!live && emulation) await source.emulate(threadId, emulation);
       const reachedUrl = await source.navigate(threadId, url);
@@ -177,15 +212,19 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
     data,
     state,
     suggestions,
-    canBack: canStep(history, -1),
-    canForward: canStep(history, 1),
+    canBack: nativeHistory?.back ?? canStep(history, -1),
+    canForward: nativeHistory?.forward ?? canStep(history, 1),
     go: (url: string) => void go(url),
     reload: () => {
+      if (bound && source.navigateHistory && state.phase !== "failed") {
+        void navigateHistory("reload");
+        return;
+      }
       const url = state.phase === "failed" ? state.url : (data.url ?? live?.url);
       if (url) void go(url, history);
     },
-    back: () => step(-1),
-    forward: () => step(1),
+    back: () => (source.navigateHistory && bound ? void navigateHistory("back") : step(-1)),
+    forward: () => (source.navigateHistory && bound ? void navigateHistory("forward") : step(1)),
     save,
   };
 }

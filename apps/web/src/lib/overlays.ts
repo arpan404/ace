@@ -32,6 +32,8 @@ export function overlayBoxes(under: Element): DOMRectReadOnly[] {
     if (depth < maxDepth) for (const child of element.children) visit(child, depth + 1);
   };
   for (const root of overlayRoots(under)) visit(root, 0);
+  for (const inline of under.ownerDocument.querySelectorAll("[data-native-overlay]"))
+    visit(inline, 0);
   return boxes;
 }
 

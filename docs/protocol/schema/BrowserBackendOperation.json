@@ -4,6 +4,11 @@
   "oneOf": [
     {
       "properties": {
+        "downloadDir": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
         "kind": {
           "const": "open",
           "type": "string"

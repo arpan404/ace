@@ -14,7 +14,7 @@ async function openBrowser() {
   await app.open(`/t/${threadId}`);
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is using this page", { exact: false }, { timeout: 10000 });
   return { app, panel, browser: app.daemon.browser };
 }
 
@@ -148,4 +148,24 @@ test("closing the browser tab keeps a private page private: agents stay locked o
   // An agent acting on the page changes nothing while it is held privately.
   act(() => browser.type(threadId, "agent typing"));
   expect(browser.frame(threadId)?.src).toBe(before);
+});
+
+test("the person opens a new page tab without replacing the current page", async () => {
+  const { panel, browser } = await openBrowser();
+  const first = browser.view(threadId)?.activeTabId;
+  const count = browser.tabsList(threadId).length;
+  await userEvent.click(within(panel).getByRole("button", { name: "New page tab" }));
+  await waitFor(() => expect(browser.tabsList(threadId)).toHaveLength(count + 1));
+  expect(browser.tabsList(threadId).some((tab) => tab.tabId === first)).toBe(true);
+  expect(browser.view(threadId)?.activeTabId).not.toBe(first);
+});
+
+test("picking a page size closes the chooser so the page can receive input again", async () => {
+  const { panel } = await openBrowser();
+  await userEvent.click(within(panel).getByRole("button", { name: "Page size" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: /iPhone 16 Pro/ }));
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  expect(
+    within(panel).getByRole("button", { name: "Page size" }).getAttribute("aria-expanded"),
+  ).toBe("false");
 });

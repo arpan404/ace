@@ -1,6 +1,10 @@
 import { useEffectEvent, useLayoutEffect, useRef, type RefObject } from "react";
-import { desktopBrowserViews, type PageBox } from "@/boot/desktop-browser.ts";
-import { observeRect } from "@/lib/element-rect.ts";
+import {
+  desktopBrowserViews,
+  type NativeViewPlacement,
+  type PageBox,
+} from "@/boot/desktop-browser.ts";
+
 import { observeOverlays, overlayBoxes } from "@/lib/overlays.ts";
 
 interface Size {
@@ -29,8 +33,13 @@ export function nativeViewPlacement(input: {
   const { area, device } = input;
   let box = area;
   if (device) {
-    const width = Math.min(device.width, Math.max(0, area.width - 2 * devicePadding));
-    const height = Math.min(device.height, Math.max(0, area.height - 2 * devicePadding));
+    const scale = Math.min(
+      1,
+      Math.max(0, area.width - 2 * devicePadding) / device.width,
+      Math.max(0, area.height - 2 * devicePadding) / device.height,
+    );
+    const width = device.width * scale;
+    const height = device.height * scale;
     box = {
       x: area.x + (area.width - width) / 2,
       y: area.y + (area.height - height) / 2,
@@ -66,7 +75,7 @@ export function useNativeView(
   area: RefObject<HTMLElement | null>,
   active: boolean,
   options: {
-    device: Size | undefined;
+    device: NativeViewPlacement["device"];
     /** The connection through which this client holds the page, while it does. */
     owner: string | undefined;
     /** They clicked or typed on the view without control. */
@@ -75,6 +84,8 @@ export function useNativeView(
 ): void {
   const deviceWidth = options.device?.width;
   const deviceHeight = options.device?.height;
+  const deviceMobile = options.device?.mobile;
+  const deviceScaleFactor = options.device?.deviceScaleFactor;
   const { owner } = options;
   const wantsControl = useEffectEvent(options.onWantsControl);
   // Control changes update the placement in place, without hiding the view in between.
@@ -90,7 +101,7 @@ export function useNativeView(
     if (!views || !element || !active) return;
     const size =
       deviceWidth !== undefined && deviceHeight !== undefined
-        ? { width: deviceWidth, height: deviceHeight }
+        ? { width: deviceWidth, height: deviceHeight, mobile: deviceMobile, deviceScaleFactor }
         : undefined;
     let rect: PageBox | undefined;
     let sent = "";
@@ -104,7 +115,13 @@ export function useNativeView(
         overlays: overlayBoxes(element),
       });
       const held = placement.visible ? ownerRef.current : undefined;
-      const next = { threadId, ...placement, ...(held ? { owner: held } : {}) };
+      const next = {
+        threadId,
+        ...placement,
+        ...(held ? { owner: held } : {}),
+        ...(size ? { device: size } : {}),
+        dpr: devicePixelRatio,
+      };
       const key = JSON.stringify(next);
       if (key === sent) return;
       sent = key;
@@ -112,10 +129,17 @@ export function useNativeView(
       void views.place(next).catch(() => {});
     };
     replace.current = place;
-    const stopRect = observeRect(element, (next) => {
+    // Layout can move without resizing, including transforms during panel transitions.
+    // One read per displayed native page; unchanged geometry never crosses IPC.
+    let frame = 0;
+    const measure = () => {
+      const next = element.getBoundingClientRect();
       rect = { x: next.x, y: next.y, width: next.width, height: next.height };
       place();
-    });
+      frame = requestAnimationFrame(measure);
+    };
+    measure();
+    const stopRect = () => cancelAnimationFrame(frame);
     const stopOverlays = observeOverlays(element, place);
     const stopWants = views.onWantsControl((id) => {
       if (id === threadId) wantsControl();
@@ -127,5 +151,5 @@ export function useNativeView(
       stopWants();
       void views.place({ threadId, bounds, visible: false }).catch(() => {});
     };
-  }, [threadId, area, active, deviceWidth, deviceHeight]);
+  }, [threadId, area, active, deviceWidth, deviceHeight, deviceMobile, deviceScaleFactor]);
 }
