@@ -21,7 +21,7 @@ export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
   /** The owner issues a thread/instance-scoped lease; no shared static token. */
   mcp?: (
     context: SessionContext & { instanceId: string },
-  ) => Promise<{ connection: AceMcpConnection; end(): void }>;
+  ) => Promise<{ connection: AceMcpConnection; signal?: AbortSignal; end(): void }>;
 }
 export function createCursorAdapter(
   options: CursorAdapterOptions = {},
@@ -99,6 +99,9 @@ export function createCursorAdapter(
         const opened = await openCursorSession(
           {
             ...context,
+            signal: lease?.signal
+              ? AbortSignal.any([context.signal, lease.signal])
+              : context.signal,
             onExit: (exit) => {
               exitedDuringAdmission = true;
               if (session) sessions.delete(session);

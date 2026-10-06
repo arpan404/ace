@@ -75,8 +75,13 @@ it("Cursor SDK consumes the daemon lease and calls browser, screen and device to
     Agent: {
       async create(options) {
         const server = z
-          .object({ url: z.string(), headers: z.object({ Authorization: z.string() }) })
+          .object({
+            type: z.literal("http"),
+            url: z.string(),
+            headers: z.object({ Authorization: z.string() }),
+          })
           .parse(options.mcpServers?.ace);
+        expect(JSON.stringify(process.env)).not.toContain(server.headers.Authorization.slice(7));
         expect(
           await proof(server.url, server.headers.Authorization, {
             url: f.browserUrl,

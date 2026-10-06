@@ -642,6 +642,38 @@ it("cumulative snapshots retain full diagnostic receipts and sanitize canonical 
   }
 });
 
+it("model socket retries show network waiting while MCP failures remain tool errors", () => {
+  const h = setup();
+  h.event("session.execution.started");
+  h.event("session.tool.failed", {
+    id: "call",
+    assistantMessageID: "message",
+    name: "ace_ace_thread_info",
+    error: { message: "MCP transport closed" },
+  });
+  expect(h.view.thread.status.state).toBe("working");
+  expect(
+    h.events.some(
+      (event) =>
+        event.type === "agent.status" &&
+        event.status.state === "blocked" &&
+        event.status.on === "network",
+    ),
+  ).toBe(false);
+  h.event("session.retry.scheduled", {
+    attempt: 2,
+    at: 10_000,
+    error: { message: "ECONNRESET: The socket connection was closed unexpectedly." },
+  });
+  expect(h.view.thread.status).toMatchObject({ state: "waiting", on: "network" });
+  expect(h.events).toContainEqual(
+    expect.objectContaining({
+      type: "agent.status",
+      status: expect.objectContaining({ state: "blocked", on: "network", attempt: 2 }),
+    }),
+  );
+});
+
 it("a native network retry stops blocking the agent when the same execution produces new work", () => {
   const h = setup();
   h.event("session.execution.started");

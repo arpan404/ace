@@ -1,3 +1,4 @@
+import type { Scheduler } from "./registry.ts";
 import { createHash } from "node:crypto";
 import { McpScope, type McpCapability } from "@ace/protocol";
 
@@ -19,7 +20,20 @@ export class CredentialRegistry {
   private secret: () => string;
   private limit: number;
   private closed = false;
-  constructor(secret: () => string, limit = 1024) {
+  private expiry: { scheduler: Scheduler; maxAgeMs: number } | undefined;
+  constructor(
+    secret: () => string,
+    limit = 1024,
+    expiry?: { scheduler: Scheduler; maxAgeMs: number },
+  ) {
+    if (
+      expiry &&
+      (!Number.isFinite(expiry.maxAgeMs) ||
+        expiry.maxAgeMs <= 0 ||
+        expiry.maxAgeMs > 24 * 60 * 60 * 1000)
+    )
+      throw new Error("Invalid MCP credential lifetime");
+    this.expiry = expiry;
     this.secret = secret;
     this.limit = limit;
   }
@@ -39,14 +53,17 @@ export class CredentialRegistry {
     if (this.entries.has(key)) throw new Error("Credential collision");
     const controller = new AbortController();
     const principal = Object.freeze({ scope, signal: controller.signal });
+    let cancelDeadline: (() => void) | undefined;
     const end = () => {
       if (controller.signal.aborted) return;
+      cancelDeadline?.();
       this.entries.delete(key);
       lifetime.removeEventListener("abort", end);
       controller.abort();
     };
     this.entries.set(key, { principal, end });
     lifetime.addEventListener("abort", end, { once: true });
+    if (this.expiry) cancelDeadline = this.expiry.scheduler.after(this.expiry.maxAgeMs, end);
     return Object.freeze({ bearer, principal, end });
   }
   authenticate(bearer: string): Principal | undefined {
