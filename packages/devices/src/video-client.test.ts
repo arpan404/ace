@@ -355,3 +355,34 @@ it("a synchronously rejected H.264 chunk recovers at an IDR without negotiating 
   render.close();
   expect(f.resources.size).toBe(0);
 });
+
+it("repeated corrupt IDRs wait before requesting another frame and cancel recovery when closed", async () => {
+  const f = fixture();
+  let delayed: (() => void) | undefined;
+  f.ports.schedule = (run, ms) => {
+    if (ms < 1000) delayed = run;
+    return () => {};
+  };
+  const render = createDeviceRenderer(f.ports);
+  const first = render.render(frame(1, true));
+  f.fail("decode");
+  await first;
+  expect(f.keys).toBe(1);
+  const second = render.render(frame(2, true));
+  f.fail("decode");
+  await second;
+  expect(f.keys).toBe(1);
+  expect(f.fallbacks).toBe(0);
+  expect(delayed).toBeDefined();
+  await render.render(frame(3));
+  expect(f.keys).toBe(1);
+  delayed?.();
+  expect(f.keys).toBe(2);
+  const third = render.render(frame(4, true));
+  f.fail("decode");
+  await third;
+  render.close();
+  delayed?.();
+  expect(f.keys).toBe(2);
+  expect(f.resources.size).toBe(0);
+});

@@ -97,8 +97,9 @@ WebCodecs and latest-frame queues are shared with the current streaming stack.
 The browser worker's `fix/browser-crisp-native` worktree was read for coordination;
 its physical-pixel sizing agrees with this stream contract.
 
-An idle macOS run is still required to qualify 45+ fps, the input budgets and
-idle daemon memory. The owner's live check should cover their Simulator/Xcode
+The daemon benchmark passed after load fell to 13.19: idle RSS was 216.7 MiB
+against its 256 MiB budget. An idle device run is still required to qualify
+45+ fps and the input budgets. The owner's live check should cover their Simulator/Xcode
 version, their permission state, idb/idb_companion installation for background typing, a Retina display, and Space
 changes. The sandbox Space run did not terminate capture, but it did not induce
 an actual ScreenCaptureKit system-interruption error; restart eligibility is also

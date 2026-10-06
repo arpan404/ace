@@ -67,8 +67,12 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
   let pending: { header: ScreenFrameHeader; resolve(): void; cancel(): void } | undefined;
   let epoch = 0;
   let cancelKeyframe: (() => void) | undefined;
+  let cancelRecovery: (() => void) | undefined;
+  let decodeFailures = 0;
   const reset = () => {
     epoch++;
+    cancelRecovery?.();
+    cancelRecovery = undefined;
     cancelKeyframe?.();
     cancelKeyframe = undefined;
     requested = false;
@@ -81,6 +85,7 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
   };
   const recover = () => {
     waiting = true;
+    if (cancelRecovery) return;
     if (!requested) {
       requested = true;
       ports.keyframe();
@@ -98,6 +103,23 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
       ports.fallback();
     }
   };
+  const recoverDecode = () => {
+    ports.pressure();
+    reset();
+    decodeFailures++;
+    if (decodeFailures === 1) recover();
+    else {
+      // Repeated corrupt IDRs must not create a tight request/decode loop.
+      const stamp = epoch;
+      cancelRecovery = ports.schedule(
+        () => {
+          cancelRecovery = undefined;
+          if (stamp === epoch && !closed && !failed) recover();
+        },
+        Math.min(1000, decodeFailures * 100),
+      );
+    }
+  };
   return {
     async render(frame: PortableFrame): Promise<void> {
       if (closed) return;
@@ -109,6 +131,7 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
         previous = -1;
         requested = false;
         failed = false;
+        decodeFailures = 0;
       }
       if (seq <= previous) return;
       const gap = previous >= 0 && seq !== previous + 1;
@@ -150,7 +173,10 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
               h,
               (image) => {
                 try {
-                  if (!closed && stamp === epoch && pending) ports.video(image, pending.header);
+                  if (!closed && stamp === epoch && pending) {
+                    ports.video(image, pending.header);
+                    decodeFailures = 0;
+                  }
                 } finally {
                   image.close();
                   if (stamp === epoch) {
@@ -162,11 +188,8 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
               },
               (reason = "unsupported") => {
                 if (stamp !== epoch) return;
-                if (reason === "decode") {
-                  ports.pressure();
-                  reset();
-                  recover();
-                } else fallback();
+                if (reason === "decode") recoverDecode();
+                else fallback();
               },
             );
           } catch {
@@ -184,18 +207,14 @@ export function createDeviceRenderer(ports: DeviceRendererPorts) {
           cancel: ports.schedule(() => {
             // A scheduling stall says nothing about codec support. Drop the decode and
             // recover from a keyframe; only an actual decoder error negotiates JPEG.
-            ports.pressure();
-            reset();
-            recover();
+            recoverDecode();
           }, 500),
         };
         try {
           decoder?.decode(frame);
         } catch {
           // A bad chunk or decoder state does not make the codec unsupported.
-          ports.pressure();
-          reset();
-          recover();
+          recoverDecode();
         }
       });
     },
