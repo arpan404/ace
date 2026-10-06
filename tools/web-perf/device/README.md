@@ -37,6 +37,8 @@ ACE_PERF_DRIVER=electron ACE_PERF_PACKAGED=1 ACE_PERF_REBUILD=1 \
   ACE_PERF_OUTPUT=/tmp/device-perf.json sh tools/web-perf/device/run.sh
 ```
 
+`bun run check:perf` skips this benchmark when `ACE_PERF_DEVICE=0`, so no Simulator boots.
+
 Set `ACE_PERF_ASSERT=1` to enforce budgets, `ACE_PERF_SPACE=1` to put the disposable
 ace window in a full-screen Space, or `ACE_PERF_KEEP=1` to retain the sandbox.
 `ACE_PERF_HELPER` can select a baseline helper. `ACE_PERF_BASELINE` is a legacy
