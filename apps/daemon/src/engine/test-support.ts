@@ -89,6 +89,7 @@ export async function harness(
   steps: ScriptedStep[],
   frames: ReturnType<typeof scriptFrames>,
   options: {
+    models?: EngineOptions["models"];
     limits?: EngineOptions["limits"];
     recovery?: EngineOptions["recovery"];
     preferences?: EngineOptions["preferences"];
@@ -178,6 +179,7 @@ export async function harness(
   const errors: unknown[] = [];
   const engine = new Engine(store, {
     registry,
+    ...(options.models ? { models: options.models } : {}),
     ...(options.providerEnabled ? { providerEnabled: options.providerEnabled } : {}),
     ...(options.recovery ? { recovery: options.recovery } : {}),
     ...(options.preferences ? { preferences: options.preferences } : {}),
@@ -198,6 +200,7 @@ export async function harness(
     store,
     handler: engine.handler,
     engine,
+    ...(options.models ? { models: options.models } : {}),
   });
   const clients: Client[] = [];
   function command(payload: CommandPayload, deviceId = "device", id: string = randomUUID()) {
@@ -233,6 +236,7 @@ export async function harness(
     return client;
   }
   return {
+    url: server.url,
     home,
     path,
     store,

@@ -234,14 +234,14 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
 
   // Reorder: Preview moves before Agents.
   await panel
-    .getByRole("tab", { name: "Preview" })
+    .getByRole("tab", { name: /^(Preview|web · :\d+)/ })
     .dragTo(panel.getByRole("tab", { name: "Agents" }), { targetPosition: { x: 4, y: 8 } });
   await beat();
 
   // A subagent as its own tab, and back to the tree.
   await panel.getByRole("tab", { name: "Agents" }).click();
   await beat(600);
-  await panel.getByRole("button", { name: "Open resume-sweep" }).click();
+  await panel.getByRole("treeitem", { name: /^resume-sweep:/ }).click();
   await panel.getByRole("region", { name: "Delegation" }).waitFor();
   await beat(1200);
   await panel.getByRole("button", { name: /Back to agents/ }).click();

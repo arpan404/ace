@@ -1,3 +1,4 @@
+import type { EngineModels } from "./models.ts";
 import { renderHandoff } from "@ace/handoff";
 import type { MigrationResult } from "@ace/protocol/accounts";
 import type { ExecutionSelection, ThreadId } from "@ace/protocol";
@@ -24,6 +25,7 @@ export class ThreadTransitions {
   private sessions: Sessions;
   private io: TransitionIO;
   private now: () => number;
+  private models: EngineModels;
   private closeThread: (id: ThreadId) => Promise<void>;
   constructor(
     repo: EngineRepository,
@@ -31,6 +33,7 @@ export class ThreadTransitions {
     sessions: Sessions,
     io: TransitionIO,
     now: () => number,
+    models: EngineModels,
     closeThread: (id: ThreadId) => Promise<void>,
   ) {
     this.repo = repo;
@@ -39,6 +42,7 @@ export class ThreadTransitions {
     this.io = io;
     this.now = now;
     this.closeThread = closeThread;
+    this.models = models;
   }
   async execute(actor: ThreadActor, intent: Intent): Promise<void> {
     const p = intent.command.payload;
@@ -100,7 +104,8 @@ export class ThreadTransitions {
       options: {},
       ...metadata,
     };
-    const selection = this.repo.transitions.selection(actor.id, current, p.selection);
+    const requested = this.repo.transitions.selection(actor.id, current, p.selection);
+    const selection = await this.models.prepare(requested, this.models.identity(actor.id));
     const crossProvider = selection.provider !== current.provider;
     const crossAccount = !crossProvider && selection.instanceId !== current.instanceId;
     const backend = this.repo.backend(actor.id);

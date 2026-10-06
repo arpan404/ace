@@ -8,6 +8,7 @@ import {
   type CommandResult,
   type ForgePrStatus,
   type ForgeRepository,
+  type GitStatusFile,
   type ProviderKind,
   type ThreadDetails,
   type WorkspaceActionRequest,
@@ -27,6 +28,7 @@ export interface ThreadRef {
 }
 
 export type Script = WorkspaceScript;
+export type ChangedFile = GitStatusFile;
 export type EditorLaunch = NonNullable<CommandResult["editor"]>;
 
 export interface PrInput {
@@ -79,8 +81,21 @@ export interface WorkspaceSource {
   runScript(thread: ThreadRef, script: Script): Promise<string>;
   /** The validated launch for opening the checkout in an installed editor. */
   openIn(thread: ThreadRef, editorId: string): Promise<EditorLaunch>;
-  /** Commits every change; `expectedHead` guards against a branch that moved meanwhile. */
-  commit(thread: ThreadRef, message: string, expectedHead: string | null): Promise<string>;
+  /** The files a commit would take, exactly as `git status` reports them (first 500). */
+  gitStatus(
+    thread: ThreadRef,
+    signal?: AbortSignal,
+  ): Promise<{ files: readonly ChangedFile[]; truncated: boolean }>;
+  /**
+   * Commits `paths` (every change when absent); `expectedHead` guards against a branch that
+   * moved meanwhile.
+   */
+  commit(
+    thread: ThreadRef,
+    message: string,
+    expectedHead: string | null,
+    paths?: readonly string[],
+  ): Promise<string>;
   push(thread: ThreadRef): Promise<void>;
   /** Opens a pull request for the branch; returns its number. */
   createPr(thread: ThreadRef, input: PrInput): Promise<number>;
@@ -128,6 +143,14 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       (await read({ op: "thread.details", threadId: id(thread) }, "details", signal)).details,
     prStatus: async (thread, signal) =>
       (await read({ op: "pr.status", threadId: id(thread) }, "pr", signal)).status,
+    async gitStatus(thread, signal) {
+      const { files, truncated } = await read(
+        { op: "git.status", threadId: id(thread) },
+        "gitStatus",
+        signal,
+      );
+      return { files, truncated };
+    },
     scripts: async (thread, signal) =>
       (await read({ op: "scripts.list", threadId: id(thread) }, "scripts", signal)).scripts,
     async runScript(thread, script) {
@@ -144,8 +167,14 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       if (!result.editor) throw new WorkspaceError("unexpected");
       return result.editor;
     },
-    async commit(thread, message, expectedHead) {
-      const result = await run({ type: "git.commit", threadId: id(thread), message, expectedHead });
+    async commit(thread, message, expectedHead, paths) {
+      const result = await run({
+        type: "git.commit",
+        threadId: id(thread),
+        message,
+        expectedHead,
+        ...(paths ? { paths: [...paths] } : {}),
+      });
       return result.commit ?? "";
     },
     async push(thread) {

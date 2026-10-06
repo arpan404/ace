@@ -28,6 +28,7 @@ const entrySource = `
 export { ClientMessage, ServerMessage } from "@ace/protocol";
 export { DaemonTarget } from "@/boot/connection-settings.ts";
 export { WorkerTarget } from "@/boot/worker-target.ts";
+export { MachineTarget } from "@/boot/machine-target.ts";
 export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
 export { ShellLayout } from "@/lib/layout.tsx";
 export { Choices } from "@/features/home/new-thread/choices.ts";
@@ -58,7 +59,11 @@ async function bundle(plugins: Plugin[], source = entrySource): Promise<string> 
       write: false,
       target: "es2023",
       lib: { entry: entryFile, formats: ["cjs"], fileName: "entry" },
-      rolldownOptions: { external: (id) => /^react($|\/|-dom)/.test(id) },
+      rolldownOptions: {
+        external: (id) => /^react($|\/|-dom)/.test(id),
+        // One file to run: lazily loaded worker code comes along inline.
+        output: { inlineDynamicImports: true },
+      },
     },
   });
   const outputs = (Array.isArray(result) ? result : [result]) as Rolldown.RolldownOutput[];
@@ -201,6 +206,17 @@ const browserInputs: Record<string, unknown[]> = {
     { url: "wss://example.com/", token: "t", deviceId: "d", seed: null },
     { url: "wss://example.com/", token: "t", deviceId: "", seed: 1 },
   ],
+  MachineTarget: [
+    {
+      url: "wss://build.local:4242/",
+      token: "a".repeat(64),
+      deviceId: "device",
+      seed: null,
+      hostId: "build",
+    },
+    { url: "wss://build.local:4242/", token: "t", deviceId: "d", seed: null, hostId: "" },
+    { url: "wss://build.local:4242/", token: "t", deviceId: "d", seed: null },
+  ],
   TabMessage: [
     { t: "connect", config: { daemon: "local" } },
     { t: "lease", lease: 1, scope: { kind: "thread", threadId: "t" } },
@@ -280,8 +296,11 @@ beforeAll(async () => {
       `
       export { ClientMessage, ServerMessage } from "@ace/protocol";
       export { WorkerTarget } from "@/boot/worker-target.ts";
+      export { MachineTarget } from "@/boot/machine-target.ts";
       export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
       export { string, object, number } from "zod";
+      // The machine-pool worker's entry loads with the worker build's Zod.
+      import "@/boot/machine-worker.ts";
     `,
     ),
     protocolCorpus(),
@@ -380,7 +399,7 @@ describe("zodWithoutUnusedMethods", () => {
   });
 
   it("keeps worker port decoding identical while sharing classic schema constructors", () => {
-    for (const name of ["WorkerTarget", "TabMessage", "WorkerMessage"])
+    for (const name of ["WorkerTarget", "MachineTarget", "TabMessage", "WorkerMessage"])
       expect(disagreements(name, browserInputs[name] ?? [], worker)).toEqual([]);
     expect(() => worker.string().catch("fallback")).toThrow(".catch() is left out");
     expect(trimmed.Choices?.safeParse({ mode: "bogus" }).success).toBe(true);

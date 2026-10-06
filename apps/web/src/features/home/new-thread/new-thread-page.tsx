@@ -53,7 +53,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   const resolved = resolve(options, choices, picked ?? start.provider);
   const branches = useBranches(project);
   const base = baseChoice && branches.includes(baseChoice) ? baseChoice : branches[0];
-  const provider = resolved.model?.provider;
+  const provider = resolved.provider;
 
   // Approvals start at the daemon's default for the project; a choice here applies to this
   // thread only and isn't remembered, so full access is never carried into the next thread.
@@ -102,9 +102,8 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
     return create({
       project,
-      provider: resolved.model.provider,
-      model: resolved.model.fromCatalog ? resolved.model.id : undefined,
-      account: resolved.account?.id,
+      scope: resolved.model.scope,
+      model: resolved.model.id,
       mode: resolved.mode,
       baseBranch: base,
       effort: resolved.effort,
@@ -146,8 +145,16 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                   options={options}
                   resolved={resolved}
                   onModel={(model) => {
-                    setPicked(options?.models.find((m) => m.key === model)?.provider);
-                    choose({ model, account: undefined, effort: undefined, fast: undefined });
+                    const rows = options?.models.filter((m) => m.key === model) ?? [];
+                    setPicked(rows[0]?.provider);
+                    // Stay on the chosen account when it serves the model; else one that does.
+                    const stays = rows.some((m) => m.account === choices.account);
+                    choose({
+                      model,
+                      account: stays ? choices.account : undefined,
+                      effort: undefined,
+                      fast: undefined,
+                    });
                   }}
                   onAccount={(account) => choose({ account })}
                   onEffort={(effort) => choose({ effort })}

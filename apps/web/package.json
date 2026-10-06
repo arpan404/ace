@@ -7,6 +7,7 @@
     "*.css",
     "./src/main.tsx",
     "./src/boot/client-worker.ts",
+    "./src/boot/machine-worker.ts",
     "./src/**/*.worker.ts"
   ],
   "scripts": {
@@ -18,9 +19,12 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ace/automations": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/client-react": "workspace:*",
     "@ace/client-worker": "workspace:*",
+    "@ace/project-picker": "workspace:*",
+    "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/ui-core": "workspace:*",
     "@base-ui/react": "^1.8.0",

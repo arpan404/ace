@@ -328,12 +328,30 @@ long-thread` measures all of it on the synthetic million-item thread (`?long=1` 
 project list (`lib/project-cache.ts`) live from the daemon's workspace pushes; open a dialog from
 anywhere with `useProjectDialogs().open({ kind: "add", tab })` (or `rename`, `remove`). The dialogs
 load on first use (`dialogs-loader.ts`) and stay mounted, so a clone carries on with its dialog
-closed. Every path is the daemon host's: the web picks folders with `fs.browse`; the desktop app
-adds its native picker and dropped-folder paths (`boot/desktop-folders.ts`, `window.ace.dialogs`
-and `window.ace.files`). `/new?folder=<path>` (the desktop's `ace://open?folder=`) adds or finds
-the folder and opens New thread in it. Wording, name and address checks live in
-`@ace/ui-core` (`projects.ts`). In fake mode `hostFolders()` seeds a home to browse, and
-`aceFakeWorld = "empty"` boots the first run.
+closed.
+
+Add project has three tabs (Open folder, New project, Clone; ⌘1–⌘3, or ←/→ from an empty box)
+and, when the window's machine pool (`lib/machine-pool.ts`, ADR 0059) holds more than one
+machine, a machine picker (⌘M cycles). `lib/machines.ts` lists the targets; every read and
+command goes to the chosen machine's client and never falls back to another. A project added on
+another machine is announced, not opened: the rest of the app still shows this window's daemon.
+
+One search box (`folder-search.tsx`, a combobox over a listbox with active descendant) serves
+Open folder and the New project and Clone locations. Letters search with the daemon's `fs.search`;
+`/`, `~` and `./` browse a path (`@ace/ui-core` `parseFolderQuery`), Tab completes with
+`fs.complete`, Backspace on an empty segment and ⌘↑ go up, Esc clears. Enter opens a folder (a
+project with threads opens at them), ⌘Enter opens it in a new thread. Recent projects from every
+machine come from `fs.recentFolders`; a folder's own insides from `fs.browse`, ranked with
+`@ace/project-picker`'s rules. Clone reads `owner/repo` and addresses with
+`workspace.clone.validate` and suggests a free folder beside the machine's latest project.
+
+Every path is the machine's: the desktop app adds its native picker and dropped-folder paths
+(`boot/desktop-folders.ts`, `window.ace.dialogs` and `window.ace.files`). `/new?folder=<path>`
+(the desktop's `ace://open?folder=`) adds or finds the folder and opens New thread in it. Wording,
+name and address checks live in `@ace/ui-core` (`projects.ts`, `folder-search.ts`). In fake mode
+`hostFolders()` seeds a home to browse, a second fake machine (`boot/fake-machines.ts`) fills the
+picker, and `aceFakeWorld = "empty"` boots the first run. Tests get the same pool with
+`harness({ machines })`.
 
 ## Daemon services and protocol gaps
 
@@ -371,8 +389,9 @@ What `main` cannot carry yet sits behind one adapter per feature marked
 `// TODO(client-gaps): feat/client-protocol-gaps`. In fake mode it serves the fake daemon's
 stand-in; against a real daemon it reports the feature empty or unavailable, never fixture data.
 Today: a list of machines and adding an ACP agent by command
-(`features/settings/data/access-gaps.ts`), and More › Files uploads (`features/files/files-source.ts`;
-the side panel's Files tool already uploads into the thread's checkout over the files channel).
+(`features/settings/data/access-gaps.ts`). More › Files has no upload: it would need a
+project-scoped transfer; the side panel's Files tool uploads into a thread's checkout over the
+files channel.
 When the backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios

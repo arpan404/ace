@@ -61,6 +61,20 @@ export const PluginInstall = z.strictObject({
 });
 export type PluginInstall = z.infer<typeof PluginInstall>;
 export const PluginReviewOffset = z.number().int().min(0).max(1024);
+/** A plugin a repository's marketplace offers, before anything is fetched for review. */
+export const PluginListing = z.strictObject({
+  name: PluginName,
+  description: text.optional(),
+  version: z.string().max(128).optional(),
+});
+export type PluginListing = z.infer<typeof PluginListing>;
+/**
+ * Where an installed plugin came from: the repository and ref given to `plugins.prepare`
+ * ("HEAD" is the repository's default branch). A separate request rather than fields on
+ * `PluginInstall`, so a client that predates it never receives a shape it rejects.
+ */
+export const PluginOrigin = z.strictObject({ name: PluginName, repository: text, ref: text });
+export type PluginOrigin = z.infer<typeof PluginOrigin>;
 export const PluginAvailability = z.object({
   name: PluginName,
   enabled: z.boolean(),
@@ -105,6 +119,13 @@ export const PluginRequest = z.discriminatedUnion("type", [
   }),
 
   z.strictObject({ type: z.literal("plugins.update"), name: PluginName }),
+  z.strictObject({ type: z.literal("plugins.origins") }),
+  /** What a repository's marketplace offers. `ref` defaults to the remote's HEAD. */
+  z.strictObject({
+    type: z.literal("plugins.marketplace"),
+    repository: text,
+    ref: text.optional(),
+  }),
   z.strictObject({ type: z.literal("plugins.cancel"), id: PluginReview.shape.id }),
   z.strictObject({
     type: z.literal("plugins.prepare"),
@@ -156,6 +177,12 @@ export const PluginResponse = z.discriminatedUnion("type", [
     availability: z.array(PluginAvailability).max(256).optional(),
   }),
   z.strictObject({ type: z.literal("plugins.removed"), name: PluginName }),
+  z.strictObject({
+    type: z.literal("plugins.marketplace"),
+    ref: text,
+    plugins: z.array(PluginListing).max(256),
+  }),
+  z.strictObject({ type: z.literal("plugins.origins"), origins: z.array(PluginOrigin).max(256) }),
   z.strictObject({
     type: z.literal("plugins.reviewPage"),
     review: PluginReviewSummary,

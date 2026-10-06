@@ -30,17 +30,17 @@ function linked() {
     mirror.apply(patches);
   });
   let seq = 0;
-  const deliver = (payload: EventPayload) => {
-    seq += 1;
-    store.delivery({
-      type: "events",
-      subscriptionId: "thread",
-      afterSeq: seq - 1,
-      throughSeq: seq,
-      events: [Event.parse({ id: `e${seq}`, threadId: thread.id, seq, at: 0, payload })],
+  /** Deliver `payloads` in one socket message: the tab hears of them in one flush. */
+  const deliverAll = (payloads: readonly EventPayload[]) => {
+    const afterSeq = seq;
+    const events = payloads.map((payload) => {
+      seq += 1;
+      return Event.parse({ id: `e${seq}`, threadId: thread.id, seq, at: 0, payload });
     });
+    store.delivery({ type: "events", subscriptionId: "thread", afterSeq, throughSeq: seq, events });
   };
-  return { store, mirror, deliver, forwarded };
+  const deliver = (payload: EventPayload) => deliverAll([payload]);
+  return { store, mirror, deliver, deliverAll, forwarded };
 }
 
 const meter = (usedTokens: number) => ({
@@ -110,4 +110,75 @@ test("streaming reasoning reaches a tab as the text it gained, not the whole tex
   expect(mirror.item("think")).toEqual(store.item("think"));
   // Each frame carries about one chunk, though the text grew to 45 KB.
   expect(Math.max(...forwarded.slice(-50))).toBeLessThan(chunk.length + 400);
+});
+
+/** The assistant answer the streaming tests follow. */
+const answer = (text: string) =>
+  ({
+    type: "message" as const,
+    id: "answer",
+    agentId: "root",
+    role: "assistant" as const,
+    synthetic: false,
+    createdAt: 0,
+    complete: false,
+    parts: [{ type: "text" as const, text }],
+  }) as Item;
+/** The text of a message's first part. */
+const text = (item: Item | undefined) =>
+  item?.type === "message" && item.parts[0]?.type === "text" ? item.parts[0].text : undefined;
+/** The `n`th 240-character delta of the long answer. */
+const delta = (n: number) =>
+  ({
+    type: "item.delta",
+    itemId: "long",
+    agentId: "root",
+    field: "text",
+    append: `${String(n).padStart(4, "0")} ${"x".repeat(234)}\n`,
+  }) as EventPayload;
+
+test("a streaming answer reaches a tab as the text it gained; a rewrite of it arrives whole", () => {
+  const { store, mirror, deliver, forwarded } = linked();
+  deliver({ type: "item.created", item: answer("") } as EventPayload);
+  const chunk = "The replay window caps at 200 events per shard. ".repeat(4);
+  for (let n = 0; n < 200; n++)
+    deliver({
+      type: "item.delta",
+      itemId: "answer",
+      agentId: "root",
+      field: "text",
+      append: chunk,
+    } as EventPayload);
+  expect(text(mirror.item("answer"))).toBe(chunk.repeat(200));
+  // Each frame carries about one chunk, though the answer grew to 38 KB.
+  expect(Math.max(...forwarded.slice(-50))).toBeLessThan(chunk.length + 400);
+  // The provider resends the answer corrected: longer, and different early on.
+  const corrected = `Corrected. ${chunk.repeat(200)}`;
+  deliver({ type: "item.updated", item: answer(corrected) } as EventPayload);
+  expect(text(mirror.item("answer"))).toBe(corrected);
+  expect(text(mirror.item("answer"))).toBe(text(store.item("answer")));
+});
+
+test("an answer cut to the client's text limit mid-stream reaches a tab exactly as the worker holds it", () => {
+  const { store, mirror, deliver, deliverAll } = linked();
+  deliver({
+    type: "item.created",
+    item: {
+      type: "message",
+      id: "long",
+      agentId: "root",
+      role: "assistant",
+      synthetic: false,
+      createdAt: 0,
+      complete: false,
+      parts: [{ type: "text", text: "" }],
+    },
+  } as EventPayload);
+  // 270 chunks of 240 characters: just under the 64 K limit, one frame each.
+  for (let n = 0; n < 270; n++) deliver(delta(n));
+  // Then one frame that passes the limit (the client keeps the newest 32 K) and grows the text
+  // back past the length the tab last saw: 32,768 + 134 × 240 = 64,928 characters.
+  deliverAll(Array.from({ length: 138 }, (_, n) => delta(270 + n)));
+  expect(mirror.item("long")).toEqual(store.item("long"));
+  expect(mirror.truncated("long")).toBe(true);
 });

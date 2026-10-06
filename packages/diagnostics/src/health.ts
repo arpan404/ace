@@ -35,7 +35,7 @@ export interface HealthOptions {
   database: string;
   now: () => number;
   workload: () => { activeSessions: number | null; queues: Record<string, number> };
-  logs: () => { dropped: number; failed: number; queued: number };
+  logs: () => { dropped: number; failed: number; queued: number; directory?: string };
 }
 export function createHealthMonitor(options: HealthOptions, runtime: HealthRuntime = systemHealth) {
   if (!Number.isFinite(runtime.deadlineMs) || runtime.deadlineMs < 1)

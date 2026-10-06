@@ -65,6 +65,7 @@ it("metadata discovery retains variants and limits while excluding secrets and c
     new AbortController().signal,
   );
   expect(object(metadata).location).toEqual({ directory: "/one" });
+  expect(object(metadata).configuredDefault).toBe("opencode-go/muse-spark-1.3-contributor");
   expect(array(object(metadata).data)[0]).toMatchObject({
     variants: [{ id: "high" }],
     limit: { context: 200000, output: 8192 },

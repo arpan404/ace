@@ -12,7 +12,7 @@ import type {
   WorkspaceActions,
   WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
-import { countButton, CountMark } from "./count-mark.tsx";
+import { countButton, countedTabs, CountMark, openTabsLabel } from "./count-mark.tsx";
 import type { OpenTabsProps } from "./open-tabs.tsx";
 
 /**
@@ -31,7 +31,7 @@ export function DockControls(props: {
   bottom: boolean;
 }) {
   const { workspace, actions } = props;
-  const count = workspace.right.tabs.length;
+  const count = countedTabs(workspace, props.definition).length;
   return (
     <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
       {props.bottom && (
@@ -90,7 +90,7 @@ function OpenTabsCount(props: Omit<OpenTabsProps, "defaultOpen">) {
   const [, setLoaded] = useState(false);
   const Loaded = LoadedOpenTabs;
   if (Loaded) return <Loaded {...props} defaultOpen={wanted !== undefined} />;
-  const count = props.workspace.right.tabs.length;
+  const count = countedTabs(props.workspace, props.definition).length;
   const want = (why: "hover" | "click") => {
     setWanted(why);
     void Promise.all([loadOpenTabs(), props.definition.load()]).then(
@@ -101,7 +101,7 @@ function OpenTabsCount(props: Omit<OpenTabsProps, "defaultOpen">) {
   return (
     <button
       type="button"
-      aria-label={`${count} open ${count === 1 ? "tab" : "tabs"}`}
+      aria-label={openTabsLabel(props.workspace, props.definition)}
       className={countButton}
       onPointerEnter={() => want("hover")}
       onPointerLeave={() => setWanted((current) => (current === "hover" ? undefined : current))}

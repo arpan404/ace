@@ -33,7 +33,8 @@ function TerminalButtons(props: TabViewProps) {
         disabled={pending}
         onClick={() => setTabUi(terminalUi, tab.key, { find: true })}
       />
-      <SessionsMenu scope={scope} dock={dock} />
+      {/* The bottom panel shows the sessions for every tab (`dock-sessions.tsx`). */}
+      {dock === "right" && <SessionsMenu scope={scope} dock={dock} />}
       <MoreMenu label="Terminal actions">
         <MenuItem
           icon={<PencilSimpleIcon aria-hidden size={16} />}

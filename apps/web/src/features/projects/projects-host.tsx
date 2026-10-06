@@ -18,6 +18,8 @@ import type { ProjectRequest } from "./requests.ts";
 // Through a one-line loader, so the dialogs' long list of chunks to preload stays out of the
 // first paint's bytes.
 const loadDialogs = () => import("./dialogs-loader.ts").then((loader) => loader.load());
+/** Load the dialogs now, as the shell does once idle (tests start with them warm). */
+export const preloadProjectDialogs = (): Promise<unknown> => loadDialogs();
 const ProjectDialogs = lazy(loadDialogs);
 
 interface ProjectsApi {

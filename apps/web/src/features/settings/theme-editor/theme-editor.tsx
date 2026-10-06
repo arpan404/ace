@@ -13,25 +13,35 @@ import { TokenRow } from "./token-row.tsx";
  * a custom theme you own; the fork is applied at once so you keep seeing what you edit.
  */
 export function ThemeEditor() {
-  const { theme, update, saveTheme } = useTheme();
+  const { theme, appearance, update, saveTheme } = useTheme();
   const toast = useToast();
   const warnings = useMemo(() => contrastWarnings(theme.tokens), [theme.tokens]);
   const warned = useMemo(() => new Set(warnings.map((warning) => warning.token)), [warnings]);
 
   const current = useRef(theme);
+  const following = useRef(appearance.theme === "system");
   useEffect(() => {
     current.current = theme;
+    following.current = appearance.theme === "system";
   });
   const onChange = useCallback(
     (token: TokenName, value: string) => {
+      const base = current.current.name;
       const edit = editToken(current.current, token, value, newSuffix());
       // Keep the ref ahead of the re-render so fast typing never forks twice.
       current.current = edit.theme;
       saveTheme(edit.theme);
-      if (edit.forked) {
-        update({ theme: edit.theme.id });
-        toast.add({ title: `Editing a copy · ${edit.theme.name}` });
-      }
+      if (!edit.forked) return;
+      // Read before switching: the switch re-renders at once and the ref follows it.
+      const wasSystem = following.current;
+      update({ theme: edit.theme.id });
+      if (wasSystem) {
+        // Editing a copy pins it, so the OS's light/dark no longer switches the theme: say so.
+        toast.add({
+          title: `Editing a copy of ${base} · System theme turned off`,
+          actionProps: { children: "Undo", onClick: () => update({ theme: "system" }) },
+        });
+      } else toast.add({ title: `Editing a copy · ${edit.theme.name}` });
     },
     [saveTheme, update, toast],
   );
@@ -42,9 +52,7 @@ export function ThemeEditor() {
       <ContrastBanner warnings={warnings} />
       {tokenGroups.map((group) => (
         <section key={group.name} aria-label={group.name} className="mt-6">
-          <h3 className="mb-1.5 text-[12px] font-semibold tracking-[0.01em] text-subtle-foreground">
-            {group.name}
-          </h3>
+          <h3 className="mb-1.5 text-sm font-medium text-muted-foreground">{group.name}</h3>
           {group.tokens.map((token) => (
             <TokenRow
               key={token}

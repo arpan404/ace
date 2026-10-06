@@ -15,19 +15,25 @@ export function WorkingTree(props: { details: ThreadDetails | undefined }) {
     <p
       role="status"
       aria-label="Working tree"
-      className="flex items-center gap-2 border-b px-3.5 py-1.5 text-xs text-subtle-foreground"
+      className="flex items-center gap-2 border-b px-3.5 py-1.5 text-xs text-muted-foreground"
     >
       <span className="min-w-0 truncate">
         {/* Named, so it never reads as a third count of the same edits beside the tab's
             (the whole thread) and the scope's (a turn). */}
-        <span className="font-medium text-muted-foreground">Working tree: </span>
+        <span className="font-medium text-foreground">Working tree: </span>
         {files
           ? `${files} ${files === 1 ? "file" : "files"} uncommitted on `
           : "Everything is committed on "}
         <span className="font-mono">{branch}</span>
         {ahead}
       </span>
-      {files > 0 && <DiffStat additions={additions} deletions={deletions} />}
+      {files > 0 && (
+        <DiffStat
+          additions={additions}
+          deletions={deletions}
+          className="shrink-0 whitespace-nowrap"
+        />
+      )}
     </p>
   );
 }

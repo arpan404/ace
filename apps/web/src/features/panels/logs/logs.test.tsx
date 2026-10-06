@@ -1,7 +1,7 @@
 import { coldStartReplay, failingSubagent } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 async function openLogs(
@@ -165,13 +165,21 @@ test("a level filter keeps to warnings and errors, and the thread's Logs come ba
   await waitFor(() => expect(lines(again).every((line) => /warn|error/.test(line))).toBe(true));
 });
 
-test("the daemon's log scope shows its health and says where its log is kept", async () => {
+test("the daemon's log scope leads with its health and copies where its log is kept", async () => {
   await openLogs("turn-1");
   const panel = await showLogs("Cap cold-start replay at 200 events");
   await pickSource(panel, "Daemon");
   expect(
     await within(panel).findByRole("tab", { name: "Daemon log", selected: true }),
   ).toBeTruthy();
-  expect(await within(panel).findByText("Event loop")).toBeTruthy();
-  expect(within(panel).getByText(/doesn't yet/)).toBeTruthy();
+  const health = await within(panel).findByText("Event loop");
+  const note = within(panel).getByText("The daemon's own log isn't streamed yet.");
+  // The health comes first; the missing log is one line after it.
+  expect(health.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+  const writeText = vi.fn(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  await userEvent.click(within(panel).getByRole("button", { name: "Copy log folder path" }));
+  expect(writeText).toHaveBeenCalledWith("/Users/dev/.ace-next/logs");
+  expect(await screen.findByText("Copied the log folder's path")).toBeTruthy();
 });

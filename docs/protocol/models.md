@@ -33,6 +33,9 @@ Semantic rule: The parsed model with defaults filled and unknown fields stripped
 | defaultTier | no | string | {"minLength":1,"maxLength":256} |
 | inputModalities | yes | array | {"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":256}} |
 | isDefault | yes | boolean |  |
+| defaultSource | no | ["built-in","user"] |  |
+| aliases | no | array | {"maxItems":32,"items":{"type":"string","minLength":1,"maxLength":256}} |
+| group | no | ["current","legacy"] |  |
 | hidden | yes | boolean |  |
 | favourite | no | boolean |  |
 | custom | no | boolean |  |
@@ -47,23 +50,28 @@ Example:
 
 ```json
 {
-  "deprecated": true,
+  "acpAgentId": "example",
+  "defaultSource": "built-in",
+  "defaultTier": "example",
+  "deprecated": false,
   "displayName": "example",
-  "favourite": false,
-  "hidden": true,
+  "hidden": false,
   "id": "example",
   "inputModalities": [],
+  "installationId": "example",
   "instance": "example",
   "isDefault": false,
+  "modelConfigId": "example",
   "nativeModelId": "example",
-  "nativeProviderId": "example",
-  "provider": "antigravity",
-  "providerEnabled": true,
+  "provider": "claude",
+  "providerEnabled": false,
   "raw": {
     "json": "example",
-    "truncated": false
+    "truncated": true
   },
   "reasoningEfforts": [],
+  "resolvedModelId": "example",
+  "selectorMethod": "session/set_model",
   "serviceTiers": []
 }
 ```
@@ -83,7 +91,9 @@ Example:
 Example:
 
 ```json
-{}
+{
+  "acpAgentId": "example"
+}
 ```
 
 ## ModelInstanceStatus
@@ -109,7 +119,9 @@ Example:
 ```json
 {
   "acpAgentId": "example",
+  "installationId": "example",
   "instance": "example",
+  "lastRefreshedAt": 7,
   "provider": "opencode",
   "refreshing": false,
   "stale": false
@@ -134,7 +146,8 @@ Example:
 
 ```json
 {
-  "offset": 3
+  "instanceId": "example",
+  "provider": "pi"
 }
 ```
 
@@ -154,7 +167,7 @@ Example:
 {
   "instances": [],
   "models": [],
-  "nextOffset": 8
+  "nextOffset": 1
 }
 ```
 
@@ -177,30 +190,41 @@ Example:
 
 ```json
 {
+  "effort": "example",
   "model": {
-    "acpAgentId": "example",
-    "defaultTier": "example",
-    "deprecated": false,
+    "aliases": [],
+    "contextWindow": 4,
+    "defaultEffort": "example",
+    "defaultSource": "user",
+    "deprecated": true,
     "displayName": "example",
-    "hidden": false,
+    "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
+    "instanceId": "example",
     "isDefault": true,
+    "isNew": true,
     "nativeModelId": "example",
-    "provider": "opencode",
+    "provider": "acp",
     "raw": {
       "json": "example",
-      "truncated": false
+      "truncated": true
     },
     "reasoningEfforts": [],
-    "resolvedModelId": "example",
     "selectorMethod": "session/set_config_option",
-    "serviceTiers": []
+    "serviceTiers": [],
+    "visibilityReason": "model_hidden"
   },
   "ok": true,
   "reason": "example",
-  "stale": false
+  "stale": true,
+  "tier": {
+    "id": "example",
+    "name": "example",
+    "parameters": {},
+    "speed": "fast"
+  }
 }
 ```
 
@@ -244,9 +268,8 @@ Example:
 ```json
 {
   "installationId": "example",
-  "instanceId": "example",
   "role": "example",
-  "selection": "strongest"
+  "tier": "example"
 }
 ```
 
@@ -283,6 +306,12 @@ Example:
 
 ```json
 {
+  "filter": {
+    "acpAgentId": "example",
+    "installationId": "example",
+    "instanceId": "example",
+    "provider": "acp"
+  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -304,10 +333,11 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
-    "installationId": "example",
+    "instance": "example",
+    "model": "example",
+    "preferenceOrder": [],
     "role": "example",
-    "selection": "strongest"
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -329,8 +359,9 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": false,
-    "reason": "example"
+    "instances": [],
+    "models": [],
+    "nextOffset": 8
   },
   "type": "models.result"
 }
@@ -352,6 +383,7 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "parameters": {}
 }
 ```

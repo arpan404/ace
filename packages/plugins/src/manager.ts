@@ -4,11 +4,13 @@ import { withDirectoryLock } from "./lock.ts";
 import {
   PluginAvailability,
   PluginInstall,
+  PluginListing,
   PluginName,
+  PluginOrigin,
   PluginReview,
   PluginReviewOffset,
 } from "@ace/protocol/plugins";
-import { Marketplace, limits, normalizePath, parseJson } from "./manifest.ts";
+import { limits, normalizePath } from "./manifest.ts";
 import {
   assertNoSymlinks,
   inspectPackage,
@@ -16,7 +18,13 @@ import {
   ownDirectory,
   readPackageText,
 } from "./files.ts";
-import { extractPlugin, fetchRepository, readGitFile, gitRuntime, type GitRuntime } from "./git.ts";
+import {
+  extractPlugin,
+  fetchRepository,
+  gitRuntime,
+  readMarketplace,
+  type GitRuntime,
+} from "./git.ts";
 import { importPlugin } from "./import.ts";
 import { PluginClientOperations } from "./client-operations.ts";
 import { Registry } from "./registry.ts";
@@ -112,21 +120,7 @@ export class PluginManager {
           temporary,
           this.git,
         );
-        let catalogText: string | undefined;
-        for (const path of [
-          "marketplace.json",
-          ".claude-plugin/marketplace.json",
-          ".cursor-plugin/marketplace.json",
-        ]) {
-          try {
-            catalogText = await readGitFile(gitRoot, commit, path, this.git);
-            break;
-          } catch (error) {
-            if (!(error instanceof Error && error.message.includes("does not exist"))) throw error;
-          }
-        }
-        if (catalogText === undefined) throw new Error("Marketplace missing");
-        const catalog = Marketplace.parse(parseJson(catalogText));
+        const catalog = await readMarketplace(gitRoot, commit, this.git);
         const entry = catalog.plugins.find((plugin) => plugin.name === name);
         if (!entry) throw new Error("Plugin not in marketplace");
         await extractPlugin(
@@ -152,6 +146,50 @@ export class PluginManager {
       } catch (error) {
         await rm(stage, { recursive: true, force: true });
         throw error;
+      } finally {
+        try {
+          if (!released) await this.git.release(temporary);
+        } finally {
+          await rm(temporary, { recursive: true, force: true });
+        }
+      }
+    });
+  }
+  /**
+   * What a repository's marketplace offers, without fetching any plugin for review. `ref`
+   * defaults to the remote's HEAD (its default branch).
+   */
+  async marketplace(request: {
+    repository: string;
+    ref?: string | undefined;
+  }): Promise<{ ref: string; plugins: PluginListing[] }> {
+    const ref = request.ref ?? "HEAD";
+    return this.lock(async () => {
+      const id = PluginReview.shape.id.parse(this.options.id());
+      const temporary = join(this.root, "fetch", id);
+      await assertNoSymlinks(temporary);
+      await mkdir(temporary, { recursive: true, mode: 0o700 });
+      let released = false;
+      try {
+        const { gitRoot, commit } = await fetchRepository(
+          request.repository,
+          ref,
+          temporary,
+          this.git,
+        );
+        const catalog = await readMarketplace(gitRoot, commit, this.git);
+        await this.git.release(temporary);
+        released = true;
+        return {
+          ref,
+          plugins: catalog.plugins.map((entry) =>
+            PluginListing.parse({
+              name: entry.name,
+              ...(entry.description === undefined ? {} : { description: entry.description }),
+              ...(entry.version === undefined ? {} : { version: entry.version }),
+            }),
+          ),
+        };
       } finally {
         try {
           if (!released) await this.git.release(temporary);
@@ -217,6 +255,16 @@ export class PluginManager {
   }
   list(): PluginInstall[] {
     return this.registry.installs().map((value) => value.install);
+  }
+  /** Where each installed plugin came from: the repository and ref Update fetches again. */
+  origins(): PluginOrigin[] {
+    return this.registry.installs().map((value) =>
+      PluginOrigin.parse({
+        name: value.install.name,
+        repository: value.repository,
+        ref: value.ref,
+      }),
+    );
   }
   private async catalogSnapshots(): Promise<PluginSnapshot[]> {
     const currentRevision = this.registry.revision();

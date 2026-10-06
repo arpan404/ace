@@ -22,6 +22,8 @@ export const NotificationPrefs = z.object({
   automations: withDefault(z.boolean(), true),
   /** An account nears or reaches a usage limit, or can work again after one. */
   limits: withDefault(z.boolean(), true),
+  /** In a browser tab: a system notification instead, while the tab is in the background. */
+  browser: withDefault(z.boolean(), false),
 });
 export type NotificationPrefs = z.infer<typeof NotificationPrefs>;
 
@@ -30,6 +32,7 @@ const defaults: NotificationPrefs = {
   failures: true,
   automations: true,
   limits: true,
+  browser: false,
 };
 const storageKey = "ace.notifications.toasts";
 

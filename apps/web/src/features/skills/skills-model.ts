@@ -3,6 +3,7 @@ import {
   type PluginAvailability,
   type PluginComponent,
   type PluginInstall,
+  type PluginOrigin,
 } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
 import { z } from "zod";
@@ -26,6 +27,18 @@ export interface Skill {
   path: string | undefined;
   enabled: boolean;
   providers: readonly ProviderKind[];
+  /** A plugin's pin: what was reviewed and accepted. Undefined for a component. */
+  install?: PluginPin | undefined;
+}
+
+/** The exact version of a plugin that was reviewed and installed. */
+export interface PluginPin {
+  version: string;
+  commit: string;
+  acceptedAt: number;
+  /** Where it was installed from, when the daemon recorded it. */
+  repository?: string | undefined;
+  ref?: string | undefined;
 }
 
 export const pluginSkillId = (name: string) => `plugin~${name}`;
@@ -40,13 +53,64 @@ const kindNames: Record<PluginComponent["kind"], [string, string]> = {
   rule: ["rule", "rules"],
 };
 
-/** "Version 2.3.0 · 3 skills, 1 command". */
-function pluginDescription(install: PluginInstall, components: readonly PluginComponent[]) {
-  const counts = (Object.keys(kindNames) as PluginComponent["kind"][]).flatMap((kind) => {
+function shippedCounts(components: readonly { kind: SkillKind }[]): string[] {
+  return (Object.keys(kindNames) as PluginComponent["kind"][]).flatMap((kind) => {
     const count = components.filter((component) => component.kind === kind).length;
     return count ? [plural(count, ...kindNames[kind])] : [];
   });
-  return [`Version ${install.version}`, counts.join(", ")].filter(Boolean).join(" · ");
+}
+
+/** "Version 2.3.0 · 3 skills, 1 command". */
+function pluginDescription(install: PluginInstall, components: readonly PluginComponent[]) {
+  return [`Version ${install.version}`, shippedCounts(components).join(", ")]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** "3 skills, 1 command and 1 agent", or undefined when it ships nothing. */
+export function shippedText(components: readonly { kind: SkillKind }[]) {
+  const counts = shippedCounts(components);
+  if (!counts.length) return undefined;
+  return counts.length === 1 ? counts[0] : `${counts.slice(0, -1).join(", ")} and ${counts.at(-1)}`;
+}
+
+/** The components `plugin` ships, in catalog order. */
+export function componentsOf(skills: readonly Skill[], plugin: string): Skill[] {
+  return skills.filter((skill) => skill.plugin === plugin && skill.kind !== "plugin");
+}
+
+/**
+ * The catalog as it reads once `plugin` has this availability: the plugin and everything it
+ * ships follow it. Used to show a change at once, before the daemon confirms it.
+ */
+export function withAvailability(
+  skills: readonly Skill[],
+  plugin: string,
+  next: { enabled: boolean; providers: readonly ProviderKind[] },
+): Skill[] {
+  const enabled = next.enabled && next.providers.length > 0;
+  return skills.map((skill) =>
+    skill.plugin === plugin ? { ...skill, enabled, providers: next.providers } : skill,
+  );
+}
+
+/** "Version 2.3.0 · pinned b1c2d3e4f5a6 · installed 12 Sep". */
+export function pinText(pin: PluginPin, now: number): string {
+  const accepted = new Date(pin.acceptedAt);
+  const sameYear = accepted.getFullYear() === new Date(now).getFullYear();
+  const date = accepted.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  return `Version ${pin.version} · pinned ${pin.commit.slice(0, 12)} · installed ${date}`;
+}
+
+/** "getsentry/sentry @ main": a repository as people type it, with its ref. */
+export function sourceText(repository: string, ref: string | undefined): string {
+  const short = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(repository)?.[1];
+  const where = short ?? repository;
+  return ref && ref !== "HEAD" ? `${where} @ ${ref}` : where;
 }
 
 /** Every component the catalog lists, then each installed plugin by name. */
@@ -54,8 +118,10 @@ export function skillCatalog(
   installs: readonly PluginInstall[],
   availability: readonly PluginAvailability[],
   components: readonly PluginComponent[],
+  origins: readonly PluginOrigin[] = [],
 ): Skill[] {
   const policy = new Map(availability.map((entry) => [entry.name, entry]));
+  const from = new Map(origins.map((origin) => [origin.name, origin]));
   const plugins = installs
     .toSorted((a, b) => a.name.localeCompare(b.name))
     .map((install): Skill => {
@@ -70,6 +136,13 @@ export function skillCatalog(
         path: undefined,
         enabled: (entry?.enabled ?? true) && (entry?.providers.length ?? 1) > 0,
         providers: entry?.providers ?? ProviderKind.options,
+        install: {
+          version: install.version,
+          commit: install.commit,
+          acceptedAt: install.acceptedAt,
+          repository: from.get(install.name)?.repository,
+          ref: from.get(install.name)?.ref,
+        },
       };
     });
   const shipped = components.map((component): Skill => ({

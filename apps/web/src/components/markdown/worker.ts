@@ -1,21 +1,58 @@
+import type { Token } from "marked";
+import { z } from "zod";
 import { offThread } from "@/lib/off-thread.ts";
-import { markdownDoc, type MarkdownDoc } from "./blocks.ts";
 import { codeLines, type CodeLines } from "./code-lines.ts";
+import type { CodeToken } from "./highlight.ts";
+import { StreamRegistry, type StreamJob, type StreamReply } from "./stream-registry.ts";
 
-/** A job for the markdown worker: a message's markdown, or a whole source file's lines. */
+/**
+ * A job for the markdown worker: text appended to a message, a message no view shows any more,
+ * or a whole source file's lines.
+ */
 export type MarkdownJob =
-  | { text: string; hash: string }
+  | StreamJob
+  | { release: string }
   | { code: string; lang?: string | undefined; hash: string };
 
+/** In place, where there is no worker. */
+export const localStreams = new StreamRegistry(() => performance.now());
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+/** A lexer token: an object with a type and its raw source. Its children render defensively. */
+const LexerToken = z.custom<Token>(
+  (value) => isObject(value) && typeof value.type === "string" && typeof value.raw === "string",
+);
+const Code = z.object({
+  kind: z.enum(["plain", "keyword", "string", "number", "comment", "punct"]),
+  text: z.string(),
+}) satisfies z.ZodType<CodeToken>;
+const Block = z.object({ token: LexerToken, code: z.array(Code).optional() });
+/** What the worker answers. Code files' lines are checked shallowly: they can be huge. */
+const Reply = z.union([
+  z.object({
+    from: z.number().int().nonnegative(),
+    settled: z.array(Block),
+    open: z.array(Block),
+    ms: z.number(),
+  }),
+  z.object({ resync: z.literal(true) }),
+  z.object({ hash: z.string(), lines: z.custom<CodeToken[][]>(Array.isArray) }),
+  z.null(),
+]);
+
 /** One markdown worker for transcript prose and file viewers alike. */
-export const markdownWorker = offThread<MarkdownJob, MarkdownDoc | CodeLines>({
+export const markdownWorker = offThread<MarkdownJob, StreamReply | CodeLines | null>({
   spawn: () =>
     new Worker(new URL("./markdown.worker.ts", import.meta.url), {
       type: "module",
       name: "ace-markdown",
     }),
   local: (job) =>
-    "code" in job ? codeLines(job.code, job.lang, job.hash) : markdownDoc(job.text, job.hash),
-  // Same-origin worker built from blocks.ts and code-lines.ts; its output is not decoded twice.
-  decode: (output) => output as MarkdownDoc | CodeLines,
+    "code" in job
+      ? codeLines(job.code, job.lang, job.hash)
+      : "release" in job
+        ? localStreams.release(job.release)
+        : localStreams.apply(job),
+  decode: (output) => Reply.parse(output),
 });

@@ -83,7 +83,7 @@ export function FileDiffBlock(props: {
           type="button"
           aria-expanded={open}
           onClick={() => onView({ ...view, open: !open })}
-          className="flex h-8 min-w-0 flex-1 items-center gap-2 pl-3.5 text-left font-mono text-[12px] text-muted-foreground outline-none hover:text-foreground focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]"
+          className="flex h-8 min-w-0 flex-1 items-center gap-2 pl-3.5 text-left font-mono text-sm text-muted-foreground outline-none hover:text-foreground focus-ring-inset"
         >
           <CaretDownIcon
             aria-hidden
@@ -105,7 +105,7 @@ export function FileDiffBlock(props: {
           <DiffStat
             additions={file.additions}
             deletions={file.deletions}
-            className="ml-auto shrink-0 text-[12px]"
+            className="ml-auto shrink-0 text-sm"
           />
         </button>
         {props.actions}
@@ -123,7 +123,7 @@ export function FileDiffBlock(props: {
       {open && (renderer === "dom" || asText) && (
         <div
           className={cn(
-            "font-mono text-[12px] leading-5",
+            "font-mono text-sm leading-5",
             props.wrap ? "whitespace-pre-wrap break-all" : "overflow-x-auto whitespace-pre",
           )}
         >
@@ -183,6 +183,7 @@ function Unified(props: RowsProps) {
         return (
           <>
             <div
+              data-diff-row
               className={cn(
                 "group/line relative grid min-w-max grid-cols-[44px_44px_minmax(0,1fr)]",
                 props.wrap && "min-w-0",
@@ -231,7 +232,8 @@ function SplitRowView(props: RowsProps & { pair: SplitRow }) {
     );
   return (
     <>
-      <div className="grid min-w-0 grid-cols-2">
+      {/* One visual row: the old line beside the new one. */}
+      <div data-diff-row className="grid min-w-0 grid-cols-2">
         {sides.map(({ side, line, number }) => {
           const target = line && targetOf(line);
           return (
@@ -273,7 +275,7 @@ function Gutter(props: { line: DiffLine; value: number | undefined }) {
     <span
       aria-hidden
       className={cn(
-        "pr-2.5 text-right text-[11px] text-subtle-foreground select-none",
+        "pr-2.5 text-right text-xs text-subtle-foreground select-none",
         props.line.kind === "add" && "text-status-done",
         props.line.kind === "del" && "text-status-failed",
       )}
@@ -299,7 +301,7 @@ function Code(props: {
           type="button"
           aria-label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}
           onClick={() => props.onComment(target)}
-          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-[4px] bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100"
+          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-xs bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100 pointer-coarse:bg-transparent pointer-coarse:text-muted-foreground pointer-coarse:opacity-100"
         >
           <PlusIcon aria-hidden size={10} weight="bold" />
         </button>

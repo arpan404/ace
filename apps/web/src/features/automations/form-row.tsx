@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/cn.ts";
 
 /** Errors once the person has touched the field or tried to save. */
 export function visible(meta: {
@@ -19,24 +20,42 @@ export function visible(meta: {
   return undefined;
 }
 
+const errorId = (id: string) => `${id}-error`;
+
+/**
+ * Ties a control to its row's error: `aria-invalid`, and the message as its description, so
+ * focusing the control (as a failed save does) reads the problem out.
+ */
+export function invalidProps(id: string, error: string | undefined) {
+  return error ? { "aria-invalid": true, "aria-describedby": errorId(id) } : {};
+}
+
+/**
+ * A labelled field. The error sits under the control with an id the control points at
+ * (`invalidProps`); it isn't a live region, so typing doesn't re-announce it.
+ */
 export function Row(props: {
   label: string;
   htmlFor?: string;
   errors?: string | undefined;
+  className?: string;
   children: ReactNode;
 }) {
   const Label = props.htmlFor ? "label" : "span";
   return (
-    <div className="mb-4 flex flex-col gap-1.5">
+    <div className={cn("mb-4 flex min-w-0 flex-col items-stretch gap-1.5", props.className)}>
       <Label
         {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
-        className="text-[12.5px] font-medium text-muted-foreground"
+        className="text-sm font-medium text-muted-foreground"
       >
         {props.label}
       </Label>
       {props.children}
       {props.errors && (
-        <p role="alert" className="text-sm text-destructive">
+        <p
+          {...(props.htmlFor ? { id: errorId(props.htmlFor) } : {})}
+          className="text-sm text-destructive"
+        >
           {props.errors}
         </p>
       )}

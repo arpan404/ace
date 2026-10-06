@@ -5,6 +5,7 @@ import {
   ModelInstance,
   openModelStorage,
   normalizeCodex,
+  normalizeClaude,
   normalizeOpenCodeV2,
 } from "../src/index.ts";
 const config = ModelInstance.parse({
@@ -125,3 +126,41 @@ console.log(
     peakRssBytes: process.resourceUsage().maxRSS * 1024,
   }),
 );
+
+// Dense canonical/alias ingestion and settings changes. Not executed; run at merge.
+const claudeConfig = ModelInstance.parse({ ...config, provider: "claude" });
+const claudeRows = normalizeClaude(
+  {
+    models: Array.from({ length: 256 }, (_, index) => [
+      { value: `claude-opus-5-${index}`, displayName: `claude-opus-5-${index}` },
+      { value: `opus-5.${index}`, displayName: `opus-5.${index}` },
+    ]).flat(),
+  },
+  claudeConfig,
+);
+const claudeCatalog = new ModelCatalog({
+  instances: [claudeConfig],
+  storage: { load: () => [], replace() {}, remove() {}, close() {} },
+  discover: async () => claudeRows,
+  now: () => 1000,
+  deadline: () => () => {},
+});
+await claudeCatalog.refresh();
+for (let i = 0; i < 5; i++) await claudeCatalog.refresh();
+const refreshStart = performance.now();
+for (let i = 0; i < parserIterations; i++) await claudeCatalog.refresh();
+console.log(
+  JSON.stringify({
+    name: "512 Claude selectors, canonical catalog refresh",
+    selectors: claudeRows.length,
+    iterations: parserIterations,
+    microsecondsPerOp: ((performance.now() - refreshStart) * 1000) / parserIterations,
+    peakRssBytes: process.resourceUsage().maxRSS * 1024,
+  }),
+);
+measure("512 Claude selectors, warm canonical page", () => claudeCatalog.list({ limit: 100 }));
+measure("256 canonical Claude models, changed settings generation", () => {
+  claudeCatalog.configurationChanged();
+  return claudeCatalog.list({ limit: 1 });
+});
+await claudeCatalog.close();

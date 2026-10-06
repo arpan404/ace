@@ -1,11 +1,12 @@
-import { ArrowsOutSimpleIcon } from "@phosphor-icons/react";
+import { ArrowsOutSimpleIcon, CheckIcon } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { withViewTransition } from "@/lib/motion.ts";
-import { countButton, CountMark } from "./count-mark.tsx";
+import { Kbd } from "@/components/ui/kbd.tsx";
+import { countButton, countedTabs, CountMark, openTabsLabel } from "./count-mark.tsx";
 import {
   shownTab,
   type ScopeWorkspace,
@@ -27,7 +28,7 @@ export function OpenTabs(props: OpenTabsProps) {
   const { workspace, definition, actions } = props;
   const tabs = workspace.right.tabs;
   const shown = shownTab(workspace.right)?.key;
-  const label = `${tabs.length} open ${tabs.length === 1 ? "tab" : "tabs"}`;
+  const label = openTabsLabel(workspace, definition);
   const hover = useHoverOpen(props.defaultOpen ?? false);
   return (
     <Popover open={hover.open} onOpenChange={hover.setOpen}>
@@ -37,7 +38,7 @@ export function OpenTabs(props: OpenTabsProps) {
         onPointerEnter={hover.enter}
         onPointerLeave={hover.leave}
       >
-        <CountMark count={tabs.length} />
+        <CountMark count={countedTabs(workspace, definition).length} />
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -45,7 +46,7 @@ export function OpenTabs(props: OpenTabsProps) {
         onPointerEnter={hover.enter}
         onPointerLeave={hover.leave}
       >
-        <p className="px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-[0.02em] text-subtle-foreground">
+        <p className="px-2 pt-1 pb-1.5 text-2xs font-medium tracking-[0.02em] text-muted-foreground">
           Open tabs
         </p>
         <ul aria-label="Open tabs" className="flex flex-col">
@@ -58,7 +59,7 @@ export function OpenTabs(props: OpenTabsProps) {
                   type="button"
                   onClick={() => actions.activate(tab.key)}
                   className={cn(
-                    "flex h-full min-w-0 flex-1 items-center gap-[9px] rounded-md px-2 text-left text-ui outline-none hover:bg-accent focus-visible:bg-accent",
+                    "focus-ring-inset flex h-full min-w-0 flex-1 items-center gap-[9px] rounded-md px-2 text-left text-ui hover:bg-accent",
                     tab.key === shown ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
@@ -68,6 +69,14 @@ export function OpenTabs(props: OpenTabsProps) {
                     kind && <Icon icon={kind.icon} size={14} />
                   )}
                   <span className="min-w-0 truncate">{title}</span>
+                  {tab.key === shown && (
+                    <CheckIcon
+                      role="img"
+                      aria-label="Showing"
+                      size={12}
+                      className="ml-auto shrink-0"
+                    />
+                  )}
                 </button>
                 <Tip label={`Open ${title} in full view`} shortcut="fullView">
                   <button
@@ -79,7 +88,7 @@ export function OpenTabs(props: OpenTabsProps) {
                         actions.setExpanded(true);
                       })
                     }
-                    className="grid size-[26px] shrink-0 place-items-center rounded-md text-subtle-foreground opacity-0 outline-none group-hover/row:opacity-100 hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:opacity-100"
+                    className="focus-ring-inset grid size-[26px] shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 group-hover/row:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100"
                   >
                     <ArrowsOutSimpleIcon aria-hidden size={14} />
                   </button>
@@ -88,6 +97,10 @@ export function OpenTabs(props: OpenTabsProps) {
             );
           })}
         </ul>
+        <p className="mt-1 flex items-center gap-2 border-t px-2 pt-2 pb-1 text-xs text-muted-foreground">
+          <Kbd shortcut="rightPanel" />
+          Show side panel
+        </p>
       </PopoverContent>
     </Popover>
   );

@@ -36,7 +36,7 @@ export interface Host {
    * Fault injection: "fail" answers a correlated request with the daemon's `unavailable` error,
    * "hold" never answers it (a read that hangs), undefined serves it normally.
    */
-  fault?(type: ClientMessage["type"]): "fail" | "hold" | undefined;
+  fault?(type: ClientMessage["type"]): "fail" | "hold" | { code: string } | undefined;
   /** Catalog request/response services; false when the message isn't one of them. */
   service(message: ClientMessage, connection: Connection): boolean;
   /** This socket's stateful services (context, terminals, browser, plugins, planning). */
@@ -64,6 +64,10 @@ export class Connection {
   private session: FakeWireSession;
   private device = "fake";
   private ready = false;
+  /** Past `hello`: the daemon's broadcasts reach it. */
+  get authenticated(): boolean {
+    return this.ready;
+  }
   private closed = false;
   private subscriptions = new Map<string, Subscription>();
   /** Service replies and pushes for this socket; stable, so a service can forget it on close. */
@@ -112,11 +116,11 @@ export class Connection {
     const fault =
       "requestId" in message && message.requestId ? this.host.fault?.(message.type) : undefined;
     if (fault === "hold") return;
-    if (fault === "fail" && "requestId" in message && message.requestId) {
+    if (fault && "requestId" in message && message.requestId) {
       this.send({
         type: "error",
         requestId: message.requestId,
-        code: "unavailable",
+        code: fault === "fail" ? "unavailable" : fault.code,
         message: "The daemon couldn't answer that right now.",
       });
       return;
@@ -144,7 +148,7 @@ export class Connection {
         this.send({ type: "pong" });
         return;
       case "subscribe":
-        this.subscribe(message.subscriptionId, message.scope, message.afterSeq);
+        this.subscribe(message.subscriptionId, message.scope, message.afterSeq, message.paced);
         return;
       case "unsubscribe":
         this.subscriptions.delete(message.subscriptionId);
@@ -198,20 +202,28 @@ export class Connection {
         void this.session.handle(message, this.device);
     }
   }
-  private subscribe(id: string, scope: SubscriptionScope, afterSeq: number | undefined): void {
+  private subscribe(
+    id: string,
+    scope: SubscriptionScope,
+    afterSeq: number | undefined,
+    paced = false,
+  ): void {
     const head = this.host.head;
     if (afterSeq !== undefined && afterSeq <= head && this.host.snapshot(scope)) {
       this.subscriptions.set(id, { scope, cursor: head });
       this.deliver(id, afterSeq, head, this.host.replay(scope, afterSeq));
-      return;
+    } else {
+      const view = this.host.snapshot(scope);
+      if (!view) {
+        this.error("not_found", { subscriptionId: id });
+        return;
+      }
+      this.subscriptions.set(id, { scope, cursor: head });
+      this.send({ type: "snapshot", subscriptionId: id, seq: view.seq, view });
     }
-    const view = this.host.snapshot(scope);
-    if (!view) {
-      this.error("not_found", { subscriptionId: id });
-      return;
-    }
-    this.subscriptions.set(id, { scope, cursor: head });
-    this.send({ type: "snapshot", subscriptionId: id, seq: view.seq, view });
+    // Like the daemon, a paced subscriber learns when initialization (snapshot or replay,
+    // even an empty one) is complete, so its startup slot frees for the next scope.
+    if (paced) this.send({ type: "subscription.ready", subscriptionId: id, seq: head });
   }
   /** Fan out one appended batch. Filtered events leave a host-sequence gap, as the daemon does. */
   publish(events: readonly DeliveryEvent[], through: number): void {

@@ -13,15 +13,20 @@ export interface AcpAgentInstall {
 
 /** What Settings' access pages need that the daemon can't serve yet. */
 export interface AccessGaps {
+  /** Whether this daemon can add an ACP agent by command at all; the UI offers Add only then. */
+  readonly canAddAcpAgent: boolean;
   acpAgents(): Promise<AcpAgentInstall[]>;
   addAcpAgent(agent: { name: string; command: string }): Promise<void>;
+  removeAcpAgent(name: string): Promise<void>;
   machines(): Promise<Machine[]>;
 }
 
 export function unavailableGaps(): AccessGaps {
   return {
+    canAddAcpAgent: false,
     acpAgents: async () => [],
     addAcpAgent: () => Promise.reject(new UnavailableError("Adding an ACP agent by command")),
+    removeAcpAgent: () => Promise.reject(new UnavailableError("Removing an ACP agent")),
     machines: () => Promise.reject(new UnavailableError("Listing machines")),
   };
 }

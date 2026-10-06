@@ -91,7 +91,8 @@ function arrange(
               ]
             : [];
         out.push({ value: group.value, items: [...capped, ...more] });
-      } else out.push(group);
+        // Single settings are found by searching; listed whole they'd bury everything else.
+      } else if (group.value !== "Settings") out.push(group);
       // Recently opened threads sit right after what acts on this thread.
       if (group.value === "This thread" && recentRows.length)
         out.push({ value: "Recent threads", items: recentRows });

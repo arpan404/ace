@@ -115,6 +115,30 @@
         },
         {
           "properties": {
+            "files": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitStatusFile.json"
+              },
+              "maxItems": 500,
+              "type": "array"
+            },
+            "kind": {
+              "const": "gitStatus",
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "files",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "kind": {
               "const": "runs",
               "type": "string"
