@@ -148,10 +148,6 @@
   "apps/web/src/features/thread/composer/composer.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/features/thread/composer/context-bar.tsx": {
-    "text-size": 2,
-    "bare-outline": 1
-  },
   "apps/web/src/features/thread/composer/suggestion-list.tsx": {
     "text-size": 2
   },
@@ -216,9 +212,6 @@
     "radius": 1
   },
   "apps/web/src/features/thread/transcript/live-footer.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/thread/transcript/turn-end.tsx": {
     "text-size": 1
   }
 }

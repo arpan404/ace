@@ -112,3 +112,28 @@ test("threads opened lately come first with an empty query, the open one aside",
     expect.stringMatching(/^Backpressure on broadcast fan-out/),
   ]);
 });
+
+test("threads and projects read by the project's name, never its id", async () => {
+  const app = harness();
+  const id = "a003e031-2390-44d2-b0a7-4a5fd727d463";
+  app.daemon.createThread({
+    id: "thread-scratch",
+    workspaceId: id,
+    title: "QA Codex lifecycle",
+    provider: "codex",
+    details: { workspace: { id, name: "scratch", path: "/fake/scratch" } },
+  });
+  await app.open("/t/thread-scratch");
+  await screen.findByRole("heading", { level: 1, name: "QA Codex lifecycle" });
+  const search = await palette();
+  await userEvent.type(search, "scratch");
+  await waitFor(() =>
+    expect(options()).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^QA Codex lifecyclescratch/),
+        expect.stringMatching(/^scratch1 threadProjects$/),
+      ]),
+    ),
+  );
+  expect(options().some((option) => option.includes(id))).toBe(false);
+});

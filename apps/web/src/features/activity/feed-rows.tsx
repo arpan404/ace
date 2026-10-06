@@ -70,7 +70,7 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
             ? "You're holding a browser privately"
             : requestTitle(request)
       }
-      description={thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : props.threadId}
+      description={thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : "A thread"}
       age={formatAge(interaction.createdAt, now)}
       mark="needs-you"
       selected={focused === key}

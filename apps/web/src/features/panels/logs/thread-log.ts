@@ -1,5 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import type { Agent, Item, ProviderKind } from "@ace/protocol";
+import { projectLabel } from "@ace/ui-core";
 
 export interface LogLine {
   /** Stable across re-derivations, for React keys. */
@@ -23,7 +24,7 @@ const provider = (kind: ProviderKind) => (kind === "claude" ? "claude-code" : ki
  * The thread's operational log, derived from the live store: the thread's creation, sessions
  * and subagents starting and ending, turns, shell commands and their exit codes, background
  * work, questions and provider notices (rate-limit and quota warnings among them). Sorted by
- * time. Pure.
+ * time. `projectName` names the thread's project as people know it. Pure.
  */
 export function threadLog(
   reader: Pick<
@@ -39,6 +40,7 @@ export function threadLog(
     | "interactionIds"
     | "interaction"
   >,
+  projectName: (id: string) => string = projectLabel,
 ): LogLine[] {
   const root = reader.thread?.rootAgentId;
   const lines: LogLine[] = [];
@@ -50,7 +52,7 @@ export function threadLog(
       at: thread.createdAt,
       source: "daemon",
       level: "info",
-      text: `thread created in ${thread.workspaceId}`,
+      text: `thread created in ${projectName(thread.workspaceId)}`,
     });
   for (const id of reader.agentIds()) {
     const agent = reader.agent(id);

@@ -86,7 +86,8 @@ export function ThreadHotkeys(props: { thread: ThreadRef; onRename(): void }) {
       actions.archive(meta);
       void navigate({ to: "/" });
     },
-    { enabled: ready },
+    // An archived thread is restored from its menu or the archive, never archived again.
+    { enabled: ready && meta.archivedAt === undefined },
   );
   return null;
 }

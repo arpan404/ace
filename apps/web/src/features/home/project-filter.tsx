@@ -1,4 +1,10 @@
-import { CaretDownIcon, FolderPlusIcon, FolderSimpleIcon } from "@phosphor-icons/react";
+import {
+  ArchiveIcon,
+  CaretDownIcon,
+  FolderPlusIcon,
+  FolderSimpleIcon,
+} from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
 import { projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -7,6 +13,7 @@ import { cn } from "@/lib/cn.ts";
 import {
   Menu,
   MenuContent,
+  MenuItem,
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
@@ -14,7 +21,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { NeedsDaemon, useDaemonReachable } from "./needs-daemon.tsx";
-import { useProjects } from "./use-home-threads.ts";
+import { useArchivedList, useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import {
   AddProjectItem,
@@ -59,9 +66,9 @@ export function ThreadsActions() {
 const all = "\u0000all";
 
 /**
- * "All projects ▾" in the Threads header: narrow Home to one project, add a project, and
- * rename or remove the one Home shows. Every project the daemon lists is here, with or without
- * threads, beside any project only threads still mention.
+ * "All projects ▾" in the Threads header: narrow Home to one project, open the archive (in that
+ * project), add a project, and rename or remove the one Home shows. Every project the daemon
+ * lists is here, with or without threads, beside any project only threads still mention.
  */
 export function ProjectFilter() {
   const organizer = useOrganizer();
@@ -79,6 +86,8 @@ export function ProjectFilter() {
       .toSorted((a, b) => a.label.localeCompare(b.label));
   }, [withThreads, directory.projects, name]);
   const registered = project !== null && directory.projects.some((p) => p.id === project);
+  const archived = useArchivedList().length;
+  const navigate = useNavigate();
   return (
     <Menu>
       <MenuTrigger
@@ -102,6 +111,15 @@ export function ProjectFilter() {
           ))}
         </MenuRadioGroup>
         <MenuSeparator />
+        <MenuItem
+          icon={<Icon icon={ArchiveIcon} />}
+          onClick={() => void navigate({ to: "/archived" })}
+        >
+          <span className="flex flex-1 items-center">
+            Archived threads
+            <span className="ml-auto pl-4 text-xs text-subtle-foreground">{archived}</span>
+          </span>
+        </MenuItem>
         <AddProjectItem />
         {registered && <ManageProjectItems projectId={project} name={label} />}
       </MenuContent>

@@ -51,7 +51,7 @@ export function InteractionCard(props: {
       }
       context={
         props.context ??
-        (thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : props.threadId)
+        (thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : "A thread")
       }
       at={interaction.createdAt}
     >

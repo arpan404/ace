@@ -1,13 +1,12 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import { ThreadId, type AgentStatus, type ContentPart, type Item, type Run } from "@ace/protocol";
-import { formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
-import { HourglassMediumIcon, StopIcon, WarningCircleIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
-import { useCallback, useId, useMemo, useState } from "react";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { describeProviderError, formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
+import { HourglassMediumIcon, StopIcon } from "@phosphor-icons/react";
+import { useCallback, useMemo, useState } from "react";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { ErrorRow, noticeError } from "../items/error-row.tsx";
 import type { Block } from "./blocks.ts";
 import { useWatched, type Watched } from "./use-watched.ts";
 
@@ -131,24 +130,11 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
     <FailedTurn
       threadId={props.threadId}
       askId={block.askId}
+      errorId={block.errorId}
       error={ending.error}
       latest={block.latest ?? false}
     />
   );
-}
-
-/** "Not signed in to Claude Code", "Usage limit reached", or plainly "Turn failed". */
-function failureTitle(error: Failure | undefined, provider: string | undefined): string {
-  switch (error?.kind) {
-    case "auth":
-      return provider ? `Not signed in to ${provider}` : "Not signed in";
-    case "quota":
-      return "Usage limit reached";
-    case "network":
-      return "Network trouble";
-    default:
-      return "Turn failed";
-  }
 }
 
 /** The person's message again, as input: its text, images and files. */
@@ -159,23 +145,41 @@ function resend(item: Item | undefined): ContentPart[] {
   );
 }
 
+/** Actions that fix the failure where it is; Retry would only fail again. */
+const fixes = new Set(["sign_in", "switch_account", "change_model"]);
+
+/**
+ * A failed turn as one row: the failure in words from the notice that reported it, else from the
+ * run, else from the agent while the turn was its latest; the action that fixes it (sign in,
+ * another account, another model), or Retry on the newest turn; the provider's text in Details.
+ */
 function FailedTurn(props: {
   threadId: string;
   askId: string | undefined;
+  errorId: string | undefined;
   error: Failure | undefined;
   latest: boolean;
 }) {
   const { error, latest } = props;
-  const meta = useThreadMeta(props.threadId);
-  const provider = meta ? providerNames[meta.provider] : undefined;
+  const provider = useThreadMeta(props.threadId)?.provider;
   const ask = useItem(props.threadId, props.askId ?? "");
+  const notice = useItem(props.threadId, props.errorId ?? "");
   const client = useClient();
   const toast = useToast();
   const [sending, setSending] = useState(false);
-  const [details, setDetails] = useState(false);
-  const panel = useId();
-  const title = failureTitle(error, provider);
   const input = resend(ask);
+  const reported = notice?.type === "notice" ? noticeError(notice) : undefined;
+  const view = describeProviderError(
+    reported
+      ? { ...reported, provider: reported.provider ?? provider }
+      : {
+          text: error?.message ?? "",
+          kind: error?.kind,
+          provider,
+          // Details names the failure's kind as the daemon reported it.
+          detail: error ? `${error.kind}: ${error.message}` : undefined,
+        },
+  );
   const retry = async () => {
     setSending(true);
     try {
@@ -191,52 +195,16 @@ function FailedTurn(props: {
       setSending(false);
     }
   };
-  const action =
-    !latest || !error ? undefined : error.kind === "auth" ? (
-      <Link to="/settings/providers" className={buttonVariants({ size: "sm" })}>
-        Sign in
-      </Link>
-    ) : error.kind === "quota" ? (
-      <Link to="/more/accounts" className={buttonVariants({ size: "sm" })}>
-        Move to another account
-      </Link>
-    ) : undefined;
+  const fixable = latest && view.action !== undefined && fixes.has(view.action);
+  // Nothing said why: "Turn failed" alone. A fix names the failure itself ("Not signed in").
+  const known = reported !== undefined || error !== undefined;
+  const failed = known ? view : { title: "Turn failed" };
   return (
-    <div role="group" aria-label={title} className="flex flex-col gap-1.5">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-ui">
-        <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
-        <span className="font-medium text-foreground">{title}</span>
-        {error && error.kind !== "auth" && error.kind !== "quota" && (
-          <span className="min-w-0 truncate text-muted-foreground">· {error.message}</span>
-        )}
-        <span className="ml-auto flex items-center gap-1">
-          {action}
-          {latest && input.length > 0 && !action && (
-            <Button size="sm" disabled={sending} onClick={() => void retry()}>
-              Retry
-            </Button>
-          )}
-          {error && (
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-expanded={details}
-              aria-controls={panel}
-              onClick={() => setDetails(!details)}
-            >
-              Details
-            </Button>
-          )}
-        </span>
-      </div>
-      {details && error && (
-        <pre
-          id={panel}
-          className="ml-6 overflow-x-auto rounded-md bg-secondary px-3 py-2 font-mono text-[12px] whitespace-pre-wrap text-muted-foreground"
-        >
-          {`${error.kind}: ${error.message}`}
-        </pre>
-      )}
-    </div>
+    <ErrorRow
+      error={fixable ? failed : { ...failed, action: undefined }}
+      heading={fixable || !known ? undefined : "Turn failed"}
+      onRetry={latest && input.length > 0 && !fixable ? () => void retry() : undefined}
+      retrying={sending}
+    />
   );
 }

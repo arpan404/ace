@@ -15,6 +15,7 @@ export type Job = z.infer<typeof Job>;
 const Input = z.object({
   idempotencyKey: z.string(),
   automationId: z.string(),
+  title: Automation.shape.title.optional(),
   provider: Automation.shape.provider,
   model: z.string().optional(),
   workspace: z.string(),

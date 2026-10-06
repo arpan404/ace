@@ -1,9 +1,10 @@
 import { useClient, useIntent, useInteractions, useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
 import { RunId, ThreadId } from "@ace/protocol";
-import { providerNames } from "@ace/ui-core";
+import { modelLabel, providerNames, selectionInputs, type AttachmentReader } from "@ace/ui-core";
 import { Suspense, useEffect, useRef, useState, type Ref } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useModelCatalog } from "@/features/models/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useToastClearance } from "@/lib/toast-clearance.ts";
@@ -163,7 +164,15 @@ export function ThreadComposer({
       cancel?.();
     };
   }, [focusOnOpen, asking]);
-  const readsImages = meta?.capabilities?.imageInput;
+  // What the thread's provider and model read, for the files attached to the next message.
+  const catalog = useModelCatalog();
+  const selection = runsOn(meta);
+  const reader: AttachmentReader | undefined = meta && {
+    provider: providerNames[meta.provider],
+    imageInput: meta.capabilities?.imageInput,
+    model: selection?.model ? modelLabel(selection.model) : undefined,
+    modalities: catalog && selectionInputs(catalog, selection),
+  };
 
   return (
     // A pinned summary beside the text insets the composer with it (`--summary-inset`), so their
@@ -197,16 +206,7 @@ export function ThreadComposer({
           }}
           autoFocus={focusOnOpen && !asking}
           typeToFocus
-          imagesUnavailable={
-            readsImages === false && meta
-              ? `${providerNames[meta.provider]} doesn't read images`
-              : undefined
-          }
-          imagesNote={
-            readsImages === false && meta
-              ? `${providerNames[meta.provider]} can't read images in this mode; it will get the file path`
-              : undefined
-          }
+          reader={reader}
           sendsWhileUploading
           controls={
             <Suspense fallback={<ControlsPending />}>

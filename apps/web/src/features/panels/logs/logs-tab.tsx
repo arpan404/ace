@@ -9,11 +9,12 @@ import {
   ScrollIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useProjectName } from "@/lib/projects.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import { useLocal } from "../store.ts";
@@ -70,7 +71,9 @@ export function useThreadLog(threadId: string): readonly LogLine[] {
     () => ["thread", "order", "agents", "tasks", "interactions", ...(followed ?? [])],
     [followed],
   );
-  return useThread(threadId, keys, threadLog, logEqual) ?? noLines;
+  const projectName = useProjectName();
+  const read = useCallback((reader: ThreadReader) => threadLog(reader, projectName), [projectName]);
+  return useThread(threadId, keys, read, logEqual) ?? noLines;
 }
 
 /** Above this many lines the log mounts only those near the viewport. */

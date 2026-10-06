@@ -1,4 +1,9 @@
-import type { ComposerDraft } from "@ace/ui-core";
+import {
+  attachmentProblem,
+  imagesUnreadable,
+  type AttachmentReader,
+  type ComposerDraft,
+} from "@ace/ui-core";
 import {
   Suspense,
   useEffect,
@@ -80,10 +85,11 @@ export function Composer({
   controls?: ReactNode;
   /** Right of the controls, before the primary action, e.g. the context meter. */
   status?: ReactNode;
-  /** Why images can't be added, when the provider doesn't read them. */
-  imagesUnavailable?: string | undefined;
-  /** What happens to an image the provider can't read, said on its chip and on Send. */
-  imagesNote?: string | undefined;
+  /**
+   * What the thread's provider and model read: a file they can't is flagged on its chip and
+   * holds Send until it is removed, and images can't be added where they read none (QA-07).
+   */
+  reader?: AttachmentReader | undefined;
   /** Send may go while files upload: the message waits as its bubble until they're done. */
   sendsWhileUploading?: boolean | undefined;
   placeholder?: string | undefined;
@@ -255,15 +261,22 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   };
   const off = props.unavailable?.reason;
   const failedUpload = attachments.items.some((item) => item.state === "failed");
+  const chips = attachments.items.map((item) => {
+    const unsupported = attachmentProblem(item, props.reader);
+    return unsupported ? { ...item, unsupported } : item;
+  });
+  const unreadable = chips.find((item) => item.unsupported);
   const blocked = off
     ? off
-    : attachments.uploading && !props.sendsWhileUploading
-      ? "Waiting for the files to upload"
-      : failedUpload
-        ? "Remove the file that didn't upload first"
-        : empty
-          ? "Write a message first"
-          : undefined;
+    : unreadable
+      ? `Remove ${unreadable.name} first. ${unreadable.unsupported}`
+      : attachments.uploading && !props.sendsWhileUploading
+        ? "Waiting for the files to upload"
+        : failedUpload
+          ? "Remove the file that didn't upload first"
+          : empty
+            ? "Write a message first"
+            : undefined;
   // Enter empties the composer at once; the message is the parent's from here on. Only a
   // message this device couldn't save comes back, and only into an untouched composer.
   const submit = (opposite: boolean) => {
@@ -374,12 +387,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
         )}
       >
-        <AttachmentChips
-          items={attachments.items}
-          onRemove={attachments.remove}
-          onRetry={attachments.retry}
-          unsupported={props.imagesNote}
-        />
+        <AttachmentChips items={chips} onRemove={attachments.remove} onRetry={attachments.retry} />
         <textarea
           ref={input}
           rows={1}
@@ -423,7 +431,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             handle={addMenu}
             reasons={{
               files: off ?? unscoped,
-              images: off ?? unscoped ?? props.imagesUnavailable,
+              images: off ?? unscoped ?? imagesUnreadable(props.reader),
               mention: off ?? unscoped,
               command:
                 off ?? (text.trim() ? "Commands go at the start of an empty message" : undefined),
@@ -436,18 +444,15 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             thread={props.thread.draft ? undefined : props.thread}
             unavailable={props.unavailable}
           />
-          <div className="flex min-w-0 flex-1 items-center gap-1">
-            <ComposerCompact value={compact}>{props.controls}</ComposerCompact>
-          </div>
-          {props.status}
+          <ComposerCompact value={compact}>
+            {/* The controls give up room before the status: they shrink and truncate, the
+                meters keep their width, so nothing on the row ever paints over another. */}
+            <div className="flex min-w-0 flex-1 items-center gap-1">{props.controls}</div>
+            {props.status}
+          </ComposerCompact>
           <PrimaryAction
             mode={mode}
             blocked={blocked}
-            note={
-              attachments.items.some((file) => file.mimeType?.startsWith("image/"))
-                ? props.imagesNote
-                : undefined
-            }
             off={!!off}
             canSteer={props.canSteer !== false}
             stopping={!!props.stopping}

@@ -28,7 +28,11 @@ export interface ThreadActions {
   setUnread(entry: ThreadTarget, unread: boolean): void;
   rename(entry: ThreadTarget, title: string): void;
   archive(entry: ThreadTarget): void;
+  /** Back from the archive to Home, with Undo. */
+  restore(entry: ThreadTarget): void;
   remove(entry: ThreadTarget): void;
+  /** An archived thread, deleted now: the person confirmed it, so there is no Undo. */
+  deleteArchived(entry: ThreadTarget): void;
   newThreadOnMain(entry: ThreadTarget): void;
   copyLink(entry: ThreadTarget): void;
 }
@@ -203,6 +207,17 @@ export function useThreadActions(): ThreadActions {
       },
       archive: (entry) =>
         void reversible(entry, archive(entry), `Archived · ${entry.title}`, unarchive(entry)),
+      restore: (entry) =>
+        void reversible(entry, restore(entry), `Restored · ${entry.title}`, archive(entry)),
+      deleteArchived: (entry) =>
+        void act(entry, {
+          patch: { deleted: true },
+          payload: { type: "thread.delete", threadId: id(entry) },
+          verb: "Delete",
+          failed: "delete the thread",
+        }).then((deleted) => {
+          if (deleted) toast.add({ title: `Deleted · ${entry.title}` });
+        }),
       remove: (entry) => {
         let undone = false;
         const toastId = toast.add({

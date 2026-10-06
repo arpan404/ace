@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn.ts";
 import { useScrollEdges } from "@/lib/edge-fade.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
+import { useProjectName } from "@/lib/projects.ts";
 import {
   useScopeWorkspace,
   useWorkspaceActions,
@@ -148,6 +149,7 @@ export function FileTab(props: TabViewProps) {
   const workspace = useScopeWorkspace(threadId);
   const actions = useWorkspaceActions(threadId);
   const meta = useThreadMeta(threadId);
+  const projectName = useProjectName();
   const online = useConnectionState() === "ready";
   const memory = useFilesMemory();
   const [prefs] = useFilePrefs();
@@ -201,7 +203,7 @@ export function FileTab(props: TabViewProps) {
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDown={onKeyDown}>
       <FileToolbar
-        project={meta?.workspaceId ?? "Checkout"}
+        project={meta ? projectName(meta.workspaceId) : "Checkout"}
         path={path}
         preview={data.preview === true}
         source={data.source === true}

@@ -148,6 +148,23 @@ function names(choice: Pick<ModelChoice, "modelId" | "aliases">, model: string):
 }
 
 /**
+ * What the catalog says a thread's model reads (its input modalities: "text", "image"…), by the
+ * same ids a choice is matched by; undefined when the selection names no model the catalog lists.
+ */
+export function selectionInputs(
+  models: readonly CatalogModel[],
+  selection: { provider: ProviderKind; model?: string | undefined } | undefined,
+): readonly string[] | undefined {
+  const named = selection?.model;
+  if (!named) return undefined;
+  return models.find(
+    (model) =>
+      model.provider === selection.provider &&
+      (model.id === named || modelAliases(model).includes(named)),
+  )?.inputModalities;
+}
+
+/**
  * `models.list` joined with `accounts.list`: each visible model under the account (instance)
  * that serves it, grouped by provider in catalog order, signed-out accounts left out, each
  * account's limit as it stands at `now`.

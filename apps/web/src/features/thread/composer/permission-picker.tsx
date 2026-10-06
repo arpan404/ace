@@ -10,6 +10,7 @@ import { Suspense } from "react";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
 import { DeferredPermissionMenu, MenuPending } from "./deferred-menus.tsx";
 import { permissionIcons } from "./permission-icons.ts";
@@ -22,7 +23,8 @@ const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
  * icon and name, the default (Auto-review) included. It shows the mode in effect; while a change
  * waits for the agent's next turn it shows both, "Auto-review → Full access", with a small
  * clock, and the tooltip says when the change applies. The provider's real coverage is in the
- * tooltip and menu. Full access is the one mode whose icon is drawn in the attention colour.
+ * tooltip and menu. Full access is the one mode whose icon is drawn in the attention colour. A
+ * narrow composer shows the mode's icon alone; its name stays in the tooltip and accessible name.
  */
 export function PermissionPicker(props: {
   /** The mode in effect. */
@@ -44,6 +46,7 @@ export function PermissionPicker(props: {
   onChange(mode: PermissionMode | null): void;
 }) {
   const { mode, next } = props;
+  const compact = useComposerCompact();
   const label = mode ? permissionLabel(mode) : props.loading ? "Approvals…" : "Approvals";
   const Glyph = mode ? permissionIcons[mode] : ShieldCheckIcon;
   const attention = !!mode && permissionNeedsAttention(mode);
@@ -68,7 +71,7 @@ export function PermissionPicker(props: {
             weight={attention ? "fill" : "regular"}
             className={cn("shrink-0", attention && "text-status-needs-you")}
           />
-          {mode && <span className="truncate">{permissionChipText(mode, next)}</span>}
+          {mode && !compact && <span className="truncate">{permissionChipText(mode, next)}</span>}
           {next && <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />}
         </MenuTrigger>
       </Tip>

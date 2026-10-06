@@ -1,5 +1,5 @@
 import type { Item, Run } from "@ace/protocol";
-import { reviewedInteraction, type InlineQuestion } from "@ace/ui-core";
+import { isBareErrorCode, reviewedInteraction, type InlineQuestion } from "@ace/ui-core";
 
 export { isInlineInteraction } from "@ace/ui-core";
 
@@ -49,6 +49,8 @@ export type Block =
    * reason, "Stopped", or a usage-limit pause. `runId` is the root turn's run, when known;
    * `askId` the person's message that started it; `automatic` that ace, not the person, stopped
    * it (a restart or limit resume followed); `latest` that it is the newest turn in view.
+   * `errorId` is the error notice that reported the failure: the ending shows it, and the notice
+   * has no row of its own, so one failure is one row (QA-10).
    */
   | {
       kind: "end";
@@ -58,6 +60,7 @@ export type Block =
       askId: string | undefined;
       automatic?: boolean | undefined;
       latest?: boolean | undefined;
+      errorId?: string | undefined;
     };
 
 /** What the blocks need of a run. */
@@ -146,9 +149,56 @@ interface TurnMark {
   paused: boolean;
   /** The turn after it started by itself (a restart or limit resume). */
   automatic: boolean;
+  /** Its last error notice with a row of its own, with no answer after it: what a failure says. */
+  failure: { index: number; itemId: string } | undefined;
 }
 
 type WorkBlock = Extract<Block, { kind: "work" }>;
+
+/** The person's own words: not a message ace or the provider wrote for them. */
+const isPerson = (item: Item) => item.type === "message" && item.role === "user" && !item.synthetic;
+
+/**
+ * The order the transcript reads in: the order the daemon admitted items, except that the
+ * person's message waits for the turn that answers it. A message queued while the agent worked
+ * is admitted then (ADR 0065) but answered by a later turn, so it moves past the working turn's
+ * remaining output to just before its own turn's first item, and never reads as the question
+ * the older answer replies to (QA-12). A message with no turn yet, or answered by the turn that
+ * is producing output (a steer), keeps its place. O(n); `source.order` itself when nothing moves.
+ */
+function readingOrder(source: BlockSource): readonly string[] {
+  const turnOf = source.turnOf;
+  if (!turnOf) return source.order;
+  const result: string[] = [];
+  let held: string[] = [];
+  let moved = false;
+  // The turn whose output came last.
+  let producing: string | undefined;
+  const release = () => {
+    if (!held.length) return;
+    result.push(...held);
+    held = [];
+  };
+  for (const id of source.order) {
+    const item = source.item(id);
+    const turn = item ? turnOf(id) : undefined;
+    if (item && isPerson(item)) {
+      if (turn !== undefined && producing !== undefined && turn !== producing) {
+        held.push(id);
+        continue;
+      }
+      release();
+      result.push(id);
+      continue;
+    }
+    if (held.length && turn !== producing) release();
+    else if (held.length) moved = true;
+    result.push(id);
+    if (turn !== undefined) producing = turn;
+  }
+  release();
+  return moved ? result : source.order;
+}
 
 /**
  * The transcript's blocks. A stretch of work (one "Worked for" log, one "Started N subagents"
@@ -158,6 +208,7 @@ type WorkBlock = Extract<Block, { kind: "work" }>;
  */
 export function buildBlocks(source: BlockSource): Block[] {
   const blocks: Block[] = [];
+  const order = readingOrder(source);
   const anchors = anchorQuestions(source);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
@@ -180,6 +231,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         openWork: undefined,
         paused: false,
         automatic: false,
+        failure: undefined,
       };
       // A turn ace started after the previous one stopped (a restart, a limit resume).
       const trigger = source.run?.(id)?.trigger;
@@ -232,10 +284,10 @@ export function buildBlocks(source: BlockSource): Block[] {
     placed(blocks.length - 1, message);
   };
   const reviewsPlaced = new Map<string, number>();
-  for (const id of source.order) {
+  for (const id of order) {
     const item = source.item(id);
     if (!item) continue;
-    const person = item.type === "message" && item.role === "user" && !item.synthetic;
+    const person = isPerson(item);
     const known = source.turnOf?.(id);
     if (person) {
       // The person's message belongs to the turn that answers it.
@@ -260,7 +312,11 @@ export function buildBlocks(source: BlockSource): Block[] {
         case "message":
           if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
           else if (person) push({ kind: "user", key: id, itemId: id }, item.createdAt);
-          else push({ kind: "message", key: id, itemId: id }, item.createdAt, true);
+          else {
+            push({ kind: "message", key: id, itemId: id }, item.createdAt, true);
+            // The agent answered after the error: that error was not how the turn ended.
+            if (mark) mark.failure = undefined;
+          }
           break;
         case "tool_call": {
           const taskId = source.background.get(id);
@@ -291,7 +347,11 @@ export function buildBlocks(source: BlockSource): Block[] {
             groupOf.set(id, host);
             placed(host.at);
           } else if (callId) group("work", id);
-          else push({ kind: "item", key: id, itemId: id }, false);
+          else {
+            push({ kind: "item", key: id, itemId: id }, false);
+            if (mark && item.level === "error" && !isBareErrorCode(item.text))
+              mark.failure = { index: blocks.length - 1, itemId: id };
+          }
           break;
         }
         default:
@@ -325,6 +385,8 @@ export function buildBlocks(source: BlockSource): Block[] {
   // Each turn whose whole tree has settled: its changed files after its last answer, then how
   // it ended after its last block. One pass places them after those blocks.
   const after = new Map<number, Block[]>();
+  // Error notices a failed ending shows instead (QA-10).
+  const absorbed = new Set<number>();
   const place = (index: number, block: Block) => {
     const list = after.get(index);
     if (list) list.push(block);
@@ -352,11 +414,21 @@ export function buildBlocks(source: BlockSource): Block[] {
     const quota = facts?.failedOn === "quota";
     if (turn.paused && !quota) place(turn.lastBlock, endBlock(turn, "paused", newest === turn));
     // A limit resume interrupts the paused turn: the pause already says why it stopped.
-    if (facts?.state === "failed" || (facts?.state === "interrupted" && !turn.paused))
-      place(turn.lastBlock, endBlock(turn, facts.state, newest === turn));
+    if (facts?.state === "failed") {
+      const end = endBlock(turn, "failed", newest === turn);
+      if (turn.failure) {
+        absorbed.add(turn.failure.index);
+        end.errorId = turn.failure.itemId;
+      }
+      place(turn.lastBlock, end);
+    } else if (facts?.state === "interrupted" && !turn.paused)
+      place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn));
   }
   const result = after.size
-    ? blocks.flatMap((block, index) => [block, ...(after.get(index) ?? [])])
+    ? blocks.flatMap((block, index) => [
+        ...(absorbed.has(index) ? [] : [block]),
+        ...(after.get(index) ?? []),
+      ])
     : blocks;
   // A turn that stopped, failed or paused before any of its output (or its run) is known.
   const last = result.at(-1);
@@ -372,9 +444,13 @@ export function buildBlocks(source: BlockSource): Block[] {
   return result;
 }
 
-function endBlock(turn: TurnMark, ending: "failed" | "interrupted" | "paused", latest: boolean) {
+function endBlock(
+  turn: TurnMark,
+  ending: "failed" | "interrupted" | "paused",
+  latest: boolean,
+): Extract<Block, { kind: "end" }> {
   return {
-    kind: "end" as const,
+    kind: "end",
     key: `${ending === "paused" ? "pause" : "end"}:${turn.id}`,
     ending,
     runId: turn.id,
@@ -437,7 +513,9 @@ export function sameBlock(a: Block, b: Block): boolean {
 /**
  * The daemon admits a queued message into the transcript as `input:<commandId>` when it accepts
  * it (ADR 0065); while it waits in the queue its pill shows it, so its bubble stays out of the
- * feed until it leaves the queue. Returns `blocks` itself when nothing is hidden. Pure.
+ * feed until it leaves the queue. So does an ending the transcript tied to it while it waited
+ * (an agent that failed with the message last in line): that ending is the turn before's, which
+ * becomes the newest in view again (QA-10). Returns `blocks` itself when nothing is hidden. Pure.
  */
 export function withoutQueued(
   blocks: readonly Block[],
@@ -445,8 +523,18 @@ export function withoutQueued(
 ): readonly Block[] {
   if (!queued?.length) return blocks;
   const keys = new Set(queued.map((message) => `input:${message.id}`));
-  const hidden = (block: Block) => block.kind === "user" && keys.has(block.itemId);
-  return blocks.some(hidden) ? blocks.filter((block) => !hidden(block)) : blocks;
+  const hidden = (block: Block) =>
+    (block.kind === "user" && keys.has(block.itemId)) ||
+    (block.kind === "end" &&
+      block.runId === undefined &&
+      block.askId !== undefined &&
+      keys.has(block.askId));
+  if (!blocks.some(hidden)) return blocks;
+  const shown = blocks.filter((block) => !hidden(block));
+  const last = shown.at(-1);
+  // Only a hidden ask came after it: the ending closing the view is the newest turn's again.
+  if (last?.kind === "end" && !last.latest) shown[shown.length - 1] = { ...last, latest: true };
+  return shown;
 }
 
 export function blocksEqual(a: readonly Block[], b: readonly Block[]): boolean {

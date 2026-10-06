@@ -200,3 +200,49 @@ test("while a stop waits on the helper, the rail keeps showing capture until the
     ).toBeNull(),
   );
 });
+
+test("permissions that can't be read say why and what to do, then show once Check again reads them", async () => {
+  const { app } = await openSettings();
+  app.daemon.screen.permissionReadFailure = { code: "timeout", message: "Helper didn't answer" };
+  await app.open("/settings/computer-use");
+  await page();
+  await waitFor(() =>
+    expect(screen.getByText(/No answer in time\./).parentElement?.textContent).toContain(
+      "Check again",
+    ),
+  );
+  expect(screen.getAllByText("Unavailable")).toHaveLength(2);
+  expect(screen.queryByText("Checking")).toBeNull();
+
+  app.daemon.screen.permissionReadFailure = undefined;
+  await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+  await waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
+  expect(screen.queryByText("Unavailable")).toBeNull();
+});
+
+test("permissions refused because computer use is off point at turning it on, and read once it is", async () => {
+  const { app } = await openSettings();
+  // The helper can't be asked while computer use is off (the real daemon fails these reads).
+  app.daemon.screen.permissionReadFailure = { code: "internal", message: "Screen request failed" };
+  await app.open("/settings/computer-use");
+  await page();
+  await waitFor(() => expect(screen.getAllByText("Unavailable")).toHaveLength(2));
+  expect(screen.getByText(/Screen request failed\./)).toBeTruthy();
+
+  app.daemon.screen.permissionReadFailure = {
+    code: "screen_disabled",
+    message: "Screen access is disabled",
+  };
+  await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+  await waitFor(() =>
+    expect(screen.getByText(/Computer use is off\./).parentElement?.textContent).toContain(
+      "Turn on Let agents use apps above.",
+    ),
+  );
+  // The page says it where it happened: no toast pointing back at this same page.
+  expect(screen.queryByText("Couldn't read permissions")).toBeNull();
+
+  app.daemon.screen.permissionReadFailure = undefined;
+  await userEvent.click(screen.getByRole("switch", { name: "Let agents use apps" }));
+  await waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
+});

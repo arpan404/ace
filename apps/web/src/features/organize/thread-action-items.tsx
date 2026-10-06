@@ -14,6 +14,7 @@ import {
   PushPinIcon,
   PushPinSlashIcon,
   TrashIcon,
+  TrayArrowUpIcon,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
@@ -48,8 +49,8 @@ export interface ThreadAction {
 
 /**
  * Every action on one thread, in menu order: start another, rename, fork, link; read and pin;
- * settle; archive and delete (with Undo). Snooze, a submenu of times, is the menus' own.
- * `onLeave` runs once the thread is gone from the list (archived or deleted).
+ * settle; archive (or, archived, restore) and delete (with Undo). Snooze, a submenu of times, is
+ * the menus' own. `onLeave` runs once the thread is gone from the list (archived or deleted).
  */
 export function threadActions(
   entry: ThreadListEntry,
@@ -127,17 +128,25 @@ export function threadActions(
       run: () => actions.settle(entry),
     });
   list.push(
-    {
-      id: "archive",
-      label: "Archive",
-      icon: ArchiveIcon,
-      shortcut: "archiveThread",
-      section: "leave",
-      run: () => {
-        actions.archive(entry);
-        handlers.onLeave?.();
-      },
-    },
+    entry.archivedAt === undefined
+      ? {
+          id: "archive",
+          label: "Archive",
+          icon: ArchiveIcon,
+          shortcut: "archiveThread",
+          section: "leave",
+          run: () => {
+            actions.archive(entry);
+            handlers.onLeave?.();
+          },
+        }
+      : {
+          id: "restore",
+          label: "Restore from archive",
+          icon: TrayArrowUpIcon,
+          section: "leave",
+          run: () => actions.restore(entry),
+        },
     {
       id: "delete",
       label: "Delete thread",

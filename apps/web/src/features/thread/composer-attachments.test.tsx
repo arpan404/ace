@@ -10,7 +10,8 @@ import { AttachmentChips, useAttachments } from "./composer/attachments.tsx";
 
 /*
  * The composer's attachment chips (AT-2): an image's preview at once, upload progress, failures
- * in words with Retry, the provider's note on images, and the files a send can wait for.
+ * in words with Retry, files the thread's agent can't read (QA-07), and the files a send can
+ * wait for.
  */
 
 const objectUrls = new Map<string, Blob>();
@@ -115,21 +116,53 @@ test("a failed upload offers Retry, which uploads the same file again", async ()
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
 });
 
-test("image chips carry the provider's note when it can't read images; file chips don't", async () => {
-  const note = "Codex can't read images in this mode; it will get the file path";
-  render(
-    <AttachmentChips
-      items={[
-        { key: 1, name: "screen.png", mimeType: "image/png", state: "ready", progress: 1 },
-        { key: 2, name: "notes.txt", mimeType: "text/plain", state: "ready", progress: 1 },
-      ]}
-      onRemove={() => {}}
-      unsupported={note}
-    />,
+test("a file the thread's provider can't read is flagged on its chip, and Send waits until it goes", async () => {
+  const user = userEvent.setup();
+  const { message } = await openComposer();
+  await user.type(message, "What's in the notes?");
+  await user.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["QA_TOKEN 42"], "notes.txt", { type: "text/plain" }),
   );
-  const chips = await screen.findAllByRole("listitem");
-  expect(chips[0]?.textContent).toContain(note);
-  expect(chips[1]?.textContent).not.toContain(note);
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  expect(within(chips).getByText(/Can't be read/).textContent).toContain(
+    "can't read attached files like notes.txt",
+  );
+  const send = screen.getByRole("button", { name: "Send" });
+  expect(send.getAttribute("aria-disabled")).toBe("true");
+  await user.keyboard("{Enter}");
+  expect((message as HTMLTextAreaElement).value).toBe("What's in the notes?");
+
+  await user.click(within(chips).getByRole("button", { name: "Remove notes.txt" }));
+  expect(send.getAttribute("aria-disabled")).toBeNull();
+});
+
+test("where the provider reads no images, images can't be added and a dropped one is flagged", async () => {
+  const user = userEvent.setup();
+  const app = harness();
+  app.daemon.createThread({
+    id: "thread-no-images",
+    workspaceId: "docs-site",
+    title: "Text-only agent",
+    provider: "codex",
+    capabilities: { imageInput: false },
+  });
+  await app.open("/t/thread-no-images");
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await user.click(screen.getByRole("button", { name: "Add files and context" }));
+  const images = await screen.findByRole("menuitem", { name: /Images/ });
+  expect(images.getAttribute("aria-disabled")).toBe("true");
+  expect(images.textContent).toContain("Codex doesn't read images.");
+  await user.keyboard("{Escape}");
+
+  await user.type(message, "Describe it");
+  await user.upload(screen.getByLabelText("Files to attach"), screenshot());
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  expect(within(chips).getByText(/Can't be read/).textContent).toContain(
+    "Codex doesn't read images.",
+  );
+  expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
 });
 
 test("an upload in progress shows a ring with its percentage", async () => {

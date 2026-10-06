@@ -20,6 +20,7 @@ import { cn } from "@/lib/cn.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useNow } from "@/lib/time.ts";
 import { useThreadAccount } from "../lib/thread-account.ts";
+import { useComposerCompact } from "./composer-compact.ts";
 
 /**
  * Where a thread at its limit would go, in words: the account automatic recovery picks, with how
@@ -37,11 +38,13 @@ function targetLine(target: AccountView | undefined, providerLabel: string, now:
  * The account's usage windows beside the context meter: its tightest window as "5h 62%" (amber
  * near the limit, red at it), and every window still in its period with its reset on hover or
  * focus. Nothing when the thread has no account yet or its provider reports no current windows.
- * While the account's state is unknown the meter only reports, in the neutral tone.
+ * While the account's state is unknown the meter only reports, in the neutral tone. A narrow
+ * composer leaves the reset time to the card: "Limit" alone.
  */
 export function AccountMeter(props: { threadId: string }) {
   const { account, accounts } = useThreadAccount(props.threadId);
   const now = useNow();
+  const compact = useComposerCompact();
   if (!account?.windows.length) return null;
   const limit = accountLimit(account, now);
   const window = limit.window;
@@ -50,7 +53,7 @@ export function AccountMeter(props: { threadId: string }) {
   const target = accounts && migrationTarget(accounts, account.id, now);
   const reached = limit.level === "reached";
   const short = reached
-    ? limit.resetsAt === undefined
+    ? limit.resetsAt === undefined || compact
       ? "Limit"
       : `Limit · ${formatClock(limit.resetsAt)}`
     : `${quotaWindowShort(window)} ${window.usedPercent}%`;

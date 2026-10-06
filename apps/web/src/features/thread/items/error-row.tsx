@@ -1,3 +1,4 @@
+import type { Item, ProviderKind } from "@ace/protocol";
 import { describeProviderError, type ErrorInput, type ErrorView } from "@ace/ui-core";
 import { CaretRightIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -13,15 +14,38 @@ function openModelPicker(from: HTMLElement | null) {
   scope.querySelector<HTMLButtonElement>('button[aria-label^="Change model"]')?.click();
 }
 
+/** A notice's structured error fields (C-A `code`/`title`/`detail`, #116 `details`), if any. */
+export function noticeError(item: Extract<Item, { type: "notice" }>): ErrorInput {
+  const record = item as Record<string, unknown>;
+  const text = (key: string) =>
+    typeof record[key] === "string" ? (record[key] as string) : undefined;
+  const details =
+    typeof record["details"] === "object" && record["details"] !== null
+      ? (record["details"] as Record<string, unknown>)
+      : {};
+  return {
+    text: item.text,
+    code: text("code") ?? (typeof details["code"] === "string" ? details["code"] : undefined),
+    title: text("title"),
+    detail: text("detail"),
+    provider:
+      typeof details["provider"] === "string" ? (details["provider"] as ProviderKind) : undefined,
+    model: typeof details["model"] === "string" ? details["model"] : undefined,
+  };
+}
+
 /**
  * One failure as one row (IR-12): what went wrong in words, the action that fixes it, and the
- * provider's own text behind "Details". `onRetry` adds Retry where a retry is possible.
+ * provider's own text behind "Details". `onRetry` adds Retry where a retry is possible. A
+ * notice and a failed turn's ending both draw it, so a failure reads the same wherever it shows.
  */
 export function ErrorRow(props: {
   error: ErrorInput | ErrorView;
-  /** "Turn failed", for the end of a turn; the error's own title otherwise. */
+  /** "Turn failed", for the end of a turn: the failure's words follow it. */
   heading?: string | undefined;
   onRetry?: (() => void) | undefined;
+  /** A retry is on its way: Retry waits. */
+  retrying?: boolean | undefined;
   className?: string | undefined;
 }) {
   const view = "text" in props.error ? describeProviderError(props.error) : props.error;
@@ -29,7 +53,7 @@ export function ErrorRow(props: {
   const details = useId();
   const [row, setRow] = useState<HTMLDivElement | null>(null);
   const title = props.heading ?? view.title;
-  const message = props.heading ? view.title : view.message;
+  const message = props.heading ? (view.message ?? view.title) : view.message;
   const raw = view.raw && view.raw !== title && view.raw !== message ? view.raw : undefined;
   return (
     <div
@@ -59,7 +83,7 @@ export function ErrorRow(props: {
             </Link>
           )}
           {props.onRetry && (
-            <Button size="sm" variant="secondary" onClick={props.onRetry}>
+            <Button size="sm" variant="secondary" disabled={props.retrying} onClick={props.onRetry}>
               Retry
             </Button>
           )}

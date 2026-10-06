@@ -143,6 +143,55 @@ test("an independent failure after another error still shows", async () => {
   expect(within(feed).getByRole("group", { name: /doesn't recognise the model/ })).toBeTruthy();
 });
 
+/** One turn that fails: `facts` happen inside it, then it ends failed with `error`. */
+function failedTurn(
+  id: string,
+  facts: Fact[],
+  error: { kind: "auth" | "process_exit"; message: string },
+): Scenario {
+  const base = thread(id, facts);
+  const step = base.steps[0];
+  if (step?.kind !== "facts") throw new Error("expected facts");
+  return {
+    thread: base.thread,
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          ...step.facts.slice(0, -1),
+          { type: "turn.ended", agent: "root", nativeTurnId: "t1", outcome: "failed", error },
+        ],
+      },
+    ],
+  };
+}
+
+test("a failed turn reads its failure once: the provider's notice and the turn's ending are one row", async () => {
+  const feed = await open(
+    failedTurn(
+      "thread-signed-out",
+      [notice("auth", "error", "[claude-code:not_signed_in] Sign in to Claude Code and retry.")],
+      { kind: "auth", message: "Sign in to Claude Code and retry." },
+    ),
+  );
+  const rows = await within(feed).findAllByRole("group", { name: /^Not signed in to Claude Code/ });
+  expect(rows).toHaveLength(1);
+  expect(within(rows[0]!).getByRole("link", { name: "Sign in" })).toBeTruthy();
+});
+
+test("a turn that failed without a notice still says so once, with Retry", async () => {
+  const feed = await open(
+    failedTurn("thread-restarted", [], {
+      kind: "process_exit",
+      message: "Daemon restarted; previous provider work stopped",
+    }),
+  );
+  const rows = await within(feed).findAllByRole("group", { name: /^Turn failed/ });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.textContent).toContain("Daemon restarted; previous provider work stopped");
+  expect(within(rows[0]!).getByRole("button", { name: "Retry" })).toBeTruthy();
+});
+
 const sheetRotate = () => {
   const scenario = workbench().find((candidate) => candidate.thread.id === "thread-sheet-rotate");
   if (!scenario) throw new Error("workbench lost the question thread");
