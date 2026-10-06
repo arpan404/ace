@@ -1,16 +1,17 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useClient, useItem, useThreadMeta } from "@ace/client-react";
-import { ThreadId, type AgentStatus, type ContentPart, type Item, type Run } from "@ace/protocol";
-import { describeProviderError, formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
+import { useThreadMeta } from "@ace/client-react";
+import type { AgentStatus, Run } from "@ace/protocol";
+import { formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
 import { HourglassMediumIcon, StopIcon } from "@phosphor-icons/react";
-import { useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo } from "react";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
-import { ErrorRow, noticeError } from "../items/error-row.tsx";
+import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
 import { useWatched, type Watched } from "./use-watched.ts";
 
-type Failure = Extract<AgentStatus, { state: "failed" }>["error"];
+const FailedTurn = DeferredFailedTurn.Component;
+
+export type Failure = Extract<AgentStatus, { state: "failed" }>["error"];
 type EndBlock = Extract<Block, { kind: "end" }>;
 
 /**
@@ -127,84 +128,14 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
     );
   }
   return (
-    <FailedTurn
-      threadId={props.threadId}
-      askId={block.askId}
-      errorId={block.errorId}
-      error={ending.error}
-      latest={block.latest ?? false}
-    />
-  );
-}
-
-/** The person's message again, as input: its text, images and files. */
-function resend(item: Item | undefined): ContentPart[] {
-  if (item?.type !== "message") return [];
-  return item.parts.map((part) =>
-    part.type === "text" ? { type: "text", text: part.text } : part,
-  );
-}
-
-/** Actions that fix the failure where it is; Retry would only fail again. */
-const fixes = new Set(["sign_in", "switch_account", "change_model"]);
-
-/**
- * A failed turn as one row: the failure in words from the notice that reported it, else from the
- * run, else from the agent while the turn was its latest; the action that fixes it (sign in,
- * another account, another model), or Retry on the newest turn; the provider's text in Details.
- */
-function FailedTurn(props: {
-  threadId: string;
-  askId: string | undefined;
-  errorId: string | undefined;
-  error: Failure | undefined;
-  latest: boolean;
-}) {
-  const { error, latest } = props;
-  const provider = useThreadMeta(props.threadId)?.provider;
-  const ask = useItem(props.threadId, props.askId ?? "");
-  const notice = useItem(props.threadId, props.errorId ?? "");
-  const client = useClient();
-  const toast = useToast();
-  const [sending, setSending] = useState(false);
-  const input = resend(ask);
-  const reported = notice?.type === "notice" ? noticeError(notice) : undefined;
-  const view = describeProviderError(
-    reported
-      ? { ...reported, provider: reported.provider ?? provider }
-      : {
-          text: error?.message ?? "",
-          kind: error?.kind,
-          provider,
-          // Details names the failure's kind as the daemon reported it.
-          detail: error ? `${error.kind}: ${error.message}` : undefined,
-        },
-  );
-  const retry = async () => {
-    setSending(true);
-    try {
-      await client.enqueue({
-        type: "thread.send",
-        threadId: ThreadId.parse(props.threadId),
-        input,
-        trigger: "user",
-      });
-    } catch {
-      toast.add({ title: "Couldn't retry the turn" });
-    } finally {
-      setSending(false);
-    }
-  };
-  const fixable = latest && view.action !== undefined && fixes.has(view.action);
-  // Nothing said why: "Turn failed" alone. A fix names the failure itself ("Not signed in").
-  const known = reported !== undefined || error !== undefined;
-  const failed = known ? view : { title: "Turn failed" };
-  return (
-    <ErrorRow
-      error={fixable ? failed : { ...failed, action: undefined }}
-      heading={fixable || !known ? undefined : "Turn failed"}
-      onRetry={latest && input.length > 0 && !fixable ? () => void retry() : undefined}
-      retrying={sending}
-    />
+    <Suspense fallback={null}>
+      <FailedTurn
+        threadId={props.threadId}
+        askId={block.askId}
+        errorId={block.errorId}
+        error={ending.error}
+        latest={block.latest ?? false}
+      />
+    </Suspense>
   );
 }

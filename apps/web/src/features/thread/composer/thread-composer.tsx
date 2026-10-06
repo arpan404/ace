@@ -4,7 +4,9 @@ import { RunId, ThreadId } from "@ace/protocol";
 import { modelLabel, providerNames, selectionInputs, type AttachmentReader } from "@ace/ui-core";
 import { Suspense, useEffect, useRef, useState, type Ref } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useModelCatalog } from "@/features/models/index.ts";
+// The catalog alone: the feature's index is also loaded lazily, so importing it would bring its
+// pickers into this route.
+import { useModelCatalog } from "@/features/models/catalog.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useToastClearance } from "@/lib/toast-clearance.ts";

@@ -3,6 +3,7 @@ import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
 import { tightestWindow, type AccountView } from "./accounts.ts";
 import { accountLimit } from "./limits.ts";
 import type { ProviderStatus } from "./provider-status.ts";
+import { modelAliases } from "./catalog-ids.ts";
 import { modelLine, modelName } from "./model-label.ts";
 import { modelLabel, providerNames } from "./providers.ts";
 
@@ -137,32 +138,9 @@ function rowId(model: Pick<CatalogModel, "instance" | "id">): string {
   return `${model.instance}:${model.id}`;
 }
 
-/** Ids other than the catalog id that name the row: native, resolved and alias ids. */
-function modelAliases(model: CatalogModel): string[] {
-  const ids = [model.nativeModelId, model.resolvedModelId, ...(model.aliases ?? [])];
-  return [...new Set(ids.filter((id): id is string => id !== undefined && id !== model.id))];
-}
-
 /** A thread's record names the model by its catalog id or by one of its other ids. */
 function names(choice: Pick<ModelChoice, "modelId" | "aliases">, model: string): boolean {
   return choice.modelId === model || choice.aliases.includes(model);
-}
-
-/**
- * What the catalog says a thread's model reads (its input modalities: "text", "image"…), by the
- * same ids a choice is matched by; undefined when the selection names no model the catalog lists.
- */
-export function selectionInputs(
-  models: readonly CatalogModel[],
-  selection: { provider: ProviderKind; model?: string | undefined } | undefined,
-): readonly string[] | undefined {
-  const named = selection?.model;
-  if (!named) return undefined;
-  return models.find(
-    (model) =>
-      model.provider === selection.provider &&
-      (model.id === named || modelAliases(model).includes(named)),
-  )?.inputModalities;
 }
 
 /**
