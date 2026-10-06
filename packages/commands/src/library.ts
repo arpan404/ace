@@ -19,7 +19,7 @@ interface Entry {
 export class CommandLibrary implements CommandService {
   private readonly entries = new Map<string, Entry>();
   private readonly contexts: (thread: string) => unknown;
-  private readonly instances: ProviderInstance[];
+  private readonly instances: () => readonly ProviderInstance[];
   private readonly aceHome: string;
   private readonly now: () => number;
   private serial: Promise<unknown> = Promise.resolve();
@@ -28,14 +28,19 @@ export class CommandLibrary implements CommandService {
   private readonly updates = new Map<string, Set<{ cancelled: boolean }>>();
   constructor(options: {
     context(thread: string): unknown;
-    instances: readonly ProviderInstance[];
+    instances: readonly ProviderInstance[] | (() => readonly ProviderInstance[]);
     aceHome: string;
     now: () => number;
   }) {
     this.contexts = options.context;
     this.aceHome = z.string().min(1).max(4096).parse(options.aceHome);
     this.now = options.now;
-    this.instances = z
+    const instances = options.instances;
+    this.instances = typeof instances === "function" ? instances : () => instances;
+    this.readInstances();
+  }
+  private readInstances(): ProviderInstance[] {
+    const instances = z
       .array(
         z.object({
           id: z.string().min(1).max(128),
@@ -43,11 +48,14 @@ export class CommandLibrary implements CommandService {
           home: z.string().min(1).max(4096),
         }),
       )
-      .max(32)
-      .parse(options.instances);
-    if (new Set(this.instances.map((i) => i.id)).size !== this.instances.length)
+      // The account registry admits 256 accounts, alongside seven legacy CLI identities.
+      .max(263)
+      .parse(this.instances());
+    if (new Set(instances.map((i) => i.id)).size !== instances.length)
       throw new Error("Duplicate provider instance");
+    return instances;
   }
+
   private async get(thread: string): Promise<{
     entry: Entry;
     target: { provider: LibraryContext["provider"]; instance: string; session: string };
@@ -61,13 +69,10 @@ export class CommandLibrary implements CommandService {
     entry: Entry;
     target: { provider: LibraryContext["provider"]; instance: string; session: string };
   }> {
-    const instance =
-      this.instances.find((i) => i.id === ctx.instance && i.provider === ctx.provider) ??
-      (ctx.provider === "acp"
-        ? { id: ctx.instance, provider: ctx.provider, home: this.aceHome }
-        : undefined);
-    if (!instance) throw new Error("Unknown provider instance");
-    const key = `${ctx.workspace}\0${ctx.instance}`;
+    const instance = this.readInstances().find(
+      (i) => i.id === ctx.instance && i.provider === ctx.provider,
+    );
+    const key = `${ctx.workspace}\0${ctx.instance}\0${instance?.home ?? ""}`;
     let entry = this.entries.get(key);
     if (!entry) {
       if (this.entries.size >= 8) {
@@ -81,7 +86,7 @@ export class CommandLibrary implements CommandService {
       const catalog = new CommandCatalog(this.now);
       const files = new CommandFiles(
         catalog,
-        discoveryRoots([instance], this.aceHome, ctx.workspace),
+        discoveryRoots(instance ? [instance] : [], this.aceHome, ctx.workspace),
       );
       entry = { catalog, files, runtime: new Set() };
       this.entries.set(key, entry);
@@ -120,7 +125,7 @@ export class CommandLibrary implements CommandService {
       const parsed = context.parse(input);
       const selected =
         parsed.instance === parsed.provider
-          ? (this.instances.find((instance) => instance.provider === parsed.provider)?.id ??
+          ? (this.readInstances().find((instance) => instance.provider === parsed.provider)?.id ??
             parsed.instance)
           : parsed.instance;
       const { entry, target } = await this.getContext(`draft:${draft}`, {

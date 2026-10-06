@@ -32,13 +32,36 @@ test("a thread held by a provider limit stays with the moving ones, above troubl
   expect(arrange(entries, state(), now).active).toEqual(["limited", "failed", "done"]);
 });
 
-test("within a group the daemon's pinned threads lead, then the most recently active", () => {
+test("pinned threads leave Home order for their own, in the place the person gave each", () => {
   const entries = [
-    entry("older", { state: "working", agents: 1 }, now - 3 * hour),
-    entry("newer", { state: "working", agents: 1 }, now - hour),
-    entry("pinned", { state: "working", agents: 1 }, now - 5 * hour, { pinned: true }),
+    entry("asks", { state: "needs_you", interactions: 1 }, now),
+    entry("second", { state: "done" }, now - 5 * hour, { pinned: true, pinOrder: 20 }),
+    entry("first", { state: "working", agents: 1 }, now - 9 * hour, { pinned: true, pinOrder: 30 }),
+    entry("legacy", { state: "needs_you", interactions: 1 }, now, { pinned: true }),
   ];
-  expect(arrange(entries, state(), now).active).toEqual(["pinned", "newer", "older"]);
+  const order = arrange(entries, state(), now);
+  // A pin from before places existed has none, so it goes last among the pinned.
+  expect(order.pinned).toEqual(["first", "second", "legacy"]);
+  expect(order.active).toEqual(["asks"]);
+});
+
+test("a pinned thread stays pinned when settled, and leaves with an archive", () => {
+  const entries = [
+    entry("kept", { state: "done" }, now, { pinned: true, pinOrder: 1, settledAt: now }),
+    entry("gone", { state: "done" }, now, { pinned: true, pinOrder: 2, archivedAt: now }),
+  ];
+  const order = arrange(entries, state(), now);
+  expect(order.pinned).toEqual(["kept"]);
+  expect(order.settled).toEqual([]);
+});
+
+test("pinned threads with the same place keep a steady order: most recent work, then id", () => {
+  const entries = [
+    entry("b", { state: "done" }, now - hour, { pinned: true, pinOrder: 5 }),
+    entry("a", { state: "done" }, now - hour, { pinned: true, pinOrder: 5 }),
+    entry("fresh", { state: "done" }, now, { pinned: true, pinOrder: 5 }),
+  ];
+  expect(arrange(entries, state(), now).pinned).toEqual(["fresh", "a", "b"]);
 });
 
 test("recency is the last work, so renaming or pinning a thread doesn't move it up", () => {

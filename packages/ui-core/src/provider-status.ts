@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@ace/protocol";
+import type { ProviderStatus as DiscoveryStatus, ProviderKind } from "@ace/protocol";
 import type { AccountView } from "./accounts.ts";
 import { providerNames } from "./providers.ts";
 
@@ -40,9 +40,9 @@ export function signInSteps(provider: ProviderKind): SignIn | undefined {
 /**
  * Whether a provider can take a new thread: `ready` (installed, and signed in as far as the
  * daemon reports), `signed_out` (installed, but every ace account of it is signed out) or
- * `not_installed` (discovery didn't find its CLI).
+ * `not_installed` (discovery didn't find its CLI), or `unknown` until authentication is verified.
  */
-export type ProviderState = "ready" | "signed_out" | "not_installed";
+export type ProviderState = "ready" | "signed_out" | "not_installed" | "unknown";
 
 /** One provider as the daemon's discovery and accounts describe it. */
 export interface ProviderStatus {
@@ -62,14 +62,22 @@ export interface ProviderStatus {
 /**
  * A provider's state from discovery and its ace accounts. ace never handles credentials
  * (ADR 0002): with no ace account the daemon runs the CLI on the person's own login, so the CLI
- * counts as ready. Only when it has ace accounts and every one is signed out is it signed out.
+ * has unknown authentication until discovery or an account verifies it.
  */
 export function providerState(
-  installed: boolean,
-  accounts: readonly Pick<AccountView, "signedIn">[],
+  installed: boolean | null,
+  accounts: readonly Pick<AccountView, "signedIn" | "quota">[],
+  auth: DiscoveryStatus["auth"] = "unknown",
 ): ProviderState {
-  if (!installed) return "not_installed";
-  return accounts.length && !accounts.some((account) => account.signedIn) ? "signed_out" : "ready";
+  if (installed === false) return "not_installed";
+  if (installed === null) return "unknown";
+  if (accounts.some((account) => account.signedIn) || auth === "logged_in") return "ready";
+  if (
+    auth === "logged_out" ||
+    (accounts.length > 0 && accounts.every((account) => account.quota.auth === "logged_out"))
+  )
+    return "signed_out";
+  return "unknown";
 }
 
 /**
@@ -80,15 +88,19 @@ export function providerState(
 export function providerStatuses(
   installed: ReadonlySet<ProviderKind>,
   accounts: readonly AccountView[],
+  discovery: readonly DiscoveryStatus[] = [],
 ): ProviderStatus[] {
   const native = nativeProviders.map(({ kind, binary }): ProviderStatus => {
     const own = accounts.filter((account) => account.provider === kind);
+    const row =
+      discovery.find((entry) => entry.provider === kind && entry.runtime === "cursor-sdk") ??
+      discovery.find((entry) => entry.provider === kind);
     return {
       provider: kind,
       name: providerNames[kind],
       binary,
-      version: own.find((account) => account.version)?.version,
-      state: providerState(installed.has(kind), own),
+      version: row?.version ?? own.find((account) => account.version)?.version,
+      state: providerState(row ? row.installed : installed.has(kind), own, row?.auth),
       accounts: own,
     };
   });
@@ -115,6 +127,7 @@ export function providerStatuses(
 export function providerChoiceLabel(status: Pick<ProviderStatus, "name" | "state">): string {
   if (status.state === "signed_out") return `${status.name} (not signed in)`;
   if (status.state === "not_installed") return `${status.name} (not installed)`;
+  if (status.state === "unknown") return `${status.name} (sign-in unknown)`;
   return status.name;
 }
 
@@ -144,6 +157,11 @@ export function startingProvider(input: {
   if (ready(lastUsed)) return lastUsed;
   return (
     providers.find((status) => status.state === "ready")?.provider ??
+    providers.find((status) => status.provider === chosen && status.state === "unknown")
+      ?.provider ??
+    providers.find((status) => status.provider === lastUsed && status.state === "unknown")
+      ?.provider ??
+    providers.find((status) => status.state === "unknown")?.provider ??
     providers.find((status) => status.state === "signed_out")?.provider
   );
 }

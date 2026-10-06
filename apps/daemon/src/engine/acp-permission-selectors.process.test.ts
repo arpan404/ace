@@ -9,7 +9,7 @@ test.each(
     (["auto-review", "ask", "full-access"] as const).map((mode) => ({ legacy, mode })),
   ),
 )(
-  "public mode changes keep ACP's $mode permission contract, legacy: $legacy",
+  "ACP preserves the $mode permission contract at admission and public mode changes, legacy: $legacy",
   async ({ mode, legacy }) => {
     const native = createAcpAdapter(genericQuirks);
     const frames: Frame[] = [];
@@ -55,6 +55,24 @@ test.each(
     });
     try {
       const id = await h.create();
+      if (mode === "ask") {
+        const view = h.store.snapshotThread(id);
+        expect(view.thread.status.state).toBe("waiting");
+        expect(h.engine.queue(id)).toMatchObject({
+          paused: true,
+          reason: "manual",
+          messages: [{ state: "queued", input: [{ type: "text", text: "first" }] }],
+        });
+        expect(
+          Object.values(view.items).some(
+            (item) =>
+              item.type === "notice" && item.detail?.includes("permission_mode_unsupported"),
+          ),
+        ).toBe(true);
+        // An unsupported default keeps the input for correction without any native action.
+        expect(frames).toEqual([]);
+        return;
+      }
       h.command({ type: "thread.mode.set", threadId: id, mode: "bypassPermissions" });
       await h.engine.flush();
       const selected = frames

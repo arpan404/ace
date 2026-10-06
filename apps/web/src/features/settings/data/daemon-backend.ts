@@ -11,8 +11,8 @@ function login(account: AccountView): ProviderAccount {
     id: account.id,
     label: account.label,
     plan: "",
-    auth: account.signedIn ? "logged_in" : "logged_out",
-    availability: account.signedIn ? account.availability : "logged_out",
+    auth: account.quota.auth,
+    availability: account.availability,
   };
 }
 
@@ -83,7 +83,11 @@ export function daemonSettingsBackend(
       for (const [key, value] of Object.entries(defaults)) await values.set(key, value);
     },
     providers,
-    rediscover: providers,
+    async rediscover() {
+      const reply = await client.request({ type: "providers.request", operation: "refresh" });
+      if (!reply.result.ok) throw new Error("Provider discovery unavailable");
+      return providers();
+    },
     canAddAcpAgent: access.canAddAcpAgent,
     addAcpAgent: (agent) => access.addAcpAgent(agent),
     removeAcpAgent: (name) => access.removeAcpAgent(name),

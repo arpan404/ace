@@ -21,6 +21,16 @@ export const BrowserOpen = z.object({
 export type BrowserOpen = z.infer<typeof BrowserOpen>;
 const commandBase = z.object({ tabId: short.optional() });
 export const BrowserCommand = z.discriminatedUnion("action", [
+  commandBase.extend({ action: z.literal("navigation_history") }),
+  commandBase.extend({
+    action: z.literal("history"),
+    direction: z.enum(["back", "forward", "reload"]),
+  }),
+  commandBase.extend({
+    action: z.literal("find_text"),
+    text: z.string().max(4096),
+    forward: z.boolean().default(true),
+  }),
   commandBase.extend({ action: z.literal("navigate"), url: z.string().max(8192), timeout }),
   commandBase.extend({ action: z.literal("click"), ref: short }),
   commandBase.extend({ action: z.literal("type"), ref: short, text: z.string().max(65_536) }),
@@ -211,6 +221,12 @@ export const BrowserArtifact = z.object({
   flags: z.array(z.enum(["executable", "archive"])).optional(),
 });
 export type BrowserArtifact = z.infer<typeof BrowserArtifact>;
+export const BrowserCaptureViewport = z.object({
+  width: dimension,
+  height: dimension,
+  devicePixelRatio: z.number().finite().min(1).max(4),
+});
+export type BrowserCaptureViewport = z.infer<typeof BrowserCaptureViewport>;
 const base = z.object({ requestId: short, threadId: ThreadId });
 export const BrowserClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.open"), requestId: short, options: BrowserOpen }),
@@ -234,6 +250,7 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("browser.evaluate.grants.revoke"), origin: BrowserOrigin }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
   base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
+  base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
   base.extend({

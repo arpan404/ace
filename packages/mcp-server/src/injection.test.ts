@@ -6,25 +6,14 @@ import {
   acpInjection,
   cursorSdkInjection,
 } from "./index.ts";
-import { parse as parseToml } from "smol-toml";
-
 const connection = { url: "http://127.0.0.1:12345/mcp", bearer: "a".repeat(64) };
-it("passes Codex overrides as exact TOML values with the bearer only in its environment", () => {
+it("delivers Codex authority only in native thread configuration", () => {
   const result = codexInjection(connection);
-  expect(result.args).toEqual([
-    "-c",
-    'mcp_servers.ace.url="http://127.0.0.1:12345/mcp"',
-    "-c",
-    'mcp_servers.ace.bearer_token_env_var="ACE_MCP_BEARER_TOKEN"',
-    "-c",
-    "mcp_servers.ace.tool_timeout_sec=300",
-  ]);
-  expect(parseToml(`${result.args[1]}\n${result.args[3]}`)).toEqual({
-    mcp_servers: { ace: { url: connection.url, bearer_token_env_var: "ACE_MCP_BEARER_TOKEN" } },
+  expect(result.config["mcp_servers.ace"]).toMatchObject({
+    url: connection.url,
+    http_headers: { Authorization: `Bearer ${connection.bearer}` },
+    tool_timeout_sec: 300,
   });
-  expect(result.env).toEqual({ ACE_MCP_BEARER_TOKEN: connection.bearer });
-  expect(result.args.join(" ")).not.toContain(connection.bearer);
-  expect(result.developerInstructions).toContain("acceptance, not completion");
 });
 it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
   const result = claudeInjection(connection);
@@ -37,21 +26,17 @@ it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
   });
   expect(result.developerInstructions).toContain("mcp__ace__*");
 });
-it("builds OpenCode config content with remote type, headers and OAuth disabled", () => {
+it("exposes OpenCode tools directly through the v2 runtime server configuration", () => {
   const result = openCodeInjection(connection);
-  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT)).toEqual({
-    mcp: {
-      ace: {
-        type: "remote",
-        url: connection.url,
-        enabled: true,
-        oauth: false,
-        timeout: { execution: 300_000 },
-        headers: { Authorization: `Bearer ${connection.bearer}` },
-      },
-    },
+  expect(result.server).toMatchObject({
+    type: "remote",
+    url: connection.url,
+    oauth: false,
+    disabled: false,
+    codemode: false,
+    timeout: { execution: 300000 },
+    headers: { Authorization: `Bearer ${connection.bearer}` },
   });
-  expect(result.developerInstructions).toContain("ace_ace_*");
 });
 for (const provider of ["cursor", "antigravity", "acp"] as const) {
   it(`builds ${provider} ACP HTTP session definitions with an array of headers`, () => {
@@ -92,39 +77,4 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
     },
   });
   expect(result.developerInstructions).toContain("live status");
-});
-it("OpenCode injection preserves configured servers and unknown native settings", () => {
-  const config = {
-    theme: "user-theme",
-    mcp: { notes: { type: "remote", url: "http://127.0.0.1:23456/mcp" } },
-  };
-  const result = openCodeInjection(connection, JSON.stringify(config));
-  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT)).toMatchObject(config);
-  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT).mcp.ace.headers.Authorization).toBe(
-    `Bearer ${connection.bearer}`,
-  );
-});
-it("OpenCode injection refuses an ace server collision instead of replacing user authority", () => {
-  expect(() =>
-    openCodeInjection(
-      connection,
-      JSON.stringify({ mcp: { ace: { url: "http://127.0.0.1:23456/mcp" } } }),
-    ),
-  ).toThrow("OpenCode MCP server name collision: ace");
-});
-it("keeps OpenCode user configuration and other MCP servers from JSONC", () => {
-  const result = openCodeInjection(
-    connection,
-    `{
-    // Existing user preferences and servers stay in the provider's overlay.
-    "model": "local/model", "mcp": { "user": { "type": "local", "command": ["node", "tool.js"] } },
-  }`,
-  );
-  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT)).toMatchObject({
-    model: "local/model",
-    mcp: {
-      user: { type: "local", command: ["node", "tool.js"] },
-      ace: { url: connection.url, oauth: false },
-    },
-  });
 });

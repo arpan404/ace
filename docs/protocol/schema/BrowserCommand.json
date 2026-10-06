@@ -5,6 +5,75 @@
     {
       "properties": {
         "action": {
+          "const": "navigation_history",
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "history",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "back",
+            "forward",
+            "reload"
+          ],
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "direction"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "find_text",
+          "type": "string"
+        },
+        "forward": {
+          "default": true,
+          "type": "boolean"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
           "const": "navigate",
           "type": "string"
         },

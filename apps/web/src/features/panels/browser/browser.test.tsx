@@ -1,8 +1,10 @@
 import { coldStartReplay, failingSubagent, seedPanels } from "@ace/fake-daemon";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import type { BrowserView } from "../sources.ts";
+import { PageDialog } from "./page-dialog.tsx";
 
 async function openBrowser(
   scenario = coldStartReplay(),
@@ -23,6 +25,71 @@ async function openBrowser(
 }
 
 const address = (panel: HTMLElement) => within(panel).getByRole("combobox", { name: "Address" });
+
+const promptView = (dialogId: string): BrowserView => ({
+  threadId: "dialog-thread",
+  controller: "human",
+  url: "http://localhost:5173/",
+  closed: false,
+  pendingDialog: {
+    tabId: "page-tab",
+    dialogId,
+    type: "prompt",
+    message: "Fixture prompt",
+    defaultPrompt: "seed",
+  },
+});
+
+test("an answered prompt stays locked until the daemon replaces it, and the next prompt gets its own answer", async () => {
+  const first = Promise.withResolvers<{ ok: true } | undefined>();
+  let pageResult: string | null | undefined;
+  const browser = {
+    answerDialog: (_tabId: string, dialogId: string, accept: boolean, text?: string) => {
+      if (dialogId === "main") return first.promise;
+      pageResult = accept ? text : null;
+      return Promise.resolve({ ok: true } as const);
+    },
+  };
+  const ui = render(<PageDialog view={promptView("main")} browser={browser} />);
+  await userEvent.clear(screen.getByRole("textbox", { name: "Answer" }));
+  await userEvent.type(screen.getByRole("textbox", { name: "Answer" }), "answered");
+  await userEvent.click(screen.getByRole("button", { name: /^OK$/ }));
+  expect(screen.getByRole("textbox", { name: "Answer" }).hasAttribute("disabled")).toBe(true);
+  await act(async () => first.resolve({ ok: true }));
+  // The command's reply can arrive before the browser-state update.
+  expect(screen.getByRole("textbox", { name: "Answer" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: /^OK$/ }).hasAttribute("disabled")).toBe(true);
+
+  ui.rerender(<PageDialog view={promptView("iframe")} browser={browser} />);
+  const next = screen.getByRole("textbox", { name: "Answer" });
+  expect(next.hasAttribute("disabled")).toBe(false);
+  expect(next.getAttribute("value")).toBe("seed");
+  await userEvent.clear(next);
+  await userEvent.type(next, "iframe answer{Enter}");
+  expect(pageResult).toBe("iframe answer");
+});
+
+test("a late refusal for an older dialog cannot unlock a newer submission, and a refused answer can retry", async () => {
+  const first = Promise.withResolvers<{ ok: true } | undefined>();
+  const next = Promise.withResolvers<{ ok: true } | undefined>();
+  const browser = {
+    answerDialog: (_tabId: string, dialogId: string) =>
+      dialogId === "main" ? first.promise : next.promise,
+  };
+  const ui = render(<PageDialog view={promptView("main")} browser={browser} />);
+  await userEvent.click(screen.getByRole("button", { name: /^OK$/ }));
+  ui.rerender(<PageDialog view={promptView("iframe")} browser={browser} />);
+  const field = screen.getByRole("textbox", { name: "Answer" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "iframe answer");
+  await userEvent.click(screen.getByRole("button", { name: /^OK$/ }));
+  await act(async () => first.resolve(undefined));
+  expect(field.hasAttribute("disabled")).toBe(true);
+  await act(async () => next.resolve(undefined));
+  expect(field.hasAttribute("disabled")).toBe(false);
+  expect(field.getAttribute("value")).toBe("iframe answer");
+  expect(screen.getByRole("button", { name: /^OK$/ }).hasAttribute("disabled")).toBe(false);
+});
 
 async function goTo(panel: HTMLElement, text: string) {
   const field = await within(panel).findByRole("combobox", { name: "Address" });
@@ -75,8 +142,14 @@ test("taking control forwards clicks, wheel and keys, sizes the page to the pane
   await waitFor(() =>
     expect(
       browser.wireInputs.map(({ input }) => `${input.kind}:${"event" in input ? input.event : ""}`),
-    ).toEqual(["mouse:mousePressed", "mouse:mouseReleased", "scroll:", "key:keyDown"]),
+    ).toEqual(["mouse:mousePressed", "mouse:mouseReleased", "scroll:", "key:keyDown", "key:keyUp"]),
   );
+  expect(
+    browser.wireInputs.filter(({ input }) => input.kind === "key").map(({ input }) => input),
+  ).toEqual([
+    { kind: "key", event: "keyDown", key: "a", code: "KeyA", modifiers: 0, text: "a" },
+    { kind: "key", event: "keyUp", key: "a", code: "KeyA", modifiers: 0 },
+  ]);
   // The agent's typing is ignored while you hold control.
   const held = within(panel).getByRole("img").getAttribute("src");
   act(() => browser.type("thread-cold-start", "something else"));
@@ -109,6 +182,7 @@ test("an address takes the page from the agent and opens; Back returns; a dead p
   expect(browser.view("thread-cold-start")?.controller).toBe("human");
   expect(await within(panel).findByRole("tab", { name: "docs.example.com" })).toBeTruthy();
 
+  const retainedFrame = browser.frame("thread-cold-start")?.sequence;
   await goTo(panel, "localhost:4321");
   const failure = await within(panel).findByRole("alert");
   expect(within(failure).getByText("This site can't be reached")).toBeTruthy();
@@ -122,6 +196,78 @@ test("an address takes the page from the agent and opens; Back returns; a dead p
     expect((address(panel) as HTMLInputElement).value).toBe("docs.example.com/guide"),
   );
   expect(within(panel).queryByRole("alert")).toBeNull();
+  expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide");
+  expect(browser.frame("thread-cold-start")?.sequence).toBe(retainedFrame);
+});
+
+test("Back dismisses a failed first address even when the document has no earlier entry", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is using this page", { exact: false });
+  await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
+  await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
+  const retainedFrame = browser.frame("thread-cold-start")?.sequence;
+  await goTo(panel, "localhost:4321");
+  await within(panel).findByRole("alert");
+  const back = within(panel).getByRole("button", { name: "Back" });
+  expect(back.getAttribute("aria-disabled")).not.toBe("true");
+  await userEvent.click(back);
+  await waitFor(() =>
+    expect(address(panel).getAttribute("value")).toBe("localhost:5173/settings/devices"),
+  );
+  expect(within(panel).queryByRole("alert")).toBeNull();
+  expect(browser.frame("thread-cold-start")?.sequence).toBe(retainedFrame);
+});
+
+test("document Back and Forward follow successful navigation and Reload refreshes the current page", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is using this page", { exact: false });
+  await goTo(panel, "docs.example.com/guide");
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
+  );
+  await goTo(panel, "example.org/next");
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/next"),
+  );
+  await userEvent.click(within(panel).getByRole("button", { name: "Back" }));
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
+  );
+  await waitFor(() => expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide"));
+  const forward = within(panel).getByRole("button", { name: "Forward" });
+  await waitFor(() => expect(forward.getAttribute("aria-disabled")).not.toBe("true"));
+  await userEvent.click(forward);
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/next"),
+  );
+  const sequence = browser.frame("thread-cold-start")?.sequence ?? 0;
+  await userEvent.click(within(panel).getByRole("button", { name: "Reload" }));
+  await waitFor(() =>
+    expect(browser.frame("thread-cold-start")?.sequence).toBeGreaterThan(sequence),
+  );
+  expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/next");
+});
+
+test("Back traverses a failed navigation that replaced the document and clears the error", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is using this page", { exact: false });
+  await goTo(panel, "docs.example.com/guide");
+  await waitFor(() => expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide"));
+  // Chromium can commit an error document before returning a navigation failure.
+  const navigate = browser.navigate.bind(browser);
+  vi.spyOn(browser, "navigate").mockImplementationOnce((...args) => {
+    navigate(...args);
+    throw new Error("net::ERR_CONNECTION_TIMED_OUT");
+  });
+  await goTo(panel, "example.org/timeout");
+  await within(panel).findByRole("alert");
+  expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/timeout");
+  await userEvent.click(within(panel).getByRole("button", { name: "Back" }));
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
+  );
+  await waitFor(() => expect(within(panel).queryByRole("alert")).toBeNull());
+  expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide");
 });
 
 test("text that isn't an address is refused instead of searched", async () => {

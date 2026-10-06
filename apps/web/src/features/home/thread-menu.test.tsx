@@ -53,7 +53,7 @@ test("Mark unread and Pin are kept by the daemon, so the list shows them after a
 
   menu = await rightClick(/Backpressure/);
   expect(within(menu).getByRole("menuitem", { name: "Mark read" })).toBeTruthy();
-  await userEvent.click(within(menu).getByRole("menuitem", { name: "Pin" }));
+  await userEvent.click(within(menu).getByRole("menuitem", { name: /^Pin/ }));
   await waitFor(() => expect(card(/Backpressure.*Pinned/)).toBeTruthy());
   const view = app.daemon.snapshot({ kind: "threads" });
   expect(view?.kind === "threads" && view.threads["thread-fan-out"]).toMatchObject({
@@ -67,7 +67,7 @@ test("Mark unread and Pin are kept by the daemon, so the list shows them after a
   await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
   await waitFor(() => expect(card(/Backpressure.*, unread.*Pinned/)).toBeTruthy());
   menu = await rightClick(/Backpressure/);
-  expect(within(menu).getByRole("menuitem", { name: "Unpin" })).toBeTruthy();
+  expect(within(menu).getByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
 });
 
 test("opening an unread thread marks it read", async () => {
@@ -88,25 +88,26 @@ function onDaemon(app: Awaited<ReturnType<typeof openHome>>, id: string) {
   return app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) }) !== undefined;
 }
 
-test("Delete hides the thread with Undo, and Undo keeps it on the daemon", async () => {
+test("Delete hides the thread and permanently deletes it on the daemon", async () => {
   const app = await openHome();
   const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
   await waitFor(() => expect(card(/Invoice PDF/)).toBeNull());
-  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
-  await waitFor(() => expect(card(/Invoice PDF/)).toBeTruthy());
-  expect(onDaemon(app, "thread-pdf-locale")).toBe(true);
+  await waitFor(() => expect(onDaemon(app, "thread-pdf-locale")).toBe(false));
+  expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
 });
 
-test("Delete reaches the daemon once Undo has passed", async () => {
+test("Delete stays gone when the client reconnects", async () => {
   const app = await openHome();
   const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
   await waitFor(() => expect(card(/Invoice PDF/)).toBeNull());
-  expect(onDaemon(app, "thread-pdf-locale")).toBe(true);
   await waitFor(() => expect(onDaemon(app, "thread-pdf-locale")).toBe(false), {
     timeout: 9_000,
   });
+  app.client.networkOnline(false);
+  app.client.networkOnline(true);
+  await waitFor(() => expect(app.client.state).toBe("ready"));
   expect(card(/Invoice PDF/)).toBeNull();
 }, 15_000);
 
@@ -131,7 +132,6 @@ test("a thread the daemon won't delete stays in the list and says why", async ()
   await openHome();
   const menu = await rightClick(/Dedupe thread events/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
-  await waitFor(() => expect(card(/Dedupe thread events/)).toBeNull());
   expect(
     await screen.findByText("Stop its agents and close its terminals first.", undefined, {
       timeout: 9_000,

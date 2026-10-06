@@ -11,6 +11,10 @@
     "deletedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "pinOrder": {
+      "description": "Place among pinned threads, higher first. Set on pin (the daemon's clock when the command names none, so a new pin leads) and cleared on unpin.",
+      "type": "number"
+    },
     "pinned": {
       "type": "boolean"
     },

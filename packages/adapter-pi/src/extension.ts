@@ -2,7 +2,7 @@ import { PermissionMode } from "@ace/protocol";
 import { registerPiContextSamples } from "./context-usage.ts";
 import { registerPiToolGate } from "./tool-approval.ts";
 import { z } from "zod";
-import { AceMcpConnectionSchema } from "@ace/mcp-server";
+import { readPrivateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
 import { obj, str } from "./native.ts";
 import type { PiExtensionApi } from "./extension-api.ts";
 const ToolName = z
@@ -68,10 +68,15 @@ export default async function aceExtension(
   pi: PiExtensionApi,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const secret = z
-    .string()
-    .regex(/^[a-f0-9]{64}$/)
-    .parse(env.ACE_PI_CONTROL_SECRET);
+  const session = z
+    .object({
+      controlSecret: z.string().regex(/^[a-f0-9]{64}$/),
+      mcp: AceMcpConnectionSchema.optional(),
+    })
+    .parse(JSON.parse(readPrivateMcpConfig(z.string().parse(env.ACE_PI_SESSION_FILE))));
+  // Pi shell tools inherit this process's environment. Keep authority only in this closure.
+  delete env.ACE_PI_SESSION_FILE;
+  const secret = session.controlSecret;
   registerPiContextSamples(pi);
   registerPiToolGate(pi, PermissionMode.parse(env.ACE_PI_PERMISSION_MODE ?? "read-only"));
   pi.registerCommand("ace-rollback", {
@@ -121,11 +126,8 @@ export default async function aceExtension(
       );
     },
   });
-  if (!env.ACE_PI_MCP_URL) return;
-  const connection = AceMcpConnectionSchema.parse({
-    url: env.ACE_PI_MCP_URL,
-    bearer: env.ACE_PI_MCP_BEARER,
-  });
+  if (!session.mcp) return;
+  const connection = session.mcp;
   const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
   const client = new Client(
     { name: "ace-pi", version: "0.1.0" },

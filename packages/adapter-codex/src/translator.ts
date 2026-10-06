@@ -173,7 +173,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       return facts;
     }
     if (frame.dir === "stderr") {
-      return [note(init.rootKey, "stderr", frame.data, str(frame.data))];
+      return [note(init.rootKey, "stderr", frame.data)];
     }
     if (!method && id !== undefined) {
       const pending = sent.get(requestKey(id));
@@ -259,7 +259,14 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     if (isInteractiveRequest(method) && id !== undefined) {
       const key = interactionKey(id);
       const item = str(p["itemId"]);
-      const opened = openRequest(agent.key, key, method, p, agent.items.has(item));
+      const opened = openRequest(
+        agent.key,
+        key,
+        method,
+        p,
+        agent.items.has(item),
+        agent.open.get(item)?.data,
+      );
       const mode = reviewPolicies.get(key);
       reviewPolicies.delete(key);
       for (const fact of opened)
@@ -447,9 +454,11 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     translate(frame, now) {
       diagnosticFrame = frame.data;
       diagnostics = raw(
-        frame.dir === "note" && CodexExitDiagnostic.safeParse(frame.data).success
-          ? "codex.session-exit"
-          : str(obj(frame.data)["method"], "codex.frame"),
+        frame.dir === "stderr"
+          ? "stderr"
+          : frame.dir === "note" && CodexExitDiagnostic.safeParse(frame.data).success
+            ? "codex.session-exit"
+            : str(obj(frame.data)["method"], "codex.frame"),
         frame.data,
       );
       try {

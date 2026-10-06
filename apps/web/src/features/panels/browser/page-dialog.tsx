@@ -18,19 +18,24 @@ const verbs: Record<BrowserDialogView["type"], { accept: string; dismiss?: strin
  * other command, from you or the agent. It may belong to a tab the page isn't showing; the
  * answer goes to that dialog by its own id, and taking control first is what the daemon needs.
  */
-export function PageDialog(props: { view: BrowserView; browser: BrowserFeatures }) {
+export function PageDialog(props: {
+  view: BrowserView;
+  browser: Pick<BrowserFeatures, "answerDialog">;
+}) {
   const dialog =
     props.view.pendingDialog ?? props.view.tabs?.find((tab) => tab.pendingDialog)?.pendingDialog;
   const [text, setText] = useState<{ dialogId: string; value: string }>();
-  const [sending, setSending] = useState(false);
+  const [submitted, setSubmitted] = useState<string>();
   const inputId = useId();
   if (!dialog) return null;
   const tab = props.view.tabs?.find((each) => each.tabId === dialog.tabId);
   const site = addressHost(tab?.url ?? props.view.url) ?? "This page";
   const value = text?.dialogId === dialog.dialogId ? text.value : (dialog.defaultPrompt ?? "");
   const words = verbs[dialog.type];
+  const sending = submitted === dialog.dialogId;
   const answer = (accept: boolean) => {
-    setSending(true);
+    if (sending) return;
+    setSubmitted(dialog.dialogId);
     void props.browser
       .answerDialog(
         dialog.tabId,
@@ -38,7 +43,12 @@ export function PageDialog(props: { view: BrowserView; browser: BrowserFeatures 
         accept,
         dialog.type === "prompt" && accept ? value : undefined,
       )
-      .finally(() => setSending(false));
+      .then((result) => {
+        // A successful answer stays fenced until authoritative state removes/replaces it.
+        // A delayed response for an older dialog must not unlock the next one.
+        if (result === undefined)
+          setSubmitted((current) => (current === dialog.dialogId ? undefined : current));
+      });
   };
   return (
     <section
@@ -65,8 +75,10 @@ export function PageDialog(props: { view: BrowserView; browser: BrowserFeatures 
       </p>
       {dialog.type === "prompt" && (
         <Input
+          key={dialog.dialogId}
           id={inputId}
           aria-label="Answer"
+          disabled={sending}
           value={value}
           onChange={(event) => setText({ dialogId: dialog.dialogId, value: event.target.value })}
           onKeyDown={(event) => {

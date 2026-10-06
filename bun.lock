@@ -147,6 +147,7 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/adapter-opencode": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@babel/core": "^8.0.6",
         "@playwright/test": "1.63.0",
@@ -258,6 +259,7 @@
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
         "@ace/projection": "workspace:*",
+        "jsonc-parser": "^3.3.1",
       },
     },
     "packages/adapter-pi": {
@@ -467,6 +469,7 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/adapter-opencode": "workspace:*",
         "@ace/conductor": "workspace:*",
       },
     },

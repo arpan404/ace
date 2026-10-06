@@ -19,26 +19,29 @@ test.each([
   await session.close("shutdown");
 });
 
-test("OpenCode auto-review reapplies the native ask rule when resuming an unrestricted session", async () => {
-  const h = await setup();
-  // The scripted server is memory-only; h.session keeps this workspace's server alive.
-  const source = await h.open("/one", undefined, "full-access");
-  const native = source.nativeSessionId;
-  await source.close("idle");
-  const resumed = await h.open("/one", native, "auto-review");
-  try {
-    const requests = array(await h.control("/test/requests")).map(object);
-    const update = requests.find(
-      (r) => r.path === `/api/session/${native}` && object(r.body).permissions !== undefined,
-    );
-    expect(object(update?.body).permissions).toEqual([
-      { action: "*", resource: "*", effect: "ask" },
-    ]);
-    const restored = object(await h.control(`/api/session/${native}`));
-    expect(object(restored.data).permissions).toEqual([
-      { action: "*", resource: "*", effect: "ask" },
-    ]);
-  } finally {
-    await resumed.close("shutdown");
-  }
-});
+test.each(["ask", "auto-review"] as const)(
+  "OpenCode %s reapplies the native ask rule when resuming an unrestricted session",
+  async (mode) => {
+    const h = await setup();
+    // The scripted server is memory-only; h.session keeps this workspace's server alive.
+    const source = await h.open("/one", undefined, "full-access");
+    const native = source.nativeSessionId;
+    await source.close("idle");
+    const resumed = await h.open("/one", native, mode);
+    try {
+      const requests = array(await h.control("/test/requests")).map(object);
+      const update = requests.find(
+        (r) => r.path === `/api/session/${native}` && object(r.body).permissions !== undefined,
+      );
+      expect(object(update?.body).permissions).toEqual([
+        { action: "*", resource: "*", effect: "ask" },
+      ]);
+      const restored = object(await h.control(`/api/session/${native}`));
+      expect(object(restored.data).permissions).toEqual([
+        { action: "*", resource: "*", effect: "ask" },
+      ]);
+    } finally {
+      await resumed.close("shutdown");
+    }
+  },
+);

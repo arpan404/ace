@@ -1,14 +1,25 @@
 import type { ForkPoint, ThreadListEntry } from "@ace/protocol";
 import type { ThreadRowFlags } from "@ace/ui-core";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import type { KeyboardEvent, ReactElement } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
-import { ThreadActionItems, useThreadActions } from "@/features/organize/index.ts";
+import {
+  ThreadActionItems,
+  useHomeSelection,
+  useSelected,
+  useThreadActions,
+} from "@/features/organize/index.ts";
 import { ForkDialog, useLatestForkPoint } from "@/features/thread/index.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+
+/** A picked row's menu acts on every picked thread; its code comes with the selection bar's. */
+const BulkMenuItems = deferredComponent(() =>
+  import("./bulk-bar.tsx").then((module) => module.BulkMenuItems),
+);
 
 /** The items, mounted only while the menu is open: that is when the fork point is read. */
 function RowItems(props: {
@@ -30,8 +41,9 @@ function RowItems(props: {
 }
 
 /**
- * Right-click menu for a thread row: the same actions as the thread's ⋯ menu. R renames and
- * ⇧N starts a thread on main while it is open, as the hints say.
+ * Right-click menu for a thread row: the same actions as the thread's ⋯ menu. R renames, P pins
+ * or unpins and ⇧N starts a thread on main while it is open, as the hints say. On a row picked
+ * with others it offers the bulk actions for all of them instead.
  */
 export function ThreadMenu(props: {
   entry: ThreadListEntry;
@@ -41,7 +53,11 @@ export function ThreadMenu(props: {
 }) {
   const { entry } = props;
   const actions = useThreadActions();
+  const selection = useHomeSelection();
+  const selected = useSelected(entry.id);
   const [open, setOpen] = useState(false);
+  // Read as the menu opens: a picked row among others speaks for all of them.
+  const bulk = open && selected && selection.getState().ids.length > 1;
   const [forking, setForking] = useState<ForkPoint>();
   const run = (action: () => void) => () => {
     setOpen(false);
@@ -49,7 +65,10 @@ export function ThreadMenu(props: {
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (bulk) return;
     if (event.key === "r" && !event.shiftKey) run(props.onRename)();
+    else if (event.key === "p" && !event.shiftKey)
+      run(() => actions.setPinned(entry, !props.state.pinned))();
     else if (event.key === "N" && event.shiftKey) run(() => actions.newThreadOnMain(entry))();
     else return;
     event.preventDefault();
@@ -59,13 +78,22 @@ export function ThreadMenu(props: {
     <>
       <ContextMenu open={open} onOpenChange={setOpen}>
         <ContextMenuTrigger render={props.children} />
-        <ContextMenuContent aria-label={`Actions for ${entry.title}`} onKeyDownCapture={onKeyDown}>
-          <RowItems
-            entry={entry}
-            state={props.state}
-            onRename={props.onRename}
-            onFork={setForking}
-          />
+        <ContextMenuContent
+          aria-label={bulk ? "Actions for the selected threads" : `Actions for ${entry.title}`}
+          onKeyDownCapture={onKeyDown}
+        >
+          {bulk ? (
+            <Suspense fallback={null}>
+              <BulkMenuItems.Component />
+            </Suspense>
+          ) : (
+            <RowItems
+              entry={entry}
+              state={props.state}
+              onRename={props.onRename}
+              onFork={setForking}
+            />
+          )}
         </ContextMenuContent>
       </ContextMenu>
       {forking && (

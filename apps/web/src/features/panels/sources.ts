@@ -104,8 +104,21 @@ export interface PreviewServer {
   source: "listener" | "terminal" | "launch";
 }
 export type ForwardedInput =
-  | { kind: "mouse"; event: "mousePressed" | "mouseReleased"; x: number; y: number }
-  | { kind: "key"; event: "keyDown"; key: string; text?: string }
+  | {
+      kind: "mouse";
+      event: "mouseMoved" | "mousePressed" | "mouseReleased";
+      x: number;
+      y: number;
+      button?: "none" | "left" | "middle" | "right";
+    }
+  | {
+      kind: "key";
+      event: "keyDown" | "keyUp" | "char";
+      key: string;
+      text?: string;
+      code?: string;
+      modifiers?: number;
+    }
   | { kind: "scroll"; x: number; y: number; deltaX: number; deltaY: number };
 
 /** The agent-driven browser (live view, take-over) and detected dev servers of a thread. */
@@ -152,6 +165,9 @@ export interface PreviewSource {
    * an origin awaiting approval, control held elsewhere).
    */
   navigate(threadId: string, url: string): Promise<string>;
+  navigationHistory?(threadId: string): Promise<{ back: boolean; forward: boolean }>;
+  navigateHistory?(threadId: string, direction: "back" | "forward" | "reload"): Promise<void>;
+  findText?(threadId: string, text: string, forward: boolean): Promise<unknown>;
   /** Make the page a device's size and kind (`emulate`); needs control like navigation. */
   emulate(threadId: string, emulation: Emulation): Promise<void>;
   /** Close the thread's page (agents can open it again). */
@@ -166,5 +182,6 @@ export interface PreviewSource {
   heldAs(threadId: string): string | undefined;
   input(threadId: string, input: ForwardedInput): void;
   /** Size the page's viewport to the pane, in CSS pixels (BrowserCommand `resize`, 100–4096). */
+  capture?(threadId: string, width: number, height: number, devicePixelRatio: number): void;
   resize(threadId: string, width: number, height: number): void;
 }

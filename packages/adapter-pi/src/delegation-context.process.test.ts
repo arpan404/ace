@@ -1,4 +1,5 @@
-import { expect, test } from "vitest";
+import { privateMcpConfig } from "@ace/mcp-server";
+import { expect, test, onTestFinished } from "vitest";
 import { registerAcePiExtension, type PiExtensionApi } from "./index.ts";
 
 // Pi's extension API is the provider boundary; no provider CLI or home is used.
@@ -17,7 +18,11 @@ test("ace context wakes Pi with a custom message and rejects user impersonation"
       if (options.triggerTurn && options.deliverAs === "followUp") messages.push(message);
     },
   };
-  await registerAcePiExtension(pi, { ACE_PI_CONTROL_SECRET: "a".repeat(64) });
+  const configuration = privateMcpConfig(JSON.stringify({ controlSecret: "a".repeat(64) }));
+  onTestFinished(configuration.remove);
+  const env = { ACE_PI_SESSION_FILE: configuration.path };
+  await registerAcePiExtension(pi, env);
+  expect(env).not.toHaveProperty("ACE_PI_SESSION_FILE");
   const command = commands.get("ace-context");
   if (!command) throw new Error("Provider command unavailable");
   const ctx = {

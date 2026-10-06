@@ -31,32 +31,44 @@ export function rank(entry: ThreadListEntry, now: number): number {
 }
 
 export interface Arrangement {
+  /** Pinned threads in the person's own order, settled or not: they put them there. */
+  pinned: string[];
   active: string[];
   settled: string[];
 }
 
-/** Home order: by rank, pinned first within a rank, then most recent. Settled by recency. */
+/** A pinned thread's place: higher leads. Pins from before places existed go last. */
+export const pinOrderOf = (entry: ThreadListEntry): number => entry.pinOrder ?? 0;
+
+/**
+ * Home order: pinned threads first in their own order; then by rank, most recent first within
+ * a rank; Settled by recency.
+ */
 export function arrange(
   entries: readonly ThreadListEntry[],
   state: Pick<OrganizerState, "project">,
   now: number,
 ): Arrangement {
-  const active: { entry: ThreadListEntry; rank: number; pinned: boolean }[] = [];
+  const pinned: ThreadListEntry[] = [];
+  const active: { entry: ThreadListEntry; rank: number }[] = [];
   const settled: ThreadListEntry[] = [];
   for (const entry of entries) {
     if (isRemoved(entry)) continue;
     if (state.project !== null && entry.workspaceId !== state.project) continue;
-    if (isSettled(entry)) settled.push(entry);
-    else active.push({ entry, rank: rank(entry, now), pinned: entry.pinned === true });
+    if (entry.pinned === true) pinned.push(entry);
+    else if (isSettled(entry)) settled.push(entry);
+    else active.push({ entry, rank: rank(entry, now) });
   }
-  active.sort(
+  pinned.sort(
     (a, b) =>
-      a.rank - b.rank ||
-      Number(b.pinned) - Number(a.pinned) ||
-      activityOf(b.entry) - activityOf(a.entry),
+      pinOrderOf(b) - pinOrderOf(a) ||
+      activityOf(b) - activityOf(a) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
+  active.sort((a, b) => a.rank - b.rank || activityOf(b.entry) - activityOf(a.entry));
   settled.sort((a, b) => activityOf(b) - activityOf(a));
   return {
+    pinned: pinned.map((entry) => entry.id),
     active: active.map((row) => row.entry.id),
     settled: settled.map((entry) => entry.id),
   };

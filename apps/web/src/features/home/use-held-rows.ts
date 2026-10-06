@@ -54,7 +54,8 @@ export function useListHold(timers: Timers = browserTimers) {
 /**
  * The rows to draw: `rows` itself while the list is free; while it holds, the rows in the places
  * they were drawn. A row that changes kind (pinned, settled) still moves, being the person's own
- * doing, and a row that needs you rises once the pointer is off the list.
+ * doing, as does the Pinned group, ordered by the person (a drag lands at once), and a row that
+ * needs you rises once the pointer is off the list.
  */
 export function useHeldRows(
   rows: readonly HomeRow[],
@@ -69,7 +70,12 @@ export function useHeldRows(
         state.shown,
         rows,
         homeRowKey,
-        (row, was) => row.kind !== was.kind || rising.has(homeRowThread(row) ?? ""),
+        (row, was) =>
+          row.kind !== was.kind ||
+          row.kind === "pinned" ||
+          row.kind === "pinned-header" ||
+          row.kind === "pinned-end" ||
+          rising.has(homeRowThread(row) ?? ""),
       )
     : rows;
   // Adjusting state while rendering: the next render draws the held order straight away.

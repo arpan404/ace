@@ -1,8 +1,7 @@
-import { PermissionClient, type ClientApi } from "@ace/client";
+import { type ClientApi } from "@ace/client";
 import { ProviderKind } from "@ace/protocol";
 import {
   accountView,
-  nativeProviders,
   providerStatuses,
   readJson,
   startingProvider,
@@ -14,37 +13,21 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useExplicitDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useLayout } from "@/lib/layout.tsx";
 
-/**
- * The native CLIs the daemon's discovery found installed. The daemon registers an adapter only
- * for a CLI discovery found, and answers `permissions.capabilities` from those adapters, without
- * starting the CLI: `provider_unavailable` means discovery didn't find it.
- * TODO(client-gaps): read discovery itself (version, the CLI's own login) once the daemon puts
- * it on the wire; today a CLI with no ace account counts as signed in.
- */
-async function installedProviders(
-  client: ClientApi,
-  signal: AbortSignal | undefined,
-): Promise<Set<ProviderKind>> {
-  const permissions = new PermissionClient(client);
-  const found = await Promise.all(
-    nativeProviders.map(async ({ kind }) => {
-      const reply = await permissions.getCapabilities(kind, undefined, signal ? { signal } : {});
-      return reply.ok ? [kind] : [];
-    }),
-  );
-  return new Set(found.flat());
-}
-
-/** Every provider with what discovery and `accounts.list` say about it, in discovery order. */
+/** Read runtime discovery rather than inferring authentication from installed adapters. */
 export async function readProviderStatuses(
   client: ClientApi,
   signal?: AbortSignal,
 ): Promise<ProviderStatus[]> {
-  const [accounts, installed] = await Promise.all([
+  const [accounts, discovery] = await Promise.all([
     client.request({ type: "accounts.list" }, signal ? { signal } : {}),
-    installedProviders(client, signal),
+    client.request({ type: "providers.request", operation: "list" }, signal ? { signal } : {}),
   ]);
-  return providerStatuses(installed, accounts.accounts.map(accountView));
+  if (!discovery.result.ok) throw new Error("Provider discovery unavailable");
+  const rows = discovery.result.providers;
+  const installed = new Set(
+    rows.filter((row) => row.installed === true).map((row) => row.provider),
+  );
+  return providerStatuses(installed, accounts.accounts.map(accountView), rows);
 }
 
 export const providerStatusesKey = ["providers", "statuses"] as const;

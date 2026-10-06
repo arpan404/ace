@@ -436,3 +436,21 @@ test("checkout scopes the daemon can't diff yet say why instead of opening", asy
   expect(staged.getAttribute("aria-disabled")).toBe("true");
   expect(staged.textContent).toContain("The daemon doesn't report the git index yet");
 });
+
+test("Changes shows working-tree hunks from shell edits without provider edit items", async () => {
+  const { replayCursor } = await import("@ace/fake-daemon");
+  const app = harness();
+  app.play(replayCursor()).runThrough("asked");
+  app.daemon.workspace.setGitDiff(
+    "thread-replay-cursor",
+    "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1,2 @@\n Initial\n+QA shell edit\n",
+  );
+  await app.open("/t/thread-replay-cursor");
+  await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
+  const diff = await within(panel).findByLabelText("Uncommitted diff", {}, { timeout: 5000 });
+  expect(diff.textContent).toContain("+QA shell edit");
+  expect(within(panel).queryByText("No changes yet")).toBeNull();
+});

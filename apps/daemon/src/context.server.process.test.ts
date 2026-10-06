@@ -14,9 +14,9 @@ async function setup(authorize?: () => Promise<boolean>) {
   let service: ContextService | undefined;
   const f = await fixture({
     context: {
-      handle: async (device, request) => {
+      handle: async (device, request, allowed) => {
         if (!service) throw new Error("Service unavailable");
-        return service.handle(device, request);
+        return service.handle(device, request, allowed);
       },
     },
   });
@@ -105,7 +105,7 @@ test("upload requests require hello authentication and an authorized thread", as
     await f.send(client, { op: "attachment.list", threadId: ThreadId.parse("unknown") }),
   ).toMatchObject({ kind: "error", code: "forbidden" });
 });
-test("the socket rejects overlapping context operations instead of buffering chunks", async () => {
+test("overlapping context operations wait their turn without making tiny uploads fail", async () => {
   const entered = Promise.withResolvers<void>(),
     release = Promise.withResolvers<void>();
   const f = await setup(async () => {
@@ -115,17 +115,31 @@ test("the socket rejects overlapping context operations instead of buffering chu
   });
   const client = await f.connect();
   await client.next();
+  const bytes = Buffer.from("tiny attachment");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
   client.send({
     type: "context.request",
     requestId: "first",
-    operation: { op: "attachment.list", threadId: f.thread.id },
+    operation: {
+      op: "upload.begin",
+      threadId: f.thread.id,
+      name: "first.txt",
+      bytes: bytes.length,
+      sha256,
+    },
   });
   await entered.promise;
   try {
     client.send({
       type: "context.request",
       requestId: "second",
-      operation: { op: "attachment.list", threadId: f.thread.id },
+      operation: {
+        op: "upload.begin",
+        threadId: f.thread.id,
+        name: "second.txt",
+        bytes: bytes.length,
+        sha256,
+      },
     });
     client.send({ type: "ping" });
     const messages = [];
@@ -134,19 +148,38 @@ test("the socket rejects overlapping context operations instead of buffering chu
       if (message.type === "pong") break;
       messages.push(message);
     }
-    expect(messages).toEqual([
-      {
-        type: "context.result",
-        requestId: "second",
-        result: { kind: "error", code: "busy", message: "Wait for the previous context result" },
-      },
-    ]);
+    expect(messages).toEqual([]);
   } finally {
     release.resolve();
   }
-  expect(await client.next()).toMatchObject({
+  const first = await client.next();
+  const second = await client.next();
+  expect(first).toMatchObject({
     type: "context.result",
     requestId: "first",
-    result: { kind: "attachments", attachments: [] },
+    result: { kind: "upload", offset: 0 },
   });
+  expect(second).toMatchObject({
+    type: "context.result",
+    requestId: "second",
+    result: { kind: "upload", offset: 0 },
+  });
+  for (const result of [first, second]) {
+    if (result.type !== "context.result" || result.result.kind !== "upload")
+      throw new Error("No upload");
+    const uploadId = result.result.uploadId;
+    await f.send(client, {
+      op: "upload.chunk",
+      uploadId,
+      offset: 0,
+      data: bytes.toString("base64"),
+    });
+    expect(await f.send(client, { op: "upload.commit", uploadId })).toMatchObject({
+      kind: "attachment",
+      attachment: { sha256 },
+    });
+  }
+  expect(
+    await readFile((await f.service.uploads.attachment("device", f.thread.id, sha256)).path),
+  ).toEqual(bytes);
 });

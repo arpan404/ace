@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserCaptureViewport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "devicePixelRatio": {
+      "maximum": 4,
+      "minimum": 1,
+      "type": "number"
+    },
+    "height": {
+      "maximum": 4096,
+      "minimum": 100,
+      "type": "integer"
+    },
+    "width": {
+      "maximum": 4096,
+      "minimum": 100,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "width",
+    "height",
+    "devicePixelRatio"
+  ],
+  "type": "object"
+}

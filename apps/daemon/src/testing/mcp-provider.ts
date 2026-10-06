@@ -1,4 +1,6 @@
 // Offline CLI double. A real loopback request proves the native configuration works.
+import { readPrivateMcpConfig } from "@ace/mcp-server";
+import { validateNativeMcpConfig, shellExposesBearer } from "./provider-mcp-config.ts";
 import { z } from "zod";
 import { proof } from "./provider-mcp-proof.ts";
 import { createInterface } from "node:readline";
@@ -8,6 +10,7 @@ const provider = z
   .parse(process.env["ACE_TEST_PROVIDER"]);
 const HttpServer = z.object({ url: z.string(), headers: z.object({ Authorization: z.string() }) });
 const AcpServer = z.object({
+  type: z.literal("http"),
   name: z.string(),
   url: z.string(),
   headers: z.array(z.object({ name: z.string(), value: z.string() })),
@@ -46,12 +49,8 @@ if (provider === "opencode" && args[0] !== "serve") {
 const write = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 
 if (provider === "opencode") {
-  z.object({
-    mcp: z.object({ ace: z.object({ timeout: z.object({ execution: z.literal(300000) }) }) }),
-  }).parse(JSON.parse(process.env["OPENCODE_CONFIG_CONTENT"] ?? "null"));
-  const config = z
-    .object({ mcp: z.object({ ace: HttpServer }) })
-    .parse(JSON.parse(process.env["OPENCODE_CONFIG_CONTENT"] ?? "null")).mcp.ace;
+  let config: z.infer<typeof HttpServer> | undefined;
+  let mcpProof: string | undefined;
   const operations = [
     "server.info",
     "event.subscribe",
@@ -96,7 +95,38 @@ if (provider === "opencode") {
       return;
     }
     let result: unknown;
-    if (path === "/api/info") result = { version: "2.0.22", pid: process.pid };
+    if (path === "/api/mcp") {
+      result = {
+        data: config
+          ? [{ name: "ace", status: { status: mcpProof ? "connected" : "pending" } }]
+          : [],
+        ...(mcpProof && config
+          ? {
+              mcpProof,
+              shellExposesBearer: shellExposesBearer(config.headers.Authorization),
+              echoedAuthorization: config.headers.Authorization,
+              echoedBearerRaw: config.headers.Authorization.slice(7),
+            }
+          : {}),
+      };
+    } else if (path === "/api/experimental/mcp/ace" && req.method === "PUT") {
+      let body = "";
+      for await (const chunk of req) body += String(chunk);
+      const value = z
+        .object({ config: z.record(z.string(), z.unknown()) })
+        .parse(JSON.parse(body)).config;
+      validateNativeMcpConfig("opencode", { mcp: { servers: { ace: value } } });
+      if (value["codemode"] !== false || value["disabled"] !== false)
+        throw new Error("ace tools must appear directly in the native harness");
+      config = HttpServer.parse(value);
+      res.writeHead(204).end();
+      return;
+    } else if (path === "/api/experimental/mcp/ace/connect") {
+      if (!config) throw new Error("ace server was not registered");
+      mcpProof = await proof(config.url, config.headers.Authorization);
+      res.writeHead(204).end();
+      return;
+    } else if (path === "/api/info") result = { version: "2.0.22", pid: process.pid };
     else if (path === "/openapi.json")
       result = {
         openapi: "3.1.0",
@@ -118,13 +148,16 @@ if (provider === "opencode") {
           id: "native",
           projectID: "project",
           location: input.location,
-          mcpProof: await proof(config.url, config.headers.Authorization),
-          echoedAuthorization: config.headers.Authorization,
-          echoedBearerRaw: config.headers.Authorization.slice(7),
         },
       };
     } else if (path.endsWith("/interrupt")) result = { interrupted: true };
-    else throw new Error(`Unexpected fake OpenCode route: ${path}`);
+    else {
+      // Older providers may not offer optional metadata APIs such as command.list.
+      res
+        .writeHead(404, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ error: "not_found" }));
+      return;
+    }
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(result));
   });
   server.listen(0, "127.0.0.1", () => {
@@ -143,11 +176,13 @@ if (provider === "opencode") {
     const request = message.params ?? message.request ?? {};
     if (provider === "pi") {
       if (message.type === "get_commands") {
-        const url = z.string().url().parse(process.env["ACE_PI_MCP_URL"]);
-        const authorization = `Bearer ${z
-          .string()
-          .regex(/^[a-f0-9]{64}$/)
-          .parse(process.env["ACE_PI_MCP_BEARER"])}`;
+        const native = z
+          .object({ mcp: z.object({ url: z.url(), bearer: z.string() }) })
+          .parse(
+            JSON.parse(readPrivateMcpConfig(z.string().parse(process.env["ACE_PI_SESSION_FILE"]))),
+          );
+        const url = native.mcp.url;
+        const authorization = `Bearer ${native.mcp.bearer}`;
         write({
           type: "response",
           id: message.id,
@@ -162,6 +197,7 @@ if (provider === "opencode") {
               },
             ],
             mcpProof: await proof(url, authorization),
+            shellExposesBearer: shellExposesBearer(authorization),
             echoedAuthorization: authorization,
           },
         });
@@ -187,12 +223,15 @@ if (provider === "opencode") {
         if (process.env["MCP_TOOL_TIMEOUT"] !== "300000")
           throw new Error("Claude tool deadline cannot accommodate origin approval");
         const config = z
-          .object({ mcpServers: z.object({ ace: HttpServer }) })
-          .parse(JSON.parse(args[args.indexOf("--mcp-config") + 1] ?? "null")).mcpServers.ace;
+          .object({ mcpServers: z.object({ ace: HttpServer.extend({ type: z.literal("http") }) }) })
+          .parse(JSON.parse(readPrivateMcpConfig(args[args.indexOf("--mcp-config") + 1] ?? "")))
+          .mcpServers.ace;
         write({
           type: "system",
           subtype: "mcp_proof",
           mcpProof: await proof(config.url, config.headers.Authorization),
+          shellExposesBearer: shellExposesBearer(config.headers.Authorization),
+          privateConfigPath: args[args.indexOf("--mcp-config") + 1],
           echoedAuthorization: config.headers.Authorization,
         });
       }
@@ -223,13 +262,22 @@ if (provider === "opencode") {
     ) {
       let url, authorization;
       if (provider === "codex") {
-        if (!args.includes("mcp_servers.ace.tool_timeout_sec=300"))
-          throw new Error("Codex tool deadline cannot accommodate origin approval");
-        const setting = args.find((arg) => arg.startsWith("mcp_servers.ace.url="));
-        if (!setting) throw new Error("Missing Codex MCP URL");
-        url = z.string().parse(JSON.parse(setting.slice(setting.indexOf("=") + 1)));
-        authorization = `Bearer ${process.env["ACE_MCP_BEARER_TOKEN"]}`;
+        const config = z.record(z.string(), z.unknown()).parse(request["config"])[
+          "mcp_servers.ace"
+        ];
+        validateNativeMcpConfig("codex", config);
+        const server = z
+          .object({
+            url: z.url(),
+            http_headers: z.object({ Authorization: z.string() }),
+            tool_timeout_sec: z.literal(300),
+          })
+          .parse(config);
+        url = server.url;
+        authorization = server.http_headers.Authorization;
       } else {
+        for (const server of z.array(z.unknown()).parse(request["mcpServers"]))
+          validateNativeMcpConfig("acp", server);
         const config = z
           .array(AcpServer)
           .parse(request["mcpServers"])
@@ -244,8 +292,18 @@ if (provider === "opencode") {
         id: message.id,
         result:
           provider === "codex"
-            ? { thread: { id: "native" }, mcpProof, echoedAuthorization: authorization }
-            : { sessionId: "native", mcpProof, echoedAuthorization: authorization },
+            ? {
+                thread: { id: "native" },
+                mcpProof,
+                shellExposesBearer: shellExposesBearer(authorization),
+                echoedAuthorization: authorization,
+              }
+            : {
+                sessionId: "native",
+                mcpProof,
+                shellExposesBearer: shellExposesBearer(authorization),
+                echoedAuthorization: authorization,
+              },
       });
     } else if (message.id !== undefined) write({ id: message.id, result: {} });
   }

@@ -225,9 +225,7 @@ test("Update re-reads the plugin and says when nothing changed", async () => {
 test("removing a plugin from a skill's page asks first, names the plugin and can be undone", async () => {
   const app = await open("/skills/engineering~skill~tdd");
   await screen.findByRole("heading", { level: 1, name: "tdd" });
-  const more = screen.getByRole("button", { name: "More actions" });
-
-  await userEvent.click(more);
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(
     await screen.findByRole("menuitem", { name: "Remove plugin engineering…" }),
   );
@@ -242,10 +240,13 @@ test("removing a plugin from a skill's page asks first, names the plugin and can
   );
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  await waitFor(() => expect(document.activeElement).toBe(more));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "More actions" })),
+  );
   expect(await installed(app)).toContain("engineering");
 
-  await userEvent.click(more);
+  // Reopen from the restored focus, including when a cold menu replaced its loading trigger.
+  await userEvent.keyboard("{Enter}");
   await userEvent.click(
     await screen.findByRole("menuitem", { name: "Remove plugin engineering…" }),
   );

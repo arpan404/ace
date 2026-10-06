@@ -17,7 +17,7 @@ const web = "^apps/web/src/";
 /** Browser source roots. Workspace dependencies are followed to detect Node-only entries. */
 const scope = "^(apps/web/|packages/(client|client-worker|client-react|fake-daemon|ui-core)/)";
 /** Test-only code may reach a daemon or fixtures that production code must not. */
-const testOnly = "(\\.test\\.tsx?|\\.fixture\\.ts|/test-support\\.ts)$";
+const testOnly = "(\\.test\\.tsx?|\\.fixture\\.ts|/test-support\\.ts)$|(^|/)test/";
 const feature = `${web}features/([^/]+)/`;
 const { builtinModules } = require("node:module");
 const builtins = [...new Set(builtinModules.map((name) => name.replace(/^node:/, "")))];
