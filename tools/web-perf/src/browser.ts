@@ -24,6 +24,12 @@ async function measureBrowser(): Promise<void> {
       // on both ends of the page's measurement window. This increases the workload.
       await open(page, `${origin}/t/thread-soak?rate=${Math.ceil(rate * 1.01)}`);
       await page.getByRole("feed", { name: "Transcript" }).waitFor({ timeout: 30_000 });
+      const firstPaint = await page.evaluate(
+        () => performance.getEntriesByName("first-contentful-paint")[0]?.startTime,
+      );
+      if (typeof firstPaint !== "number")
+        throw new Error("First contentful paint was not recorded");
+      process.stdout.write(`  first contentful paint (ms) ${firstPaint.toFixed(2)}\n`);
       const composer = page.locator("textarea").first();
       await composer.waitFor();
       // Warm up: the stream starts a second after attach; let it reach speed.

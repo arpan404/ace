@@ -166,3 +166,36 @@ The remaining remounts are open blocks that change kind as they grow, such as a 
 ## Amendment (2026-10-05): initial JS budget 270 → 272 KB
 
 Main reached 269.7 KB gzip of initial JS. Browser parity (#153) adds protocol schemas the page validates (0.6 KB) and the computer-use UI (#155) adds about 0.6 KB of shell wiring. The owner accepted a 2 KB raise rather than blocking both features on sub-kilobyte overruns. An initial-JS diet PR is in progress and is expected to restore at least 10 KB of headroom, after which this budget returns to 270 KB or lower.
+
+## Amendment (2026-10-05): shell menus deferred, 270 KB budget restored
+
+The sidebar's account, daemon and More buttons, and the header's title-menu button, now paint
+without loading Base UI's menu implementation. `deferredMenuButton` warms that implementation
+with `whenIdle`; a press before it loads keeps the original button focused until the code is
+ready, then replays the click or keyboard activation through Base UI. Escape cancels a pending
+open, arrow keys preserve first/last-item focus, and Strict Mode cannot replay a press twice.
+Once opened, the menu stays mounted so its closing animation and focus return work as before.
+The toast queue and surface, visible shell controls and boot-splash dismissal remain eager.
+
+The page build now guards its entry's actual static closure in `apps/web/initial-bundle.ts`,
+rejecting eager menus, popup wrappers, palette and project dialogs. The existing
+`initial-preloads.ts` still removes that closure from lazy preload lists. `bundle.ts --analyze`
+reports retained page packages and modules as well as the client worker. Gzip chunk weights are
+additive; module weights are retained source bytes before minification.
+
+Measured against main after #153 (`db7e3a86`), on the same machine:
+
+| Measure                        | Before        | After         |
+| ------------------------------ | ------------- | ------------- |
+| Initial JS, gzip               | 270.3 KB      | 252.0 KB      |
+| Heaviest first screen, gzip    | 392.1 KB      | 388.3 KB      |
+| Heaviest lazy route, gzip      | 121.8 KB      | 136.3 KB      |
+| CSS, gzip                      | 20.7 KB       | 20.7 KB       |
+| Base UI retained source        | 342,037 bytes | 211,151 bytes |
+| Browser first contentful paint | 708 ms        | 456 ms        |
+| Interaction p95                | 48 ms         | 40 ms         |
+| Long tasks                     | none          | none          |
+
+These browser timings are local samples, not a portable speedup claim. Worker weights are
+unchanged. Initial JS saves 18.3 KB and the temporary 272 KB budget returns to 270 KB; all route,
+first-screen, CSS and worker budgets stay unchanged.
