@@ -42,6 +42,18 @@ export function ApprovalDetails(props: { copy: ApprovalCopy; className?: string 
           ))}
         </dl>
       )}
+      {copy.files.length > 0 && (
+        <ul
+          aria-label="Files to upload"
+          className="max-h-40 overflow-auto rounded-md bg-code px-3 py-2 font-mono text-xs leading-[1.5]"
+        >
+          {copy.files.map((path) => (
+            <li key={path} className="break-all">
+              {path}
+            </li>
+          ))}
+        </ul>
+      )}
       {copy.code && (
         <pre
           aria-label="Script"

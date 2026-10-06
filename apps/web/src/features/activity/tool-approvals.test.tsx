@@ -43,6 +43,61 @@ function askForApp(app: ReturnType<typeof harness>, bundleId: string) {
   return asked;
 }
 
+test("an upload approval names every file it would send, the seventh included", async () => {
+  const paths = Array.from(
+    { length: 7 },
+    (_, index) => `/Users/dev/Documents/report-${index + 1}.pdf`,
+  );
+  paths[6] = "/Users/dev/Documents/tax-return-2025.pdf";
+  const app = harness();
+  app
+    .play({
+      ...working,
+      steps: [
+        ...working.steps,
+        {
+          kind: "facts",
+          facts: [
+            {
+              type: "interaction.opened",
+              agent: "root",
+              interaction: "upload",
+              blocking: true,
+              request: {
+                kind: "approval",
+                title: "Browser upload approval",
+                target: {
+                  tool: "browser.upload",
+                  origin: "ace",
+                  access: "execute",
+                  input: { paths },
+                },
+                options: [
+                  { id: "allow_once", kind: "allow_once", label: "Allow once" },
+                  { id: "deny", kind: "deny", label: "Deny" },
+                ],
+                defaultToNo: true,
+              },
+            },
+          ],
+        },
+        { kind: "await", interaction: "upload" },
+      ],
+    })
+    .runUntilBlocked();
+  await app.open(`/t/${threadId}`);
+
+  const card = await screen.findByRole("article", {
+    name: "Upload files from outside the project",
+  });
+  const files = within(card).getByRole("list", { name: "Files to upload" });
+  expect(
+    within(files)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual(paths);
+});
+
 // Answers are remembered on this device by interaction id; the test that answers in the
 // thread runs last so the fake daemon's repeated ids don't read as answered earlier.
 test("a sensitive app's request says it asks again every turn", async () => {

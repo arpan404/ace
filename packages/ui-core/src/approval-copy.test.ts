@@ -97,7 +97,7 @@ test("a read-only page script shows its code, its page and the site-wide read-on
   ]);
 });
 
-test("an upload from outside the project lists the exact files and counts the rest", () => {
+test("an upload from outside the project lists every file it would hand over, however many", () => {
   const paths = Array.from({ length: 8 }, (_, index) => `/Users/me/Documents/file-${index}.pdf`);
   const copy = approvalCopy({
     kind: "approval",
@@ -111,7 +111,9 @@ test("an upload from outside the project lists the exact files and counts the re
   });
 
   expect(copy.risk?.level).toBe("high");
-  expect(copy.facts.map((fact) => fact.value)).toEqual([...paths.slice(0, 6), "and 2 more"]);
+  // The seventh and eighth files are named too: approving uploads all of them.
+  expect(copy.files).toEqual(paths);
+  expect(copy.facts).toEqual([{ label: "Files", value: "8", code: false }]);
 });
 
 test("a provider's own approval keeps its title and labels", () => {

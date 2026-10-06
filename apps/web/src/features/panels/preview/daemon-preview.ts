@@ -115,6 +115,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
    * reply named as the owner (undefined when the reply named none).
    */
   const held = new Map<string, string | undefined>();
+  /** Threads this client took privately: their hold outlives the view (no automatic handback). */
+  const privateHolds = new Set<string>();
   let version = 0;
   let requests = 0;
   let download: BrowserDownload | undefined;
@@ -226,6 +228,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       if (!watches.has(state.threadId)) return;
       views.set(state.threadId, view(state));
       if (state.controller !== "human") held.delete(state.threadId);
+      if (state.takeoverMode !== "private") privateHolds.delete(state.threadId);
       changed(state.threadId);
       return;
     }
@@ -309,7 +312,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           release(oldest);
         }
         if (client.state !== "ready") return;
-        if (held.delete(threadId)) void call("browser.handback", threadId).catch(() => {});
+        // A shared hold ends with the view; a private one never does: only the person's own
+        // Hand back (or closing the browser) may show the page to agents again.
+        const privately =
+          privateHolds.has(threadId) || views.get(threadId)?.takeoverMode === "private";
+        if (!privately && held.delete(threadId))
+          void call("browser.handback", threadId).catch(() => {});
         if (current.subscribed) void call("browser.unsubscribe", threadId).catch(() => {});
       };
     },
@@ -375,10 +383,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     },
     async close(threadId) {
       held.delete(threadId);
+      privateHolds.delete(threadId);
       await call("browser.close", threadId);
     },
     async takeover(threadId, mode) {
       const state = BrowserState.safeParse(await call("browser.takeover", threadId, mode));
+      if (mode === "private") privateHolds.add(threadId);
       held.set(threadId, state.success ? state.data.owner : undefined);
     },
     heldAs(threadId) {
@@ -390,6 +400,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     },
     async handback(threadId) {
       held.delete(threadId);
+      privateHolds.delete(threadId);
       await call("browser.handback", threadId);
     },
     input(threadId, input) {

@@ -129,3 +129,23 @@ test("revoking a site's read-only scripts removes the daemon's grant", async () 
   await waitFor(() => expect(browser.evaluateGrantsList(threadId)).toEqual([]));
   await waitFor(() => expect(within(scripts).queryByText("shop.example")).toBeNull());
 });
+
+test("closing the browser tab keeps a private page private: agents stay locked out until Hand back", async () => {
+  const { panel, browser } = await openBrowser();
+  await userEvent.click(within(panel).getByRole("button", { name: "Take over privately" }));
+  await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
+  const before = browser.frame(threadId)?.src;
+
+  // Leave the page: the browser's workspace tab closes and its view unmounts.
+  await userEvent.click(within(panel).getByRole("button", { name: /^Close localhost/ }));
+  await waitFor(() =>
+    expect(within(panel).queryByRole("button", { name: "Take over privately" })).toBeNull(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  expect(browser.view(threadId)?.controller).toBe("human");
+  expect(browser.view(threadId)?.takeoverMode).toBe("private");
+  // An agent acting on the page changes nothing while it is held privately.
+  act(() => browser.type(threadId, "agent typing"));
+  expect(browser.frame(threadId)?.src).toBe(before);
+});

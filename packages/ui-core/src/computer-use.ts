@@ -130,9 +130,20 @@ export function visibleSessions(states: readonly ScreenState[]): ScreenState[] {
     );
 }
 
-/** Sessions an agent controls, including ones with no capture running (the indicator's count). */
+/** Sessions an agent controls, including ones with no capture running. */
 export function agentSessions(states: readonly ScreenState[]): ScreenState[] {
   return states.filter((state) => state.controller === "agent" && state.lifecycle !== "stopped");
+}
+
+/**
+ * What the computer-use indicator shows: every agent-held session, and every session still
+ * capturing whoever holds it. Stopping or failing clears the controller before the helper
+ * confirms capture ended, so capture alone keeps a session on show until `indicator` is off.
+ */
+export function indicatorSessions(states: readonly ScreenState[]): ScreenState[] {
+  return states.filter(
+    (state) => state.indicator || (state.controller === "agent" && state.lifecycle !== "stopped"),
+  );
 }
 
 export interface GrantView {

@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import {
   agentSessions,
   grantRows,
+  indicatorSessions,
   screenProblem,
   screenSession,
   visibleSessions,
@@ -84,4 +85,32 @@ test("a busy target names who holds it and offers taking over, never stealing it
   expect(problem.title).toBe("Claude is already using this app");
   expect(problem.hint).toMatch(/Take it over first/);
   expect(screenProblem(undefined, "Something broke").title).toBe("Something broke");
+});
+
+test("the indicator keeps a session that is stopping or failed while capture is still on", () => {
+  const shown = indicatorSessions([
+    state({
+      bundleId: "com.apple.TextEdit",
+      lifecycle: "stopping",
+      controller: "none",
+      indicator: true,
+    }),
+    state({
+      bundleId: "com.apple.calculator",
+      lifecycle: "failed",
+      controller: "none",
+      indicator: true,
+    }),
+    state({
+      bundleId: "com.apple.Notes",
+      lifecycle: "stopped",
+      controller: "none",
+      indicator: false,
+    }),
+  ]);
+
+  expect(shown.map((entry) => entry.sessionId)).toEqual([
+    "s-com.apple.TextEdit",
+    "s-com.apple.calculator",
+  ]);
 });

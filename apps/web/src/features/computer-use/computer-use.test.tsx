@@ -1,5 +1,6 @@
 import { flakyCheckout } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import type { ScreenState } from "@ace/protocol";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { deviceBrowser } from "@/test/device-browser.ts";
@@ -151,5 +152,51 @@ test("the rail shows quietly while an agent uses an app, and stopping it there e
   await waitFor(async () => expect(await world.sessions()).toEqual([]));
   await waitFor(() =>
     expect(screen.queryByRole("button", { name: /Agents are using/ })).toBeNull(),
+  );
+});
+
+test("while a stop waits on the helper, the rail keeps showing capture until the daemon confirms it ended", async () => {
+  const { app, world } = await openSettings();
+  const sessionId = await world.agentApp("com.apple.TextEdit");
+  await app.open("/t/thread-checkout");
+  await screen.findByRole("button", { name: "Agents are using 1 app" }, { timeout: 4000 });
+  const [live] = (await world.sessions()) as unknown as ScreenState[];
+  // The daemon's broadcasts while the native stop is held: the agent is released, capture is not.
+  const broadcast = (state: ScreenState) =>
+    act(() =>
+      Reflect.apply(
+        Reflect.get(app.daemon.screen, "push") as (m: unknown) => void,
+        app.daemon.screen,
+        [{ type: "screen.state", state }],
+      ),
+    );
+  broadcast({
+    ...live!,
+    sessionId,
+    lifecycle: "stopping",
+    controller: "none",
+    holder: undefined,
+    indicator: true,
+  });
+
+  const indicator = await screen.findByRole("button", {
+    name: "Computer use is active in 1 app",
+  });
+  await userEvent.click(indicator);
+  expect(await screen.findByText(/Stopping · capturing/)).toBeTruthy();
+
+  // Acknowledged: capture is off and the session has ended.
+  broadcast({
+    ...live!,
+    sessionId,
+    lifecycle: "stopped",
+    controller: "none",
+    holder: undefined,
+    indicator: false,
+  });
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: /Agents are using|Computer use is active/ }),
+    ).toBeNull(),
   );
 });

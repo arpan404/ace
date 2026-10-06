@@ -39,6 +39,8 @@ export interface ApprovalCopy {
   facts: ApprovalFact[];
   /** Code the person is asked to run, shown verbatim (a page script). */
   code: string | undefined;
+  /** Every file an approval would hand over (an upload), in full: none is summarised away. */
+  files: readonly string[];
   choices: ApprovalChoice[];
   /** The request asks for an explicit yes: no option is primary. */
   defaultToNo: boolean;
@@ -60,6 +62,7 @@ interface ToolCopy {
   risk?: ApprovalCopy["risk"];
   facts?: ApprovalFact[];
   code?: string | undefined;
+  files?: readonly string[];
   labels?: Partial<Record<string, string>>;
 }
 
@@ -150,7 +153,6 @@ function browserDownload(input: Record<string, unknown>): ToolCopy {
 
 function browserUpload(input: Record<string, unknown>): ToolCopy {
   const paths = texts(input["paths"]);
-  const shown = paths.slice(0, 6);
   return {
     title:
       paths.length === 1
@@ -160,16 +162,9 @@ function browserUpload(input: Record<string, unknown>): ToolCopy {
       level: "high",
       text: "The page receives these files' contents. They are outside this thread's checkout and artifacts.",
     },
-    facts: [
-      ...shown.map((path, index) => ({
-        label: index === 0 ? (paths.length > 1 ? "Files" : "File") : "",
-        value: path,
-        code: true,
-      })),
-      ...(paths.length > shown.length
-        ? [{ label: "", value: `and ${paths.length - shown.length} more`, code: false }]
-        : []),
-    ],
+    facts: [{ label: "Files", value: String(paths.length), code: false }],
+    // Every path the daemon would upload, never a sample: approving covers all of them.
+    files: paths,
     labels: { allow_once: "Allow upload" },
   };
 }
@@ -213,6 +208,7 @@ export function approvalCopy(request: ApprovalRequest): ApprovalCopy {
     risk: copy?.risk,
     facts: copy?.facts ?? [],
     code: copy?.code,
+    files: copy?.files ?? [],
     choices,
     defaultToNo,
   };

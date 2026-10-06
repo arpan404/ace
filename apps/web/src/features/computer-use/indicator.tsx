@@ -1,6 +1,6 @@
 import type { ScreenState } from "@ace/protocol";
 import { addressHost } from "@ace/ui-core";
-import { agentSessions, screenSession } from "@ace/ui-core/computer-use";
+import { indicatorSessions, screenSession } from "@ace/ui-core/computer-use";
 import { CursorClickIcon, GlobeSimpleIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useAgentLabel } from "@/components/agent-picker.tsx";
@@ -22,7 +22,7 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
  */
 export default function ComputerUseIndicator() {
   const use = useComputerUse();
-  const sessions = agentSessions(use.snapshot.states);
+  const sessions = indicatorSessions(use.snapshot.states);
   const browsers = [...useBrowserControls().values()].filter(
     (control) => control.controller === "agent" || control.private,
   );
@@ -31,7 +31,10 @@ export default function ComputerUseIndicator() {
     ...(sessions.length ? [plural(sessions.length, "app", "apps")] : []),
     ...(browsers.length ? [plural(browsers.length, "browser", "browsers")] : []),
   ];
-  const label = `Agents are using ${parts.join(" and ")}`;
+  // Capture still running after an agent let go (stopping, failed) is named as capture.
+  const label = sessions.every((state) => state.controller === "agent")
+    ? `Agents are using ${parts.join(" and ")}`
+    : `Computer use is active in ${parts.join(" and ")}`;
   const capturing = sessions.some((state) => state.indicator);
   return (
     <Popover>
@@ -84,27 +87,29 @@ function SessionRow(props: { state: ScreenState; use: ComputerUse }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-ui">{view.app}</p>
         <p className="truncate text-xs text-subtle-foreground">
-          {name}
+          {state.controller === "agent" ? name : view.status}
           {view.foreground ? " · foreground" : ""}
           {view.capturing && " · capturing"}
         </p>
       </div>
-      <Button
-        size="sm"
-        variant="ghost"
-        disabled={use.pending}
-        onClick={() => void use.takeover(state.sessionId)}
-      >
-        Take over
-      </Button>
+      {state.controller === "agent" && (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={use.pending}
+          onClick={() => void use.takeover(state.sessionId)}
+        >
+          Take over
+        </Button>
+      )}
       <Button
         size="sm"
         variant="ghost"
         aria-label={`Stop ${view.app}`}
-        disabled={use.pending}
+        disabled={use.pending || state.lifecycle === "stopping"}
         onClick={() => void use.stop(state.sessionId)}
       >
-        Stop
+        {state.lifecycle === "failed" ? "Stop again" : "Stop"}
       </Button>
     </li>
   );
