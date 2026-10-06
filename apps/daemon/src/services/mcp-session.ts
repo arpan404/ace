@@ -61,6 +61,7 @@ export async function bindMcpSession(
   try {
     const session = await adapter.openSession({
       ...context,
+      signal: AbortSignal.any([context.signal, lifetime]),
       ...(connection ? { aceMcp: connection } : {}),
       ...(nativeMcp ? { mcp: nativeMcp } : {}),
       onExit(exit) {

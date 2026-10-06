@@ -1,3 +1,4 @@
+import { agentControlCall } from "./agent-control-failure.ts";
 import { createAgentOwners } from "../agent-control/owners.ts";
 import { DelegationService } from "../agent-control/delegations.ts";
 import { createAgentControlPort } from "../agent-control/tools.ts";
@@ -18,6 +19,8 @@ export function startAgentControl(context: ServiceContext): void {
     clock: options.engine?.clock ?? { ...systemClock, now },
     id,
     models: services.models,
+    providerEnabled: (provider, instance) =>
+      services.providerConfigurations?.for(provider, instance).enabled !== false,
     ...(services.modelsReady ? { modelsReady: services.modelsReady } : {}),
     async configuredModel(caller, request) {
       const settings = services.settings;
@@ -66,7 +69,16 @@ export function startAgentControl(context: ServiceContext): void {
         }
       : {}),
   });
-  services.agentControl = { delegations, port, previews: owners.previews };
+  services.agentControl = {
+    delegations,
+    port: {
+      execute: (caller, operation, signal) =>
+        agentControlCall(context, caller, operation.op, signal, () =>
+          port.execute(caller, operation, signal),
+        ),
+    },
+    previews: owners.previews,
+  };
   // Drain accepted legacy spawn intents through the same child creation receipts.
   onListen.push(async () => {
     for (const entry of store.readMcpIntents(100)) {

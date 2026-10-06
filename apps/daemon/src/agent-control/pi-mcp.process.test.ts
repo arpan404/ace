@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { startDaemon, readConfig } from "@ace/daemon";
 import { spawnTextSupervised } from "@ace/provider-kit/process";
+import { AceMcpConnectionSchema, readPrivateMcpConfig } from "@ace/mcp-server";
 import { AgentId } from "@ace/protocol";
 
 test("Pi native registration retains the engine's scoped agent-control lease and revokes it on shutdown", async () => {
@@ -79,7 +80,11 @@ test("Pi native registration retains the engine's scoped agent-control lease and
     expect(created.ok).toBe(true);
     await daemon.engine.flush();
     expect(issued).not.toBe("");
-    expect(injected.ACE_PI_MCP_BEARER).toBe(issued);
+    const configuration = z
+      .object({ mcp: AceMcpConnectionSchema })
+      .parse(JSON.parse(readPrivateMcpConfig(z.string().parse(injected.ACE_PI_SESSION_FILE))));
+    expect(configuration.mcp.bearer).toBe(issued);
+    expect(JSON.stringify(injected)).not.toContain(issued);
     const response = await fetch(daemon.mcp.url, {
       method: "POST",
       headers: {

@@ -90,6 +90,7 @@ export async function harness(
   frames: ReturnType<typeof scriptFrames>,
   options: {
     models?: EngineOptions["models"];
+    onCommandEvent?: EngineOptions["onCommandEvent"];
     limits?: EngineOptions["limits"];
     recovery?: EngineOptions["recovery"];
     preferences?: EngineOptions["preferences"];
@@ -187,6 +188,7 @@ export async function harness(
     ...(options.prepareInput ? { prepareInput: options.prepareInput } : {}),
     ...(options.beforeSend ? { beforeSend: options.beforeSend } : {}),
     ...(options.limits === undefined ? {} : { limits: options.limits }),
+    ...(options.onCommandEvent ? { onCommandEvent: options.onCommandEvent } : {}),
     clock,
     idleMs: options.idleMs ?? 30_000,
     silenceMs: 100,

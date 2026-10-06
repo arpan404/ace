@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { z } from "zod";
 import { expect, it } from "vitest";
 import { harness } from "./replay.ts";
 function setup() {
@@ -637,5 +639,121 @@ it("cumulative snapshots retain full diagnostic receipts and sanitize canonical 
       raw: [{ data: { api_key: "[redacted]", futureMetadata: { retained: size } } }],
     });
     expect(Object.values(h.view.items).filter((entry) => entry.type === "notice")).toEqual([]);
+  }
+});
+
+it("model socket retries show network waiting while MCP failures remain tool errors", () => {
+  const h = setup();
+  h.event("session.execution.started");
+  h.event("session.tool.failed", {
+    id: "call",
+    assistantMessageID: "message",
+    name: "ace_ace_thread_info",
+    error: { message: "MCP transport closed" },
+  });
+  expect(h.view.thread.status.state).toBe("working");
+  expect(
+    h.events.some(
+      (event) =>
+        event.type === "agent.status" &&
+        event.status.state === "blocked" &&
+        event.status.on === "network",
+    ),
+  ).toBe(false);
+  h.event("session.retry.scheduled", {
+    attempt: 2,
+    at: 10_000,
+    error: { message: "ECONNRESET: The socket connection was closed unexpectedly." },
+  });
+  expect(h.view.thread.status).toMatchObject({ state: "waiting", on: "network" });
+  expect(h.events).toContainEqual(
+    expect.objectContaining({
+      type: "agent.status",
+      status: expect.objectContaining({ state: "blocked", on: "network", attempt: 2 }),
+    }),
+  );
+});
+
+it("a native network retry stops blocking the agent when the same execution produces new work", () => {
+  const h = setup();
+  h.event("session.execution.started");
+  h.event("session.retry.scheduled", {
+    attempt: 2,
+    at: 2000,
+    error: { message: "ECONNRESET: The socket connection was closed unexpectedly" },
+  });
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "network" });
+  h.event("session.text.delta", { assistantMessageID: "resumed", ordinal: 0, delta: "Recovered" });
+  expect(h.view.thread.status.state).toBe("working");
+  expect(Object.values(h.view.agents)[0]?.status.state).toBe("working");
+  h.event("session.execution.succeeded");
+  expect(h.view.thread.status.state).toBe("done");
+});
+
+it("recorded OpenCode tool progress clears a recovered network retry without declaring the thread done", () => {
+  const fixture = z
+    .object({
+      retry: z.object({ attempt: z.number(), until: z.number(), message: z.string() }),
+      progress: z.record(z.string(), z.unknown()),
+    })
+    .parse(
+      JSON.parse(
+        readFileSync(
+          new URL("./__fixtures__/owner-network-recovery.json", import.meta.url),
+          "utf8",
+        ),
+      ),
+    );
+  const h = setup();
+  h.event("session.execution.started");
+  h.event("session.retry.scheduled", {
+    attempt: fixture.retry.attempt,
+    at: fixture.retry.until,
+    error: { message: fixture.retry.message },
+  });
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "network" });
+  h.frame("transport.activity", {});
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "network" });
+  h.frame("sse", fixture.progress);
+  expect(h.view.thread.status.state).toBe("working");
+  h.event("session.execution.succeeded");
+  expect(h.view.thread.status.state).not.toBe("done");
+  h.event("session.tool.success", {
+    assistantMessageID: "resumed-message",
+    id: "resumed-tool",
+    name: "shell",
+    content: [],
+  });
+  expect(h.view.thread.status.state).toBe("done");
+});
+
+it("retry heartbeats, new request metadata and unknown events do not claim that upstream work recovered", () => {
+  const h = setup();
+  h.event("session.execution.started");
+  h.event("session.retry.scheduled", { attempt: 1, at: 2000, error: { message: "ECONNRESET" } });
+  h.frame("transport.activity", {});
+  h.event("session.model.selected", { model: { providerID: "local", id: "model" } });
+  h.event("session.step.started");
+  h.event("session.text.future");
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "network" });
+  h.event("session.step.streamed");
+  expect(h.view.thread.status.state).toBe("working");
+});
+
+it("new OpenCode text clears overload retries while quota blocks require explicit quota recovery", () => {
+  for (const [message, on] of [
+    ["upstream overloaded", "upstream"],
+    ["429 quota exhausted", "rate_limit"],
+  ] as const) {
+    const h = setup();
+    h.event("session.execution.started");
+    h.event("session.retry.scheduled", { attempt: 1, at: 2000, error: { message } });
+    expect(h.view.thread.status).toEqual(
+      on === "upstream" ? { state: "waiting", on } : { state: "limited", until: 2001 },
+    );
+    h.event("session.text.delta", { assistantMessageID: "resumed", ordinal: 0, delta: "Progress" });
+    expect(h.view.thread.status).toMatchObject(
+      on === "upstream" ? { state: "working" } : { state: "limited", until: 2001 },
+    );
   }
 });

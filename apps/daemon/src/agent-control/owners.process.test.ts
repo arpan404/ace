@@ -390,3 +390,37 @@ test("title regeneration uses the oldest person message beyond the recent item w
     await f.daemon.close();
   }
 });
+
+test("a new person input after Stop restores MCP delegation on the root thread", async () => {
+  const f = await daemonFixture();
+  try {
+    const connection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
+    if (!connection) throw new Error("Missing scoped MCP connection");
+    expect(
+      f.controls.delegations.command("stop-root", {
+        type: "thread.interrupt",
+        threadId: f.caller.threadId,
+        cascade: true,
+      }).ok,
+    ).toBe(true);
+    await f.daemon.engine?.flush();
+    expect(
+      f.controls.delegations.command("new-person-input", {
+        type: "thread.send",
+        threadId: f.caller.threadId,
+        input: [{ type: "text", text: "Try delegating again" }],
+        trigger: "user",
+      }).ok,
+    ).toBe(true);
+    await f.daemon.engine?.flush();
+    expect(
+      await mcpCall(connection, "ace_thread_create", {
+        requestId: "after-stop",
+        title: "greeter",
+        provider: "claude",
+      }),
+    ).toMatchObject({ ok: true, data: { threadId: expect.any(String) } });
+  } finally {
+    await f.daemon.close();
+  }
+});

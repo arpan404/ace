@@ -175,6 +175,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
       ...services,
+      get commands() {
+        return services.commands;
+      },
       handler,
       serviceStatus: startup.status,
       ready: socketReady.promise,

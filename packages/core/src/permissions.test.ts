@@ -135,3 +135,76 @@ test("outside browser uploads require a human even in full access", () => {
     }),
   ).toMatchObject({ decision: "escalate" });
 });
+
+test.each(["Edit", "Write", "edit", "write", "item/fileChange/requestApproval"])(
+  "%s earns approval for exact verified workspace writes",
+  (tool) => {
+    expect(
+      reviewPermission({
+        mode: "auto-review",
+        target: { tool, access: "write", paths: ["src/main.ts"] },
+        paths: ["workspace"],
+      }).decision,
+    ).toBe("approve");
+  },
+);
+
+test.each([
+  "git reset --hard",
+  "git clean -fd",
+  "git push",
+  "curl example.com",
+  "wget example.com",
+  "node script.js",
+  "pwd && cat src/main.ts",
+])("%s remains human work in auto-review", (command) => {
+  expect(
+    reviewPermission({
+      mode: "auto-review",
+      target: { tool: "shell", access: "execute", command },
+      paths: [],
+    }).decision,
+  ).toBe("escalate");
+});
+
+test.each([
+  "cat src/main.ts",
+  "head -n 20 src/main.ts",
+  "tail -n 2 src/main.ts",
+  "wc -l src/main.ts",
+])("%s reads only verified regular workspace files with a verified executable", (command) => {
+  const target = { tool: "shell", access: "execute" as const, command };
+  expect(
+    reviewPermission({
+      mode: "auto-review",
+      target,
+      paths: ["workspace-file"],
+      trustedCommands: ["cat", "head", "tail", "wc"],
+    }).decision,
+  ).toBe("approve");
+  for (const paths of [["unknown"], ["outside"], ["secret"], ["workspace"]] as const)
+    expect(
+      reviewPermission({
+        mode: "auto-review",
+        target,
+        paths,
+        trustedCommands: ["cat", "head", "tail", "wc"],
+      }).decision,
+    ).toBe("escalate");
+  expect(
+    reviewPermission({ mode: "auto-review", target, paths: ["workspace-file"] }).decision,
+  ).toBe("escalate");
+});
+
+test.each([".git/config", ".git/hooks/pre-commit", ".ace/settings.json", "../outside.txt", ".env"])(
+  "an exact write to %s cannot earn workspace edit authority",
+  (path) => {
+    expect(
+      reviewPermission({
+        mode: "auto-review",
+        target: { tool: "Write", access: "write", paths: [path] },
+        paths: [path.startsWith("..") ? "outside" : "workspace"],
+      }).decision,
+    ).toBe("escalate");
+  },
+);

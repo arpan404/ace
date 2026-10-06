@@ -133,6 +133,7 @@ export class BrowserSession {
         epoch === this.ownership.epoch &&
         this.recordings.accept(frame),
       () => ({ epoch: this.ownership.epoch, since: this.ownership.since }),
+      () => options.backend.viewport(),
     );
   }
 

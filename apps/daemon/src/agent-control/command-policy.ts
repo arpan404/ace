@@ -38,14 +38,20 @@ export function delegationCommandPolicy(deps: {
     )
       return accept();
     const edge = deps.journal.get(p.threadId);
-    if (!edge) return accept();
+    const explicit =
+      p.type === "thread.resume" ||
+      p.type === "queue.resume" ||
+      (p.type === "thread.send" &&
+        (p.trigger === undefined || p.trigger === "user" || p.trigger === "parent_agent"));
+    if (!edge) {
+      if (!deps.journal.stopped(p.threadId)) return accept();
+      if (!explicit) return fail("cancelled");
+      const accepted = accept();
+      if (accepted.ok) deps.journal.resumeRoot(p.threadId);
+      return accepted;
+    }
     if (!deps.admits()) return fail("Admission closed");
-    if (
-      p.type === "thread.send" &&
-      p.trigger === "subagent_result" &&
-      deps.journal.stopped(p.threadId)
-    )
-      return fail("cancelled");
+    if (!explicit && deps.journal.stopped(p.threadId)) return fail("cancelled");
     if (edge.phase === "cancelling" || deps.journal.ancestorStopped(p.threadId))
       return fail("cancelled");
     const tree = deps.journal.tree(edge.parentId, deps.now());

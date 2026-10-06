@@ -30,9 +30,14 @@ const notify = (method: string, params: unknown) => write({ method, params });
 const item = (threadId: string, turnId: string, data: unknown, complete = true) =>
   notify(complete ? "item/completed" : "item/started", { threadId, turnId, item: data });
 const message = (text: string, id = "proof") =>
-  item("native", "turn", { type: "agentMessage", id, text });
+  item(
+    "native",
+    process.env["ACE_TEST_DELEGATION_RESULT"] === "1" ? (active.get("native") ?? "turn") : "turn",
+    { type: "agentMessage", id, text },
+  );
 const active = new Map<string, string>();
 const terminals = new Map<string, { itemId: string; processId: string }[]>();
+let delegationTurn = 0;
 let pendingKind = "";
 let queued = 0;
 let policyTurn = 0;
@@ -66,10 +71,6 @@ for await (const line of createInterface({ input: process.stdin })) {
     else
       respond({
         userAgent: "ace/0.159.1",
-        aceConnection: {
-          url: overrides.get("mcp_servers.ace.url"),
-          authenticated: /^[a-f0-9]{64}$/.test(process.env["ACE_MCP_BEARER_TOKEN"] ?? ""),
-        },
         codexHome: "/fake",
         platformFamily: "unix",
         platformOs: "macos",
@@ -101,6 +102,15 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/start" || method === "thread/resume") {
+    const config = obj(obj(p["config"])["mcp_servers.ace"]);
+    notify("ace/connection", {
+      aceConnection: {
+        url: config["url"],
+        authenticated:
+          /^Bearer [a-f0-9]{64}$/.test(str(obj(config["http_headers"])["Authorization"])) &&
+          !process.env["ACE_MCP_BEARER_TOKEN"],
+      },
+    });
     if (process.env["ACE_FAKE_RESUME"] === "historical-interactions") {
       respond({
         thread: {
@@ -296,11 +306,16 @@ for await (const line of createInterface({ input: process.stdin })) {
       );
       continue;
     }
-    respond({ turn: { id: "turn" } });
-    active.set("native", "turn");
+    const turnId =
+      process.env["ACE_TEST_DELEGATION_RESULT"] === "1" ? `delegation-${++delegationTurn}` : "turn";
+    respond({ turn: { id: turnId } });
+    active.set("native", turnId);
     if (process.env["ACE_FAKE_RESUME"] !== "reply-before-start")
-      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
-    if (text === "replay-answered") {
+      notify("turn/started", { threadId: "native", turn: { id: turnId } });
+    if (process.env["ACE_TEST_DELEGATION_RESULT"] === "1") {
+      message("Codex delegated result", "delegation-result");
+      end();
+    } else if (text === "replay-answered") {
       for (const questionId of ["answered-a", "answered-b"])
         item("native", "old", {
           type: "agentMessage",
