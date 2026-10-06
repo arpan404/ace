@@ -40,16 +40,21 @@ for (const [extension, mime] of [
     }
   });
 }
-test("HEIC fails explicitly before the composer can silently send an opaque path", async () => {
+test("HEIC keeps its exact bytes as an opaque file without requesting a thumbnail", async () => {
   const f = await uploads();
   try {
     const bytes = Buffer.from("00000018667479706865696300000000686569636d696631", "hex");
     const id = await f.begin(bytes);
     await f.chunk(id, bytes);
-    await expect(f.commit(id)).rejects.toMatchObject({
-      code: "unsupported",
-      message: expect.stringContaining("HEIC"),
+    const file = attachment(await f.commit(id));
+    expect(file).toMatchObject({
+      kind: "binary",
+      mimeType: "image/heic",
+      thumbnailAvailable: false,
     });
+    expect(await readFile((await f.store.attachment("device", thread, file.sha256)).path)).toEqual(
+      bytes,
+    );
   } finally {
     await f.close();
   }

@@ -140,3 +140,95 @@ the owner policy. `apps/daemon/bench/attachments.ts` reports actor-open/indexed
 lookup latency at multiple history sizes, preview/original CPU time and RSS.
 Numbers and runtime assertions need run at merge. Client rendering is a separate
 UI follow-up: metadata must be displayed using the connection that owns the item.
+
+## Every file type (2026-10-06)
+
+This amendment replaces the image-only refusal and the earlier rejection of unsafe
+image containers. An attachment is delivered natively, as inline text, or as a
+readable absolute file path. Unsupported native formats never refuse a send.
+Malformed, animated, HEIC and oversized raster containers are retained as opaque
+files with no thumbnail and no native image input. Hash mismatches, unreadable
+files and hard storage/message limits still fail with corrective messages.
+
+Storage continues to use one content-addressed blob pool in the daemon data dir,
+with durable per-thread ownership. This deliberately avoids duplicating large
+files for each thread. Upload commit streams both hashing and text validation;
+duplicate uploads keep the existing inode. Blob files are mode 0400. Paths and
+MIME-derived hard-link aliases are stable across restarts and never go into the
+user's repository. The same local OS user can change file permissions, so this is
+an immutable-input convention rather than isolation from a hostile provider.
+
+Defaults are 512 MiB per file, 1 GiB per message, 2 GiB retained per thread, and
+8 GiB globally. Existing reference, reservation and queue caps still apply.
+`ACE_ATTACHMENT_FILE_BYTES` and `ACE_ATTACHMENT_MESSAGE_BYTES` override the first
+two at daemon startup; ContextService options can override all storage limits.
+Unused reservations expire after 24 hours. Deletion releases a thread's references
+and schedules collection. Maintenance reconciles deleted owners in bounded batches
+after a crash; active provider leases still protect files until consumption ends.
+Shared blobs survive until their final owner releases them.
+
+Classification uses magic bytes before extension and declared MIME. Text is
+validated incrementally over the entire file with a fatal UTF-8/UTF-16 decoder
+and a control-byte check, including a BOM-less UTF-16 ASCII-prefix heuristic.
+The extension and MIME claim are hints for opaque files, not permission to enter
+the image decoder. Source, CSV, JSON, logs, Markdown and SVG all use text delivery
+when decodable, regardless of extension. Empty files are valid attachments.
+
+At most 16 KiB of source bytes per text file and 64 KiB across a message are read
+for inline text. Blocks name the file, type, original size and extension language
+hint. A truncated block explicitly names the full file path. Remaining text files
+use paths when the aggregate prefix budget is spent. File contents are untrusted
+context, not instructions. No archive expansion, PDF extraction, Office conversion,
+audio transcription or video decoding is added.
+
+Adapters advertise `attachmentInput`: native format, document MIME types,
+embedded-context support and aggregate native byte budget. Claude accepts PDF
+base64 document blocks using the installed Agent SDK's typed user-message contract;
+its native budget is 4 MiB. Codex keeps local images and file-path fallbacks. Pi and
+Cursor use a 128 KiB native budget and path fallbacks for documents/binaries. ACP
+negotiates `embeddedContext` and then accepts bounded text/blob resources; without
+it, paths and ordinary text remain usable. The engine preserves native document
+and resource content through additive `ContentPart.file.content` fields.
+
+OpenCode V2 uses native images but **does not expose PDF or arbitrary binary file
+parts to the model**. They must be named in prompt text with a readable path,
+rather than sent through `files` and silently omitted. See the primary
+[OpenCode V2 attachment contract](https://dev.opencode.ai/v2/docs/attachments/) and
+[ACP v1 content contract](https://agentclientprotocol.com/protocol/v1/content).
+Claude's source format follows the installed SDK declaration and
+[streaming input contract](https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode).
+Existing recordings in `fixtures/` prove the transport envelopes, not native PDF
+processing; this change adds fake CLI wire tests without claiming new recordings.
+
+The current Codex read-only/workspace-write policies permit reading the daemon
+blob path without adding writable roots (see the primary
+[Codex workspace sandbox description](https://github.com/openai/codex/blob/main/codex-rs/prompts/templates/permissions/sandbox_mode/workspace_write.md)).
+Cursor's exposed SDK read tools can read outside its cwd; its sandbox API exposes
+no read-root selector. Claude/Pi/OpenCode tool gates retain their policy. The daemon
+persists only exact, prepared attachment paths and treats reads of those paths as
+scoped file reads in its existing approval review. This survives restart; it grants
+no writes, directory access, unrelated daemon files, shell execution or network
+access. Ask mode still asks. Generic ACP has no portable OS sandbox/read-root
+configuration; an agent imposing an additional private restriction may ask for its
+own read approval. No permission mode is widened to compensate.
+
+`Attachment.kind` and `Attachment.delivery` are optional additive metadata. The
+admitted user item receives the actual delivery mode before provider send, and
+history/echo reconciliation keeps it. Non-image chips show filename, size and kind;
+transcript chips identify inline text, native PDF/resource or a sent file. Existing
+queue commands keep hashes durably, and held web sends use the same upload path.
+Web SHA-256 runs over file slices with a lazy `@noble/hashes` import; upload chunks
+remain bounded on local, paired-device and relay connections.
+The dedicated encrypted files relay accepts context uploads with operate scope,
+and reads with read scope. Later upload chunks recheck their durable thread owner
+against the current device scope, including after thread access is revoked.
+
+Authenticated HTTP additionally accepts `POST /v1/attachments/<thread-or-draft>/upload?name=<encoded-name>`
+with Content-Length, X-Ace-Sha256, optional Content-Type and a bearer header. It
+feeds the same begin/chunk/commit owner while the request body is still arriving,
+reserving space before reading bytes. Errors are JSON with a corrective message;
+over-quota requests return 413. HTTP uploads have a ten-minute absolute deadline
+and resumable socket uploads remain available for slower links. GET/HEAD originals
+now stream retained files beyond
+the former 32 MiB response cap. The allocating client `attachmentBytes` helper
+retains its independent 32 MiB memory budget; large provider inputs use local paths.
