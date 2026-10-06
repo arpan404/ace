@@ -1,0 +1,97 @@
+{
+  "failures": ["page.waitForFunction: Timeout 2500ms exceeded."],
+  "errors": [
+    {
+      "type": "devices.result",
+      "ok": false,
+      "error": {
+        "code": "command_failed",
+        "message": "Device command failed",
+        "hint": "Check the SDK tool and device logs, then retry."
+      }
+    }
+  ],
+  "hostLoad": [139.46337890625, 57.94384765625, 46.7421875],
+  "sourceClock": {
+    "offset": 0,
+    "uncertainty": 0
+  },
+  "displays": [
+    {
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 2560,
+        "height": 1440
+      },
+      "scaleFactor": 1
+    },
+    {
+      "bounds": {
+        "x": 2560,
+        "y": 146,
+        "width": 1920,
+        "height": 1080
+      },
+      "scaleFactor": 1
+    }
+  ],
+  "packaged": true,
+  "fps": 28.502332008982552,
+  "codecs": {
+    "h264": 164
+  },
+  "capture": {
+    "p50": 10.06396484375,
+    "p95": 16.68798828125,
+    "samples": 165
+  },
+  "source": {
+    "p50": 29,
+    "p95": 45,
+    "samples": 78
+  },
+  "inputs": {
+    "tap": {
+      "p50": 171,
+      "p95": 171,
+      "samples": 2
+    },
+    "swipe": {
+      "p50": 146,
+      "p95": 146,
+      "samples": 2
+    },
+    "type": {
+      "p50": 1199,
+      "p95": 1199,
+      "samples": 1
+    }
+  },
+  "resolution": {
+    "width": 316,
+    "height": 672,
+    "css": {
+      "width": 316,
+      "height": 672
+    },
+    "dpr": 1
+  },
+  "gpu": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+  },
+  "qualification": "Failed cold-start retry; load rose from 13.89 at launch to 139.46 during measurement. Sandbox idb companion was reaped after its first client. Not an idle performance pass."
+}

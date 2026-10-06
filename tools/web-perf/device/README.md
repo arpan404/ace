@@ -59,8 +59,8 @@ are included in the result. Shut down only your own emulator afterward.
 
 ## Investigation on 84773d6d
 
-The host was heavily loaded throughout these runs (one-minute loads 141–258 in the
-reported samples), so these are functional and stressed-host measurements, not
+The device runs had one-minute loads 139–258 during measurement, so these are
+functional and stressed-host measurements, not
 comparable idle performance passes. Both connected displays had DPR 1; DPR 2/3
 and tall portrait sizing are covered by behaviour tests rather than a Retina run.
 Raw summaries are in [results](results).
@@ -96,6 +96,12 @@ ScreenCaptureKit interruption exited the helper. Existing FrameHub, VideoToolbox
 WebCodecs and latest-frame queues are shared with the current streaming stack.
 The browser worker's `fix/browser-crisp-native` worktree was read for coordination;
 its physical-pixel sizing agrees with this stream contract.
+
+A further packaged gate launched at load 13.89, but cold Simulator startup raised
+measurement load to 139.46. That retry failed budgets and one input operation after
+its sandbox-spawned idb companion was reaped. Its summary is explicitly marked
+as failed; it is not an idle qualification. A subsequent warm launch could not
+find load below 15 within three minutes.
 
 The daemon benchmark passed after load fell to 13.19: idle RSS was 216.7 MiB
 against its 256 MiB budget. An idle device run is still required to qualify
