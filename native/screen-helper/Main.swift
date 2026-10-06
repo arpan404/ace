@@ -79,6 +79,7 @@ import Darwin
                     guard request.target == capture.target else { throw HelperError("Session target differs", code: "target_gone") }
                     capture.mode = request.mode ?? "background"
                     capture.secureInputAllowed = request.secureInputAllowed == true
+                    capture.humanDeviceInput = false
                     if request.op == "stream.configure" {
                         guard let settings = request.settings else { throw HelperError("Stream settings required", code: "bounds") }
                         try await capture.configureStream(settings); reply(request, data: ["codec": settings.codec]); continue
@@ -92,6 +93,25 @@ import Darwin
                     }
                     if request.op == "ui.tree" { try reply(request, encoded: await accessibility.settle(request)); continue }
                     if request.op == "ui.find" { _ = try await accessibility.settle(request); try reply(request, encoded: accessibility.find(request)); continue }
+                    // Human device events acknowledge injection, not a settled AX tree. A drag
+                    // changes the cursor and the iOS app is not in Simulator's macOS AX tree.
+                    // Keep process-targeted posting and every target/permission check.
+                    if request.humanDeviceInput == true,
+                       capture.target?.kind == "window", capture.target?.bundleId == "com.apple.iphonesimulator",
+                       ["input", "button.press"].contains(request.op) {
+                        capture.mode = "background"
+                        capture.humanDeviceInput = true
+                        capture.synthesizedInput = false
+                        if request.op == "input" {
+                            guard let input = request.input else { throw HelperError("Missing input", code: "bounds") }
+                            try await capture.injectHumanDevice(input)
+                        } else {
+                            guard let name = request.name else { throw HelperError("Missing name", code: "bounds") }
+                            try await capture.pressButton(name)
+                        }
+                        reply(request, data: ["fallback": capture.synthesizedInput, "mode": capture.mode])
+                        continue
+                    }
                     request.maxNodes = 64; request.maxDepth = 6
                     let guardState = capture.mode == "background" ? FocusGuard() : nil
                     let fingerprint = JSONEncoder(); fingerprint.outputFormatting = .sortedKeys

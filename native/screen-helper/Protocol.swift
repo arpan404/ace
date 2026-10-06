@@ -77,10 +77,11 @@ struct Request: Decodable {
     let semanticAction: String?
     let mode: String?
     let secureInputAllowed: Bool?
+    let humanDeviceInput: Bool?
     let bundleId: String?
     let range: TextRange?
     struct TextRange: Decodable { let location: Int; let length: Int }
-    enum CodingKeys: String, CodingKey { case settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name, mode, secureInputAllowed, bundleId, range }
+    enum CodingKeys: String, CodingKey { case settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name, mode, secureInputAllowed, humanDeviceInput, bundleId, range }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version); id = try c.decode(String.self, forKey: .id); op = try c.decode(String.self, forKey: .op)
@@ -97,6 +98,7 @@ struct Request: Decodable {
         scrollValue = try? c.decode(ScrollValue.self, forKey: .value)
         mode = try c.decodeIfPresent(String.self, forKey: .mode)
         secureInputAllowed = try c.decodeIfPresent(Bool.self, forKey: .secureInputAllowed)
+        humanDeviceInput = try c.decodeIfPresent(Bool.self, forKey: .humanDeviceInput)
         bundleId = try c.decodeIfPresent(String.self, forKey: .bundleId)
         range = try c.decodeIfPresent(TextRange.self, forKey: .range)
         permission = try c.decodeIfPresent(String.self, forKey: .permission); name = try c.decodeIfPresent(String.self, forKey: .name)

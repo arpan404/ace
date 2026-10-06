@@ -47,6 +47,7 @@ export const DeviceFailure = z.object({
     "sdk_missing",
     "tool_missing",
     "not_supported",
+    "foreground_required",
     "not_found",
     "not_booted",
     "permission_denied",

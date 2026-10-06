@@ -133,6 +133,15 @@ export function androidDimensions(output: string): { width: number; height: numb
   return { width, height };
 }
 
+/** idb sends device HID, independent of Simulator's desktop focus. Return is USB usage 0x28. */
+export function simulatorHID(input: DeviceInput): readonly string[] | undefined {
+  if (input.kind === "type") return ["ui", "text", input.text];
+  if (input.kind !== "key") return undefined;
+  if (input.key === "enter") return ["ui", "key", "40"];
+  if (input.key === "home") return ["ui", "button", "HOME"];
+  if (input.key === "power") return ["ui", "button", "LOCK"];
+  return undefined;
+}
 /**
  * Hardware keys that are buttons on the Simulator window (its toolbar and side buttons), pressed
  * by accessible name: menu shortcuts reach Simulator only while it is the active app.

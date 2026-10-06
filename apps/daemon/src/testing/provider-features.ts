@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { createServer, type RequestListener } from "node:http";
 import { DevicesService, DevicePlatform } from "@ace/devices";
 import { ScreenManager } from "@ace/screen";
-import { spawnRawSupervised } from "@ace/provider-kit/process";
+import { probeOutput, spawnRawSupervised } from "@ace/provider-kit/process";
 import { DeviceOperation } from "@ace/protocol/devices";
 import { ThreadId } from "@ace/protocol";
 import { startDaemon, readConfig, stubHandler } from "../index.ts";
+import { deviceInputProcess } from "./device-input-process.ts";
 export async function providerFeatures(
   directory: string,
   executablePath: string,
@@ -47,6 +48,7 @@ else if (command.includes("input")) await appendFile(${JSON.stringify(deviceJour
     platform: "linux",
     home: directory,
     env: { ANDROID_HOME: sdk },
+    spawn: deviceInputProcess(probeOutput),
   });
   const devices = new DevicesService({
     platform,

@@ -26,7 +26,12 @@ const percentile = (values: number[], p: number) =>
 // Requires an explicitly owned simulator; the wrapper creates/deletes it.
 const home = process.env["ACE_HOME"];
 const udid = process.env["ACE_PERF_UDID"];
-if (!home?.startsWith("/tmp/ace-device-perf.") || !udid)
+if (
+  !(
+    home?.startsWith("/tmp/ace-device-perf.") || home?.startsWith("/private/tmp/ace-device-perf.")
+  ) ||
+  !udid
+)
   throw new Error("Run the device perf wrapper");
 await mkdir(home, { recursive: true });
 const root = new URL("../../../", import.meta.url).pathname;

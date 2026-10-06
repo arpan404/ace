@@ -1,0 +1,86 @@
+{
+  "failures": [],
+  "errors": [],
+  "hostLoad": [141.14697265625, 107.8291015625, 109.6669921875],
+  "sourceClock": {
+    "offset": 0,
+    "uncertainty": 0
+  },
+  "displays": [
+    {
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 2560,
+        "height": 1440
+      },
+      "scaleFactor": 1
+    },
+    {
+      "bounds": {
+        "x": 2560,
+        "y": 146,
+        "width": 1920,
+        "height": 1080
+      },
+      "scaleFactor": 1
+    }
+  ],
+  "packaged": true,
+  "fps": 29.330114665057334,
+  "codecs": {
+    "h264": 245
+  },
+  "capture": {
+    "p50": 12.0439453125,
+    "p95": 20.93408203125,
+    "samples": 243
+  },
+  "source": {
+    "p50": 34,
+    "p95": 46,
+    "samples": 243
+  },
+  "inputs": {
+    "tap": {
+      "p50": 176,
+      "p95": 210,
+      "samples": 10
+    },
+    "swipe": {
+      "p50": 200,
+      "p95": 220,
+      "samples": 10
+    },
+    "type": {
+      "p50": 262,
+      "p95": 365,
+      "samples": 10
+    }
+  },
+  "resolution": {
+    "width": 328,
+    "height": 700,
+    "css": {
+      "width": 327.765625,
+      "height": 699.484375
+    },
+    "dpr": 1
+  },
+  "gpu": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+  }
+}

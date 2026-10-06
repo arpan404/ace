@@ -1,0 +1,92 @@
+{
+  "failures": ["page.waitForFunction: Timeout 2500ms exceeded."],
+  "errors": [],
+  "hostLoad": [257.5595703125, 214.91845703125, 226.505859375],
+  "sourceClock": {
+    "offset": 35888.5,
+    "uncertainty": 17.5
+  },
+  "displays": [
+    {
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 2560,
+        "height": 1440
+      },
+      "scaleFactor": 1
+    },
+    {
+      "bounds": {
+        "x": 2560,
+        "y": 146,
+        "width": 1920,
+        "height": 1080
+      },
+      "scaleFactor": 1
+    }
+  ],
+  "packaged": true,
+  "fps": 17.02181313831799,
+  "codecs": {
+    "h264": 161
+  },
+  "capture": {
+    "p50": 7,
+    "p95": 14,
+    "samples": 135
+  },
+  "source": {
+    "p50": 200.5,
+    "p95": 606.5,
+    "samples": 135
+  },
+  "inputs": {
+    "tap": {
+      "p50": 208,
+      "p95": 244,
+      "samples": 4
+    },
+    "swipe": {
+      "p50": 233,
+      "p95": 239,
+      "samples": 4
+    },
+    "type": {
+      "p50": 351,
+      "p95": 395,
+      "samples": 4
+    }
+  },
+  "resolution": {
+    "width": "314",
+    "height": "700",
+    "css": {
+      "x": 1023.609375,
+      "y": 136.015625,
+      "width": 313.765625,
+      "height": 699.46875,
+      "top": 136.015625,
+      "right": 1337.375,
+      "bottom": 835.484375,
+      "left": 1023.609375
+    },
+    "dpr": 1
+  },
+  "gpu": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+  }
+}

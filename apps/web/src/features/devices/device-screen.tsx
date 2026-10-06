@@ -58,7 +58,7 @@ export function DeviceScreen(props: {
     const configure = () => {
       if (disposed || !live) return;
       const parent = element.parentElement?.getBoundingClientRect();
-      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      const ratio = window.devicePixelRatio || 1;
       const settings = deviceStreamProfile(
         { width: (parent?.width ?? 480) * ratio, height: (parent?.height ?? 900) * ratio },
         session.connection ?? "local",
@@ -177,12 +177,14 @@ export function DeviceScreen(props: {
       timer = setTimeout(recoverQuality, 2000);
     };
     recoverQuality();
+    window.addEventListener("resize", configure);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       disposed = true;
       clearTimeout(timer);
       clearTimeout(resizeTimer);
       observer?.disconnect();
+      window.removeEventListener("resize", configure);
       document.removeEventListener("visibilitychange", onVisibility);
       if (press.current) stream.send("cancel", press.current);
       moves.close();
