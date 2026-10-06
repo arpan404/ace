@@ -71,6 +71,7 @@ export async function moveThread(
         if (changed || threadHasPendingWork(store, thread.id, ownsWork))
           throw new ProjectError(changed ?? "thread_busy");
         store.workspaceReservations.assertAvailable(source.path);
+        store.workspaceReservations.assertAvailable(destination);
         commit();
       });
     }

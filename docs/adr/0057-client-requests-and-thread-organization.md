@@ -30,7 +30,6 @@ Context mention reads use the same persisted execution binding as scripts, Git a
 
 Integration train 3 keeps these services in the named startup graph: workspace actions initialize before engine admission; preview, organization, automation and conductor initialization follow endpoint publication. Optional failures degrade by service name. Context combines draft ownership and execution-root authority with the agent-control family reference policy and queue attachment retention. The ADR moved to 0057 because main allocated 0056 to in-app devices, now [ADR 0064](0064-in-app-devices.md).
 
-
 ### Moving between projects
 
 `thread.move` changes registration and execution together while preserving history and
