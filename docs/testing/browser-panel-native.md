@@ -1,6 +1,6 @@
 # Browser panel sandbox regression pass
 
-This change is stacked on #163. That fix preserves `auto`, allowing the desktop
+This change was originally stacked on #163, which is now merged into main. That fix preserves `auto`, allowing the desktop
 backend to be selected. This pass supplies native control parity and corrects
 placement and input after selection.
 
@@ -54,7 +54,7 @@ Core/React regressions run from the repository root:
 bun run test packages/browser/src/page-controls.process.test.ts apps/web/src/features/panels/browser/parity.test.tsx apps/web/src/features/panels/browser/native-view.test.tsx --no-file-parallelism --maxWorkers=1 --testTimeout=30000
 ```
 
-## Verification results
+## Original branch verification results
 
 All 27 touched core/React tests and both desktop/web e2e scenarios passed, run
 serially. Native coverage includes main/same-origin/cross-origin frame dialogs,
@@ -67,6 +67,31 @@ full view, window resize, renderer zoom (DPR 2.4), and iPhone/laptop emulation
 Formatting, lint, typecheck, size, UI, dependency and protocol checks pass. The web
 bundle passes: initial JS 271.0 KB against 272 KB, CSS 20.7 KB against 21 KB,
 and heaviest first screen 394.2 KB against 405 KB; worker budgets pass.
+
+## Main integration revision
+
+Merged `origin/main` at `77338ea8` after #163 and #160 landed. The input-type
+import and shared frame-discovery helper remain alongside main's DPR capture
+hook and headless sizing. The regenerated protocol includes both browser control
+commands and delegation error schemas. Main's dependency/export changes are
+retained and `bun install` was rerun. Browser access uses the public protocol's
+`DeviceScope` type restricted to read/operate; authorization behavior is unchanged.
+
+This revision uses static review only. The original runtime results above do not
+certify the merged head. Tests, benchmarks and full `bun run check` need run at
+merge under the owner's current rule. No integration-rehearsal comment was
+present on #168 when issue comments, review comments and reviews were read.
+
+Existing behavior tests guard the preserved paths. The mutation cases below are
+not executed (tests run at merge):
+
+| Regression coverage                                              | Mutation cases it is designed to kill                                                                                          |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `apps/desktop/e2e/browser-fallback.e2e.ts`                       | Remove DPR capture demand; drop pointer focus or modifiers/key releases; stop forwarding hover; swallow app shortcuts          |
+| `apps/web/src/features/panels/preview/use-capture-size.test.tsx` | Remove the capture hook or reconnect re-subscription; replace viewer DPR with 1; resize the page from a view-only subscription |
+| `packages/browser/src/parity.process.test.ts`                    | Drop child frame sessions or OOPIF parent identity; route frame refs to the root target                                        |
+| `packages/browser/src/adaptation.process.test.ts`                | Remove headless content resizing/DPR sizing; ignore viewer dimensions or pressure; stop frame acknowledgements                 |
+| `packages/browser/src/page-controls.process.test.ts`             | Replay URLs for history; omit Mac select-all; apply agent privacy checks to human recording stop                               |
 
 ## Performance qualification
 

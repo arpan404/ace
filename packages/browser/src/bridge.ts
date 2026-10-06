@@ -1,8 +1,15 @@
 import { BrowserOriginError } from "./policy.ts";
-import { ThreadId, BrowserClientMessage, type BrowserServerMessage } from "@ace/protocol";
+import {
+  ThreadId,
+  BrowserClientMessage,
+  type BrowserServerMessage,
+  type DeviceScope,
+} from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
 
-function requiredAccess(message: BrowserClientMessage): "read" | "operate" {
+type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
+
+function requiredAccess(message: BrowserClientMessage): BrowserAccess {
   if (
     ["browser.subscribe", "browser.unsubscribe", "browser.ack", "browser.capture"].includes(
       message.type,
@@ -43,7 +50,7 @@ export function connectBrowser(
     authorize: (
       threadId: string,
       workspaceId: string | undefined,
-      access: "read" | "operate",
+      access: BrowserAccess,
     ) => boolean;
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
   },

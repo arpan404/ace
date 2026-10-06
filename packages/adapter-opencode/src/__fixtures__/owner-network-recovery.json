@@ -1,0 +1,22 @@
+{
+  "source": "Owner canonical agent.status retry plus recorded native session.tool.input.started. Session ids and workspace redacted; retry envelope reconstructed from canonical retry evidence.",
+  "retry": {
+    "attempt": 2,
+    "until": 1791256892217,
+    "message": "ECONNRESET: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()"
+  },
+  "progress": {
+    "id": "recorded-progress",
+    "type": "session.tool.input.started",
+    "data": {
+      "sessionID": "s-root",
+      "assistantMessageID": "resumed-message",
+      "id": "resumed-tool",
+      "name": "shell"
+    },
+    "location": {
+      "directory": "/one"
+    },
+    "created": 1791256908613
+  }
+}
