@@ -130,6 +130,23 @@ export function visibleSessions(states: readonly ScreenState[]): ScreenState[] {
     );
 }
 
+/** Where a Stop all stands: on its way, done (with how many apps it ended) or refused. */
+export type StopAllState =
+  | { state: "idle" }
+  | { state: "stopping" }
+  | { state: "stopped"; count: number }
+  | { state: "failed"; reason: string };
+
+/** Stop all's outcome in a line beside its button; nothing while idle or on its way. */
+export function stopAllSummary(stop: StopAllState): string | undefined {
+  if (stop.state === "stopped")
+    return stop.count === 0
+      ? "Computer use is off."
+      : `Stopped ${stop.count} ${stop.count === 1 ? "app" : "apps"}. Computer use is off.`;
+  if (stop.state === "failed") return `Couldn't stop everything: ${stop.reason}`;
+  return undefined;
+}
+
 /** Sessions an agent controls, including ones with no capture running. */
 export function agentSessions(states: readonly ScreenState[]): ScreenState[] {
   return states.filter((state) => state.controller === "agent" && state.lifecycle !== "stopped");

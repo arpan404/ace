@@ -48,6 +48,45 @@ test("turning computer use on is what the daemon records, and Stop all turns it 
   ).toBe("false");
 });
 
+test("Stop all says it's stopping and takes no second press, then says what it stopped", async () => {
+  const { app, world } = await openSettings();
+  app.daemon.screen.access.enabled = true;
+  await world.agentApp("com.apple.TextEdit");
+  await world.agentApp("com.apple.calculator");
+  const held = Promise.withResolvers<void>();
+  app.daemon.screen.stopAllHold = { until: held.promise };
+  await app.open("/settings/computer-use");
+  const sessions = await screen.findByRole("list", { name: "Live sessions" });
+  await waitFor(() => expect(within(sessions).getAllByRole("article")).toHaveLength(2));
+
+  await userEvent.click(screen.getByRole("button", { name: "Stop all computer use" }));
+  const busy = await screen.findByRole("button", { name: "Stopping all computer use…" });
+  expect(busy.getAttribute("aria-busy")).toBe("true");
+  expect((busy as HTMLButtonElement).disabled).toBe(true);
+  expect(app.daemon.screen.access.enabled).toBe(true);
+
+  await act(async () => held.resolve());
+  expect(await screen.findByText("Stopped 2 apps. Computer use is off.")).toBeTruthy();
+  expect(app.daemon.screen.access.enabled).toBe(false);
+});
+
+test("a Stop all the daemon can't finish says why", async () => {
+  const { app, world } = await openSettings();
+  app.daemon.screen.access.enabled = true;
+  await world.agentApp("com.apple.TextEdit");
+  app.daemon.screen.stopAllHold = {
+    until: Promise.resolve(),
+    failure: "1 of 1 app session didn't stop: helper timed out",
+  };
+  await app.open("/settings/computer-use");
+  await screen.findByRole("article", { name: "TextEdit" });
+
+  await userEvent.click(screen.getByRole("button", { name: "Stop all computer use" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "Couldn't stop everything: 1 of 1 app session didn't stop: helper timed out",
+  );
+});
+
 test("an agent's app shows live in the background; taking over and handing back move control on the daemon", async () => {
   const { app, world } = await openSettings();
   const sessionId = await world.agentApp("com.apple.TextEdit");
