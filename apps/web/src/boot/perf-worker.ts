@@ -79,10 +79,11 @@ if (isPort(scope)) {
             delivered += message.events.length;
             // Client listeners run before projection. Publish after that delivery's task.
             const events = delivered;
+            const at = performance.now();
             queueMicrotask(() => {
               // A dedicated worker answers its own page; there is no target origin.
               // oxlint-disable-next-line unicorn/require-post-message-target-origin
-              port.postMessage({ t: "perf", events });
+              port.postMessage({ t: "perf", events, at });
             });
           });
           // Stream once the tab is attached and following the thread.
