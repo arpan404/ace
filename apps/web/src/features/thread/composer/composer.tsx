@@ -16,12 +16,13 @@ import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import { AddButton } from "./add-button.tsx";
-import { AttachmentChips, useAttachments } from "./attachments.tsx";
+import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./attachments.tsx";
 import { ComposerCompact } from "./composer-compact.ts";
 import { accept, insertAt, mentionsIn, triggerAt, type Draft, type Trigger } from "./draft.ts";
 import { readDraft, recentFiles, rememberFile, writeDraft } from "./draft-store.ts";
 import { PrimaryAction } from "./primary-action.tsx";
 import { DeferredSuggestionList } from "./deferred-parts.tsx";
+import { carriesFiles, takeTransfer, type Intake } from "./file-intake.ts";
 import { takeDraftsFor, type ReturnedDraft } from "./send-store.ts";
 import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
@@ -36,6 +37,8 @@ export interface ComposerHandle {
   openAdd(): void;
   /** Put the caret in the message. */
   focus(): void;
+  /** Attach what a drop or paste elsewhere on the screen carries; call it during the event. */
+  takeFiles(data: DataTransfer): void;
 }
 
 /** Below this width the footer drops labels to icons; below `terse` the hint shortens. */
@@ -135,20 +138,33 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set(restored?.mentions));
   // A newer version of this draft written in another window, while this one has focus.
   const [theirs, setTheirs] = useState<ComposerDraft>();
+  // What the last drop or paste couldn't attach in full (a large folder, too many files).
+  const [notice, setNotice] = useState<string>();
   // Where to put the caret once an inserted suggestion has rendered.
   const placeCaret = useRef<number | undefined>(undefined);
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const listId = useId();
   const addMenu = useRef<{ open(): void }>(null);
-  useImperativeHandle(ref, () => ({
-    openAdd: () => addMenu.current?.open(),
-    focus: () => input.current?.focus(),
-  }));
   const attachments = useAttachments(
     props.thread,
     props.keepsAttachments ? restored?.attachments : undefined,
   );
+  const attach = (files: Iterable<File>, note?: string) => {
+    const left = attachments.add(files);
+    setNotice(
+      left
+        ? `A message carries up to ${maxAttachmentsPerMessage} files; ${left} more weren't attached.`
+        : note,
+    );
+  };
+  const intake = (data: DataTransfer) =>
+    takeTransfer(data, (taken: Intake) => attach(taken.files, taken.note));
+  useImperativeHandle(ref, () => ({
+    openAdd: () => addMenu.current?.open(),
+    focus: () => input.current?.focus(),
+    takeFiles: intake,
+  }));
   const found = triggerAt(text, caret);
   const trigger: Trigger | undefined = found && found.start !== dismissed ? found : undefined;
   const suggestions = useSuggestions(props.thread, trigger, () =>
@@ -285,6 +301,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     setText("");
     setCaret(0);
     setTheirs(undefined);
+    setNotice(undefined);
     setPicked(new Set());
     void props.onSubmit(draft).then((sent) => {
       if (sent || !draftKey || typed.current.trim()) return;
@@ -361,13 +378,20 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           </button>
         </p>
       )}
+      {notice && (
+        <p role="status" className="mb-1.5 px-2 text-xs text-subtle-foreground">
+          {notice}
+        </p>
+      )}
       <div
         data-slot="composer"
-        onDragOver={(event) => event.preventDefault()}
+        onDragOver={(event) => {
+          if (carriesFiles(event.dataTransfer)) event.preventDefault();
+        }}
         onDrop={(event) => {
-          if (!event.dataTransfer.files.length) return;
+          if (!carriesFiles(event.dataTransfer)) return;
           event.preventDefault();
-          attachments.add(event.dataTransfer.files);
+          intake(event.dataTransfer);
         }}
         className={cn(
           "glass flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
@@ -376,7 +400,12 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
         )}
       >
-        <AttachmentChips items={chips} onRemove={attachments.remove} onRetry={attachments.retry} />
+        <AttachmentChips
+          items={chips}
+          onRemove={attachments.remove}
+          onRetry={attachments.retry}
+          threadId={props.thread.draft ? undefined : props.thread.id}
+        />
         <textarea
           ref={input}
           rows={1}
@@ -398,11 +427,9 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
           onPaste={(event) => {
-            const files = event.clipboardData.files;
-            if (files.length) {
-              event.preventDefault();
-              attachments.add(files);
-            }
+            if (!event.clipboardData.files.length) return;
+            event.preventDefault();
+            intake(event.clipboardData);
           }}
           className="block min-h-11 w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground disabled:cursor-not-allowed"
         />
@@ -426,7 +453,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
                 off ?? (text.trim() ? "Commands go at the start of an empty message" : undefined),
             }}
             focusTarget={input}
-            onFiles={attachments.add}
+            onFiles={attach}
             onMention={() => edit(insertAt(text, caret, "@"))}
             onCommand={() => edit({ text: "/", caret: 1 })}
             onInsert={(inserted) => edit(insertAt(text, caret, inserted))}

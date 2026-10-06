@@ -10,9 +10,9 @@ import { harness } from "@/test/harness.tsx";
 import { AttachmentChips, useAttachments } from "./composer/attachments.tsx";
 
 /*
- * The composer's attachment chips (AT-2): an image's preview at once, upload progress, failures
- * in words with Retry, files the thread's agent can't read (QA-07), and the files a send can
- * wait for.
+ * The composer's attachment chips (AT-2): an image's preview at once, each file's kind in
+ * words, upload progress, failures in words with Retry, the keyboard, the size and duplicate
+ * checks before uploading, and the files a send can wait for.
  */
 
 const objectUrls = new Map<string, Blob>();
@@ -71,12 +71,130 @@ test("a file over the limit says so in words and can only be removed", async () 
   expect(
     within(chips).getByText(
       (_, element) =>
-        element?.textContent === "Couldn't upload: Too large: 629 MB, the limit is 537 MB",
+        element?.textContent === "Couldn't upload: Too large: files can be up to 512 MB each",
     ),
   ).toBeTruthy();
   expect(within(chips).queryByRole("button", { name: "Retry capture.mov" })).toBeNull();
   await user.click(within(chips).getByRole("button", { name: "Remove capture.mov" }));
   expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
+});
+
+/** A file whose size is claimed rather than held, for the limits checked before uploading. */
+function sized(name: string, megabytes: number): File {
+  const file = new File(["x"], name, { type: "video/quicktime" });
+  Object.defineProperty(file, "size", { value: megabytes * 1024 * 1024 });
+  return file;
+}
+
+test("each chip names its file's kind and size, and Delete removes it, focus moving on", async () => {
+  const user = userEvent.setup();
+  const { message } = await openComposer();
+  const files = [
+    new File(["%PDF-1.7"], "spec.pdf", { type: "application/pdf" }),
+    new File(["export {};"], "router.ts", { type: "" }),
+    new File(["a,b\n1,2"], "totals.csv", { type: "text/csv" }),
+    new File(["PK\u0003\u0004"], "bundle.zip", { type: "application/zip" }),
+    new File(["ID3"], "memo.mp3", { type: "audio/mpeg" }),
+    new File(["\u0000\u0001"], "core.bin", { type: "application/octet-stream" }),
+  ];
+  await user.upload(screen.getByLabelText("Files to attach"), files);
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  const meta = (name: string) =>
+    within(chips).getByRole("button", { name: `Preview ${name}` }).lastElementChild?.textContent;
+  expect(meta("spec.pdf")).toBe("8 B · PDF");
+  expect(meta("router.ts")).toBe("10 B · TypeScript");
+  expect(meta("totals.csv")).toBe("7 B · CSV");
+  expect(meta("bundle.zip")).toBe("4 B · ZIP archive");
+  expect(meta("memo.mp3")).toBe("3 B · MP3");
+  expect(meta("core.bin")).toBe("2 B · BIN");
+
+  within(chips).getByRole("button", { name: "Preview totals.csv" }).focus();
+  await user.keyboard("{Delete}");
+  expect(within(chips).queryByRole("button", { name: "Preview totals.csv" })).toBeNull();
+  expect(document.activeElement).toBe(
+    within(chips).getByRole("button", { name: "Preview bundle.zip" }),
+  );
+  await user.keyboard("{Backspace}");
+  expect(document.activeElement).toBe(
+    within(chips).getByRole("button", { name: "Preview memo.mp3" }),
+  );
+
+  // The last chip gone, the caret goes back to the message.
+  for (const name of ["memo.mp3", "core.bin", "spec.pdf", "router.ts"]) {
+    within(chips)
+      .getByRole("button", { name: `Preview ${name}` })
+      .focus();
+    await user.keyboard("{Delete}");
+  }
+  expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
+  expect(document.activeElement).toBe(message);
+});
+
+test("a long name keeps its extension in view while its middle gives way", async () => {
+  const user = userEvent.setup();
+  await openComposer();
+  const name = "quarterly-infrastructure-cost-review-final-v3.xlsx";
+  await user.upload(screen.getByLabelText("Files to attach"), new File(["x"], name));
+  const chip = await screen.findByRole("button", { name: `Preview ${name}` });
+  const shown = chip.querySelector("span.truncate")?.parentElement;
+  // The whole name reads in order; only the part before the tail truncates.
+  expect(shown?.textContent).toBe(name);
+  expect(shown?.lastElementChild?.textContent).toMatch(/\.xlsx$/);
+  expect(shown?.lastElementChild?.classList.contains("truncate")).toBe(false);
+});
+
+test("files adding up past the message limit are refused before uploading, naming the limit", async () => {
+  const user = userEvent.setup();
+  await openComposer();
+  await user.upload(screen.getByLabelText("Files to attach"), [
+    sized("one.mov", 300),
+    sized("two.mov", 300),
+    sized("three.mov", 300),
+    sized("four.mov", 300),
+  ]);
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  expect(
+    within(chips).getByText(
+      (_, element) =>
+        element?.textContent ===
+        "Couldn't upload: Too much for one message: files can add up to 1 GB",
+    ),
+  ).toBeTruthy();
+  expect(within(chips).queryByRole("button", { name: "Retry four.mov" })).toBeNull();
+  // Only the file that tipped the total over is refused for it.
+  expect(within(chips).getAllByText(/Too much for one message/)).toHaveLength(1);
+});
+
+test("the same file added twice shows one chip and goes once", async () => {
+  const user = userEvent.setup();
+  const { app, feed, message } = await openComposer();
+  const input = screen.getByLabelText("Files to attach");
+  // Picked twice: the same file, so it is skipped at once.
+  const notes = new File(["QA_TOKEN 42"], "notes.txt", { type: "text/plain", lastModified: 5 });
+  await user.upload(input, notes);
+  await user.upload(input, notes);
+  // A copy with the same name and bytes but another date: one chip once both are hashed.
+  await user.upload(
+    input,
+    new File(["QA_TOKEN 42"], "notes.txt", { type: "text/plain", lastModified: 9 }),
+  );
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  await waitFor(() =>
+    expect(within(chips).getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(1),
+  );
+
+  await user.type(message, "Read it{Enter}");
+  await within(feed).findByRole("list", { name: "Attached files" });
+  const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-router") });
+  if (!view || !("items" in view)) throw new Error("Missing thread transcript");
+  const sent = Object.values(view.items).find(
+    (item) => item.type === "message" && item.role === "user" && item.attachments?.length,
+  );
+  expect(sent?.type === "message" ? sent.attachments?.map((file) => file.name) : []).toEqual([
+    "notes.txt",
+  ]);
 });
 
 // The composer's wiring: the hook's chips, with Retry and Remove.

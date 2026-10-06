@@ -112,9 +112,58 @@ test("files show their name, size and type, never the path they were stored at",
     parts: [{ type: "file", path: "/Users/dev/acme/notes/plan.md" }],
   });
   const files = await within(feed).findByRole("list", { name: "Attached files" });
-  expect(within(files).getByText("report.pdf · 1.2 MB")).toBeTruthy();
-  expect(within(files).getByText("plan.md")).toBeTruthy();
+  expect(within(files).getByRole("button", { name: "report.pdf, 1.2 MB · PDF" })).toBeTruthy();
+  // A path the agent named is a label: this device has no bytes to open.
+  expect(within(files).getByLabelText("plan.md, Markdown").tagName).toBe("SPAN");
   expect(feed.textContent).not.toContain("/Users/");
+});
+
+test("a sent file says how the agent received it, and its tooltip explains", async () => {
+  const user = userEvent.setup();
+  const { feed } = await openMessage({
+    attachments: [
+      {
+        sha256: "d".repeat(64),
+        bytes: 48_000,
+        mimeType: "text/plain",
+        name: "server.log",
+        kind: "text",
+        delivery: "inline_text_and_path",
+      },
+      {
+        sha256: "e".repeat(64),
+        bytes: 1_200_000,
+        mimeType: "application/pdf",
+        name: "spec.pdf",
+        kind: "pdf",
+        delivery: "native_pdf",
+      },
+      {
+        sha256: "f".repeat(64),
+        bytes: 9_000_000,
+        mimeType: "application/zip",
+        name: "logs.zip",
+        kind: "binary",
+        delivery: "file_path",
+      },
+    ],
+  });
+  const files = await within(feed).findByRole("list", { name: "Attached files" });
+  const log = within(files).getByRole("button", {
+    name: "server.log, 48 KB · Log · inline text, truncated",
+  });
+  expect(
+    within(files).getByRole("button", { name: "spec.pdf, 1.2 MB · PDF · native PDF" }),
+  ).toBeTruthy();
+  expect(
+    within(files).getByRole("button", {
+      name: "logs.zip, 9.0 MB · ZIP archive · sent as file path",
+    }),
+  ).toBeTruthy();
+  await user.hover(log);
+  expect((await screen.findByRole("tooltip")).textContent).toBe(
+    "The first 16 KB of text went into the message, with a path to the rest",
+  );
 });
 
 test("more than four images show three and a +N tile that opens the rest", async () => {

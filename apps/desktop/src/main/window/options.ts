@@ -39,6 +39,8 @@ export function windowOptions(options: {
       // client worker sends a hidden page nothing until it is shown (ADR 0056).
       backgroundThrottling: true,
       spellcheck: true,
+      // Chromium's built-in PDF viewer, for attachment previews; no third-party plugins exist.
+      plugins: true,
       additionalArguments: [`--ace-info=${options.info}`],
     },
   };
