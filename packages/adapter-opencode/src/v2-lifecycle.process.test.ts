@@ -275,11 +275,21 @@ it("a verified location move changes routing and file admission while old-direct
       object(object(object(f.data).info).location).directory === "/new",
     from,
   );
-  await h.session.send([{ type: "file", path: "image.png" }], "queue");
+  await h.session.send(
+    [
+      { type: "file", path: "image.png" },
+      { type: "file", path: "report.pdf" },
+      { type: "file", path: "archive.zip", mimeType: "application/zip" },
+    ],
+    "queue",
+  );
   const prompt = array(await h.control("/test/requests"))
     .map(object)
     .find((r) => String(r.path).endsWith("/prompt"));
   expect(object(prompt?.body).files).toEqual([{ uri: "file:///new/image.png" }]);
+  expect(object(prompt?.body).text).toBe(
+    'File (application/octet-stream): "/new/report.pdf"\nFile (application/zip): "/new/archive.zip"',
+  );
   await h.control("/test/events", [
     {
       type: "session.text.started",
