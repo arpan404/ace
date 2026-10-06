@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/ActivityReadCursor.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "before": {
+      "maximum": 8640000000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "read": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ActivityItemRef.json"
+      },
+      "maxItems": 2000,
+      "type": "array"
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "unread": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ActivityItemRef.json"
+      },
+      "maxItems": 500,
+      "type": "array"
+    }
+  },
+  "required": [
+    "before",
+    "read",
+    "unread",
+    "revision"
+  ],
+  "type": "object"
+}

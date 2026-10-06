@@ -4,6 +4,7 @@ import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
 import { startConductor } from "./conductor.ts";
 import { startAutomations } from "./automations.ts";
+import { startActivityReads } from "./activity-reads.ts";
 import { startWorkspaceActions } from "./workspace-actions.ts";
 import { startThreadOrganization } from "./thread-organization.ts";
 import { startDevices } from "./devices.ts";
@@ -46,6 +47,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "devices", phase: "core", requires: [], after: ["screen", "files"], start: startDevices },
   { name: "relay", phase: "core", requires: ["files"], after: [], start: startRelayKeys },
   { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
+  { name: "activityReads", phase: "core", requires: [], after: [], start: startActivityReads },
   { name: "browser", phase: "core", requires: [], after: ["settings"], start: startBrowser },
   {
     name: "workspaceActions",

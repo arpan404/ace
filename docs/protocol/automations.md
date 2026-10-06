@@ -29,19 +29,22 @@ Example:
 
 ```json
 {
-  "concurrency": 9,
-  "enabled": true,
+  "concurrency": 2,
+  "enabled": false,
   "id": "example",
   "jitterMs": 9,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "opencode",
+  "provider": "pi",
   "title": "example",
   "trigger": {
-    "event": "review_comment",
-    "kind": "github",
-    "pollIntervalMs": 60000,
-    "repository": "Od/7mMIBfb"
+    "kind": "schedule",
+    "schedule": {
+      "expression": "example",
+      "kind": "cron",
+      "startAt": 0,
+      "timezone": "example"
+    }
   },
   "workspace": "example",
   "worktree": false
@@ -79,7 +82,7 @@ Example:
 
 ```json
 {
-  "before": 4,
+  "before": null,
   "runs": []
 }
 ```
@@ -101,13 +104,14 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 2,
+    "concurrency": 4,
     "enabled": true,
     "id": "example",
-    "jitterMs": 5,
+    "jitterMs": 0,
     "missedRun": "skip",
+    "model": "example",
     "prompt": "example",
-    "provider": "antigravity",
+    "provider": "claude",
     "title": "example",
     "trigger": {
       "kind": "schedule",
@@ -119,7 +123,7 @@ Example:
       }
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -193,7 +197,7 @@ Example:
 
 ```json
 {
-  "limit": 7,
+  "limit": 6,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -218,8 +222,8 @@ Example:
 
 ```json
 {
-  "automations": [],
-  "ok": true,
+  "error": "example",
+  "ok": false,
   "requestId": "example",
   "schedules": [],
   "type": "automation.result"
@@ -250,10 +254,11 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "startedAt": 4,
+  "startedAt": 7,
   "status": "skipped",
+  "threadId": "example",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "github"
 }
 ```
 
@@ -336,8 +341,7 @@ Example:
   "event": "pr_changed",
   "kind": "github",
   "pollIntervalMs": 60009,
-  "pullRequest": 7,
-  "repository": "ev/wf"
+  "repository": "B4w-uK/lXq"
 }
 ```
 

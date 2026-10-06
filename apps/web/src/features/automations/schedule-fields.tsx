@@ -1,14 +1,16 @@
+import { useMemo } from "react";
 import { Input } from "@/components/ui/input.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useNow } from "@/lib/time.ts";
-import { Row, visible } from "./form-row.tsx";
+import { Row, invalidProps, visible } from "./form-row.tsx";
 import type { AutomationFormApi } from "./use-automation-form.ts";
-import { AutomationForm, presetFromForm } from "./automation-values.ts";
+import { AutomationForm, hourSteps, scheduleFromForm } from "./automation-values.ts";
 import {
   describeSchedule,
-  localTimeZone,
-  presetToSchedule,
+  formatRunInZone,
+  timeZones,
+  upcomingRuns,
   weekdayName,
   weekdays,
 } from "./schedule.ts";
@@ -25,13 +27,22 @@ const syntaxes = [
   { value: "rrule", label: "RRULE" },
   { value: "cron", label: "Cron" },
 ] as const;
+const hoursLabel = (hours: number) => (hours === 1 ? "Every hour" : `Every ${hours} hours`);
 
-/** Repeat, time and day, or a raw expression; with a plain-English read-back. */
+/** Every-few-hours steps; a saved interval the list doesn't offer stays selectable. */
+function hourOptions(current: number) {
+  const steps: number[] = hourSteps.includes(current as (typeof hourSteps)[number])
+    ? [...hourSteps]
+    : [...hourSteps, current].toSorted((a, b) => a - b);
+  return steps.map((hours) => ({ value: String(hours), label: hoursLabel(hours) }));
+}
+
+/** Repeat, time and day (or a raw expression), the zone it runs in, and a read-back. */
 export function ScheduleFields(props: { form: AutomationFormApi }) {
   const { form } = props;
   return (
     <>
-      <div className="grid gap-x-4 sm:grid-cols-3">
+      <div className="grid gap-x-4 @min-[34rem]:grid-cols-3">
         <form.Field name="cadence">
           {(field) => (
             <Row label="Repeat">
@@ -40,7 +51,7 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
                 value={field.state.value}
                 options={cadences}
                 onValueChange={(value) => field.handleChange(value)}
-                className="w-full"
+                className="w-full min-w-0"
               />
             </Row>
           )}
@@ -57,7 +68,7 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
                         value={field.state.value}
                         options={days}
                         onValueChange={(value) => field.handleChange(value)}
-                        className="w-full"
+                        className="w-full min-w-0"
                       />
                     </Row>
                   )}
@@ -65,35 +76,36 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
               )}
               {(cadence === "daily" || cadence === "weekdays" || cadence === "weekly") && (
                 <form.Field name="time">
-                  {(field) => (
-                    <Row label="At" htmlFor="automation-time" errors={visible(field.state.meta)}>
-                      <Input
-                        id="automation-time"
-                        value={field.state.value}
-                        onBlur={field.handleBlur}
-                        onValueChange={(value) => field.handleChange(value)}
-                        placeholder="09:00"
-                        className="tabular-nums"
-                      />
-                    </Row>
-                  )}
+                  {(field) => {
+                    const error = visible(field.state.meta);
+                    return (
+                      <Row label="At" htmlFor="automation-time" errors={error}>
+                        <Input
+                          id="automation-time"
+                          name="time"
+                          type="time"
+                          step={60}
+                          value={field.state.value}
+                          onBlur={field.handleBlur}
+                          onValueChange={(value) => field.handleChange(value)}
+                          className="tabular-nums"
+                          {...invalidProps("automation-time", error)}
+                        />
+                      </Row>
+                    );
+                  }}
                 </form.Field>
               )}
               {cadence === "hourly" && (
                 <form.Field name="every">
                   {(field) => (
-                    <Row
-                      label="Every how many hours"
-                      htmlFor="automation-every"
-                      errors={visible(field.state.meta)}
-                    >
-                      <Input
-                        id="automation-every"
-                        inputMode="numeric"
+                    <Row label="How often">
+                      <Select
+                        label="How often"
                         value={String(field.state.value)}
-                        onBlur={field.handleBlur}
+                        options={hourOptions(field.state.value)}
                         onValueChange={(value) => field.handleChange(Number(value))}
-                        className="tabular-nums"
+                        className="w-full min-w-0"
                       />
                     </Row>
                   )}
@@ -102,7 +114,7 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
               {cadence === "custom" && (
                 <form.Field name="syntax">
                   {(field) => (
-                    <Row label="Syntax">
+                    <Row label="Syntax" className="items-start">
                       <SegmentedControl
                         label="Syntax"
                         value={field.state.value}
@@ -121,26 +133,37 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
         {(custom) =>
           custom && (
             <form.Field name="expression">
-              {(field) => (
-                <Row
-                  label="Expression"
-                  htmlFor="automation-expression"
-                  errors={visible(field.state.meta)}
-                >
-                  <Input
-                    id="automation-expression"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onValueChange={(value) => field.handleChange(value)}
-                    placeholder="FREQ=WEEKLY;BYDAY=MO,TH;BYHOUR=8;BYMINUTE=30"
-                    className="font-mono"
-                  />
-                </Row>
-              )}
+              {(field) => {
+                const error = visible(field.state.meta);
+                return (
+                  <Row label="Expression" htmlFor="automation-expression" errors={error}>
+                    <Input
+                      id="automation-expression"
+                      name="expression"
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onValueChange={(value) => field.handleChange(value)}
+                      placeholder="FREQ=WEEKLY;BYDAY=MO,TH;BYHOUR=8;BYMINUTE=30"
+                      className="font-mono"
+                      {...invalidProps("automation-expression", error)}
+                    />
+                  </Row>
+                );
+              }}
             </form.Field>
           )
         }
       </form.Subscribe>
+      <form.Field name="timezone">
+        {(field) => (
+          <TimeZoneField
+            value={field.state.value}
+            error={visible(field.state.meta)}
+            onBlur={field.handleBlur}
+            onChange={(value) => field.handleChange(value)}
+          />
+        )}
+      </form.Field>
       <form.Subscribe selector={(state) => state.values}>
         {(values) => <ScheduleReadBack values={values} />}
       </form.Subscribe>
@@ -148,20 +171,55 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
   );
 }
 
-const scheduleFields = new Set(["time", "every", "expression"]);
+/** A text field over every IANA zone the browser knows (the native list suggests as you type). */
+function TimeZoneField(props: {
+  value: string;
+  error: string | undefined;
+  onBlur(): void;
+  onChange(value: string): void;
+}) {
+  const zones = useMemo(() => timeZones(props.value), [props.value]);
+  return (
+    <Row label="Time zone" htmlFor="automation-timezone" errors={props.error}>
+      <Input
+        id="automation-timezone"
+        name="timezone"
+        list="automation-timezones"
+        autoComplete="off"
+        spellCheck={false}
+        value={props.value}
+        onBlur={props.onBlur}
+        onValueChange={props.onChange}
+        className="@min-[34rem]:max-w-[calc((100%-2rem)/3)]"
+        {...invalidProps("automation-timezone", props.error)}
+      />
+      <datalist id="automation-timezones">
+        {zones.map((zone) => (
+          <option key={zone} value={zone} />
+        ))}
+      </datalist>
+    </Row>
+  );
+}
 
-/** Reads the schedule back as soon as its own fields are valid, before the rest is filled. */
+const scheduleFields = new Set(["time", "every", "expression", "timezone"]);
+
+/**
+ * Reads the schedule back as soon as its own fields are valid, before the rest is filled:
+ * how it repeats, in which zone, and its next three starts by the daemon's own rules.
+ */
 function ScheduleReadBack(props: { values: AutomationForm }) {
   const now = useNow();
   if (props.values.trigger !== "schedule") return null;
   const issues = AutomationForm.safeParse(props.values).error?.issues ?? [];
   if (issues.some((issue) => scheduleFields.has(String(issue.path[0])))) return null;
-  const text = describeSchedule(
-    presetToSchedule(presetFromForm(props.values), localTimeZone(), now),
-  );
+  const { timezone } = props.values;
+  const schedule = scheduleFromForm(props.values, now);
+  const next = upcomingRuns(schedule, now).map((at) => formatRunInZone(at, timezone));
   return (
     <p aria-live="polite" className="-mt-1 mb-4 text-sm text-muted-foreground">
-      Runs: <span className="text-foreground">{text}</span>
+      Runs: <span className="text-foreground">{describeSchedule(schedule)}</span> ({timezone}).
+      {next.length > 0 && <> Next: {next.join(", ")}</>}
     </p>
   );
 }

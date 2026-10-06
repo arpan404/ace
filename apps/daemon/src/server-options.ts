@@ -34,6 +34,8 @@ export interface ServerOptions {
   previewClient?: import("./preview-client.ts").PreviewClient;
   conductor?: import("./conductor-runtime.ts").ConductorRuntime;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
+  /** The Activity read cursor (`activity.reads`). */
+  activityReads?: import("./activity-reads.ts").ActivityReads;
   projects?: import("./projects.ts").Projects;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;

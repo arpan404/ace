@@ -15,8 +15,8 @@ import { Dot } from "@/components/ui/dot.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useNow } from "@/lib/time.ts";
-import { formatAge } from "@ace/ui-core";
 import { runSummary } from "./labels.ts";
+import { formatWhen } from "./schedule.ts";
 import { useAutomationRuns } from "./use-automations.ts";
 
 /** An automation's recent runs, newest first; each opens its thread, or its details. */
@@ -51,10 +51,28 @@ export function RecentRuns(props: { automationId: string }) {
   );
 }
 
-const ago = (at: number, now: number) => {
-  const age = formatAge(at, now);
-  return age === "now" ? "Just now" : `${age} ago`;
+const triggerShort: Record<AutomationRun["trigger"], string> = {
+  schedule: "Scheduled",
+  github: "GitHub event",
+  file: "File change",
+  manual: "By hand",
 };
+
+/** How long a finished run took, "4 min"; undefined while it runs. */
+function took(run: AutomationRun): string | undefined {
+  if (run.finishedAt === undefined) return undefined;
+  return `${Math.max(1, Math.round((run.finishedAt - run.startedAt) / 60_000))} min`;
+}
+
+const fullDate = (at: number) =>
+  new Date(at).toLocaleString("en-US", { dateStyle: "full", timeStyle: "short" });
+
+/** "Today 02:00 · 4 min · Scheduled". */
+function runLine(run: AutomationRun, now: number): string {
+  return [formatWhen(run.startedAt, now), took(run), triggerShort[run.trigger]]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 function RunItem(props: { run: AutomationRun }) {
   const { run } = props;
@@ -71,8 +89,10 @@ function RunItem(props: { run: AutomationRun }) {
         />
       )}
       <div className="min-w-0 flex-1">
-        <div className="text-[13.5px] font-medium">{summary}</div>
-        <div className="mt-0.5 text-sm text-muted-foreground">{ago(run.startedAt, now)}</div>
+        <div className="text-ui font-medium">{summary}</div>
+        <div title={fullDate(run.startedAt)} className="mt-0.5 text-sm text-muted-foreground">
+          {runLine(run, now)}
+        </div>
       </div>
       {run.threadId ? (
         <Link
@@ -102,10 +122,7 @@ function RunDetails(props: { run: AutomationRun; summary: string }) {
   const { run } = props;
   const [open, setOpen] = useState(false);
   const now = useNow();
-  const minutes =
-    run.finishedAt === undefined
-      ? undefined
-      : Math.max(1, Math.round((run.finishedAt - run.startedAt) / 60_000));
+  const duration = took(run);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Button
@@ -116,16 +133,16 @@ function RunDetails(props: { run: AutomationRun; summary: string }) {
       >
         Open
       </Button>
-      <DialogContent className="w-[min(440px,calc(100vw-2rem))]">
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>{run.title}</DialogTitle>
           <DialogDescription>{props.summary}</DialogDescription>
         </DialogHeader>
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-ui">
           <dt className="text-muted-foreground">Started</dt>
-          <dd>{ago(run.startedAt, now)}</dd>
+          <dd title={fullDate(run.startedAt)}>{formatWhen(run.startedAt, now)}</dd>
           <dt className="text-muted-foreground">Took</dt>
-          <dd>{minutes === undefined ? "Still running" : `${minutes} min`}</dd>
+          <dd>{duration ?? "Still running"}</dd>
           <dt className="text-muted-foreground">Trigger</dt>
           <dd>{triggerWords[run.trigger]}</dd>
         </dl>

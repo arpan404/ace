@@ -115,8 +115,8 @@ export class NotificationRouter {
       return { kind: "drop", reason: "category" };
     const now = this.options.now();
     if (this.quiet(now)) return { kind: "drop", reason: "quiet" };
-    if (this.focus.windowFocused && alert.threadId && alert.threadId === this.focus.threadId)
-      return { kind: "drop", reason: "focused" };
+    // A focused window shows its own in-app toast; the OS banner is for when ace isn't in front.
+    if (this.focus.windowFocused) return { kind: "drop", reason: "focused" };
 
     this.recent = this.recent.filter((at) => now - at < this.options.burstMs);
     this.recent.push(now);

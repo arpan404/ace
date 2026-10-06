@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/ActivityMarkRead.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "allBefore": {
+      "maximum": 8640000000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "read": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ActivityItemRef.json"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "activity.markRead",
+      "type": "string"
+    },
+    "unread": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ActivityItemRef.json"
+      },
+      "maxItems": 500,
+      "type": "array"
+    }
+  },
+  "required": [
+    "type",
+    "requestId"
+  ],
+  "type": "object"
+}

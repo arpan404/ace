@@ -1,7 +1,12 @@
-import { BellSimpleIcon, CheckIcon, FunnelSimpleIcon } from "@phosphor-icons/react";
+import {
+  BellSimpleIcon,
+  ChecksIcon,
+  FolderSimpleIcon,
+  FunnelSimpleIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
@@ -10,48 +15,65 @@ import {
   MenuLabel,
   MenuRadioGroup,
   MenuRadioItem,
+  MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { useAutomationRuns } from "@/features/automations/index.ts";
 import { useActivityState } from "./activity-state.tsx";
-import { useFeed, useFeedSource } from "./feed-source.ts";
+import { useFeed } from "./feed-source.ts";
+import { useMarkAllRead } from "./use-mark-all-read.ts";
 import { useProjectChoices } from "@/lib/projects.ts";
 
 const allProjects = "*";
 
-/** Header actions: Mark all read, and the project filter shared by the feed and the cards. */
+/** Header actions: the active project filter as a chip (× clears it), and the filter menu. */
 export function ActivityActions() {
-  const feed = useFeed();
-  const source = useFeedSource();
-  const runs = useAutomationRuns().data;
-  const unread = useMemo(
-    () => [
-      ...feed.events
-        .filter((event) => event.kind !== "escalation" && !feed.read.has(event.id))
-        .map((event) => event.id),
-      ...(runs ?? []).filter((run) => !feed.read.has(run.id)).map((run) => run.id),
-    ],
-    [feed, runs],
-  );
+  const { project, setProject } = useActivityState();
+  const { name } = useProjects();
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={!unread.length}
-        onClick={() => source.markRead(unread)}
-      >
-        <Icon icon={CheckIcon} size={14} />
-        Mark all read
-      </Button>
+      {project !== undefined && (
+        <span className="inline-flex h-7 items-center gap-1 rounded-md bg-secondary pr-0.5 pl-2.5 text-sm">
+          {name(project)}
+          <IconButton
+            icon={XIcon}
+            size="sm"
+            label={`Clear the ${name(project)} filter`}
+            tooltip={false}
+            onClick={() => setProject(undefined)}
+          />
+        </span>
+      )}
       <ProjectFilter />
     </>
   );
 }
 
-function ProjectFilter() {
+function ProjectRadios() {
   const { project, setProject } = useActivityState();
   const { ids: projects, name } = useProjects();
+  return (
+    <MenuRadioGroup
+      value={project ?? allProjects}
+      onValueChange={(value: string) => setProject(value === allProjects ? undefined : value)}
+    >
+      <MenuLabel>Project</MenuLabel>
+      <MenuRadioItem value={allProjects} closeOnClick>
+        All projects
+      </MenuRadioItem>
+      {projects.map((id) => (
+        <MenuRadioItem key={id} value={id} closeOnClick>
+          {name(id)}
+        </MenuRadioItem>
+      ))}
+    </MenuRadioGroup>
+  );
+}
+
+function ProjectFilter() {
+  const { project } = useActivityState();
+  const { name } = useProjects();
   return (
     <Menu>
       <MenuTrigger
@@ -64,18 +86,7 @@ function ProjectFilter() {
         }
       />
       <MenuContent align="end">
-        <MenuRadioGroup
-          value={project ?? allProjects}
-          onValueChange={(value: string) => setProject(value === allProjects ? undefined : value)}
-        >
-          <MenuLabel>Project</MenuLabel>
-          <MenuRadioItem value={allProjects}>All projects</MenuRadioItem>
-          {projects.map((id) => (
-            <MenuRadioItem key={id} value={id}>
-              {name(id)}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
+        <ProjectRadios />
       </MenuContent>
     </Menu>
   );
@@ -88,14 +99,27 @@ function useProjects() {
   return useProjectChoices(mentioned);
 }
 
-/** The ⋯ menu beside the title. */
+/**
+ * The ⋯ menu beside the title: everything the header holds, so a narrow window that folds the
+ * header actions into it loses nothing.
+ */
 export function ActivityMenu(props: { onNotificationSettings(): void }) {
+  const { unread, markAll } = useMarkAllRead();
   return (
-    <MenuItem
-      icon={<Icon icon={BellSimpleIcon} size={14} />}
-      onClick={props.onNotificationSettings}
-    >
-      Toast settings…
-    </MenuItem>
+    <>
+      <MenuItem icon={<Icon icon={ChecksIcon} />} disabled={!unread} onClick={markAll}>
+        Mark all read
+      </MenuItem>
+      <MenuSub>
+        <MenuSubTrigger icon={<Icon icon={FolderSimpleIcon} />}>Project</MenuSubTrigger>
+        <MenuContent side="right" align="start" sideOffset={4}>
+          <ProjectRadios />
+        </MenuContent>
+      </MenuSub>
+      <MenuSeparator />
+      <MenuItem icon={<Icon icon={BellSimpleIcon} />} onClick={props.onNotificationSettings}>
+        Notification settings…
+      </MenuItem>
+    </>
   );
 }

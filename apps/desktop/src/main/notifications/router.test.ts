@@ -87,11 +87,14 @@ describe("notification routing", () => {
     expect(night.router.route(daemonAlert({ id: "c" })).kind).toBe("show");
   });
 
-  it("never notifies about the thread on screen while the window is focused", () => {
+  it("leaves a focused window to its in-app toasts and notifies only when ace is behind", () => {
     const { router: r } = router();
     r.setFocus({ windowFocused: true, threadId: "thread-1" });
     expect(r.route(daemonAlert({ id: "a" }))).toEqual({ kind: "drop", reason: "focused" });
-    expect(r.route(daemonAlert({ id: "b", threadId: "thread-2" })).kind).toBe("show");
+    expect(r.route(daemonAlert({ id: "b", threadId: "thread-2" }))).toEqual({
+      kind: "drop",
+      reason: "focused",
+    });
     r.setFocus({ windowFocused: false, threadId: "thread-1" });
     expect(r.route(daemonAlert({ id: "c" })).kind).toBe("show");
   });
