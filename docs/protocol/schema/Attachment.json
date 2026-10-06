@@ -7,10 +7,30 @@
       "minimum": 0,
       "type": "integer"
     },
+    "delivery": {
+      "enum": [
+        "native_image",
+        "native_pdf",
+        "native_resource",
+        "inline_text",
+        "inline_text_and_path",
+        "file_path"
+      ],
+      "type": "string"
+    },
     "height": {
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991,
       "type": "integer"
+    },
+    "kind": {
+      "enum": [
+        "image",
+        "pdf",
+        "text",
+        "binary"
+      ],
+      "type": "string"
     },
     "mimeType": {
       "maxLength": 128,

@@ -18,7 +18,19 @@ export type TextSource = z.infer<typeof TextSource>;
 export const ContentPart = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string(), source: TextSource.optional() }),
   z.object({ type: z.literal("image"), mimeType: z.string(), url: z.string() }),
-  z.object({ type: z.literal("file"), path: z.string(), mimeType: z.string().optional() }),
+  z.object({
+    type: z.literal("file"),
+    path: z.string(),
+    mimeType: z.string().optional(),
+    name: z.string().max(255).optional(),
+    /** Bounded native document/resource data prepared by the daemon. */
+    content: z
+      .discriminatedUnion("encoding", [
+        z.object({ encoding: z.literal("base64"), data: z.string().max(44 * 1024 * 1024) }),
+        z.object({ encoding: z.literal("text"), data: z.string().max(128 * 1024) }),
+      ])
+      .optional(),
+  }),
 ]);
 export type ContentPart = z.infer<typeof ContentPart>;
 

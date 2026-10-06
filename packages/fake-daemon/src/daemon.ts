@@ -1,6 +1,6 @@
 import { threadMoveError, threadMoveEvents } from "@ace/projection";
 import { automaticTarget } from "@ace/accounts/availability";
-import { providerCommandDisabled } from "@ace/core";
+import { providerCommandDisabled, supportsPermissionMode } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { ProviderConfigurations } from "@ace/protocol";
 import {
@@ -11,7 +11,11 @@ import {
   permissionResolutionError,
 } from "@ace/core";
 import { PermissionMode } from "@ace/protocol";
-import { fakeReviewEvents, fakePermissionCapabilities } from "./permissions.ts";
+import {
+  fakeReviewEvents,
+  fakePermissionCapabilities,
+  fakeProviderPermissions,
+} from "./permissions.ts";
 import type { Fact, Key } from "@ace/core";
 import {
   organizationCommands,
@@ -314,7 +318,11 @@ export class FakeDaemon implements Host {
       workspaceId: WorkspaceId.parse(init.workspaceId),
       title: init.title,
       provider: init.provider,
-      capabilities: { ...structuredClone(fakePermissionCapabilities), ...init.capabilities },
+      capabilities: {
+        ...structuredClone(fakePermissionCapabilities),
+        permissions: fakeProviderPermissions(init.provider),
+        ...init.capabilities,
+      },
       ...(init.details ? { details: init.details } : {}),
       ...(init.live ? { live: init.live } : {}),
       ...(init.lineage ? { lineage: init.lineage } : {}),
@@ -844,6 +852,13 @@ export class FakeDaemon implements Host {
       this.servicesWire.workspace.projects.isRemoved(payload.workspaceId)
     )
       return { commandId: command.id, ok: false, error: "workspace_unregistered" };
+    // Like the daemon's admission: a mode the provider can't honour is refused before launch.
+    if (
+      (payload.type === "thread.create" || payload.type === "thread.prepare") &&
+      payload.permissionMode &&
+      !supportsPermissionMode(fakeProviderPermissions(payload.provider), payload.permissionMode)
+    )
+      return { commandId: command.id, ok: false, error: "permission_mode_unsupported" };
     const commandId = command.id;
     const options =
       "selection" in payload && payload.selection
@@ -1037,6 +1052,14 @@ export class FakeDaemon implements Host {
           limitPermissionMode(payload.permissionMode, parent) !== payload.permissionMode
         )
           return { commandId, ok: false, error: "permission_exceeds_parent" };
+        if (
+          payload.permissionMode &&
+          !supportsPermissionMode(
+            host.view.thread.capabilities?.permissions,
+            payload.permissionMode,
+          )
+        )
+          return { commandId, ok: false, error: "permission_mode_unsupported" };
         this.append(
           host,
           [

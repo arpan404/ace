@@ -68,6 +68,19 @@ export const Capabilities = z.object({
   planMode: z.boolean(),
   tokenUsage: z.boolean(),
   imageInput: z.boolean(),
+  attachmentInput: z
+    .object({
+      format: z.enum(["claude", "codex", "opencode", "acp"]),
+      /** Exact accepted MIME types, or * for negotiated ACP resources. */
+      documents: z.array(z.string().max(128)).max(32),
+      embeddedContext: z.boolean(),
+      maxInlineBytes: z
+        .number()
+        .int()
+        .nonnegative()
+        .max(32 * 1024 * 1024),
+    })
+    .optional(),
   /** File changes can be rewound by the provider itself. */
   rewindFiles: z.boolean(),
 });

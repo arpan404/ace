@@ -1,11 +1,17 @@
 import type { ScreenGrant } from "@ace/protocol";
-import { grantRows, permissionsReading, visibleSessions } from "@ace/ui-core/computer-use";
+import {
+  grantRows,
+  permissionsReading,
+  stopAllSummary,
+  visibleSessions,
+} from "@ace/ui-core/computer-use";
 import { MonitorIcon, StopCircleIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
 import { AppMark, SessionCard } from "./session-card.tsx";
@@ -33,20 +39,40 @@ export function EnableRow(props: { use: ComputerUse }) {
   );
 }
 
-/** The kill switch: stops every session, releases every agent and turns computer use off. */
+/**
+ * The kill switch: stops every session, releases every agent and turns computer use off. While
+ * the daemon works it says Stopping and takes no second press; then it says what happened.
+ */
 export function StopAllButton(props: { use: ComputerUse; className?: string }) {
   const { use } = props;
+  const stopping = use.stopping.state === "stopping";
+  const summary = stopAllSummary(use.stopping);
   return (
-    <Button
-      size="sm"
-      variant="danger"
-      className={props.className}
-      disabled={!use.snapshot.connected || use.pending || use.snapshot.enabled === false}
-      onClick={() => void use.stopAll()}
-    >
-      <StopCircleIcon aria-hidden size={14} />
-      Stop all computer use
-    </Button>
+    <div className={cn("flex flex-col items-end gap-1", props.className)}>
+      <Button
+        size="sm"
+        variant="danger"
+        aria-busy={stopping}
+        disabled={
+          stopping || !use.snapshot.connected || use.pending || use.snapshot.enabled === false
+        }
+        onClick={() => void use.stopAll()}
+      >
+        {stopping ? <Spinner /> : <StopCircleIcon aria-hidden size={14} />}
+        {stopping ? "Stopping all computer use…" : "Stop all computer use"}
+      </Button>
+      {summary && (
+        <p
+          role={use.stopping.state === "failed" ? "alert" : "status"}
+          className={cn(
+            "max-w-72 text-right text-xs",
+            use.stopping.state === "failed" ? "text-status-failed" : "text-muted-foreground",
+          )}
+        >
+          {summary}
+        </p>
+      )}
+    </div>
   );
 }
 

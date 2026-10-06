@@ -76,7 +76,7 @@ test("composer resolves mentions and stored phone uploads into one provider inpu
   ]);
   expect(result.diagnostics).toEqual([]);
 });
-test("binary mentions explain provider limitations without local paths", async () => {
+test("binary mentions include a readable full path", async () => {
   const f = await fixture();
   await f.write("binary.dat", Buffer.from([0, 1]));
   const result = await f.service.compose(
@@ -88,10 +88,10 @@ test("binary mentions explain provider limitations without local paths", async (
   expect(result.projection.input).toEqual([
     {
       type: "text",
-      text: 'Provider claude cannot take attachment "binary.dat" (application/octet-stream) within its media capabilities and size limits.',
+      text: expect.stringContaining(`${f.root}/binary.dat`),
     },
   ]);
-  expect(result.diagnostics.map((d) => d.code)).toEqual(["binary", "unsupported"]);
+  expect(result.diagnostics.map((d) => d.code)).toEqual(["binary"]);
 });
 test("workspace contents are never returned to a denied device", async () => {
   const f = await fixture();
@@ -154,10 +154,10 @@ test("composition falls back when a stored image exceeds the inline media budget
   expect(result.projection.input).toEqual([
     {
       type: "text",
-      text: 'Provider claude cannot take attachment "phone.png" (image/png) within its media capabilities and size limits.',
+      text: expect.stringContaining(hash(png)),
     },
   ]);
-  expect(result.diagnostics).toMatchObject([{ code: "unsupported" }]);
+  expect(result.diagnostics).toEqual([]);
 });
 
 async function storeBytes(service: ContextService, bytes: Buffer, name: string) {

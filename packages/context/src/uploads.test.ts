@@ -91,7 +91,7 @@ describe("resumable uploads", () => {
       "text/plain",
     );
   });
-  test("a huge PNG header is rejected by its dimension limits", async () => {
+  test("a huge PNG stays opaque rather than entering the image decoder", async () => {
     const f = await fixture();
     const bomb = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgABhqAAAYagCAQAAAACW8NDAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
@@ -99,21 +99,24 @@ describe("resumable uploads", () => {
     );
     const id = await f.begin(bomb);
     await f.chunk(id, bomb);
-    await expect(f.commit(id)).rejects.toMatchObject({
-      code: "invalid_image",
-      message: expect.stringContaining("dimensions"),
+    expect(attachment(await f.commit(id))).toMatchObject({
+      kind: "binary",
+      thumbnailAvailable: false,
     });
     expect(await f.store.handle("device", { op: "attachment.list", threadId: thread })).toEqual({
       kind: "attachments",
-      attachments: [],
+      attachments: [expect.objectContaining({ kind: "binary" })],
     });
   });
-  test("truncated images are rejected rather than retained", async () => {
+  test("truncated images stay available as opaque files", async () => {
     const f = await fixture();
     const truncated = png.subarray(0, 33),
       id = await f.begin(truncated);
     await f.chunk(id, truncated);
-    await expect(f.commit(id)).rejects.toMatchObject({ code: "invalid_image" });
+    expect(attachment(await f.commit(id))).toMatchObject({
+      kind: "binary",
+      thumbnailAvailable: false,
+    });
   });
   test("uploads cannot be resumed by another device or after access is revoked", async () => {
     const f = await fixture();
@@ -220,7 +223,7 @@ describe("resumable uploads", () => {
   });
 });
 
-test("pixel area limits reject images whose individual sides fit", async () => {
+test("pixel area limits prevent native image delivery even when each side fits", async () => {
   const f = await fixture();
   const bytes = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAJxAAACcQCAQAAAAQR6qsAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
@@ -228,20 +231,20 @@ test("pixel area limits reject images whose individual sides fit", async () => {
   );
   const id = await f.begin(bytes);
   await f.chunk(id, bytes);
-  await expect(f.commit(id)).rejects.toMatchObject({
-    code: "invalid_image",
-    message: expect.stringContaining("dimensions"),
+  expect(attachment(await f.commit(id))).toMatchObject({
+    kind: "binary",
+    thumbnailAvailable: false,
   });
 });
-test("corrupt PNG header checksums are rejected before retaining images", async () => {
+test("corrupt PNG checksums prevent native image delivery", async () => {
   const f = await fixture(),
     bytes = Buffer.from(png);
   bytes.writeUInt32BE(0, 29);
   const id = await f.begin(bytes);
   await f.chunk(id, bytes);
-  await expect(f.commit(id)).rejects.toMatchObject({
-    code: "invalid_image",
-    message: expect.stringContaining("checksum"),
+  expect(attachment(await f.commit(id))).toMatchObject({
+    kind: "binary",
+    thumbnailAvailable: false,
   });
 });
 test("animated GIFs cannot multiply the validated canvas allocation", async () => {
@@ -252,9 +255,9 @@ test("animated GIFs cannot multiply the validated canvas allocation", async () =
   const animated = Buffer.concat([single.subarray(0, -1), frame, Buffer.from([59])]);
   const id = await f.begin(animated);
   await f.chunk(id, animated);
-  await expect(f.commit(id)).rejects.toMatchObject({
-    code: "invalid_image",
-    message: expect.stringContaining("Animated"),
+  expect(attachment(await f.commit(id))).toMatchObject({
+    kind: "binary",
+    thumbnailAvailable: false,
   });
 });
 test("the store rejects excess queued requests while the accepted upload stays usable", async () => {
@@ -354,17 +357,23 @@ function webpFrame(type: "VP8L" | "VP8 ", width: number, height: number) {
   payload.copy(bytes, 38);
   return bytes;
 }
-test("WebP frame dimensions must agree with the validated canvas before retention", async () => {
+test("WebP canvas mismatches stay opaque", async () => {
   const f = await fixture();
   for (const type of ["VP8L", "VP8 "] as const) {
     const bytes = webpFrame(type, 10000, 10000);
     const id = await f.begin(bytes);
     await f.chunk(id, bytes);
-    await expect(f.commit(id)).rejects.toMatchObject({ code: "invalid_image" });
+    expect(attachment(await f.commit(id))).toMatchObject({
+      kind: "binary",
+      thumbnailAvailable: false,
+    });
   }
   expect(await f.store.handle("device", { op: "attachment.list", threadId: thread })).toEqual({
     kind: "attachments",
-    attachments: [],
+    attachments: [
+      expect.objectContaining({ kind: "binary" }),
+      expect.objectContaining({ kind: "binary" }),
+    ],
   });
 });
 
@@ -391,7 +400,7 @@ test("a failed durability barrier never acknowledges volatile chunk bytes", asyn
   await f.chunk(id, bytes);
   expect(attachment(await f.commit(id)).sha256).toBe(hash(bytes));
 });
-test("oversized PNG dimensions take precedence over corrupt compressed pixels", async () => {
+test("oversized PNGs with corrupt pixels stay opaque without inflation", async () => {
   const f = await fixture();
   const bytes = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgABhqAAAYagCAQAAAACW8NDAAAAC0lEQVR42mP8/x8AAwMCAO+a6ioAAAAASUVORK5CYII=",
@@ -402,30 +411,36 @@ test("oversized PNG dimensions take precedence over corrupt compressed pixels", 
   bytes.fill(0, 41, 52);
   const id = await f.begin(bytes);
   await f.chunk(id, bytes);
-  await expect(f.commit(id)).rejects.toMatchObject({
-    code: "invalid_image",
-    message: expect.stringContaining("dimensions"),
+  expect(attachment(await f.commit(id))).toMatchObject({
+    kind: "binary",
+    thumbnailAvailable: false,
   });
 });
-test("WebP framing rejects a missing image chunk even with a valid canvas", async () => {
+test("WebP files with missing image chunks remain opaque", async () => {
   const f = await fixture();
   const bytes = webpFrame("VP8L", 1, 1);
   bytes.write("JUNK", 30);
   const id = await f.begin(bytes);
   await f.chunk(id, bytes);
-  await expect(f.commit(id)).rejects.toMatchObject({ code: "invalid_image" });
+  expect(attachment(await f.commit(id))).toMatchObject({
+    kind: "binary",
+    thumbnailAvailable: false,
+  });
   expect(attachment(await f.put(webpFrame("VP8L", 1, 1))).width).toBe(1);
   expect(attachment(await f.put(webpFrame("VP8 ", 1, 1))).height).toBe(1);
 });
 
-test("WebP lossless version bits cannot bypass container validation", async () => {
+test("WebP lossless version bits prevent native image delivery", async () => {
   const f = await fixture();
   const bytes = webpFrame("VP8L", 1, 1);
   bytes[42] = (bytes[42] ?? 0) | 0x20;
-  await expect(f.put(bytes)).rejects.toMatchObject({ code: "invalid_image" });
+  expect(attachment(await f.put(bytes))).toMatchObject({
+    kind: "binary",
+    thumbnailAvailable: false,
+  });
   expect(await f.store.handle("device", { op: "attachment.list", threadId: thread })).toEqual({
     kind: "attachments",
-    attachments: [],
+    attachments: [expect.objectContaining({ kind: "binary" })],
   });
   expect(attachment(await f.put(webpFrame("VP8L", 1, 1))).mimeType).toBe("image/webp");
 });

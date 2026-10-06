@@ -3,8 +3,11 @@ import { lockedExitCode } from "./session-exit.ts";
 import { loadavg } from "node:os";
 import { z } from "zod";
 
-// CI without Xcode/simulator support must not download or boot anything.
-if (process.platform !== "darwin") {
+// CI without Xcode/simulator support must not download or boot anything, and
+// ACE_PERF_DEVICE=0 keeps a machine's Simulators untouched while device work is paused.
+if (process.env["ACE_PERF_DEVICE"] === "0") {
+  console.log("device perf: skipped, ACE_PERF_DEVICE=0");
+} else if (process.platform !== "darwin") {
   console.log("device perf: skipped, iOS Simulator requires macOS");
 } else {
   let runtime: string | undefined;

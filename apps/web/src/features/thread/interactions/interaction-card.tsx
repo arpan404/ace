@@ -6,9 +6,10 @@ import {
   useItem,
   useThreadMeta,
 } from "@ace/client-react";
-import type { Interaction } from "@ace/protocol";
+import type { ApprovalOption, Interaction } from "@ace/protocol";
 import {
   agentName,
+  approvalByKey,
   approvalCopy,
   privateBrowserGate,
   displayCommand,
@@ -225,12 +226,15 @@ function OpenRequest(props: {
             local.resolution.kind === "approval" && option.id === local.resolution.optionId,
         )
       : undefined;
+  const [nudged, setNudged] = useState<ApprovalOption>();
   const onKeyDown = (event: KeyboardEvent) => {
     if (!offered || sending || chosen || typing(event.target)) return;
     const digit = Number.parseInt(event.key, 10);
     const option = Number.isNaN(digit) ? undefined : choices?.[digit - 1]?.option;
     if (!option || event.metaKey || event.ctrlKey || event.altKey) return;
     event.preventDefault();
+    // A default-to-no request is approved only by a click (or Enter on its focused button).
+    if (request.kind === "approval" && !approvalByKey(request, option)) return setNudged(option);
     answer({ kind: "approval", optionId: option.id });
   };
   return (
@@ -292,9 +296,15 @@ function OpenRequest(props: {
                 <ApprovalButtons
                   choices={choices ?? []}
                   numbered
+                  keyed={(choice) => approvalByKey(request, choice.option)}
                   onChoose={(choice) => answer({ kind: "approval", optionId: choice.option.id })}
                 />
               </div>
+              {nudged && (
+                <p role="status" className="mt-2 text-xs text-subtle-foreground">
+                  This request defaults to no: click {nudged.label} to allow it.
+                </p>
+              )}
               {!copy?.tool && offered && offered.hidden > 0 && mode && (
                 <p className="mt-2 text-xs text-subtle-foreground">{oneShotNote(mode)}</p>
               )}

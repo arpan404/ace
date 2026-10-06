@@ -38,6 +38,11 @@ export class FakeScreen {
    * out): `status` and `permissions` are refused with it until it is cleared.
    */
   permissionReadFailure: { code: ScreenError["code"]; message: string } | undefined;
+  /**
+   * Set to hold Stop all until `until` settles and then, with `failure`, refuse it the way the
+   * daemon does when a helper session won't stop. Every session still stops here.
+   */
+  stopAllHold: { until: Promise<void>; failure?: string } | undefined;
   readonly requested: ("screenRecording" | "accessibility")[] = [];
   readonly access: FakeScreenAccess;
   readonly approvals: FakeScreenApprovals;
@@ -232,9 +237,13 @@ export class FakeScreen {
         return this.access.list(op.threadId);
       case "sessions":
         return [...this.sessions.values()].map((session) => ScreenState.parse(session.state));
-      case "stop.all":
+      case "stop.all": {
+        const hold = this.stopAllHold;
+        await hold?.until;
         this.enable(false);
+        if (hold?.failure) throw new FakeScreenError("internal", hold.failure);
         return;
+      }
       case "targets":
         return ScreenInventory.parse({
           displays: [],

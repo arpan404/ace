@@ -14,7 +14,10 @@ const Initialize = z
       .object({
         loadSession: z.boolean().optional(),
         sessionCapabilities: z.unknown().optional(),
-        promptCapabilities: z.object({ image: z.boolean().optional() }).passthrough().optional(),
+        promptCapabilities: z
+          .object({ image: z.boolean().optional(), embeddedContext: z.boolean().optional() })
+          .passthrough()
+          .optional(),
         mcpCapabilities: z
           .object({ http: z.boolean().optional(), sse: z.boolean().optional() })
           .passthrough()
@@ -62,6 +65,12 @@ export function negotiate(
       resume:
         !profile?.denyResume && advertised.loadSession === true && (generic || existing.resume),
       imageInput: advertised.promptCapabilities?.image === true && (generic || existing.imageInput),
+      attachmentInput: {
+        format: "acp",
+        documents: advertised.promptCapabilities?.embeddedContext === true ? ["*"] : [],
+        embeddedContext: advertised.promptCapabilities?.embeddedContext === true,
+        maxInlineBytes: 4 * 1024 * 1024,
+      },
       // Mode support is determined from the authorized session's selectors.
       planMode: false,
     },

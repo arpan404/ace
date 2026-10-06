@@ -10,6 +10,42 @@
       ],
       "type": "string"
     },
+    "attachmentInput": {
+      "properties": {
+        "documents": {
+          "items": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "embeddedContext": {
+          "type": "boolean"
+        },
+        "format": {
+          "enum": [
+            "claude",
+            "codex",
+            "opencode",
+            "acp"
+          ],
+          "type": "string"
+        },
+        "maxInlineBytes": {
+          "maximum": 33554432,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "format",
+        "documents",
+        "embeddedContext",
+        "maxInlineBytes"
+      ],
+      "type": "object"
+    },
     "backgroundTaskControl": {
       "type": "boolean"
     },

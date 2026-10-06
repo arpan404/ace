@@ -23,7 +23,6 @@ export interface ContextSource {
 type Result = ContextResult["result"];
 
 const messages: Partial<Record<Extract<Result, { kind: "error" }>["code"], string>> = {
-  quota: "The daemon's upload space is full.",
   busy: "The daemon is busy with other uploads. Try again in a moment.",
   invalid_image: "That image can't be read.",
   forbidden: "This device may not add files to the thread.",
@@ -51,9 +50,12 @@ function expect<K extends Result["kind"]>(result: Result, kind: K): Extract<Resu
   return result;
 }
 
-async function sha256(bytes: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+async function sha256(file: File): Promise<string> {
+  const { sha256: createHash } = await import("@noble/hashes/sha2.js");
+  const hash = createHash.create();
+  for (let offset = 0; offset < file.size; offset += chunkBytes)
+    hash.update(new Uint8Array(await file.slice(offset, offset + chunkBytes).arrayBuffer()));
+  return [...hash.digest()].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function base64(bytes: Uint8Array): string {
@@ -81,11 +83,10 @@ export function daemonContextSource(client: ClientApi): ContextSource {
     async upload(thread, file, progress) {
       if (thread.draft && !thread.id)
         throw new ContextError("The daemon isn't ready for files yet. Try again in a moment.");
-      const bytes = await file.arrayBuffer();
-      if (!bytes.byteLength) throw new ContextError(`${file.name} is empty.`);
       const target = {
-        sha256: await sha256(bytes),
-        bytes: bytes.byteLength,
+        sha256: await sha256(file),
+        bytes: file.size,
+        mimeType: file.type || undefined,
         name: file.name.slice(0, 255) || "file",
       };
       const begun = expect(
@@ -96,10 +97,9 @@ export function daemonContextSource(client: ClientApi): ContextSource {
         ),
         "upload",
       );
-      const view = new Uint8Array(bytes);
       let offset = begun.offset;
-      while (offset < view.length) {
-        const chunk = view.subarray(offset, offset + chunkBytes);
+      while (offset < file.size) {
+        const chunk = new Uint8Array(await file.slice(offset, offset + chunkBytes).arrayBuffer());
         const next = expect(
           await ask({
             op: "upload.chunk",
@@ -111,7 +111,7 @@ export function daemonContextSource(client: ClientApi): ContextSource {
         );
         if (next.offset <= offset) throw new ContextError("The upload stopped making progress.");
         offset = next.offset;
-        progress(Math.min(0.99, offset / view.length));
+        progress(Math.min(0.99, offset / file.size));
       }
       const committed = expect(
         await ask({ op: "upload.commit", uploadId: begun.uploadId }),

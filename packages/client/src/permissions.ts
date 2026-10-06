@@ -52,10 +52,15 @@ export function threadPermission(
 ): PermissionState | undefined {
   return source.thread?.permission;
 }
+/**
+ * The modes a provider can honour, as the daemon admits them: Ask also needs a pre-execution
+ * tool gate (ADR 0061), so a provider that lists Ask without one can't run in it.
+ */
 export function permissionModes(
   capabilities: PermissionCapabilities | undefined,
 ): readonly PermissionMode[] {
-  return capabilities?.modes ?? [];
+  const modes = capabilities?.modes ?? [];
+  return capabilities?.toolGate ? modes : modes.filter((mode) => mode !== "ask");
 }
 /** Missing metadata is unknown, not a claim of complete protection. */
 export function permissionGuarantee(

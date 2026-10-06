@@ -38,6 +38,12 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
     planMode: supported,
     tokenUsage: supported,
     imageInput: supported,
+    attachmentInput: {
+      format: "claude",
+      documents: supported ? ["application/pdf"] : [],
+      embeddedContext: false,
+      maxInlineBytes: 4 * 1024 * 1024,
+    },
     rewindFiles: false,
   };
 }

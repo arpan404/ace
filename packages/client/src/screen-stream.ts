@@ -6,7 +6,12 @@ import {
   ScreenStatus,
   type ServerMessage,
 } from "@ace/protocol";
-import { LatestFrameHub, ScreenFrameReader, type PortableFrame } from "@ace/screen/frames-client";
+import {
+  LatestFrameHub,
+  ScreenFrameReader,
+  SharedStreams,
+  type PortableFrame,
+} from "@ace/screen/frames-client";
 import { authenticatedChannel, type AuthenticatedChannelOptions } from "./device-transport.ts";
 import { ScreenClientError } from "./screen.ts";
 
@@ -120,6 +125,7 @@ export class ScreenStreamClient {
     transport?.close();
     this.reader.reset();
     this.states.clear();
+    this.streams.reset();
     for (const hub of this.frames.values()) hub.discardPending();
     for (const request of this.pending.values()) {
       request.cancel();
@@ -215,6 +221,18 @@ export class ScreenStreamClient {
     };
   }
   private readonly frameCounts = new Map<string, number>();
+  private readonly streams = new SharedStreams();
+  /**
+   * Keep `sessionId`'s live stream open for one view. Views of the same session share one
+   * daemon subscription: the first view subscribes, the last to release unsubscribes.
+   */
+  retainStream(sessionId: string): () => void {
+    return this.streams.retain(
+      sessionId,
+      () => void this.request({ op: "subscribe", sessionId }).catch(() => {}),
+      () => void this.request({ op: "unsubscribe", sessionId }).catch(() => {}),
+    );
+  }
   private receive(message: ServerMessage | Uint8Array): void {
     if (message instanceof Uint8Array) {
       this.reader.push(message);

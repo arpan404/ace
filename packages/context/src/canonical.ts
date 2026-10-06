@@ -24,8 +24,31 @@ export function canonicalContext(projection: Projection): ContentPart[] {
         url: `data:${part.mimeType};base64,${part.data}`,
       };
     }
-    if (part.type === "resource" && "text" in part.resource)
+    if (
+      part.type === "resource" &&
+      !part.resource.uri.startsWith("file:") &&
+      "text" in part.resource
+    )
       return { type: "text", text: part.resource.text };
-    throw new Error("Prepared documents require a native document consumer");
+    if (part.type === "resource")
+      return {
+        type: "file",
+        path: fileURLToPath(part.resource.uri),
+        mimeType: part.resource.mimeType,
+        content:
+          "text" in part.resource
+            ? { encoding: "text", data: part.resource.text }
+            : { encoding: "base64", data: part.resource.blob },
+      };
+    return {
+      type: "file",
+      path: part.path,
+      name: part.title,
+      mimeType: part.source.media_type,
+      content: {
+        encoding: part.source.type === "text" ? "text" : "base64",
+        data: part.source.data,
+      },
+    };
   });
 }

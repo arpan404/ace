@@ -275,3 +275,27 @@ test("images reach app-server as native localImage and data image inputs", async
     await h.dispose();
   }
 });
+
+test("text, PDF and arbitrary file references reach the fake Codex CLI", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(
+      [
+        { type: "text", text: "attachment-proof" },
+        { type: "file", path: "/files/code.ts", mimeType: "text/plain" },
+        { type: "file", path: "/files/report.pdf", mimeType: "application/pdf" },
+        { type: "file", path: "/files/archive.zip", mimeType: "application/zip" },
+      ],
+      "queue",
+    );
+    const receivedInput = await h.wait(received("test/attachments"));
+    expect(obj(obj(receivedInput.data).params).input).toEqual([
+      { type: "text", text: "attachment-proof", text_elements: [] },
+      { type: "mention", name: "code.ts", path: "/files/code.ts" },
+      { type: "mention", name: "report.pdf", path: "/files/report.pdf" },
+      { type: "mention", name: "archive.zip", path: "/files/archive.zip" },
+    ]);
+  } finally {
+    await h.dispose();
+  }
+});

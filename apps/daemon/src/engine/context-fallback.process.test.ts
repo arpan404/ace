@@ -79,7 +79,7 @@ for (const provider of ["codex", "pi"] as const) {
   });
 }
 
-test("unsupported uploaded text stays actionable and never starts a Codex turn", async () => {
+test("uploaded text reaches Codex inline and starts its turn without an unsupported-file refusal", async () => {
   const { createHash } = await import("node:crypto");
   const frames = scriptFrames();
   let prepare: PrepareInput | undefined;
@@ -135,26 +135,48 @@ test("unsupported uploaded text stays actionable and never starts a Codex turn",
       operation: { op: "upload.commit", uploadId: begin.result.uploadId },
     });
     prepare = prepareQueuedInput({ services: { context } });
-    h.command({
-      type: "thread.send",
-      threadId: id,
-      input: text("Read the token"),
-      context: { mentions: [], attachments: [{ sha256 }] },
-    });
-    await h.engine.flush();
-    expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
-    expect(h.engine.queue(id).messages).toMatchObject([
-      { state: "queued", input: text("Read the token"), context: { attachments: [{ sha256 }] } },
-    ]);
     expect(
-      Object.values(h.store.snapshotThread(id).items).some(
-        (item) =>
-          item.type === "notice" &&
-          item.level === "error" &&
-          item.detail?.includes("qa-note.txt") &&
-          item.detail.includes("Remove"),
-      ),
+      h.command(
+        {
+          type: "thread.send",
+          threadId: id,
+          input: text("Read the token"),
+          context: { mentions: [], attachments: [{ sha256 }] },
+        },
+        "device",
+        "text-attachment",
+      ).ok,
     ).toBe(true);
+    await h.engine.flush();
+    const sent = h.adapter.commands.findLast((command) => command.type === "send");
+    if (sent?.type !== "send") throw new Error("No provider input");
+    expect(sent.input).toEqual([
+      ...text("Read the token"),
+      {
+        type: "text",
+        text: expect.stringContaining("<ace-attachment>\nQA_ATTACHMENT_TOKEN\n</ace-attachment>"),
+      },
+    ]);
+    expect(JSON.stringify(sent.input)).toContain("qa-note.txt");
+    expect(h.engine.queue(id).messages).toEqual([]);
+    const snapshot = h.store.snapshotThread(id);
+    expect(snapshot.items["input:text-attachment"]).toMatchObject({
+      type: "message",
+      role: "user",
+      attachments: [
+        expect.objectContaining({
+          sha256,
+          name: "qa-note.txt",
+          kind: "text",
+          delivery: "inline_text",
+        }),
+      ],
+    });
+    expect(
+      Object.values(snapshot.items).filter(
+        (item) => item.type === "notice" && item.level === "error",
+      ),
+    ).toEqual([]);
   } finally {
     await context.close();
   }

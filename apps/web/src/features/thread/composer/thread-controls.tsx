@@ -8,8 +8,10 @@ import {
   nextOptions,
   optionEffort,
   permissionPendingNote,
+  permissionUnavailable,
   pickerModelsFromChoices,
   pickerProviders,
+  providerNames,
   reconcileNextOptions,
   recordedChoice,
   speedControl,
@@ -41,6 +43,7 @@ import { PermissionPicker } from "./permission-picker.tsx";
  * The thread's approval mode, inspectable and changeable after the thread started. A change
  * applies from the agent's next turn (ADR 0061). The chip shows it at once beside the mode in
  * effect, and takes it back with a toast only when the daemon refuses it; offline it waits.
+ * A thread following a default its provider can't run in (Ask on Cursor) is told to choose.
  */
 export function ThreadPermissionControl(props: { thread: ThreadRef }) {
   const meta = useThreadMeta(props.thread.id);
@@ -57,6 +60,9 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
     chosen: permission.chosen,
     defaultMode,
   });
+  const wanted = summary?.next ?? summary?.mode;
+  const blocked =
+    meta && wanted && permissionUnavailable(capabilities, wanted, providerNames[meta.provider]);
   const change = (mode: PermissionMode | null) =>
     void permission
       .change(mode)
@@ -80,6 +86,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
       note={summary?.next && (permission.note ?? permissionPendingNote())}
       inherited={summary?.inherited}
       defaultMode={defaultMode}
+      fallback={blocked ? `${blocked}; choose another mode for this thread` : undefined}
       onChange={change}
     />
   );

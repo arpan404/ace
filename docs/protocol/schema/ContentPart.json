@@ -43,7 +43,49 @@
     },
     {
       "properties": {
+        "content": {
+          "oneOf": [
+            {
+              "properties": {
+                "data": {
+                  "maxLength": 46137344,
+                  "type": "string"
+                },
+                "encoding": {
+                  "const": "base64",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "encoding",
+                "data"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "data": {
+                  "maxLength": 131072,
+                  "type": "string"
+                },
+                "encoding": {
+                  "const": "text",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "encoding",
+                "data"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "mimeType": {
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 255,
           "type": "string"
         },
         "path": {

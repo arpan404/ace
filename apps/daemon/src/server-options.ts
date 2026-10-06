@@ -98,7 +98,11 @@ export interface ServerOptions {
       access?: () => boolean,
     ): Promise<{ mimeType: string; bytes: number; data: Buffer }>;
     draftWorkspace?(device: string, draftId: string): Promise<string>;
-    handle(device: string, request: ContextRequest, access?: () => boolean): Promise<ContextResult>;
+    handle(
+      device: string,
+      request: ContextRequest,
+      access?: (thread?: string) => boolean,
+    ): Promise<ContextResult>;
   };
   /** Local-token clients can read all threads by default. */
   canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;

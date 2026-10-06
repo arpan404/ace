@@ -46,6 +46,17 @@ export const Attachment = z.object({
   bytes: size,
   mimeType: z.string().max(128),
   name: z.string().max(255),
+  kind: z.enum(["image", "pdf", "text", "binary"]).optional(),
+  delivery: z
+    .enum([
+      "native_image",
+      "native_pdf",
+      "native_resource",
+      "inline_text",
+      "inline_text_and_path",
+      "file_path",
+    ])
+    .optional(),
   width: size.positive().optional(),
   height: size.positive().optional(),
   /** A bounded PNG preview can be fetched without downloading the original. */
@@ -87,7 +98,8 @@ export const ContextOperation = z.discriminatedUnion("op", [
     op: z.literal("draft.upload.begin"),
     draftId: key,
     sha256: BlobHash,
-    bytes: size.positive(),
+    bytes: size,
+    mimeType: z.string().max(128).optional(),
     name: z.string().min(1).max(255),
   }),
   z.object({
@@ -100,7 +112,8 @@ export const ContextOperation = z.discriminatedUnion("op", [
     op: z.literal("upload.begin"),
     threadId: ThreadId,
     sha256: BlobHash,
-    bytes: size.positive(),
+    bytes: size,
+    mimeType: z.string().max(128).optional(),
     name: z.string().min(1).max(255),
   }),
   z.object({ op: z.literal("upload.status"), uploadId: key }),
