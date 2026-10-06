@@ -5,6 +5,7 @@ import { contextUsage, modelLabel } from "@ace/ui-core";
 import { Suspense, useCallback } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useComposerCompact } from "./composer-compact.ts";
 import { DeferredThreadUsage } from "./deferred-parts.tsx";
 
 /**
@@ -57,12 +58,14 @@ const circumference = 2 * Math.PI * radius;
 /**
  * How full the main agent's context window is: a small ring beside the model, the numbers on
  * hover with the model and what the thread has cost so far. Nothing until the provider has
- * reported a sample; compaction resets it.
+ * reported a sample; compaction resets it. A narrow composer shows the ring alone.
  */
 export function ContextMeter(props: { threadId: string }) {
   const meter = useRootMeter(props.threadId);
   const usage = contextUsage(meter);
+  const compact = useComposerCompact();
   if (!usage) return null;
+  const ring = usage.percent !== undefined;
   const share = (usage.percent ?? 0) / 100;
   const context = usage.high ? `${usage.long}. It may compact soon.` : usage.long;
   return (
@@ -89,7 +92,7 @@ export function ContextMeter(props: { threadId: string }) {
           usage.high ? "text-foreground" : "text-subtle-foreground",
         )}
       >
-        {usage.percent !== undefined && (
+        {ring && (
           <svg aria-hidden width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
             <circle
               cx={size / 2}
@@ -113,7 +116,7 @@ export function ContextMeter(props: { threadId: string }) {
             />
           </svg>
         )}
-        {usage.short}
+        {!(compact && ring) && usage.short}
       </span>
     </Tip>
   );

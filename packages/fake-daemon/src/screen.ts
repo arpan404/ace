@@ -6,6 +6,7 @@ import {
   type ScreenServerMessage,
   type ScreenOperation,
   type ScreenAgentScope,
+  type ScreenError,
 } from "@ace/protocol";
 import type { ScreenTransport } from "@ace/client/screen-stream";
 import type { FakeServiceContext } from "./service-context.ts";
@@ -32,6 +33,11 @@ export interface FakeScreenOptions {
 /** Fake desktop targets share the real wire states, scopes, approvals and frame format. */
 export class FakeScreen {
   readonly permissions: ScreenPermissions;
+  /**
+   * Set to make reading macOS's grants fail the way a real helper can (not running, timing
+   * out): `status` and `permissions` are refused with it until it is cleared.
+   */
+  permissionReadFailure: { code: ScreenError["code"]; message: string } | undefined;
   readonly requested: ("screenRecording" | "accessibility")[] = [];
   readonly access: FakeScreenAccess;
   readonly approvals: FakeScreenApprovals;
@@ -188,18 +194,24 @@ export class FakeScreen {
     if (changed) this.push({ type: "screen.enabled", enabled });
     if (!enabled) for (const session of this.sessions.values()) this.stop(session);
   }
+  private readablePermissions(): void {
+    const failure = this.permissionReadFailure;
+    if (failure) throw new FakeScreenError(failure.code, failure.message);
+  }
   private async operate(channel: Channel, op: ScreenOperation): Promise<unknown> {
     switch (op.op) {
       case "enable":
         this.enable(op.enabled);
         return;
       case "status":
+        this.readablePermissions();
         return {
           enabled: this.access.enabled,
           permissions: { ...this.permissions },
           sessions: this.sessions.size,
         };
       case "permissions":
+        this.readablePermissions();
         return { ...this.permissions };
       case "permissions.request":
         this.requested.push(op.permission);

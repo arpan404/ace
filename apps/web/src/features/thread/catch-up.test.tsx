@@ -2,10 +2,29 @@ import { catchUpSummaryRequest } from "@ace/ui-core";
 import { multiDayDemo } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
+
+/** Pretend the window is a phone's: every max-width query up to 40rem matches. */
+const original = globalThis.matchMedia;
+function phone() {
+  globalThis.matchMedia = (query: string) =>
+    ({
+      matches: /max-width:\s*39\.99rem/.test(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) satisfies MediaQueryList;
+}
+afterEach(() => {
+  globalThis.matchMedia = original;
+});
 
 const threadId = "thread-multi-day";
 const day = 24 * 60 * 60 * 1000;
@@ -113,4 +132,20 @@ test("following the live end marks the thread read on this device", async () => 
     },
     { timeout: 3_000 },
   );
+});
+
+test("on a phone the card opens folded to its status, keeping the transcript in view, and unfolds on request", async () => {
+  phone();
+  const app = awayFromThread();
+  await app.open(`/t/${threadId}`);
+  const card = await screen.findByRole("region", { name: "While you were away" });
+  const toggle = within(card).getByRole("button", { name: /While you were away/ });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(card.textContent).toContain("Done");
+  expect(card.textContent).not.toContain("Latest: Checkpoint 6 completed.");
+
+  await userEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(card.textContent).toContain("Latest: Checkpoint 6 completed.");
+  expect(within(card).getByRole("button", { name: "Summarise" })).toBeTruthy();
 });

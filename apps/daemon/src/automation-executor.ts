@@ -81,7 +81,7 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
           origin: { kind: "automation", role: input.automationId },
           ...(input.model ? { model: input.model } : {}),
           mode: input.worktree ? "worktree" : "local",
-          title: `Automation: ${input.automationId}`.slice(0, 256),
+          title: automationThreadTitle(input.title),
           input: [{ type: "text", text: input.prompt }],
         },
       });
@@ -111,3 +111,9 @@ const executionKey = (value: string) =>
   CommandId.parse(`automation-${createHash("sha256").update(value).digest("hex")}`);
 
 function noop(): void {}
+
+/** "Automation: Nightly triage": the automation's own name, never its id. */
+export function automationThreadTitle(name: string | undefined): string {
+  const title = name?.trim();
+  return title ? `Automation: ${title}`.slice(0, 256) : "Automation run";
+}

@@ -46,7 +46,11 @@ export interface ThreadActions {
   setUnread(entry: ThreadTarget, unread: boolean): void;
   rename(entry: ThreadTarget, title: string): void;
   archive(entry: ThreadTarget): void;
+  /** Back from the archive to Home, with Undo. */
+  restore(entry: ThreadTarget): void;
   remove(entry: ThreadTarget): void;
+  /** An archived thread, deleted now: the person confirmed it, so there is no Undo. */
+  deleteArchived(entry: ThreadTarget): void;
   newThreadOnMain(entry: ThreadTarget): void;
   copyLink(entry: ThreadTarget): void;
 }
@@ -192,6 +196,12 @@ export function useThreadActions(): ThreadActions {
       verb: "Unarchive",
       failed: "unarchive it",
     });
+    /** Taking an archived thread back into the list. */
+    const restore = (entry: ThreadTarget): Action => ({
+      ...unarchive(entry),
+      verb: "Restore",
+      failed: "restore it",
+    });
     /**
      * Delete each now: the permanent command goes out at once (to the durable outbox when
      * offline), never waiting on a toast. There is no Undo; the caller asked first.
@@ -279,6 +289,9 @@ export function useThreadActions(): ThreadActions {
       },
       archive: (entry) =>
         void reversible(entry, archive(entry), `Archived · ${entry.title}`, unarchive(entry)),
+      restore: (entry) =>
+        void reversible(entry, restore(entry), `Restored · ${entry.title}`, archive(entry)),
+      deleteArchived: (entry) => removeAll([entry], () => `Deleted · ${entry.title}`),
       remove: (entry) => removeAll([entry], () => `Deleted · ${entry.title}`),
       newThreadOnMain: (entry) =>
         void navigate({ to: "/new", search: { project: entry.workspaceId, base: "main" } }),

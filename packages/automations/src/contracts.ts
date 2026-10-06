@@ -4,6 +4,8 @@ import type { Automation, AutomationEvent, AutomationRun } from "@ace/protocol";
 export interface ExecutionInput {
   idempotencyKey: string;
   automationId: string;
+  /** The automation's name, for the thread it starts; absent on inputs stored before it. */
+  title?: string | undefined;
   provider: Automation["provider"];
   model?: string | undefined;
   workspace: string;

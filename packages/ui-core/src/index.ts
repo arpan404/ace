@@ -7,6 +7,8 @@ export * from "./accounts.ts";
 export * from "./account-threads.ts";
 export * from "./agents.ts";
 export * from "./arrange.ts";
+export * from "./attachment-fit.ts";
+export * from "./catalog-ids.ts";
 export * from "./changed-files.ts";
 export * from "./checkout.ts";
 export * from "./composer-drafts.ts";

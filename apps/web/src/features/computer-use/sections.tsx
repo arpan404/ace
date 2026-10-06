@@ -1,5 +1,5 @@
 import type { ScreenGrant } from "@ace/protocol";
-import { grantRows, visibleSessions } from "@ace/ui-core/computer-use";
+import { grantRows, permissionsReading, visibleSessions } from "@ace/ui-core/computer-use";
 import { MonitorIcon, StopCircleIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
@@ -166,11 +166,16 @@ const permissionNames = {
   },
 } as const;
 
-/** macOS grants to Ace Screen Helper, each with Request (macOS asks, or opens its settings). */
+/**
+ * macOS grants to Ace Screen Helper, each with Request (macOS asks, or opens its settings).
+ * When they can't be read (computer use off, the helper refusing, the channel down) both say
+ * Unavailable, with why and what to do next, instead of checking forever (QA-16).
+ */
 export function Permissions(props: { use: ComputerUse }) {
   const { use } = props;
-  const permissions = use.snapshot.permissions;
-  if (use.snapshot.unavailable)
+  const { snapshot } = use;
+  const note = useId();
+  if (snapshot.unavailable)
     return (
       <EmptyState
         variant="inline"
@@ -179,24 +184,50 @@ export function Permissions(props: { use: ComputerUse }) {
         description="Computer use runs on a Mac with the ace desktop app installed."
       />
     );
+  const reading = permissionsReading({
+    connected: snapshot.connected,
+    closed: snapshot.closed,
+    enabled: snapshot.enabled,
+    permissions: snapshot.permissions,
+    problem: snapshot.permissionsProblem,
+  });
+  const recheck = (
+    <button
+      type="button"
+      className="text-link focus-ring rounded-xs hover:underline disabled:opacity-40"
+      disabled={use.pending}
+      onClick={() => void use.refreshPermissions()}
+    >
+      Check again
+    </button>
+  );
   return (
     <div>
       {(["screenRecording", "accessibility"] as const).map((key) => {
-        const granted = permissions?.[key];
+        const granted = reading.state === "known" ? reading.permissions[key] : undefined;
         return (
           <SettingRow
             key={key}
             title={permissionNames[key].title}
             description={permissionNames[key].what}
           >
-            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <span
+              className="flex items-center gap-1.5 text-sm text-muted-foreground"
+              aria-describedby={reading.state === "unavailable" ? note : undefined}
+            >
               <Dot tone={granted ? "done" : granted === false ? "needs-you" : "idle"} />
-              {granted === undefined ? "Checking" : granted ? "Granted" : "Not granted"}
+              {reading.state === "checking"
+                ? "Checking"
+                : reading.state === "unavailable"
+                  ? "Unavailable"
+                  : granted
+                    ? "Granted"
+                    : "Not granted"}
             </span>
             {granted === false && (
               <Button
                 size="sm"
-                disabled={!use.snapshot.connected || use.pending}
+                disabled={!snapshot.connected || use.pending}
                 onClick={() => void use.requestPermission(key)}
               >
                 Request
@@ -205,16 +236,16 @@ export function Permissions(props: { use: ComputerUse }) {
           </SettingRow>
         );
       })}
-      <p className="mt-2 text-xs text-subtle-foreground">
-        Granted it in System Settings?{" "}
-        <button
-          type="button"
-          className="text-link focus-ring rounded-xs hover:underline"
-          onClick={() => void use.refreshPermissions()}
-        >
-          Check again
-        </button>
-      </p>
+      {reading.state === "unavailable" ? (
+        <p id={note} role="status" className="mt-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{reading.reason}.</span> {reading.next}{" "}
+          {recheck}
+        </p>
+      ) : (
+        <p className="mt-2 text-xs text-subtle-foreground">
+          Granted it in System Settings? {recheck}
+        </p>
+      )}
     </div>
   );
 }

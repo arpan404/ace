@@ -17,6 +17,7 @@ import { Route as MoreRouteImport } from "./routes/more"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
+import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
 import { Route as HomeNewRouteImport } from "./routes/_home.new"
 import { Route as ActivityIndexRouteImport } from "./routes/activity.index"
 import { Route as AutomationsIndexRouteImport } from "./routes/automations.index"
@@ -81,6 +82,11 @@ const SkillsRoute = SkillsRouteImport.update({
 const HomeIndexRoute = HomeIndexRouteImport.update({
   id: "/",
   path: "/",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomeArchivedRoute = HomeArchivedRouteImport.update({
+  id: "/archived",
+  path: "/archived",
   getParentRoute: () => HomeRoute,
 } as any)
 const HomeNewRoute = HomeNewRouteImport.update({
@@ -224,6 +230,7 @@ export interface FileRoutesByFullPath {
   "/more": typeof MoreRouteWithChildren
   "/settings": typeof SettingsRouteWithChildren
   "/skills": typeof SkillsRouteWithChildren
+  "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
   "/deck/$runId": typeof DeckRunIdRoute
@@ -252,6 +259,7 @@ export interface FileRoutesByFullPath {
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRoutesByTo {
+  "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
   "/deck/$runId": typeof DeckRunIdRoute
@@ -289,6 +297,7 @@ export interface FileRoutesById {
   "/more": typeof MoreRouteWithChildren
   "/settings": typeof SettingsRouteWithChildren
   "/skills": typeof SkillsRouteWithChildren
+  "/_home/archived": typeof HomeArchivedRoute
   "/_home/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
   "/deck/$runId": typeof DeckRunIdRoute
@@ -327,6 +336,7 @@ export interface FileRouteTypes {
     | "/more"
     | "/settings"
     | "/skills"
+    | "/archived"
     | "/new"
     | "/automations/new"
     | "/deck/$runId"
@@ -355,6 +365,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/"
   fileRoutesByTo: FileRoutesByTo
   to:
+    | "/archived"
     | "/new"
     | "/automations/new"
     | "/deck/$runId"
@@ -391,6 +402,7 @@ export interface FileRouteTypes {
     | "/more"
     | "/settings"
     | "/skills"
+    | "/_home/archived"
     | "/_home/new"
     | "/automations/new"
     | "/deck/$runId"
@@ -486,6 +498,13 @@ declare module "@tanstack/react-router" {
       path: "/"
       fullPath: "/"
       preLoaderRoute: typeof HomeIndexRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/archived": {
+      id: "/_home/archived"
+      path: "/archived"
+      fullPath: "/archived"
+      preLoaderRoute: typeof HomeArchivedRouteImport
       parentRoute: typeof HomeRoute
     }
     "/_home/new": {
@@ -674,12 +693,14 @@ declare module "@tanstack/react-router" {
 }
 
 interface HomeRouteChildren {
+  HomeArchivedRoute: typeof HomeArchivedRoute
   HomeNewRoute: typeof HomeNewRoute
   HomeIndexRoute: typeof HomeIndexRoute
   HomeTThreadIdRoute: typeof HomeTThreadIdRoute
 }
 
 const HomeRouteChildren: HomeRouteChildren = {
+  HomeArchivedRoute: HomeArchivedRoute,
   HomeNewRoute: HomeNewRoute,
   HomeIndexRoute: HomeIndexRoute,
   HomeTThreadIdRoute: HomeTThreadIdRoute,

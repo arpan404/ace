@@ -12,6 +12,7 @@ import {
   useThreadActions,
 } from "@/features/organize/index.ts";
 import { keymap } from "@/lib/keymap.ts";
+import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
@@ -23,10 +24,10 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   });
 
 /**
- * Threads from every project in Home order (pinned first, settled last), each with its project
- * and branch, then the projects themselves, then actions on the threads picked in Home and on
- * the open thread. Mounted only while the palette is open, so the whole-list subscription is
- * short-lived.
+ * Threads from every project in Home order (pinned first, settled last), each with its project's
+ * name and branch, then the projects themselves by name, then actions on the threads picked in
+ * Home and on the open thread. Mounted only while the palette is open, so the whole-list
+ * subscription is short-lived.
  */
 export function useThreadCommands(close: () => void): PaletteGroup[] {
   const navigate = useNavigate();
@@ -38,6 +39,7 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
   const selection = useHomeSelection();
   const picked = useHomeSelectionState().ids;
   const entries = useSidebarAll(entriesOf, arrayEqual) ?? noEntries;
+  const projectName = useProjectName();
 
   return useMemo(() => {
     const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
@@ -55,7 +57,7 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
           {
             id: `thread-${id}`,
             label: entry.title,
-            detail: entry.workspaceId,
+            detail: projectName(entry.workspaceId),
             ...(branch ? { more: branch } : {}),
             icon: "thread",
             run: run(() => void navigate({ to: "/t/$threadId", params: { threadId: id } })),
@@ -65,7 +67,7 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
     );
     const projects = projectCounts(entries).map((project): PaletteCommand => ({
       id: `project-${project.id}`,
-      label: project.id,
+      label: projectName(project.id),
       detail: `${project.threads} thread${project.threads === 1 ? "" : "s"}`,
       icon: "project",
       tint: projectTint(project.id),
@@ -149,22 +151,41 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
           },
           {
             id: "thread-new-on-main",
-            label: `New thread on main in ${open.workspaceId}`,
+            label: `New thread on main in ${projectName(open.workspaceId)}`,
             icon: "action",
             run: run(() => actions.newThreadOnMain(open)),
           },
-          {
-            id: "thread-archive",
-            label: "Archive this thread",
-            icon: "action",
-            run: run(() => {
-              actions.archive(open);
-              void navigate({ to: "/" });
-            }),
-          },
+          open.archivedAt === undefined
+            ? {
+                id: "thread-archive",
+                label: "Archive this thread",
+                icon: "action",
+                run: run(() => {
+                  actions.archive(open);
+                  void navigate({ to: "/" });
+                }),
+              }
+            : {
+                id: "thread-restore",
+                label: "Restore this thread from the archive",
+                icon: "action",
+                run: run(() => actions.restore(open)),
+              },
         ],
       });
     }
     return groups;
-  }, [entries, state, now, current, close, navigate, organizer, actions, selection, picked]);
+  }, [
+    entries,
+    state,
+    now,
+    current,
+    close,
+    navigate,
+    organizer,
+    actions,
+    selection,
+    picked,
+    projectName,
+  ]);
 }

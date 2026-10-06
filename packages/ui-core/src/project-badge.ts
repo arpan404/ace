@@ -51,3 +51,24 @@ export function projectTint(projectId: string): number {
 export function projectBadge(input: { id: string; name: string }): ProjectBadge {
   return { initials: projectInitials(input.name), tint: projectTint(input.id) };
 }
+
+/** A UUID, or a long run of hex: an id a person never chose and can't tell apart from another. */
+const opaqueId = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{16,}/i;
+
+/** What a project reads as when nothing names it yet (loading, or a removed project). */
+export const unnamedProject = "Project";
+
+/**
+ * A project as people know it: the name the daemon gave it, else its folder's name, else its id
+ * when that reads as a name ("ace"), else "Project". An opaque id (a UUID) never shows.
+ */
+export function projectLabel(
+  id: string,
+  known?: { name?: string | undefined; path?: string | undefined },
+): string {
+  const name = known?.name?.trim();
+  if (name) return name;
+  const folder = known?.path?.split(/[\\/]/).findLast(Boolean);
+  if (folder) return folder;
+  return id && !opaqueId.test(id) ? id : unnamedProject;
+}

@@ -25,6 +25,7 @@ type Destination =
   | "/more/accounts"
   | "/more/files"
   | "/more/search"
+  | "/archived"
   | "/settings"
   | "/settings/theme-editor";
 
@@ -128,6 +129,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
           { id: "go-accounts", label: "Usage & accounts", icon: "view", run: go("/more/accounts") },
           { id: "go-files", label: "Files", icon: "view", run: go("/more/files") },
           { id: "go-search", label: "Search all threads", icon: "view", run: go("/more/search") },
+          { id: "go-archived", label: "Archived threads", icon: "view", run: go("/archived") },
           {
             id: "go-settings",
             label: "Settings",

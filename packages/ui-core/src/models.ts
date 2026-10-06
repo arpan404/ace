@@ -3,6 +3,7 @@ import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
 import { tightestWindow, type AccountView } from "./accounts.ts";
 import { accountLimit } from "./limits.ts";
 import type { ProviderStatus } from "./provider-status.ts";
+import { modelAliases } from "./catalog-ids.ts";
 import { modelLine, modelName } from "./model-label.ts";
 import { modelLabel, providerNames } from "./providers.ts";
 
@@ -135,12 +136,6 @@ function note(account: AccountView | undefined): string {
 /** One catalog row: the account (instance) serving it and its catalog id. */
 function rowId(model: Pick<CatalogModel, "instance" | "id">): string {
   return `${model.instance}:${model.id}`;
-}
-
-/** Ids other than the catalog id that name the row: native, resolved and alias ids. */
-function modelAliases(model: CatalogModel): string[] {
-  const ids = [model.nativeModelId, model.resolvedModelId, ...(model.aliases ?? [])];
-  return [...new Set(ids.filter((id): id is string => id !== undefined && id !== model.id))];
 }
 
 /** A thread's record names the model by its catalog id or by one of its other ids. */

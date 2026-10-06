@@ -1,4 +1,4 @@
-import { longHistory, replayCursor } from "@ace/fake-daemon";
+import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -38,7 +38,13 @@ test("a draft and its uploaded files survive a reload, and go once the message i
   await userEvent.keyboard("{Escape}");
   await userEvent.upload(
     screen.getByLabelText("Files to attach"),
-    new File(["route table"], "routes.txt", { type: "text/plain" }),
+    new File(
+      [Uint8Array.from(atob(fixtureImage.data), (char) => char.charCodeAt(0))],
+      "routes.png",
+      {
+        type: "image/png",
+      },
+    ),
   );
   const chips = screen.getByRole("list", { name: "Attachments" });
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
@@ -50,7 +56,7 @@ test("a draft and its uploaded files survive a reload, and go once the message i
   const field = await message();
   expect(field.value).toBe("Compare with @");
   expect(
-    within(screen.getByRole("list", { name: "Attachments" })).getByText("routes.txt"),
+    within(screen.getByRole("list", { name: "Attachments" })).getByText("routes.png"),
   ).toBeTruthy();
 
   await userEvent.clear(field);

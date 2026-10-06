@@ -1,4 +1,4 @@
-import { longHistory, replayCursor } from "@ace/fake-daemon";
+import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -101,17 +101,18 @@ test("attached files upload before sending and can be removed", async () => {
   expect(send.getAttribute("aria-disabled")).toBe("true");
 
   const input = screen.getByLabelText("Files to attach");
+  const png = Uint8Array.from(atob(fixtureImage.data), (char) => char.charCodeAt(0));
   await userEvent.upload(input, [
-    new File(["replay log"], "replay.log", { type: "text/plain" }),
-    new File(["x"], "trace.txt", { type: "text/plain" }),
+    new File([png], "replay.png", { type: "image/png" }),
+    new File([png], "trace.png", { type: "image/png" }),
   ]);
   const chips = screen.getByRole("list", { name: "Attachments" });
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   expect(send.getAttribute("aria-disabled")).toBeNull();
 
-  await userEvent.click(within(chips).getByRole("button", { name: "Remove trace.txt" }));
-  expect(within(chips).queryByText("trace.txt")).toBeNull();
-  expect(within(chips).getByText("replay.log")).toBeTruthy();
+  await userEvent.click(within(chips).getByRole("button", { name: "Remove trace.png" }));
+  expect(within(chips).queryByText("trace.png")).toBeNull();
+  expect(within(chips).getByText("replay.png")).toBeTruthy();
 
   await userEvent.click(send);
   expect(await within(feed).findByText("See the attached files.")).toBeTruthy();
@@ -163,4 +164,22 @@ test("a wide composer spells out the @ and / hints", async () => {
   layoutWidth(900);
   const { message } = await open("idle");
   expect(message.getAttribute("placeholder")).toBe("Ask anything, @ to mention, / for commands");
+});
+
+test("a phone-width composer shows approvals by its icon alone, the mode kept in its name", async () => {
+  layoutWidth(358);
+  await open("busy");
+  const approvals = await screen.findByRole("button", { name: /^Approvals: Auto-review/ });
+  expect(approvals.textContent).toBe("");
+  // The model chip keeps its name; only its effort goes.
+  const model = screen.getByRole("button", { name: /^Model: / });
+  expect(model.textContent).toContain("Opus 4.1");
+  expect(model.textContent).not.toContain("·");
+});
+
+test("a wide composer names the approval mode on its chip", async () => {
+  layoutWidth(900);
+  await open("busy");
+  const approvals = await screen.findByRole("button", { name: /^Approvals: Auto-review/ });
+  expect(approvals.textContent).toContain("Auto-review");
 });

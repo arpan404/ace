@@ -83,7 +83,13 @@ export function useAttachments(
         .upload(thread, file, (progress) => patch({ progress }))
         .then(
           (attachment) => {
-            patch({ state: "ready", progress: 1, sha256: attachment.sha256 });
+            // The daemon's own reading of the type, which the browser may not have known.
+            patch({
+              state: "ready",
+              progress: 1,
+              sha256: attachment.sha256,
+              mimeType: attachment.mimeType,
+            });
             files.current.delete(key);
             return { sha256: attachment.sha256, name: file.name };
           },
@@ -242,15 +248,13 @@ export function useAttachments(
 export const preloadAttachmentChips = ChipRow.preload;
 
 /**
- * The attachments of the message being written (see `AttachmentChipRow`). `unsupported` is the
- * provider's note for image chips, e.g. "Codex can't read images in this mode; it will get the
- * file path".
+ * The attachments of the message being written (see `AttachmentChipRow`), each with why the
+ * agent can't read it where that is so (`unsupported`).
  */
 export function AttachmentChips(props: {
   items: readonly PendingAttachment[];
   onRemove(key: number): void;
   onRetry?: ((key: number) => void) | undefined;
-  unsupported?: string | undefined;
 }) {
   if (!props.items.length) return null;
   return (

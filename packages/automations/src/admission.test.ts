@@ -68,3 +68,15 @@ it("preserves a committed GitHub cursor when the next response is malformed", as
   expect(sent).toEqual([undefined, '"good"', '"good"']);
   expect(h.service.inbox().runs).toEqual([]);
 });
+it("an execution carries the automation's name, so its thread is named after it, not its id", async () => {
+  const h = harness();
+  h.service.put(definition({ title: "Nightly triage" }));
+  try {
+    h.service.trigger("triage", { key: "named", variables: { subject: "issues" } });
+    expect(h.inputs.map((input) => input.title)).toEqual(["Nightly triage"]);
+  } finally {
+    for (const completion of h.completions)
+      completion.resolve({ threadId: "thread", status: "succeeded", result: "done" });
+    await h.service.settled();
+  }
+});

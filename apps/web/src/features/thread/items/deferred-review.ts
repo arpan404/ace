@@ -11,6 +11,10 @@ import { preloadStepLabels } from "./step-labels.ts";
 export const DeferredEvent = deferredComponent(() =>
   import("./event-divider.tsx").then((module) => module.EventBlock),
 );
+/** A failed turn's ending (`failed-turn.tsx`): it draws the same error row as a notice. */
+export const DeferredFailedTurn = deferredComponent(() =>
+  import("../transcript/failed-turn.tsx").then((module) => module.FailedTurn),
+);
 /** Copy on a finished answer (IR-14): shown on hover, so it loads after first paint. */
 export const DeferredCopyAnswer = deferredComponent(() =>
   import("./copy-answer.tsx").then((module) => module.CopyAnswer),
@@ -20,6 +24,7 @@ export const DeferredReviewNote = deferredComponent(() =>
   Promise.all([
     import("./review-note.tsx"),
     DeferredEvent.preload(),
+    DeferredFailedTurn.preload(),
     DeferredCopyAnswer.preload(),
     preloadStepLabels(),
   ]).then(([module]) => module.ReviewNote),

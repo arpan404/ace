@@ -205,6 +205,7 @@ export class AutomationService {
       input = {
         idempotencyKey: id,
         automationId: automation.id,
+        title: automation.title,
         provider: automation.provider,
         workspace: automation.workspace,
         worktree: automation.worktree,

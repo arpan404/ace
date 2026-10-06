@@ -1,4 +1,4 @@
-import { FileIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
+import { FileIcon, XIcon } from "@phosphor-icons/react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -17,19 +17,20 @@ export interface ChipAttachment {
   error?: string | undefined;
   /** Whether trying again can help (a file over the limit can't). */
   retryable?: boolean | undefined;
+  /** Why the agent can't read it (its provider or model doesn't take the type): Send waits. */
+  unsupported?: string | undefined;
 }
 
 /**
  * The attachments of the message being written: one row of fixed height above the text, which
  * scrolls sideways rather than wrapping, so adding a file never moves the text's inset. Image
  * chips show their preview at once; uploads draw a progress ring, failures say why and offer
- * Retry, and `unsupported` is the provider's note for image chips it can't read.
+ * Retry, and a file the agent can't read says so (`unsupported`) until it is removed.
  */
 export function AttachmentChipRow(props: {
   items: readonly ChipAttachment[];
   onRemove(key: number): void;
   onRetry?: ((key: number) => void) | undefined;
-  unsupported?: string | undefined;
 }) {
   return (
     <ul
@@ -37,15 +38,7 @@ export function AttachmentChipRow(props: {
       className="flex scroll-fade-x gap-2 overflow-x-auto px-3 pt-3 [scrollbar-width:none]"
     >
       {props.items.map((item) => (
-        <Chip
-          key={item.key}
-          item={item}
-          onRemove={props.onRemove}
-          onRetry={props.onRetry}
-          unsupported={
-            item.mimeType?.startsWith("image/") || item.preview ? props.unsupported : undefined
-          }
-        />
+        <Chip key={item.key} item={item} onRemove={props.onRemove} onRetry={props.onRetry} />
       ))}
     </ul>
   );
@@ -55,18 +48,24 @@ function Chip(props: {
   item: ChipAttachment;
   onRemove(key: number): void;
   onRetry?: ((key: number) => void) | undefined;
-  unsupported?: string | undefined;
 }) {
   const { item } = props;
   const failed = item.state === "failed";
   const reason = item.error ?? "The upload failed";
+  const unreadable = !failed ? item.unsupported : undefined;
   return (
     <li
       className={cn(
         "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-secondary pr-1 pl-1 text-ui leading-4",
-        failed ? "max-w-80" : "max-w-60",
+        failed || unreadable ? "max-w-80" : "max-w-60",
       )}
-      style={failed ? { boxShadow: "inset 0 0 0 1px var(--color-status-failed)" } : undefined}
+      style={
+        failed
+          ? { boxShadow: "inset 0 0 0 1px var(--color-status-failed)" }
+          : unreadable
+            ? { boxShadow: "inset 0 0 0 1px var(--color-status-needs-you)" }
+            : undefined
+      }
     >
       <Thumb item={item} />
       <span className="min-w-0 truncate">{item.name}</span>
@@ -89,11 +88,13 @@ function Chip(props: {
           )}
         </>
       )}
-      {props.unsupported && !failed && (
-        <Tip label={props.unsupported}>
-          <span tabIndex={0} className="grid size-5 shrink-0 place-items-center">
-            <InfoIcon aria-hidden size={14} className="text-muted-foreground" />
-            <span className="sr-only">{props.unsupported}</span>
+      {unreadable && (
+        <Tip label={unreadable}>
+          <span
+            tabIndex={0}
+            className="focus-ring shrink-0 rounded-xs text-xs text-status-needs-you"
+          >
+            Can't be read<span className="sr-only">: {unreadable}</span>
           </span>
         </Tip>
       )}

@@ -52,7 +52,13 @@ export function useComputerUse() {
 
   const run = async (
     operation: ScreenOperation,
-    options: { failure: string; sessionId?: string; timeoutMs?: number },
+    options: {
+      failure: string;
+      sessionId?: string;
+      timeoutMs?: number;
+      /** The page shows this failure where it happened (the permissions' own state). */
+      inline?: boolean;
+    },
   ): Promise<unknown> => {
     if (!session) {
       toast.error({ title: options.failure, description: "Computer use is offline." });
@@ -65,7 +71,8 @@ export function useComputerUse() {
     } catch (error) {
       const problem = describeProblem(error);
       if (options.sessionId) setProblem(options.sessionId, problem);
-      else toast.error({ title: options.failure, description: problem.hint ?? problem.title });
+      else if (!options.inline)
+        toast.error({ title: options.failure, description: problem.hint ?? problem.title });
       return undefined;
     } finally {
       setPending((count) => count - 1);
@@ -86,7 +93,8 @@ export function useComputerUse() {
     stopAll: () => run({ op: "stop.all" }, { failure: "Couldn't stop computer use" }),
     requestPermission: (permission: "screenRecording" | "accessibility") =>
       run({ op: "permissions.request", permission }, { failure: "Couldn't ask macOS" }),
-    refreshPermissions: () => run({ op: "permissions" }, { failure: "Couldn't read permissions" }),
+    refreshPermissions: () =>
+      run({ op: "permissions" }, { failure: "Couldn't read permissions", inline: true }),
     takeover: (sessionId: string) =>
       run(
         { op: "controller", sessionId, controller: "human" },

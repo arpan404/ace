@@ -1,5 +1,6 @@
 import type { ClientApi, SidebarReader } from "@ace/client";
 import { useSidebarAll } from "@ace/client-react";
+import { projectLabel } from "@ace/ui-core";
 import { useCallback, useEffect, useMemo } from "react";
 import { useDaemonQuery } from "./daemon-query.ts";
 import { projectsKey, type Project } from "./project-cache.ts";
@@ -48,13 +49,14 @@ function useProjectList(): Project[] | undefined {
 }
 
 function useNamer(data: readonly Project[] | undefined): (id: string) => string {
-  const byId = useMemo(() => new Map((data ?? []).map((p) => [p.id, p.name])), [data]);
-  return useCallback((id: string) => byId.get(id) ?? id, [byId]);
+  const byId = useMemo(() => new Map((data ?? []).map((p) => [p.id, p])), [data]);
+  return useCallback((id: string) => projectLabel(id, byId.get(id)), [byId]);
 }
 
 /**
  * A project's name by id, from the daemon's projects (`workspace.request` › `workspaces.list`),
- * read once and shared by every screen. The id stands in while loading or for an unknown project.
+ * read once and shared by every screen. While loading, or for a project the daemon no longer
+ * lists, a readable id stands in, else "Project": never a raw UUID (`projectLabel`).
  * Cheap enough for every row: it subscribes to the one shared read, not the thread list.
  */
 export function useProjectName(): (id: string) => string {

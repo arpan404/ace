@@ -3,7 +3,7 @@ import { arrayEqual, useSidebar, type SidebarKey } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { useCallback } from "react";
 import { useNow } from "@/lib/time.ts";
-import { arrange, projectCounts, type ProjectCount } from "@ace/ui-core";
+import { archivedOrder, arrange, projectCounts, type ProjectCount } from "@ace/ui-core";
 import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
 
@@ -88,4 +88,21 @@ export function useProjects(): ProjectCount[] {
   const read = useEntries();
   const select = useCallback((reader: SidebarReader) => projectCounts(read(reader)), [read]);
   return useSidebar(keys, select, countsEqual) ?? noProjects;
+}
+
+const noIds: readonly string[] = [];
+
+/**
+ * The archive, within the project filter: archived threads not deleted, most recently archived
+ * first, with organize actions not yet confirmed (a Restore leaves it at once).
+ */
+export function useArchivedList(): readonly string[] {
+  const keys = useEveryEntryKey();
+  const { project } = useOrganizerState();
+  const read = useEntries();
+  const select = useCallback(
+    (reader: SidebarReader) => archivedOrder(read(reader), { project }),
+    [read, project],
+  );
+  return useSidebar(keys, select, arrayEqual) ?? noIds;
 }

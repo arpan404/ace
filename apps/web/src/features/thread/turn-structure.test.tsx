@@ -207,7 +207,7 @@ test("a failed turn ends with its reason, and Retry sends the ask again", async 
   app.play(scenario("thread-pdf-locale")).runUntilBlocked();
   await app.open("/t/thread-pdf-locale");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const failed = await within(feed).findByRole("group", { name: "Turn failed" });
+  const failed = await within(feed).findByRole("group", { name: /^Turn failed/ });
   expect(failed.textContent).toContain("2 tests failing on #74");
 
   await userEvent.click(within(failed).getByRole("button", { name: "Details" }));
@@ -220,7 +220,7 @@ test("a failed turn ends with its reason, and Retry sends the ask again", async 
     ),
   );
   // The retried turn is history now: it keeps its reason, without offering Retry again.
-  const kept = within(feed).getByRole("group", { name: "Turn failed" });
+  const kept = within(feed).getByRole("group", { name: /^Turn failed/ });
   expect(kept.textContent).toContain("2 tests failing on #74");
   expect(within(kept).queryByRole("button", { name: "Retry" })).toBeNull();
 });

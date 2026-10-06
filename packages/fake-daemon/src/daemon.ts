@@ -38,6 +38,7 @@ import {
   type InteractionResolution,
   type ItemsPage,
   type ProviderKind,
+  type Capabilities,
   type ThreadView,
   type SubscriptionScope,
   type ThreadListView,
@@ -96,6 +97,8 @@ export interface ThreadInit {
   lineage?: Thread["lineage"];
   permissionMode?: PermissionMode;
   parentThreadId?: string;
+  /** What the thread's provider can do, over the fake's defaults (a provider that reads no images). */
+  capabilities?: Partial<Capabilities>;
 }
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
 
@@ -310,7 +313,7 @@ export class FakeDaemon implements Host {
       workspaceId: WorkspaceId.parse(init.workspaceId),
       title: init.title,
       provider: init.provider,
-      capabilities: structuredClone(fakePermissionCapabilities),
+      capabilities: { ...structuredClone(fakePermissionCapabilities), ...init.capabilities },
       ...(init.details ? { details: init.details } : {}),
       ...(init.live ? { live: init.live } : {}),
       ...(init.lineage ? { lineage: init.lineage } : {}),

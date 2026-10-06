@@ -14,7 +14,6 @@ import {
   settledResults,
   systemInput,
   taskPrompt,
-  type ErrorInput,
   type EventIcon,
   type EventLine,
   type InputKind,
@@ -36,7 +35,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DelegationCard } from "./delegation-card.tsx";
-import { ErrorRow } from "./error-row.tsx";
+import { ErrorRow, noticeError } from "./error-row.tsx";
 import { ModelFacing } from "./model-facing.tsx";
 import { ReviewNote } from "./review-note.tsx";
 import { TaskCard } from "./task-card.tsx";
@@ -130,26 +129,6 @@ function useEchoedCode(threadId: string, item: Item | undefined): boolean {
   return useThread(threadId, ["order"], read) ?? false;
 }
 
-/** A notice's structured error fields (C-A `code`/`title`/`detail`, #116 `details`), if any. */
-function errorInput(item: Extract<Item, { type: "notice" }>): ErrorInput {
-  const record = item as Record<string, unknown>;
-  const text = (key: string) =>
-    typeof record[key] === "string" ? (record[key] as string) : undefined;
-  const details =
-    typeof record["details"] === "object" && record["details"] !== null
-      ? (record["details"] as Record<string, unknown>)
-      : {};
-  return {
-    text: item.text,
-    code: text("code") ?? (typeof details["code"] === "string" ? details["code"] : undefined),
-    title: text("title"),
-    detail: text("detail"),
-    provider:
-      typeof details["provider"] === "string" ? (details["provider"] as ProviderKind) : undefined,
-    model: typeof details["model"] === "string" ? details["model"] : undefined,
-  };
-}
-
 /**
  * Anything in the transcript that is neither the person's words nor the agent's answer or
  * work (IR-8, IR-9, IR-10, IR-11, IR-12, A3): ace's own inputs as dividers and cards, errors as
@@ -207,7 +186,7 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       const kind = noticeInput(item);
       const line = kind && inputLine({ kind, text: item.text });
       if (line) return <EventDivider line={line} received={item.text} />;
-      if (item.level === "error") return <ErrorRow error={errorInput(item)} />;
+      if (item.level === "error") return <ErrorRow error={noticeError(item)} />;
       return <NoticeLine level={item.level} text={item.text} />;
     }
     case "compaction":

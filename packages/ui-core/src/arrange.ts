@@ -74,6 +74,25 @@ export function arrange(
   };
 }
 
+/**
+ * The archive: archived threads that weren't deleted, most recently archived first, within the
+ * project filter. Home leaves them out; this is where they wait to be restored or deleted.
+ */
+export function archivedOrder(
+  entries: readonly ThreadListEntry[],
+  state: Pick<OrganizerState, "project">,
+): string[] {
+  return entries
+    .filter(
+      (entry) =>
+        entry.archivedAt !== undefined &&
+        entry.deletedAt === undefined &&
+        (state.project === null || entry.workspaceId === state.project),
+    )
+    .toSorted((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0) || a.id.localeCompare(b.id))
+    .map((entry) => entry.id);
+}
+
 export interface ProjectCount {
   id: string;
   threads: number;

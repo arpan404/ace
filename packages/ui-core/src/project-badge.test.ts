@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { projectBadge, projectInitials, projectTint, projectTintCount } from "./project-badge.ts";
+import {
+  projectBadge,
+  projectInitials,
+  projectLabel,
+  projectTint,
+  projectTintCount,
+} from "./project-badge.ts";
 
 test("initials take the first letters of the first two words, or the first two of one word", () => {
   expect(projectInitials("billing-api")).toBe("BA");
@@ -43,4 +49,13 @@ test("a project's tint is pinned across releases, so no device or upgrade recolo
 test("similar ids usually get different tints", () => {
   const tints = ["ace", "ace-mobile", "ace-web", "ace-docs"].map(projectTint);
   expect(new Set(tints).size).toBeGreaterThanOrEqual(3);
+});
+
+test("a project reads by its name, else its folder, else a readable id, and never as a UUID", () => {
+  const uuid = "a003e031-2390-44d2-b0a7-4a5fd727d463";
+  expect(projectLabel(uuid, { name: "scratch", path: "/tmp/scratch" })).toBe("scratch");
+  expect(projectLabel(uuid, { name: " ", path: "/Users/dev/billing-api/" })).toBe("billing-api");
+  expect(projectLabel("ace")).toBe("ace");
+  expect(projectLabel(uuid)).toBe("Project");
+  expect(projectLabel("ws-5c99df537a9a44809f3e1dbf4327d94a")).toBe("Project");
 });

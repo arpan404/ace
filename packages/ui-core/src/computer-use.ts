@@ -1,4 +1,4 @@
-import type { ScreenGrant, ScreenState } from "@ace/protocol";
+import type { ScreenGrant, ScreenPermissions, ScreenState } from "@ace/protocol";
 import { alwaysAsks, appName } from "./app-names.ts";
 import type { Tone } from "./status.ts";
 
@@ -274,6 +274,52 @@ export function screenProblem(
     default:
       return { title: fallback, hint: undefined };
   }
+}
+
+/**
+ * What Settings can say about macOS's grants to Ace Screen Helper: still reading them, what they
+ * are, or why they can't be read and what to do next. "Checking" lasts only while a read is
+ * on its way: a refused or failed read, computer use being off, or a closed channel each say so.
+ */
+export type PermissionsReading =
+  | { state: "checking" }
+  | { state: "known"; permissions: ScreenPermissions }
+  | { state: "unavailable"; reason: string; next: string };
+
+export function permissionsReading(input: {
+  /** The screen channel is up. */
+  connected: boolean;
+  /** It was up and closed since. */
+  closed: boolean;
+  /** Computer use is on; undefined until the daemon said. */
+  enabled: boolean | undefined;
+  /** As last read. */
+  permissions: ScreenPermissions | undefined;
+  /** Why the last read failed; cleared by a read that succeeds. */
+  problem: { code: string | undefined; message: string } | undefined;
+}): PermissionsReading {
+  const off = input.enabled === false;
+  const turnOn = "Turn on Let agents use apps above.";
+  if (input.problem) {
+    const { title, hint } = screenProblem(input.problem.code, input.problem.message);
+    return {
+      state: "unavailable",
+      reason: off || input.problem.code === "screen_disabled" ? "Computer use is off" : title,
+      next:
+        off || input.problem.code === "screen_disabled"
+          ? turnOn
+          : (hint ?? "If it keeps failing, restart ace on this Mac."),
+    };
+  }
+  if (input.permissions) return { state: "known", permissions: input.permissions };
+  if (!input.connected && input.closed)
+    return {
+      state: "unavailable",
+      reason: "ace's screen channel is disconnected",
+      next: "It reconnects once ace is back online.",
+    };
+  if (off) return { state: "unavailable", reason: "Computer use is off", next: turnOn };
+  return { state: "checking" };
 }
 
 export { alwaysAsks, appName } from "./app-names.ts";
