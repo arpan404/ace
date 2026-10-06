@@ -21,7 +21,7 @@
     "check:ui": "node scripts/check-ui-values.ts",
     "icons:providers": "node scripts/provider-icons.ts",
     "check:deps": "depcruise apps/web/src packages/client/src packages/client-worker/src packages/client-react/src packages/fake-daemon/src packages/ui-core/src --config .dependency-cruiser.cjs --output-type err",
-    "check:perf": "node apps/daemon/bench/check.ts && bun run --filter @ace/web-perf check",
+    "check:perf": "node apps/daemon/bench/check.ts && bun run --filter @ace/web-perf check && node tools/web-perf/device/check.ts",
     "web:dev": "bun run --filter @ace/web dev",
     "web:dev:fake": "bun run --filter @ace/web dev:fake",
     "web:build": "bun run --filter @ace/web build",

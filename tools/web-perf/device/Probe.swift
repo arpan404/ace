@@ -1,17 +1,23 @@
 import UIKit
 
 // Owned, disposable app: pixel clock updated at display cadence and a tap acknowledgement.
-final class ProbeView: UIView {
+final class ProbeView: UIView, UIKeyInput {
+    var hasText: Bool { false }
+    override var canBecomeFirstResponder: Bool { true }
+    func insertText(_ text: String) { tapped.toggle(); setNeedsDisplay() }
+    func deleteBackward() {}
+    @objc func pan(_ sender: UIPanGestureRecognizer) { if sender.state == .began { tapped.toggle(); setNeedsDisplay() } }
     var tapped = false
     override init(frame: CGRect) {
         super.init(frame: frame)
         let link = CADisplayLink(target: self, selector: #selector(tick))
         link.add(to: .main, forMode: .common)
+        addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(pan)))
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tap)))
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc func tick() { setNeedsDisplay() }
-    @objc func tap() { tapped.toggle(); setNeedsDisplay() }
+    @objc func tap() { becomeFirstResponder(); tapped.toggle(); setNeedsDisplay() }
     override func draw(_ rect: CGRect) {
         UIColor.darkGray.setFill(); UIRectFill(rect)
         let time = UInt64(Date().timeIntervalSince1970 * 1000) & 0xffffffff

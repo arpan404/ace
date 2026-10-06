@@ -1,0 +1,54 @@
+{
+  "failures": [
+    "locator.fill: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('textbox', { name: 'Type on the device' })\u001b[22m\n"
+  ],
+  "hostLoad": [205.3779296875, 316.28125, 302.9921875],
+  "fps": 0.6448284756254836,
+  "codecs": {
+    "h264": 21
+  },
+  "capture": {
+    "p50": 4.1669921875,
+    "p95": 22.26708984375,
+    "samples": 20
+  },
+  "source": {
+    "p50": 27,
+    "p95": 51,
+    "samples": 20
+  },
+  "inputs": {
+    "tap": {
+      "p50": null,
+      "p95": null,
+      "samples": 0
+    },
+    "swipe": {
+      "p50": null,
+      "p95": null,
+      "samples": 0
+    },
+    "type": {
+      "p50": null,
+      "p95": null,
+      "samples": 0
+    }
+  },
+  "resolution": null,
+  "gpu": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "enabled_on",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "enabled",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webnn": "disabled_off"
+  }
+}

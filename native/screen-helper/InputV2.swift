@@ -2,6 +2,18 @@ import ApplicationServices
 import AppKit
 
 extension Capture {
+    /// Human device events use the selected process/window and never the agent focus guard.
+    /// Simulator keyboard events require native idb HID when its Mac window is backgrounded.
+    func injectHumanDevice(_ input: Input) async throws {
+        if ["text.type", "key.press", "text.paste"].contains(input.kind) {
+            guard let window = captureWindow, keyboardApplicationPID() == window.owningApplication?.processID else {
+                throw HelperError("Background Simulator typing requires native idb HID", code: "foreground_required")
+            }
+            do { try requireFocusedWindow(window, candidates: try await content().windows) }
+            catch { throw HelperError("Cannot verify the selected Simulator keyboard window; use native idb HID", code: "foreground_required") }
+        }
+        try await injectV2(input)
+    }
     func injectV2(_ input: Input) async throws {
         guard target?.kind == "window" || target?.kind == "app" else { throw HelperError("Display is view-only", code: "not_supported") }
         if input.kind == "pointer.cancel" { try releasePointer(); return }

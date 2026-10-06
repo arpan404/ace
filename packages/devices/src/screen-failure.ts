@@ -25,6 +25,17 @@ export function permissionDenied(permission: DevicePermission): DeviceError {
 export function screenFailure(error: unknown): DeviceError | undefined {
   if (!(error instanceof Error)) return undefined;
   const message = error.message;
+  if (
+    ("code" in error && (error.code === "foreground_required" || error.code === "focus_changed")) ||
+    /Target window is not focused|Captured window must be the application's focused window|Focused element is not an Accessibility window/.test(
+      message,
+    )
+  )
+    return new DeviceError(
+      "foreground_required",
+      `Simulator needs foreground input for this interaction: ${message}`,
+      "Bring the selected Simulator window forward before retrying, or install idb for native device input. ace will not change your desktop focus for an agent.",
+    );
   if (/Screen Recording permission (denied|revoked)/i.test(message))
     return permissionDenied("screenRecording");
   // Capture already proved Screen Recording; input is refused for Accessibility.

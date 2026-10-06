@@ -20,7 +20,7 @@
       "type": "integer"
     },
     "maxHeight": {
-      "maximum": 2160,
+      "maximum": 3840,
       "minimum": 64,
       "type": "integer"
     },

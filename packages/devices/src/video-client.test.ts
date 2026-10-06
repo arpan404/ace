@@ -43,7 +43,7 @@ function fixture() {
     return waiter.promise;
   };
   let output: ((image: DecodedDeviceFrame) => void) | undefined;
-  let fail: (() => void) | undefined;
+  let fail: ((reason?: "unsupported" | "decode") => void) | undefined;
   let keys = 0,
     fallbacks = 0,
     closes = 0,
@@ -88,7 +88,7 @@ function fixture() {
     waitDecoded,
     late: (index: number) => outputs[index]?.({ close: () => closes++ }),
     finish: () => output?.({ close: () => closes++ }),
-    fail: () => fail?.(),
+    fail: (reason: "unsupported" | "decode" = "unsupported") => fail?.(reason),
     queue: (n: number) => {
       queue = n;
     },
@@ -147,7 +147,7 @@ it("a blocked decoder retains the newest frame and resumes at an IDR after dropp
   hub.clear();
   expect(f.resources.size).toBe(0);
 });
-it("a decoder error negotiates image fallback once and displays JPEG frames", async () => {
+it("an unsupported codec negotiates image fallback once and displays JPEG frames", async () => {
   const f = fixture();
   const render = createDeviceRenderer(f.ports);
   const pending = render.render(frame(0, true));
@@ -217,7 +217,7 @@ it("panel and network budgets reduce pixels and bitrate under pressure with JPEG
   expect(slow.codec).toBe("jpeg");
 });
 
-it("a decoder that never produces pixels falls back instead of blocking the stream forever", async () => {
+it("a stalled decoder drops its pending frame and recovers H.264 without negotiating JPEG", async () => {
   const f = fixture();
   const deadline = Promise.withResolvers<() => void>();
   f.ports.schedule = (run) => {
@@ -228,9 +228,13 @@ it("a decoder that never produces pixels falls back instead of blocking the stre
   const pending = render.render(frame(0, true));
   (await deadline.promise)();
   await pending;
-  expect(f.fallbacks).toBe(1);
-  await render.render(frame(1, false, "jpeg"));
-  expect(f.images).toEqual([1]);
+  expect(f.fallbacks).toBe(0);
+  expect(f.keys).toBe(1);
+  const recovered = render.render(frame(1, true));
+  f.finish();
+  await recovered;
+  expect(f.drawn).toEqual([1]);
+  expect(f.images).toEqual([]);
   render.close();
 });
 
@@ -283,4 +287,71 @@ it("resize and reconnect dispose the previous decoder and ignore its late output
   render.close();
   expect(f.resources.size).toBe(0);
   expect(f.closes).toBe(4);
+});
+
+it("local decode pressure drops cadence without lowering the viewer's pixel density", () => {
+  const panel = { width: 1051, height: 1951 };
+  const stream = deviceStreamProfile(panel, "local", true, 3);
+  expect(stream.maxWidth).toBe(1052);
+  expect(stream.maxHeight).toBe(1952);
+  expect(stream.fps).toBe(30);
+  expect(stream.codec).toBe("h264");
+});
+
+it("a portrait viewer at DPR three keeps its full physical height", () => {
+  expect(deviceStreamProfile({ width: 1440, height: 3300 }, "local", true)).toMatchObject({
+    codec: "h264",
+    maxWidth: 1440,
+    maxHeight: 3300,
+    fps: 60,
+  });
+});
+
+it("a corrupt H.264 frame requests an IDR and resumes video without negotiating JPEG", async () => {
+  const f = fixture();
+  const render = createDeviceRenderer(f.ports);
+  const first = render.render(frame(1, true));
+  f.fail("decode");
+  await first;
+  expect(f.fallbacks).toBe(0);
+  expect(f.keys).toBe(1);
+  const next = render.render(frame(2, true));
+  f.finish();
+  await next;
+  expect(f.drawn).toEqual([2]);
+  expect(f.images).toEqual([]);
+  render.close();
+  expect(f.resources.size).toBe(0);
+});
+
+it("a synchronously rejected H.264 chunk recovers at an IDR without negotiating JPEG", async () => {
+  const f = fixture();
+  const decoder = f.ports.decoder;
+  let rejected = false;
+  f.ports.decoder = (...args) => {
+    const port = decoder(...args);
+    return {
+      get decodeQueueSize() {
+        return port.decodeQueueSize;
+      },
+      decode: (image) => {
+        if (!rejected) {
+          rejected = true;
+          throw new Error("Invalid chunk");
+        }
+        port.decode(image);
+      },
+      close: () => port.close(),
+    };
+  };
+  const render = createDeviceRenderer(f.ports);
+  await render.render(frame(1, true));
+  expect(f.fallbacks).toBe(0);
+  expect(f.keys).toBe(1);
+  const next = render.render(frame(2, true));
+  f.finish();
+  await next;
+  expect(f.drawn).toEqual([2]);
+  render.close();
+  expect(f.resources.size).toBe(0);
 });

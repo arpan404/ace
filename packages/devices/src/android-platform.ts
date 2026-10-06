@@ -1,3 +1,4 @@
+import { AndroidInputShell } from "./android-input-shell.ts";
 import { AppDevice as DeviceSchema, type AppDevice as Device } from "@ace/protocol/devices";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
@@ -31,6 +32,8 @@ export class AndroidPlatform {
   private readonly pendingBoots = new Set<string>();
   private readonly ports = new Set<number>();
   private closed = false;
+  private readonly inputs = new Map<string, AndroidInputShell>();
+  private readonly openingInputs = new Map<string, Promise<AndroidInputShell>>();
   constructor(options: SDKOptions, run: DeviceCommand, spawn = spawnSupervised) {
     this.options = options;
     this.run = run;
@@ -69,6 +72,13 @@ export class AndroidPlatform {
           "Close duplicate instances before selecting this AVD in ace.",
         );
       devices.set(name, { id: `android:${name}`, platform: "android", name, state, serial });
+    }
+    for (const [id, shell] of this.inputs) {
+      const current = [...devices.values()].find((device) => device.id === id);
+      if (current?.state !== "booted" || current.serial !== shell.serial) {
+        this.inputs.delete(id);
+        void shell.close();
+      }
     }
     const result = [...devices.values()].map((device) => DeviceSchema.parse(device));
     this.inventory.clear();
@@ -120,6 +130,49 @@ export class AndroidPlatform {
     const { adb } = await this.resolve();
     authorize?.();
     return this.run(adb, ["-s", serial, ...args], maxBytes);
+  }
+  async input(device: Device, args: readonly string[], authorize: () => void): Promise<void> {
+    if (args[0] !== "shell" || args.length !== 2 || !args[1])
+      throw new Error("Expected quoted Android shell input");
+    authorize();
+    const shell = await this.inputShell(device, authorize);
+    try {
+      await shell.send(args[1], authorize);
+    } catch (error) {
+      if (this.inputs.get(device.id) === shell) this.inputs.delete(device.id);
+      await shell.close();
+      throw error;
+    }
+  }
+  private async inputShell(device: Device, authorize: () => void): Promise<AndroidInputShell> {
+    const cached = this.inputs.get(device.id);
+    if (cached) return cached;
+    const pending = this.openingInputs.get(device.id);
+    if (pending) return pending;
+    const opening = (async () => {
+      const serial = await this.serial(device);
+      const { adb } = await this.resolve();
+      authorize();
+      if (this.closed) throw this.identityError();
+      const shell = new AndroidInputShell({
+        adb,
+        serial,
+        env: this.options.env,
+        spawn: this.spawn,
+        after: (ms, run) => {
+          const timer = setTimeout(run, ms);
+          return () => clearTimeout(timer);
+        },
+      });
+      this.inputs.set(device.id, shell);
+      return shell;
+    })();
+    this.openingInputs.set(device.id, opening);
+    try {
+      return await opening;
+    } finally {
+      this.openingInputs.delete(device.id);
+    }
   }
   private identityError() {
     return new DeviceError(
@@ -299,6 +352,8 @@ export class AndroidPlatform {
   async close(): Promise<void> {
     this.closed = true;
     await Promise.all([...this.emulators.values()].map((proc) => proc.stop({ graceMs: 0 })));
+    await Promise.all([...this.inputs.values()].map((shell) => shell.close()));
+    this.inputs.clear();
     this.emulators.clear();
     this.serialNames.clear();
     this.inventory.clear();
