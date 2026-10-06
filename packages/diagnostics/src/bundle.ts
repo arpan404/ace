@@ -142,9 +142,10 @@ export async function writeSupportBundle(options: BundleOptions): Promise<void> 
   if (!Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1 || maxInputBytes > 1024 ** 3)
     throw new RangeError("Invalid input cap");
   const budget = { remaining: maxInputBytes };
-  const { pack: createPack } = await import("tar-stream");
+  // CommonJS named exports are not guaranteed when this import is bundled.
+  const { default: tar } = await import("tar-stream");
   const staging = await mkdtemp(join(options.temporaryRoot, "ace-support-"));
-  const pack = createPack();
+  const pack = tar.pack();
   const output = pipeline(pack, createGzip(), options.output);
   // Observe errors immediately while staging or writing entries.
   void output.catch(() => {});

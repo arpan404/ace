@@ -24,9 +24,9 @@ class ExpansionBudget {
   }
 }
 export async function extractTar(path: string, root: string, signal: AbortSignal): Promise<void> {
-  const { extract } = await import("tar-stream");
+  const { default: tar } = await import("tar-stream");
   const budget = new ExpansionBudget();
-  const archive = extract();
+  const archive = tar.extract();
   const active = new Set<Promise<void>>();
   archive.on("entry", (header, stream, next) => {
     const task = (async () => {
@@ -70,9 +70,9 @@ export async function extractTar(path: string, root: string, signal: AbortSignal
   }
 }
 export async function extractZip(path: string, root: string, signal: AbortSignal): Promise<void> {
-  const { open: openZip } = await import("yauzl");
+  const { default: yauzl } = await import("yauzl");
   const zip = await new Promise<ZipFile>((resolve, reject) =>
-    openZip(
+    yauzl.open(
       path,
       { lazyEntries: true, autoClose: false, validateEntrySizes: true, strictFileNames: true },
       (error, result) =>

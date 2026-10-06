@@ -34,6 +34,15 @@ load their libraries on use. OpenCode's client loads on server readiness; adapte
 metadata and input normalization use narrow public exports, while session modules
 load when their provider is selected or opened.
 
+After the merge gate, Pi registration was restored to its synchronous contract:
+the narrow `@ace/adapter-pi/adapter` export registers metadata immediately and
+imports session and fork I/O on first use. The daemon process regression file
+opens all eight provider paths against fake CLI/SDK processes. CommonJS archive
+libraries must be accessed through the default export of their lazy imports;
+named exports that work in Node source runs can disappear in the esbuild ESM
+artifact. Standalone release tests cover support export with thread history and
+approved TAR/ZIP installation without a checkout. These fixes retain laziness.
+
 The target remains at least 20 MiB below the 256 MiB idle RSS budget. This target
 has **not been verified** here. Before/after CLI bundles were prepared in `/tmp`,
 using the release bundler. Host load repeatedly exceeded 15, including 38.73 and
