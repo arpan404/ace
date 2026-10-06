@@ -5,7 +5,13 @@ import {
   inspectionCommand,
   type PathRisk,
 } from "@ace/core";
-import type { Capabilities, EventPayload, PermissionReview } from "@ace/protocol";
+import type {
+  Capabilities,
+  EventPayload,
+  PermissionCapabilities,
+  PermissionReview,
+  ProviderKind,
+} from "@ace/protocol";
 import type { ThreadHost } from "./thread-host.ts";
 
 /** Scripted facts are fully gated in memory; these are not native provider guarantees. */
@@ -40,6 +46,34 @@ export const fakePermissionCapabilities: Capabilities = {
     ],
   },
 };
+
+/**
+ * Cursor SDK and generic ACP agents have no pre-execution approval gate, so like the daemon's
+ * adapters they don't offer Ask, and Ask is refused for them (ADR 0061).
+ */
+const ungatedPermissions: PermissionCapabilities = {
+  modes: ["read-only", "auto-review", "full-access"],
+  nativeAutoReview: false,
+  toolGate: false,
+  guarantees: [
+    {
+      mode: "auto-review",
+      level: "sandbox",
+      gates: { writes: true, network: false, protectedReads: false, shell: true },
+      limitations: ["Simulated: no public approval decision callback."],
+    },
+  ],
+};
+
+/** The permission modes `provider`'s fake adapter offers, as `permissions.capabilities` says. */
+export function fakeProviderPermissions(provider: ProviderKind): PermissionCapabilities {
+  const permissions =
+    provider === "cursor" || provider === "acp"
+      ? ungatedPermissions
+      : fakePermissionCapabilities.permissions;
+  if (!permissions) throw new Error("fake capabilities list permission modes");
+  return structuredClone(permissions);
+}
 
 /** Fake paths describe an in-memory filesystem. No host filesystem is read. */
 function fakePaths(host: ThreadHost, paths: string[], cwd?: string): PathRisk[] {

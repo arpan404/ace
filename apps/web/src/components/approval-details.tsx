@@ -82,6 +82,8 @@ export function ApprovalButtons(props: {
   onChoose(choice: ApprovalChoice): void;
   /** Number keys 1–9 answer, in the thread; Activity binds its own keys. */
   numbered?: boolean;
+  /** Whether a number key may pick this choice; a default-to-no approval takes a click. */
+  keyed?: (choice: ApprovalChoice) => boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -97,7 +99,11 @@ export function ApprovalButtons(props: {
                 : "ghost"
           }
           disabled={props.disabled}
-          aria-keyshortcuts={props.numbered && index < 9 ? String(index + 1) : undefined}
+          aria-keyshortcuts={
+            props.numbered && index < 9 && (props.keyed?.(choice) ?? true)
+              ? String(index + 1)
+              : undefined
+          }
           onClick={() => props.onChoose(choice)}
         >
           {choice.label}

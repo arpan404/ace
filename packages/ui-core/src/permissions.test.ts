@@ -1,6 +1,7 @@
 import type { PermissionCapabilities } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
+  permissionAdmission,
   permissionChoices,
   permissionCoverage,
   permissionCoverageNote,
@@ -23,13 +24,41 @@ const codexLike: PermissionCapabilities = {
   ],
 };
 
-test("only the modes the provider supports are offered, strictest first", () => {
-  expect(permissionChoices(codexLike).map((choice) => choice.mode)).toEqual([
-    "read-only",
-    "auto-review",
-    "full-access",
+test("the modes the provider supports are offered strictest first, and Ask only with a tool gate", () => {
+  expect(permissionChoices({ ...codexLike, modes: [...codexLike.modes, "ask"] })).toEqual(
+    expect.arrayContaining([expect.objectContaining({ mode: "ask", unavailable: undefined })]),
+  );
+  // Listing Ask is not enough: without a gate before each action, nobody can approve first.
+  const cursorLike = { ...codexLike, modes: [...codexLike.modes, "ask" as const], toolGate: false };
+  expect(
+    permissionChoices(cursorLike, "Cursor").map((choice) => [choice.mode, choice.unavailable]),
+  ).toEqual([
+    ["read-only", undefined],
+    ["ask", "Cursor can't pause for your approval"],
+    ["auto-review", undefined],
+    ["full-access", undefined],
   ]);
   expect(permissionChoices(undefined)).toEqual([]);
+});
+
+test("a new thread never starts in a mode its provider can't honour, and says what it uses", () => {
+  const cursorLike = { ...codexLike, toolGate: false };
+  expect(permissionAdmission(cursorLike, "ask", "Cursor")).toEqual({
+    mode: "read-only",
+    fallback: "Cursor can't pause for your approval, so the thread starts in Read only",
+  });
+  // With nothing stricter, the nearest looser mode short of full access.
+  const acpLike: PermissionCapabilities = { ...cursorLike, modes: ["auto-review", "full-access"] };
+  expect(permissionAdmission(acpLike, "ask", "Gemini")).toEqual({
+    mode: "auto-review",
+    fallback: "Gemini can't pause for your approval, so the thread starts in Auto-review",
+  });
+  expect(permissionAdmission(cursorLike, "full-access", "Cursor")).toEqual({
+    mode: "full-access",
+    fallback: undefined,
+  });
+  // Unknown capabilities are never a refusal.
+  expect(permissionAdmission(undefined, "ask", "Cursor").mode).toBe("ask");
 });
 
 test("a provider that can't gate secret reads says so for auto-review", () => {

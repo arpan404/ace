@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -146,4 +146,66 @@ test("moving a pinned thread below the group unpins it, and moving another in pi
   await waitFor(() => expect(said()).toMatch(/not pinned/));
   await userEvent.keyboard("{ArrowUp} ");
   await waitFor(() => expect(pinnedGroup()).toEqual(["Retry budget for app-server restarts"]));
+});
+
+/** A pinned row's touch drag handle, as a phone shows it. */
+const handle = (title: string) => within(threads()).getByRole("button", { name: `Move ${title}` });
+
+test("a pinned row's handle starts a keyboard move with Enter, as Space does on the row", async () => {
+  await openHome();
+  await pinFromRow(/^Invoice PDF/, "Pin Invoice PDF locale fallback");
+  await pinFromRow(/^Backpressure/, "Pin Backpressure on broadcast fan-out");
+  await waitFor(() => expect(pinnedGroup()).toHaveLength(2));
+  // Only pinned rows carry one.
+  expect(within(threads()).queryByRole("button", { name: /^Move Retry budget/ })).toBeNull();
+
+  handle("Backpressure on broadcast fan-out").focus();
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(said()).toMatch(/^Moving Backpressure.*Pinned, place 1 of 2/));
+  await userEvent.keyboard("{ArrowDown} ");
+  await waitFor(() =>
+    expect(pinnedGroup()).toEqual([
+      "Invoice PDF locale fallback",
+      "Backpressure on broadcast fan-out",
+    ]),
+  );
+});
+
+test("a finger on a row scrolls the list; a finger on its handle drags it", async () => {
+  await openHome();
+  await pinFromRow(/^Invoice PDF/, "Pin Invoice PDF locale fallback");
+  await pinFromRow(/^Backpressure/, "Pin Backpressure on broadcast fan-out");
+  await waitFor(() => expect(pinnedGroup()).toHaveLength(2));
+  const touch = { pointerId: 7, pointerType: "touch", button: 0, buttons: 1 };
+
+  // Invoice PDF is second in the group; its handle carries it to the top.
+  fireEvent.pointerDown(handle("Invoice PDF locale fallback"), {
+    ...touch,
+    clientX: 200,
+    clientY: 120,
+  });
+  await waitFor(() => {
+    fireEvent.pointerMove(window, { ...touch, clientX: 200, clientY: 1 });
+    expect(said()).toMatch(/^Moving Invoice PDF/);
+  });
+  fireEvent.pointerUp(window, { ...touch, clientX: 200, clientY: 1 });
+  await waitFor(() =>
+    expect(pinnedGroup()).toEqual([
+      "Invoice PDF locale fallback",
+      "Backpressure on broadcast fan-out",
+    ]),
+  );
+  expect(said()).toBe("Dropped Invoice PDF locale fallback: Pinned, place 1 of 2");
+
+  // The same gesture on the row itself, with the drag code loaded, is a scroll: nothing moves.
+  fireEvent.pointerDown(card(/^Backpressure/), { ...touch, clientX: 20, clientY: 120 });
+  await act(() => new Promise((settle) => setTimeout(settle, 20)));
+  fireEvent.pointerMove(window, { ...touch, clientX: 20, clientY: 1 });
+  await act(() => new Promise((settle) => requestAnimationFrame(settle)));
+  fireEvent.pointerUp(window, { ...touch, clientX: 20, clientY: 1 });
+  expect(said()).toBe("Dropped Invoice PDF locale fallback: Pinned, place 1 of 2");
+  expect(pinnedGroup()).toEqual([
+    "Invoice PDF locale fallback",
+    "Backpressure on broadcast fan-out",
+  ]);
 });

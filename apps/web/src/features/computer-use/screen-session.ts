@@ -66,6 +66,8 @@ export interface ScreenSession {
   /** The agent that held a session before you took it over, to hand it back to. */
   lastHolder(sessionId: string): ScreenAgentScope | undefined;
   watchFrames: ScreenStreamClient["watchFrames"];
+  /** Hold a session's live stream for one view; views of one session share it. */
+  retainStream: ScreenStreamClient["retainStream"];
   close(): void;
 }
 
@@ -191,6 +193,7 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
     },
     lastHolder: (sessionId) => holders.get(sessionId),
     watchFrames: (sessionId, listener) => client.watchFrames(sessionId, listener),
+    retainStream: (sessionId) => client.retainStream(sessionId),
     close() {
       stop();
       client.disconnect();

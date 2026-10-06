@@ -1,5 +1,5 @@
 import { useInteraction, useItem, useSidebarThread } from "@ace/client-react";
-import { approvalCopy, displayCommand, oneShotNote } from "@ace/ui-core";
+import { approvalByKey, approvalCopy, displayCommand, oneShotNote } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
 import type { Interaction } from "@ace/protocol";
 import { useId, useState } from "react";
@@ -174,7 +174,13 @@ function ProviderApprovalBody(props: { interaction: Interaction; cardKey: string
   const deny = () =>
     choices.deny && answer({ kind: "approval", optionId: choices.deny.id }, confirmations.denied);
   const live = focused && !sending;
-  useHotkey("a", approve, { enabled: live && !!approveOption });
+  // A request that defaults to no is approved only by a click; A says so instead.
+  const keyApproves =
+    !!approveOption && request.kind === "approval" && approvalByKey(request, approveOption);
+  const [nudged, setNudged] = useState(false);
+  useHotkey("a", keyApproves ? approve : () => setNudged(true), {
+    enabled: live && !!approveOption,
+  });
   useHotkey("d", deny, { enabled: live && !!choices.deny });
   useOpenThreadKey(interaction.threadId, focused);
   return (
@@ -243,10 +249,15 @@ function ProviderApprovalBody(props: { interaction: Interaction; cardKey: string
             onClick={approve}
           >
             Approve
-            <ButtonKey primary={!defaultToNo}>A</ButtonKey>
+            {keyApproves && <ButtonKey primary>A</ButtonKey>}
           </Button>
         )}
       </CardActions>
+      {nudged && !sending && (
+        <p role="status" className="mt-2 text-xs text-subtle-foreground">
+          This request defaults to no: click Approve to allow it.
+        </p>
+      )}
       {choices.hidden > 0 && mode && (
         <p className="mt-2 text-xs text-subtle-foreground">{oneShotNote(mode)}</p>
       )}

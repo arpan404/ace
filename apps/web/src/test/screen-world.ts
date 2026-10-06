@@ -39,6 +39,7 @@ export function screenWorld(daemon: FakeDaemon, threadId: string) {
         sessionId: string;
         controller: string;
         mode: string;
+        secureInputAllowed: boolean;
       }[];
     },
     /** Computer use on and `bundleId` approved always, held by the thread's root agent. */

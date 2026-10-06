@@ -48,6 +48,70 @@ test("turning computer use on is what the daemon records, and Stop all turns it 
   ).toBe("false");
 });
 
+test("Stop all says it's stopping and takes no second press, then says what it stopped", async () => {
+  const { app, world } = await openSettings();
+  app.daemon.screen.access.enabled = true;
+  await world.agentApp("com.apple.TextEdit");
+  await world.agentApp("com.apple.calculator");
+  const held = Promise.withResolvers<void>();
+  app.daemon.screen.stopAllHold = { until: held.promise };
+  await app.open("/settings/computer-use");
+  const sessions = await screen.findByRole("list", { name: "Live sessions" });
+  await waitFor(() => expect(within(sessions).getAllByRole("article")).toHaveLength(2));
+
+  await userEvent.click(screen.getByRole("button", { name: "Stop all computer use" }));
+  const busy = await screen.findByRole("button", { name: "Stopping all computer use…" });
+  expect(busy.getAttribute("aria-busy")).toBe("true");
+  expect((busy as HTMLButtonElement).disabled).toBe(true);
+  expect(app.daemon.screen.access.enabled).toBe(true);
+
+  await act(async () => held.resolve());
+  expect(await screen.findByText("Stopped 2 apps. Computer use is off.")).toBeTruthy();
+  expect(app.daemon.screen.access.enabled).toBe(false);
+});
+
+test("a Stop all the daemon can't finish says why", async () => {
+  const { app, world } = await openSettings();
+  app.daemon.screen.access.enabled = true;
+  await world.agentApp("com.apple.TextEdit");
+  app.daemon.screen.stopAllHold = {
+    until: Promise.resolve(),
+    failure: "1 of 1 app session didn't stop: helper timed out",
+  };
+  await app.open("/settings/computer-use");
+  await screen.findByRole("article", { name: "TextEdit" });
+
+  await userEvent.click(screen.getByRole("button", { name: "Stop all computer use" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "Couldn't stop everything: 1 of 1 app session didn't stop: helper timed out",
+  );
+});
+
+test("secure input says what it is from the session menu, and once allowed, on the card", async () => {
+  const { app, world } = await openSettings();
+  const sessionId = await world.agentApp("com.apple.TextEdit");
+  await app.open("/settings/computer-use");
+  const card = await screen.findByRole("article", { name: "TextEdit" });
+
+  await userEvent.click(within(card).getByRole("button", { name: "Session options" }));
+  const allow = await screen.findByRole("menuitem", { name: /^Allow typing in secure fields/ });
+  expect(allow.textContent).toContain("Password fields block agent typing until you allow it");
+  await userEvent.click(allow);
+
+  await waitFor(async () =>
+    expect(
+      (await world.sessions()).find((s) => s.sessionId === sessionId)?.secureInputAllowed,
+    ).toBe(true),
+  );
+  const secure = await within(card).findByRole("group", { name: "Secure input" });
+  expect(secure.textContent).toMatch(/password and other secure fields/);
+  expect(secure.textContent).toMatch(/stays hidden from it and the log/);
+  await userEvent.click(within(secure).getByRole("button", { name: "Turn off" }));
+  await waitFor(() =>
+    expect(within(card).queryByRole("group", { name: "Secure input" })).toBeNull(),
+  );
+});
+
 test("an agent's app shows live in the background; taking over and handing back move control on the daemon", async () => {
   const { app, world } = await openSettings();
   const sessionId = await world.agentApp("com.apple.TextEdit");
