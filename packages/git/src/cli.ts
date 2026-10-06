@@ -1,3 +1,11 @@
+import {
+  mutationLeaseId,
+  assertAvailable,
+  captureMutationOwnership,
+  recoverMutationLeases,
+  mutationState,
+} from "./mutation-leases.ts";
+import type { CleanupResult } from "@ace/provider-kit/cleanup";
 import { z } from "zod";
 import { Readable, type Writable } from "node:stream";
 import { killTree, processRuntime } from "./process-runtime.ts";
@@ -29,6 +37,8 @@ export interface Output {
 }
 
 export class GitCli {
+  readonly leaseId: () => string;
+  readonly leaseSchedule: GitProcessRuntime["scheduleTimeout"];
   readonly binary: string;
   readonly timeoutMs: number;
   private ready: Promise<void> | undefined;
@@ -40,6 +50,8 @@ export class GitCli {
 
   constructor(options: GitOptions) {
     this.runtime = processRuntime(options.processRuntime);
+    this.leaseId = options.leaseId ?? mutationLeaseId;
+    this.leaseSchedule = this.runtime.scheduleTimeout;
     this.binary = options.gitBinary ?? "git";
     if (!this.binary || this.binary.includes("\0")) {
       throw new GitError("invalid_argument", "gitBinary must name an executable");
@@ -55,6 +67,25 @@ export class GitCli {
         "timeoutMs must be an integer between 1 and 2147483647",
       );
     }
+  }
+
+  assertMutationAvailable(path: string) {
+    return assertAvailable(path, this.leaseSchedule);
+  }
+  mutationState(path: string) {
+    return mutationState(path, this.leaseSchedule);
+  }
+  recoverCleanup(path: string) {
+    return recoverMutationLeases(
+      path,
+      (lease) =>
+        this.runtime.cleanupSupervisor?.recover(lease) ??
+        Promise.resolve({
+          status: "unconfirmed",
+          reason: "No escaped-descendant containment supervisor",
+        }),
+      this.leaseSchedule,
+    );
   }
 
   get activeCalls(): number {
@@ -99,12 +130,14 @@ export class GitCli {
     if (args.some((arg) => arg.includes("\0"))) {
       throw new GitError("invalid_argument", "Git arguments cannot contain NUL bytes");
     }
+    await assertAvailable(cwd, this.leaseSchedule);
     this.ready ??= this.verify(cwd, options.directoryFd, options.signal).catch((error: unknown) => {
       this.ready = undefined;
       throw error;
     });
     await this.ready;
     options.signal?.throwIfAborted();
+    await assertAvailable(cwd, this.leaseSchedule);
     return this.execute(cwd, args, options);
   }
 
@@ -169,9 +202,42 @@ export class GitCli {
       let truncated = false;
       let failure: GitError | undefined;
       let spawnFailure: Promise<GitError> | undefined;
-      let stopping: Promise<void> | undefined;
+      const ownership = captureMutationOwnership();
+      let stopped = false;
+      let settled = false;
       const kill = () => {
-        stopping ??= killTree(this.runtime, child);
+        if (stopped) return;
+        stopped = true;
+        const leases = ownership.leases;
+        let cleanup: Promise<CleanupResult>;
+        try {
+          const receipt = this.runtime.cleanupSupervisor?.stop(child, leases) ?? {
+            settled: killTree(this.runtime, child).then(() => ({
+              status: "unconfirmed" as const,
+              reason: `No escaped-descendant containment on ${this.runtime.platform}`,
+            })),
+          };
+          cleanup = ownership.quarantine(receipt);
+        } catch {
+          void killTree(this.runtime, child).catch(ignoreError);
+          cleanup = ownership.quarantine({
+            settled: Promise.resolve({
+              status: "unconfirmed",
+              reason: "Cleanup supervisor failed",
+            }),
+          });
+        }
+        if (failure) failure.cleanup = { settled: cleanup };
+        // Releasing our descriptors bounds response/shutdown; ownership is held by
+        // the durable quarantine, independently of these descriptors and close.
+        detach();
+        child.off("close", closed);
+        child.stdin.destroy();
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.unref();
+        settled = true;
+        reject(failure);
       };
       const cancel = () => {
         failure ??= new GitError("git_closed", "Git service closed");
@@ -183,7 +249,6 @@ export class GitCli {
         kill();
       };
       options.signal?.addEventListener("abort", abort, { once: true });
-      if (options.signal?.aborted) abort();
       const fail = (error: unknown) => {
         if (failure) return;
         failure = toGitError(error);
@@ -236,11 +301,10 @@ export class GitCli {
         spawnFailure = classifySpawn(error, cwd, this.binary);
       };
       child.on("error", spawnError);
-      child.once("close", async (code) => {
+      const detach = () => {
         cancelDeadline();
         this.cancellations.delete(cancel);
         options.signal?.removeEventListener("abort", abort);
-        if (stopping) await stopping;
         if (options.input instanceof Readable) {
           options.input.unpipe(child.stdin);
           options.input.off("error", streamFailure);
@@ -254,6 +318,19 @@ export class GitCli {
         child.stdout.off("error", streamFailure);
         child.stderr.off("error", streamFailure);
         child.off("error", spawnError);
+        child.on("error", ignoreError);
+        // Keep late pipe errors owned after detachment/destruction.
+        child.stdout.on("error", ignoreError);
+        child.stderr.on("error", ignoreError);
+      };
+      const closed = async (code: number | null, signal: NodeJS.Signals | null) => {
+        if (settled) return;
+        if (signal && !spawnFailure) {
+          fail(new GitError("git_failed", "Git terminated by signal", { signal }));
+          return;
+        }
+        detach();
+        settled = true;
         if (spawnFailure) failure ??= await spawnFailure;
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
@@ -261,16 +338,20 @@ export class GitCli {
           return reject(new GitError(diagnostics.finish(), "Git command failed", { code }));
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
-      });
+      };
+      child.once("close", closed);
       child.stdin.on("error", () => {});
       if (options.input instanceof Readable) {
         options.input.on("error", streamFailure);
         options.input.pipe(child.stdin);
       } else child.stdin.end(options.input);
+      if (options.signal?.aborted) abort();
       if (this.closed) cancel();
     });
   }
 }
+
+function ignoreError() {}
 
 async function classifySpawn(
   error: NodeJS.ErrnoException,

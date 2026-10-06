@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { Repository } from "./repository.ts";
-import { serial } from "./lock.ts";
 import { GitError } from "./types.ts";
 import { textOutput } from "./cli.ts";
 import { statusWithoutHidingFlags } from "./temporary-index.ts";
@@ -19,7 +18,7 @@ export async function integrateRevision(
     .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/)
     .parse(input.key);
   const root = await repository.root(input.worktree);
-  return serial(root, async () => {
+  return repository.serial(root, async () => {
     const receipt = `refs/ace/conductor/${key}`;
     const saved = await repository.cli.call(root, ["rev-parse", "--verify", receipt], {
       allowFailure: true,

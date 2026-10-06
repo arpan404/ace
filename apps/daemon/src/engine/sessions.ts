@@ -102,6 +102,7 @@ export class Sessions {
       );
       const entity = this.dependencies.repo.store.getThread(actor.id);
       if (entity?.deletedAt !== undefined) throw new Error("Thread deleted");
+      if (metadata.workspaceReady) await this.dependencies.prepareWorkspace?.(actor.id);
       if (!metadata.workspaceReady) {
         if (!this.dependencies.prepareWorkspace)
           throw new Error("Worktree preparation unavailable");

@@ -1,7 +1,7 @@
 import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { GitService } from "./index.ts";
+import { GitService, spawnGitProcess } from "./index.ts";
 import { git, put, repository, scalar, scratch } from "./test-repo.ts";
 
 const service = new GitService();
@@ -140,9 +140,21 @@ test("configured Git binaries enforce the version floor and kill hung calls", as
     binary,
     `#!${process.execPath}\nif(process.argv.includes('--version')) process.stdout.write('git version 2.40.0\\n'); else { require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000); }\n`,
   );
+  const exited = Promise.withResolvers<void>();
   await expect(
-    new GitService({ gitBinary: binary, timeoutMs: 2_000 }).repositoryInfo(directory),
+    new GitService({
+      gitBinary: binary,
+      timeoutMs: 2_000,
+      processRuntime: {
+        spawn: (command, args, options) => {
+          const child = spawnGitProcess(command, args, options);
+          if (!args.includes("--version")) child.once("exit", () => exited.resolve());
+          return child;
+        },
+      },
+    }).repositoryInfo(directory),
   ).rejects.toMatchObject({ code: "git_timeout" });
+  await exited.promise;
   const pid = Number(await readFile(pidFile, "utf8"));
   expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
   expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));

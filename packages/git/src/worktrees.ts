@@ -2,9 +2,8 @@ import { deleteUnchangedBranch } from "./branch-cleanup.ts";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Repository } from "./repository.ts";
-import { serial } from "./lock.ts";
 import { statusWithoutHidingFlags } from "./temporary-index.ts";
-import { GitError, type Worktree } from "./types.ts";
+import { GitError, isMutationUnavailable, type Worktree } from "./types.ts";
 
 export interface CreateWorktreeOptions {
   repo: string;
@@ -19,7 +18,7 @@ export async function createWorktree(
   options: CreateWorktreeOptions,
 ): Promise<Worktree> {
   const root = await repository.root(options.repo);
-  return serial(root, async () => {
+  return repository.serial(root, async () => {
     const { cli } = repository;
     const valid = await cli.call(root, ["check-ref-format", `refs/heads/${options.branch}`], {
       allowFailure: true,
@@ -59,6 +58,9 @@ export async function createWorktree(
       if (!tree) throw new GitError("git_failed", "Created worktree was not registered");
       return tree;
     } catch (error) {
+      // Quarantine owns uncertain resources. Preserve the first failure and its
+      // receipt; rollback cannot run while an escaped writer may survive.
+      if (isMutationUnavailable(error)) throw error;
       // The branch and checkout are one operation. Roll back only the exact resources
       // created here, preserving external edits or ref changes with compare-and-delete.
       if (exists.exitCode !== 0) {
@@ -96,7 +98,7 @@ export async function removeWorktree(
   } catch {
     throw new GitError("worktree_not_found", `Worktree path does not exist: ${options.path}`);
   }
-  await serial(target, async () => {
+  await repository.serial(target, async () => {
     const trees = await repository.worktrees(root);
     let found: Worktree | undefined;
     let main = false;

@@ -78,8 +78,10 @@ export class WorkspaceRuntime {
   root(id: ThreadId): string {
     return this.roots.root(id);
   }
-  prepare(id: ThreadId): Promise<string> {
-    return this.roots.prepare(id);
+  async prepare(id: ThreadId): Promise<string> {
+    const root = await this.roots.prepare(id);
+    await this.git.assertMutationAvailable(root);
+    return root;
   }
   prepareCreation(command: Command) {
     return this.roots.prepareCreation(command);

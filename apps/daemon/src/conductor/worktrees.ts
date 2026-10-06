@@ -1,14 +1,14 @@
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { GitService } from "@ace/git";
+import { GitService, type GitOptions } from "@ace/git";
 import type { RootBinding, LaneBinding } from "./journal.ts";
 
 export class DeckWorktrees {
   readonly git: GitService;
   private directory: string;
-  constructor(directory: string, now: () => number) {
+  constructor(directory: string, now: () => number, options: GitOptions = {}) {
     this.directory = directory;
-    this.git = new GitService({ now: () => new Date(now()) });
+    this.git = new GitService({ ...options, now: () => new Date(now()) });
   }
   async path(key: string) {
     await mkdir(join(this.directory, "deck-worktrees"), { recursive: true, mode: 0o700 });

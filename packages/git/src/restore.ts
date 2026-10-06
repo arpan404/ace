@@ -62,10 +62,12 @@ export async function restoreCheckpoint(
       return { safetyCheckpointId: safety.id };
     } catch (error) {
       const failure = toGitError(error);
-      throw new GitError(failure.code, failure.message, {
+      const wrapped = new GitError(failure.code, failure.message, {
         ...failure.details,
         safetyCheckpointId: safety.id,
       });
+      wrapped.cleanup = failure.cleanup;
+      throw wrapped;
     }
   });
 }

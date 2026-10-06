@@ -217,7 +217,7 @@ describe("checkpoints", () => {
       import { syncBuiltinESMExports } from 'node:module';
       const repo = ${JSON.stringify(repo)};
       const guard = (original) => function(path, ...args) {
-        if (typeof path === 'string' && path.startsWith(repo + '/')) throw new Error('JS read of worktree: ' + path);
+        if (typeof path === 'string' && path.startsWith(repo + '/') && !path.startsWith(repo + '/.git/') && path !== repo + '/.git') throw new Error('JS read of worktree: ' + path);
         return original.call(this, path, ...args);
       };
       for (const key of ['readFile', 'readFileSync', 'open', 'openSync', 'createReadStream']) fs[key] = guard(fs[key]);
