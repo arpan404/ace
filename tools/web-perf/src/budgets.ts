@@ -6,7 +6,7 @@
 export const budgets = {
   bundle: {
     /** The entry and its static imports, gzip: what loads before any route. 262 KB measured. */
-    initialKb: 272,
+    initialKb: 270,
     /**
      * Shell plus the heaviest route: what a first screen actually loads (ADR 0045's 200 KB
      * target is for this number; 396 KB measured).
