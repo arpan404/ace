@@ -13,6 +13,7 @@ export default async function setup(project: TestProject) {
   const context: TestHomeContext = project.getProvidedContext();
   const directory = await mkdtemp(join(context.testHomeRoot, "ace-process-tests-"));
   const daemonCli = join(directory, "cli.mjs");
+  const machineWorker = join(directory, "machine-worker.mjs");
   const tlsHome = join(directory, "identity");
   const tls = join(tlsHome, "tls");
   const gitTemplate = join(directory, "git-template");
@@ -28,6 +29,20 @@ export default async function setup(project: TestProject) {
     // Build local CLI modules once per run. Keep package imports native so
     // runtime-relative CommonJS requires and worker URLs resolve beside their sources.
     const results = await Promise.allSettled([
+      // The real machine workers run JavaScript, like production Vite workers. Node 26's
+      // concurrent WASM TypeScript loader can SIGILL before/during lazy service imports.
+      execute(
+        "bun",
+        [
+          "build",
+          "packages/client-worker/src/machines-worker.fixture.ts",
+          "--target",
+          "node",
+          "--outfile",
+          machineWorker,
+        ],
+        { cwd: project.config.root, env, timeout: PROCESS_TEST_TIMEOUT },
+      ),
       execute(
         "bun",
         [
@@ -72,6 +87,7 @@ export default async function setup(project: TestProject) {
     );
     await chmod(join(tls, "key.pem"), 0o600);
     project.provide("daemonCli", daemonCli);
+    project.provide("machineWorker", machineWorker);
     project.provide("tlsHome", tlsHome);
     project.provide("gitTemplate", gitTemplate);
   } catch (error) {
