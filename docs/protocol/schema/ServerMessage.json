@@ -662,6 +662,22 @@
     },
     {
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "type": {
+          "const": "screen.enabled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "state": {
           "$ref": "https://ace.local/protocol/v1/ScreenState.json"
         },
@@ -681,6 +697,46 @@
         "data": {},
         "error": {
           "type": "string"
+        },
+        "errorCode": {
+          "enum": [
+            "forbidden",
+            "permission_denied",
+            "approval_required",
+            "screen_disabled",
+            "denied",
+            "read_only",
+            "target_gone",
+            "not_supported",
+            "bounds",
+            "busy",
+            "timeout",
+            "internal",
+            "target_busy",
+            "foreground_required",
+            "focus_changed",
+            "window_minimized",
+            "window_offscreen",
+            "secure_input_required",
+            "clipboard_changed"
+          ],
+          "type": "string"
+        },
+        "holder": {
+          "properties": {
+            "owner": {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "sessionId": {
+              "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+            }
+          },
+          "required": [
+            "sessionId",
+            "owner"
+          ],
+          "type": "object"
         },
         "ok": {
           "type": "boolean"

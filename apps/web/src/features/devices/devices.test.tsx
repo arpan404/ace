@@ -271,3 +271,25 @@ test("a simulator key refused for want of Accessibility says how to allow it, ab
   await userEvent.click(within(guide).getByRole("button", { name: "Open Accessibility settings" }));
   await waitFor(() => expect(app.daemon.appDevices.requested).toEqual(["accessibility"]));
 });
+
+test("an approved device can be delegated to one of the thread's agents, who then holds it, and taken back", async () => {
+  const { panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
+  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
+  await within(iphone).findByText("Agents in this thread can use it");
+
+  await userEvent.click(
+    await within(iphone).findByRole("button", { name: "Delegate to an agent" }),
+  );
+  const agents = await screen.findAllByRole("menuitem");
+  const chosen = agents[0]?.textContent ?? "";
+  await userEvent.click(agents[0]!);
+
+  // The daemon's state names the agent that holds it now.
+  expect(await within(iphone).findByText(`${chosen} is using it`)).toBeTruthy();
+  expect(statusLine(iphone)).toMatch(/The agent is in control$/);
+
+  await userEvent.click(within(iphone).getByRole("button", { name: "Take back" }));
+  expect(await within(iphone).findByText("You're using it")).toBeTruthy();
+});

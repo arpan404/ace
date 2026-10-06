@@ -1,5 +1,5 @@
 import { ScreenStopError } from "./stop-error.ts";
-import { Helper, type HelperOptions } from "./helper.ts";
+import { Helper, HelperCommandError, type HelperOptions } from "./helper.ts";
 /** One process owns a host. Concurrent inspections share its bounded request map. */
 export class HelperHost {
   private opening: Promise<Helper> | undefined;
@@ -8,6 +8,25 @@ export class HelperHost {
   private readonly options: HelperOptions;
   constructor(options: HelperOptions) {
     this.options = options;
+  }
+  private executionTail: Promise<void> = Promise.resolve();
+  private queued = 0;
+  execute<T>(authorize: () => void, dispatch: () => Promise<T>): Promise<T> {
+    if (this.queued >= 160) return Promise.reject(new Error("Host execution queue limit"));
+    this.queued++;
+    const operation = this.executionTail
+      .then(() => {
+        authorize();
+        return dispatch();
+      })
+      .finally(() => {
+        this.queued--;
+      });
+    this.executionTail = operation.then(
+      () => {},
+      () => {},
+    );
+    return operation;
   }
   open(): Promise<Helper> {
     if (this.closing) return this.closing.then(() => this.open());
@@ -40,7 +59,7 @@ export class HelperHost {
     }
     return this.opening;
   }
-  async stopCapture(helper: Helper): Promise<void> {
+  async stopCapture(helper: import("./helper-session.ts").HelperPort): Promise<void> {
     if (!helper.capabilities) {
       await this.close();
       return;
@@ -48,11 +67,20 @@ export class HelperHost {
     try {
       await helper.request({ op: "stop" });
     } catch (error) {
+      if (
+        helper.capabilities?.background &&
+        error instanceof HelperCommandError &&
+        error.code === "target_gone"
+      )
+        return;
       try {
         await this.close();
       } catch (terminationError) {
         throw new ScreenStopError([error, terminationError], false);
       }
+      this.options.onFailure(
+        error instanceof Error ? error : new Error("Screen capture stop failed"),
+      );
       throw new ScreenStopError([error], true);
     }
   }

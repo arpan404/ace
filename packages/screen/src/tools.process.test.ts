@@ -6,7 +6,7 @@ it("the advertised text schema and handler accept the same bounded input", async
   const definition = computerUseTools.find((tool) => tool.name === "screen_type");
   if (!definition) throw new Error("Missing typing tool");
   const input = z.fromJSONSchema(definition.inputSchema);
-  const test = await manager();
+  const test = await manager({ FAKE_V2: "1" });
   try {
     const state = await ready(test.screen);
     test.screen.controller(state.sessionId, "agent", "caller");
@@ -14,7 +14,7 @@ it("the advertised text schema and handler accept the same bounded input", async
     const accepted = { text: "x".repeat(4096) };
     expect(input.parse(accepted)).toEqual(accepted);
     await expect(handler("screen_type", accepted)).resolves.toMatchObject({
-      content: [{ text: "Action completed" }],
+      content: [{ text: expect.stringContaining('"mode":"background"') }],
     });
     const rejected = { text: "x".repeat(4097) };
     expect(() => input.parse(rejected)).toThrow();

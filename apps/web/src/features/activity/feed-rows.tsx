@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { automationRunSummary } from "@/features/automations/index.ts";
 import { useNow } from "@/lib/time.ts";
-import { formatAge } from "@ace/ui-core";
+import { approvalCopy, deliberateApproval, formatAge, privateBrowserGate } from "@ace/ui-core";
 import { eventKey, interactionKey, useActivityState } from "./activity-state.tsx";
 import { offeredChoices } from "./approval.ts";
 import { FeedRow } from "./feed-row.tsx";
@@ -57,11 +57,19 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
     request.kind === "approval"
       ? offeredChoices(request.options, thread?.permission?.effective)
       : undefined;
-  const { approve, deny } = choices ?? {};
+  const { deny } = choices ?? {};
+  // ace's own tools and default-to-no requests are approved on their card, never from a list.
+  const approve = deliberateApproval(request) ? undefined : choices?.approve;
   return (
     <FeedRow
       icon={glyph(requestIcons[request.kind])}
-      title={requestTitle(request)}
+      title={
+        request.kind === "approval" && approvalCopy(request).tool
+          ? approvalCopy(request).title
+          : privateBrowserGate(interaction)
+            ? "You're holding a browser privately"
+            : requestTitle(request)
+      }
       description={thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : props.threadId}
       age={formatAge(interaction.createdAt, now)}
       mark="needs-you"

@@ -1,8 +1,7 @@
 import { ArrowSquareOutIcon, DevicesIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { displayAddress } from "@ace/ui-core";
-import { useRef, useState, type KeyboardEvent } from "react";
-import { openExternal } from "@/boot/open-external.ts";
-import { Dot } from "@/components/ui/dot.tsx";
+import { useEffect, useRef, type KeyboardEvent } from "react";
+import { openExternal, revealer } from "@/boot/open-external.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
@@ -13,18 +12,28 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
-import { useBrowserDriver } from "../preview/use-browser-driver.ts";
+import { reportBrowserControl } from "@/lib/browser-control.ts";
 import { usePanelServices } from "../services.ts";
+import { useLocal } from "../store.ts";
 import type { BrowserView, PreviewSource } from "../sources.ts";
 import { WithServices } from "../with-services.tsx";
 import { AddressBar } from "./address-bar.tsx";
+import { AgentTabs } from "./agent-tabs.tsx";
+import { ControlStrip, useControl } from "./control-strip.tsx";
+import { DownloadsButton } from "./downloads.tsx";
+import { PageDialog } from "./page-dialog.tsx";
+import { SiteAccess } from "./site-access.tsx";
+import {
+  recordingThreads,
+  useBrowserFeatures,
+  type BrowserFeatures,
+} from "./use-browser-features.ts";
 import { PageNav, PageToolbar } from "./page-toolbar.tsx";
 import { bindPage } from "./loading.ts";
 import { useNativeView } from "./native-view.ts";
@@ -34,83 +43,6 @@ import { useBrowserTab } from "./use-browser-tab.ts";
 import { viewportById, viewports } from "./viewports.ts";
 
 const tool = "size-7 rounded-sm";
-
-/** Who has the page: the agent (named from the thread's tree), this device, or nobody yet. */
-function ControlStrip(props: { view: BrowserView; busy: boolean; onToggle(): void }) {
-  const driver = useBrowserDriver(props.view.threadId);
-  const { view } = props;
-  let text;
-  let mark;
-  if (view.status === "paused" || view.status === "recovering") {
-    mark = view.status === "recovering" ? <Spinner /> : <Dot tone="needs-you" />;
-    text = (
-      <>
-        {view.status === "recovering" ? "Reconnecting the browser" : "The browser is paused"}
-        {view.reason && ` · ${view.reason}`}
-      </>
-    );
-  } else if (view.controller === "human") {
-    mark = <Dot tone="needs-you" />;
-    text = (
-      <>
-        <b className="font-medium text-foreground">You</b> have control · agents wait until you hand
-        it back
-      </>
-    );
-  } else {
-    mark = <Spinner className="text-status-working" />;
-    text = (
-      <>
-        <b className="font-medium text-foreground">{driver ?? "An agent"}</b> is using this page
-      </>
-    );
-  }
-  return (
-    <div
-      role="status"
-      className="flex h-8 shrink-0 items-center gap-2 border-b px-3 text-xs text-muted-foreground"
-    >
-      {mark}
-      <span className="min-w-0 flex-1 truncate">{text}</span>
-      {view.pageStateLost && (
-        <span className="shrink-0 text-subtle-foreground">
-          Reopened after the browser was lost; sign-ins were reset
-        </span>
-      )}
-      {view.status !== "paused" && view.status !== "recovering" && (
-        <Tip label={keymap.takeControl.label} shortcut="takeControl">
-          <button
-            type="button"
-            disabled={props.busy}
-            onClick={props.onToggle}
-            className="h-6 shrink-0 rounded-sm px-2 font-medium text-foreground outline-none hover:bg-accent focus-ring disabled:opacity-50"
-          >
-            {view.controller === "human" ? "Hand back" : "Take control"}
-          </button>
-        </Tip>
-      )}
-    </div>
-  );
-}
-
-function useControl(source: PreviewSource, threadId: string, view: BrowserView | undefined) {
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const toggle = () => {
-    if (busy || !view) return;
-    setBusy(true);
-    const human = view.controller === "human";
-    (human ? source.handback(threadId) : source.takeover(threadId))
-      .catch((error: unknown) =>
-        toast.add({
-          title: human ? "Couldn't hand back control" : "Couldn't take control",
-          description: error instanceof Error ? error.message : undefined,
-        }),
-      )
-      .finally(() => setBusy(false));
-  };
-  return { busy, toggle };
-}
 
 /**
  * A browser tab: an editable address over the thread's live page, with Back, Forward, Reload,
@@ -125,6 +57,24 @@ function Browser(props: TabViewProps) {
   const actions = useWorkspaceActions(threadId);
   const toast = useToast();
   const control = useControl(source, threadId, page.live);
+  const browser = useBrowserFeatures(source, threadId);
+  // The rail's indicator: an agent drives this page, or it is held privately.
+  const live = page.live;
+  const reported = live && {
+    threadId,
+    url: live.url,
+    controller: live.controller,
+    private: live.takeoverMode === "private",
+  };
+  const reportKey = reported
+    ? `${reported.url}|${reported.controller}|${String(reported.private)}`
+    : undefined;
+  useEffect(() => {
+    reportBrowserControl(threadId, reported || undefined);
+    // The key says when the report changed; the object is rebuilt every render.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, reportKey]);
+  useEffect(() => () => reportBrowserControl(threadId, undefined), [threadId]);
   const loading = page.state.phase === "loading";
   const viewport = viewportById(page.data.viewport);
   const shownUrl =
@@ -297,12 +247,26 @@ function Browser(props: TabViewProps) {
             live={!!page.live}
             online={page.online}
             backend={page.live?.backend}
+            browser={browser}
+            downloads={page.live?.downloads ?? []}
+            privately={page.live?.takeoverMode === "private"}
           />
         }
         progress={loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
       {page.bound && page.live && (
-        <ControlStrip view={page.live} busy={control.busy} onToggle={control.toggle} />
+        <ControlStrip
+          view={page.live}
+          busy={control.busy}
+          onToggle={control.toggle}
+          onPrivate={control.takePrivately}
+        />
+      )}
+      {page.live && !page.live.closed && (
+        <>
+          <AgentTabs view={page.live} browser={browser} busy={control.busy} />
+          <PageDialog view={page.live} browser={browser} />
+        </>
       )}
       <div
         ref={pageArea}
@@ -329,11 +293,46 @@ function BrowserActions(props: {
   live: boolean;
   online: boolean;
   backend: BrowserView["backend"] | undefined;
+  browser: BrowserFeatures;
+  downloads: NonNullable<BrowserView["downloads"]>;
+  privately: boolean;
 }) {
   const toast = useToast();
-  const { shownUrl, external, viewport } = props;
+  const { shownUrl, external, viewport, browser } = props;
+  const recording = useLocal(recordingThreads, (threads) => threads.has(props.threadId));
+  const setRecording = (on: boolean) =>
+    recordingThreads.set((threads) => {
+      const next = new Set(threads);
+      if (on) next.add(props.threadId);
+      else next.delete(props.threadId);
+      return next;
+    });
+  const toggleRecording = async () => {
+    if (!recording) {
+      if (await browser.startRecording()) setRecording(true);
+      return;
+    }
+    const artifact = await browser.stopRecording();
+    setRecording(false);
+    if (!artifact) return;
+    const reveal = revealer();
+    toast.add({
+      title: "Recording saved to this thread",
+      description: artifact.filename ?? artifact.path,
+      ...(reveal
+        ? {
+            actionProps: {
+              children: "Show in Finder",
+              onClick: () => void reveal(artifact.path).catch(() => {}),
+            },
+          }
+        : {}),
+    });
+  };
   return (
     <>
+      <DownloadsButton downloads={props.downloads} />
+      <SiteAccess threadId={props.threadId} browser={browser} />
       <Menu>
         <Tip label={`Page size · ${viewport.label}`}>
           <MenuTrigger
@@ -401,6 +400,19 @@ function BrowserActions(props: {
             }}
           >
             Close the thread's page
+          </MenuItem>
+          <MenuItem
+            disabled={!props.live || !props.online || (props.privately && !recording)}
+            reason={
+              props.privately && !recording
+                ? "Private pages are never recorded"
+                : props.live
+                  ? undefined
+                  : "No page is open"
+            }
+            onClick={() => void toggleRecording()}
+          >
+            {recording ? "Stop recording" : "Record the page"}
           </MenuItem>
           <MenuSeparator />
           <p className="px-2.5 py-1.5 text-xs leading-4 text-subtle-foreground">

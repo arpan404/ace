@@ -209,8 +209,9 @@ test("permission request floods terminate the owned process without admitting an
         },
       );
       session = h.session;
-    } catch (error) {
-      expect(error instanceof Error ? error.message : "").toMatch(/limit|closed|exited/);
+    } catch {
+      // The burst can interrupt any negotiation step. The transport fault and final
+      // process facts below establish why opening failed, without depending on that step.
     }
     await exited.promise;
     expect(JSON.stringify(frames)).toContain("request limit");

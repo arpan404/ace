@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { expect, it, onTestFinished } from "vitest";
 import { computerUseHandler } from "./index.ts";
+import { allowForeground } from "./testing/foreground.ts";
 import { manager, ready } from "./testing/support.ts";
 
 it.each([1, 2])(
@@ -32,6 +33,7 @@ it.each([1, 2])(
     onTestFinished(f.close);
     const state = await ready(f.screen);
     f.screen.controller(state.sessionId, "agent", "agent");
+    await allowForeground(f.screen, state.sessionId);
     const tool = computerUseHandler(f.screen, state.sessionId, "agent");
     const result = await tool("screen_screenshot", {});
     expect(result.content).toMatchObject([
@@ -42,6 +44,7 @@ it.each([1, 2])(
     expect((await f.screen.targets()).windows[0]?.title).toContain("clicked:centre");
     f.screen.controller(state.sessionId, "human", "person");
     f.screen.controller(state.sessionId, "agent", "agent");
+    await allowForeground(f.screen, state.sessionId);
     await expect(tool("screen_click", { x: 768, y: 384 })).rejects.toMatchObject({
       code: "screenshot_required",
     });

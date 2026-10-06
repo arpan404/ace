@@ -36,6 +36,8 @@ export type HelperOptions = {
 };
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, "version" | "id"> : never;
 export class Helper {
+  private commandTail: Promise<void> = Promise.resolve();
+  private queuedCommands = 0;
   private readonly pending = new Map<
     string,
     {
@@ -225,13 +227,15 @@ export class Helper {
   }
   requestV2(
     command: WithoutEnvelope<import("@ace/protocol").ScreenHelperRequestV2>,
+    beforeDispatch?: () => void,
   ): Promise<unknown> {
-    return this.send(command);
+    return this.dispatch(command, beforeDispatch);
   }
   request(
     command: WithoutEnvelope<ScreenHelperRequest | import("@ace/protocol").ScreenHelperRequestV2>,
+    beforeDispatch?: () => void,
   ): Promise<unknown> {
-    const result = this.send(command);
+    const result = this.dispatch(command, beforeDispatch);
     if (command.op !== "permissions" || this.capabilities?.platform !== "windows") return result;
     return result.then((data) => {
       const permissions = ScreenPermissionsV2.parse(data);
@@ -240,6 +244,35 @@ export class Helper {
         accessibility: ["granted", "n/a"].includes(permissions.input),
       };
     });
+  }
+  /** Main.swift executes every macOS command serially. Keep even observations in this
+   * queue so no mutation enters native stdin behind work with stale authority. */
+  private dispatch(
+    command: WithoutEnvelope<ScreenHelperRequest | import("@ace/protocol").ScreenHelperRequestV2>,
+    beforeDispatch?: () => void,
+  ): Promise<unknown> {
+    if (this.closed) return Promise.reject(new Error("Helper is closed"));
+    const send = () => {
+      beforeDispatch?.();
+      return this.send(command);
+    };
+    if (this.capabilities?.platform !== "macos" || !this.capabilities.background) {
+      try {
+        return send();
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+    if (this.queuedCommands >= 32) return Promise.reject(new Error("Helper request limit"));
+    this.queuedCommands++;
+    const request = this.commandTail.then(send).finally(() => {
+      this.queuedCommands--;
+    });
+    this.commandTail = request.then(
+      () => {},
+      () => {},
+    );
+    return request;
   }
   private send(
     command:
@@ -336,6 +369,7 @@ export class Helper {
       this.pending.clear();
     }
     await this.proc.stop({ graceMs: 1000 });
+    await this.commandTail;
     await this.cleanup();
   }
 }

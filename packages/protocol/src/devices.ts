@@ -85,6 +85,7 @@ export const DeviceState = z.object({
   lifecycle: z.enum(["idle", "starting", "live", "stopping", "failed"]),
   streamId: ScreenId.optional(),
   controller: z.enum(["none", "human", "agent"]),
+  holder: z.object({ threadId: ThreadId, agentId: AgentId }).optional(),
   leaseExpiresAt: z.number().nonnegative().optional(),
   error: DeviceFailure.optional(),
 });

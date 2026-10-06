@@ -34,7 +34,15 @@ extension Capture {
                 context: nil, eventNumber: 0, clickCount: 1, pressure: 0)?.cgEvent else { throw HelperError("Cannot create pointer release") }
             event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(original.window.windowID))
             event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(original.window.windowID))
-            try NativeInputPost.perform(permission: runtime.inputAllowed) { event.postToPid(app.processID) }
+            try deliverInput(event, mode: original.mode, pid: app.processID, permission: runtime.inputAllowed) { event, destination in
+                switch destination {
+                case .foreground:
+                    // Release the original HID press without moving the person's cursor.
+                    guard let current = CGEvent(source: nil)?.location else { throw HelperError("Cannot read cursor for release", code: "internal") }
+                    event.location = current; event.post(tap: .cghidEventTap)
+                case let .process(pid): event.postToPid(pid)
+                }
+            }
         }
     }
 }

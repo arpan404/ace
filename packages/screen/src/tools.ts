@@ -1,5 +1,7 @@
 import {
   ScreenAction,
+  ScreenId,
+  ScreenBundle,
   ScreenInput,
   ScreenUITreeOptions,
   ScreenUIFindOptions,
@@ -20,63 +22,122 @@ const Scroll = z.union([
   ScrollAction.omit({ kind: true }).strict(),
   PointScroll.omit({ kind: true }).strict(),
 ]);
+const SessionSelection = { sessionId: ScreenId.optional() };
 export const computerUseSchemas = {
-  screen_ui_tree: ScreenUITreeOptions.strict(),
-  screen_ui_find: ScreenUIFindOptions.strict(),
-  screen_ui_act: ScreenUIActOptions.strict(),
-  screen_screenshot: Screenshot,
-  screen_click: Click,
-  screen_type: Type,
-  screen_key: Key,
-  screen_scroll: Scroll,
+  screen_ui_tree: ScreenUITreeOptions.extend(SessionSelection).strict(),
+  screen_ui_find: ScreenUIFindOptions.extend(SessionSelection).strict(),
+  screen_ui_act: ScreenUIActOptions.extend(SessionSelection).strict(),
+  screen_screenshot: Screenshot.extend(SessionSelection),
+  screen_click: Click.extend(SessionSelection),
+  screen_type: Type.extend(SessionSelection),
+  screen_key: z.union(Key.options.map((schema) => schema.extend(SessionSelection))),
+  screen_scroll: z.union(Scroll.options.map((schema) => schema.extend(SessionSelection))),
+  screen_paste: Type.extend(SessionSelection),
+  screen_request_app: z.strictObject({
+    bundleId: ScreenBundle,
+    reason: z.string().min(1).max(2048),
+  }),
+  screen_open_app: z.strictObject({ bundleId: ScreenBundle }),
+  screen_request_foreground: z.strictObject({
+    ...SessionSelection,
+    reason: z.string().min(1).max(2048),
+  }),
 };
 export const computerUseTools = [
+  {
+    name: "screen_request_app",
+    description:
+      "Request human approval for an exact app bundle id with a reason. Grants last this turn, this thread or always.",
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_request_app);
+    },
+  },
+  {
+    name: "screen_open_app",
+    description:
+      "Launch an approved app in the background and acquire an agent session. Returns target and sessionId; use sessionId when controlling multiple apps.",
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_open_app);
+    },
+  },
+  {
+    name: "screen_request_foreground",
+    description:
+      "Request human approval for foreground mode for this session. Include why the app requires real cursor and keyboard focus.",
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_request_foreground);
+    },
+  },
+  {
+    name: "screen_paste",
+    description:
+      "Paste text into the approved app, preserving the clipboard. Refuses secure fields without session consent.",
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_paste);
+    },
+  },
   {
     name: "screen_ui_tree",
     description:
       "Use first: inspect the approved app's bounded accessibility tree with stable refs. Prefer semantic actions to pixel clicks.",
-    inputSchema: z.toJSONSchema(computerUseSchemas.screen_ui_tree),
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_ui_tree);
+    },
   },
   {
     name: "screen_ui_find",
     description:
       "Find accessible elements by role, name or text without requesting the entire tree. Use before screenshot searches.",
-    inputSchema: z.toJSONSchema(computerUseSchemas.screen_ui_find),
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_ui_find);
+    },
   },
   {
     name: "screen_ui_act",
     description:
       "Act on a stable element ref using the OS accessibility API. Reply states whether synthesized input was needed.",
-    inputSchema: z.toJSONSchema(computerUseSchemas.screen_ui_act),
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_ui_act);
+    },
   },
   {
     name: "screen_screenshot",
     description:
       "Visual check only: inspect the approved app. Use screen_ui_tree or screen_ui_find first; screenshots cost more tokens.",
-    inputSchema: z.toJSONSchema(Screenshot),
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_screenshot);
+    },
   },
   {
     name: "screen_click",
     description:
       "Prefer screen_ui_act. Click at target-window points with v2, or pixels of the latest model screenshot with v1. Take a new screenshot after takeover or resizing.",
-    inputSchema: z.toJSONSchema(Click),
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_click);
+    },
   },
   {
     name: "screen_type",
     description: "Type text in the approved application",
-    inputSchema: z.toJSONSchema(Type),
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_type);
+    },
   },
   {
     name: "screen_key",
     description:
       "Press a named key with v2 (for example Enter), or a legacy macOS keyCode, with modifiers.",
-    inputSchema: z.toJSONSchema(Key),
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_key);
+    },
   },
   {
     name: "screen_scroll",
     description:
       "Scroll with v2 dx/dy at optional target-window points, or legacy model-image pixel coordinates and deltaX/deltaY.",
-    inputSchema: z.toJSONSchema(Scroll),
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_scroll);
+    },
   },
 ];
 /** The MCP host supplies a session and owner from its scoped credential, never tool arguments. */
@@ -96,8 +157,28 @@ export function computerUseHandler(
     )[];
   }> => {
     signal.throwIfAborted();
+    const raw = z.record(z.string(), z.unknown()).parse(input);
+    const { sessionId: selected, ...payload } = raw;
+    if (selected !== undefined && selected !== sessionId)
+      throw new Error("Controller ownership required");
+    const mode = manager.state(sessionId).mode;
+    const observe = () =>
+      manager.state(sessionId).capabilities?.uiTree
+        ? manager.uiTree(sessionId, { maxNodes: 64, maxDepth: 6 }, owner)
+        : Promise.resolve(null);
+    if (name === "screen_paste") {
+      await manager.input(
+        sessionId,
+        "agent",
+        { kind: "text.paste", ...Type.parse(payload) },
+        owner,
+        () => signal.throwIfAborted(),
+      );
+      const snapshot = await observe();
+      return { content: [{ type: "text", text: JSON.stringify({ mode, snapshot }) }] };
+    }
     if (name === "screen_screenshot") {
-      Screenshot.parse(input);
+      Screenshot.parse(payload);
       const image = await manager.modelScreenshot(sessionId, owner, signal);
       return {
         content: [
@@ -108,9 +189,11 @@ export function computerUseHandler(
           },
           {
             type: "text",
-            text: manager.state(sessionId).capabilities
-              ? `Screenshot scale: ${image.scale} pixels per target point. Divide image coordinates by this scale for v2 input; prefer UI refs.`
-              : `Legacy input uses pixels in this ${image.width}x${image.height} model image. Pass its coordinates directly; ace maps them to the original capture. Refresh after control or capture geometry changes.`,
+            text:
+              `Mode: ${mode}. ` +
+              (manager.state(sessionId).capabilities
+                ? `Screenshot scale: ${image.scale} pixels per target point. Divide image coordinates by this scale for v2 input; prefer UI refs.`
+                : `Legacy input uses pixels in this ${image.width}x${image.height} model image. Pass its coordinates directly; ace maps them to the original capture. Refresh after control or capture geometry changes.`),
           },
         ],
       };
@@ -118,34 +201,47 @@ export function computerUseHandler(
     if (name === "screen_ui_tree" || name === "screen_ui_find" || name === "screen_ui_act") {
       const data =
         name === "screen_ui_tree"
-          ? await manager.uiTree(sessionId, input, owner)
+          ? await manager.uiTree(sessionId, payload, owner)
           : name === "screen_ui_find"
-            ? await manager.uiFind(sessionId, input, owner)
-            : await manager.uiAct(sessionId, "agent", input, owner, () => signal.throwIfAborted());
-      return { content: [{ type: "text", text: JSON.stringify(data) }] };
+            ? await manager.uiFind(sessionId, payload, owner)
+            : await manager.uiAct(sessionId, "agent", payload, owner, () =>
+                signal.throwIfAborted(),
+              );
+      const snapshot =
+        name === "screen_ui_act" && !("snapshot" in data)
+          ? await manager.uiTree(sessionId, { maxNodes: 64, maxDepth: 6 }, owner)
+          : undefined;
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ mode, ...data, ...(snapshot ? { snapshot } : {}) }),
+          },
+        ],
+      };
     }
     let action: unknown;
     let v2: unknown;
     const negotiated = manager.state(sessionId).capabilities !== undefined;
     switch (name) {
       case "screen_click":
-        action = { kind: "click", ...Click.parse(input) };
-        if (negotiated) v2 = { kind: "pointer.click", ...Click.parse(input) };
+        action = { kind: "click", ...Click.parse(payload) };
+        if (negotiated) v2 = { kind: "pointer.click", ...Click.parse(payload) };
         break;
       case "screen_type":
-        action = { kind: "type", ...Type.parse(input) };
-        if (negotiated) v2 = { kind: "text.type", ...Type.parse(input) };
+        action = { kind: "type", ...Type.parse(payload) };
+        if (negotiated) v2 = { kind: "text.type", ...Type.parse(payload) };
         break;
       case "screen_key":
         {
-          const key = Key.parse(input);
+          const key = Key.parse(payload);
           if ("key" in key) v2 = { kind: "key.press", ...key };
           else action = { kind: "key", ...key };
         }
         break;
       case "screen_scroll":
         {
-          const scroll = Scroll.parse(input);
+          const scroll = Scroll.parse(payload);
           if ("dx" in scroll) v2 = { kind: "scroll", ...scroll };
           else if (negotiated)
             v2 = { kind: "scroll", x: scroll.x, y: scroll.y, dx: scroll.deltaX, dy: scroll.deltaY };
@@ -160,6 +256,7 @@ export function computerUseHandler(
       await manager.modelAction(sessionId, owner, ScreenAction.parse(action), () =>
         signal.throwIfAborted(),
       );
-    return { content: [{ type: "text", text: "Action completed" }] };
+    const snapshot = await observe();
+    return { content: [{ type: "text", text: JSON.stringify({ mode, snapshot }) }] };
   };
 }

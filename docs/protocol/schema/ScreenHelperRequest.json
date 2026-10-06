@@ -7,9 +7,22 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "hello",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -35,11 +48,24 @@
       "properties": {
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "metrics",
           "type": "string"
         },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
         "version": {
           "anyOf": [
             {
@@ -62,12 +88,79 @@
     },
     {
       "properties": {
+        "allowlist": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "bundleId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "open.app",
+          "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "bundleId",
+        "allowlist"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
         },
         "op": {
           "const": "stream.configure",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "settings": {
           "$ref": "https://ace.local/protocol/v1/ScreenStreamSettings.json"
@@ -98,9 +191,22 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "stream.keyframe",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -127,9 +233,22 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "stream.image",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -159,9 +278,22 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "capture",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -192,9 +324,22 @@
         "input": {
           "$ref": "https://ace.local/protocol/v1/ScreenInput.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "input",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -241,9 +386,22 @@
           "minimum": 1,
           "type": "integer"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "ui.tree",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "target": {
           "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
@@ -288,12 +446,25 @@
           "minimum": 1,
           "type": "integer"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "ui.find",
           "type": "string"
         },
         "query": {
           "$ref": "https://ace.local/protocol/v1/ScreenUIQuery.json"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "target": {
           "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
@@ -336,12 +507,49 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "op": {
           "const": "ui.act",
           "type": "string"
         },
+        "range": {
+          "properties": {
+            "length": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "location": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "location",
+            "length"
+          ],
+          "type": "object"
+        },
         "ref": {
           "$ref": "https://ace.local/protocol/v1/ScreenUIRef.json"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "target": {
           "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
@@ -403,9 +611,22 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "permissions",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -432,6 +653,13 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "permissions.request",
           "type": "string"
@@ -442,6 +670,12 @@
             "accessibility"
           ],
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -469,6 +703,13 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "name": {
           "maxLength": 64,
           "minLength": 1,
@@ -477,6 +718,12 @@
         "op": {
           "const": "button.press",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -504,9 +751,22 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "targets",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -533,9 +793,22 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "stop",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -565,9 +838,22 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "action",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "version": {
           "anyOf": [
@@ -610,9 +896,19 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
         "op": {
           "const": "start",
           "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
         },
         "sessionId": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
@@ -636,8 +932,8 @@
       "required": [
         "version",
         "id",
-        "op",
         "sessionId",
+        "op",
         "target",
         "allowlist",
         "fps"

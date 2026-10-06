@@ -1,7 +1,8 @@
 import type { Interaction } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { questionOptions } from "@ace/ui-core";
+import { privateBrowserGate, questionOptions } from "@ace/ui-core";
+import { PrivateBrowserNotice } from "@/components/private-browser-notice.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import {
@@ -98,6 +99,17 @@ function OptionButton(props: {
 
 /** A plan waiting for review: its summary, then Request changes (D) or Approve plan (A). */
 export function PlanBody(props: { interaction: Interaction; cardKey: string }) {
+  if (privateBrowserGate(props.interaction))
+    return (
+      <>
+        <PrivateBrowserNotice />
+        <OpenThreadAction threadId={props.interaction.threadId} cardKey={props.cardKey} />
+      </>
+    );
+  return <PlanReviewBody interaction={props.interaction} cardKey={props.cardKey} />;
+}
+
+function PlanReviewBody(props: { interaction: Interaction; cardKey: string }) {
   const { interaction } = props;
   const request = interaction.request;
   const summary = request.kind === "plan_review" ? (request.summary ?? request.markdown) : "";

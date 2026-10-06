@@ -5,6 +5,30 @@
     "action": {
       "$ref": "https://ace.local/protocol/v1/ScreenUIAction.json"
     },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "range": {
+      "properties": {
+        "length": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "location": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "location",
+        "length"
+      ],
+      "type": "object"
+    },
     "ref": {
       "$ref": "https://ace.local/protocol/v1/ScreenUIRef.json"
     },

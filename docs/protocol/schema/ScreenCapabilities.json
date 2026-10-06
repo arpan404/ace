@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": {},
   "properties": {
+    "background": {
+      "type": "boolean"
+    },
     "capture": {
       "properties": {
         "changeDriven": {
@@ -57,6 +60,11 @@
       ],
       "type": "object"
     },
+    "maxSessions": {
+      "maximum": 8,
+      "minimum": 1,
+      "type": "integer"
+    },
     "permissions": {
       "properties": {
         "input": {
@@ -101,11 +109,13 @@
           "setValue",
           "scroll",
           "expand",
-          "select"
+          "select",
+          "performSecondaryAction",
+          "selectText"
         ],
         "type": "string"
       },
-      "maxItems": 6,
+      "maxItems": 8,
       "type": "array"
     },
     "uiTree": {

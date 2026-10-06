@@ -33,6 +33,8 @@ export function Rail(props: {
   badges?: Partial<Record<View["id"], number>>;
   /** What More holds (the More slice's menu contents), composed in by the app layer. */
   moreMenu: ReactNode;
+  /** A quiet sign of agents at work (computer use), composed in by the app layer. */
+  status?: ReactNode;
 }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const current = activeView(pathname);
@@ -74,6 +76,7 @@ export function Rail(props: {
       </ul>
       <div className="flex-1" />
       <div className="flex flex-col items-center gap-2.5">
+        {props.status}
         <Tip label="Settings" shortcut="settings" side="right">
           <Link
             to="/settings"

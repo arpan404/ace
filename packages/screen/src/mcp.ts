@@ -1,58 +1,102 @@
+import { z } from "zod";
+import { ScreenId, type ApprovalTarget } from "@ace/protocol";
 import { PublicToolError, PublicToolCode, type Toolkit } from "@ace/mcp-server";
 import type { ScreenManager } from "./manager.ts";
-import type { ApprovalTarget } from "@ace/protocol";
-import { HelperCommandError } from "./helper.ts";
+import { TargetBusyError } from "./target-busy.ts";
 import { agentOwner } from "./agent-binding.ts";
 import { computerUseTools, computerUseSchemas, computerUseHandler } from "./tools.ts";
-const risks = new Map(
-  Object.entries({
-    screen_ui_tree: "read-only",
-    screen_ui_find: "read-only",
-    screen_screenshot: "read-only",
-    screen_ui_act: "external-effect",
-    screen_click: "external-effect",
-    screen_type: "external-effect",
-    screen_key: "external-effect",
-    screen_scroll: "external-effect",
-  } satisfies Record<keyof typeof computerUseSchemas, NonNullable<ApprovalTarget["riskClass"]>>),
-);
+
+const risks = {
+  screen_ui_tree: "read-only",
+  screen_ui_find: "read-only",
+  screen_screenshot: "read-only",
+  screen_ui_act: "external-effect",
+  screen_click: "external-effect",
+  screen_type: "external-effect",
+  screen_key: "external-effect",
+  screen_scroll: "external-effect",
+  screen_paste: "external-effect",
+  screen_request_app: "external-effect",
+  screen_open_app: "external-effect",
+  screen_request_foreground: "external-effect",
+} satisfies Record<keyof typeof computerUseSchemas, NonNullable<ApprovalTarget["riskClass"]>>;
+
 export function screenToolkit(manager: ScreenManager): Toolkit {
   return {
     register(registry) {
       for (const [name, input] of Object.entries(computerUseSchemas)) {
         const description = computerUseTools.find((tool) => tool.name === name)?.description;
+        const risk = z.enum(["read-only", "external-effect"]).parse(Reflect.get(risks, name));
         if (!description) throw new Error("Screen tool description missing");
-        const riskClass = risks.get(name);
-        if (!riskClass) throw new Error("Screen action metadata missing");
         registry.registerContent({
           name,
           description,
-          riskClass,
+          riskClass: risk,
           input,
           capability: "screen",
-          timeoutMs: name === "screen_screenshot" ? 30_000 : 15_000,
+          timeoutMs: name.startsWith("screen_request_")
+            ? 65_000
+            : name === "screen_screenshot"
+              ? 30_000
+              : 15_000,
           async run(args, { caller, signal }) {
-            signal.throwIfAborted();
-            const sessionId = manager.agentSession(caller);
-            let result;
             try {
-              result = await computerUseHandler(
+              signal.throwIfAborted();
+              if (name === "screen_request_app") {
+                const { bundleId, reason } = computerUseSchemas.screen_request_app.parse(args);
+                await manager.requestApp(bundleId, reason, caller, signal);
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify({ approved: true, bundleId, mode: "background" }),
+                    },
+                  ],
+                };
+              }
+              if (name === "screen_open_app") {
+                const { bundleId } = computerUseSchemas.screen_open_app.parse(args);
+                const state = await manager.openAgentApp(bundleId, caller, signal);
+                signal.throwIfAborted();
+                manager.agentSession(caller, state.sessionId);
+                return { content: [{ type: "text", text: JSON.stringify(state) }] };
+              }
+              const selected = z.object({ sessionId: ScreenId.optional() }).parse(args);
+              const sessionId = manager.agentSession(caller, selected.sessionId);
+              if (name === "screen_request_foreground") {
+                const { reason } = computerUseSchemas.screen_request_foreground.parse(args);
+                const state = await manager.mode(sessionId, "foreground", signal, reason);
+                manager.agentSession(caller, sessionId);
+                return { content: [{ type: "text", text: JSON.stringify(state) }] };
+              }
+              const payload = z.record(z.string(), z.unknown()).parse(args);
+              const { sessionId: _sessionId, ...actionArgs } = payload;
+              const result = await computerUseHandler(
                 manager,
                 sessionId,
                 agentOwner(caller),
                 signal,
-              )(name, args);
+              )(name, actionArgs);
+              signal.throwIfAborted();
+              manager.agentSession(caller, sessionId);
+              return result;
             } catch (error) {
-              if (error instanceof HelperCommandError) {
+              if (error instanceof TargetBusyError)
+                return {
+                  isError: true,
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify({ code: error.code, holder: error.holder }),
+                    },
+                  ],
+                };
+              if (error instanceof Error && "code" in error) {
                 const code = PublicToolCode.safeParse(error.code);
                 if (code.success) throw new PublicToolError(code.data);
               }
               throw error;
             }
-            signal.throwIfAborted();
-            if (manager.agentSession(caller) !== sessionId)
-              throw new Error("Screen delegation changed");
-            return result;
           },
         });
       }

@@ -23,6 +23,16 @@
     "method": {
       "maxLength": 64,
       "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "background",
+        "foreground"
+      ],
+      "type": "string"
+    },
+    "snapshot": {
+      "$ref": "https://ace.local/protocol/v1/ScreenUITreeResult.json"
     }
   },
   "required": [
