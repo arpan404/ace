@@ -11,6 +11,7 @@
  */
 export type KeyScope =
   | "global"
+  | "home"
   | "thread"
   | "composer"
   | "terminal"
@@ -100,6 +101,14 @@ export const keymap = {
   "activity.deny": { keys: "d", label: "Deny", scope: "activity" },
   "activity.read": { keys: "e", label: "Mark read", scope: "activity" },
   "activity.unread": { keys: "u", label: "Mark unread", scope: "activity" },
+  // The Home thread list (features/home): plain keys on the focused row.
+  "home.pin": { keys: "p", label: "Pin or unpin the focused thread", scope: "home" },
+  "home.select": { keys: "x", label: "Select the focused thread", scope: "home" },
+  "home.move": {
+    keys: "space",
+    label: "Move the focused thread (↑ ↓ to choose, Space to drop)",
+    scope: "home",
+  },
   // A deck run (features/deck).
   deckPlan: { keys: "g p", label: "Go to the plan", scope: "deck" },
   deckLanes: { keys: "g l", label: "Go to the lanes", scope: "deck" },
@@ -161,6 +170,7 @@ const glyphs: Record<string, [apple: string, other: string]> = {
   alt: ["⌥", "Alt+"],
   enter: ["↵", "Enter"],
   escape: ["esc", "Esc"],
+  space: ["Space", "Space"],
   arrowup: ["↑", "↑"],
   arrowdown: ["↓", "↓"],
   arrowleft: ["←", "←"],

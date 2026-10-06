@@ -57,7 +57,7 @@ test("offline, Archive hides the thread at once, says it will apply, and applies
 test("offline, Pin shows the pin at once and the daemon keeps it after the reconnect", async () => {
   const app = await openHome();
   app.client.networkOnline(false);
-  await choose(/Backpressure/, "Pin");
+  await choose(/Backpressure/, /^Pin/);
   expect(pinned(/Backpressure/)).toBe(true);
   expect(listed(app, "thread-fan-out")?.pinned).not.toBe(true);
 
@@ -69,7 +69,7 @@ test("offline, Pin shows the pin at once and the daemon keeps it after the recon
 test("a pin the daemon refuses comes off again, with a toast that says why", async () => {
   const app = await openHome();
   app.daemon.refuseCommands("forbidden", "thread.pin");
-  await choose(/Backpressure/, "Pin");
+  await choose(/Backpressure/, /^Pin/);
 
   expect(await screen.findByText("Couldn't pin the thread")).toBeTruthy();
   expect(screen.getByText("This device isn't allowed to do that.")).toBeTruthy();

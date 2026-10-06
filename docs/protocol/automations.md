@@ -30,24 +30,21 @@ Example:
 ```json
 {
   "concurrency": 2,
-  "enabled": false,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 9,
-  "missedRun": "skip",
+  "jitterMs": 1,
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "pi",
+  "provider": "claude",
   "title": "example",
   "trigger": {
-    "kind": "schedule",
-    "schedule": {
-      "expression": "example",
-      "kind": "cron",
-      "startAt": 0,
-      "timezone": "example"
-    }
+    "kind": "file",
+    "paths": [
+      "example"
+    ]
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -82,7 +79,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 7,
   "runs": []
 }
 ```
@@ -104,26 +101,22 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 4,
+    "concurrency": 5,
     "enabled": true,
     "id": "example",
-    "jitterMs": 0,
+    "jitterMs": 6,
     "missedRun": "skip",
-    "model": "example",
     "prompt": "example",
-    "provider": "claude",
+    "provider": "antigravity",
     "title": "example",
     "trigger": {
-      "kind": "schedule",
-      "schedule": {
-        "expression": "example",
-        "kind": "cron",
-        "startAt": 0,
-        "timezone": "example"
-      }
+      "event": "ci_failed",
+      "kind": "github",
+      "pollIntervalMs": 60004,
+      "repository": "667v/YbBourR"
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -197,7 +190,8 @@ Example:
 
 ```json
 {
-  "limit": 6,
+  "before": 5,
+  "limit": 7,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -222,7 +216,7 @@ Example:
 
 ```json
 {
-  "error": "example",
+  "automations": [],
   "ok": false,
   "requestId": "example",
   "schedules": [],
@@ -253,12 +247,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 7,
   "id": "example",
-  "startedAt": 7,
-  "status": "skipped",
-  "threadId": "example",
+  "startedAt": 4,
+  "status": "failed",
   "title": "example",
-  "trigger": "github"
+  "trigger": "schedule"
 }
 ```
 
@@ -338,10 +332,10 @@ Example:
 
 ```json
 {
-  "event": "pr_changed",
+  "event": "issue_labelled",
   "kind": "github",
-  "pollIntervalMs": 60009,
-  "repository": "B4w-uK/lXq"
+  "pollIntervalMs": 60004,
+  "repository": "xmf/6ne"
 }
 ```
 

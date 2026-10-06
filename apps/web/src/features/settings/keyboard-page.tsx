@@ -92,6 +92,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "activity.unread",
     ],
   },
+  { label: "Thread list", ids: ["home.pin", "home.select", "home.move"] },
   { label: "Deck", ids: ["deckPlan", "deckLanes", "deckApprove", "deckNextCard", "deckPrevCard"] },
 ];
 const listed = new Set(groups.flatMap((group) => group.ids));
@@ -101,6 +102,7 @@ const sections = [
 ].filter((group) => group.ids.length);
 
 const scopeChips: Record<Exclude<KeyScope, "global">, string> = {
+  home: "In the thread list",
   thread: "In a thread",
   composer: "In the composer",
   terminal: "In a terminal",

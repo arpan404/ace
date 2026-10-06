@@ -33,7 +33,16 @@ export function organizationDecision(
     case "thread.unarchive":
       return { type: "thread.updated", archivedAt: null };
     case "thread.pin":
-      return { type: "thread.client.updated", changes: { pinned: p.pinned } };
+      if (!p.pinned)
+        return { type: "thread.client.updated", changes: { pinned: false, pinOrder: null } };
+      return {
+        type: "thread.client.updated",
+        changes: {
+          pinned: true,
+          // Named, or kept when already pinned, else a new pin leads: the clock only grows.
+          pinOrder: p.order ?? (thread.pinned ? thread.pinOrder : undefined) ?? at,
+        },
+      };
     case "thread.read":
       return { type: "thread.client.updated", changes: { unread: p.unread, readAt: at } };
     case "thread.settle":

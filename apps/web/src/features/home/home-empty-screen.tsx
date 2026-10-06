@@ -23,7 +23,9 @@ export function HomeEmptyScreen() {
   const list = useHomeList();
   const directory = useProjectDirectory();
   // The last thread only while Home still lists it (not archived, inside the project filter).
-  const listed = last !== null && (list.active.includes(last) || list.settled.includes(last));
+  const listed =
+    last !== null &&
+    (list.pinned.includes(last) || list.active.includes(last) || list.settled.includes(last));
   const target = listed ? last : loaded ? topThread(list) : undefined;
   if (target) return <Navigate to="/t/$threadId" params={{ threadId: target }} replace />;
   if (loaded && directory.loaded && directory.projects.length === 0)
