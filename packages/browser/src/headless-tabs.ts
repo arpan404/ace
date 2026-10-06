@@ -4,6 +4,7 @@ import type { BackendOpen, BrowserCdp } from "./backend.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { HeadlessDownloads } from "./headless-downloads.ts";
 import { BrowserInspection } from "./inspection.ts";
+import { sizeHeadlessContents } from "./headless-size.ts";
 import { z } from "zod";
 
 type Guard = Awaited<ReturnType<typeof installOriginGuard>>;
@@ -91,6 +92,8 @@ export class HeadlessTabs {
     try {
       const cdp = await this.context.newCDPSession(page);
       await cdp.send("Page.enable");
+      const viewport = page.viewportSize();
+      if (viewport) await sizeHeadlessContents(cdp, viewport.width, viewport.height);
       const guard = await installOriginGuard(cdp, this.request.allowed, this.request.initiator, {
         attach: (child) => this.inspection.attach(child, id),
         detach: (child) => this.inspection.detach(child),

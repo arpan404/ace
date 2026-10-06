@@ -211,6 +211,12 @@ export const BrowserArtifact = z.object({
   flags: z.array(z.enum(["executable", "archive"])).optional(),
 });
 export type BrowserArtifact = z.infer<typeof BrowserArtifact>;
+export const BrowserCaptureViewport = z.object({
+  width: dimension,
+  height: dimension,
+  devicePixelRatio: z.number().finite().min(1).max(4),
+});
+export type BrowserCaptureViewport = z.infer<typeof BrowserCaptureViewport>;
 const base = z.object({ requestId: short, threadId: ThreadId });
 export const BrowserClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.open"), requestId: short, options: BrowserOpen }),
@@ -234,6 +240,7 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("browser.evaluate.grants.revoke"), origin: BrowserOrigin }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
   base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
+  base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
   base.extend({
