@@ -9,7 +9,7 @@ export async function dispatchLegacyAction(
 ) {
   beforeDispatch();
   if (!session.helper.capabilities?.platform.startsWith("linux"))
-    return session.helper.request({ op: "action", action });
+    return session.helper.request({ op: "action", action }, beforeDispatch);
   const scale = session.latest?.header.scale ?? 1;
   switch (action.kind) {
     case "click":

@@ -38,7 +38,7 @@ it("denied Screen Recording prevents capture and denied Accessibility prevents i
   expect(await screen.permissions()).toEqual({ screenRecording: true, accessibility: false });
 });
 it("live screenshots and MCP actions use the approved session and human takeover removes agent access", async () => {
-  const screen = await setup();
+  const screen = await setup({ FAKE_V2: "1" });
   const state = await ready(screen);
   const id = state.sessionId;
   const received = deferred<Frame>();
@@ -49,16 +49,23 @@ it("live screenshots and MCP actions use the approved session and human takeover
   await expect(tool("screen_type", { text: "hello" })).rejects.toThrow("ownership");
   screen.controller(id, "agent", "agent-1");
   await tool("screen_type", { text: "hello" });
-  expect((await received.promise).payload.toString()).toBe("jpeg-0");
-  expect(await tool("screen_screenshot", {})).toEqual({
+  const firstFrame = await received.promise;
+  expect(firstFrame.payload.toString()).toBe("jpeg-0");
+  const screenshot = await tool("screen_screenshot", {});
+  expect(screenshot).toEqual({
     content: [
-      { type: "image", data: Buffer.from("jpeg-0").toString("base64"), mimeType: "image/jpeg" },
+      {
+        type: "image",
+        data: screen.screenshot(id).payload.toString("base64"),
+        mimeType: "image/jpeg",
+      },
       {
         type: "text",
-        text: expect.stringContaining("Legacy input uses pixels in this 100x100 model image"),
+        text: expect.stringContaining("Screenshot scale: 1 pixels per target point"),
       },
     ],
   });
+  expect(screenshot.content[0]).not.toMatchObject({ data: firstFrame.payload.toString("base64") });
   screen.controller(id, "human", "human-1");
   await expect(tool("screen_click", { x: 1, y: 2 })).rejects.toThrow("ownership");
   await expect(
@@ -89,7 +96,7 @@ it("permission revocation is checked again before each action", async () => {
   ).rejects.toThrow("permission denied");
 });
 it("a crashed helper clears cached frames and controller state and can be explicitly restarted", async () => {
-  const screen = await setup();
+  const screen = await setup({ FAKE_V2: "1" });
   const state = await ready(screen);
   const id = state.sessionId;
   screen.controller(id, "agent");
@@ -125,10 +132,10 @@ it("human takeover cancels queued input before it can update permission state", 
   await expect(action).rejects.toThrow("Controller changed");
   expect(screen.state(state.sessionId).permissions.accessibility).toBe(true);
 });
-it("one host capture is reserved and disabling stops the owned capture", async () => {
+it("an app lease cannot be acquired twice and disabling stops its capture", async () => {
   const screen = await setup();
   await ready(screen);
-  await expect(screen.start(target)).rejects.toThrow("limit");
+  await expect(screen.start(target)).rejects.toThrow("target_busy");
   await screen.enable(false);
   await expect(screen.start(target)).rejects.toThrow("disabled");
 });

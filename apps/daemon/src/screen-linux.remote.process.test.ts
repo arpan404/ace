@@ -35,12 +35,19 @@ it("paired viewers cannot approve applications, enable capture, or acquire input
   ] as const) {
     client.send({ type: "screen.request", requestId: operation.op, operation });
     expect(await client.next()).toMatchObject({
-      type: "error",
-      code: "forbidden",
+      type: "screen.result",
+      requestId: operation.op,
+      ok: false,
+      errorCode: "forbidden",
     });
   }
   client.send({ type: "screen.request", requestId: "read", operation: { op: "sessions" } });
-  expect(await client.next()).toMatchObject({ type: "error", code: "forbidden" });
+  expect(await client.next()).toMatchObject({
+    type: "screen.result",
+    requestId: "read",
+    ok: false,
+    errorCode: "forbidden",
+  });
   const operator = await f.pair(["read", "operate"]);
   const operatorTicket = await f.ticket(operator.token);
   const operatorClient = await f.connectTicket(operator.device.id, operatorTicket.ticket);
@@ -51,8 +58,10 @@ it("paired viewers cannot approve applications, enable capture, or acquire input
     operation: { op: "approve", bundleId: "dev.ace.test", allowed: true },
   });
   expect(await operatorClient.next()).toMatchObject({
-    type: "error",
-    code: "forbidden",
+    type: "screen.result",
+    requestId: "approve",
+    ok: false,
+    errorCode: "forbidden",
   });
   await screen.enable(true);
   await screen.approve("dev.ace.test", true);
@@ -66,6 +75,12 @@ it("paired viewers cannot approve applications, enable capture, or acquire input
     },
   });
   let result = await operatorClient.next();
-  while (result.type === "screen.state") result = await operatorClient.next();
-  expect(result).toMatchObject({ type: "error", code: "forbidden" });
+  while (result.type === "screen.state" || result.type === "screen.enabled")
+    result = await operatorClient.next();
+  expect(result).toMatchObject({
+    type: "screen.result",
+    requestId: "start",
+    ok: false,
+    errorCode: "forbidden",
+  });
 });

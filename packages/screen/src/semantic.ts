@@ -8,13 +8,13 @@ import {
   type ScreenTarget,
   type ScreenUIActOptions,
 } from "@ace/protocol";
-import type { Helper } from "./helper.ts";
+import type { HelperPort } from "./helper-session.ts";
 
-function requireTree(helper: Helper): void {
+function requireTree(helper: HelperPort): void {
   if (!helper.capabilities?.uiTree) throw new Error("Helper has no UI tree support");
 }
 export async function readTree(
-  helper: Helper,
+  helper: HelperPort,
   target: ScreenTarget,
   allowlist: string[],
   options: unknown,
@@ -58,7 +58,7 @@ export async function readTree(
   return { ...ScreenUITreeResult.parse(result), root: null };
 }
 export async function findElements(
-  helper: Helper,
+  helper: HelperPort,
   target: ScreenTarget,
   allowlist: string[],
   options: unknown,
@@ -76,13 +76,14 @@ export async function findElements(
     : ScreenUIFindResult.parse(result);
 }
 export async function actOnElement(
-  helper: Helper,
+  helper: HelperPort,
   target: ScreenTarget,
   allowlist: string[],
   action: ScreenUIActOptions,
+  beforeDispatch?: () => void,
 ) {
   requireTree(helper);
   return ScreenUIActResult.parse(
-    await helper.request({ op: "ui.act", target, allowlist, ...action }),
+    await helper.request({ op: "ui.act", target, allowlist, ...action }, beforeDispatch),
   );
 }

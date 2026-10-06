@@ -9,7 +9,7 @@ export const ScreenTarget = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("app"),
     bundleId: ScreenBundle,
-    displayId: z.number().int().positive(),
+    displayId: z.number().int().positive().optional(),
   }),
   z.object({
     kind: z.literal("window"),

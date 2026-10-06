@@ -20,6 +20,18 @@
     },
     {
       "properties": {
+        "op": {
+          "const": "status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "allowed": {
           "type": "boolean"
         },
@@ -28,6 +40,14 @@
         },
         "op": {
           "const": "approve",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "https://ace.local/protocol/v1/ScreenGrantScope.json"
+        },
+        "threadId": {
+          "maxLength": 256,
+          "minLength": 1,
           "type": "string"
         }
       },
@@ -41,12 +61,121 @@
     {
       "properties": {
         "op": {
+          "const": "approvals",
+          "type": "string"
+        },
+        "threadId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "stop.all",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "mode": {
+          "$ref": "https://ace.local/protocol/v1/ScreenMode.json"
+        },
+        "op": {
+          "const": "mode",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId",
+        "mode"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "op": {
+          "const": "secure.input",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId",
+        "allowed"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "bundleId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+        },
+        "op": {
+          "const": "open.app",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "bundleId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
           "const": "permissions",
           "type": "string"
         }
       },
       "required": [
         "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "permissions.request",
+          "type": "string"
+        },
+        "permission": {
+          "enum": [
+            "screenRecording",
+            "accessibility"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "permission"
       ],
       "type": "object"
     },
@@ -88,6 +217,11 @@
         },
         "target": {
           "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
+        },
+        "threadId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
         }
       },
       "required": [
@@ -115,7 +249,9 @@
     {
       "properties": {
         "agentId": {
-          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
         },
         "controller": {
           "enum": [
@@ -133,7 +269,9 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "threadId": {
-          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
         }
       },
       "required": [
@@ -298,9 +436,33 @@
         "action": {
           "$ref": "https://ace.local/protocol/v1/ScreenUIAction.json"
         },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "op": {
           "const": "ui.act",
           "type": "string"
+        },
+        "range": {
+          "properties": {
+            "length": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "location": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "location",
+            "length"
+          ],
+          "type": "object"
         },
         "ref": {
           "$ref": "https://ace.local/protocol/v1/ScreenUIRef.json"

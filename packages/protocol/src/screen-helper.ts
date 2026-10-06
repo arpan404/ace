@@ -18,10 +18,21 @@ import {
   ScreenUITreeOptions,
 } from "./screen-v2.ts";
 
-const HelperEnvelope = z.object({ version: z.union([z.literal(1), z.literal(2)]), id: ScreenId });
+const HelperEnvelope = z.object({
+  version: z.union([z.literal(1), z.literal(2)]),
+  id: ScreenId,
+  sessionId: ScreenId.optional(),
+  mode: z.enum(["background", "foreground"]).optional(),
+  secureInputAllowed: z.boolean().optional(),
+});
 export const ScreenHelperRequest = z.discriminatedUnion("op", [
   HelperEnvelope.extend({ op: z.literal("hello") }),
   HelperEnvelope.extend({ op: z.literal("metrics") }),
+  HelperEnvelope.extend({
+    op: z.literal("open.app"),
+    bundleId: ScreenBundle,
+    allowlist: z.array(ScreenBundle).max(64),
+  }),
   HelperEnvelope.extend({ op: z.literal("stream.configure"), settings: ScreenStreamSettings }),
   HelperEnvelope.extend({ op: z.literal("stream.keyframe") }),
   HelperEnvelope.extend({ op: z.literal("stream.image") }),

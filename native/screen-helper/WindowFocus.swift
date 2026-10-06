@@ -9,9 +9,8 @@ import ScreenCaptureKit
 
 /// The application's focused Accessibility window, proven to be `target`. Reachable even when the
 /// window is on another Space, where the application's window list is empty.
-@MainActor func focusedWindowElement(_ target: SCWindow, candidates: [SCWindow]) throws -> AXUIElement {
-    guard let app = target.owningApplication else { throw HelperError("Missing target application") }
-    let application = AXUIElementCreateApplication(app.processID)
+@MainActor func appFocusedWindow(_ pid: pid_t) throws -> (AXUIElement, CGRect) {
+    let application = AXUIElementCreateApplication(pid)
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &value) == .success,
           let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { throw HelperError("Target window is not focused") }
@@ -31,13 +30,27 @@ import ScreenCaptureKit
     guard AXValueGetValue(position as! AXValue, .cgPoint, &origin),
           AXValueGetValue(size as! AXValue, .cgSize, &dimensions) else { throw HelperError("Cannot decode focused window bounds") }
     let bounds = CGRect(origin: origin, size: dimensions)
+    return (focused, bounds)
+}
+
+/// One AX lookup and one live bounds lookup per candidate, including ambiguity checks.
+@MainActor func focusedWindowMatch(_ candidates: [SCWindow]) throws -> (SCWindow, AXUIElement) {
+    guard candidates.count <= 128, let app = candidates.first?.owningApplication,
+          candidates.allSatisfy({ $0.owningApplication?.processID == app.processID }) else { throw HelperError("Ambiguous application windows", code: "not_supported") }
+    let (focused, bounds) = try appFocusedWindow(app.processID)
     let matches = candidates.filter { candidate in
         guard let frame = try? currentWindowBounds(candidate) else { return false }
         return abs(frame.minX - bounds.minX) < 1 && abs(frame.minY - bounds.minY) < 1 && abs(frame.width - bounds.width) < 1 && abs(frame.height - bounds.height) < 1
     }
-    guard matches.count == 1, matches.first?.windowID == target.windowID else { throw HelperError("Captured window must be the application's focused window") }
+    guard matches.count == 1, let window = matches.first else { throw HelperError("Cannot uniquely verify app focus; select an explicit window", code: "not_supported") }
+    return (window, focused)
+}
+@MainActor func focusedWindowElement(_ target: SCWindow, candidates: [SCWindow]) throws -> AXUIElement {
+    let (window, focused) = try focusedWindowMatch(candidates)
+    guard window.windowID == target.windowID else { throw HelperError("Captured window must be the application's focused window") }
     return focused
 }
+@MainActor func appInputWindow(_ candidates: [SCWindow]) throws -> SCWindow { try focusedWindowMatch(candidates).0 }
 
 /// The first button in `window` whose accessibility description or title is `name`, searched
 /// breadth first through a bounded part of the tree (Simulator's toolbar and side buttons).
@@ -105,4 +118,31 @@ func pointerGeometry(_ window: SCWindow) throws -> PointerGeometry {
         if owner == app.processID { front.append(bounds) }
     }
     throw HelperError("Pointer target disappeared", code: "target_gone")
+}
+
+/// Occlusion and another Space are allowed. Minimized and physically off-display are explicit.
+@MainActor func validateCaptureWindow(_ window: SCWindow, displays: [SCDisplay]) throws {
+    if let pid = window.owningApplication?.processID {
+        let application = AXUIElementCreateApplication(pid)
+        let matches = axWindows(application).filter {
+            let bounds = axBounds($0).rect
+            return abs(bounds.minX - window.frame.minX) < 1 && abs(bounds.minY - window.frame.minY) < 1 && abs(bounds.width - window.frame.width) < 1 && abs(bounds.height - window.frame.height) < 1
+        }
+        if matches.contains(where: { (axAttribute($0, kAXMinimizedAttribute) as? Bool) == true }) { throw HelperError("Target window is minimized", code: "window_minimized") }
+    }
+    guard displays.contains(where: { $0.frame.intersects(window.frame) }) else { throw HelperError("Target window is outside display bounds", code: "window_offscreen") }
+}
+
+/// ScreenCaptureKit may omit minimized windows. Consult AX without activating the app.
+@MainActor func unavailableWindow(_ target: Target) -> HelperError {
+    guard let bundle = target.bundleId,
+          let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first else { return HelperError("Target window unavailable", code: "target_gone") }
+    let windows = axWindows(AXUIElementCreateApplication(app.processIdentifier))
+    let rows = target.windowId.flatMap { CGWindowListCopyWindowInfo([.optionIncludingWindow], $0) as? [[String: Any]] }
+    if let row = rows?.first, (row[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == app.processIdentifier,
+       let values = row[kCGWindowBounds as String] as? [String: Double], let x = values["X"], let y = values["Y"], let width = values["Width"], let height = values["Height"] {
+        let expected = CGRect(x: x, y: y, width: width, height: height)
+        if windows.contains(where: { axBounds($0).rect == expected && (axAttribute($0, kAXMinimizedAttribute) as? Bool) == true }) { return HelperError("Target window is minimized", code: "window_minimized") }
+    }
+    return HelperError("Target window unavailable", code: "target_gone")
 }

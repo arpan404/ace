@@ -10,6 +10,7 @@ import {
   installedLinuxHelper,
   type Frame,
 } from "./index.ts";
+import { allowForeground } from "./testing/foreground.ts";
 import { ids, target, deferred } from "./testing/support.ts";
 const command = {
   command: process.execPath,
@@ -90,6 +91,7 @@ it("one helper survives inspections and sequential captures while semantic tools
       handler("screen_ui_act", { ref: "stable-entry", action: "setValue", value: "hello" }),
     ).rejects.toThrow("ownership");
     manager.controller(state.sessionId, "agent", "agent-a");
+    await allowForeground(manager, state.sessionId);
     expect(
       (await handler("screen_ui_act", { ref: "stable-entry", action: "setValue", value: "héllo" }))
         .content,

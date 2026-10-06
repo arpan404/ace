@@ -9,6 +9,8 @@ import {
 import type { Interaction } from "@ace/protocol";
 import {
   agentName,
+  approvalCopy,
+  privateBrowserGate,
   displayCommand,
   offeredOptions,
   oneShotNote,
@@ -17,6 +19,8 @@ import {
   unwrapShellCommand,
 } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
+import { ApprovalButtons, ApprovalDetails } from "@/components/approval-details.tsx";
+import { PrivateBrowserNotice } from "@/components/private-browser-notice.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
@@ -189,11 +193,12 @@ function OpenRequest(props: {
       : undefined;
   const unwrappedTitle =
     request.kind === "approval" ? unwrapShellCommand(request.title)?.inner : undefined;
+  const copy = request.kind === "approval" ? approvalCopy(request) : undefined;
   const title =
     request.kind === "approval"
       ? unwrappedTitle
         ? `Run ${unwrappedTitle}`
-        : request.title
+        : (copy?.title ?? request.title)
       : request.kind === "question"
         ? questionTitle(request.questions)
         : request.kind === "plan_review"
@@ -202,10 +207,17 @@ function OpenRequest(props: {
   const kind = {
     approval: "Approval",
     question: "Question",
-    plan_review: "Plan review",
+    plan_review: privateBrowserGate(interaction) ? "Browser" : "Plan review",
     elicitation: request.kind === "elicitation" ? request.server : "Request",
   }[request.kind];
   const offered = request.kind === "approval" ? offeredOptions(request.options, mode) : undefined;
+  // The request's own order and words. A one-shot mode leaves out session and always grants,
+  // except on ace's own tools, which ace answers before that rule.
+  const choices = copy?.tool
+    ? copy.choices
+    : copy?.choices.filter((choice) =>
+        offered?.options.some((option) => option.id === choice.option.id),
+      );
   const chosen =
     local?.resolution.kind === "approval" && request.kind === "approval"
       ? request.options.find(
@@ -216,7 +228,7 @@ function OpenRequest(props: {
   const onKeyDown = (event: KeyboardEvent) => {
     if (!offered || sending || chosen || typing(event.target)) return;
     const digit = Number.parseInt(event.key, 10);
-    const option = Number.isNaN(digit) ? undefined : offered.options[digit - 1];
+    const option = Number.isNaN(digit) ? undefined : choices?.[digit - 1]?.option;
     if (!option || event.metaKey || event.ctrlKey || event.altKey) return;
     event.preventDefault();
     answer({ kind: "approval", optionId: option.id });
@@ -243,8 +255,12 @@ function OpenRequest(props: {
       )}
       {request.kind === "approval" && (
         <>
-          {request.description && (
-            <p className="mt-2.5 text-ui text-muted-foreground">{request.description}</p>
+          {copy?.tool ? (
+            <ApprovalDetails copy={copy} className="mt-2.5" />
+          ) : (
+            request.description && (
+              <p className="mt-2.5 text-ui text-muted-foreground">{request.description}</p>
+            )
           )}
           {interaction.review && (
             <Suspense fallback={null}>
@@ -272,23 +288,14 @@ function OpenRequest(props: {
             </p>
           ) : (
             <>
-              <div className="mt-3.5 flex flex-wrap items-center gap-2">
-                {offered?.options.map((option, index) => {
-                  const refuse = option.kind.startsWith("deny") || option.kind === "cancel";
-                  return (
-                    <Button
-                      key={option.id}
-                      size="sm"
-                      variant={refuse ? "ghost" : index === 0 ? "primary" : "secondary"}
-                      aria-keyshortcuts={index < 9 ? String(index + 1) : undefined}
-                      onClick={() => answer({ kind: "approval", optionId: option.id })}
-                    >
-                      {option.label}
-                    </Button>
-                  );
-                })}
+              <div className="mt-3.5">
+                <ApprovalButtons
+                  choices={choices ?? []}
+                  numbered
+                  onChoose={(choice) => answer({ kind: "approval", optionId: choice.option.id })}
+                />
               </div>
-              {offered && offered.hidden > 0 && mode && (
+              {!copy?.tool && offered && offered.hidden > 0 && mode && (
                 <p className="mt-2 text-xs text-subtle-foreground">{oneShotNote(mode)}</p>
               )}
             </>
@@ -298,7 +305,10 @@ function OpenRequest(props: {
       {request.kind === "question" && (
         <QuestionForm questions={request.questions} disabled={sending} onAnswer={answer} />
       )}
-      {request.kind === "plan_review" && (
+      {request.kind === "plan_review" && privateBrowserGate(interaction) && (
+        <PrivateBrowserNotice />
+      )}
+      {request.kind === "plan_review" && !privateBrowserGate(interaction) && (
         <PlanReview disabled={sending} onAnswer={answer}>
           <Prose text={request.markdown} className="text-ui leading-[1.55]" />
         </PlanReview>

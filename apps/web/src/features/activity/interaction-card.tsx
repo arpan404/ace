@@ -1,8 +1,9 @@
 import { useInteraction, useItem, useSidebarThread } from "@ace/client-react";
-import { displayCommand, oneShotNote } from "@ace/ui-core";
+import { approvalCopy, displayCommand, oneShotNote } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
 import type { Interaction } from "@ace/protocol";
 import { useId, useState } from "react";
+import { ApprovalButtons, ApprovalDetails } from "@/components/approval-details.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { PermissionReviewSummary } from "@/components/permission-review.tsx";
@@ -43,7 +44,11 @@ export function InteractionCard(props: {
   return (
     <CardFrame
       cardKey={cardKey}
-      title={requestTitle(interaction.request)}
+      title={
+        interaction.request.kind === "approval" && approvalCopy(interaction.request).tool
+          ? approvalCopy(interaction.request).title
+          : requestTitle(interaction.request)
+      }
       context={
         props.context ??
         (thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : props.threadId)
@@ -77,6 +82,74 @@ function CardBody(props: { interaction: Interaction; cardKey: string }) {
 }
 
 function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
+  const request = props.interaction.request;
+  if (request.kind === "approval" && approvalCopy(request).tool)
+    return <ToolApprovalBody interaction={props.interaction} cardKey={props.cardKey} />;
+  return <ProviderApprovalBody interaction={props.interaction} cardKey={props.cardKey} />;
+}
+
+/**
+ * An ace tool's request (computer use, page scripts, downloads, uploads): its reason, risk and
+ * exact target, and every option it offers in order. These ask for a deliberate yes, so only
+ * D (deny) has a key.
+ */
+function ToolApprovalBody(props: { interaction: Interaction; cardKey: string }) {
+  const { interaction } = props;
+  const request = interaction.request;
+  const focused = useCardFocused(props.cardKey);
+  const { answer, sending, chosen, failure } = useAnswer(interaction.id);
+  if (request.kind !== "approval") return null;
+  // ace answers its own tools' requests before any permission mode's one-shot rule, so every
+  // option the daemon offered stands.
+  const copy = approvalCopy(request);
+  const choices = copy.choices;
+  const deny = choices.find((choice) => choice.emphasis === "quiet");
+  const picked =
+    chosen?.kind === "approval"
+      ? choices.find((choice) => choice.option.id === chosen.optionId)
+      : undefined;
+  return (
+    <>
+      <ApprovalDetails copy={copy} />
+      {interaction.review && (
+        <PermissionReviewSummary review={interaction.review} className="mt-2.5" />
+      )}
+      <CardActions>
+        {sending ? (
+          <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <CheckIcon aria-hidden size={13} className="text-status-done" />
+            {picked?.label ?? "Answer"} · sending…
+          </span>
+        ) : (
+          <ApprovalButtons
+            choices={choices}
+            disabled={sending}
+            onChoose={(choice) =>
+              answer(
+                { kind: "approval", optionId: choice.option.id },
+                choice.emphasis === "quiet" ? confirmations.denied : confirmations.approved,
+              )
+            }
+          />
+        )}
+      </CardActions>
+      <DenyKey
+        enabled={focused && !sending && deny !== undefined}
+        onDeny={() =>
+          deny && answer({ kind: "approval", optionId: deny.option.id }, confirmations.denied)
+        }
+      />
+      <CardError message={failure} />
+    </>
+  );
+}
+
+function DenyKey(props: { enabled: boolean; onDeny(): void }) {
+  useHotkey("d", props.onDeny, { enabled: props.enabled });
+  return null;
+}
+
+function ProviderApprovalBody(props: { interaction: Interaction; cardKey: string }) {
   const { interaction } = props;
   const request = interaction.request;
   const options = request.kind === "approval" ? request.options : [];
@@ -93,6 +166,7 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
   const command = useShellCommand(interaction);
   const risk = command ? commandRisk(command) : undefined;
   const description = request.kind === "approval" ? request.description : undefined;
+  const defaultToNo = request.kind === "approval" && request.defaultToNo === true;
   const approveOption = always && choices.always ? choices.always : choices.approve;
   const approve = () =>
     approveOption &&
@@ -162,9 +236,14 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
           </Button>
         )}
         {approveOption && (
-          <Button variant="primary" disabled={sending} onClick={approve}>
+          // A request that defaults to no never makes approving the filled button.
+          <Button
+            variant={defaultToNo ? "secondary" : "primary"}
+            disabled={sending}
+            onClick={approve}
+          >
             Approve
-            <ButtonKey primary>A</ButtonKey>
+            <ButtonKey primary={!defaultToNo}>A</ButtonKey>
           </Button>
         )}
       </CardActions>

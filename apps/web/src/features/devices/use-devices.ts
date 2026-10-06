@@ -1,6 +1,6 @@
 import { DeviceClientError } from "@ace/client/devices";
 import type { DeviceInput, DeviceOperation, DevicePermission } from "@ace/protocol";
-import { ThreadId } from "@ace/protocol";
+import { AgentId, ThreadId } from "@ace/protocol";
 import {
   deviceControls,
   deviceRows,
@@ -49,6 +49,8 @@ export interface DevicesView {
   pending: boolean;
   problem: DeviceProblem | undefined;
   session: DeviceSession | undefined;
+  /** The agent holding the selected device, while one does. */
+  holder: { threadId: string; agentId: string } | undefined;
 }
 
 /**
@@ -161,9 +163,11 @@ export function useDevices(threadId: string, deviceId?: string) {
     pending: pending > 0,
     problem: failed,
     session,
+    holder: state?.controller === "agent" ? state.holder : undefined,
   };
   return {
     view,
+    threadId,
     reconnect,
     enable: (on: boolean) =>
       act(async () => {
@@ -200,6 +204,18 @@ export function useDevices(threadId: string, deviceId?: string) {
       target && act(() => run({ op: "controller", deviceId: target, controller: "human" })),
     release: () =>
       target && act(() => run({ op: "controller", deviceId: target, controller: "none" })),
+    /** Hand the device to one of this thread's agents; the daemon checks it is approved here. */
+    delegate: (agentId: string) =>
+      target &&
+      act(() =>
+        run({
+          op: "controller",
+          deviceId: target,
+          controller: "agent",
+          threadId: ThreadId.parse(threadId),
+          agentId: AgentId.parse(agentId),
+        }),
+      ),
     /**
      * One input, resolved once the device acknowledged or refused it (a refusal shows as the
      * problem), so a drag keeps a single move in flight. It never rejects and is never replayed.

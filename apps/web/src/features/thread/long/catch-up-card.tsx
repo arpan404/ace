@@ -8,6 +8,7 @@ import {
 } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import {
+  approvalCopy,
   catchUpSummaryRequest,
   catchUpView,
   formatAgo,
@@ -201,9 +202,12 @@ function PendingRequest(props: { threadId: string; interactionId: string; onLive
   if (!interaction || interaction.state !== "pending") return null;
   const request = interaction.request;
   const sending = intent?.state === "pending" || intent?.state === "acked";
+  // ace's own tools and default-to-no requests are answered on their full card, with its risk.
+  const deliberate =
+    request.kind === "approval" && (request.defaultToNo === true || !!approvalCopy(request).tool);
   const title =
     request.kind === "approval"
-      ? request.title
+      ? approvalCopy(request).title
       : request.kind === "question"
         ? (request.questions[0]?.text ?? "A question")
         : request.kind === "plan_review"
@@ -213,7 +217,7 @@ function PendingRequest(props: { threadId: string; interactionId: string; onLive
     <li className="flex min-w-0 items-center gap-2 text-ui">
       <Dot tone="needs-you" />
       <span className="min-w-0 flex-1 truncate text-foreground">{title}</span>
-      {request.kind === "approval" ? (
+      {request.kind === "approval" && !deliberate ? (
         request.options.slice(0, 3).map((option) => (
           <Button
             key={option.id}
@@ -233,7 +237,7 @@ function PendingRequest(props: { threadId: string; interactionId: string; onLive
         ))
       ) : (
         <Button size="sm" onClick={props.onLive}>
-          Answer
+          {deliberate ? "Review" : "Answer"}
         </Button>
       )}
     </li>

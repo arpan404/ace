@@ -21,3 +21,5 @@ export type { Scheduler } from "./runtime.ts";
 export { linuxBackend, installedLinuxHelper, type LinuxBackend } from "./linux.ts";
 
 export { ScreenStopError } from "./stop-error.ts";
+
+export type { ScreenAccess } from "./access.ts";

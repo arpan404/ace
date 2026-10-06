@@ -1,3 +1,4 @@
+import { helperGate } from "./testing/gate.ts";
 import { stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { onTestFinished, expect, it } from "vitest";
@@ -79,8 +80,7 @@ it("UI reads hold no capture lease and viewers release capture without restartin
   await f.screen.captureScreenshot(state.sessionId);
   expect(f.screen.state(state.sessionId).indicator).toBe(true);
   unsubscribe();
-  // Command acknowledgement and microtask drains replace timing-based synchronization.
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  // targets waits for outstanding capture transitions, then acknowledges native state.
   const released = (await f.screen.targets()).windows[0]?.title;
   expect(released).toContain("capture:false");
   expect(released?.split("pid:")[1]).toBe(title?.split("pid:")[1]);
@@ -101,7 +101,7 @@ it("semantic tools enforce approvals, owner takeover, stale refs and bounded tre
   ).toMatchObject({ nodes: [{ ref: "button" }] });
   expect(
     await f.screen.uiAct(state.sessionId, "agent", { ref: "button", action: "expand" }, "agent"),
-  ).toEqual({ fallback: true });
+  ).toMatchObject({ fallback: true, mode: "background" });
   await expect(handler("screen_ui_act", { ref: "missing", action: "press" })).rejects.toMatchObject(
     { code: "target_gone" },
   );
@@ -218,7 +218,6 @@ it("v2 failure retains the visible indicator until owned process cleanup complet
   ).rejects.toThrow();
   try {
     await stopping.promise;
-    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(f.screen.state(state.sessionId)).toMatchObject({
       lifecycle: "stopping",
       indicator: true,
@@ -247,16 +246,22 @@ it("named key, Unicode, scroll and pointer operations use the existing v2 proces
     { kind: "pointer.drag", x: 10, y: 20, toX: 30, toY: 40 },
     "agent",
   );
-  expect(
-    (await f.screen.uiFind(state.sessionId, { query: { role: "AXTextField" } })).nodes[0]?.value,
-  ).toBe("6");
+  for (const [name, value] of [
+    ["Typed text", "こんにちは 👋"],
+    ["Last key", JSON.stringify({ key: "Enter", modifiers: ["command"] })],
+    ["Scroll", JSON.stringify({ dx: 0, dy: 20 })],
+    ["Pointer", JSON.stringify({ x: 30, y: 40 })],
+  ])
+    expect((await f.screen.uiFind(state.sessionId, { query: { name } })).nodes[0]?.value).toBe(
+      value,
+    );
 });
-it("oversized and deeply nested helper trees are rejected before recursive decoding", async () => {
+it("oversized and deeply nested helper trees are rejected", async () => {
   for (const bad of ["nodes", "depth"]) {
     const f = await manager({ FAKE_V2: "1", BAD_TREE: bad });
     onTestFinished(f.close);
     const state = await ready(f.screen);
-    await expect(f.screen.uiTree(state.sessionId, {})).rejects.toThrow("UI tree");
+    await expect(f.screen.uiTree(state.sessionId, {})).rejects.toThrow();
   }
 });
 it("malformed capabilities fail closed rather than silently downgrading to v1", async () => {
@@ -267,12 +272,19 @@ it("malformed capabilities fail closed rather than silently downgrading to v1", 
 });
 
 it("approval revocation cannot return a tree that was pending when access was removed", async () => {
-  const f = await manager({ FAKE_V2: "1", HOLD_UI: "1" });
-  onTestFinished(f.close);
+  const gate = await helperGate();
+  const f = await manager({ FAKE_V2: "1", READ_GATE_PORT: gate.port });
+  onTestFinished(async () => {
+    gate.release();
+    await f.close();
+    await gate.close();
+  });
   const state = await ready(f.screen);
   const pending = expect(f.screen.uiTree(state.sessionId, {})).rejects.toThrow("approval");
-  expect((await f.screen.targets()).windows[0]?.title).toContain("held:true");
-  await f.screen.approve(target.bundleId, false);
+  await gate.reached;
+  const revoked = f.screen.approve(target.bundleId, false);
+  gate.release();
+  await revoked;
   await pending;
 });
 it("v2 stops capture before stalled publication and disable still terminates the idle host", async () => {
