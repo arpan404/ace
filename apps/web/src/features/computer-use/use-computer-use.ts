@@ -1,5 +1,5 @@
 import type { ScreenAgentScope, ScreenGrant, ScreenOperation } from "@ace/protocol";
-import { screenProblem } from "@ace/ui-core/computer-use";
+import { screenProblem, visibleSessions, type StopAllState } from "@ace/ui-core/computer-use";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ScreenClientError, useScreenSession } from "./screen-session.ts";
@@ -35,13 +35,15 @@ export function describeProblem(
 /**
  * Computer use for whatever shows it: the channel's live state and every human control. Each
  * control is one request; a refusal becomes a toast (or, for the session it concerns, the
- * card's problem line). Nothing is retried on its own.
+ * card's problem line). Stop all keeps its own state, pending then its outcome, for its button.
+ * Nothing is retried on its own.
  */
 export function useComputerUse() {
   const { session, snapshot, reconnect } = useScreenSession();
   const toast = useToast();
   const [pending, setPending] = useState(0);
   const [problems, setProblems] = useState<ReadonlyMap<string, ScreenProblem>>(new Map());
+  const [stopping, setStopping] = useState<StopAllState>({ state: "idle" });
   const setProblem = (sessionId: string, problem: ScreenProblem | undefined) =>
     setProblems((current) => {
       const next = new Map(current);
@@ -58,10 +60,15 @@ export function useComputerUse() {
       timeoutMs?: number;
       /** The page shows this failure where it happened (the permissions' own state). */
       inline?: boolean;
+      /** The caller shows the failure itself; no toast. */
+      onProblem?: (problem: ScreenProblem) => void;
     },
   ): Promise<unknown> => {
     if (!session) {
-      toast.error({ title: options.failure, description: "Computer use is offline." });
+      const offline = "Computer use is offline.";
+      if (options.onProblem)
+        options.onProblem({ title: offline, hint: undefined, code: undefined });
+      else toast.error({ title: options.failure, description: offline });
       return undefined;
     }
     setPending((count) => count + 1);
@@ -71,6 +78,7 @@ export function useComputerUse() {
     } catch (error) {
       const problem = describeProblem(error);
       if (options.sessionId) setProblem(options.sessionId, problem);
+      else if (options.onProblem) options.onProblem(problem);
       else if (!options.inline)
         toast.error({ title: options.failure, description: problem.hint ?? problem.title });
       return undefined;
@@ -85,12 +93,24 @@ export function useComputerUse() {
     reconnect,
     pending: pending > 0,
     problem: (sessionId: string) => problems.get(sessionId),
-    enable: (enabled: boolean) =>
-      run(
+    stopping,
+    enable: (enabled: boolean) => {
+      setStopping({ state: "idle" });
+      return run(
         { op: "enable", enabled },
         { failure: enabled ? "Couldn't turn on computer use" : "Couldn't turn off computer use" },
-      ),
-    stopAll: () => run({ op: "stop.all" }, { failure: "Couldn't stop computer use" }),
+      );
+    },
+    stopAll: async () => {
+      const count = visibleSessions(snapshot.states).length;
+      let failed: ScreenProblem | undefined;
+      setStopping({ state: "stopping" });
+      await run(
+        { op: "stop.all" },
+        { failure: "Couldn't stop computer use", onProblem: (problem) => (failed = problem) },
+      );
+      setStopping(failed ? { state: "failed", reason: failed.title } : { state: "stopped", count });
+    },
     requestPermission: (permission: "screenRecording" | "accessibility") =>
       run({ op: "permissions.request", permission }, { failure: "Couldn't ask macOS" }),
     refreshPermissions: () =>

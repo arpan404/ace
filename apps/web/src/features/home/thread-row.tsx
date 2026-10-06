@@ -1,3 +1,4 @@
+import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { useRefusedTitle, useSelected } from "@/features/organize/index.ts";
@@ -17,7 +18,8 @@ const card =
  * One Home task: its project and status, its title, then where the work happens and what it
  * changed. A thread that needs you carries a warm tint; the open one a filled background.
  * Pin, Settle and Snooze appear on hover; right-click opens the full menu. A picked row (for a
- * bulk action) wears the focus colour.
+ * bulk action) wears the focus colour. On a touch screen a pinned row carries a drag handle: a
+ * finger on the row scrolls the list, a finger on the handle moves the row (the list owns both).
  */
 export function ThreadRow(props: { threadId: string }) {
   const row = useThreadCard(props.threadId, false);
@@ -33,6 +35,7 @@ export function ThreadRow(props: { threadId: string }) {
   const view =
     started && row.card.title === "New thread" ? { ...row.card, title: started } : row.card;
   const needsYou = view.status.tone === "needs-you";
+  const handle = view.flags.pinned && !renaming;
   const body = (title: ReactNode) => (
     <>
       <span aria-hidden className="contents">
@@ -77,11 +80,24 @@ export function ThreadRow(props: { threadId: string }) {
                   : "group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent",
                 "data-[status=active]:bg-foreground/8",
                 selected && "bg-ring/10 shadow-[inset_0_0_0_1px_var(--ring)]",
+                handle && "pointer-coarse:pr-11",
               )}
             >
               {body(view.title)}
             </Link>
           </Tip>
+        )}
+        {handle && (
+          // The list starts a touch drag from here (`touch-none`: the browser doesn't scroll)
+          // and a keyboard move from Space or Enter. Hidden for a mouse: the row itself drags.
+          <button
+            type="button"
+            data-drag-handle=""
+            aria-label={`Move ${view.title}`}
+            className="absolute top-1/2 right-0.5 hidden size-11 -translate-y-1/2 touch-none place-items-center rounded-md text-subtle-foreground select-none focus-ring pointer-coarse:grid"
+          >
+            <DotsSixVerticalIcon aria-hidden size={18} weight="bold" />
+          </button>
         )}
         {!renaming && (
           <RowActions

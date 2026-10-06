@@ -1,6 +1,6 @@
 import { useSidebarThread } from "@ace/client-react";
 import type { ScreenState } from "@ace/protocol";
-import { screenSession } from "@ace/ui-core/computer-use";
+import { screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
 import { DotsThreeIcon, HandIcon, StopIcon } from "@phosphor-icons/react";
 import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
 import { StatusPill } from "@/components/status-pill.tsx";
@@ -147,17 +147,20 @@ export function SessionCard(props: {
   );
 }
 
-/** Secure fields: off unless the person allows it for this one session. */
+/**
+ * Secure fields: off unless the person allows it for this one session. Says what secure input
+ * is and what to do, since the field that blocked the agent is all the person saw.
+ */
 function SecureInput(props: { use: ComputerUse; state: ScreenState }) {
   const { use, state } = props;
   const allowed = state.secureInputAllowed;
   return (
-    <div className="flex items-center gap-2 rounded-md bg-foreground/3 px-2.5 py-2 text-sm">
-      <p className="min-w-0 flex-1 text-muted-foreground">
-        {allowed
-          ? "The agent may type into password fields in this app until it stops or changes hands."
-          : "The agent wants to type into a password field. Values stay hidden from it and the log."}
-      </p>
+    <div
+      role="group"
+      aria-label="Secure input"
+      className="flex items-center gap-2 rounded-md bg-foreground/3 px-2.5 py-2 text-sm"
+    >
+      <p className="min-w-0 flex-1 text-muted-foreground">{secureInputCopy(allowed).explanation}</p>
       <Button
         size="sm"
         variant={allowed ? "ghost" : "secondary"}
@@ -183,6 +186,7 @@ function SessionMenu(props: { use: ComputerUse; state: ScreenState }) {
       <MenuContent align="end">
         <MenuItem
           disabled={state.lifecycle !== "live"}
+          reason={secureInputCopy(state.secureInputAllowed).menu}
           onClick={() => void use.secureInput(state.sessionId, !state.secureInputAllowed)}
         >
           {state.secureInputAllowed

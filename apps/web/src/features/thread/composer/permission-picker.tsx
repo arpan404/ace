@@ -5,7 +5,7 @@ import {
   permissionLabel,
   permissionNeedsAttention,
 } from "@ace/ui-core";
-import { ClockIcon, ShieldCheckIcon } from "@phosphor-icons/react";
+import { ClockIcon, ShieldCheckIcon, WarningIcon } from "@phosphor-icons/react";
 import { Suspense } from "react";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -25,6 +25,8 @@ const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
  * clock, and the tooltip says when the change applies. The provider's real coverage is in the
  * tooltip and menu. Full access is the one mode whose icon is drawn in the attention colour. A
  * narrow composer shows the mode's icon alone; its name stays in the tooltip and accessible name.
+ * When the mode asked for (a chosen or default Ask) can't run on this provider, `fallback` says
+ * so: a small warning on the chip, in its tooltip and at the top of the menu.
  */
 export function PermissionPicker(props: {
   /** The mode in effect. */
@@ -43,6 +45,8 @@ export function PermissionPicker(props: {
   inherited?: boolean | undefined;
   /** A thread's default, offered as "Use the default" when it has its own mode. */
   defaultMode?: PermissionMode | undefined;
+  /** Why the mode shown isn't the one asked for: "Cursor can't pause for your approval…". */
+  fallback?: string | undefined;
   onChange(mode: PermissionMode | null): void;
 }) {
   const { mode, next } = props;
@@ -53,6 +57,7 @@ export function PermissionPicker(props: {
   const waits = next && props.note ? `${permissionLabel(next)} ${lower(props.note)}` : undefined;
   const tip = [
     mode ? `${label} · ${permissionCoverage(props.capabilities, mode)}` : label,
+    props.fallback,
     waits,
     props.inherited ? "default" : undefined,
   ]
@@ -63,6 +68,7 @@ export function PermissionPicker(props: {
       <Tip label={props.unavailable ?? tip} side="top">
         <MenuTrigger
           aria-label={`Approvals: ${label}${waits ? `, ${waits}` : ""}`}
+          aria-description={props.fallback}
           className={chipControl}
         >
           <Glyph
@@ -73,6 +79,9 @@ export function PermissionPicker(props: {
           />
           {mode && !compact && <span className="truncate">{permissionChipText(mode, next)}</span>}
           {next && <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />}
+          {props.fallback && (
+            <WarningIcon aria-hidden size={12} className="shrink-0 text-status-needs-you" />
+          )}
         </MenuTrigger>
       </Tip>
       <MenuContent side="top" align="start" className="w-[320px]">
@@ -85,6 +94,7 @@ export function PermissionPicker(props: {
             unavailable={props.unavailable}
             inherited={props.inherited}
             defaultMode={props.defaultMode}
+            fallback={props.fallback}
             onChange={props.onChange}
           />
         </Suspense>

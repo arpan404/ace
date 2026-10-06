@@ -62,7 +62,8 @@ const header =
  * setting, in Settings › General). Only visible rows mount. Up and Down (or j and k) move
  * between rows; Tab still walks each row's actions. On a row, P pins or unpins it, X picks it
  * (⌘- and Shift-click too) and Space picks it up to move by keyboard; rows drag with the pointer
- * into, within and out of the Pinned group.
+ * into, within and out of the Pinned group. A finger drags only by a pinned row's handle, so a
+ * finger on a row still scrolls the list; Space or Enter on the handle starts a keyboard move.
  * Rows that arrive (a new thread, an unsnooze) rise in, rows that go (settle, snooze, archive)
  * fade where they were, and the rest slide to their new places. While the person points at the
  * list or moves through it by keyboard, rows keep their places (`useHeldRows`); the Pinned
@@ -153,6 +154,15 @@ export function ThreadList(props: { list: HomeList }) {
   /** The threads a drag of `id` moves: the picked ones when it is one of them, else just it. */
   const draggedWith = (id: string) => (picked.includes(id) && picked.length > 1 ? picked : [id]);
 
+  /** Pick `id` (and the threads picked with it) up to move by keyboard. */
+  const startKeyboardMove = (id: string) => {
+    const ids = draggedWith(id);
+    void loadDrag().then((module) => {
+      const target = host();
+      if (target) keyboardMove.current = module.startKeyboardMove(target, ids);
+    });
+  };
+
   /** Focus the row at `index` (or the next one that isn't leaving), mounting it first if needed. */
   const focusRow = (from: number, step: number): string | undefined => {
     let index = from + step;
@@ -185,6 +195,15 @@ export function ThreadList(props: { list: HomeList }) {
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!(event.target instanceof HTMLElement)) return;
+    if (
+      event.target.matches("[data-drag-handle]") &&
+      (event.key === " " || event.key === "Enter")
+    ) {
+      const handled = event.target.closest<HTMLElement>("[data-thread-row]")?.dataset.threadRow;
+      event.preventDefault();
+      if (handled) startKeyboardMove(handled);
+      return;
+    }
     // Only from a row itself: never while renaming, or inside a menu or the hover actions.
     if (!event.target.matches("[data-row-focus], [data-settled-toggle]")) return;
     const from = event.target.closest<HTMLElement>("[data-index]");
@@ -203,11 +222,7 @@ export function ThreadList(props: { list: HomeList }) {
     }
     if (id && pressed(event, "home.move")) {
       event.preventDefault();
-      const ids = draggedWith(id);
-      void loadDrag().then((module) => {
-        const target = host();
-        if (target) keyboardMove.current = module.startKeyboardMove(target, ids);
-      });
+      startKeyboardMove(id);
       return;
     }
     const step = steps[event.key];
@@ -234,9 +249,13 @@ export function ThreadList(props: { list: HomeList }) {
     } else if (picked.length) selection.clear();
   };
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || event.pointerType === "touch") return;
+    if (event.button !== 0) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    if (!(event.target instanceof Element) || !event.target.closest("[data-row-focus]")) return;
+    if (!(event.target instanceof Element)) return;
+    const handle = event.target.closest("[data-drag-handle]");
+    // A finger on the row scrolls the list; only the handle moves it.
+    if (event.pointerType === "touch" && !handle) return;
+    if (!handle && !event.target.closest("[data-row-focus]")) return;
     const id = event.target.closest<HTMLElement>("[data-thread-row]")?.dataset.threadRow;
     if (!id) return;
     const start = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, id };

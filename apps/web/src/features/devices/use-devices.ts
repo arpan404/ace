@@ -89,14 +89,12 @@ export function useDevices(threadId: string, deviceId?: string) {
   const now = useSeconds(state?.controller === "human");
   const controls = device && deviceControls(device, state, threadId, now);
 
-  // Watch the selected device's stream while it is live; viewing is safe to restore.
+  // Watch the selected device's stream while it is live; viewing is safe to restore. Every
+  // view of one device shares a single stream, closed when the last of them leaves.
   const streaming = connected && selected?.live ? selected.id : undefined;
   useEffect(() => {
     if (!session || !streaming) return;
-    void session.client.request({ op: "subscribe", deviceId: streaming }).catch(() => {});
-    return () => {
-      void session.client.request({ op: "unsubscribe", deviceId: streaming }).catch(() => {});
-    };
+    return session.client.retainStream(streaming);
   }, [session, streaming]);
 
   // A running device shows its screen as soon as its tab opens: start the live view once per

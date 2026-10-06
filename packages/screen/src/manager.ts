@@ -28,6 +28,7 @@ import { type Frame, type FrameSink } from "./frames.ts";
 import { type Helper } from "./helper.ts";
 import { ScreenPolicy, bundles } from "./policy.ts";
 import { actOnElement } from "./semantic.ts";
+import { shutdownFailure } from "./shutdown-failure.ts";
 import { HelperHost } from "./helper-host.ts";
 import { type Session, type ControllerBinding } from "./session.ts";
 import { type RecordingArtifact } from "./recording.ts";
@@ -295,7 +296,7 @@ export class ScreenManager {
     );
     await this.lifecycle.drain();
     await this.launches.drain();
-    if (errors.length) throw new AggregateError(errors, "Screen shutdown failed");
+    if (errors.length) throw shutdownFailure(errors, results.length);
   }
   private async inspect(op: "permissions" | "targets"): Promise<unknown> {
     if (this.reservations >= 4) throw new Error("Helper inspection limit");

@@ -337,6 +337,33 @@ test("approvals chosen for a new thread are the ones it starts with", async () =
   expect(await screen.findByRole("button", { name: /^Approvals: Ask first/ })).toBeTruthy();
 });
 
+test("a default of Ask first falls back visibly on Cursor, which can't pause for approval", async () => {
+  const made = app();
+  cursorSharesGpt5(made);
+  made.daemon.services.settings.seed({ "permissions.defaultMode": "ask" });
+  await made.open("/new?project=relay");
+  expect(await screen.findByRole("button", { name: "Approvals: Ask first" })).toBeTruthy();
+
+  await chooseModel("GPT-5", "Cursor", /^Model: Opus 4.1/);
+  await closeModelControl();
+  const chip = await screen.findByRole("button", { name: "Approvals: Read only" });
+  expect(chip.getAttribute("aria-description")).toBe(
+    "Cursor can't pause for your approval, so the thread starts in Read only",
+  );
+  await userEvent.click(chip);
+  const ask = await screen.findByRole("menuitemradio", { name: "Ask first" });
+  expect(ask.getAttribute("aria-disabled")).toBe("true");
+  expect(ask.textContent).toContain("Cursor can't pause for your approval");
+  await userEvent.click(ask);
+  await userEvent.keyboard("{Escape}");
+
+  // The thread starts (the daemon refuses Ask for Cursor) in the mode the chip showed.
+  await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
+  expect(await started(made)).toMatchObject({ provider: "cursor" });
+  expect(await screen.findByRole("button", { name: /^Approvals: Read only/ })).toBeTruthy();
+});
+
 test("an unsent New thread draft waits for the next visit, and goes once the thread starts", async () => {
   const storage = memoryKeyValue();
   await app({ storage }).open("/new?project=relay");

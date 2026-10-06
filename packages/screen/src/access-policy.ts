@@ -5,6 +5,7 @@ import type { HelperHost } from "./helper-host.ts";
 import type { AppLaunches } from "./app-launches.ts";
 import { ScreenPolicy, bundles } from "./policy.ts";
 import type { Session } from "./session.ts";
+import { shutdownFailure } from "./shutdown-failure.ts";
 type AccessPorts = {
   sessions: Map<string, Session>;
   policy: ScreenPolicy;
@@ -54,7 +55,7 @@ export class ScreenAccessPolicy {
       const errors = (await results).flatMap((result) =>
         result.status === "rejected" ? [result.reason] : [],
       );
-      if (errors.length) throw new AggregateError(errors, "Screen shutdown failed");
+      if (errors.length) throw shutdownFailure(errors, sessions.length);
     }
   }
   async approve(
