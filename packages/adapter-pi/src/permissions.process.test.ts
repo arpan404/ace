@@ -65,10 +65,14 @@ test.each(
   },
 );
 
-test.each(["ask", "auto-review"] as const)(
-  "Pi %s gates writes before execution and accepts only a one-shot approval",
-  async (mode) => {
-    const h = await sessionHarness({}, false, {}, undefined, mode);
+test.each(
+  (["ask", "auto-review"] as const).flatMap((mode) =>
+    [false, true].map((resume) => ({ mode, resume })),
+  ),
+)(
+  "Pi $mode gates writes before execution and accepts only a one-shot approval, resume=$resume",
+  async ({ mode, resume }) => {
+    const h = await sessionHarness({}, resume, {}, undefined, mode);
     try {
       await h.session.send([{ type: "text", text: "gated-write" }], "queue");
       const approval = Object.values(h.h.state.interactions).find(

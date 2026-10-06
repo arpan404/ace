@@ -1,48 +1,27 @@
-import { ArrowSquareOutIcon, DevicesIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { desktopBrowserViews, type BrowserAccelerator } from "@/boot/desktop-browser.ts";
 import { displayAddress } from "@ace/ui-core";
-import { useEffect, useRef, type KeyboardEvent } from "react";
-import { openExternal, revealer } from "@/boot/open-external.ts";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import {
-  Menu,
-  MenuContent,
-  MenuItem,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator,
-  MenuTrigger,
-} from "@/components/ui/menu.tsx";
+import { useEffectEvent, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { reportBrowserControl } from "@/lib/browser-control.ts";
 import { usePanelServices } from "../services.ts";
-import { useLocal } from "../store.ts";
-import type { BrowserView, PreviewSource } from "../sources.ts";
 import { WithServices } from "../with-services.tsx";
+import { FindPage } from "./find-page.tsx";
 import { AddressBar } from "./address-bar.tsx";
 import { AgentTabs } from "./agent-tabs.tsx";
 import { ControlStrip, useControl } from "./control-strip.tsx";
-import { DownloadsButton } from "./downloads.tsx";
 import { PageDialog } from "./page-dialog.tsx";
-import { SiteAccess } from "./site-access.tsx";
-import {
-  recordingThreads,
-  useBrowserFeatures,
-  type BrowserFeatures,
-} from "./use-browser-features.ts";
+import { useBrowserFeatures } from "./use-browser-features.ts";
+import { BrowserActions } from "./browser-actions.tsx";
 import { PageNav, PageToolbar } from "./page-toolbar.tsx";
-import { bindPage } from "./loading.ts";
 import { useNativeView } from "./native-view.ts";
 import { LoadFailed, Offline, Opening, Parked, Reopen, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
-import { viewportById, viewports } from "./viewports.ts";
-
-const tool = "size-7 rounded-sm";
+import { viewportById } from "./viewports.ts";
 
 /**
  * A browser tab: an editable address over the thread's live page, with Back, Forward, Reload,
@@ -51,6 +30,7 @@ const tool = "size-7 rounded-sm";
  * address isn't the live page's offers to load it here.
  */
 function Browser(props: TabViewProps) {
+  const [finding, setFinding] = useState(false);
   const threadId = props.scope;
   const { preview: source } = usePanelServices();
   const page = useBrowserTab(source, threadId, props.tab);
@@ -105,15 +85,29 @@ function Browser(props: TabViewProps) {
     },
   );
 
+  const root = useRef<HTMLDivElement>(null);
+  const shortcut = (accelerator: BrowserAccelerator) => {
+    if (accelerator === "CmdOrCtrl+L")
+      root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
+    else if (accelerator === "CmdOrCtrl+F") setFinding(true);
+    else if (accelerator === "CmdOrCtrl+R") page.reload();
+    else if (accelerator === "CmdOrCtrl+[") page.back();
+    else page.forward();
+  };
+  const nativeShortcut = useEffectEvent((id: string, accelerator: BrowserAccelerator) => {
+    if (id === threadId) shortcut(accelerator);
+  });
+  useEffect(() => desktopBrowserViews()?.onShortcut(nativeShortcut), [threadId]);
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const mod = event.metaKey || event.ctrlKey;
     if (!mod || event.altKey) return;
     const key = event.key.toLowerCase();
-    if (key === "l")
-      event.currentTarget.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
-    else if (key === "r" && !event.shiftKey) page.reload();
-    else if (event.code === "BracketLeft" && !event.shiftKey) page.back();
-    else if (event.code === "BracketRight" && !event.shiftKey) page.forward();
+    if (key === "l") shortcut("CmdOrCtrl+L");
+    else if (key === "f" && !event.shiftKey) shortcut("CmdOrCtrl+F");
+    else if (key === "r" && !event.shiftKey) shortcut("CmdOrCtrl+R");
+    else if (event.code === "BracketLeft" && !event.shiftKey) shortcut("CmdOrCtrl+[");
+    else if (event.code === "BracketRight" && !event.shiftKey) shortcut("CmdOrCtrl+]");
     else return;
     // The tab's own browser keys win over the app's (⌘[ is app Back elsewhere).
     event.preventDefault();
@@ -122,10 +116,12 @@ function Browser(props: TabViewProps) {
 
   const setViewport = (id: string) => {
     const next = viewportById(id);
-    page.save({ viewport: next.id });
-    if (!page.live) return;
+    if (!page.live) {
+      page.save({ viewport: next.id });
+      return;
+    }
     const apply = async () => {
-      if (source.view(threadId)?.controller !== "human") await source.takeover(threadId);
+      if (!source.heldAs(threadId)) await source.takeover(threadId);
       // Back to the panel's size: the viewport follows the pane again from the next layout.
       await source.emulate(
         threadId,
@@ -137,6 +133,7 @@ function Browser(props: TabViewProps) {
           touch: false,
         },
       );
+      page.save({ viewport: next.id });
     };
     apply().catch((error: unknown) =>
       toast.add({
@@ -158,7 +155,7 @@ function Browser(props: TabViewProps) {
         threadId={threadId}
         view={page.live}
         frame={page.frame}
-        interactive={page.live.controller === "human" && page.online}
+        interactive={!!page.heldAs && page.online}
         fit={viewport.emulation === undefined}
         dimmed={!page.online || page.live.status === "paused"}
       />
@@ -187,7 +184,7 @@ function Browser(props: TabViewProps) {
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
   return (
-    <div className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
+    <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
       <PageToolbar
         nav={
           <PageNav
@@ -248,6 +245,7 @@ function Browser(props: TabViewProps) {
             online={page.online}
             backend={page.live?.backend}
             browser={browser}
+            onFind={() => setFinding(true)}
             downloads={page.live?.downloads ?? []}
             privately={page.live?.takeoverMode === "private"}
           />
@@ -257,6 +255,7 @@ function Browser(props: TabViewProps) {
       {page.bound && page.live && (
         <ControlStrip
           view={page.live}
+          heldHere={!!page.heldAs}
           busy={control.busy}
           onToggle={control.toggle}
           onPrivate={control.takePrivately}
@@ -267,6 +266,9 @@ function Browser(props: TabViewProps) {
           <AgentTabs view={page.live} browser={browser} busy={control.busy} />
           <PageDialog view={page.live} browser={browser} />
         </>
+      )}
+      {finding && page.live && (
+        <FindPage source={source} threadId={threadId} onClose={() => setFinding(false)} />
       )}
       <div
         ref={pageArea}
@@ -279,152 +281,6 @@ function Browser(props: TabViewProps) {
         {content}
       </div>
     </div>
-  );
-}
-
-/** Page size, Open in your browser and the options menu: the browser page's toolbar actions. */
-function BrowserActions(props: {
-  source: PreviewSource;
-  threadId: string;
-  shownUrl: string | undefined;
-  external: string | undefined;
-  viewport: ReturnType<typeof viewportById>;
-  onViewport(id: string): void;
-  live: boolean;
-  online: boolean;
-  backend: BrowserView["backend"] | undefined;
-  browser: BrowserFeatures;
-  downloads: NonNullable<BrowserView["downloads"]>;
-  privately: boolean;
-}) {
-  const toast = useToast();
-  const { shownUrl, external, viewport, browser } = props;
-  const recording = useLocal(recordingThreads, (threads) => threads.has(props.threadId));
-  const setRecording = (on: boolean) =>
-    recordingThreads.set((threads) => {
-      const next = new Set(threads);
-      if (on) next.add(props.threadId);
-      else next.delete(props.threadId);
-      return next;
-    });
-  const toggleRecording = async () => {
-    if (!recording) {
-      if (await browser.startRecording()) setRecording(true);
-      return;
-    }
-    const artifact = await browser.stopRecording();
-    setRecording(false);
-    if (!artifact) return;
-    const reveal = revealer();
-    toast.add({
-      title: "Recording saved to this thread",
-      description: artifact.filename ?? artifact.path,
-      ...(reveal
-        ? {
-            actionProps: {
-              children: "Show in Finder",
-              onClick: () => void reveal(artifact.path).catch(() => {}),
-            },
-          }
-        : {}),
-    });
-  };
-  return (
-    <>
-      <DownloadsButton downloads={props.downloads} />
-      <SiteAccess threadId={props.threadId} browser={browser} />
-      <Menu>
-        <Tip label={`Page size · ${viewport.label}`}>
-          <MenuTrigger
-            aria-label="Page size"
-            className="grid size-7 place-items-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-ring aria-expanded:bg-accent aria-expanded:text-foreground"
-          >
-            <DevicesIcon aria-hidden size={16} weight={viewport.emulation ? "fill" : "regular"} />
-          </MenuTrigger>
-        </Tip>
-        <MenuContent align="end">
-          <MenuRadioGroup
-            value={viewport.id}
-            onValueChange={(value) => props.onViewport(String(value))}
-          >
-            {viewports.map((each) => (
-              <MenuRadioItem key={each.id} value={each.id}>
-                {each.label}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuContent>
-      </Menu>
-      <IconButton
-        icon={ArrowSquareOutIcon}
-        label={external ? "Open in your browser" : "Open in your browser · open a web page first"}
-        disabled={!external}
-        className={tool}
-        onClick={() =>
-          external &&
-          void openExternal(external).catch((error: unknown) =>
-            toast.add({
-              title: "Couldn't open the page",
-              description: error instanceof Error ? error.message : undefined,
-            }),
-          )
-        }
-      />
-      <Menu>
-        <MenuTrigger
-          aria-label="Browser options"
-          className="grid size-7 place-items-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-ring aria-expanded:bg-accent aria-expanded:text-foreground"
-        >
-          <DotsThreeIcon aria-hidden size={16} weight="bold" />
-        </MenuTrigger>
-        <MenuContent align="end">
-          <MenuItem
-            disabled={!shownUrl}
-            onClick={() =>
-              shownUrl &&
-              void navigator.clipboard?.writeText(shownUrl).then(
-                () => toast.add({ title: "Address copied" }),
-                () => toast.add({ title: "Couldn't copy the address" }),
-              )
-            }
-          >
-            Copy address
-          </MenuItem>
-          <MenuItem
-            danger
-            disabled={!props.live || !props.online}
-            reason={props.live ? undefined : "No page is open"}
-            onClick={() => {
-              bindPage(props.threadId, undefined);
-              void props.source.close(props.threadId).catch(() => undefined);
-            }}
-          >
-            Close the thread's page
-          </MenuItem>
-          <MenuItem
-            disabled={!props.live || !props.online || (props.privately && !recording)}
-            reason={
-              props.privately && !recording
-                ? "Private pages are never recorded"
-                : props.live
-                  ? undefined
-                  : "No page is open"
-            }
-            onClick={() => void toggleRecording()}
-          >
-            {recording ? "Stop recording" : "Record the page"}
-          </MenuItem>
-          <MenuSeparator />
-          <p className="px-2.5 py-1.5 text-xs leading-4 text-subtle-foreground">
-            {props.backend === "embedded"
-              ? "Runs in the ace desktop app's browser."
-              : props.backend === "headless"
-                ? "Runs in ace's own Chromium on the daemon's machine."
-                : "Pages open in ace's own browser, never your personal one."}
-          </p>
-        </MenuContent>
-      </Menu>
-    </>
   );
 }
 

@@ -176,6 +176,15 @@ export type PermissionPane = z.infer<typeof PermissionPane>;
 
 /** Where the renderer wants a thread's embedded browser view drawn, in CSS pixels. */
 export const BrowserPlacement = z.object({
+  device: z
+    .object({
+      width: z.number().positive().max(4096),
+      height: z.number().positive().max(4096),
+      mobile: z.boolean().optional(),
+      deviceScaleFactor: z.number().min(0.5).max(4).optional(),
+    })
+    .optional(),
+  dpr: z.number().positive().max(8).optional(),
   threadId: z.string().min(1).max(256),
   bounds: z.object({
     x: z.number().min(0),
@@ -195,6 +204,11 @@ export type BrowserPlacement = z.infer<typeof BrowserPlacement>;
 /** The person clicked or typed on a view they don't control: the renderer should take control. */
 export const BrowserWantsControl = z.object({ threadId: z.string().min(1).max(256) });
 export type BrowserWantsControl = z.infer<typeof BrowserWantsControl>;
+/** A toolbar shortcut from the thread's native page. */
+export const BrowserShortcut = BrowserWantsControl.extend({
+  accelerator: z.enum(["CmdOrCtrl+L", "CmdOrCtrl+F", "CmdOrCtrl+R", "CmdOrCtrl+[", "CmdOrCtrl+]"]),
+});
+export type BrowserShortcut = z.infer<typeof BrowserShortcut>;
 /** Ask the daemon for control of a thread's embedded view (`human`) or give it back. */
 export const BrowserControlRequest = z.object({
   threadId: z.string().min(1).max(256),

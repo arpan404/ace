@@ -12,11 +12,20 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
   return {
     steer: supported,
     permissions: {
-      modes: supported ? ["read-only", "auto-review", "full-access"] : [],
+      modes: supported ? ["read-only", "ask", "auto-review", "full-access"] : [],
       nativeAutoReview: true,
       toolGate: supported,
       guarantees: supported
         ? [
+            {
+              mode: "ask",
+              level: "sandbox",
+              gates: { writes: true, network: true, protectedReads: false, shell: true },
+              limitations: [
+                "Read-only sandbox blocks edits, including shell writes, until a human approves native escalation.",
+                "Sandbox-allowed read commands can run without approval; protected reads are not gated.",
+              ],
+            },
             {
               mode: "auto-review",
               level: "sandbox",

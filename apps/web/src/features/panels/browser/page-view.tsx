@@ -1,6 +1,16 @@
-import { useRef, type KeyboardEvent, type MouseEvent, type WheelEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent,
+  type MouseEvent,
+  type WheelEvent,
+} from "react";
+import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
+import { bindingsFor, scopeOf, useResolvedKeymap } from "@/lib/keybindings.ts";
+import { keymapIds } from "@/lib/keymap.ts";
 import { cn } from "@/lib/cn.ts";
-import type { BrowserView, PreviewSource, ScreenFrame } from "../sources.ts";
+import type { BrowserView, ForwardedInput, PreviewSource, ScreenFrame } from "../sources.ts";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
 
@@ -23,6 +33,17 @@ export function PageView(props: {
 }) {
   const { frame } = props;
   const pane = useRef<HTMLDivElement>(null);
+  const keymap = useResolvedKeymap();
+  const appChords = useMemo(
+    () =>
+      keymapIds
+        .filter((id) => scopeOf(id) === "global" || scopeOf(id) === "thread")
+        .flatMap((id) => bindingsFor(id, keymap))
+        .filter((binding) => !binding.includes(" "))
+        .map(parseChord)
+        .filter((chord) => chord.mod || chord.ctrl || chord.alt),
+    [keymap],
+  );
   useViewportSync(props.source, props.threadId, pane, props.fit && props.interactive);
   useCaptureSize(props.source, props.threadId, pane);
   // Pointer positions map back to page pixels through the picture's rendered box.
@@ -36,7 +57,24 @@ export function PageView(props: {
   };
   const send = (event: "mousePressed" | "mouseReleased") => (mouse: MouseEvent<HTMLElement>) => {
     if (mouse.button !== 0) return;
+    if (event === "mousePressed") mouse.currentTarget.focus();
     props.source.input(props.threadId, { kind: "mouse", event, ...point(mouse) });
+  };
+  const move = useRef<ForwardedInput | undefined>(undefined);
+  const scheduledMove = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(scheduledMove.current), []);
+  const onMove = (event: MouseEvent<HTMLElement>) => {
+    move.current = {
+      kind: "mouse",
+      event: "mouseMoved",
+      ...point(event),
+      button: event.buttons & 1 ? "left" : "none",
+    };
+    if (!scheduledMove.current)
+      scheduledMove.current = requestAnimationFrame(() => {
+        scheduledMove.current = 0;
+        if (move.current) props.source.input(props.threadId, move.current);
+      });
   };
   const onWheel = (event: WheelEvent<HTMLElement>) => {
     props.source.input(props.threadId, {
@@ -46,16 +84,24 @@ export function PageView(props: {
       deltaY: Math.round(event.deltaY),
     });
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    // App shortcuts (⌘L, ⌘R, tab switching) stay with ace.
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    if (event.key === "Tab" && event.shiftKey) return;
+  const onKey = (type: "keyDown" | "keyUp") => (event: KeyboardEvent<HTMLElement>) => {
+    // Toolbar and app chords are consumed by the ancestors. Editing chords reach the page.
+    if (event.defaultPrevented || appChords.some((chord) => matchesChord(event.nativeEvent, chord)))
+      return;
     event.preventDefault();
     props.source.input(props.threadId, {
       kind: "key",
-      event: "keyDown",
+      event: type,
       key: event.key,
-      ...(event.key.length === 1 ? { text: event.key } : {}),
+      code: event.code,
+      modifiers:
+        (event.altKey ? 1 : 0) |
+        (event.ctrlKey ? 2 : 0) |
+        (event.metaKey ? 4 : 0) |
+        (event.shiftKey ? 8 : 0),
+      ...(type === "keyDown" && event.key.length === 1 && !event.ctrlKey && !event.metaKey
+        ? { text: event.key }
+        : {}),
     });
   };
   const image = (
@@ -85,10 +131,23 @@ export function PageView(props: {
       aria-label={`Control ${props.view.url}`}
       aria-roledescription="Live page"
       tabIndex={0}
+      onMouseMove={onMove}
       onMouseDown={send("mousePressed")}
       onMouseUp={send("mouseReleased")}
       onWheel={onWheel}
-      onKeyDown={onKeyDown}
+      onKeyDown={onKey("keyDown")}
+      onKeyUp={onKey("keyUp")}
+      onPaste={(event) => {
+        event.preventDefault();
+        const text = event.clipboardData.getData("text");
+        for (let index = 0; index < Math.min(text.length, 65536); index += 256)
+          props.source.input(props.threadId, {
+            kind: "key",
+            event: "char",
+            key: "Paste",
+            text: text.slice(index, index + 256),
+          });
+      }}
       className={cn(className, "cursor-default outline-none focus-ring-inset")}
     >
       {image}

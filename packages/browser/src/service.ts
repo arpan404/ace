@@ -366,8 +366,8 @@ export class BrowserService {
   startRecording(threadId: string): Promise<void> {
     return this.get(threadId).startRecording();
   }
-  stopRecording(threadId: string): Promise<BrowserArtifact> {
-    return this.get(threadId).stopRecording();
+  stopRecording(threadId: string, actor?: Actor): Promise<BrowserArtifact> {
+    return this.get(threadId).stopRecording(actor);
   }
   async closeThread(threadId: string, actor?: Actor, signal?: AbortSignal): Promise<void> {
     // Agent closure must not revoke policies or start recovery cleanup before ownership is checked.

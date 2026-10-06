@@ -12,10 +12,10 @@ test.each(
     (["read-only", "ask", "auto-review", "full-access"] as const).map((mode) => ({ legacy, mode })),
   ),
 )(
-  "ACP $mode keeps its permission ceiling through public selectors, legacy: $legacy",
+  "ACP $mode honors admission and permission ceilings through public selectors, legacy: $legacy",
   async ({ legacy, mode }) => {
     const frames: Frame[] = [];
-    const session = await openAcpSession(
+    const opening = openAcpSession(
       {
         threadId: ThreadId.parse("selectors"),
         cwd: process.cwd(),
@@ -36,6 +36,13 @@ test.each(
         ],
       },
     );
+    if (mode === "ask") {
+      await expect(opening).rejects.toThrow("permission_mode_unsupported");
+      // No native requests are sent to a provider that cannot enforce Ask.
+      expect(frames).toEqual([]);
+      return;
+    }
+    const session = await opening;
     try {
       if (!session.setMode) throw new Error("Missing advertised selector");
       await session.setMode("read-only");

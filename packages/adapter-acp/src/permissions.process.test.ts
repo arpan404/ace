@@ -78,3 +78,23 @@ test.each(
     }
   },
 );
+
+test("ACP refuses Ask before starting a provider that cannot guarantee a human mutation gate", async () => {
+  await expect(
+    openAcpSession(
+      {
+        threadId: ThreadId.parse("unsupported-ask"),
+        cwd: process.cwd(),
+        permissionMode: "ask",
+        signal: new AbortController().signal,
+        onFrame() {},
+        onExit() {},
+      },
+      genericQuirks,
+      {
+        command: process.execPath,
+        args: [fileURLToPath(new URL("./testing/permission-server.ts", import.meta.url))],
+      },
+    ),
+  ).rejects.toThrow("permission_mode_unsupported");
+});

@@ -1,8 +1,15 @@
 import { BrowserOriginError } from "./policy.ts";
-import { ThreadId, BrowserClientMessage, type BrowserServerMessage } from "@ace/protocol";
+import {
+  ThreadId,
+  BrowserClientMessage,
+  type BrowserServerMessage,
+  type DeviceScope,
+} from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
 
-function requiredAccess(message: BrowserClientMessage): "read" | "operate" {
+type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
+
+function requiredAccess(message: BrowserClientMessage): BrowserAccess {
   if (
     ["browser.subscribe", "browser.unsubscribe", "browser.ack", "browser.capture"].includes(
       message.type,
@@ -11,9 +18,15 @@ function requiredAccess(message: BrowserClientMessage): "read" | "operate" {
     return "read";
   if (
     message.type === "browser.execute" &&
-    ["snapshot", "screenshot", "logs", "wait_for", "find", "network_body"].includes(
-      message.command.action,
-    )
+    [
+      "snapshot",
+      "screenshot",
+      "logs",
+      "wait_for",
+      "find",
+      "network_body",
+      "navigation_history",
+    ].includes(message.command.action)
   )
     return "read";
   if (
@@ -37,7 +50,7 @@ export function connectBrowser(
     authorize: (
       threadId: string,
       workspaceId: string | undefined,
-      access: "read" | "operate",
+      access: BrowserAccess,
     ) => boolean;
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
   },
@@ -218,7 +231,12 @@ export function connectBrowser(
             respond(null);
             break;
           case "browser.recording.stop":
-            respond(await service.stopRecording(threadId));
+            respond(
+              await service.stopRecording(threadId, {
+                kind: "human",
+                connectionId: options.connectionId,
+              }),
+            );
             break;
         }
       } catch (error) {

@@ -10,26 +10,30 @@ async function offered() {
   return (await screen.findAllByRole("option")).map((option) => option.textContent);
 }
 
-test("Settings lists Codex as installed when its CLI is installed with no ace account", async () => {
+test("Settings offers an installed Codex CLI with unverified login as sign-in unknown", async () => {
   const app = harness();
   const { services } = app.daemon;
   services.accounts = services.accounts.filter((account) => account.provider !== "codex");
   await app.open("/settings/general");
 
-  expect(await offered()).toContain("Codex");
-  expect(screen.queryByRole("option", { name: /Codex \(/ })).toBeNull();
-  await userEvent.click(screen.getByRole("option", { name: "Codex" }));
+  expect(await offered()).toContain("Codex (sign-in unknown)");
+  await userEvent.click(screen.getByRole("option", { name: "Codex (sign-in unknown)" }));
   await waitFor(() => expect(services.settings.get("providers.default")).toBe("codex"));
 });
 
-test("the Providers page shows a CLI with no ace account as running on its own login", async () => {
+test("the Providers page verifies the CLI login before showing signed in with no ace account", async () => {
   const app = harness();
   const { services } = app.daemon;
   services.accounts = services.accounts.filter((account) => account.provider !== "codex");
   await app.open("/settings/providers");
 
   const providers = await screen.findByRole("region", { name: "Providers" });
-  expect(within(providers).getByText("codex · its own login")).toBeTruthy();
+  expect(within(providers).getByText("codex · sign-in unknown")).toBeTruthy();
+  const codex = services.providerStatuses.find((status) => status.provider === "codex");
+  if (!codex) throw new Error("Missing Codex discovery");
+  codex.auth = "logged_in";
+  await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+  expect(await within(providers).findByText("codex · signed in")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Manage Codex" })).toBeTruthy();
 });
 
@@ -56,6 +60,9 @@ test("a CLI discovery didn't find isn't offered, but the stored choice of it sta
   const app = harness();
   const { services } = app.daemon;
   services.installed.delete("claude");
+  const claude = services.providerStatuses.find((status) => status.provider === "claude");
+  if (!claude) throw new Error("Missing Claude discovery");
+  claude.installed = false;
   services.accounts = services.accounts.filter((account) => account.provider !== "claude");
   await app.open("/settings/general");
 
@@ -74,6 +81,9 @@ test("with no default picked, Settings shows the installed provider new threads 
   const { services } = app.daemon;
   services.settings.unset("providers.default");
   services.installed.delete("claude");
+  const claude = services.providerStatuses.find((status) => status.provider === "claude");
+  if (!claude) throw new Error("Missing Claude discovery");
+  claude.installed = false;
   await app.open("/settings/general");
 
   await waitFor(async () => expect((await select()).textContent).toBe("Codex"));

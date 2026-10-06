@@ -436,6 +436,36 @@ test.each([
   },
 );
 
+test.each(
+  providers.filter(({ adapter }) => ["acp", "antigravity", "cursor"].includes(adapter.provider)),
+)(
+  "$adapter.provider refuses Ask when the native runtime cannot provide a human gate",
+  async ({ adapter, version }) => {
+    const frames = scriptFrames();
+    const h = await harness([], frames, {
+      provider: adapter.provider,
+      capabilities: adapter.capabilities({
+        installed: true,
+        version,
+        auth: "logged_in",
+        loginHint: "unused",
+      }),
+    });
+    try {
+      const id = await h.create();
+      const result = h.command({
+        type: "thread.permission.set",
+        threadId: id,
+        permissionMode: "ask",
+      });
+      expect(result).toMatchObject({ ok: false, error: "permission_mode_unsupported" });
+      expect(h.store.getThread(id)?.permission?.effective).toBe("auto-review");
+    } finally {
+      await h.close();
+    }
+  },
+);
+
 test("OpenCode's exact pwd input cannot auto-approve an outside working directory", async () => {
   const frames = scriptFrames();
   const h = await harness([{ on: "send" }], frames, { provider: "opencode" });

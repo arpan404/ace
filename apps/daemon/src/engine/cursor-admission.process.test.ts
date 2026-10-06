@@ -18,7 +18,7 @@ it.each([
   ["thread.prepare", "ask"],
   ["thread.prepare", "auto-review"],
 ] as const)(
-  "%s enforces Cursor's %s permission contract through socket admission",
+  "%s enforces Cursor's Limited %s admission contract and preserves supported input",
   async (type, mode) => {
     const home = await mkdtemp(join(tmpdir(), "cursor-limited-admission-"));
     const store = new Store(join(home, "state.sqlite"));
@@ -63,7 +63,7 @@ it.each([
         provider: "cursor" as const,
         permissionMode: mode,
       };
-      const receipt = await socketCommand(
+      const result = await socketCommand(
         client,
         "create",
         type === "thread.create"
@@ -71,13 +71,14 @@ it.each([
           : { type, ...selection, title: "Limited prepared thread" },
       );
       if (mode === "ask") {
-        expect(receipt).toMatchObject({ ok: false, error: "permission_mode_unsupported" });
+        expect(result).toMatchObject({ ok: false, error: "permission_mode_unsupported" });
         await engine.flush();
         expect(store.listThreads()).toEqual([]);
+        expect(effective).toBeUndefined();
         expect(adapter.commands).toEqual([]);
         return;
       }
-      expect(receipt).toMatchObject({ ok: true, threadId });
+      expect(result).toMatchObject({ ok: true, threadId });
       if (type === "thread.prepare")
         expect(
           await socketCommand(client, "first-input", {

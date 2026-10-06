@@ -1,3 +1,5 @@
+import type { BrowserPlacement } from "../../shared/contract.ts";
+export type NativeDevice = NonNullable<BrowserPlacement["device"]>;
 export interface Rect {
   x: number;
   y: number;
@@ -9,6 +11,7 @@ export interface Rect {
 export interface ResolvedPlacement {
   /** The renderer whose window holds the view; undefined until one has placed it. */
   host: number | undefined;
+  device?: NativeDevice | undefined;
   /** In window DIPs; undefined until a renderer has placed the view. */
   bounds: Rect | undefined;
   visible: boolean;
@@ -17,6 +20,7 @@ export interface ResolvedPlacement {
 }
 
 interface Claim {
+  device?: NativeDevice | undefined;
   bounds: Rect;
   visible: boolean;
   owner: string | undefined;
@@ -52,12 +56,18 @@ export class PlacementBook {
   set(
     threadId: string,
     host: number,
-    claim: { bounds: Rect; visible: boolean; owner?: string | undefined },
+    claim: {
+      bounds: Rect;
+      visible: boolean;
+      owner?: string | undefined;
+      device?: NativeDevice | undefined;
+    },
   ): ResolvedPlacement {
     let hosts = this.claims.get(threadId);
     if (!hosts) this.claims.set(threadId, (hosts = new Map()));
     hosts.set(host, {
       bounds: claim.bounds,
+      device: claim.device,
       visible: claim.visible,
       owner: claim.owner,
       order: ++this.order,
@@ -99,7 +109,13 @@ export class PlacementBook {
         shown = entry;
     }
     if (shown)
-      return { host: shown[0], bounds: shown[1].bounds, visible: true, owner: shown[1].owner };
+      return {
+        host: shown[0],
+        bounds: shown[1].bounds,
+        visible: true,
+        owner: shown[1].owner,
+        device: shown[1].device,
+      };
     return { host: latest?.[0], bounds: latest?.[1].bounds, visible: false, owner: undefined };
   }
 }

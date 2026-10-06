@@ -143,6 +143,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       open: (pane: RequestOf<"permissions.open">) => call("permissions.open", pane),
     },
     browser: {
+      onShortcut: (listener: (value: EventOf<"browser.shortcut">) => void) =>
+        subscribe("browser.shortcut", listener),
       place: (placement: RequestOf<"browser.place">) => call("browser.place", placement),
       setController: (request: RequestOf<"browser.control">) => call("browser.control", request),
       onController: (listener: (value: EventOf<"browser.controller">) => void) =>
