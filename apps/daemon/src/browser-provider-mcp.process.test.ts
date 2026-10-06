@@ -16,6 +16,7 @@ import { setup, cleanups, invoke } from "./browser-mcp-test-support.ts";
 const proof = z.object({
   tools: z.array(z.string()),
   opened: z.object({ isError: z.boolean().optional() }).passthrough(),
+  shellExposesBearer: z.boolean().optional(),
 });
 const envelope = z.object({
   result: z
@@ -26,7 +27,9 @@ const envelope = z.object({
     .passthrough(),
 });
 const openCodeResponse = z.object({
-  body: z.object({ data: z.object({ mcpProof: proof, preservedModel: z.string() }).passthrough() }),
+  body: z
+    .object({ mcpProof: proof, preservedModel: z.string(), preservedServers: z.array(z.string()) })
+    .passthrough(),
 });
 const cases = [
   { provider: "codex", http: true, resume: false },
@@ -124,7 +127,7 @@ it.each(cases)(
     );
     await chmod(cli, 0o700);
     const configured =
-      '{ "model": "retained-model", "mcp": { "user": { "type": "local", "command": ["user-mcp"] } } }';
+      '{ "model": "retained-model", "mcp": { "servers": { "user": { "type": "local", "command": ["user-mcp"] } } } }';
     const destination = `http://localhost:3000/${provider}-${http ? "http" : "stdio"}-${resume ? "load" : "new"}`;
     const env = {
       PATH: f.home,
@@ -224,7 +227,7 @@ it.each(cases)(
             (value) => value !== undefined,
           )
         : httpReply.success
-          ? [httpReply.data.body.data.mcpProof]
+          ? [httpReply.data.body.mcpProof]
           : [];
     });
     expect(observed).toContainEqual(
@@ -236,6 +239,9 @@ it.each(cases)(
         ]),
       }),
     );
+    if (provider === "opencode" || provider === "codex") {
+      expect(observed).toContainEqual(expect.objectContaining({ shellExposesBearer: false }));
+    }
     if (provider === "opencode") {
       await session.send([{ type: "text", text: "synthetic input" }], "queue", "browser-command");
       expect(
@@ -248,8 +254,7 @@ it.each(cases)(
       expect(
         frames.some(
           (frame) =>
-            openCodeResponse.safeParse(frame.data).data?.body.data.preservedModel ===
-            "retained-model",
+            openCodeResponse.safeParse(frame.data).data?.body.preservedModel === "retained-model",
         ),
       ).toBe(true);
       const created = frames.find(
@@ -259,10 +264,9 @@ it.each(cases)(
         z
           .object({
             body: z.object({
-              data: z.object({
-                echoedSecret: z.literal("[redacted]"),
-                transportDebug: z.literal("[redacted]"),
-              }),
+              echoedSecret: z.literal("[redacted]"),
+              transportDebug: z.literal("[redacted]"),
+              preservedServers: z.tuple([z.literal("user")]),
             }),
           })
           .parse(created?.data),
@@ -316,7 +320,7 @@ it("OpenCode threads in the same account use their own browser MCP scope and ret
         ACE_TEST_BROWSER_PROVIDER: "opencode",
         ACE_TEST_BROWSER_URL: `http://localhost:3000/scope-${index}`,
         OPENCODE_CONFIG_CONTENT:
-          '{"model":"retained-model","mcp":{"user":{"type":"local","command":["user-mcp"]}}}',
+          '{"model":"retained-model","mcp":{"servers":{"user":{"type":"local","command":["user-mcp"]}}}}',
       },
       signal: new AbortController().signal,
       onFrame() {},

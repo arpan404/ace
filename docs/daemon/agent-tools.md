@@ -207,12 +207,49 @@ come from the installed provider interfaces; Pi uses advertised `ace/timeoutMs`.
 ACP defines no portable execution-timeout override. Its provider must permit the
 advertised daemon deadline. SDK/CLI versions can still impose their own limits.
 
-Codex uses process config overrides, Claude uses SDK HTTP MCP config, OpenCode
-uses an owned server per scoped lease, ACP uses negotiated HTTP or a supervised
-stdio bridge, and Pi uses its MCP extension. Cursor SDK receives the same scoped
-capabilities through its host options. Its read-only or unsupported-sandbox
+Codex sends `mcp_servers.ace` with `http_headers.Authorization` in the native
+`thread/start`, `thread/resume`, or `thread/fork` RPC configuration. The bearer is
+absent from the app-server argv and shell environment. Claude's SDK HTTP MCP
+configuration travels through a session-owned `--mcp-config` file: directory
+0700, file 0600, outside the workspace, removed when its supervised process exits.
+Pi reads the same private storage mechanism into its extension closure and deletes
+the file-path environment variable before registering agent tools. Neither the Pi
+MCP bearer nor its rollback control secret is inherited by shell commands.
+
+OpenCode v2 gets one owned process per scoped lease. Before admission, ace uses
+its in-memory, location-scoped `mcp.add` and `mcp.connect` APIs and checks the native
+catalog reports `connected`. The v2 config shape is `mcp.servers.ace`, with
+`disabled:false`, `codemode:false`, and `oauth:false`. Code Mode would otherwise
+hide individual tools behind a code-execution tool. The old v1 `mcp.ace` and
+`enabled:true` injection did not register a v2 server. No ace bearer is added to
+`OPENCODE_CONFIG_CONTENT`, persisted provider config, or project config. Existing
+user MCP servers are preserved; an `ace` name collision fails admission.
+
+ACP HTTP headers travel in its native session RPC as an array of name/value pairs.
+For providers that advertise only stdio, ACP has no portable private-header
+mechanism: the supervised bridge child receives `ACE_MCP_BRIDGE_BEARER` in its
+own environment. It is absent from the parent provider's environment and shell
+children, but a same-user process can inspect the bridge. Cursor SDK HTTP headers
+travel through host options and IPC, never a spawned bearer environment variable.
+Private files also protect against accidental `env`/argv disclosure, rather than
+against arbitrary same-user filesystem or process inspection.
+
+Production credentials expire after one hour, are scoped to a single thread and
+agent, and are revoked on session exit, cancellation, adapter close, or daemon
+shutdown. Expiry aborts in-flight tools, releases browser/screen/device controllers,
+and closes the owning provider session. A later session receives fresh authority.
+
+Cursor SDK receives the same scoped capabilities through its host options. Its read-only or unsupported-sandbox
 fallback intentionally excludes MCP; full access or supported sandbox admission
 is required for browser/computer tools. Unsupported ACP transport fails explicitly.
+
+OpenCode's “Network trouble” banner follows a native `session.retry.scheduled`
+event whose provider error is classified as network-related. The owner report
+included `ECONNRESET: The socket connection was closed unexpectedly` (attempt 2).
+An MCP `session.tool.failed` event instead creates a failed tool result; it does
+not create that network retry status. Correct native registration removes the
+manual urllib workaround but cannot prevent a provider model-stream connection
+reset. See [native verification evidence](native-mcp-verification.md).
 
 ## Offline regression harness
 

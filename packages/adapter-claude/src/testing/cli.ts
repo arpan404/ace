@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Synthetic provider boundary. No model, auth service, or installed CLI is invoked.
+import { readPrivateMcpConfig } from "@ace/mcp-server";
 import { list, object } from "../native.ts";
 import { createInterface } from "node:readline";
 if (process.argv.includes("--version")) {
@@ -21,7 +22,9 @@ let elicitationWaiting = false;
 const configIndex = process.argv.indexOf("--mcp-config");
 let mcp: Record<string, unknown> =
   configIndex >= 0
-    ? object(object(JSON.parse(process.argv[configIndex + 1] ?? "{}"))["mcpServers"])
+    ? object(
+        object(JSON.parse(readPrivateMcpConfig(process.argv[configIndex + 1] ?? "")))["mcpServers"],
+      )
     : {};
 const ownedServers = [
   {
@@ -48,6 +51,7 @@ for await (const line of lines) {
       subtype: "fake_control",
       request,
       argv: process.argv,
+      mcpServers: mcp,
       settings: {
         permissionMode: option("--permission-mode"),
         settingSources: (option("--setting-sources") ?? "").split(",").filter(Boolean),

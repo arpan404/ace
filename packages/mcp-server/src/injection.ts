@@ -1,4 +1,3 @@
-import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { ProviderKind } from "@ace/protocol";
@@ -24,7 +23,8 @@ export function developerInstructions(provider: ProviderKind): string {
   const prefix: Record<ProviderKind, string> = {
     codex: "Use the ace MCP server's ace_* tools.",
     claude: "Use mcp__ace__* tools for ace operations.",
-    opencode: "Use ace_ace_* MCP tools for ace operations.",
+    opencode:
+      "Use native ace_* MCP tools for ace operations, including ace_screen_* and ace_device_*.",
     cursor: "Use the ace MCP server for ace operations.",
     antigravity: "Use the ace MCP server for ace operations.",
     acp: "Use the ace MCP server for ace operations.",
@@ -35,15 +35,13 @@ export function developerInstructions(provider: ProviderKind): string {
 export function codexInjection(input: AceMcpConnection) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   return {
-    args: [
-      "-c",
-      `mcp_servers.ace.url=${JSON.stringify(url)}`,
-      "-c",
-      'mcp_servers.ace.bearer_token_env_var="ACE_MCP_BEARER_TOKEN"',
-      "-c",
-      "mcp_servers.ace.tool_timeout_sec=300",
-    ],
-    env: { ACE_MCP_BEARER_TOKEN: bearer },
+    config: {
+      "mcp_servers.ace": {
+        url,
+        http_headers: { Authorization: `Bearer ${bearer}` },
+        tool_timeout_sec: 300,
+      },
+    },
     developerInstructions: developerInstructions("codex"),
   };
 }
@@ -57,39 +55,20 @@ export function claudeInjection(input: AceMcpConnection) {
     developerInstructions: developerInstructions("claude"),
   };
 }
-export function openCodeInjection(input: AceMcpConnection, previous?: string) {
+export function openCodeInjection(input: AceMcpConnection) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
-  let configuration: Record<string, unknown> = {};
-  let servers: Record<string, unknown> = {};
-  if (previous !== undefined) {
-    if (Buffer.byteLength(previous) > 64 * 1024)
-      throw new Error("OpenCode MCP configuration exceeds limit");
-    const errors: ParseError[] = [];
-    const value: unknown = parseJsonc(previous, errors, { allowTrailingComma: true });
-    if (errors.length) throw new Error("Invalid OpenCode MCP configuration");
-    configuration = z.record(z.string(), z.json()).parse(value);
-    if (configuration["mcp"] !== undefined)
-      servers = z.record(z.string(), z.json()).parse(configuration["mcp"]);
-  }
-  if (Object.keys(servers).length >= 64) throw new Error("OpenCode MCP server limit exceeded");
-  if (Object.hasOwn(servers, "ace")) throw new Error("OpenCode MCP server name collision: ace");
+  const server = {
+    type: "remote" as const,
+    url,
+    disabled: false,
+    codemode: false,
+    oauth: false as const,
+    protocol: "2026-07-28" as const,
+    timeout: { execution: 300_000 },
+    headers: { Authorization: `Bearer ${bearer}` },
+  };
   return {
-    env: {
-      OPENCODE_CONFIG_CONTENT: JSON.stringify({
-        ...configuration,
-        mcp: {
-          ...servers,
-          ace: {
-            type: "remote",
-            url,
-            enabled: true,
-            oauth: false,
-            timeout: { execution: 300_000 },
-            headers: { Authorization: `Bearer ${bearer}` },
-          },
-        },
-      }),
-    },
+    server,
     developerInstructions: developerInstructions("opencode"),
   };
 }

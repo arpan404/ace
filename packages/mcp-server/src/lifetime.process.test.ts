@@ -236,3 +236,46 @@ it("rejects oversized, cyclic and deeply nested results before output validation
     structuredContent: { data: "small" },
   });
 });
+
+it("expiry revokes credentials and aborts an in-flight tool before a late result can succeed", async () => {
+  const deadline = deferred<() => void>();
+  const credentials = new CredentialRegistry(() => "b".repeat(64), 1, {
+    maxAgeMs: 60_000,
+    scheduler: {
+      after(_delay, callback) {
+        deadline.resolve(callback);
+        return () => {};
+      },
+    },
+  });
+  const registry = new ToolRegistry({
+    scheduler: {
+      after() {
+        return () => {};
+      },
+    },
+  });
+  const lease = credentials.issue(scope(), new AbortController().signal);
+  const started = deferred<void>();
+  const aborted = deferred<void>();
+  registry.register({
+    name: "ace_wait",
+    description: "Wait",
+    input,
+    output,
+    capability: null,
+    timeoutMs: 120_000,
+    async run(_input, context) {
+      context.signal.addEventListener("abort", () => aborted.resolve(), { once: true });
+      started.resolve();
+      await aborted.promise;
+      return { done: true };
+    },
+  });
+  const result = registry.call("ace_wait", {}, lease.principal, new AbortController().signal);
+  await started.promise;
+  (await deadline.promise)();
+  await aborted.promise;
+  expect(await result).toMatchObject({ isError: true, content: [{ text: "Tool cancelled" }] });
+  expect(credentials.authenticate(lease.bearer)).toBeUndefined();
+});

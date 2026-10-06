@@ -1,3 +1,4 @@
+import { readPrivateMcpConfig } from "@ace/mcp-server";
 // Synthetic local CLI boundary for daemon registration; never contacts a provider.
 import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
@@ -15,7 +16,10 @@ const frame = z.object({
 const index = process.argv.indexOf("--mcp-config");
 let servers =
   index >= 0
-    ? z.object({ mcpServers: object }).parse(JSON.parse(process.argv[index + 1] ?? "{}")).mcpServers
+    ? z
+        .object({ mcpServers: object })
+        .parse(JSON.parse(readPrivateMcpConfig(z.string().parse(process.argv[index + 1]))))
+        .mcpServers
     : {};
 async function aceTools(config: unknown): Promise<string[]> {
   const server = z

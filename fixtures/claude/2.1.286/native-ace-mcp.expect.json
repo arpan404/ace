@@ -1,0 +1,32 @@
+{
+  "checkpoints": [
+    {
+      "t": 13,
+      "thread": "working",
+      "note": "Native MCP tools are active within the turn."
+    },
+    {
+      "t": 43,
+      "thread": "working",
+      "note": "MCP results and assistant output do not settle execution."
+    },
+    {
+      "t": 44,
+      "thread": "done",
+      "note": "The native provider result settles the turn."
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 1,
+    "agentStates": {
+      "root": "idle"
+    },
+    "items": {
+      "tool_call": 2
+    },
+    "interactions": {
+      "pending": 0
+    }
+  }
+}

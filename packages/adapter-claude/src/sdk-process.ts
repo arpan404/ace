@@ -1,3 +1,4 @@
+import { privateMcpConfig } from "@ace/mcp-server";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
@@ -16,16 +17,27 @@ export function spawnSdkProcess(
     outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
   },
 ): SpawnedProcess {
-  const process = (hooks.spawn ?? spawnSupervised)({
-    command: options.command,
-    args: options.args,
-    ...(options.cwd ? { cwd: options.cwd } : {}),
-    env: options.env,
-    name: "claude",
-    ...(hooks.outputFlow ? { outputFlow: hooks.outputFlow } : {}),
-    maxLineBytes: 16 * 1024 * 1024,
-    ...(hooks.maxOutputBytes === undefined ? {} : { maxOutputBytes: hooks.maxOutputBytes }),
-  });
+  const args = [...options.args];
+  const configIndex = args.indexOf("--mcp-config") + 1;
+  const encoded = configIndex > 0 ? args[configIndex] : undefined;
+  const file = encoded?.startsWith("{") ? privateMcpConfig(encoded, options.cwd) : undefined;
+  if (file) args[configIndex] = file.path;
+  let process: SupervisedProcess;
+  try {
+    process = (hooks.spawn ?? spawnSupervised)({
+      command: options.command,
+      args,
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      env: options.env,
+      name: "claude",
+      ...(hooks.outputFlow ? { outputFlow: hooks.outputFlow } : {}),
+      maxLineBytes: 16 * 1024 * 1024,
+      ...(hooks.maxOutputBytes === undefined ? {} : { maxOutputBytes: hooks.maxOutputBytes }),
+    });
+  } catch (error) {
+    file?.remove();
+    throw error;
+  }
   const stdout = new PassThrough();
   const events = new EventEmitter();
   let killed = false;
@@ -102,6 +114,7 @@ export function spawnSdkProcess(
   if (options.signal.aborted) abort();
   else options.signal.addEventListener("abort", abort, { once: true });
   void process.exited.then((exit) => {
+    file?.remove();
     options.signal.removeEventListener("abort", abort);
     exitCode = exit.code;
     stdout.end();
