@@ -128,7 +128,7 @@ const rows: readonly [string, string, string, ProviderKind, FakeSearchKind, numb
     "claude",
     "message",
     140,
-    "replayFrom now treats seq 0 as a cold start and replays at most the last 200 events.",
+    "Replay now treats seq 0 as a cold start and replays at most the last 200 events.",
   ],
   [
     "thread-cold-start",

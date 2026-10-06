@@ -64,10 +64,15 @@ function model(
   } = {},
 ): CatalogModel {
   return CatalogModel.parse({
-    id: `${instance}:${id}`,
+    // Catalog ids repeat on every account that serves the model, as the daemon's do.
+    id,
     displayName,
     provider,
     instance,
+    // ACP rows carry the source identity a thread starts with.
+    ...(provider === "acp"
+      ? { acpAgentId: "Gemini CLI", installationId: "installed", instanceId: instance }
+      : {}),
     nativeModelId: id,
     contextWindow: extra.contextWindow,
     reasoningEfforts: extra.efforts ?? [],

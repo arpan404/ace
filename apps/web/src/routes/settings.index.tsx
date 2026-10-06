@@ -1,7 +1,5 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { SettingsIndexScreen } from "@/features/settings/index.ts";
 
-export const Route = createFileRoute("/settings/")({
-  beforeLoad: () => {
-    throw redirect({ to: "/settings/general", replace: true });
-  },
-});
+/** On a phone the list of Settings pages; wider, General. */
+export const Route = createFileRoute("/settings/")({ component: SettingsIndexScreen });

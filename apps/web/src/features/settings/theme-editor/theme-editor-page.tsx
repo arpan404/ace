@@ -1,22 +1,18 @@
-import { CaretLeftIcon, ExportIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
-import { useTheme } from "@/theme/theme-provider.tsx";
+import { buttonVariants } from "@/components/ui/button.tsx";
 import { SettingsBody } from "../settings-body.tsx";
 import { ThemeEditor } from "./theme-editor.tsx";
-import { useExportTheme } from "./use-export-theme.ts";
 
-/** Settings › Advanced › Theme editor. */
+/** Settings › Appearance › Theme editor. Export lives in the editor's toolbar. */
 export function ThemeEditorPage() {
-  const { theme } = useTheme();
-  const exportTheme = useExportTheme();
   return (
     <SettingsBody
       page="Theme editor"
       lede="Edit the live theme. Presets are read-only: the first change forks a copy you own. Accent is set under Appearance and never changes status colours."
       back={
         <Link
-          to="/settings/advanced"
+          to="/settings/appearance"
           className={buttonVariants({
             size: "sm",
             variant: "ghost",
@@ -24,14 +20,8 @@ export function ThemeEditorPage() {
           })}
         >
           <CaretLeftIcon aria-hidden size={14} />
-          Advanced
+          Appearance
         </Link>
-      }
-      actions={
-        <Button size="sm" variant="ghost" onClick={() => void exportTheme(theme)}>
-          <ExportIcon aria-hidden size={14} />
-          Export
-        </Button>
       }
     >
       <ThemeEditor />

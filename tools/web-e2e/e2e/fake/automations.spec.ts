@@ -27,7 +27,7 @@ test("a new automation is created, listed, and runs by hand once automations are
   const aside = page.getByRole("complementary", { name: "Automations" });
   await expect(aside.getByRole("link", { name: /Weekly flaky-test sweep/ })).toBeVisible();
 
-  await page.getByRole("main").getByRole("button", { name: "Run now" }).click();
+  await page.getByRole("button", { name: "Run now" }).click();
   await expect(page.getByText("Started · Weekly flaky-test sweep")).toBeVisible();
   await expect(
     page.getByRole("main").getByRole("list", { name: "Recent runs" }).getByText("Running…"),

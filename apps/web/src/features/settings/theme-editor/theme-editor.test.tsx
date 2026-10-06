@@ -32,7 +32,10 @@ test("editing a preset forks a custom copy, applies it live and lists it under A
   expect(valueOf("--background")).toBe("#0F0F0F");
 
   await setToken("--background", "#123456");
-  expect(await screen.findByText("Editing a copy · Dark custom")).toBeTruthy();
+  // A first visit follows the OS; editing pins the copy, and says so with Undo.
+  expect(
+    (await screen.findAllByText("Editing a copy of Dark · System theme turned off")).length,
+  ).toBeGreaterThan(0);
   const forkId = appliedTheme();
   expect(forkId).toMatch(/^dark~/);
   expect(appliedCss()).toContain(`[data-theme="${forkId}"]{color-scheme:dark;--background:#123456`);
@@ -41,12 +44,33 @@ test("editing a preset forks a custom copy, applies it live and lists it under A
   expect(screen.getByRole("combobox", { name: "Theme to edit" }).textContent).toContain(
     "Dark custom (custom)",
   );
-  expect(storage.getItem("ace.themes")).toContain("#123456");
+  await waitFor(() => expect(storage.getItem("ace.themes")).toContain("#123456"));
 
-  await userEvent.click(screen.getByRole("link", { name: "Appearance" }));
+  await userEvent.click(screen.getByRole("link", { name: "Appearance", current: false }));
   const custom = await screen.findByRole("radio", { name: /Dark custom/ });
   expect(custom.getAttribute("aria-checked")).toBe("true");
   expect(within(custom).getByText("custom")).toBeTruthy();
+});
+
+test("a value CSS would refuse is marked and never applied or stored", async () => {
+  const storage = memoryKeyValue();
+  await harness({ storage }).open("/settings/theme-editor");
+  await setToken("--background", "#1");
+  const field = screen.getByRole("textbox", { name: "--background" });
+  await userEvent.tab();
+  expect(field.getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByText("Not a colour")).toBeTruthy();
+  expect(appliedTheme()).not.toMatch(/~/);
+  expect(storage.getItem("ace.themes") ?? "").not.toContain('"#1"');
+
+  await setToken("--radius", "banana");
+  await userEvent.tab();
+  expect(screen.getByText("Use a length, like 10px")).toBeTruthy();
+  expect(appliedCss()).not.toContain("banana");
+
+  await setToken("--radius", "12px");
+  await userEvent.tab();
+  await waitFor(() => expect(appliedCss()).toContain("--radius:12px"));
 });
 
 test("the colour picker edits hex tokens; non-colour tokens have none", async () => {
@@ -116,17 +140,18 @@ test("import accepts an ace theme file and refuses anything else", async () => {
   expect(valueOf("--popover")).toBe("#FFFFFF");
 
   await userEvent.upload(input, new File(["{}"], "nope.json", { type: "application/json" }));
-  expect(await screen.findByText("Couldn't import that theme")).toBeTruthy();
+  expect((await screen.findAllByText("Couldn't import that theme")).length).toBeGreaterThan(0);
   expect(
-    screen.getByText("That file isn't an ace theme: it needs a tokens object with --background."),
-  ).toBeTruthy();
+    screen.getAllByText("That file isn't an ace theme: it needs a tokens object with --background.")
+      .length,
+  ).toBeGreaterThan(0);
   expect(appliedTheme()).toMatch(/^light~/);
 });
 
 test("export copies the theme on screen as an ace theme file", async () => {
   const user = userEvent.setup();
   await harness().open("/settings/theme-editor");
-  await user.click(await screen.findByRole("button", { name: "Export JSON" }));
+  await user.click(await screen.findByRole("button", { name: "Export" }));
   expect(await screen.findByText(/^Exported Dark · (JSON downloaded and )?copied$/)).toBeTruthy();
   const file = JSON.parse(await navigator.clipboard.readText()) as {
     name: string;

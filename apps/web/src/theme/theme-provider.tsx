@@ -45,16 +45,53 @@ interface ThemeValue {
 const ThemeContext = createContext<ThemeValue | undefined>(undefined);
 const darkQuery = "(prefers-color-scheme: dark)";
 
+/** The OS's light or dark, read before the first render; a change cross-fades like a pick. */
 function useSystemDark(matchMedia: Environment["matchMedia"]): boolean {
   const [dark, setDark] = useState(() => matchMedia?.(darkQuery).matches ?? true);
   useEffect(() => {
     const query = matchMedia?.(darkQuery);
     if (!query) return;
-    const changed = () => setDark(query.matches);
+    const changed = () => withViewTransition(() => flushSync(() => setDark(query.matches)));
     query.addEventListener("change", changed);
     return () => query.removeEventListener("change", changed);
   }, [matchMedia]);
   return dark;
+}
+
+/** How long theme edits settle before they are written to storage (every keystroke applies). */
+const persistAfterMs = 300;
+
+/**
+ * Coalesces writes: `schedule(key, write)` runs the latest write for a key after a pause, and
+ * at once when the page is hidden or unloads, so a reload never loses the last edit.
+ */
+function useCoalescedWrites() {
+  const [writer] = useState(() => {
+    const pending = new Map<string, () => void>();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      clearTimeout(timer);
+      timer = undefined;
+      for (const write of pending.values()) write();
+      pending.clear();
+    };
+    return {
+      flush,
+      schedule(key: string, write: () => void) {
+        pending.set(key, write);
+        clearTimeout(timer);
+        timer = setTimeout(flush, persistAfterMs);
+      },
+    };
+  });
+  useEffect(() => {
+    globalThis.addEventListener?.("pagehide", writer.flush);
+    return () => {
+      globalThis.removeEventListener?.("pagehide", writer.flush);
+      writer.flush();
+    };
+  }, [writer]);
+  return writer;
 }
 
 /**
@@ -70,8 +107,10 @@ export function ThemeProvider(props: { environment: Environment; children: React
 
   const wanted = appearance.theme === "system" ? (systemDark ? "dark" : "light") : appearance.theme;
   const theme = themes.find((candidate) => candidate.id === wanted) ?? basePreset("dark");
+  const background = theme.tokens["--background"];
 
   const css = useMemo(() => themeStylesheet(themes), [themes]);
+  const writes = useCoalescedWrites();
   // Layout effect, so a theme switch inside a view transition lands before the new snapshot.
   useLayoutEffect(() => {
     if (!root) return;
@@ -89,7 +128,7 @@ export function ThemeProvider(props: { environment: Environment; children: React
       "--glass": String(appearance.glass),
       "--transcript-size": `${transcriptSizes[appearance.transcriptSize].px}px`,
     };
-    applyTheme(root, css, attributes, style);
+    applyTheme(root, css, attributes, style, background);
     const boot: BootTheme = {
       system: appearance.theme === "system",
       theme: theme.id,
@@ -97,8 +136,8 @@ export function ThemeProvider(props: { environment: Environment; children: React
       style,
       css,
     };
-    writeJson(storage, bootThemeKey, boot);
-  }, [root, storage, css, theme, appearance]);
+    writes.schedule(bootThemeKey, () => writeJson(storage, bootThemeKey, boot));
+  }, [root, storage, css, theme, background, appearance, writes]);
 
   const update = useCallback(
     (next: Partial<Appearance>) => {
@@ -121,19 +160,20 @@ export function ThemeProvider(props: { environment: Environment; children: React
         const index = previous.findIndex((candidate) => candidate.id === next.id);
         const list =
           index === -1 ? [...previous, next] : previous.map((t, i) => (i === index ? next : t));
-        saveCustomThemes(storage, list);
+        // Typing in the theme editor applies every keystroke; storage gets the settled theme.
+        writes.schedule("ace.themes", () => saveCustomThemes(storage, list));
         return list;
       }),
-    [storage],
+    [storage, writes],
   );
   const deleteTheme = useCallback(
     (id: string) =>
       setCustomThemes((previous) => {
         const list = previous.filter((candidate) => candidate.id !== id);
-        saveCustomThemes(storage, list);
+        writes.schedule("ace.themes", () => saveCustomThemes(storage, list));
         return list;
       }),
-    [storage],
+    [storage, writes],
   );
   const value = useMemo(
     () => ({ appearance, update, theme, themes, customThemes, saveTheme, deleteTheme }),
@@ -147,8 +187,17 @@ function applyTheme(
   css: string,
   attributes: Record<string, string>,
   style: Record<string, string>,
+  background: string,
 ) {
   const document = root.ownerDocument;
+  // The browser's own bar (mobile Safari, Chrome on Android, installed apps) matches the page.
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.append(meta);
+  }
+  if (meta.content !== background) meta.content = background;
   let sheet = document.getElementById("ace-themes");
   if (!sheet) {
     sheet = document.createElement("style");

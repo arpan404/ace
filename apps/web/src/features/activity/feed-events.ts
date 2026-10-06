@@ -32,6 +32,19 @@ export interface FeedEvent {
   gateId?: string;
   /** A deck agent's own question or approval: answered in its thread, not by the deck. */
   interaction?: { threadId: string; interactionId: string };
+  /** What the item's own page shows: the whole comment, the failing checks, the PR. */
+  detail?: FeedDetail;
+}
+
+export type FeedDetail =
+  | { kind: "mention"; author: string; body: string; pr: PrRef }
+  | { kind: "ci"; checks: { name: string; conclusion: string; url: string | null }[]; pr: PrRef }
+  | { kind: "pr"; state: "merged" | "closed"; pr: PrRef };
+export interface PrRef {
+  number: number;
+  title: string;
+  /** On the forge; absent when only the thread's link is known. */
+  url?: string;
 }
 
 /** The thread fields the feed reads: its linked PR and when the PR settled it. */
@@ -51,15 +64,21 @@ function settled(thread: LinkedThread, status: ForgePrStatus | null): FeedEvent 
   const final = state ?? (thread.pr.state === "open" ? undefined : thread.pr.state);
   if (!final) return undefined;
   const reason = final === "merged" ? "pr_merged" : "pr_closed";
+  const title = status?.title ?? thread.title;
   return {
     id: `pr:${thread.id}:${thread.pr.number}:${final}`,
     kind: "pr",
     title: `PR #${thread.pr.number} ${final}`,
     project: thread.workspaceId,
-    context: status?.title ?? thread.title,
+    context: title,
     at: thread.settledReason === reason && thread.settledAt ? thread.settledAt : thread.updatedAt,
     threadId: thread.id,
     outcome: "done",
+    detail: {
+      kind: "pr",
+      state: final,
+      pr: { number: thread.pr.number, title, ...(status ? { url: status.url } : {}) },
+    },
   };
 }
 
@@ -77,6 +96,15 @@ function failedChecks(thread: LinkedThread, status: ForgePrStatus): FeedEvent | 
     at: latest || thread.updatedAt,
     threadId: thread.id,
     outcome: "failed",
+    detail: {
+      kind: "ci",
+      checks: failing.map((check) => ({
+        name: check.name,
+        conclusion: check.conclusion ?? "failure",
+        url: check.url,
+      })),
+      pr: { number: status.ref.number, title: status.title, url: status.url },
+    },
   };
 }
 
@@ -100,6 +128,12 @@ function mentions(thread: LinkedThread, status: ForgePrStatus): FeedEvent[] {
       context: `${status.title} · #${status.ref.number}`,
       at: time(comment.updatedAt) ?? thread.updatedAt,
       threadId: thread.id,
+      detail: {
+        kind: "mention",
+        author: comment.author,
+        body: comment.body,
+        pr: { number: status.ref.number, title: status.title, url: status.url },
+      },
     }));
 }
 

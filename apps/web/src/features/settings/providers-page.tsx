@@ -3,11 +3,12 @@ import { signInSteps } from "@ace/ui-core";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { useToast } from "@/components/ui/toast.tsx";
 import { providerStatusesKey } from "@/lib/provider-statuses.ts";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import type { ProviderAccount, ProviderInstall } from "./data/backend.ts";
@@ -47,14 +48,14 @@ export function ProviderSettings() {
       </p>
     );
   return (
-    <section className="mt-7" aria-label="Providers">
+    <SettingSection label="Providers" card actions={<RediscoverButton />}>
       {providers.data.map((install) => (
         <ProviderRow key={`${install.kind}:${install.name}`} install={install} />
       ))}
-      <SettingRow title="Any ACP agent" description="Add a command and ace will drive it.">
+      <SettingRow title="Any ACP agent" description="Add a command and ace will drive it." inline>
         <AddAcpAgent />
       </SettingRow>
-    </section>
+    </SettingSection>
   );
 }
 
@@ -102,6 +103,7 @@ function ProviderRow(props: { install: ProviderInstall }) {
         }
         description={describeInstall(install)}
       >
+        {install.added && <RemoveAgent name={install.name} />}
         {installed && (
           <Button
             size="sm"
@@ -229,5 +231,34 @@ function ProviderModels(props: { provider: ProviderKind }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+/** An ACP agent added by command: take it off the list. */
+function RemoveAgent(props: { name: string }) {
+  const backend = useSettingsBackend();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const remove = useMutation({
+    mutationFn: () => backend.removeAcpAgent(props.name),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: settingsQueries.providers(backend).queryKey,
+      });
+      toast.add({ title: `Removed ${props.name}` });
+    },
+    onError: (error) =>
+      toast.error({ title: `Couldn't remove ${props.name}`, description: error.message }),
+  });
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      aria-label={`Remove ${props.name}`}
+      disabled={remove.isPending}
+      onClick={() => remove.mutate()}
+    >
+      Remove
+    </Button>
   );
 }

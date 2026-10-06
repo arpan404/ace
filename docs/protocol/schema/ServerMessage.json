@@ -39,6 +39,12 @@
       "$ref": "https://ace.local/protocol/v1/AutomationResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ActivityReadsResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ActivityReadsChanged.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/QueueResult.json"
     },
     {

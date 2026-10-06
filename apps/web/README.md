@@ -389,8 +389,9 @@ What `main` cannot carry yet sits behind one adapter per feature marked
 `// TODO(client-gaps): feat/client-protocol-gaps`. In fake mode it serves the fake daemon's
 stand-in; against a real daemon it reports the feature empty or unavailable, never fixture data.
 Today: a list of machines and adding an ACP agent by command
-(`features/settings/data/access-gaps.ts`), and More › Files uploads (`features/files/files-source.ts`;
-the side panel's Files tool already uploads into the thread's checkout over the files channel).
+(`features/settings/data/access-gaps.ts`). More › Files has no upload: it would need a
+project-scoped transfer; the side panel's Files tool uploads into a thread's checkout over the
+files channel.
 When the backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios

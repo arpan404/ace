@@ -1,6 +1,6 @@
 import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import { accentNames, defaultThemeId } from "./presets.ts";
+import { accentNames } from "./presets.ts";
 
 /** "theme" follows the theme's own accent (`--accent-theme`); the rest pin one colour. */
 export const AccentChoice = z.enum(["theme", ...accentNames, "custom"]);
@@ -11,10 +11,17 @@ export const TranscriptSize = z.enum(["small", "default", "large"]);
 export type TranscriptSize = z.infer<typeof TranscriptSize>;
 export const HexColor = z.string().check(z.regex(/^#[0-9a-f]{6}$/i));
 
+/**
+ * The theme a first visit gets: the OS's light or dark. The provider resolves "system" from
+ * `prefers-color-scheme` before its first render, and `index.html` does the same from the boot
+ * record, so the first frame is already in the right scheme.
+ */
+export const defaultTheme = "system";
+
 /** Local, per-device appearance. Daemon settings live in the daemon, not here. */
 export const Appearance = z.object({
   /** "system", a preset id or a custom theme id. */
-  theme: z.catch(z.string().check(z.minLength(1)), defaultThemeId),
+  theme: z.catch(z.string().check(z.minLength(1)), defaultTheme),
   accent: z.catch(AccentChoice, "theme"),
   customAccent: z.catch(HexColor, "#7AA2F7"),
   /** 0 = solid, 1 = the most wallpaper shows through. */
@@ -25,7 +32,7 @@ export const Appearance = z.object({
 export type Appearance = z.infer<typeof Appearance>;
 
 export const defaultAppearance: Appearance = {
-  theme: defaultThemeId,
+  theme: defaultTheme,
   accent: "theme",
   customAccent: "#7AA2F7",
   glass: 1,

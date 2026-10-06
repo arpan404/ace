@@ -3,12 +3,13 @@ import { deckProviderChoices } from "./deck-start.ts";
 import type { AccountOption, ModelOption } from "./models.ts";
 
 const model = (patch: Partial<ModelOption>): ModelOption => ({
-  key: "codex:m",
+  key: `${patch.provider ?? "codex"}:${patch.id ?? "m"}`,
   id: "m",
+  account: "codex-personal",
+  scope: { provider: "codex", instance: patch.account ?? "codex-personal" },
   label: "M",
   provider: "codex",
   isDefault: false,
-  fromCatalog: true,
   efforts: [],
   defaultEffort: undefined,
   isNew: false,
@@ -44,18 +45,29 @@ test("a provider runs its catalog default model on every signed-in account, the 
   });
 });
 
-test("without signed-in accounts or a catalog, a deck runs on the CLI's own login and model", () => {
+test("each account keeps its own default: a deck names the default account's", () => {
+  const [codex] = deckProviderChoices(
+    [
+      model({ id: "gpt-5.3-codex", label: "GPT-5.3 Codex", isDefault: true }),
+      model({ id: "gpt-5.2", label: "GPT-5.2", account: "codex-work" }),
+      model({ id: "gpt-5.4", label: "GPT-5.4", account: "codex-work", isDefault: true }),
+    ],
+    [account({ id: "codex-work", label: "Work", isDefault: true }), account({})],
+  );
+  expect(codex).toMatchObject({ model: "gpt-5.4", accounts: ["codex-work", "codex-personal"] });
+});
+
+test("without signed-in accounts a deck runs on the CLI's own login, and never on a made-up model", () => {
   const choices = deckProviderChoices(
     [
-      model({ id: "claude:default", provider: "claude", fromCatalog: false }),
-      model({ id: "cursor:default", provider: "cursor", fromCatalog: false }),
+      model({ id: "claude-opus-5-5", provider: "claude", account: "claude-cli-default" }),
       model({ id: "acp-model", provider: "acp" }),
     ],
     [],
   );
-  // Cursor has no model a deck could name, and ACP agents aren't conductor lanes.
+  // ACP agents aren't conductor lanes, and a provider whose catalog lists nothing isn't offered.
   expect(choices.map((choice) => [choice.provider, choice.model, choice.accounts])).toEqual([
-    ["claude", "claude-sonnet-4-6", ["local.claude"]],
+    ["claude", "claude-opus-5-5", ["local.claude"]],
   ]);
   expect(choices[0]?.accountLabel).toBe("default login");
 });

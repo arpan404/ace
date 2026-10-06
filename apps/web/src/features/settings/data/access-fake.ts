@@ -9,6 +9,7 @@ export function fakeGaps(options: { now(): number }): AccessGaps {
   const fixture = settingsFixture(options.now());
   let agents: AcpAgentInstall[] = [];
   return {
+    canAddAcpAgent: true,
     async acpAgents() {
       return agents;
     },
@@ -17,6 +18,9 @@ export function fakeGaps(options: { now(): number }): AccessGaps {
         ...agents,
         { name: agent.name, binary: agent.command.split(/\s+/)[0] ?? agent.command },
       ];
+    },
+    async removeAcpAgent(name) {
+      agents = agents.filter((agent) => agent.name !== name);
     },
     async machines() {
       return fixture.machines;

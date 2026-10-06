@@ -18,7 +18,13 @@ test("delegation carries the discovered OpenCode model to child launch without a
     executable,
   );
   await chmod(executable, 0o700);
-  const env = { HOME: initial.home };
+  // The double reports opencode-go as connected; discovery lists only connected upstreams.
+  const env = {
+    HOME: initial.home,
+    ACE_TEST_OPENCODE_CONNECTIONS: JSON.stringify([
+      { id: "opencode-go", connections: [{ type: "credential" }] },
+    ]),
+  };
   const catalog = new ModelCatalog({
     storage: openModelStorage(join(initial.home, "models.sqlite")),
     instances: [
@@ -90,7 +96,7 @@ test("delegation carries the discovered OpenCode model to child launch without a
   }
 });
 
-async function fixture(defaultAvailable = true, scopedAccounts = false) {
+async function fixture(defaultAvailable = true, scopedAccounts = false, defaultModel?: string) {
   const h = setup();
   const accountDb = scopedAccounts ? new DatabaseSync(join(h.home, "accounts.sqlite")) : undefined;
   const accounts = accountDb ? new AccountRegistry(accountDb) : undefined;
@@ -116,11 +122,12 @@ async function fixture(defaultAvailable = true, scopedAccounts = false) {
   });
   const catalog = new ModelCatalog({
     storage: openModelStorage(join(h.home, "models.sqlite")),
+    preferences: () => (defaultModel ? [{ provider: "claude", defaultModel }] : []),
     instances: [instance, ...(scopedAccounts ? [{ ...instance, id: "foreign" }] : [])],
     now: () => h.clock.now(),
     deadline: (fn, ms) => h.clock.setTimer(fn, ms),
     discover: async (target) => [
-      ...(!scopedAccounts || target.id === "foreign"
+      ...(defaultAvailable && (!scopedAccounts || target.id === "foreign")
         ? [
             CatalogModel.parse({
               id: "opus",
@@ -181,7 +188,7 @@ test.each(["opus", "claude-opus-5-5", "opus-5.5"])(
       });
       const child = f.service.delegate(parent, request);
       await f.engine.flush();
-      expect(f.contexts.get(child.childId)?.model).toBe(model === "opus-5.5" ? "sonnet" : "opus");
+      expect(f.contexts.get(child.childId)?.model).toBe("claude-opus-5-5");
       expect(f.service.delegate(parent, request).childId).toBe(child.childId);
     } finally {
       await f.close();
@@ -206,7 +213,7 @@ test("a configured user choice wins over an invalid agent guess", async () => {
       "opus",
     );
     await f.engine.flush();
-    expect(f.contexts.get(child.childId)?.model).toBe("opus");
+    expect(f.contexts.get(child.childId)?.model).toBe("claude-opus-5-5");
   } finally {
     await f.close();
     await catalog.close();
@@ -274,6 +281,27 @@ test("an unavailable model without a valid default reports an error before creat
     ).rejects.toThrow(/Cannot delegate to claude.*no valid configured default/);
     expect(f.store.listThreads()).toEqual(before);
     expect(f.service.journal.activeCount()).toBe(0);
+  } finally {
+    await f.close();
+    await catalog.close();
+  }
+});
+
+test("delegation without a model uses the synced provider default over a parent's selection", async () => {
+  const { f, catalog } = await fixture(true, false, "sonnet");
+  try {
+    const parent = await f.parent();
+    const child = f.service.delegate(
+      parent,
+      DelegationRequest.parse({
+        requestId: "default-picker",
+        task: "Synthetic",
+        role: "worker",
+        provider: "claude",
+      }),
+    );
+    await f.engine.flush();
+    expect(f.contexts.get(child.childId)?.model).toBe("sonnet");
   } finally {
     await f.close();
     await catalog.close();

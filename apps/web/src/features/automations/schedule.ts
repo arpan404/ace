@@ -1,8 +1,10 @@
+import { compileSchedule } from "@ace/automations/recurrence";
 import type { AutomationSchedule, AutomationTrigger } from "@ace/protocol";
 
 /**
  * Schedules as people choose them in the form, and plain-English descriptions of any RRULE
- * or cron expression the daemon accepts (ADR 0015). Pure: no clock, no I/O.
+ * or cron expression the daemon accepts (ADR 0015). Upcoming runs come from the daemon's own
+ * recurrence engine, so the preview is what the daemon will do. Pure: no clock, no I/O.
  */
 export const weekdays = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"] as const;
 export type Weekday = (typeof weekdays)[number];
@@ -74,6 +76,8 @@ export function presetToSchedule(
 
 interface Rule {
   freq: string;
+  /** Parts besides FREQ, INTERVAL, BYDAY, BYHOUR and BYMINUTE (COUNT, UNTIL, BYMONTHDAY…). */
+  other: boolean;
   interval: number;
   days: string[] | undefined;
   hours: number[] | undefined;
@@ -89,8 +93,10 @@ function readRule(expression: string): Rule | undefined {
   const freq = fields.get("FREQ");
   if (!freq) return undefined;
   const numbers = (key: string) => fields.get(key)?.split(",").map(Number);
+  const presetParts = new Set(["FREQ", "INTERVAL", "BYDAY", "BYHOUR", "BYMINUTE"]);
   return {
     freq,
+    other: [...fields.keys()].some((key) => !presetParts.has(key)),
     interval: Number(fields.get("INTERVAL") ?? 1),
     days: fields.get("BYDAY")?.split(","),
     hours: numbers("BYHOUR"),
@@ -106,7 +112,8 @@ export function scheduleToPreset(schedule: AutomationSchedule): SchedulePreset {
   };
   if (schedule.kind !== "rrule") return custom;
   const rule = readRule(schedule.expression);
-  if (!rule) return custom;
+  // A preset can't carry COUNT, UNTIL or the like: such a rule stays exactly as written.
+  if (!rule || rule.other) return custom;
   const single = rule.hours?.length === 1 && rule.minutes?.length === 1;
   const time = single ? clock(rule.hours?.[0] ?? 0, rule.minutes?.[0] ?? 0) : undefined;
   if (rule.freq === "DAILY" && rule.interval === 1 && !rule.days && time)
@@ -182,11 +189,36 @@ function describeRule(schedule: AutomationSchedule): string | undefined {
 
 const numeric = /^\d+$/;
 const step = (field: string) => /^\*\/(\d+)$/.exec(field)?.[1];
+const monthNames = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+/** "Day 1 of every month", "1 March every year": a cron with a day of month (and month). */
+function describeCronDate(dom: string, month: string, dow: string): string | undefined {
+  if (dow !== "*" || !numeric.test(dom) || Number(dom) < 1 || Number(dom) > 31) return undefined;
+  if (month === "*") return `Day ${Number(dom)} of every month`;
+  const name = numeric.test(month) ? monthNames[Number(month) - 1] : undefined;
+  return name ? `${Number(dom)} ${name} every year` : undefined;
+}
 function describeCron(expression: string): string | undefined {
   const fields = expression.trim().split(/\s+/);
   if (fields.length !== 5) return undefined;
   const [minute = "", hour = "", dom = "", month = "", dow = ""] = fields;
-  if (dom !== "*" || month !== "*") return undefined;
+  if (dom !== "*" || month !== "*") {
+    if (!numeric.test(minute) || !numeric.test(hour)) return undefined;
+    const date = describeCronDate(dom, month, dow);
+    return date && `${date} at ${clock(Number(hour), Number(minute))}`;
+  }
   if (step(minute) && hour === "*" && dow === "*")
     return capital(plural(Number(step(minute)), "minute"));
   if (numeric.test(minute) && step(hour) && dow === "*")
@@ -240,19 +272,91 @@ export function describeTrigger(trigger: AutomationTrigger): string {
   }
 }
 
+/** "When an issue is labelled (bug) in owner/name"; a schedule adds its zone when not local. */
+export function describeWhen(trigger: AutomationTrigger, localZone: string): string {
+  const text = describeTrigger(trigger);
+  return trigger.kind === "schedule" && trigger.schedule.timezone !== localZone
+    ? `${text} (${trigger.schedule.timezone})`
+    : text;
+}
+
 const day = 86_400_000;
-/** "In 40m", "Tonight 02:00", "Tomorrow 09:30", "Friday 16:00"; local wall clock. */
+const hour = 3_600_000;
+
+/** "Today 14:00", "Tonight 02:00", "Tomorrow 09:30", "Friday 16:00", "Oct 12 09:00"; local. */
+export function formatWhen(instant: number, now: number): string {
+  const target = new Date(instant);
+  const time = clock(target.getHours(), target.getMinutes());
+  const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+  const days = Math.floor((new Date(instant).setHours(0, 0, 0, 0) - startOfToday) / day);
+  if (days === 0) return `${target.getHours() >= 18 ? "Tonight" : "Today"} ${time}`;
+  // Small hours after an evening read as tonight; after midnight they're tomorrow's.
+  if (days === 1)
+    return target.getHours() < 6 && new Date(now).getHours() >= 18
+      ? `Tonight ${time}`
+      : `Tomorrow ${time}`;
+  if (days === -1) return `Yesterday ${time}`;
+  if (days > 0 && days < 7)
+    return `${target.toLocaleDateString("en-US", { weekday: "long" })} ${time}`;
+  return `${target.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${time}`;
+}
+
+/** "Tomorrow 02:00 · in 3h": the wall clock, and how far off it is within a day. */
 export function formatNextRun(next: number, now: number): string {
   const diff = next - now;
   if (diff < 60_000) return "Any moment";
-  if (diff < 3_600_000) return `In ${Math.round(diff / 60_000)}m`;
-  if (diff < 6 * 3_600_000) return `In ${Math.round(diff / 3_600_000)}h`;
-  const target = new Date(next);
-  const time = clock(target.getHours(), target.getMinutes());
-  const startOfToday = new Date(now).setHours(0, 0, 0, 0);
-  const days = Math.floor((new Date(next).setHours(0, 0, 0, 0) - startOfToday) / day);
-  if (days === 0) return `${target.getHours() >= 18 ? "Tonight" : "Today"} ${time}`;
-  if (days === 1) return target.getHours() < 6 ? `Tonight ${time}` : `Tomorrow ${time}`;
-  if (days < 7) return `${target.toLocaleDateString("en-US", { weekday: "long" })} ${time}`;
-  return `${target.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${time}`;
+  const relative =
+    diff < hour
+      ? ` · in ${Math.round(diff / 60_000)}m`
+      : diff < day
+        ? ` · in ${Math.round(diff / hour)}h`
+        : "";
+  return `${formatWhen(next, now)}${relative}`;
+}
+
+/**
+ * The next few starts of a schedule, by the daemon's own recurrence rules. Empty when the
+ * expression can't be compiled: the daemon is the validator and says why on save.
+ */
+export function upcomingRuns(schedule: AutomationSchedule, after: number, count = 3): number[] {
+  const runs: number[] = [];
+  try {
+    const recurrence = compileSchedule(schedule);
+    let cursor = after;
+    while (runs.length < count) {
+      const next = recurrence.next(cursor);
+      if (next === undefined) break;
+      runs.push(next);
+      cursor = next;
+    }
+  } catch {
+    return runs;
+  }
+  return runs;
+}
+
+/** "Tue 7 Oct 09:00", in the schedule's zone. */
+export function formatRunInZone(instant: number, timezone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(instant);
+    const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? "";
+    return `${part("weekday")} ${part("day")} ${part("month")} ${part("hour")}:${part("minute")}`;
+  } catch {
+    return new Date(instant).toISOString();
+  }
+}
+
+/** Every IANA zone this browser knows, with `current` kept even if it doesn't. */
+export function timeZones(current: string): string[] {
+  const known =
+    typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+  return known.includes(current) ? known : [current, ...known];
 }
