@@ -9,6 +9,7 @@ import {
 import { ThreadId } from "@ace/protocol";
 import {
   approvalCopy,
+  deliberateApproval,
   catchUpSummaryRequest,
   catchUpView,
   formatAgo,
@@ -257,8 +258,7 @@ function PendingRequest(props: { threadId: string; interactionId: string; onLive
   const request = interaction.request;
   const sending = intent?.state === "pending" || intent?.state === "acked";
   // ace's own tools and default-to-no requests are answered on their full card, with its risk.
-  const deliberate =
-    request.kind === "approval" && (request.defaultToNo === true || !!approvalCopy(request).tool);
+  const deliberate = deliberateApproval(request);
   const title =
     request.kind === "approval"
       ? approvalCopy(request).title
