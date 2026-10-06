@@ -151,7 +151,13 @@ if (provider === "opencode") {
         },
       };
     } else if (path.endsWith("/interrupt")) result = { interrupted: true };
-    else throw new Error(`Unexpected fake OpenCode route: ${path}`);
+    else {
+      // Older providers may not offer optional metadata APIs such as command.list.
+      res
+        .writeHead(404, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ error: "not_found" }));
+      return;
+    }
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(result));
   });
   server.listen(0, "127.0.0.1", () => {
