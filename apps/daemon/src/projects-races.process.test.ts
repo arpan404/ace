@@ -135,19 +135,15 @@ test("cancelling during final root validation prevents a clone commit after all 
 });
 
 test.skipIf(process.platform === "win32")(
-  "project shutdown kills stalled metadata and awaits its exit before resolving",
+  "project shutdown returns independently of metadata termination and preserves registration safety",
   async () => {
     const gate = metadataGate((args) => args.includes("rev-parse"));
     const f = await projectFixture({ git: { processRuntime: { spawn: gate.spawn } } });
     try {
       const pending = f.command({ type: "workspace.add", path: f.root });
       await gate.ready;
-      let exited = false;
-      void gate.exited.then(() => {
-        exited = true;
-      });
       await f.projects.close();
-      expect(exited).toBe(true);
+      await gate.exited;
       expect(await pending).toMatchObject({ ok: false });
       expect(f.projects.catalog.recent(100)).toEqual([]);
     } finally {

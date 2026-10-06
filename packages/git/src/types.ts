@@ -1,3 +1,4 @@
+import type { CleanupReceipt, MutationCleanupSupervisor } from "@ace/provider-kit/cleanup";
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
 
 export interface GitProcessRuntime {
@@ -10,9 +11,12 @@ export interface GitProcessRuntime {
   ) => ChildProcessWithoutNullStreams;
   scheduleTimeout: (callback: () => void, milliseconds: number) => () => void;
   platform: NodeJS.Platform;
+  signalGroup: (pid: number, signal: NodeJS.Signals) => void;
+  cleanupSupervisor?: MutationCleanupSupervisor<ChildProcessWithoutNullStreams>;
 }
 
 export interface GitOptions {
+  leaseId?: () => string;
   processRuntime?: Partial<GitProcessRuntime>;
   gitBinary?: string;
   timeoutMs?: number;
@@ -35,6 +39,7 @@ export type GitErrorCode =
   | "git_cancelled"
   | "git_closed"
   | "git_busy"
+  | "git_quarantined"
   | "malformed_output"
   | "filesystem_error"
   | "output_too_large"
@@ -50,6 +55,7 @@ export type GitErrorCode =
   | "unsupported_repository";
 
 export class GitError extends Error {
+  cleanup?: CleanupReceipt | undefined;
   readonly code: GitErrorCode;
   readonly details: Readonly<Record<string, unknown>>;
 
@@ -144,4 +150,11 @@ export interface ChangedFile {
   additions: number;
   deletions: number;
   binary: boolean;
+}
+
+/** A bounded failure can outlive its supervised mutation ownership. */
+export function isMutationUnavailable(error: unknown): boolean {
+  return (
+    error instanceof GitError && (error.code === "git_quarantined" || error.cleanup !== undefined)
+  );
 }

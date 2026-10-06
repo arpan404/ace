@@ -1,3 +1,4 @@
+import type { GitOptions } from "@ace/git";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -32,6 +33,7 @@ export async function closeDeckFixtures() {
 /** Real daemon, sockets, SQLite and Git. Only the installed provider boundary is scripted. */
 export async function deckFixture(
   options: {
+    git?: GitOptions;
     hold?: boolean;
     question?: boolean;
     parallel?: number;
@@ -129,7 +131,7 @@ export async function deckFixture(
       modelInstances: (["codex", "claude"] as const).map((modelProvider) =>
         scriptedModelInstance(modelProvider, home),
       ),
-      workspaceActions: { forgeRunner: forge.runner },
+      workspaceActions: { forgeRunner: forge.runner, ...(options.git ? { git: options.git } : {}) },
       agentControl: { policy: { maxConcurrent: options.hostCapacity ?? 4 } },
     });
   daemon = await launch();

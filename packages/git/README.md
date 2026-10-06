@@ -72,6 +72,24 @@ configuration. Templates and existing files remain uncommitted. Worktree threads
 can start immediately from HEAD. Reinitializing an existing HEAD preserves it;
 adding an existing project does not create commits.
 
+Cancellation returns a bounded failure separately from supervised cleanup.
+`GitError.cleanup.settled` yields a shared `CleanupResult` from
+`@ace/provider-kit/cleanup`. Default POSIX group kills and Windows `taskkill /T`
+produce `unconfirmed` receipts because detached writers can escape them.
+Worktree mutation scopes remain durably quarantined, including captured children
+and worktrees sharing Git metadata. Queued calls reject with `git_quarantined`.
+`close()` is bounded and preserves uncertain leases.
+
+Use `mutationState(path)` to inspect quarantine without launching Git. Restart
+preserves the fence. `recoverCleanup(path)` uses the host-injected
+`processRuntime.cleanupSupervisor` to reconcile every recorded root/descendant
+identity. All proofs must confirm cleanup before any intent retires. The default
+runtime preserves quarantine when it cannot supply proof. A supervisor must cover
+escaped writers; process exit, PID absence and pipe closure are insufficient.
+IDs can be injected through `leaseId`, and POSIX signaling through
+`processRuntime.signalGroup`. See [ADR 0068](../../docs/adr/0068-git-mutation-cleanup.md)
+for persistence, platform policy and host recovery requirements.
+
 Checkpoint counter retention is bounded across all canonical root/thread pairs
 in a service. `checkpointCounterCacheSize` accepts 1 through 4096 entries and
 defaults to 128. The shared pure `BoundedCache` policy refreshes recency on reads

@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, CommandId, Project, type WorkspaceCloneProgress } from "@ace/protocol";
-import { GitError } from "@ace/git";
+import { GitError, GitService } from "@ace/git";
 import { projectFixture, projectServer, until } from "./projects-test-support.ts";
 
 // File transport exists only in this fixture. Production command inputs cannot enable it.
@@ -99,7 +99,7 @@ test("production cloning rejects file ext and credential URLs before creating th
   }
 });
 
-test("clone cancellation kills the owned child before replying and never registers its partial directory", async () => {
+test("clone cancellation returns separately from termination and quarantines its partial directory", async () => {
   const closed = Promise.withResolvers<void>();
   const started = Promise.withResolvers<void>();
   const f = await projectFixture({
@@ -146,15 +146,12 @@ test("clone cancellation kills the owned child before replying and never registe
         )
       ).result,
     ).toMatchObject({ kind: "error", code: "forbidden" });
-    let exited = false;
-    void closed.promise.then(() => {
-      exited = true;
-    });
     expect(
       (await f.read({ op: "workspace.clone.cancel", commandId: CommandId.parse("cancel-me") }))
         .result,
     ).toMatchObject({ kind: "cancelled" });
-    expect(exited).toBe(true);
+    expect(await new GitService().mutationState(f.root)).toMatchObject({ status: "quarantined" });
+    await closed.promise;
     expect(await clone).toMatchObject({ ok: false, error: "clone_cancelled" });
     expect(progress.at(-1)).toMatchObject({ phase: "cancelled" });
     expect(f.projects.catalog.recent(100)).toEqual([]);

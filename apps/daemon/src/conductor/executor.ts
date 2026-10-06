@@ -28,7 +28,10 @@ export class NativeConductorExecutor {
     this.commands = new DeckCommands(context, delegations);
     this.delegations = delegations;
     this.journal = new ExecutionJournal(context.store);
-    this.worktrees = new DeckWorktrees(context.config.dataDir, context.now);
+    this.worktrees = new DeckWorktrees(context.config.dataDir, context.now, {
+      ...context.options.workspaceActions?.git,
+      leaseId: context.id,
+    });
   }
   private key(...parts: string[]) {
     return `deck.${createHash("sha256").update(JSON.stringify(parts)).digest("hex")}`;

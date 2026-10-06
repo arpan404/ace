@@ -1,6 +1,5 @@
 import { open } from "node:fs/promises";
 import { join } from "node:path";
-import { serial } from "./lock.ts";
 import type { Repository } from "./repository.ts";
 import type { ChangedFile, StatusEntry } from "./types.ts";
 
@@ -105,7 +104,7 @@ export async function changedFiles(
   limit: number,
 ): Promise<{ files: ChangedFile[]; truncated: boolean }> {
   const root = await repository.root(worktree);
-  return serial(root, async () => {
+  return repository.serial(root, async () => {
     const { status, branch } = await repository.state(root);
     const files = new Map<string, ChangedFile>();
     const add = (path: string, kind: ChangedFile["status"], from?: string) => {

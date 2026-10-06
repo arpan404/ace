@@ -1,3 +1,4 @@
+import { isMutationUnavailable } from "@ace/git";
 import {
   Run,
   ThreadId,
@@ -133,8 +134,12 @@ export class RunCheckpoints {
           label: `After turn ${run.ordinal ?? run.id}`,
         });
         checkpoints = { ...checkpoints, after: after.id, state: "ready" };
-      } catch {
-        checkpoints = { ...checkpoints, state: "unavailable", error: "checkpoint_failed" };
+      } catch (error) {
+        checkpoints = {
+          ...checkpoints,
+          state: "unavailable",
+          error: isMutationUnavailable(error) ? "git_quarantined" : "checkpoint_failed",
+        };
       }
       this.store.atomic((db) => {
         this.store.appendEvents(
@@ -155,6 +160,7 @@ export class RunCheckpoints {
     await this.capturePending(id);
     if (this.closing) throw new Error("daemon_shutting_down");
     let checkpoints: import("@ace/protocol").RunCheckpoints;
+    let unavailable: unknown;
     try {
       const before = await this.git.createCheckpoint({
         worktree: this.root(id),
@@ -162,8 +168,12 @@ export class RunCheckpoints {
         label: `Before ${command}`,
       });
       checkpoints = { before: before.id, state: "pending" };
-    } catch {
-      checkpoints = { state: "unavailable", error: "checkpoint_failed" };
+    } catch (error) {
+      if (isMutationUnavailable(error)) unavailable = error;
+      checkpoints = {
+        state: "unavailable",
+        error: isMutationUnavailable(error) ? "git_quarantined" : "checkpoint_failed",
+      };
     }
     this.store.atomic((db) =>
       db
@@ -172,6 +182,7 @@ export class RunCheckpoints {
         )
         .run(id, command, JSON.stringify(checkpoints)),
     );
+    if (unavailable) throw unavailable;
   }
   async settled(): Promise<void> {
     await Promise.all(this.flights.values());

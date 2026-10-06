@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { Repository } from "./repository.ts";
-import { serial } from "./lock.ts";
 import { GitError } from "./types.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
@@ -39,7 +38,7 @@ export async function commitChanges(
   if (paths && !paths.success)
     throw new GitError("invalid_argument", "Name between 1 and 1000 paths to commit");
   const root = await repository.root(options.worktree);
-  return serial(root, async () => {
+  return repository.serial(root, async () => {
     const info = await repository.info(root);
     if (info.head !== expected)
       throw new GitError("head_moved", "HEAD changed; refresh before committing");
@@ -84,7 +83,7 @@ export async function pushBranch(
     .refine((value) => !value.startsWith("-"))
     .parse(options.remote);
   const root = await repository.root(options.worktree);
-  await serial(root, async () => {
+  await repository.serial(root, async () => {
     const info = await repository.info(root);
     if (!info.branch || !info.remotes.some((entry) => entry.name === remote))
       throw new GitError("invalid_argument", "Select a branch and an existing remote");
@@ -100,7 +99,7 @@ export async function switchBranch(
   options: { worktree: string; branch: string; allowUncommitted: boolean },
 ): Promise<void> {
   const root = await repository.root(options.worktree);
-  await serial(root, async () => {
+  await repository.serial(root, async () => {
     const valid = await repository.cli.call(
       root,
       ["check-ref-format", "--branch", options.branch],

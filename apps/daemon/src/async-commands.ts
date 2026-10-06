@@ -1,4 +1,4 @@
-import { GitError } from "@ace/git";
+import { GitError, isMutationUnavailable } from "@ace/git";
 import type { Command, CommandResult } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
@@ -36,7 +36,9 @@ export class AsyncCommands {
               ok: false,
               error:
                 error instanceof GitError
-                  ? `git_${error.code.replace(/^git_/, "")}`
+                  ? isMutationUnavailable(error)
+                    ? "git_quarantined"
+                    : `git_${error.code.replace(/^git_/, "")}`
                   : "action_failed",
             }))
           : { ok: false, error: "action_outcome_uncertain" };

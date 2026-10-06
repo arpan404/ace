@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { textOutput } from "./cli.ts";
 import type { Repository } from "./repository.ts";
-import { serial } from "./lock.ts";
 import { GitError } from "./types.ts";
 
 const Cleanup = z.object({
@@ -13,7 +12,7 @@ export type BranchCleanup = z.infer<typeof Cleanup>;
 export async function deleteBranch(repository: Repository, value: BranchCleanup): Promise<void> {
   const options = Cleanup.parse(value),
     root = await repository.root(options.repo);
-  await serial(root, () => deleteUnchangedBranch(repository, root, options));
+  await repository.serial(root, () => deleteUnchangedBranch(repository, root, options));
 }
 
 /** The caller already holds the repository lock during creation rollback. */

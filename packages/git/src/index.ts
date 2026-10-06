@@ -15,7 +15,6 @@ import { GitCli } from "./cli.ts";
 import { tmpdir } from "node:os";
 import { createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
-import { serial } from "./lock.ts";
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
 import { createWorktree, removeWorktree, type CreateWorktreeOptions } from "./worktrees.ts";
@@ -24,9 +23,10 @@ import type { ChangedFile, Checkpoint, DiffSide, GitOptions } from "./types.ts";
 
 export { validateCloneUrl } from "./projects.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
-export { GitError } from "./types.ts";
+export { GitError, isMutationUnavailable } from "./types.ts";
 export { spawnGitProcess } from "./process-runtime.ts";
 export type * from "./types.ts";
+export type { MutationState } from "./mutation-state.ts";
 export type { CreateWorktreeOptions } from "./worktrees.ts";
 
 export class GitService {
@@ -43,16 +43,33 @@ export class GitService {
     this.maxPatchBytes = options.maxPatchBytes ?? 1024 * 1024;
   }
 
-  /** Cancel owned Git process groups and await their pipe/termination cleanup. */
+  /** Bounded shutdown. Unconfirmed cleanup remains durably quarantined. */
   close(): Promise<void> {
     return this.repository.cli.close();
   }
 
+  /** Admission check for host operations that can mutate a workspace. */
+  assertMutationAvailable(worktree: string) {
+    return this.repository.cli.assertMutationAvailable(worktree);
+  }
+  /** Does not invoke Git, so quarantine remains inspectable after restart. */
+  mutationState(worktree: string) {
+    return this.repository.cli.mutationState(worktree);
+  }
+  /** Reconcile with a trusted supervisor. Unconfirmed receipts never release leases. */
+  recoverCleanup(worktree: string) {
+    return this.repository.cli.recoverCleanup(worktree);
+  }
+
   clone(input: CloneOptions, policy: ProjectGitPolicy = {}): Promise<void> {
-    return cloneRepository(this.repository.cli, input, policy);
+    return this.repository.serial(input.parent, () =>
+      cloneRepository(this.repository.cli, input, policy),
+    );
   }
   init(path: string, branch?: string, directoryFd?: number): Promise<void> {
-    return initRepository(this.repository.cli, path, branch, directoryFd, this.repository.now);
+    return this.repository.serial(path, () =>
+      initRepository(this.repository.cli, path, branch, directoryFd, this.repository.now),
+    );
   }
   initialBranch(path: string): Promise<string> {
     return initialBranch(this.repository.cli, path);
@@ -106,12 +123,12 @@ export class GitService {
   }
   async repositoryInfo(repo: string) {
     const root = await this.repository.root(repo);
-    return serial(root, () => this.repository.info(root));
+    return this.repository.serial(root, () => this.repository.info(root));
   }
 
   async status(worktree: string) {
     const root = await this.repository.root(worktree);
-    return serial(root, () => this.repository.status(root));
+    return this.repository.serial(root, () => this.repository.status(root));
   }
 
   createWorktree(options: CreateWorktreeOptions) {
@@ -120,7 +137,7 @@ export class GitService {
 
   async listWorktrees(repo: string) {
     const root = await this.repository.root(repo);
-    return serial(root, () => this.repository.worktrees(root));
+    return this.repository.serial(root, () => this.repository.worktrees(root));
   }
 
   removeWorktree(options: { repo: string; path: string; force?: boolean }) {
@@ -134,7 +151,7 @@ export class GitService {
 
   async pruneWorktrees(repo: string): Promise<void> {
     const root = await this.repository.root(repo);
-    await serial(root, () =>
+    await this.repository.serial(root, () =>
       this.repository.cli.call(root, ["worktree", "prune", "--expire=now"], { write: true }),
     );
   }
@@ -145,24 +162,28 @@ export class GitService {
     label: string;
   }): Promise<Checkpoint> {
     const root = await this.repository.root(options.worktree);
-    return serial(root, () =>
+    return this.repository.serial(root, () =>
       createCheckpoint(this.repository, root, options.threadId, options.label),
     );
   }
 
   async listCheckpoints(options: { repo: string; threadId: string }): Promise<Checkpoint[]> {
     const root = await this.repository.root(options.repo);
-    return serial(root, () => listCheckpoints(this.repository, root, options.threadId));
+    return this.repository.serial(root, () =>
+      listCheckpoints(this.repository, root, options.threadId),
+    );
   }
 
   async deleteCheckpoints(options: { repo: string; threadId: string }) {
     const root = await this.repository.root(options.repo);
-    return serial(root, () => deleteCheckpoints(this.repository, root, options.threadId));
+    return this.repository.serial(root, () =>
+      deleteCheckpoints(this.repository, root, options.threadId),
+    );
   }
 
   async diff(options: { worktree: string; from: DiffSide; to: DiffSide; maxPatchBytes?: number }) {
     const root = await this.repository.root(options.worktree);
-    return serial(root, () =>
+    return this.repository.serial(root, () =>
       diff(
         this.repository,
         root,
@@ -175,14 +196,14 @@ export class GitService {
 
   async resolveCommit(options: { worktree: string; ref: string }): Promise<string> {
     const root = await this.repository.root(options.worktree);
-    return serial(root, () => this.repository.commit(root, options.ref));
+    return this.repository.serial(root, () => this.repository.commit(root, options.ref));
   }
 
   async applyPatch(options: { worktree: string; patch: string }): Promise<void> {
     if (!options.patch || Buffer.byteLength(options.patch) > 65_536)
       throw new GitError("invalid_argument", "Patch must be between 1 and 65536 bytes");
     const root = await this.repository.root(options.worktree);
-    await serial(root, async () => {
+    await this.repository.serial(root, async () => {
       const args = ["apply", "--whitespace=nowarn"];
       await this.repository.cli.call(root, [...args, "--check", "-"], { input: options.patch });
       await this.repository.cli.call(root, [...args, "-"], { input: options.patch, write: true });
@@ -191,6 +212,8 @@ export class GitService {
 
   async restoreCheckpoint(options: { worktree: string; checkpoint: string }) {
     const root = await this.repository.root(options.worktree);
-    return serial(root, () => restoreCheckpoint(this.repository, root, options.checkpoint));
+    return this.repository.serial(root, () =>
+      restoreCheckpoint(this.repository, root, options.checkpoint),
+    );
   }
 }
