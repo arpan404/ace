@@ -5,8 +5,9 @@ import type { ScreenSession } from "./screen-session.ts";
 
 /**
  * An app window's live picture on a canvas, with no React render per frame. Frames are routed
- * by session id. Mounting subscribes; unmounting (or a new channel) unsubscribes and closes the
- * decoder and every decoded frame; a hidden page drops frames instead of drawing them.
+ * by session id. Mounting holds the session's stream (shared with every other view of it);
+ * unmounting (or a new channel) lets it go and closes the decoder and every decoded frame; a
+ * hidden page drops frames instead of drawing them.
  */
 export function LiveView(props: {
   session: ScreenSession;
@@ -42,14 +43,15 @@ export function LiveView(props: {
     } catch {
       // Eight live views at most; this one stays a still placeholder.
     }
-    void session.request({ op: "subscribe", sessionId }).catch(() => {});
+    // Another view of this session (Settings and a thread's panel) shares its stream.
+    const release = session.retainStream(sessionId);
     const onVisibility = () => renderer.reset();
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       unwatch?.();
       renderer.close();
-      void session.request({ op: "unsubscribe", sessionId }).catch(() => {});
+      release();
     };
   }, [session, sessionId]);
   return (

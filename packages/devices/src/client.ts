@@ -9,7 +9,12 @@ import {
   DeviceFailure,
   DeviceInventory,
 } from "@ace/protocol/devices";
-import { LatestFrameHub, ScreenFrameReader, type PortableFrame } from "@ace/screen/frames-client";
+import {
+  LatestFrameHub,
+  ScreenFrameReader,
+  SharedStreams,
+  type PortableFrame,
+} from "@ace/screen/frames-client";
 
 export interface DeviceTransportEvents {
   /** Only call after the host authenticates the dedicated devices channel. */
@@ -161,6 +166,7 @@ export class DeviceClient {
     this.transport = undefined;
     this.connected = false;
     this.streams.clear();
+    this.liveStreams.reset();
     this.states.clear();
     this.devices = [];
     this.issues = [];
@@ -254,6 +260,19 @@ export class DeviceClient {
       selected.consumers--;
       if (selected.consumers === 0) this.frameHubs.delete(deviceId);
     };
+  }
+
+  private readonly liveStreams = new SharedStreams();
+  /**
+   * Keep `deviceId`'s live stream open for one view. Views of the same device share one daemon
+   * subscription: the first view subscribes, the last to release unsubscribes.
+   */
+  retainStream(deviceId: string): () => void {
+    return this.liveStreams.retain(
+      deviceId,
+      () => void this.request({ op: "subscribe", deviceId }).catch(() => {}),
+      () => void this.request({ op: "unsubscribe", deviceId }).catch(() => {}),
+    );
   }
 
   watchLogs(deviceId: string, listener: (batch: DeviceLogBatch) => void): () => void {
