@@ -7,6 +7,12 @@ import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { testHomeEnvironment } from "./test-home-environment.ts";
 import type { TestHomeContext } from "./test-home-global-setup.ts";
 
+declare module "vitest" {
+  export interface ProvidedContext {
+    machineWorker: string;
+  }
+}
+
 const execute = promisify(execFile);
 
 export default async function setup(project: TestProject) {
