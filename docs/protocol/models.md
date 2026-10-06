@@ -33,6 +33,9 @@ Semantic rule: The parsed model with defaults filled and unknown fields stripped
 | defaultTier | no | string | {"minLength":1,"maxLength":256} |
 | inputModalities | yes | array | {"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":256}} |
 | isDefault | yes | boolean |  |
+| defaultSource | no | ["built-in","user"] |  |
+| aliases | no | array | {"maxItems":32,"items":{"type":"string","minLength":1,"maxLength":256}} |
+| group | no | ["current","legacy"] |  |
 | hidden | yes | boolean |  |
 | favourite | no | boolean |  |
 | custom | no | boolean |  |
@@ -47,16 +50,18 @@ Example:
 
 ```json
 {
+  "aliases": [],
+  "custom": true,
+  "defaultSource": "built-in",
   "defaultTier": "example",
-  "deprecated": false,
+  "deprecated": true,
   "displayName": "example",
-  "favourite": true,
-  "hidden": true,
+  "hidden": false,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
   "isDefault": true,
-  "legacy": true,
+  "legacy": false,
   "nativeModelId": "example",
   "nativeProviderId": "example",
   "provider": "antigravity",
@@ -85,8 +90,10 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "instance": "example"
+  "acpAgentId": "example",
+  "instance": "example",
+  "instanceId": "example",
+  "provider": "pi"
 }
 ```
 
@@ -112,12 +119,12 @@ Example:
 
 ```json
 {
-  "installationId": "example",
+  "acpAgentId": "example",
+  "error": "persistence_failed",
   "instance": "example",
-  "instanceId": "example",
-  "provider": "pi",
-  "refreshedAt": 1,
-  "refreshing": true,
+  "provider": "acp",
+  "refreshedAt": 6,
+  "refreshing": false,
   "stale": false
 }
 ```
@@ -140,7 +147,8 @@ Example:
 
 ```json
 {
-  "instance": "example"
+  "instanceId": "example",
+  "offset": 4
 }
 ```
 
@@ -183,36 +191,34 @@ Example:
 ```json
 {
   "model": {
-    "defaultTier": "example",
-    "deprecated": false,
+    "acpAgentId": "example",
+    "aliases": [],
+    "custom": true,
+    "defaultSource": "user",
+    "deprecated": true,
     "displayName": "example",
     "favourite": false,
-    "hidden": true,
+    "hidden": false,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
-    "instanceId": "example",
     "isDefault": true,
-    "isNew": false,
     "legacy": true,
+    "modelConfigId": "example",
     "nativeModelId": "example",
-    "provider": "opencode",
+    "nativeProviderId": "example",
+    "provider": "claude",
     "raw": {
       "json": "example",
       "truncated": false
     },
     "reasoningEfforts": [],
-    "selectorMethod": "session/set_config_option",
+    "selectorMethod": "session/set_model",
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": true,
-  "tier": {
-    "id": "example",
-    "name": "example",
-    "parameters": {}
-  }
+  "stale": true
 }
 ```
 
@@ -255,12 +261,8 @@ Example:
 
 ```json
 {
-  "effort": "example",
-  "imageInput": false,
   "installationId": "example",
   "instanceId": "example",
-  "preferenceOrder": [],
-  "provider": "pi",
   "role": "example"
 }
 ```
@@ -320,8 +322,12 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "effort": "example",
-    "imageInput": false,
-    "role": "example"
+    "imageInput": true,
+    "instance": "example",
+    "instanceId": "example",
+    "provider": "acp",
+    "role": "example",
+    "selection": "strongest"
   },
   "type": "models.resolve"
 }
@@ -343,8 +349,35 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "instances": [],
-    "models": []
+    "model": {
+      "acpAgentId": "example",
+      "contextWindow": 4,
+      "deprecated": true,
+      "displayName": "example",
+      "hidden": false,
+      "id": "example",
+      "inputModalities": [],
+      "instance": "example",
+      "instanceId": "example",
+      "isDefault": true,
+      "isNew": true,
+      "modelConfigId": "example",
+      "nativeModelId": "example",
+      "provider": "antigravity",
+      "raw": {
+        "json": "example",
+        "truncated": true
+      },
+      "reasoningEfforts": [],
+      "serviceTiers": []
+    },
+    "ok": true,
+    "reason": "example",
+    "stale": false,
+    "tier": {
+      "id": "example",
+      "name": "example"
+    }
   },
   "type": "models.result"
 }
@@ -366,7 +399,6 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example",
-  "speed": "fast"
+  "name": "example"
 }
 ```

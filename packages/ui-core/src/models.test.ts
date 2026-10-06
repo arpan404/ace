@@ -7,8 +7,11 @@ import {
   choiceSelection,
   currentModelChoice,
   defaultModelChoice,
+  distinctModelOptions,
   modelChoices,
+  modelKey,
   newThreadOptions,
+  selectNewThreadModel,
   optionEffort,
   threadEffortControl,
   effortLabel,
@@ -38,7 +41,7 @@ const account = (
 
 const model = (provider: ProviderKind, instance: string, id: string, isDefault = false) =>
   CatalogModel.parse({
-    id: `${instance}:${id}`,
+    id,
     displayName: id,
     provider,
     instance,
@@ -105,7 +108,7 @@ test("a signed-out account offers nothing and an exhausted one can't be the defa
   expect(defaultModelChoice(choices, "codex")?.accountId).toBe("codex-personal");
 });
 
-test("New thread lists each model once and defaults to an account with headroom", () => {
+test("New thread keeps each account's own rows, lists each model once and defaults to an account with headroom", () => {
   const options = newThreadOptions(
     [model("claude", "claude-work", "opus", true), model("claude", "claude-personal", "opus")],
     [
@@ -120,14 +123,18 @@ test("New thread lists each model once and defaults to an account with headroom"
     [{ provider: "claude", state: "ready" }],
   );
 
-  expect(options.models.map((m) => m.id)).toEqual(["opus"]);
+  expect(options.models.map((m) => [m.account, m.id, m.isDefault])).toEqual([
+    ["claude-work", "opus", true],
+    ["claude-personal", "opus", false],
+  ]);
+  expect(distinctModelOptions(options.models).map((m) => m.id)).toEqual(["opus"]);
   expect(options.accounts.map((a) => [a.label, a.usage, a.isDefault])).toEqual([
     ["work", "100% of 5-hour used", false],
     ["personal", "38% of 5-hour used", true],
   ]);
 });
 
-test("New thread offers only installed CLIs, each on its default model when the catalog has none", () => {
+test("New thread offers only installed CLIs and makes up no default model for an empty catalog", () => {
   const options = newThreadOptions(
     [model("claude", "claude-personal", "opus", true), model("cursor", "cursor", "auto", true)],
     [],
@@ -140,11 +147,75 @@ test("New thread offers only installed CLIs, each on its default model when the 
     ],
   );
 
-  expect(options.models.map((m) => [m.label, m.fromCatalog])).toEqual([
-    ["auto", true],
-    ["Codex · Default", false],
-    ["OpenCode · Default", false],
+  expect(options.models.map((m) => [m.provider, m.label])).toEqual([["cursor", "auto"]]);
+});
+
+test("New thread picks the account first, then that account's own default", () => {
+  const { models, accounts } = newThreadOptions(
+    [
+      model("codex", "codex-personal", "gpt-6.1-sol", true),
+      model("codex", "codex-personal", "gpt-5"),
+      model("codex", "codex-work", "gpt-6.1-sol"),
+      model("codex", "codex-work", "gpt-5", true),
+    ],
+    [account("codex-personal", "codex", {}), account("codex-work", "codex", {})],
+    [{ provider: "codex", state: "ready" }],
+  );
+  const pick = (remembered: string | undefined, key?: string) => {
+    const picked = selectNewThreadModel({
+      models,
+      accounts,
+      provider: "codex",
+      model: key,
+      account: remembered,
+    });
+    return [picked.account?.id, picked.model?.id];
+  };
+
+  expect(pick(undefined)).toEqual(["codex-personal", "gpt-6.1-sol"]);
+  expect(pick("codex-work")).toEqual(["codex-work", "gpt-5"]);
+  // A model the person picked stays picked on whichever account they choose.
+  expect(pick("codex-work", modelKey("codex", "gpt-6.1-sol"))).toEqual([
+    "codex-work",
+    "gpt-6.1-sol",
   ]);
+});
+
+test("an account whose catalog lists nothing has no model rather than another account's", () => {
+  const { models, accounts } = newThreadOptions(
+    [model("claude", "claude-personal", "opus", true)],
+    [account("claude-personal", "claude", {}), account("claude-work", "claude", {})],
+    [{ provider: "claude", state: "ready" }],
+  );
+  const picked = selectNewThreadModel({
+    models,
+    accounts,
+    provider: "claude",
+    model: undefined,
+    account: "claude-work",
+  });
+
+  expect(picked.account?.id).toBe("claude-work");
+  expect(picked.model).toBeUndefined();
+});
+
+test("an OpenCode model switches by its qualified catalog id, not its bare native id", () => {
+  const row = CatalogModel.parse({
+    ...model("opencode", "opencode", "opencode-go/muse-spark-1.3-contributor", true),
+    nativeProviderId: "opencode-go",
+    nativeModelId: "muse-spark-1.3-contributor",
+  });
+  const choices = modelChoices([row], [account("opencode", "opencode", {})], 0);
+  const current = currentModelChoice(choices, {
+    provider: "opencode",
+    model: "opencode-go/muse-spark-1.3-contributor",
+  });
+
+  expect(current && choiceSelection(current)).toEqual({
+    provider: "opencode",
+    model: "opencode-go/muse-spark-1.3-contributor",
+    instanceId: "opencode",
+  });
 });
 
 test("a model choice reads as provider, lower-case account tag and model", () => {
@@ -201,7 +272,7 @@ test("a thread on a provider the catalog doesn't list never shows another provid
 
   expect(currentModelChoice(choices, { provider: "claude" })).toBeUndefined();
   expect(currentModelChoice(choices, { provider: "claude", model: "opus" })).toBeUndefined();
-  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code · Default");
+  expect(recordedChoice({ provider: "claude" })?.model).toBe("Unknown model");
   expect(currentModelChoice(choices, { provider: "codex" })?.id).toBe("codex-team:gpt-5");
 });
 
@@ -278,6 +349,6 @@ test("offline, a thread's model reads from its own record, claiming no account o
     account: "",
     used: undefined,
   });
-  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code · Default");
+  expect(recordedChoice({ provider: "claude" })?.model).toBe("Unknown model");
   expect(recordedChoice(undefined)).toBeUndefined();
 });

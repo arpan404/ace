@@ -1,3 +1,4 @@
+import { scopedSelection, type ModelScope } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import {
   AgentLaunchOptions,
@@ -15,10 +16,10 @@ import { rememberProvider } from "@/lib/provider-statuses.ts";
 
 export interface CreateRequest {
   project: string;
-  provider: Extract<CommandPayload, { type: "thread.create" }>["provider"];
-  model: string | undefined;
-  /** The account (provider instance) to run on; the daemon picks one when omitted. */
-  account: string | undefined;
+  /** The account the thread runs on: picked first, before its model. */
+  scope: ModelScope;
+  /** The catalog id listed on that account (OpenCode's `provider/model`), never a bare native id. */
+  model: string;
   mode: "local" | "worktree";
   /** Where a worktree starts; ignored for the local checkout. */
   baseBranch: string | undefined;
@@ -33,7 +34,11 @@ export interface CreateRequest {
 
 type CreatePayload = Extract<CommandPayload, { type: "thread.create" }>;
 
-/** The `thread.create` command for a request. Pure. */
+/**
+ * The `thread.create` command for a request: the account's provider, account (or ACP identity)
+ * and catalog id, as `ModelClient` would select them. Pure, so it can be saved offline; the
+ * daemon resolves the id again at admission.
+ */
 export function createPayload(request: CreateRequest): CreatePayload {
   const effort = AgentLaunchOptions.shape.effort.safeParse(request.effort);
   const tier = AgentLaunchOptions.shape.serviceTier.safeParse(request.serviceTier);
@@ -44,10 +49,8 @@ export function createPayload(request: CreateRequest): CreatePayload {
   return {
     type: "thread.create",
     workspaceId: WorkspaceId.parse(request.project),
-    provider: request.provider,
+    ...scopedSelection(request.scope, request.model),
     mode: request.mode,
-    ...(request.model ? { model: request.model } : {}),
-    ...(request.account ? { accountId: request.account } : {}),
     ...(request.mode === "worktree" && request.baseBranch
       ? { baseBranch: request.baseBranch }
       : {}),
@@ -87,7 +90,7 @@ export function useCreateThread(): {
       rememberTitle(commandId, provisionalTitle(payload.input));
       // The pending entry is visible before the outbox has saved it: open it now.
       const saved = client.enqueue(payload, commandId);
-      rememberProvider(storage, request.provider);
+      rememberProvider(storage, payload.provider);
       void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
       try {
         await saved;
