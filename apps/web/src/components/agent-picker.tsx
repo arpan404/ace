@@ -1,8 +1,15 @@
 import { useAgent, useAgentTree, type AgentTreeNode } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
 import { RobotIcon } from "@phosphor-icons/react";
-import { Button } from "@/components/ui/button.tsx";
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/menu.tsx";
+import { buttonVariants } from "@/components/ui/button.tsx";
+import {
+  Menu,
+  MenuContent,
+  MenuGroup,
+  MenuItem,
+  MenuLabel,
+  MenuTrigger,
+} from "@/components/ui/menu.tsx";
 
 /** Each agent of a thread's tree once, parents before their subagents. */
 function flatten(nodes: readonly AgentTreeNode[], depth = 0): { id: string; depth: number }[] {
@@ -36,24 +43,25 @@ export function DelegateMenu(props: {
   return (
     <Menu>
       <MenuTrigger
-        render={
-          <Button size="sm" variant="ghost" disabled={props.disabled || agents.length === 0}>
-            <RobotIcon aria-hidden size={14} />
-            {props.label ?? "Delegate"}
-          </Button>
-        }
-      />
+        disabled={props.disabled || agents.length === 0}
+        className={buttonVariants({ variant: "ghost", size: "sm" })}
+      >
+        <RobotIcon aria-hidden size={14} />
+        {props.label ?? "Delegate"}
+      </MenuTrigger>
       <MenuContent align="end">
-        <MenuLabel>Hand to an agent in this thread</MenuLabel>
-        {agents.map((agent) => (
-          <AgentItem
-            key={agent.id}
-            threadId={props.threadId}
-            agentId={agent.id}
-            depth={agent.depth}
-            onPick={() => props.onDelegate(agent.id)}
-          />
-        ))}
+        <MenuGroup>
+          <MenuLabel>Hand to an agent in this thread</MenuLabel>
+          {agents.map((agent) => (
+            <AgentItem
+              key={agent.id}
+              threadId={props.threadId}
+              agentId={agent.id}
+              depth={agent.depth}
+              onPick={() => props.onDelegate(agent.id)}
+            />
+          ))}
+        </MenuGroup>
       </MenuContent>
     </Menu>
   );
