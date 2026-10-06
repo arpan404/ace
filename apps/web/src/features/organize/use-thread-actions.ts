@@ -149,6 +149,12 @@ export function useThreadActions(): ThreadActions {
       verb: "Unarchive",
       failed: "unarchive it",
     });
+    /** Taking an archived thread back into the list. */
+    const restore = (entry: ThreadTarget): Action => ({
+      ...unarchive(entry),
+      verb: "Restore",
+      failed: "restore it",
+    });
     const rename = (entry: ThreadTarget, title: string): Action => ({
       patch: { title },
       payload: { type: "thread.rename", threadId: id(entry), title },
