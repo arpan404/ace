@@ -23,6 +23,7 @@ export type ImageSource =
   | { kind: "url"; url: string };
 
 export interface ShownImage {
+  delivery?: Attachment["delivery"];
   key: string;
   name: string;
   bytes?: number | undefined;
@@ -31,6 +32,7 @@ export interface ShownImage {
   source: ImageSource;
 }
 export interface ShownFile {
+  delivery?: Attachment["delivery"];
   key: string;
   name: string;
   mimeType?: string | undefined;
@@ -81,9 +83,10 @@ export function collectAttachments(input: {
   }
   for (const attachment of input.attachments ?? []) {
     const key = `sha:${attachment.sha256}`;
-    if (attachment.mimeType.startsWith("image/") && input.threadId)
+    if (attachment.thumbnailAvailable && input.threadId)
       shown.images.push({
         key,
+        delivery: attachment.delivery,
         name: attachment.name,
         bytes: attachment.bytes,
         width: attachment.width,
@@ -99,6 +102,7 @@ export function collectAttachments(input: {
     else
       shown.files.push({
         key,
+        delivery: attachment.delivery,
         name: attachment.name,
         mimeType: attachment.mimeType,
         bytes: attachment.bytes,

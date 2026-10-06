@@ -443,3 +443,21 @@ it("native OpenCode URI attachments embed the verified image MIME and bytes", as
     h.session.send([{ type: "file", mimeType: "image/png", path: "/tmp/extensionless" }], "queue"),
   ).rejects.toThrow();
 });
+
+it("the fake OpenCode V2 server receives PDF and binary paths as prompt text", async () => {
+  const h = await setup();
+  await h.session.send(
+    [
+      { type: "file", path: "/files/code.ts", mimeType: "text/plain" },
+      { type: "file", path: "/files/report.pdf", mimeType: "application/pdf" },
+      { type: "file", path: "/files/archive.zip", mimeType: "application/zip" },
+    ],
+    "queue",
+  );
+  const requests = array(await h.control("/test/requests")).map(object);
+  const prompt = requests.find((entry) => String(entry.path).endsWith("/prompt"));
+  expect(prompt?.body).toMatchObject({
+    text: 'File (text/plain): "/files/code.ts"\nFile (application/pdf): "/files/report.pdf"\nFile (application/zip): "/files/archive.zip"',
+  });
+  expect(object(prompt?.body).files).toBeUndefined();
+});

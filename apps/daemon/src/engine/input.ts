@@ -12,6 +12,7 @@ export type PrepareInput = (
 ) => Promise<{
   input: ContentPart[];
   attachments?: import("@ace/protocol").Attachment[];
+  attachmentPaths?: { sha256: string; path: string }[];
   diagnostics?: ContextDiagnostic[];
   release(): void;
 }>;

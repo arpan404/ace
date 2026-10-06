@@ -1,4 +1,5 @@
 import { warmup } from "./warmup.ts";
+import { contextScope } from "./context-scope.ts";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { ContextService, summarizeThreadReference } from "@ace/context";
@@ -10,8 +11,13 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   const context = await ContextService.open({
     signal: runtime.signal,
     root: join(config.dataDir, "context"),
+    ...(config.attachmentLimits ? { limits: config.attachmentLimits } : {}),
     now,
     id,
+    threadExists: (threadId) => {
+      const thread = store.getThread(ThreadId.parse(threadId));
+      return thread !== undefined && thread.deletedAt === undefined;
+    },
     retained: (thread, hash) =>
       services.engine?.retainsAttachment(ThreadId.parse(thread), hash) ?? false,
     authorize: (_device, thread) => {
@@ -59,6 +65,28 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   });
   resources.own(() => context.close());
   services.context = context;
+  const deletions = new Set<Promise<void>>();
+  resources.own(() => Promise.all(deletions).then(() => {}));
+  resources.own(
+    store.subscribe((events) => {
+      for (const event of events) {
+        if (
+          event.payload.type !== "thread.client.updated" ||
+          event.payload.changes.deletedAt === undefined
+        )
+          continue;
+        const cleanup = context.uploads
+          .releaseThread(event.threadId)
+          .then(() => context.uploads.collect())
+          .then(() => {})
+          .catch((error: unknown) =>
+            log.log("error", "Deleted thread attachment cleanup failed", error),
+          );
+        deletions.add(cleanup);
+        void cleanup.finally(() => deletions.delete(cleanup));
+      }
+    }),
+  );
   void warmup(runtime, "context", () => context.uploads.ready);
   let pending: Promise<void> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -93,15 +121,7 @@ export function createContextSession(context: SocketContext): SocketService {
     async handle(message, device) {
       switch (message.type) {
         case "context.request": {
-          const op = message.operation.op;
-          const scope =
-            op === "attachment.list" ||
-            op === "attachment.read" ||
-            op === "upload.status" ||
-            op.startsWith("mention.") ||
-            op === "draft.mention.complete"
-              ? "read"
-              : "operate";
+          const scope = contextScope(message.operation);
           if (
             !authorize(scope) ||
             ("threadId" in message.operation && !canReadThread(message.operation.threadId))
@@ -134,9 +154,10 @@ export function createContextSession(context: SocketContext): SocketService {
               service.handle(
                 device,
                 message,
-                () =>
+                (thread) =>
                   connected() &&
                   authorize(scope) &&
+                  (thread === undefined || canReadThread(ThreadId.parse(thread))) &&
                   (!("threadId" in message.operation) || canReadThread(message.operation.threadId)),
               ),
             )

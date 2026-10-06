@@ -129,11 +129,14 @@ it("the SDK host admits large normal tool results through blobs and output chunk
       commandId: "command",
       input: [
         { type: "text", text: "synthetic" },
+        { type: "file", path: "/files/code.ts", mimeType: "text/plain" },
+        { type: "file", path: "/files/report.pdf", mimeType: "application/pdf" },
+        { type: "file", path: "/files/archive.zip", mimeType: "application/zip" },
         { type: "image", mimeType: "image/jpeg", url: `data:image/jpeg;base64,${imageData}` },
       ],
     });
     expect(sdkInput).toEqual({
-      text: "synthetic",
+      text: "synthetic\nReferenced workspace file: /files/code.ts\nReferenced workspace file: /files/report.pdf\nReferenced workspace file: /files/archive.zip",
       images: [{ url: `data:image/jpeg;base64,${imageData}` }],
     });
     expect(Object.values(state.items).find((item) => item.type === "tool_call")).toMatchObject({

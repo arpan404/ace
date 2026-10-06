@@ -1,5 +1,5 @@
-import { AttachmentBytes, providerImagePath } from "./attachment-bytes.ts";
-import { open } from "node:fs/promises";
+import { AttachmentBytes } from "./attachment-bytes.ts";
+import { prepareFiles } from "./prepare-files.ts";
 import { join } from "node:path";
 import {
   ContextRequest,
@@ -69,7 +69,7 @@ export class ContextService {
   async handle(
     device: string,
     value: unknown,
-    access: () => boolean = () => true,
+    access: (thread?: string) => boolean = () => true,
   ): Promise<ContextResult> {
     const request = ContextRequest.parse(value);
     try {
@@ -174,6 +174,7 @@ export class ContextService {
   ): Promise<{
     projection: Projection;
     attachments: import("@ace/protocol").Attachment[];
+    attachmentPaths: { sha256: string; path: string }[];
     diagnostics: ContextDiagnostic[];
     release(): void;
   }> {
@@ -185,7 +186,7 @@ export class ContextService {
       "Thread access denied",
     );
     if (context.draftId) await this.uploads.adopt(device, context.draftId, thread);
-    const lease = await this.uploads.acquire(
+    const lease = await this.uploads.acquireMessage(
       device,
       thread,
       context.attachments.map((reference) => reference.sha256),
@@ -209,40 +210,7 @@ export class ContextService {
           mimeType: "text/plain",
           text: `${reference.summary}\nPointer: ${JSON.stringify(reference.pointer)}`,
         });
-      let remaining = capabilities.maxInlineBytes;
-      for (const blob of lease.blobs) {
-        const attachment: PreparedAttachment = {
-          path: await providerImagePath(blob.path, blob.attachment.mimeType),
-          name: blob.attachment.name,
-          mimeType: blob.attachment.mimeType,
-        };
-        const needsInline =
-          capabilities.provider === "claude" ||
-          capabilities.provider === "acp" ||
-          capabilities.provider === "opencode";
-        if (
-          needsInline &&
-          blob.attachment.bytes <= remaining &&
-          (capabilities.images.includes(attachment.mimeType) ||
-            capabilities.documents.includes(attachment.mimeType))
-        ) {
-          remaining -= blob.attachment.bytes;
-          const file = await open(blob.path, "r");
-          try {
-            const bytes = Buffer.alloc(blob.attachment.bytes);
-            let offset = 0;
-            while (offset < bytes.length) {
-              const read = await file.read(bytes, offset, bytes.length - offset, offset);
-              requireContext(read.bytesRead > 0, "not_found", "Attachment bytes unavailable");
-              offset += read.bytesRead;
-            }
-            attachment.base64 = bytes.toString("base64");
-          } finally {
-            await file.close();
-          }
-        }
-        prepared.push(attachment);
-      }
+      prepared.push(...(await prepareFiles(lease.blobs, capabilities)));
       // Binary mentions still carry a usable, validated workspace path.
       for (const diagnostic of mentions.diagnostics) {
         if (diagnostic.code === "binary" && diagnostic.path)
@@ -255,7 +223,29 @@ export class ContextService {
       const projection = projectAttachments(prepared, capabilities);
       return {
         projection,
-        attachments: lease.blobs.map((blob) => blob.attachment),
+        attachmentPaths: lease.blobs.map((blob, index) => ({
+          sha256: blob.attachment.sha256,
+          path: prepared[mentions.entries.length + references.length + index]?.path ?? blob.path,
+        })),
+        attachments: lease.blobs.map((blob, index) => {
+          const part = projection.input[mentions.entries.length + references.length + index];
+          const file = prepared[mentions.entries.length + references.length + index];
+          const delivery: import("@ace/protocol").Attachment["delivery"] =
+            part?.type === "text"
+              ? file?.text === undefined
+                ? "file_path"
+                : file.truncated
+                  ? "inline_text_and_path"
+                  : "inline_text"
+              : part?.type === "document"
+                ? "native_pdf"
+                : part?.type === "resource"
+                  ? "native_resource"
+                  : part?.type === "file" && part.mime === "application/pdf"
+                    ? "native_pdf"
+                    : "native_image";
+          return { ...blob.attachment, delivery };
+        }),
         diagnostics: [...mentions.diagnostics, ...projection.diagnostics],
         release: lease.release,
       };

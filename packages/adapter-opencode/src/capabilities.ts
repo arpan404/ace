@@ -30,6 +30,12 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
     planMode: false,
     tokenUsage: supported,
     imageInput: supported,
+    attachmentInput: {
+      format: "opencode",
+      documents: [],
+      embeddedContext: false,
+      maxInlineBytes: 4 * 1024 * 1024,
+    },
     rewindFiles: false,
   };
 }

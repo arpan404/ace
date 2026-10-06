@@ -1,13 +1,17 @@
 import { canonicalBase64 } from "./base64.ts";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { ContextDiagnostic, type ContextDiagnostic as Diagnostic } from "@ace/protocol";
+import { type ContextDiagnostic as Diagnostic } from "@ace/protocol";
 import { requireContext } from "./errors.ts";
+import { languageHint } from "./file-kind.ts";
 
 export const PreparedAttachment = z.object({
   path: z.string().min(1).max(4096),
   name: z.string().max(1024),
   mimeType: z.string().max(128),
+  bytes: z.number().int().nonnegative().optional(),
+  truncated: z.boolean().optional(),
+  nativeImage: z.boolean().optional(),
   text: z
     .string()
     .max(4 * 1024 * 1024)
@@ -40,6 +44,7 @@ export type ClaudeInput =
       type: "document";
       source: Source | { type: "text"; media_type: "text/plain"; data: string };
       title: string;
+      path: string;
     };
 export type CodexInput =
   | { type: "text"; text: string; text_elements: [] }
@@ -98,22 +103,23 @@ export function projectAttachments(
     return attachment.base64;
   }
   function fallback(attachment: PreparedAttachment): Text {
-    diagnostics.push(
-      ContextDiagnostic.parse({
-        code: "unsupported",
-        message: `Provider ${capabilities.provider} cannot take attachment "${attachment.name}" (${attachment.mimeType}) within its media capabilities and size limits.`,
-      }),
-    );
     return {
       type: "text",
-      text: `Provider ${capabilities.provider} cannot take attachment "${attachment.name}" (${attachment.mimeType}) within its media capabilities and size limits.`,
+      text: `Attachment ${JSON.stringify(attachment.name)} (${attachment.mimeType}, ${attachment.bytes ?? "unknown"} bytes) sent as file. Read the full file at ${JSON.stringify(attachment.path)}.`,
     };
+  }
+  function text(attachment: PreparedAttachment): string {
+    if (attachment.bytes === undefined) return attachment.text ?? "";
+    return `Attachment ${JSON.stringify(attachment.name)} (${attachment.mimeType}, ${attachment.bytes} bytes; language: ${languageHint(attachment.name)}).\n<ace-attachment>\n${attachment.text ?? ""}\n</ace-attachment>${attachment.truncated ? `\n[Inline text truncated.] ${fallback(attachment).text}` : ""}`;
   }
   switch (capabilities.provider) {
     case "claude": {
       const input: ClaudeInput[] = attachments.map((a) => {
-        if (a.text !== undefined) return { type: "text", text: a.text };
-        const image = a.mimeType.startsWith("image/") && capabilities.images.includes(a.mimeType);
+        if (a.text !== undefined) return { type: "text", text: text(a) };
+        const image =
+          a.nativeImage !== false &&
+          a.mimeType.startsWith("image/") &&
+          capabilities.images.includes(a.mimeType);
         const document =
           (a.mimeType === "application/pdf" || a.mimeType === "text/plain") &&
           capabilities.documents.includes(a.mimeType);
@@ -123,35 +129,42 @@ export function projectAttachments(
         if (image) return { type: "image", source };
         if (a.mimeType === "text/plain") {
           try {
-            const text = new TextDecoder("utf-8", { fatal: true }).decode(
+            const decoded = new TextDecoder("utf-8", { fatal: true }).decode(
               Buffer.from(encoded, "base64"),
             );
             return {
               type: "document",
-              source: { type: "text", media_type: "text/plain", data: text },
+              source: { type: "text", media_type: "text/plain", data: decoded },
               title: a.name,
+              path: a.path,
             };
           } catch {
             return fallback(a);
           }
         }
-        return { type: "document", source, title: a.name };
+        return { type: "document", source, title: a.name, path: a.path };
       });
       return { provider: "claude", input, diagnostics };
     }
     case "codex": {
       const input: CodexInput[] = attachments.map((a) => {
-        if (a.text !== undefined) return { type: "text", text: a.text, text_elements: [] };
-        if (capabilities.images.includes(a.mimeType))
+        if (a.text !== undefined) return { type: "text", text: text(a), text_elements: [] };
+        if (
+          a.nativeImage !== false &&
+          capabilities.images.includes(a.mimeType) &&
+          (a.bytes === undefined || a.bytes <= remaining)
+        ) {
+          remaining -= a.bytes ?? 0;
           return { type: "localImage", path: a.path, mimeType: a.mimeType };
+        }
         return { ...fallback(a), text_elements: [] };
       });
       return { provider: "codex", input, diagnostics };
     }
     case "opencode": {
       const input: OpenCodeInput[] = attachments.map((a) => {
-        if (a.text !== undefined) return { type: "text", text: a.text };
-        if (capabilities.images.includes(a.mimeType)) {
+        if (a.text !== undefined) return { type: "text", text: text(a) };
+        if (a.nativeImage !== false && capabilities.images.includes(a.mimeType)) {
           const encoded = data(a);
           if (encoded === undefined) return fallback(a);
           return {
@@ -173,12 +186,17 @@ export function projectAttachments(
           return capabilities.embeddedContext
             ? {
                 type: "resource",
-                resource: { uri: fileUri(a.path), mimeType: a.mimeType, text: a.text },
+                resource: {
+                  uri: a.path.startsWith("ace://") ? a.path : fileUri(a.path),
+                  mimeType: a.mimeType,
+                  text: text(a),
+                },
               }
-            : { type: "text", text: a.text };
-        const image = capabilities.images.includes(a.mimeType);
+            : { type: "text", text: text(a) };
+        const image = a.nativeImage !== false && capabilities.images.includes(a.mimeType);
         const document =
-          capabilities.embeddedContext && capabilities.documents.includes(a.mimeType);
+          capabilities.embeddedContext &&
+          (capabilities.documents.includes(a.mimeType) || capabilities.documents.includes("*"));
         const encoded = image || document ? data(a) : undefined;
         if (encoded === undefined) return fallback(a);
         return image

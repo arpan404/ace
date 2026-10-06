@@ -2,6 +2,7 @@ import { ClientProvider } from "@ace/client-react";
 import { fixtureImage, longHistory } from "@ace/fake-daemon";
 import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { ThreadId } from "@ace/protocol";
 import { createHash } from "node:crypto";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -63,13 +64,14 @@ test("an image chip shows its preview at once, and the sent message shows the im
 test("a file over the limit says so in words and can only be removed", async () => {
   const user = userEvent.setup();
   await openComposer();
-  const big = new File([new Uint8Array(26_000_000)], "capture.mov", { type: "video/quicktime" });
+  const big = new File(["x"], "capture.mov", { type: "video/quicktime" });
+  Object.defineProperty(big, "size", { value: 600 * 1024 * 1024 });
   await user.upload(screen.getByLabelText("Files to attach"), big);
   const chips = await screen.findByRole("list", { name: "Attachments" });
   expect(
     within(chips).getByText(
       (_, element) =>
-        element?.textContent === "Couldn't upload: Too large: 26 MB, the limit is 25 MB",
+        element?.textContent === "Couldn't upload: Too large: 629 MB, the limit is 537 MB",
     ),
   ).toBeTruthy();
   expect(within(chips).queryByRole("button", { name: "Retry capture.mov" })).toBeNull();
@@ -116,29 +118,40 @@ test("a failed upload offers Retry, which uploads the same file again", async ()
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
 });
 
-test("a file the thread's provider can't read is flagged on its chip, and Send waits until it goes", async () => {
+test.each([
+  ["notes.pdf", "application/pdf", "%PDF-1.7\nexample"],
+  ["code.ts", "text/typescript", "export const value = 42;"],
+  ["archive.zip", "application/zip", "PK\u0003\u0004example"],
+])("%s shows a chip and reaches the fake daemon", async (name, mimeType, data) => {
   const user = userEvent.setup();
-  const { message } = await openComposer();
-  await user.type(message, "What's in the notes?");
+  const { app, feed, message } = await openComposer();
   await user.upload(
     screen.getByLabelText("Files to attach"),
-    new File(["QA_TOKEN 42"], "notes.txt", { type: "text/plain" }),
+    new File([data], name, { type: mimeType }),
   );
   const chips = await screen.findByRole("list", { name: "Attachments" });
+  expect(within(chips).getByText(name)).toBeTruthy();
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
-  expect(within(chips).getByText(/Can't be read/).textContent).toContain(
-    "can't read attached files like notes.txt",
+  expect(within(chips).queryByText(/Can't be read/)).toBeNull();
+  await user.type(message, `Read ${name}{Enter}`);
+  const sentFiles = await within(feed).findByRole("list", { name: "Attached files" });
+  expect(within(sentFiles).getByText(new RegExp(name.replace(".", "\\.")))).toBeTruthy();
+  const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-router") });
+  if (!view || !("items" in view)) throw new Error("Missing thread transcript");
+  const sent = Object.values(view.items).find(
+    (item) =>
+      item.type === "message" &&
+      item.role === "user" &&
+      item.attachments?.some((file) => file.name === name),
   );
-  const send = screen.getByRole("button", { name: "Send" });
-  expect(send.getAttribute("aria-disabled")).toBe("true");
-  await user.keyboard("{Enter}");
-  expect((message as HTMLTextAreaElement).value).toBe("What's in the notes?");
-
-  await user.click(within(chips).getByRole("button", { name: "Remove notes.txt" }));
-  expect(send.getAttribute("aria-disabled")).toBeNull();
+  expect(sent).toMatchObject({
+    attachments: [
+      expect.objectContaining({ name, sha256: createHash("sha256").update(data).digest("hex") }),
+    ],
+  });
 });
 
-test("where the provider reads no images, images can't be added and a dropped one is flagged", async () => {
+test("a provider without native images still accepts image files", async () => {
   const user = userEvent.setup();
   const app = harness();
   app.daemon.createThread({
@@ -152,17 +165,15 @@ test("where the provider reads no images, images can't be added and a dropped on
   const message = await screen.findByRole("combobox", { name: "Message" });
   await user.click(screen.getByRole("button", { name: "Add files and context" }));
   const images = await screen.findByRole("menuitem", { name: /Images/ });
-  expect(images.getAttribute("aria-disabled")).toBe("true");
-  expect(images.textContent).toContain("Codex doesn't read images.");
+  expect(images.getAttribute("aria-disabled")).toBeNull();
   await user.keyboard("{Escape}");
 
   await user.type(message, "Describe it");
   await user.upload(screen.getByLabelText("Files to attach"), screenshot());
   const chips = await screen.findByRole("list", { name: "Attachments" });
-  expect(within(chips).getByText(/Can't be read/).textContent).toContain(
-    "Codex doesn't read images.",
-  );
-  expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  expect(within(chips).queryByText(/Can't be read/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBeNull();
 });
 
 test("an upload in progress shows a ring with its percentage", async () => {

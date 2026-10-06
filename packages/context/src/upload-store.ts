@@ -2,7 +2,7 @@ import { hasThumbnail } from "./attachment-bytes.ts";
 import { beginUpload } from "./upload-admission.ts";
 import { BlobLeases, type BlobLease } from "./blob-leases.ts";
 import { constants } from "node:fs";
-import { mkdir, open, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, open, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import {
@@ -30,6 +30,7 @@ export class UploadStore {
   private closing = false;
   private maintenance: Maintenance;
   private leases: BlobLeases;
+  private collectionThread = "";
   private constructor(options: UploadOptions) {
     this.options = options;
     this.limits = { ...defaultUploadLimits, ...options.limits };
@@ -166,7 +167,7 @@ export class UploadStore {
   async handle(
     device: string,
     value: unknown,
-    access: () => boolean = () => true,
+    access: (thread?: string) => boolean = () => true,
   ): Promise<Result> {
     const op = ContextOperation.parse(value);
     return this.serialize(async () => {
@@ -232,6 +233,13 @@ export class UploadStore {
       const row = this.metadata.upload(op.uploadId);
       requireContext(row && row.device === device, "not_found", "Upload not found");
       await this.authorized(device, row.thread);
+      requireContext(
+        access(
+          this.metadata.get("SELECT 1 FROM drafts WHERE id=?", row.thread) ? undefined : row.thread,
+        ),
+        "forbidden",
+        "Thread attachment permission revoked",
+      );
       requireContext(row.expires > this.options.now(), "not_found", "Upload expired");
       if (op.op === "upload.status")
         return { kind: "upload", uploadId: row.id, offset: row.offset, bytes: row.bytes };
@@ -359,17 +367,21 @@ export class UploadStore {
       } catch (error) {
         if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
         candidate = this.path(row.sha256);
-        file = await open(candidate, "r+");
+        file = await open(candidate, "r");
       }
       try {
-        await file.truncate(row.offset);
-        await file.sync();
+        if (candidate === this.temp(row.id)) {
+          await file.truncate(row.offset);
+          await file.sync();
+        }
       } finally {
         await file.close();
       }
       const inspected = await inspectBlob(
         candidate,
         this.options.imageLimits ?? defaultImageLimits,
+        row.name,
+        row.mime_type ?? undefined,
       );
       requireContext(
         inspected.sha256 === row.sha256 && inspected.bytes === row.bytes,
@@ -379,7 +391,7 @@ export class UploadStore {
       attachment = Attachment.parse({
         ...inspected,
         name: row.name,
-        thumbnailAvailable: hasThumbnail(inspected.mimeType),
+        thumbnailAvailable: inspected.kind === "image" && hasThumbnail(inspected.mimeType),
       });
     } catch (error) {
       await this.removeUpload(row);
@@ -389,7 +401,18 @@ export class UploadStore {
     const existing = this.metadata.blob(row.sha256);
     // Publish the verified bytes even when metadata exists. A crash during GC can
     // leave an unreferenced metadata row whose file has already been removed.
-    if (candidate !== this.path(row.sha256)) await rename(candidate, this.path(row.sha256));
+    if (candidate !== this.path(row.sha256)) {
+      const retained =
+        existing &&
+        (await stat(this.path(row.sha256)).catch((error: unknown) => {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT")
+            return undefined;
+          throw error;
+        }));
+      if (retained?.isFile() && retained.size === row.bytes) await rm(candidate);
+      else await rename(candidate, this.path(row.sha256));
+    }
+    await chmod(this.path(row.sha256), 0o400);
     const directory = await open(join(this.options.root, "blobs"), "r");
     try {
       await directory.sync();
@@ -481,6 +504,25 @@ export class UploadStore {
       return this.leases.acquire(blobs);
     });
   }
+  async acquireMessage(
+    device: string,
+    thread: string,
+    hashes: readonly string[],
+  ): Promise<BlobLease> {
+    const lease = await this.acquire(device, thread, hashes);
+    try {
+      requireContext(
+        lease.blobs.reduce((sum, blob) => sum + blob.attachment.bytes, 0) <=
+          this.limits.messageBytes,
+        "quota",
+        `Attachments exceed the ${this.limits.messageBytes} byte message limit. Remove files or send them in separate messages.`,
+      );
+      return lease;
+    } catch (error) {
+      lease.release();
+      throw error;
+    }
+  }
   async releaseThread(thread: string): Promise<void> {
     requireContext(
       thread !== "*" && thread.length <= 128,
@@ -496,6 +538,32 @@ export class UploadStore {
   /** Bounded GC and expiry batch, serialized with commits. */
   async collect(limit = 128): Promise<number> {
     return this.serialize(async () => {
+      requireContext(
+        Number.isInteger(limit) && limit > 0 && limit <= 1024,
+        "invalid_request",
+        "Invalid GC batch limit",
+      );
+      if (this.options.threadExists) {
+        const owners = this.metadata.all(
+          "SELECT DISTINCT thread FROM refs WHERE thread>? ORDER BY thread LIMIT ?",
+          this.collectionThread,
+          limit,
+        );
+        for (const owner of owners) {
+          const thread = z.string().parse(owner.thread);
+          this.collectionThread = thread;
+          if (
+            !this.metadata.get("SELECT 1 FROM drafts WHERE id=?", thread) &&
+            !this.options.threadExists(thread)
+          ) {
+            for (const attachment of this.list(thread))
+              this.removeReference(thread, attachment.sha256);
+            for (const row of this.metadata.all("SELECT * FROM uploads WHERE thread=?", thread))
+              await this.removeUpload(UploadRow.parse(row));
+          }
+        }
+        if (owners.length < limit) this.collectionThread = "";
+      }
       const expired = this.metadata.all(
         "SELECT id FROM drafts WHERE expires<=? ORDER BY expires LIMIT ?",
         this.options.now(),

@@ -41,6 +41,12 @@ export function piCapabilities(cli: DiscoveryResult): Capabilities {
     planMode: false,
     tokenUsage: supported,
     imageInput: supported,
+    attachmentInput: {
+      format: "acp",
+      documents: [],
+      embeddedContext: false,
+      maxInlineBytes: 128 * 1024,
+    },
     rewindFiles: false,
   };
 }

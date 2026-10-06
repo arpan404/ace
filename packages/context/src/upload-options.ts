@@ -3,6 +3,7 @@ import type { ImageLimits } from "./media.ts";
 
 export interface UploadLimits {
   fileBytes: number;
+  messageBytes: number;
   threadBytes: number;
   globalBytes: number;
   threadEntries: number;
@@ -12,9 +13,10 @@ export interface UploadLimits {
   ttlMs: number;
 }
 export const defaultUploadLimits: UploadLimits = {
-  fileBytes: 32 * 1024 * 1024,
-  threadBytes: 128 * 1024 * 1024,
-  globalBytes: 2 * 1024 * 1024 * 1024,
+  fileBytes: 512 * 1024 * 1024,
+  messageBytes: 1024 * 1024 * 1024,
+  threadBytes: 2 * 1024 * 1024 * 1024,
+  globalBytes: 8 * 1024 * 1024 * 1024,
   threadEntries: 256,
   globalEntries: 65_536,
   uploads: 1024,
@@ -31,6 +33,8 @@ export interface UploadOptions {
   threadWorkspace?(id: string): string | undefined | Promise<string | undefined>;
   /** Synchronous durable ownership check, immediately before reference removal. */
   retained?(thread: string, hash: string): boolean;
+  /** Durable thread lifetime, independent of device authorization. Used for crash cleanup. */
+  threadExists?(thread: string): boolean;
   limits?: Partial<UploadLimits>;
   imageLimits?: ImageLimits;
   /** Trusted storage boundary; resolves only once chunk bytes are durable. */

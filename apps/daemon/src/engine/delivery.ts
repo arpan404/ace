@@ -93,6 +93,7 @@ export async function executeIntent(
     if (attachments)
       repo.store.atomic(() => {
         repo.attachments.remember(actor.id, intent.id, attachments);
+        repo.attachments.rememberPaths(actor.id, prepared?.attachmentPaths ?? []);
         const current = repo.requireState(actor.id);
         const key = `input:${intent.command.id}`;
         const admitted = current.items[key];

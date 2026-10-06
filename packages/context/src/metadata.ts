@@ -8,8 +8,9 @@ export const UploadRow = z.object({
   device: z.string(),
   thread: z.string(),
   sha256: BlobHash,
-  bytes: z.number().int().positive(),
+  bytes: z.number().int().nonnegative(),
   name: z.string().max(255),
+  mime_type: z.string().nullable(),
   offset: z.number().int().nonnegative(),
   expires: z.number(),
   done: z.number().int().min(0).max(1),
@@ -35,6 +36,13 @@ export class Metadata {
       INSERT OR IGNORE INTO usage VALUES('*',0,0);
       CREATE TABLE IF NOT EXISTS storage(id INTEGER PRIMARY KEY CHECK(id=1),bytes INTEGER NOT NULL,count INTEGER NOT NULL);
     `);
+    if (
+      !this.db
+        .prepare("PRAGMA table_info(uploads)")
+        .all()
+        .some((column) => column.name === "mime_type")
+    )
+      this.db.exec("ALTER TABLE uploads ADD COLUMN mime_type TEXT");
     this.ready = this.db.prepare("SELECT id FROM storage WHERE id=1").get()
       ? Promise.resolve()
       : this.initializeStorage(signal);

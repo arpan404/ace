@@ -1,9 +1,4 @@
-import {
-  attachmentProblem,
-  imagesUnreadable,
-  type AttachmentReader,
-  type ComposerDraft,
-} from "@ace/ui-core";
+import { type AttachmentReader, type ComposerDraft } from "@ace/ui-core";
 import {
   Suspense,
   useEffect,
@@ -86,8 +81,8 @@ export function Composer({
   /** Right of the controls, before the primary action, e.g. the context meter. */
   status?: ReactNode;
   /**
-   * What the thread's provider and model read: a file they can't is flagged on its chip and
-   * holds Send until it is removed, and images can't be added where they read none (QA-07).
+   * Provider/model information for the surrounding composer controls. Attachments always
+   * have a daemon file-path fallback, including when native media input is unavailable.
    */
   reader?: AttachmentReader | undefined;
   /** Send may go while files upload: the message waits as its bubble until they're done. */
@@ -261,22 +256,16 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   };
   const off = props.unavailable?.reason;
   const failedUpload = attachments.items.some((item) => item.state === "failed");
-  const chips = attachments.items.map((item) => {
-    const unsupported = attachmentProblem(item, props.reader);
-    return unsupported ? { ...item, unsupported } : item;
-  });
-  const unreadable = chips.find((item) => item.unsupported);
+  const chips = attachments.items;
   const blocked = off
     ? off
-    : unreadable
-      ? `Remove ${unreadable.name} first. ${unreadable.unsupported}`
-      : attachments.uploading && !props.sendsWhileUploading
-        ? "Waiting for the files to upload"
-        : failedUpload
-          ? "Remove the file that didn't upload first"
-          : empty
-            ? "Write a message first"
-            : undefined;
+    : attachments.uploading && !props.sendsWhileUploading
+      ? "Waiting for the files to upload"
+      : failedUpload
+        ? "Remove the file that didn't upload first"
+        : empty
+          ? "Write a message first"
+          : undefined;
   // Enter empties the composer at once; the message is the parent's from here on. Only a
   // message this device couldn't save comes back, and only into an untouched composer.
   const submit = (opposite: boolean) => {
@@ -431,7 +420,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             handle={addMenu}
             reasons={{
               files: off ?? unscoped,
-              images: off ?? unscoped ?? imagesUnreadable(props.reader),
+              images: off ?? unscoped,
               mention: off ?? unscoped,
               command:
                 off ?? (text.trim() ? "Commands go at the start of an empty message" : undefined),

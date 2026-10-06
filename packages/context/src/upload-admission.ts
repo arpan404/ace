@@ -13,7 +13,11 @@ export async function beginUpload(
   device: string,
   op: Extract<ContextOperation, { op: "upload.begin" }>,
 ): Promise<ContextResult["result"]> {
-  requireContext(op.bytes <= limits.fileBytes, "quota", "Upload exceeds file quota");
+  requireContext(
+    op.bytes <= limits.fileBytes,
+    "quota",
+    `File exceeds the ${limits.fileBytes} byte attachment limit. Choose a smaller file or increase ACE_ATTACHMENT_FILE_BYTES.`,
+  );
   const occupied = metadata.storage();
   const thread = metadata.usage(op.threadId),
     global = metadata.usage("*");
@@ -25,7 +29,7 @@ export async function beginUpload(
       thread.count < limits.threadEntries &&
       global.count < limits.globalEntries,
     "quota",
-    "Attachment quota exceeded",
+    "Attachment storage is full. Delete older threads or remove unused attachments, then retry.",
   );
   const count = z
     .object({ count: z.number() })
@@ -46,7 +50,7 @@ export async function beginUpload(
   try {
     metadata.transaction(() => {
       metadata.run(
-        "INSERT INTO uploads VALUES(?,?,?,?,?,?,0,?,0)",
+        "INSERT INTO uploads(id,device,thread,sha256,bytes,name,offset,expires,done,mime_type) VALUES(?,?,?,?,?,?,0,?,0,?)",
         id,
         device,
         op.threadId,
@@ -54,6 +58,7 @@ export async function beginUpload(
         op.bytes,
         op.name,
         options.now() + limits.ttlMs,
+        op.mimeType ?? null,
       );
       metadata.adjust(op.threadId, op.bytes, 1);
       metadata.adjustStorage(op.bytes, 1);

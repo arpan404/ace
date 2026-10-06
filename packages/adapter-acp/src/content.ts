@@ -29,6 +29,18 @@ export function decodeContent(value: unknown): ContentPart[] {
 export function encodeContent(part: ContentPart): unknown {
   if (part.type === "text") return part;
   if (part.type === "file")
+    if (part.content)
+      return {
+        type: "resource",
+        resource: {
+          uri: pathToFileURL(part.path).href,
+          mimeType: part.mimeType ?? "application/octet-stream",
+          ...(part.content.encoding === "text"
+            ? { text: part.content.data }
+            : { blob: part.content.data }),
+        },
+      };
+  if (part.type === "file")
     return {
       type: "resource_link",
       uri: pathToFileURL(part.path).href,

@@ -23,8 +23,8 @@ export interface ReadyAttachment {
 export type Outcome = ReadyAttachment | { error: string };
 const lost: Outcome = { error: "it was removed" };
 
-/** Larger files are refused before uploading; the daemon's own limit is higher. */
-export const maxAttachmentBytes = 25_000_000;
+/** Client preflight matches the daemon default; the daemon enforces configured limits. */
+export const maxAttachmentBytes = 512 * 1024 * 1024;
 
 const ChipRow = deferredComponent(() =>
   import("@/components/attachment-chips.tsx").then((module) => module.AttachmentChipRow),
@@ -248,8 +248,7 @@ export function useAttachments(
 export const preloadAttachmentChips = ChipRow.preload;
 
 /**
- * The attachments of the message being written (see `AttachmentChipRow`), each with why the
- * agent can't read it where that is so (`unsupported`).
+ * The attachments of the message being written, including upload progress and failures.
  */
 export function AttachmentChips(props: {
   items: readonly PendingAttachment[];
