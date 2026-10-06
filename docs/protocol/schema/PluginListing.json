@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginListing.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+    },
+    "version": {
+      "maxLength": 128,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}

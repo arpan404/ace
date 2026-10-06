@@ -127,7 +127,8 @@ function selectSession(id: string) {
 const lines = createInterface({ input: process.stdin });
 let nativeActions = Promise.resolve();
 let gated = false,
-  readGated = false;
+  readGated = false,
+  permissionGated = false;
 let readCompletion = Promise.resolve();
 lines.on("line", (line) => {
   const request = ScreenHelperRequest.parse(JSON.parse(line));
@@ -480,6 +481,20 @@ function processRequest(request: ScreenHelperRequest) {
   }
   saveSession();
   const reply = JSON.stringify({ version: request.version, id: request.id, ok: true, data });
+  if (
+    request.op === "permissions" &&
+    permissionQueries > 1 &&
+    process.env.PERMISSION_GATE_PORT &&
+    !permissionGated
+  ) {
+    permissionGated = true;
+    const control = connect(Number(process.env.PERMISSION_GATE_PORT), "127.0.0.1");
+    control.on("error", () => process.exit(1));
+    control.once("connect", () => control.write("permission inspection started\n"));
+    control.once("end", () => console.log(reply));
+    control.resume();
+    return;
+  }
   if (request.op === "ui.tree" && process.env.READ_GATE_PORT && !readGated) {
     readGated = true;
     readCompletion = new Promise<void>((resolve, reject) => {

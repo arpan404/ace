@@ -32,6 +32,7 @@ export interface Services {
   previewClient?: import("../preview-client.ts").PreviewClient;
   conductor?: import("../conductor-runtime.ts").ConductorRuntime;
   automations?: import("@ace/automations").AutomationService;
+  activityReads?: import("../activity-reads.ts").ActivityReads;
   projects?: import("../projects.ts").Projects;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntime;
   canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;

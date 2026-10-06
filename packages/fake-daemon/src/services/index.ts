@@ -12,12 +12,15 @@ import { commandCatalog, listCommands } from "./commands.ts";
 import { search } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
+import { FakeActivityReads } from "./activity-reads.ts";
 import { fakePermissionCapabilities } from "../permissions.ts";
 
 type AccountSummary = z.infer<typeof Summary>;
 
 export interface ServiceHost {
   clock(): number;
+  /** Sends to every authenticated connection, as the daemon's pushes do (none when absent). */
+  broadcast?(message: ServerMessage): void;
   /** The thread's project and provider, or undefined when the thread doesn't exist. */
   thread(threadId: string): { workspaceId: string; provider: ProviderKind } | undefined;
 }
@@ -42,6 +45,8 @@ export class FakeServices {
   /** Usage over time and Claude's per-session totals; replace its fields to stage a report. */
   readonly usage: FakeUsage;
   readonly settings: FakeSettings;
+  /** Activity's read cursor (`activity.reads`); `set` stages one. */
+  readonly activityReads: FakeActivityReads;
   installations: import("@ace/protocol").RegistryInstallation[] = [];
   /**
    * The provider CLIs discovery found on this machine. Like the daemon, only these have an
@@ -73,6 +78,10 @@ export class FakeServices {
     }));
     this.commands = commandCatalog();
     this.usage = new FakeUsage(now);
+    this.activityReads = new FakeActivityReads(
+      () => host.clock(),
+      (message) => host.broadcast?.(message),
+    );
     this.settings = new FakeSettings(
       settingsValues(),
       (threadId) => host.thread(threadId)?.workspaceId,
@@ -359,6 +368,9 @@ export class FakeServices {
           requestId: message.requestId,
           result: resolveModel(this.configuredModels(), message.roleSpec),
         };
+      case "activity.reads":
+      case "activity.markRead":
+        return this.activityReads.handle(message);
       case "settings.get":
       case "settings.set":
       case "settings.subscribe":

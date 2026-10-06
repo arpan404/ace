@@ -36,6 +36,7 @@ import { createModelsSession } from "./models.ts";
 import { createReviewSession } from "./review.ts";
 import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
+import { createActivityReadsSession } from "./activity-reads.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
   createHostIdentitySession,
@@ -43,6 +44,7 @@ export const socketServiceFactories = [
   createPreviewClientSession,
   createConductorSession,
   createAutomationsSession,
+  createActivityReadsSession,
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
   createProjectsSession,

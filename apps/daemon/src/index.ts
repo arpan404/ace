@@ -223,6 +223,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "previewClient",
       "conductor",
       "automations",
+      "activityReads",
       "devices",
     ] as const)
       Object.defineProperty(serverOptions, key, {

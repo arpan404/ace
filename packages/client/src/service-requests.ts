@@ -16,25 +16,27 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 // queue storage, removal, context leases and recovery remain with that owner.
 export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "host.identity"
   ? Replies<"host.identity.result">
-  : Q["type"] extends "entities.page"
-    ? Replies<"entities.page">
-    : Q["type"] extends "queue.get"
-      ? Extract<Reply, { type: "queue.result" }>
-      : Q["type"] extends "permissions.capabilities"
-        ? Replies<"permissions.capabilities.result">
-        : Q["type"] extends "providers.request"
-          ? Replies<"providers.result">
-          : Q["type"] extends "projects.request"
-            ? Replies<"projects.result">
-            : Q["type"] extends "accounts.login" | "accounts.logout"
-              ? Replies<"accounts.auth">
-              : Q["type"] extends
-                    | "accounts.add"
-                    | "accounts.rename"
-                    | "accounts.remove"
-                    | "accounts.setDefault"
-                ? Replies<"accounts.changed">
-                : ExistingServiceResponse<Q>;
+  : Q["type"] extends "activity.reads" | "activity.markRead"
+    ? Replies<"activity.reads.result">
+    : Q["type"] extends "entities.page"
+      ? Replies<"entities.page">
+      : Q["type"] extends "queue.get"
+        ? Extract<Reply, { type: "queue.result" }>
+        : Q["type"] extends "permissions.capabilities"
+          ? Replies<"permissions.capabilities.result">
+          : Q["type"] extends "providers.request"
+            ? Replies<"providers.result">
+            : Q["type"] extends "projects.request"
+              ? Replies<"projects.result">
+              : Q["type"] extends "accounts.login" | "accounts.logout"
+                ? Replies<"accounts.auth">
+                : Q["type"] extends
+                      | "accounts.add"
+                      | "accounts.rename"
+                      | "accounts.remove"
+                      | "accounts.setDefault"
+                  ? Replies<"accounts.changed">
+                  : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -112,6 +114,8 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "host.identity": ["host.identity.result"],
+  "activity.reads": ["activity.reads.result"],
+  "activity.markRead": ["activity.reads.result"],
   "turns.page": ["turns.page"],
   "items.window": ["items.window"],
   "thread.search": ["thread.search"],

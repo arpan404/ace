@@ -17,7 +17,10 @@ export interface SettingsBackend {
   providers(): Promise<ProviderInstall[]>;
   /** Run discovery again, e.g. after installing a CLI. */
   rediscover(): Promise<ProviderInstall[]>;
+  /** False on a daemon that can't add ACP agents by command yet (Add is then disabled). */
+  readonly canAddAcpAgent: boolean;
   addAcpAgent(agent: { name: string; command: string }): Promise<void>;
+  removeAcpAgent(name: string): Promise<void>;
   models(provider: ProviderKind): Promise<CatalogModel[]>;
   refreshModels(provider: ProviderKind): Promise<CatalogModel[]>;
   machines(): Promise<Machine[]>;
@@ -52,6 +55,8 @@ export interface ProviderInstall {
   /** The CLI version an account reported; undefined when none did. */
   version: string | undefined;
   via?: string;
+  /** Added by command in Settings (not discovered), so it can be removed there. */
+  added?: boolean;
   accounts: ProviderAccount[];
 }
 

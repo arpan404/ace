@@ -1,9 +1,10 @@
-import type { Interaction, InteractionRequest } from "@ace/protocol";
+import type { Interaction } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { privateBrowserGate, questionOptions } from "@ace/ui-core";
 import { PrivateBrowserNotice } from "@/components/private-browser-notice.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
+import { keymap } from "@/lib/keymap.ts";
 import {
   ButtonKey,
   CardActions,
@@ -13,18 +14,7 @@ import {
 } from "./card-frame.tsx";
 import { confirmations, useAnswer } from "./use-answer.ts";
 
-export function requestTitle(request: InteractionRequest): string {
-  switch (request.kind) {
-    case "approval":
-      return request.title;
-    case "question":
-      return request.questions[0]?.text ?? "Question";
-    case "plan_review":
-      return request.title ?? "Review the plan";
-    case "elicitation":
-      return request.message;
-  }
-}
+export { requestTitle } from "./request-title.ts";
 
 const numberKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
 
@@ -129,8 +119,14 @@ function PlanReviewBody(props: { interaction: Interaction; cardKey: string }) {
     answer({ kind: "plan_review", decision: "approve" }, confirmations.planApproved);
   const reject = () =>
     answer({ kind: "plan_review", decision: "reject" }, confirmations.planRejected);
-  useHotkey("a", approve, { enabled: focused && !sending });
-  useHotkey("d", reject, { enabled: focused && !sending });
+  useHotkey(keymap["activity.approve"].keys, approve, {
+    id: "activity.approve",
+    enabled: focused && !sending,
+  });
+  useHotkey(keymap["activity.deny"].keys, reject, {
+    id: "activity.deny",
+    enabled: focused && !sending,
+  });
   return (
     <>
       <p className="line-clamp-4 text-[13.5px] leading-normal whitespace-pre-line text-muted-foreground">

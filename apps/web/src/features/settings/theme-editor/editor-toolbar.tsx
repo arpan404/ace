@@ -58,7 +58,7 @@ export function EditorToolbar() {
       update({ theme: imported.id });
       toast.add({ title: `Imported ${imported.name}` });
     } catch (error) {
-      toast.add({
+      toast.error({
         title: "Couldn't import that theme",
         description: error instanceof Error ? error.message : "The file couldn't be read.",
       });
@@ -96,7 +96,7 @@ export function EditorToolbar() {
       />
       <Button size="sm" onClick={() => void exportTheme(theme)}>
         <DownloadSimpleIcon aria-hidden size={14} />
-        Export JSON
+        Export
       </Button>
       {!theme.preset && (
         <>

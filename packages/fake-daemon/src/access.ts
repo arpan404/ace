@@ -20,6 +20,8 @@ export class FakeAccess {
   private devices: Device[];
   private clock: () => number;
   private pairings = 0;
+  /** The scopes of the latest pairing code, which `completePairing` grants. */
+  private offered: DeviceScope[] = ["read", "operate"];
   /** The administrator token these routes accept (a daemon token is 64 hex characters). */
   readonly token = "ace0".repeat(16);
   constructor(clock: () => number) {
@@ -40,6 +42,7 @@ export class FakeAccess {
     return `${letters.slice(0, 4).join("")}-${letters.slice(4).join("")}`;
   }
   private pair(scopes: DeviceScope[]) {
+    this.offered = scopes;
     const code = this.code();
     const fragment = new URLSearchParams({
       fingerprint: "5f1c9a7e",
@@ -50,6 +53,20 @@ export class FakeAccess {
       url: `https://studio-mac.tailnet.ts.net:7417/pair#${fragment.toString()}`,
       expiresAt: this.clock() + pairingLifetimeMs,
     };
+  }
+  /** A device scans the latest code (dev and tests): it appears in `GET /v1/devices`. */
+  completePairing(name: string): Device {
+    const at = this.clock();
+    const device = Device.parse({
+      id: `device-${this.pairings}-${this.devices.length + 1}`,
+      name,
+      scopes: this.offered,
+      createdAt: at,
+      lastSeenAt: at,
+      revokedAt: null,
+    });
+    this.devices = [...this.devices, device];
+    return device;
   }
   private revoke(id: string): boolean {
     const at = this.clock();
