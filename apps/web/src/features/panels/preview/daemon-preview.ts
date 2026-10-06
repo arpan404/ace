@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ClientApi } from "@ace/client";
 import {
   BrowserState,
@@ -51,13 +52,14 @@ const view = (state: BrowserState): BrowserView => ({
 });
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
-  if (input.kind === "mouse") return { ...input, button: "left", clickCount: 1 };
+  if (input.kind === "mouse") return { ...input, button: input.button ?? "left", clickCount: 1 };
   if (input.kind === "scroll") return input;
   return {
     kind: "key",
-    event: "keyDown",
+    event: input.event,
     key: input.key,
-    modifiers: 0,
+    ...(input.code ? { code: input.code } : {}),
+    modifiers: input.modifiers ?? 0,
     ...(input.text ? { text: input.text } : {}),
   };
 };
@@ -378,6 +380,32 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       );
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
       return reached(reply.result, url);
+    },
+    async navigationHistory(threadId) {
+      const reply = await client.request({
+        type: "browser.execute",
+        threadId: ThreadId.parse(threadId),
+        command: { action: "navigation_history" },
+      });
+      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+      return z.object({ back: z.boolean(), forward: z.boolean() }).parse(reply.result);
+    },
+    async navigateHistory(threadId, direction) {
+      const reply = await client.request({
+        type: "browser.execute",
+        threadId: ThreadId.parse(threadId),
+        command: { action: "history", direction },
+      });
+      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    },
+    async findText(threadId, text, forward) {
+      const reply = await client.request({
+        type: "browser.execute",
+        threadId: ThreadId.parse(threadId),
+        command: { action: "find_text", text, forward },
+      });
+      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+      return reply.result;
     },
     async emulate(threadId, emulation) {
       const reply = await client.request({

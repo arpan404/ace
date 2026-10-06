@@ -632,10 +632,10 @@ const sized: Record<string, { width: number; height: number; setup: Setup }> = {
     height: 900,
     setup: async (page) => {
       await openThread("/t/thread-dedupe")(page);
-      // From the first row (it needs you, so it offers no Settle) through its Snooze to the
-      // second row.
+      // From the first row (it needs you, so it offers no Settle) through its Snooze and Pin to
+      // the second row.
       await threadList(page).getByRole("link").first().focus();
-      for (let step = 0; step < 2; step++) await page.keyboard.press("Tab");
+      for (let step = 0; step < 3; step++) await page.keyboard.press("Tab");
       await expect(threadList(page).getByRole("link").nth(1)).toBeFocused();
     },
   },

@@ -173,7 +173,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       return facts;
     }
     if (frame.dir === "stderr") {
-      return [note(init.rootKey, "stderr", frame.data, str(frame.data))];
+      return [note(init.rootKey, "stderr", frame.data)];
     }
     if (!method && id !== undefined) {
       const pending = sent.get(requestKey(id));
@@ -454,9 +454,11 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     translate(frame, now) {
       diagnosticFrame = frame.data;
       diagnostics = raw(
-        frame.dir === "note" && CodexExitDiagnostic.safeParse(frame.data).success
-          ? "codex.session-exit"
-          : str(obj(frame.data)["method"], "codex.frame"),
+        frame.dir === "stderr"
+          ? "stderr"
+          : frame.dir === "note" && CodexExitDiagnostic.safeParse(frame.data).success
+            ? "codex.session-exit"
+            : str(obj(frame.data)["method"], "codex.frame"),
         frame.data,
       );
       try {

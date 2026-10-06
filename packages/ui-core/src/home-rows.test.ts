@@ -1,42 +1,63 @@
 import { expect, test } from "vitest";
-import { homeOrder, homeRowKey, homeRows } from "./home-rows.ts";
+import { homeRowKey, homeRows, type HomeGroups } from "./home-rows.ts";
 
 /** The rows as short words, to read the list top to bottom. */
 const words = (rows: ReturnType<typeof homeRows>) =>
-  rows.map((row) => (row.kind === "settled-header" ? `settled ${row.count}` : row.id));
+  rows.map((row) =>
+    row.kind === "settled-header"
+      ? `settled ${row.count}`
+      : row.kind === "pinned-header"
+        ? `pinned ${row.count}`
+        : row.kind === "pinned-end"
+          ? "—"
+          : row.id,
+  );
+const groups = (patch: Partial<HomeGroups>): HomeGroups => ({
+  pinned: [],
+  active: [],
+  settled: [],
+  ...patch,
+});
 
-test("pinned threads lead, then the rest in Home order, whatever project they are in", () => {
-  const order = homeOrder([
-    { id: "asks", pinned: false },
-    { id: "pin-later", pinned: true },
-    { id: "work", pinned: false },
-    { id: "pin-old", pinned: true },
+test("the Pinned group leads under its heading, then the rest, then Settled", () => {
+  const rows = homeRows(groups({ pinned: ["p1", "p2"], active: ["a"], settled: ["s"] }), {
+    settledOpen: false,
+  });
+  expect(words(rows)).toEqual(["pinned 2", "p1", "p2", "—", "a", "settled 1"]);
+});
+
+test("with nothing pinned there is no Pinned heading, except as a drop zone mid-drag", () => {
+  expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: false }))).toEqual([
+    "a",
+    "settled 0",
   ]);
-  expect(order).toEqual(["pin-later", "pin-old", "asks", "work"]);
+  expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: false, pinZone: true }))).toEqual(
+    ["pinned 0", "—", "a", "settled 0"],
+  );
 });
 
 test("Settled closes the list and lists its threads only when open", () => {
-  expect(words(homeRows(["a", "b"], ["s1", "s2"], { settledOpen: false }))).toEqual([
-    "a",
-    "b",
-    "settled 2",
-  ]);
-  expect(words(homeRows(["a"], ["s1", "s2"], { settledOpen: true }))).toEqual([
-    "a",
-    "settled 2",
-    "s1",
-    "s2",
-  ]);
+  expect(
+    words(homeRows(groups({ active: ["a"], settled: ["s1", "s2"] }), { settledOpen: true })),
+  ).toEqual(["a", "settled 2", "s1", "s2"]);
 });
 
-test("no thread id can take the Settled heading's key, whatever it is called", () => {
-  const rows = homeRows(["section:settled-header", "thread:x", "a"], ["s"], { settledOpen: true });
+test("no thread id can take a heading's key, whatever it is called", () => {
+  const rows = homeRows(
+    groups({ pinned: ["section:pinned-header"], active: ["section:settled-header", "thread:x"] }),
+    { settledOpen: true },
+  );
   const keys = rows.map(homeRowKey);
   expect(new Set(keys).size).toBe(keys.length);
 });
 
-test("a thread keeps its key when it moves between active and settled, so the move slides", () => {
-  const before = homeRows(["a"], [], { settledOpen: true }).map(homeRowKey);
-  const after = homeRows([], ["a"], { settledOpen: true }).map(homeRowKey);
-  expect(after).toContain(before[0]);
+/** The keys of the thread rows alone. */
+const threadKeys = (patch: Partial<HomeGroups>) =>
+  homeRows(groups(patch), { settledOpen: true })
+    .filter((row) => "id" in row)
+    .map(homeRowKey);
+
+test("a thread keeps its key when pinned, unpinned or settled, so each move slides", () => {
+  expect(threadKeys({ pinned: ["a"] })).toEqual(threadKeys({ active: ["a"] }));
+  expect(threadKeys({ settled: ["a"] })).toEqual(threadKeys({ active: ["a"] }));
 });

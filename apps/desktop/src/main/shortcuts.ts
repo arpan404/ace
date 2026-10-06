@@ -140,3 +140,16 @@ export function appChord(input: KeyInput, platform: NodeJS.Platform): string | u
   }
   return undefined;
 }
+
+/** Toolbar shortcuts belong to ace's browser controls, not an unhandled Chromium key. */
+export function browserChord(input: KeyInput, platform: NodeJS.Platform): string | undefined {
+  if (input.type !== "keyDown" && input.type !== "keyUp") return;
+  if (
+    input.shift ||
+    input.alt ||
+    (platform === "darwin" ? !input.meta || input.control : !input.control || input.meta)
+  )
+    return;
+  const key = pressedKey(input);
+  return key && ["L", "R", "F", "[", "]"].includes(key) ? `CmdOrCtrl+${key}` : undefined;
+}

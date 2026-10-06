@@ -108,6 +108,8 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
         unavailable = true;
       else throw error;
     }
+    // Publish status even when session enumeration fails on an unavailable daemon.
+    publish();
     await client.request({ op: "sessions" });
     publish();
   };

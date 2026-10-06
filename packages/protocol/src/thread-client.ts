@@ -7,8 +7,16 @@ import { ForgeRepository } from "./forge.ts";
 
 export const TurnOptions = ExecutionOptions;
 export type TurnOptions = z.infer<typeof TurnOptions>;
+/** A pinned thread's place among the pinned ones: higher sorts first. */
+const PinOrder = z
+  .number()
+  .finite()
+  .describe(
+    "Place among pinned threads, higher first. Set on pin (the daemon's clock when the command names none, so a new pin leads) and cleared on unpin.",
+  );
 export const ThreadOrganization = z.object({
   pinned: z.boolean().optional(),
+  pinOrder: PinOrder.optional(),
   unread: z.boolean().optional(),
   readAt: Timestamp.optional(),
   settledAt: Timestamp.optional(),
@@ -91,6 +99,7 @@ export type ThreadClientFields = z.infer<typeof ThreadClientFields>;
 export const ThreadClientUpdated = z.object({
   type: z.literal("thread.client.updated"),
   changes: ThreadClientFields.partial().extend({
+    pinOrder: PinOrder.nullable().optional(),
     settledAt: Timestamp.nullable().optional(),
     settledReason: ThreadOrganization.shape.settledReason.unwrap().nullable().optional(),
     snoozedUntil: Timestamp.nullable().optional(),
@@ -114,7 +123,16 @@ export const ThreadOrganizationCommands = [
   }),
   z.object({ type: z.literal("thread.unarchive"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.delete"), threadId: ThreadId }),
-  z.object({ type: z.literal("thread.pin"), threadId: ThreadId, pinned: z.boolean() }),
+  z.object({
+    type: z.literal("thread.pin"),
+    threadId: ThreadId,
+    pinned: z.boolean(),
+    /**
+     * Where a pinned thread sits among the pinned ones (higher first), so a client can reorder
+     * them. Absent: a new pin leads, and an already pinned thread keeps its place.
+     */
+    order: PinOrder.optional(),
+  }),
   z.object({ type: z.literal("thread.read"), threadId: ThreadId, unread: z.boolean() }),
   z.object({ type: z.literal("thread.settle"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.unsettle"), threadId: ThreadId }),

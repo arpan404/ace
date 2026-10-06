@@ -225,7 +225,7 @@ export class FakeDaemon implements Host {
     return this.servicesWire.workspace.projects;
   }
   /** Threads' checkouts behind `workspace.request` and the git commands (`git.status`). */
-  get workspace(): Pick<FakeWorkspaceWire, "gitStatus" | "setGitStatus"> {
+  get workspace(): Pick<FakeWorkspaceWire, "gitStatus" | "setGitStatus" | "setGitDiff"> {
     return this.servicesWire.workspace;
   }
   /** The browser and previews clients reach through `browser.*` and `preview.request`. */

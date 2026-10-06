@@ -5,7 +5,7 @@ import { installOriginGuard } from "./origin-guard.ts";
 import { HeadlessDownloads } from "./headless-downloads.ts";
 import { BrowserInspection } from "./inspection.ts";
 import { sizeHeadlessContents } from "./headless-size.ts";
-import { z } from "zod";
+import { pageFrames } from "./page-frames.ts";
 
 type Guard = Awaited<ReturnType<typeof installOriginGuard>>;
 interface Tab {
@@ -17,15 +17,6 @@ interface Tab {
   release(): void;
   dialog?: { state: BrowserDialog; native: Dialog } | undefined;
 }
-const Frame = z.object({ id: z.string(), parentId: z.string().optional() });
-interface FrameTree {
-  frame: z.infer<typeof Frame>;
-  childFrames?: FrameTree[] | undefined;
-}
-const Tree: z.ZodType<FrameTree> = z.lazy(() =>
-  z.object({ frame: Frame, childFrames: z.array(Tree).optional() }),
-);
-
 /** One context, bounded pages. Background pages share only this thread's profile. */
 export class HeadlessTabs {
   private tabs = new Map<string, Tab>();
@@ -228,25 +219,9 @@ export class HeadlessTabs {
   async frames(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> {
     const tab = this.current();
     await tab.guard.ready();
-    const output = new Map<string, { frameId: string; cdp: BrowserCdp; parentId?: string }>();
-    for (const cdp of [tab.cdp, ...tab.guard.frameSessions()]) {
-      const raw = z.object({ frameTree: Tree }).parse(await cdp.send("Page.getFrameTree"));
-      const visit = (tree: FrameTree) => {
-        const previous = output.get(tree.frame.id);
-        // Child sessions replace parent placeholders; preserve the OOPIF owner's parent.
-        const parentId = tree.frame.parentId ?? previous?.parentId;
-        output.set(tree.frame.id, {
-          frameId: tree.frame.id,
-          cdp,
-          ...(parentId ? { parentId } : {}),
-        });
-        if (output.size > 64) throw new Error("Browser frame limit");
-        for (const child of tree.childFrames ?? []) visit(child);
-      };
-      visit(raw.frameTree);
-    }
-    return [...output.values()];
+    return pageFrames([tab.cdp, ...tab.guard.frameSessions()]);
   }
+
   stop(): void {
     this.stopped = true;
     this.inspection.clear();

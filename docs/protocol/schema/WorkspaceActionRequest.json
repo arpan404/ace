@@ -121,6 +121,22 @@
         },
         {
           "properties": {
+            "op": {
+              "const": "git.diff",
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "before": {
               "default": 9007199254740991,
               "exclusiveMinimum": 0,

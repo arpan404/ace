@@ -44,6 +44,7 @@ export function SettledRow(props: { threadId: string }) {
           <RowActions
             entry={entry}
             settled
+            pinned={card.flags.pinned}
             snoozed={card.flags.snoozed}
             className="top-[3px] right-1.5"
           />

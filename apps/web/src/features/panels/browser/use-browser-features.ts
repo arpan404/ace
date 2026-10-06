@@ -23,7 +23,7 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
   const features = new BrowserFeaturesClient(client);
   const origins = new BrowserOriginsClient(client);
   const withControl = async () => {
-    if (source.view(threadId)?.controller !== "human") await source.takeover(threadId);
+    if (!source.heldAs(threadId)) await source.takeover(threadId);
   };
   const attempt = async <T>(title: string, run: () => Promise<T>): Promise<T | undefined> => {
     try {
@@ -41,6 +41,11 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
   return {
     features,
     origins,
+    openTab: () =>
+      attempt("Couldn't open a tab", async () => {
+        await withControl();
+        return features.openTab(threadId);
+      }),
     switchTab: (tabId: string) =>
       attempt("Couldn't switch tabs", async () => {
         await withControl();

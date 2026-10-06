@@ -40,6 +40,10 @@ export class FakeWorkspaceWire {
   setGitStatus(threadId: string, files: readonly GitStatusFile[]): void {
     this.gitFiles.set(threadId, files);
   }
+  private gitPatches = new Map<string, string>();
+  setGitDiff(threadId: string, patch: string): void {
+    this.gitPatches.set(threadId, patch);
+  }
   /** Every file, sorted by path as git lists them (`git.status` pages the first 500). */
   gitStatus(threadId: string): readonly GitStatusFile[] {
     return (
@@ -86,6 +90,16 @@ export class FakeWorkspaceWire {
         },
       });
     }
+    if (op.op === "git.diff")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: {
+          kind: "gitDiff",
+          patch: this.gitPatches.get(op.threadId) ?? "",
+          truncated: false,
+        },
+      });
     const result =
       op.op === "editors.list"
         ? { kind: "editors", editors: this.editors }

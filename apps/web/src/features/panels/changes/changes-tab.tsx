@@ -1,8 +1,6 @@
 import { useClient, useThreadMeta } from "@ace/client-react";
-import { GitDiffIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { countChanges, type FileDiff } from "@ace/ui-core";
-import { EmptyState } from "@/components/ui/empty.tsx";
 import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { useFileDiffs } from "@/lib/diffs/use-file-diffs.ts";
 import { cn } from "@/lib/cn.ts";
@@ -32,6 +30,7 @@ import { CommentComposer, DraftCard } from "./line-comment.tsx";
 import { ReviewBar } from "./review-bar.tsx";
 import { setViewed } from "./review-store.ts";
 import { useTurns } from "@/lib/diffs/use-turns.ts";
+import { WorkingTreeDiff } from "./working-tree-diff.tsx";
 import { WorkingTree } from "./working-tree.tsx";
 
 /** Past this many rows across the files shown, only the files near the viewport mount. */
@@ -133,12 +132,14 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
     document.getElementById(`${anchor}-${index}`)?.scrollIntoView?.({ block: "start" });
   }, [props.path, ready, files, anchor]);
 
-  if (!edited.length)
+  if (!edited.length || scope === "working-tree")
     return (
-      <EmptyState
-        icon={GitDiffIcon}
-        title="No changes yet"
-        description="Edits the agents make in this thread show up here, turn by turn, ready to review and comment on."
+      <WorkingTreeDiff
+        threadId={threadId}
+        details={thread?.details}
+        state={thread?.status.state}
+        turns={edited}
+        onScope={setScope}
       />
     );
 
