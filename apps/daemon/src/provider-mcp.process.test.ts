@@ -1,5 +1,7 @@
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { z } from "zod";
+import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it, onTestFinished } from "vitest";
 import type { Frame, ProviderAdapter } from "@ace/engine-api";
@@ -105,6 +107,7 @@ for (const provider of [
     const observed = Promise.withResolvers<string>();
     const frames: Frame[] = [];
     let session;
+    let privateConfigPath: string | undefined;
     try {
       session = await bindMcpSession(
         adapter,
@@ -118,7 +121,9 @@ for (const provider of [
             ACE_TEST_FEATURE_DEVICE: features.deviceId,
           },
           signal: new AbortController().signal,
-          onExit() {},
+          onExit(exit) {
+            observed.reject(new Error(exit.message ?? "Provider exited before MCP proof"));
+          },
           onFrame(frame) {
             frames.push(frame);
             const encoded = JSON.stringify(frame.data);
@@ -132,7 +137,16 @@ for (const provider of [
           capabilities: ["agents", "notify", "browser", "screen", "devices"],
         },
       );
-      expect(await observed.promise).toContain(thread.id);
+      const evidence = await observed.promise;
+      if (provider === "claude") {
+        privateConfigPath = z
+          .object({ privateConfigPath: z.string() })
+          .parse(JSON.parse(evidence)).privateConfigPath;
+        expect(relative(directory, privateConfigPath).startsWith("..")).toBe(true);
+        expect(statSync(privateConfigPath).mode & 0o777).toBe(0o600);
+      }
+      expect(evidence).toContain(thread.id);
+      expect(evidence).toContain('"shellExposesBearer":false');
       expect(session.nativeSessionId).toBeTruthy();
       expect(JSON.stringify(frames)).not.toMatch(/Bearer [a-f0-9]{64}/);
       expect(JSON.stringify(frames)).toMatch(
@@ -147,6 +161,7 @@ for (const provider of [
       await session?.close("shutdown");
       await adapter.close?.();
     }
+    if (privateConfigPath) expect(existsSync(privateConfigPath)).toBe(false);
   });
 
 it("rejects configured HTTP MCP when the installed ACP provider only advertises stdio", async () => {

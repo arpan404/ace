@@ -204,3 +204,58 @@ test("denying an Ask shell edit leaves the workspace unchanged", async () => {
     await h.dispose();
   }
 });
+
+test.each(
+  (["ask", "auto-review"] as const).flatMap((mode) =>
+    (["start", "resume", "fork"] as const).map((operation) => ({ mode, operation })),
+  ),
+)(
+  "native MCP registration preserves $mode workspace guards on $operation and later turns",
+  async ({ mode, operation }) => {
+    const url = "http://127.0.0.1:12345/mcp";
+    const h = await sessionHarness(
+      operation === "resume",
+      "",
+      operation === "fork"
+        ? { nativeSessionId: "source-native", point: { type: "turn", nativeId: "source-turn" } }
+        : undefined,
+      undefined,
+      { url, bearer: "b".repeat(64), signal: new AbortController().signal, end() {} },
+      mode,
+    );
+    try {
+      const opening = h.frames.find(
+        (frame) => frame.dir === "send" && obj(frame.data).method === `thread/${operation}`,
+      );
+      expect(obj(obj(opening?.data).params)).toMatchObject({
+        sandbox: mode === "ask" ? "read-only" : "workspace-write",
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        config: {
+          "sandbox_workspace_write.writable_roots": [h.cwd],
+          "sandbox_workspace_write.network_access": false,
+          "sandbox_workspace_write.exclude_tmpdir_env_var": true,
+          "sandbox_workspace_write.exclude_slash_tmp": true,
+          "mcp_servers.ace": {
+            url,
+            http_headers: { Authorization: "Bearer <ACE_MCP_CREDENTIAL>" },
+          },
+        },
+      });
+      await h.session.send([{ type: "text", text: "running" }], "queue");
+      const turning = h.frames.find(
+        (frame) => frame.dir === "send" && obj(frame.data).method === "turn/start",
+      );
+      expect(obj(obj(turning?.data).params)).toMatchObject({
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        sandboxPolicy: {
+          type: mode === "ask" ? "readOnly" : "workspaceWrite",
+          networkAccess: false,
+        },
+      });
+    } finally {
+      await h.dispose();
+    }
+  },
+);

@@ -85,10 +85,10 @@ test("Codex starts with a lifetime-scoped ace lease and redacts the native conne
   });
   try {
     const initialized = await h.wait(
-      (frame) => obj(obj(obj(frame.data)["result"])["aceConnection"])["authenticated"] === true,
+      (frame) => obj(obj(obj(frame.data)["params"])["aceConnection"])["authenticated"] === true,
     );
-    expect(obj(obj(initialized.data)["result"])["aceConnection"]).toEqual({
-      url: JSON.stringify(url),
+    expect(obj(obj(initialized.data)["params"])["aceConnection"]).toEqual({
+      url,
       authenticated: true,
     });
     await h.session.send([{ type: "text", text: "same-chunk" }], "queue");

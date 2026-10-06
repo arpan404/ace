@@ -6,7 +6,7 @@ import { harness } from "@/test/harness.tsx";
 
 async function openAudit(path: string) {
   const app = harness();
-  app.play(permissionAudit()).runUntilBlocked();
+  app.play(permissionAudit()).runThrough("escalated");
   await app.open(path);
   return app;
 }
@@ -16,6 +16,29 @@ async function openWorkLogs(feed: HTMLElement) {
   for (const header of within(feed).queryAllByRole("button", { expanded: false }))
     if (/Work(ed|ing) for/.test(header.textContent ?? "")) await userEvent.click(header);
 }
+
+test("a safe command in an outside working directory still waits for a person", async () => {
+  const app = harness();
+  const scenario = permissionAudit("thread-outside-review");
+  const step = scenario.steps.find((candidate) => candidate.label === "approved");
+  if (step?.kind !== "facts") throw new Error("Missing inspection step");
+  const approval = step.facts.find((fact) => fact.type === "interaction.opened");
+  if (
+    approval?.type !== "interaction.opened" ||
+    approval.request.kind !== "approval" ||
+    !approval.request.target
+  )
+    throw new Error("Missing inspection target");
+  approval.request.target.cwd = "/outside";
+  app.play(scenario).runThrough("approved");
+  await app.open("/t/thread-outside-review");
+  const card = await screen.findByRole("article", { name: "Run pwd?" });
+  expect(within(card).getByRole("region", { name: "ace's review" }).textContent).toContain(
+    "Action reaches outside the thread workspace",
+  );
+  expect(within(card).getByRole("button", { name: "Allow once" })).toBeTruthy();
+  expect(app.daemon.isPending("thread-outside-review", "check-cwd")).toBe(true);
+});
 
 test("each decision ace's risk policy took reads once, on the step it judged", async () => {
   await openAudit("/t/thread-release-audit");

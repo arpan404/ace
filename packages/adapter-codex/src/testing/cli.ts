@@ -74,10 +74,6 @@ for await (const line of createInterface({ input: process.stdin })) {
     else
       respond({
         userAgent: "ace/0.159.1",
-        aceConnection: {
-          url: overrides.get("mcp_servers.ace.url"),
-          authenticated: /^[a-f0-9]{64}$/.test(process.env["ACE_MCP_BEARER_TOKEN"] ?? ""),
-        },
         codexHome: "/fake",
         platformFamily: "unix",
         platformOs: "macos",
@@ -127,6 +123,15 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/start" || method === "thread/resume") {
+    const config = obj(obj(p["config"])["mcp_servers.ace"]);
+    notify("ace/connection", {
+      aceConnection: {
+        url: config["url"],
+        authenticated:
+          /^Bearer [a-f0-9]{64}$/.test(str(obj(config["http_headers"])["Authorization"])) &&
+          !process.env["ACE_MCP_BEARER_TOKEN"],
+      },
+    });
     if (process.env["ACE_FAKE_RESUME"] === "historical-interactions") {
       respond({
         thread: {

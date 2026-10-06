@@ -23,5 +23,9 @@ export async function openCursorMcp(
   );
   const release = () => releaseMcpControllers(services, session.threadId, root);
   lease.principal.signal.addEventListener("abort", release, { once: true });
-  return { connection: { url: mcp.url, bearer: lease.bearer }, end: lease.end };
+  return {
+    signal: lease.principal.signal,
+    connection: { url: mcp.url, bearer: lease.bearer },
+    end: lease.end,
+  };
 }

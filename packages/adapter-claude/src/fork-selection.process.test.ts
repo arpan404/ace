@@ -117,15 +117,11 @@ test("Claude preserves selected fork permissions, project MCP and scoped ace ins
     expect(data["settings"]).toMatchObject({ permissionMode: "default" });
     const argv = z.array(z.string()).parse(data["argv"]);
     expect(argv).toEqual(expect.arrayContaining(["--resume=source-native", "--fork-session"]));
-    const config = argv[argv.indexOf("--mcp-config") + 1];
-    if (!config) throw new Error("Expected native MCP configuration");
-    expect(JSON.parse(config)).toMatchObject({
-      mcpServers: {
-        project: { url: "http://127.0.0.1:9011/mcp" },
-        ace: {
-          url: "http://127.0.0.1:9012/mcp",
-          headers: { Authorization: "Bearer <ACE_MCP_CREDENTIAL>" },
-        },
+    expect(data["mcpServers"]).toMatchObject({
+      project: { url: "http://127.0.0.1:9011/mcp" },
+      ace: {
+        url: "http://127.0.0.1:9012/mcp",
+        headers: { Authorization: "Bearer <ACE_MCP_CREDENTIAL>" },
       },
     });
     expect(object(data["request"])["appendSystemPrompt"]).toContain("mcp__ace__*");

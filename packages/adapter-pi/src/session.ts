@@ -3,7 +3,7 @@ import {
   saveSessionReference,
   sessionReferenceDirectory,
 } from "./session-references.ts";
-import { AceMcpConnectionSchema } from "@ace/mcp-server";
+import { privateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
 import { fileURLToPath } from "node:url";
 import { permissionResolutionError } from "@ace/core";
 import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
@@ -99,12 +99,27 @@ export async function openPiSession(
     fileURLToPath(new URL("./extension.ts", import.meta.url)),
     ...(ctx.model ? ["--model", ctx.model] : []),
   ];
+  let configuration: ReturnType<typeof privateMcpConfig>;
+  try {
+    configuration = privateMcpConfig(
+      JSON.stringify({
+        controlSecret,
+        ...(lease ? { mcp: { url: lease.url, bearer: lease.bearer } } : {}),
+      }),
+      ctx.cwd,
+    );
+  } catch (error) {
+    lifetime.abort();
+    lease?.end();
+    throw error;
+  }
   const env = {
     ...ctx.env,
-    ACE_PI_CONTROL_SECRET: controlSecret,
+    ACE_PI_SESSION_FILE: configuration.path,
+    ACE_PI_CONTROL_SECRET: undefined,
     ACE_PI_PERMISSION_MODE: permissionMode,
-    ACE_PI_MCP_URL: lease?.url ?? "",
-    ACE_PI_MCP_BEARER: lease?.bearer ?? "",
+    ACE_PI_MCP_URL: undefined,
+    ACE_PI_MCP_BEARER: undefined,
   };
   const redact = (line: string) => {
     let out = line.replaceAll(controlSecret, "<ACE_CONTROL>");
@@ -122,6 +137,7 @@ export async function openPiSession(
       maxLineBytes: 1024 * 1024,
     });
   } catch (error) {
+    configuration.remove();
     lifetime.abort();
     lease?.end();
     throw error;
@@ -182,6 +198,7 @@ export async function openPiSession(
     note({ type: "dialog_expired", id });
   };
   const release = () => {
+    configuration.remove();
     lifetime.abort();
     lease?.end();
     for (const d of dialogs.values()) d.cancel();

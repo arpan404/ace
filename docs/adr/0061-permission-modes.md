@@ -45,7 +45,7 @@ Sources: pinned official SDK declarations, Codex generated app-server 0.159.1 sc
 
 ## Reviewer and audit
 
-The deterministic reviewer consumes a schema-validated exact command, paths or tool input and the thread's physical workspace. It does not execute commands. Path checks resolve existing ancestors, including symlinks, before granting access. Unknown tools, shell composition, broad permission grants and incomplete targets escalate. A small allowlist permits low-risk commands and exact Read/read operations on physically verified regular workspace files. Directories, recursive searches (including Grep/Glob), unknown read tools and missing files escalate; containment alone cannot prove which files a broad read touches. Generic ACP read categories always escalate. [ACP kinds are categories and locations support follow-along](https://agentclientprotocol.com/protocol/v1/tool-calls); they do not provide an exhaustive file-input contract. The adapter retains the category as acp/read, even when rawInput appears to name one file. Provider-specific exact-read proof requires a separate audited input contract. The fake daemon has no physical-file proof and escalates these reads too. Clearly destructive workspace commands are denied. Secret/credential access and destructive actions outside the workspace always escalate, even when another rule would deny them. Read-only never approves writes.
+The deterministic reviewer consumes a schema-validated exact command, paths or tool input and the thread's physical workspace. It does not execute commands. Path checks resolve existing ancestors, including symlinks, before granting access. Unknown tools, shell composition, broad permission grants and incomplete targets escalate. A bounded allowlist permits `pwd`, non-recursive `ls`, and `cat`, `head`, `tail`, and `wc` on exact regular workspace files. The host verifies system utility identity through PATH, and verifies absolute shell wrappers separately. Expansion, redirection, composition, recursive search and arbitrary programs remain uncertain. Exact native Read/read operations also require regular-file proof. Exact Edit/Write, OpenCode edit/write and correlated Codex file changes can create or update ordinary workspace files. Existing directories, missing read files, symlink escapes and workspace control metadata in `.git`/`.ace` cannot earn automatic approval. Every destination of a Codex rename is checked; deletes, missing file-change attribution and broad `grantRoot` requests escalate. Generic ACP read categories always escalate. [ACP kinds are categories and locations support follow-along](https://agentclientprotocol.com/protocol/v1/tool-calls); they do not provide an exhaustive file-input contract. The adapter retains the category as acp/read, even when rawInput appears to name one file. Provider-specific exact-read proof requires a separate audited input contract. The fake daemon has no physical-file proof and escalates these reads too. Clearly destructive workspace commands are denied; Git mutation requests remain human work. Secret/credential access and destructive actions outside the workspace always escalate, even when another rule would deny them. Read-only never approves writes.
 
 Each ace review creates a durable permission.reviewed event containing interaction identity, target, effective mode, decision and reason. The same transaction creates a transcript notice and, for allow/deny, a single-use resolution intent. When a provider has no one-shot denial but offers cancellation, deny cancels the current action. No session-wide or permanent grants are synthesized. Restricted ace modes also refuse permanent native grants submitted by a human; full access requires the explicit mode command. Read-only refuses human mutation approvals. Escalation leaves the interaction pending, so ADR 0004 derives needs_you for the whole tree. Retries cannot duplicate decisions or race a human resolution; uncertain delivery after restart is never replayed automatically.
 
@@ -121,3 +121,30 @@ guarantees above.
 
 The regressions use isolated scripted CLIs and existing recorded Codex, Claude
 and OpenCode approval flows. No recorder or subscription prompts were run.
+
+## Corrections from the installed-app reports
+
+The October 5 investigation replayed recorder fixtures and used a real daemon in
+isolated temporary homes. OpenCode v2 edit approvals supply `metadata.files`,
+while shell/read approvals identify a tool through `source`. The complete tool
+input is JSON in `session.tool.input.ended`, before `permission.asked` and before
+`session.tool.called`. That completed input, bounded and matched to the tool
+identity and action, is authority. Permission `resources` and `save` are patterns
+and never substitute for exact input. Raw frames retain unknown fields.
+
+The deterministic policy is deliberately narrower than arbitrary local command
+execution. It approves the proven cases above without executing reviewer commands
+or calling a model. Network, credential access, outside paths, ambiguous effects,
+and browser/screen consent remain human work. `defaultToNo` browser and screen
+host approvals and external-effect ace tools retain their existing consent path.
+Safe ace inspection, scoped thread changes and inherited delegation already had
+specific risk classes; they were not the cause of the reported failures. Pi's
+blocking extension confirmations use this same durable reviewer, including
+exact read/write/edit inputs and shell commands. Generic ACP shell requests can
+earn approval from exact input; follow-along file locations remain insufficient.
+
+This follows the sandbox boundary documented by OpenAI for
+[agent approvals and security](https://learn.chatgpt.com/docs/agent-approvals-security)
+and [auto-review](https://learn.chatgpt.com/docs/sandboxing/auto-review).
+ace continues to use its own deterministic reviewer rather than the native
+Codex reviewer, and does not claim to reproduce every native reviewer decision.

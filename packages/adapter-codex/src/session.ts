@@ -65,10 +65,10 @@ export async function openCodexSession(
   const injection = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
   const proc = io.spawn({
     command: cli.path,
-    args: ["app-server", ...(injection?.args ?? [])],
+    args: ["app-server"],
     cwd: ctx.cwd,
     ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),
-    env: { ...(ctx.env ?? options.discovery?.env), ...injection?.env },
+    env: { ...(ctx.env ?? options.discovery?.env), ACE_MCP_BEARER_TOKEN: undefined },
     name: "ace-codex",
   });
   const started = io.now();
@@ -302,10 +302,16 @@ export async function openCodexSession(
       capabilities: { experimentalApi: true, requestAttestation: false },
     } satisfies InitializeParams);
     rpc.notify("initialized");
+    const threadPolicy = codexThreadPolicy(permissionMode, ctx.cwd);
     const params = {
       cwd: ctx.cwd,
-      ...codexThreadPolicy(permissionMode, ctx.cwd),
-      ...(injection ? { developerInstructions: injection.developerInstructions } : {}),
+      ...threadPolicy,
+      ...(injection
+        ? {
+            developerInstructions: injection.developerInstructions,
+            config: { ...threadPolicy.config, ...injection.config },
+          }
+        : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
     } satisfies ThreadStartParams;
     const result = obj(
