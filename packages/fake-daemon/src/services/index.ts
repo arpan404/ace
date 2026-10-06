@@ -13,7 +13,7 @@ import { search } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
 import { FakeActivityReads } from "./activity-reads.ts";
-import { fakePermissionCapabilities } from "../permissions.ts";
+import { fakeProviderPermissions } from "../permissions.ts";
 
 type AccountSummary = z.infer<typeof Summary>;
 
@@ -382,7 +382,7 @@ export class FakeServices {
               type: "permissions.capabilities.result",
               requestId: message.requestId,
               ok: true,
-              permissions: structuredClone(fakePermissionCapabilities.permissions),
+              permissions: fakeProviderPermissions(message.provider),
             }
           : {
               type: "permissions.capabilities.result",

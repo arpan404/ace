@@ -4,6 +4,7 @@ import {
   permissionChoices,
   permissionCoverageNote,
   permissionLabel,
+  permissionUnavailable,
   providerNames,
 } from "@ace/ui-core";
 import {
@@ -38,7 +39,9 @@ function Note(props: { children: string; pending?: boolean }) {
 
 /**
  * The approval modes the provider supports, each with what it means in one line, then once
- * what this provider actually gates. A thread with its own mode can go back to the default.
+ * what this provider actually gates. Ask shows disabled, with why, for a provider that can't
+ * honour it. A thread with its own mode can go back to the default, unless the provider can't
+ * run in it. `fallback` says why the mode shown isn't the one asked for.
  */
 export function PermissionMenu(props: {
   mode: PermissionMode | undefined;
@@ -48,22 +51,27 @@ export function PermissionMenu(props: {
   unavailable?: string | undefined;
   inherited?: boolean | undefined;
   defaultMode?: PermissionMode | undefined;
+  fallback?: string | undefined;
   onChange(mode: PermissionMode | null): void;
 }) {
   if (props.unavailable) return <Note>{props.unavailable}</Note>;
   if (props.loading) return <Note pending>Checking what the provider can gate…</Note>;
-  const choices = permissionChoices(props.capabilities);
+  const provider = props.provider ? providerNames[props.provider] : "This provider";
+  const choices = permissionChoices(props.capabilities, provider);
   if (!choices.length)
     return <Note>This provider doesn't report approval modes, so they can't be changed here.</Note>;
+  const defaultUnavailable =
+    props.defaultMode && permissionUnavailable(props.capabilities, props.defaultMode, provider);
   return (
     <>
+      {props.fallback && <Note>{props.fallback}</Note>}
       <MenuGroup>
         <MenuLabel>How actions get approved</MenuLabel>
         <MenuPrimitive.RadioGroup
           value={props.mode ?? ""}
           onValueChange={(value: string) => {
             const choice = choices.find((entry) => entry.mode === value);
-            if (choice) props.onChange(choice.mode);
+            if (choice && !choice.unavailable) props.onChange(choice.mode);
           }}
         >
           {choices.map((choice) => (
@@ -71,6 +79,7 @@ export function PermissionMenu(props: {
               key={choice.mode}
               value={choice.mode}
               aria-label={choice.label}
+              disabled={!!choice.unavailable}
               closeOnClick
               className={cn(menuItem, "h-auto items-start py-2")}
             >
@@ -83,7 +92,7 @@ export function PermissionMenu(props: {
                   {choice.label}
                 </span>
                 <span className="truncate text-xs leading-4 text-muted-foreground">
-                  {choice.description}
+                  {choice.unavailable ?? choice.description}
                 </span>
               </span>
               <span className="grid size-4 shrink-0 place-items-center">
@@ -97,17 +106,15 @@ export function PermissionMenu(props: {
       </MenuGroup>
       <p className="flex items-start gap-2 px-2.5 pt-1.5 pb-1 text-xs leading-4 text-subtle-foreground">
         <InfoIcon aria-hidden size={14} className="mt-px shrink-0" />
-        {permissionCoverageNote(
-          props.capabilities,
-          props.provider ? providerNames[props.provider] : "This provider",
-          props.mode,
-        )}
+        {permissionCoverageNote(props.capabilities, provider, props.mode)}
       </p>
       {props.defaultMode && !props.inherited && (
         <>
           <MenuSeparator />
           <MenuItem
             icon={<Icon icon={ArrowCounterClockwiseIcon} />}
+            reason={defaultUnavailable || undefined}
+            disabled={!!defaultUnavailable}
             onClick={() => props.onChange(null)}
           >
             Use the default · {permissionLabel(props.defaultMode)}

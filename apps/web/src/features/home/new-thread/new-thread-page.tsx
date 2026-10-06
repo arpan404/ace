@@ -1,5 +1,4 @@
 import type { PermissionMode, ProviderKind } from "@ace/protocol";
-import { permissionModes } from "@ace/client";
 import { useEffect, useMemo, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import {
@@ -19,7 +18,7 @@ import { useStartingProvider } from "@/lib/provider-statuses.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
-import { speedOffTier } from "@ace/ui-core";
+import { permissionAdmission, providerNames, speedOffTier } from "@ace/ui-core";
 import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
 import { ContextBar } from "./context-bar.tsx";
 import { ModelPicker } from "./model-picker.tsx";
@@ -57,14 +56,19 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
 
   // Approvals start at the daemon's default for the project; a choice here applies to this
   // thread only and isn't remembered, so full access is never carried into the next thread.
+  // A mode the provider can't run in (Ask on Cursor) is never sent: its fallback is, said so.
   const [permission, setPermission] = useState<PermissionMode>();
   const [defaultMode] = useDaemonSetting(
     "permissions.defaultMode",
     project ? { workspaceId: WorkspaceId.parse(project) } : {},
   );
   const permissions = usePermissionCapabilities(provider);
-  const supported = permissionModes(permissions.capabilities);
-  const chosen = permission && supported.includes(permission) ? permission : undefined;
+  const admitted = permissionAdmission(
+    permissions.capabilities,
+    permission ?? defaultMode,
+    provider ? providerNames[provider] : "This provider",
+  );
+  const chosen = admitted.fallback ? admitted.mode : permission;
 
   const choose = (patch: Partial<Choices>) => {
     const next = { ...choices, ...patch };
@@ -162,7 +166,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                   onReset={() => choose({ effort: undefined, fast: undefined })}
                 />
                 <PermissionPicker
-                  mode={chosen ?? defaultMode}
+                  mode={admitted.mode}
                   capabilities={permissions.capabilities}
                   provider={provider}
                   loading={!!provider && (permissions.loading || defaultMode === undefined)}
@@ -172,6 +176,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                       : undefined
                   }
                   inherited={!chosen}
+                  fallback={admitted.fallback}
                   onChange={(mode) => setPermission(mode ?? undefined)}
                 />
               </>

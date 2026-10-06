@@ -134,6 +134,31 @@ test("approvals show the thread's mode and what the provider gates, and change f
   expect(await screen.findByRole("button", { name: "Approvals: Auto-review" })).toBeTruthy();
 });
 
+test("a Cursor thread offers Ask first disabled, and won't go back to a default of Ask", async () => {
+  const app = harness();
+  app.play(longHistory(2)).runUntilBlocked();
+  app.daemon.services.settings.seed({ "permissions.defaultMode": "ask" });
+  app.daemon.createThread({
+    id: "thread-cursor",
+    workspaceId: thread(app, "thread-router")?.workspaceId ?? "",
+    title: "Cursor pass",
+    provider: "cursor",
+    permissionMode: "full-access",
+  });
+  await app.open("/t/thread-cursor");
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Full access" }));
+  const ask = await screen.findByRole("menuitemradio", { name: "Ask first" });
+  expect(ask.getAttribute("aria-disabled")).toBe("true");
+  expect(ask.textContent).toContain("Cursor can't pause for your approval");
+  const back = screen.getByRole("menuitem", { name: /^Use the default · Ask first/ });
+  expect(back.getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(ask);
+  await userEvent.click(back);
+  // Neither click sent Ask: the thread keeps its own mode.
+  expect(thread(app, "thread-cursor")?.permission?.override).toBe("full-access");
+  expect(screen.getByRole("button", { name: "Approvals: Full access" })).toBeTruthy();
+});
+
 test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
   const { app, message } = await open("busy");
   await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto-review" }));
