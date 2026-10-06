@@ -1,7 +1,7 @@
 import { coldStartReplay, failingSubagent, seedPanels } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 async function openBrowser(
@@ -75,8 +75,14 @@ test("taking control forwards clicks, wheel and keys, sizes the page to the pane
   await waitFor(() =>
     expect(
       browser.wireInputs.map(({ input }) => `${input.kind}:${"event" in input ? input.event : ""}`),
-    ).toEqual(["mouse:mousePressed", "mouse:mouseReleased", "scroll:", "key:keyDown"]),
+    ).toEqual(["mouse:mousePressed", "mouse:mouseReleased", "scroll:", "key:keyDown", "key:keyUp"]),
   );
+  expect(
+    browser.wireInputs.filter(({ input }) => input.kind === "key").map(({ input }) => input),
+  ).toEqual([
+    { kind: "key", event: "keyDown", key: "a", code: "KeyA", modifiers: 0, text: "a" },
+    { kind: "key", event: "keyUp", key: "a", code: "KeyA", modifiers: 0 },
+  ]);
   // The agent's typing is ignored while you hold control.
   const held = within(panel).getByRole("img").getAttribute("src");
   act(() => browser.type("thread-cold-start", "something else"));
@@ -109,6 +115,7 @@ test("an address takes the page from the agent and opens; Back returns; a dead p
   expect(browser.view("thread-cold-start")?.controller).toBe("human");
   expect(await within(panel).findByRole("tab", { name: "docs.example.com" })).toBeTruthy();
 
+  const retainedFrame = browser.frame("thread-cold-start")?.sequence;
   await goTo(panel, "localhost:4321");
   const failure = await within(panel).findByRole("alert");
   expect(within(failure).getByText("This site can't be reached")).toBeTruthy();
@@ -122,6 +129,78 @@ test("an address takes the page from the agent and opens; Back returns; a dead p
     expect((address(panel) as HTMLInputElement).value).toBe("docs.example.com/guide"),
   );
   expect(within(panel).queryByRole("alert")).toBeNull();
+  expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide");
+  expect(browser.frame("thread-cold-start")?.sequence).toBe(retainedFrame);
+});
+
+test("Back dismisses a failed first address even when the document has no earlier entry", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is using this page", { exact: false });
+  await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
+  await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
+  const retainedFrame = browser.frame("thread-cold-start")?.sequence;
+  await goTo(panel, "localhost:4321");
+  await within(panel).findByRole("alert");
+  const back = within(panel).getByRole("button", { name: "Back" });
+  expect(back.getAttribute("aria-disabled")).not.toBe("true");
+  await userEvent.click(back);
+  await waitFor(() =>
+    expect(address(panel).getAttribute("value")).toBe("localhost:5173/settings/devices"),
+  );
+  expect(within(panel).queryByRole("alert")).toBeNull();
+  expect(browser.frame("thread-cold-start")?.sequence).toBe(retainedFrame);
+});
+
+test("document Back and Forward follow successful navigation and Reload refreshes the current page", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is using this page", { exact: false });
+  await goTo(panel, "docs.example.com/guide");
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
+  );
+  await goTo(panel, "example.org/next");
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/next"),
+  );
+  await userEvent.click(within(panel).getByRole("button", { name: "Back" }));
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
+  );
+  await waitFor(() => expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide"));
+  const forward = within(panel).getByRole("button", { name: "Forward" });
+  await waitFor(() => expect(forward.getAttribute("aria-disabled")).not.toBe("true"));
+  await userEvent.click(forward);
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/next"),
+  );
+  const sequence = browser.frame("thread-cold-start")?.sequence ?? 0;
+  await userEvent.click(within(panel).getByRole("button", { name: "Reload" }));
+  await waitFor(() =>
+    expect(browser.frame("thread-cold-start")?.sequence).toBeGreaterThan(sequence),
+  );
+  expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/next");
+});
+
+test("Back traverses a failed navigation that replaced the document and clears the error", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is using this page", { exact: false });
+  await goTo(panel, "docs.example.com/guide");
+  await waitFor(() => expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide"));
+  // Chromium can commit an error document before returning a navigation failure.
+  const navigate = browser.navigate.bind(browser);
+  vi.spyOn(browser, "navigate").mockImplementationOnce((...args) => {
+    navigate(...args);
+    throw new Error("net::ERR_CONNECTION_TIMED_OUT");
+  });
+  await goTo(panel, "example.org/timeout");
+  await within(panel).findByRole("alert");
+  expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/timeout");
+  await userEvent.click(within(panel).getByRole("button", { name: "Back" }));
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
+  );
+  await waitFor(() => expect(within(panel).queryByRole("alert")).toBeNull());
+  expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide");
 });
 
 test("text that isn't an address is refused instead of searched", async () => {

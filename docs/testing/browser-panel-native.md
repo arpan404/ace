@@ -93,6 +93,39 @@ not executed (tests run at merge):
 | `packages/browser/src/adaptation.process.test.ts`                | Remove headless content resizing/DPR sizing; ignore viewer dimensions or pressure; stop frame acknowledgements                 |
 | `packages/browser/src/page-controls.process.test.ts`             | Replay URLs for history; omit Mac select-all; apply agent privacy checks to human recording stop                               |
 
+## Merge-gate follow-up
+
+Preserved the orchestrator's merge `b54629b3`, including #161 and #162. The gate
+reported two failures in `browser.test.tsx`. Its input assertion omitted the
+key-up now required for complete keyboard input. Back used document history even
+when a failed address had not replaced the current document, and successful
+history traversal did not clear the failure UI. The fake daemon also returned
+success without implementing document history or its read command.
+
+The input test now checks both key events and their code, text and modifiers.
+Back dismisses an uncommitted failed address without traversing or reloading the
+retained document, even when the backend has no earlier history entry. Successful
+document traversal clears the failure UI. The fake daemon implements per-tab
+history through the shared pure history core and permits history reads without
+a control lease. New UI regressions cover successful Back/Forward/Reload,
+document preservation after a failed first address, and Back after a committed
+error document. The preservation test waits for the requested viewport before
+retaining the frame sequence.
+
+Under the owner's narrow exception, only
+`bunx vitest run apps/web/src/features/panels/browser/browser.test.tsx --no-file-parallelism --maxWorkers=1`
+ran: all 13 tests passed. Formatting, lint and typecheck also pass. Other runtime
+claims still need run at merge. Issue
+comments, inline review comments and reviews contained no integration-rehearsal
+findings.
+
+Mutation cases for these regressions are not executed (tests run at merge): drop
+key-up or its code/modifiers; make document history commands return success
+without navigating; reload or traverse the retained document on failed-address
+Back; keep Back disabled when the first attempted navigation fails; leave the
+failure UI after successful document traversal; make Reload leave the frame
+unchanged.
+
 ## Performance qualification
 
 The host remained heavily loaded during this pass (observed one-minute load

@@ -7,6 +7,7 @@ import type {
   BrowserDialog,
   BrowserEvaluateGrant,
 } from "@ace/protocol";
+import { BrowserDocumentHistory } from "./browser-history.ts";
 import { pairPhoneFrame, sitePage } from "./preview-page.ts";
 
 /**
@@ -68,6 +69,7 @@ interface Entry {
 const clampDimension = (value: number) => Math.min(4096, Math.max(100, Math.round(value)));
 
 export class FakeBrowser {
+  private history = new BrowserDocumentHistory();
   private privateLifecycle: ((threadId: string, paused: boolean) => void) | undefined;
   bindPrivateLifecycle(lifecycle: (threadId: string, paused: boolean) => void): void {
     this.privateLifecycle = lifecycle;
@@ -87,6 +89,7 @@ export class FakeBrowser {
       throw new Error("Browser controller changed during approval");
     entry.view = { ...entry.view, url: new URL(url).href };
     this.updateTab(entry);
+    if (entry.view.activeTabId) this.history.visit(entry.view.activeTabId, entry.view.url);
     entry.page = "site";
     this.paint(entry, entry.typed);
   }
@@ -278,6 +281,7 @@ export class FakeBrowser {
       throw new Error(`net::ERR_NAME_NOT_RESOLVED at ${url}`);
     entry.view = { ...entry.view, url: parsed.href };
     this.updateTab(entry);
+    if (entry.view.activeTabId) this.history.visit(entry.view.activeTabId, entry.view.url);
     entry.page =
       local && entry.servers.some((server) => server.port === port && server.name === "web")
         ? "pair"
@@ -291,6 +295,7 @@ export class FakeBrowser {
     options: { url: string; typed?: string; backend?: "embedded" | "headless" },
   ): void {
     const entry = this.entry(threadId);
+    for (const tab of entry.view?.tabs ?? []) this.history.remove(tab.tabId);
     if (!entry.view || entry.view.closed) entry.generation++;
     entry.view = {
       threadId,
@@ -302,6 +307,7 @@ export class FakeBrowser {
     const tabId = `tab-${++this.tabSequence}`;
     entry.view.tabs = [{ tabId, url: options.url, title: "Fixture page" }];
     entry.view.activeTabId = tabId;
+    this.history.visit(tabId, options.url);
     entry.view.downloads = [];
     entry.view.takeoverMode = "shared";
     entry.view.status = "ready";
@@ -321,6 +327,25 @@ export class FakeBrowser {
     entry.servers = [...entry.servers.filter((s) => s.port !== server.port), server];
     this.changed();
   }
+  navigationHistory(threadId: string) {
+    const tabId = this.view(threadId)?.activeTabId;
+    if (!tabId) throw new Error("Browser tab unavailable");
+    return this.history.capabilities(tabId);
+  }
+  navigateHistory(threadId: string, direction: "back" | "forward" | "reload") {
+    const entry = this.entries.get(threadId);
+    const view = entry?.view;
+    if (!entry || !view || view.closed || !view.activeTabId) throw new Error("Browser closed");
+    if (view.controller !== "human") throw new Error("Browser controller mismatch");
+    const url = this.history.move(view.activeTabId, direction);
+    if (url !== undefined) {
+      entry.view = { ...view, url };
+      this.updateTab(entry);
+      entry.page = "site";
+      this.paint(entry, entry.typed);
+    }
+    return { ok: true };
+  }
   tabsList(threadId: string): BrowserTab[] {
     return this.view(threadId)?.tabs ?? [];
   }
@@ -337,6 +362,7 @@ export class FakeBrowser {
       throw new Error("Browser tab limit");
     const tabId = `tab-${++this.tabSequence}`;
     view.tabs = [...(view.tabs ?? []), { tabId, url, title: "Fixture page" }];
+    this.history.visit(tabId, url);
     this.tabSwitch(threadId, tabId);
   }
   tabSwitch(threadId: string, tabId: string): void {
@@ -356,6 +382,7 @@ export class FakeBrowser {
     if (!view?.tabs?.some((tab) => tab.tabId === tabId)) throw new Error("Browser tab unavailable");
     if (view.tabs.length === 1) throw new Error("Close the browser to close its last tab");
     view.tabs = view.tabs.filter((tab) => tab.tabId !== tabId);
+    this.history.remove(tabId);
     view.pending_dialog = view.tabs.find((tab) => tab.pending_dialog)?.pending_dialog;
     if (view.activeTabId === tabId && view.tabs[0]) this.tabSwitch(threadId, view.tabs[0].tabId);
     else this.changed();
@@ -419,6 +446,7 @@ export class FakeBrowser {
   close(threadId: string): void {
     this.originsClearPage(threadId);
     const entry = this.entries.get(threadId);
+    for (const tab of entry?.view?.tabs ?? []) this.history.remove(tab.tabId);
     if (entry?.view) entry.view = { ...entry.view, closed: true, controller: "none" };
     this.privateLifecycle?.(threadId, false);
     this.changed();

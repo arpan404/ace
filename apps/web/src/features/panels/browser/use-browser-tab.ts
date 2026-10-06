@@ -116,6 +116,7 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
     try {
       if (!source.heldAs(threadId)) await source.takeover(threadId);
       await source.navigateHistory?.(threadId, direction);
+      setState({ phase: "idle" });
     } catch (error) {
       setState({
         phase: "failed",
@@ -188,6 +189,18 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, online, reachable]);
 
+  // Refused navigation can leave the current document intact. Back dismisses that
+  // attempted address without traversing past (or reloading) the retained document.
+  const uncommittedFailure =
+    state.phase === "failed" && bound && liveUrl !== undefined && state.url !== liveUrl;
+  const back = () => {
+    if (uncommittedFailure && liveUrl !== undefined) {
+      save({ url: liveUrl, history: visitPage(stepHistory(history, -1), liveUrl) });
+      setState({ phase: "idle" });
+    } else if (source.navigateHistory && bound) void navigateHistory("back");
+    else step(-1);
+  };
+
   const step = (delta: -1 | 1) => {
     const next = stepHistory(history, delta);
     const target = next.entries[next.index];
@@ -212,7 +225,7 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
     data,
     state,
     suggestions,
-    canBack: nativeHistory?.back ?? canStep(history, -1),
+    canBack: uncommittedFailure || (nativeHistory?.back ?? canStep(history, -1)),
     canForward: nativeHistory?.forward ?? canStep(history, 1),
     go: (url: string) => void go(url),
     reload: () => {
@@ -223,7 +236,7 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
       const url = state.phase === "failed" ? state.url : (data.url ?? live?.url);
       if (url) void go(url, history);
     },
-    back: () => (source.navigateHistory && bound ? void navigateHistory("back") : step(-1)),
+    back,
     forward: () => (source.navigateHistory && bound ? void navigateHistory("forward") : step(1)),
     save,
   };
