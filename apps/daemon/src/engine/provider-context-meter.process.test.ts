@@ -1,4 +1,5 @@
-import { expect, test } from "vitest";
+import { expect, test, onTestFinished } from "vitest";
+import { privateMcpConfig } from "@ace/mcp-server";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { CursorTranslator, cursorCapabilities } from "@ace/adapter-cursor";
 import {
@@ -35,8 +36,11 @@ test.each(["pi", "cursor"] as const)(
         hooks.set(event, handler);
       },
     };
-    if (provider === "pi")
-      await registerAcePiExtension(extension, { ACE_PI_CONTROL_SECRET: "a".repeat(64) });
+    if (provider === "pi") {
+      const config = privateMcpConfig(JSON.stringify({ controlSecret: "a".repeat(64) }));
+      onTestFinished(config.remove);
+      await registerAcePiExtension(extension, { ACE_PI_SESSION_FILE: config.path });
+    }
     const cursor = (kind: string, body: unknown) =>
       frame({ schemaVersion: 1, generation: "host", operationId: "op", segment: 0, kind, body });
     const pi = (tokens: number) => {

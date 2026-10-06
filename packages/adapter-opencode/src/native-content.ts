@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { Fact, ToolDetailDraft } from "@ace/core";
 import { array, object, raw, string, number, type Data } from "./data.ts";
 import { NativeState, type Tool } from "./native-state.ts";
@@ -24,15 +25,36 @@ export function tool(state: NativeState, p: Data, type: string, evidence: unknow
   const native = object(p.state),
     meta = object(p.metadata ?? native.metadata);
   const name = string(p.name, previous?.name ?? "unknown");
-  const supplied = p.input ?? native.input;
+  let endedInput: unknown;
+  if (type === "session.tool.input.ended") {
+    const endedText = z.string().max(65536).safeParse(p.text);
+    if (endedText.success) {
+      try {
+        endedInput = JSON.parse(endedText.data);
+      } catch {
+        /* Incomplete/unknown input remains raw evidence. */
+      }
+    }
+  }
+  const supplied =
+    p.input ??
+    native.input ??
+    (type === "session.tool.input.ended" ? (endedInput ?? {}) : undefined);
   const source = supplied === undefined ? (previous?.input ?? {}) : object(supplied);
-  // Routing/display fields only. Core retains original native input in raw evidence.
+  // Exact command/path/cwd fields serve approval attribution; display fields stay bounded.
+  // Core retains the complete native input in raw evidence.
   const input =
     supplied === undefined
       ? source
       : {
-          command: string(source.command).slice(0, 8192),
-          filePath: string(source.path, string(source.filePath)).slice(0, 4096),
+          ...(typeof source.command === "string" && source.command.length <= 8192
+            ? { command: source.command }
+            : {}),
+          ...(string(source.path, string(source.filePath)).length <= 4096
+            ? { filePath: string(source.path, string(source.filePath)) }
+            : {}),
+          ...(typeof source.workdir === "string" ? { workdir: source.workdir } : {}),
+          ...(typeof source.cwd === "string" ? { cwd: source.cwd } : {}),
           prompt: string(source.prompt).slice(0, 8192),
           agent: string(source.agent).slice(0, 256),
           background: source.background === true,

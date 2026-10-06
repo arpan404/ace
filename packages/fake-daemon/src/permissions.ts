@@ -2,6 +2,7 @@ import {
   reviewPermission,
   permissionDecisionOption,
   containsSecretReference,
+  inspectionCommand,
   type PathRisk,
 } from "@ace/core";
 import type { Capabilities, EventPayload, PermissionReview } from "@ace/protocol";
@@ -46,12 +47,17 @@ function fakePaths(host: ThreadHost, paths: string[], cwd?: string): PathRisk[] 
     host.view.thread.details?.worktree ??
     host.view.thread.details?.workspace?.path ??
     `/fake/${host.view.thread.workspaceId}`;
-  return [...paths, ...(cwd ? [cwd] : [])].map((path) => {
+  const check = (path: string): PathRisk => {
     if (containsSecretReference(path)) return "secret";
     if (path.split(/[\\/]/).includes("..")) return "outside";
     if (path.startsWith("/") && path !== root && !path.startsWith(`${root}/`)) return "outside";
     return "workspace";
-  });
+  };
+  const risks = paths.map(check);
+  // A cwd constrains the action; it is not an additional command file input.
+  const cwdRisk = cwd ? check(cwd) : "workspace";
+  if (cwdRisk !== "workspace") risks.push(cwdRisk);
+  return risks;
 }
 export function fakeReviewEvents(
   host: ThreadHost,
@@ -73,10 +79,14 @@ export function fakeReviewEvents(
     const key = host.interactionKey(interaction.id);
     if (key === undefined || host.interaction(key)?.review) continue;
     const target = request.target;
+    const inspection = target?.command ? inspectionCommand(target.command) : undefined;
+    const paths = fakePaths(host, inspection?.paths ?? target?.paths ?? [], target?.cwd);
+    if (inspection)
+      paths.push(...fakePaths(host, target?.paths ?? []).filter((risk) => risk !== "workspace"));
     let decision = reviewPermission({
       mode,
       ...(target ? { target } : {}),
-      paths: fakePaths(host, target?.paths ?? [], target?.cwd),
+      paths,
     });
     const option = permissionDecisionOption(request, decision.decision);
     if (decision.decision !== "escalate" && !option)

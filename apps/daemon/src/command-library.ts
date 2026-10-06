@@ -13,14 +13,15 @@ const homes = z.object({
 export function createDaemonCommandLibrary(
   store: Store,
   aceHome: string,
-  instances?: readonly ProviderInstance[],
+  instances?: readonly ProviderInstance[] | (() => readonly ProviderInstance[]),
   env: NodeJS.ProcessEnv = process.env,
   instanceForThread: (thread: Thread) => string = (thread) => thread.provider,
+  now: () => number = Date.now,
 ): CommandLibrary {
   return new CommandLibrary({
     aceHome,
     instances: instances ?? defaultCommandInstances(env),
-    now: Date.now,
+    now,
     context(threadId) {
       const thread = store.getThread(ThreadId.parse(threadId));
       if (!thread) throw new Error("Unknown thread");
@@ -44,7 +45,7 @@ export function defaultCommandInstances(env: NodeJS.ProcessEnv): ProviderInstanc
         settings.OPENCODE_CONFIG_DIR ??
         join(settings.XDG_CONFIG_HOME ?? join(home, ".config"), "opencode"),
     },
-    ...(["cursor", "antigravity", "acp"] as const).map((provider) => ({
+    ...(["cursor", "antigravity", "acp", "pi"] as const).map((provider) => ({
       id: provider,
       provider,
       home,

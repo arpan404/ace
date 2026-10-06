@@ -153,3 +153,20 @@ behaviors the tests are designed to guard. Under the repository owner's current
 policy, tests, mutation runs and benchmark execution happen at merge time;
 runtime validation needs run at merge. Delivery uses formatting, lint, size
 and type checks only.
+
+## Installed-account and runtime discovery corrections
+
+Command discovery resolves current account metadata at request time, including
+implicit CLI accounts registered after daemon startup. Legacy provider-only
+identities remain valid. OpenCode implicit accounts use the CLI configuration
+home for command files, not its data/storage home. Unknown or removed account
+identities still expose ace built-ins and workspace prompt files, without
+borrowing another account's commands. Providers without native discovery also
+expose the built-ins; an unmatched search returns an empty result.
+
+Claude SDK init, ACP available-command updates, and successful Pi `get_commands`
+responses feed the session catalog after frame commit. Pi's internal ace control
+commands stay out of the palette. OpenCode v2 reads its location-scoped native `command.list` when
+opening or resuming a session, without sending a model prompt. An unavailable or
+empty native list leaves file commands and ace built-ins usable. Closing the
+provider session clears its runtime commands, including queued replacements.

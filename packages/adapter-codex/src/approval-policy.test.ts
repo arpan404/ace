@@ -41,3 +41,38 @@ test.each([
     ).toBe("escalate");
   },
 );
+
+test.each([
+  {
+    changes: [{ path: "src/main.ts", kind: { type: "update" } }],
+    paths: ["workspace"] as const,
+    decision: "approve",
+  },
+  {
+    changes: [{ path: "src/main.ts", kind: { type: "update", move_path: "../outside.ts" } }],
+    paths: ["workspace", "outside"] as const,
+    decision: "escalate",
+  },
+  { changes: [{ path: "src/main.ts", kind: { type: "delete" } }], paths: [], decision: "escalate" },
+])(
+  "Codex file approvals review every exact destination and leave deletes uncertain",
+  ({ changes, paths, decision }) => {
+    const h = setup();
+    h.start();
+    h.item({ id: "edit", type: "fileChange", changes, status: "inProgress" });
+    h.recv(
+      "item/fileChange/requestApproval",
+      { threadId: "native", turnId: "turn", itemId: "edit", grantRoot: null },
+      123,
+    );
+    const request = h.state.interactions["request:number:123"]?.request;
+    if (request?.kind !== "approval") throw new Error("Missing file approval");
+    expect(
+      reviewPermission({
+        mode: "auto-review",
+        ...(request.target ? { target: request.target } : {}),
+        paths,
+      }).decision,
+    ).toBe(decision);
+  },
+);
