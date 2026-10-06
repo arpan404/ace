@@ -17,6 +17,10 @@ export function promptBody(input: ContentPart[], cwd: string, id: string) {
     files: { uri: string }[] = [];
   for (const part of input) {
     if (part.type === "text") text.push(part.text);
+    else if (part.type === "file" && !part.mimeType?.startsWith("image/"))
+      text.push(
+        `File (${part.mimeType ?? "application/octet-stream"}): ${JSON.stringify(resolve(cwd, part.path))}`,
+      );
     else {
       if (part.type === "file" && part.mimeType?.startsWith("image/"))
         throw new Error("OpenCode images require an inline data URI with MIME type");

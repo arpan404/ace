@@ -343,3 +343,23 @@ test("Pi RPC prompts carry original image MIME and base64 bytes", async () => {
     await h.dispose();
   }
 });
+
+test("the fake Pi CLI receives text, PDF and arbitrary binary paths", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(
+      [
+        { type: "file", path: "/files/code.ts", mimeType: "text/plain" },
+        { type: "file", path: "/files/report.pdf", mimeType: "application/pdf" },
+        { type: "file", path: "/files/archive.zip", mimeType: "application/zip" },
+      ],
+      "queue",
+    );
+    const proof = await h.wait(received("extension_ui_request", "input-proof"));
+    expect(JSON.parse(str(obj(proof.data).message))).toMatchObject({
+      message: "File: /files/code.ts\nFile: /files/report.pdf\nFile: /files/archive.zip",
+    });
+  } finally {
+    await h.dispose();
+  }
+});

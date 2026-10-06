@@ -199,6 +199,11 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (text === "attachment-proof") {
+      respond({ turn: { id: "turn" } });
+      notify("test/attachments", { input: p["input"] });
+      continue;
+    }
     if (text === "shell-edit") {
       pendingKind = text;
       respond({ turn: { id: "turn" } });

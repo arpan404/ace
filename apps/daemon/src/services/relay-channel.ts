@@ -16,6 +16,7 @@ import {
 } from "@ace/protocol";
 import type { HostChannel } from "@ace/relay";
 import type { Store } from "../store.ts";
+import { contextScope } from "./context-scope.ts";
 export interface RelayServices {
   files?: FilesService;
   context?: import("../server-options.ts").ServerOptions["context"];
@@ -39,8 +40,11 @@ export function attachRelayService(
   const { channel, device, authorize, sessionId } = options;
   const threadAccess = (threadId: string) => {
     const id = ThreadId.parse(threadId);
+    const thread = options.store?.getThread(id);
     return (
-      options.store?.getThread(id) !== undefined && (options.canReadThread?.(device, id) ?? true)
+      thread !== undefined &&
+      thread.deletedAt === undefined &&
+      (options.canReadThread?.(device, id) ?? true)
     );
   };
   const send = async (message: Parameters<HostChannel["send"]>[0]) => {
@@ -178,30 +182,24 @@ export function attachRelayService(
           throw new Error("Attachment relay backpressure");
         }
         const op = message.operation;
-        if (
-          !options.context ||
-          op.op !== "attachment.read" ||
-          !authorize("read") ||
-          !threadAccess(op.threadId)
-        ) {
+        const scope = contextScope(op);
+        const access = (thread?: string) =>
+          authorize(scope) &&
+          (thread === undefined || threadAccess(thread)) &&
+          (!("threadId" in op) || threadAccess(op.threadId));
+        if (!options.context || !access()) {
           await channel.send({
             type: "context.result",
             requestId: message.requestId,
             result: {
               kind: "error",
               code: "forbidden",
-              message: "Thread attachment read permission required",
+              message: `Thread attachment ${scope} permission required`,
             },
           });
           return;
         }
-        await channel.send(
-          await options.context.handle(
-            device,
-            message,
-            () => authorize("read") && threadAccess(op.threadId),
-          ),
-        );
+        await channel.send(await options.context.handle(device, message, access));
         return;
       }
       if (

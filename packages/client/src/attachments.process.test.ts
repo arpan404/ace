@@ -156,6 +156,11 @@ test("draft upload becomes a path-free user item and this daemon connection reso
     expect(image.mimeType).toBe("image/png");
     expect(image.path.endsWith(".png")).toBe(true);
     expect(hash(await readFile(image.path))).toBe(sha256);
+    expect(
+      await client.command({ type: "thread.delete", threadId: created.threadId }),
+    ).toMatchObject({ ok: true });
+    await f.daemon.context.uploads.collect();
+    await expect(readFile(image.path)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await f.cleanup();
   }

@@ -18,6 +18,18 @@ const Environment = z.object({
   /** Development only: "1" keeps macOS permissions with the launching terminal. */
   ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY: z.enum(["0", "1"]).optional(),
   ACE_HOME: z.string().optional(),
+  ACE_ATTACHMENT_FILE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .optional(),
+  ACE_ATTACHMENT_MESSAGE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .optional(),
   ACE_CURSOR_SDK_HOME: z.string().min(1).optional(),
   ACE_WORKSPACE_ROOT: z.string().optional(),
   ACE_RELAY_URL: z.url().optional(),
@@ -26,6 +38,7 @@ const Environment = z.object({
 });
 export interface Config {
   dataDir: string;
+  attachmentLimits?: { fileBytes?: number; messageBytes?: number };
   /** Private instance root; the SDK uses its user subdirectory as HOME. */
   cursorSdkHome?: string;
   workspaceRoot?: string;
@@ -58,6 +71,14 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
       ? { screenHelperInheritsResponsibility: true }
       : {}),
     dataDir: resolveDaemonHome(home, settings.ACE_HOME),
+    attachmentLimits: {
+      ...(settings.ACE_ATTACHMENT_FILE_BYTES
+        ? { fileBytes: settings.ACE_ATTACHMENT_FILE_BYTES }
+        : {}),
+      ...(settings.ACE_ATTACHMENT_MESSAGE_BYTES
+        ? { messageBytes: settings.ACE_ATTACHMENT_MESSAGE_BYTES }
+        : {}),
+    },
     ...(settings.ACE_CURSOR_SDK_HOME
       ? { cursorSdkHome: resolve(settings.ACE_CURSOR_SDK_HOME) }
       : {}),
