@@ -1,3 +1,4 @@
+import { AgentControlError, controlAdmissionError } from "./failure.ts";
 import { callerThread } from "./authorization.ts";
 import { ReservationLifetimes } from "./reservation-lifetimes.ts";
 import { controlCommandId } from "./command-id.ts";
@@ -35,6 +36,7 @@ export interface DelegationDependencies {
   accounts?: AccountRegistry;
   models: import("@ace/models").ModelCatalogApi;
   modelsReady?: Promise<void>;
+  providerEnabled?(provider: import("@ace/protocol").ProviderKind, instance?: string): boolean;
   configuredModel?(caller: McpAttribution, request: DelegationRequest): Promise<string | undefined>;
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
   journalCapacity?: number;
@@ -140,7 +142,16 @@ export class DelegationService {
     return result;
   }
   async prepareModels(caller: McpAttribution, request: DelegationRequest) {
+    this.admission.validate(caller, request);
     await this.deps.modelsReady;
+    if (
+      request.accountId &&
+      this.deps.accounts?.get(request.accountId)?.instance.provider !== request.provider
+    )
+      throw new AgentControlError(
+        "account_unavailable",
+        `Account ${request.accountId} does not belong to ${request.provider}`,
+      );
     const catalog = this.deps.models;
     const filter = {
       provider: request.provider,
@@ -184,7 +195,8 @@ export class DelegationService {
   ): DelegationRecord {
     const input = DelegationRequest.parse(value);
     return this.deps.store.atomic(() => {
-      if (this.closed || this.deps.admitsWork?.() === false) throw new Error("Admission closed");
+      if (this.closed || this.deps.admitsWork?.() === false)
+        throw new AgentControlError("admission_closed", "Admission closed");
       const receipt = this.journal.receipt(caller.threadId, input.requestId);
       if (receipt) {
         this.admission.match(caller, input, receipt);
@@ -237,7 +249,8 @@ export class DelegationService {
     });
   }
   launch(record: DelegationRecord, text: string): void {
-    if (this.closed || this.deps.admitsWork?.() === false) throw new Error("Admission closed");
+    if (this.closed || this.deps.admitsWork?.() === false)
+      throw new AgentControlError("admission_closed", "Admission closed");
     this.deps.store.atomic(() => {
       const current = this.journal.get(record.childId);
       if (!current || current.phase !== "created") return;
@@ -257,7 +270,7 @@ export class DelegationService {
           role: current.request.role,
         },
       });
-      if (!result.ok) throw new Error(result.error);
+      if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
       current.phase = "running";
       this.journal.save(current);
     });
@@ -295,6 +308,7 @@ export class DelegationService {
         .toSorted((a, b) => b.depth - a.depth);
       for (const child of children) {
         this.journal.stop(child.childId);
+        this.journal.suppressWake(child.childId);
         if (this.deps.store.getThread(child.childId)) {
           this.deps.engine.discardRecovery(child.childId);
           this.deps.engine.cancelDelegatedInputs(child.childId);
@@ -311,7 +325,7 @@ export class DelegationService {
             cascade: true,
           },
         );
-        if (!result.ok) throw new Error(result.error);
+        if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
       }
     });
   }
@@ -493,7 +507,7 @@ export class DelegationService {
             trigger: "subagent_result",
             origin: { kind: "subagent_result", threadIds: pending.map((edge) => edge.childId) },
           });
-          if (!result.ok) throw new Error(result.error);
+          if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
           this.journal.consume(next.parent_id);
         });
       } catch (error) {

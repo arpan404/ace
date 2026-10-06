@@ -1,4 +1,5 @@
 import { commandActionsMatch } from "@ace/provider-kit/shell-command";
+import { z } from "zod";
 import { ApprovalTarget } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import { decisions, obj, questions, raw, str, type Obj } from "./native.ts";
@@ -10,6 +11,7 @@ export function openRequest(
   method: string,
   p: Obj,
   knownItem: boolean,
+  nativeItem?: Obj,
 ): Fact[] {
   const item = str(p["itemId"]);
   const facts: Fact[] = [];
@@ -40,6 +42,41 @@ export function openRequest(
           kind: "approval" as const,
           title: str(p["command"], method),
           target: (() => {
+            const changes = z
+              .array(
+                z
+                  .object({
+                    path: z.string().min(1).max(4096),
+                    kind: z
+                      .object({
+                        type: z.enum(["add", "update"]),
+                        move_path: z.string().min(1).max(4096).nullish(),
+                      })
+                      .passthrough(),
+                  })
+                  .passthrough(),
+              )
+              .min(1)
+              .max(128)
+              .safeParse(nativeItem?.changes);
+            if (
+              method === "item/fileChange/requestApproval" &&
+              (p["grantRoot"] === undefined || p["grantRoot"] === null) &&
+              !p["networkApprovalContext"] &&
+              !p["additionalPermissions"] &&
+              nativeItem?.type === "fileChange" &&
+              changes.success
+            ) {
+              const target = ApprovalTarget.safeParse({
+                tool: method,
+                access: "write",
+                paths: changes.data.flatMap((change) =>
+                  change.kind.move_path ? [change.path, change.kind.move_path] : [change.path],
+                ),
+                input: p,
+              });
+              return target.success ? target.data : undefined;
+            }
             const parsed = ApprovalTarget.safeParse({
               tool:
                 p["networkApprovalContext"] || p["additionalPermissions"]

@@ -114,6 +114,7 @@ test.each(providers)(
 function nativeApproval(
   adapter: ProviderAdapter,
   command: string,
+  cwd: string,
   permissionsEscalation = false,
 ): Fact {
   const translator = adapter.createTranslator({
@@ -157,7 +158,7 @@ function nativeApproval(
         method: "POST",
         path: "/api/session",
         body: {
-          data: { id: "native", projectID: "project", location: { directory: "/workspace" } },
+          data: { id: "native", projectID: "project", location: { directory: cwd } },
         },
       },
       "http",
@@ -225,10 +226,7 @@ for (const { adapter, version } of reviewers) {
     async (command, decision) => {
       const frames = scriptFrames();
       const h = await harness(
-        [
-          { on: "send", frames: [frames.frame(start, nativeApproval(adapter, command))] },
-          { on: "resolve", frames: [frames.frame(end)] },
-        ],
+        [{ on: "send" }, { on: "resolve", frames: [frames.frame(end)] }],
         frames,
         {
           provider: adapter.provider,
@@ -242,6 +240,8 @@ for (const { adapter, version } of reviewers) {
       );
       try {
         const id = await h.create();
+        await h.contexts[0]?.onFrame(frames.frame(start, nativeApproval(adapter, command, h.home)));
+        await h.engine.flush();
         const interaction = Object.values(h.store.snapshotThread(id)?.interactions ?? {})[0];
         expect(interaction?.review?.decision).toBe(decision);
         if (adapter.provider === "codex" && decision === "deny")
@@ -267,20 +267,18 @@ for (const { adapter, version } of reviewers) {
 test("a Codex network escalation cannot earn approval from an otherwise low-risk command", async () => {
   const frames = scriptFrames();
   const adapter = createCodexAdapter();
-  const h = await harness(
-    [{ on: "send", frames: [frames.frame(start, nativeApproval(adapter, "pwd", true))] }],
-    frames,
-    {
-      capabilities: adapter.capabilities({
-        installed: true,
-        version: "0.159.1",
-        auth: "logged_in",
-        loginHint: "unused",
-      }),
-    },
-  );
+  const h = await harness([{ on: "send" }], frames, {
+    capabilities: adapter.capabilities({
+      installed: true,
+      version: "0.159.1",
+      auth: "logged_in",
+      loginHint: "unused",
+    }),
+  });
   try {
     const id = await h.create();
+    await h.contexts[0]?.onFrame(frames.frame(start, nativeApproval(adapter, "pwd", h.home, true)));
+    await h.engine.flush();
     const interaction = Object.values(h.store.snapshotThread(id)?.interactions ?? {})[0];
     expect(interaction?.review?.decision).toBe("escalate");
     expect(interaction?.state).toBe("pending");
@@ -437,3 +435,54 @@ test.each([
     }
   },
 );
+
+test.each(
+  providers.filter(({ adapter }) => ["acp", "antigravity", "cursor"].includes(adapter.provider)),
+)(
+  "$adapter.provider refuses Ask when the native runtime cannot provide a human gate",
+  async ({ adapter, version }) => {
+    const frames = scriptFrames();
+    const h = await harness([], frames, {
+      provider: adapter.provider,
+      capabilities: adapter.capabilities({
+        installed: true,
+        version,
+        auth: "logged_in",
+        loginHint: "unused",
+      }),
+    });
+    try {
+      const id = await h.create();
+      const result = h.command({
+        type: "thread.permission.set",
+        threadId: id,
+        permissionMode: "ask",
+      });
+      expect(result).toMatchObject({ ok: false, error: "permission_mode_unsupported" });
+      expect(h.store.getThread(id)?.permission?.effective).toBe("auto-review");
+    } finally {
+      await h.close();
+    }
+  },
+);
+
+test("OpenCode's exact pwd input cannot auto-approve an outside working directory", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send" }], frames, { provider: "opencode" });
+  try {
+    const id = await h.create();
+    await h.contexts[0]?.onFrame(
+      frames.frame(start, nativeApproval(createOpenCodeAdapter(), "pwd", join(h.home, ".."))),
+    );
+    await h.engine.flush();
+    const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+    expect(interaction?.review).toMatchObject({
+      decision: "escalate",
+      reason: "Action reaches outside the thread workspace",
+    });
+    expect(interaction?.state).toBe("pending");
+    expect(h.store.getThread(id)?.status.state).toBe("needs_you");
+  } finally {
+    await h.close();
+  }
+});

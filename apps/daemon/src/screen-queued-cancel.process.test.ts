@@ -43,6 +43,19 @@ it("cancelled MCP screen input never reaches the helper after an earlier action 
     await screen.approve("dev.ace.journey", true);
     const state = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.journey" });
     screen.delegateAgent(state.sessionId, lease.principal.scope);
+    screen.configureAccess({
+      enabled: () => true,
+      enable() {},
+      list: () => [{ bundleId: "dev.ace.journey", scope: "always", grantedAt: 0 }],
+      allows: (bundle) => bundle === "dev.ace.journey",
+      approve() {},
+      async request() {
+        throw new Error("No app request in this fixture");
+      },
+      async foreground() {},
+      audit() {},
+    });
+    await screen.mode(state.sessionId, "foreground");
     const first = registry.call(
       "screen_type",
       { text: "gate" },

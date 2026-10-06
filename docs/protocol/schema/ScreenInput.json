@@ -186,6 +186,23 @@
     {
       "properties": {
         "kind": {
+          "const": "text.paste",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
           "const": "pointer.down",
           "type": "string"
         },

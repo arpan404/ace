@@ -172,6 +172,14 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ...acp,
     ...engineOptions,
     registry,
+    onCommandEvent(event) {
+      engineOptions.onCommandEvent?.(event);
+      if (event.type === "session.closed") services.commands?.clearRuntime(event.threadId);
+      else
+        void services.commands
+          ?.updateRuntime(event.threadId, event.data)
+          .catch((error) => log.log("warn", "Provider command metadata unavailable", error));
+    },
     ...(services.models ? { models: services.models } : {}),
     providerEnabled: (provider, instance) =>
       services.providerConfigurations?.for(provider, instance).enabled !== false,
@@ -269,10 +277,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   await engine.ready();
   engine.bindHostInteractions(
     (command) =>
-      services.browserApprovals?.resolve(command) ?? services.browserOrigins?.resolve(command),
+      services.screenApprovals?.resolve(command) ??
+      services.browserApprovals?.resolve(command) ??
+      services.browserOrigins?.resolve(command),
   );
   services.engine = engine;
   services.browserOrigins?.recover();
+  services.screenApprovals?.recover();
   services.browserApprovals?.recover();
   services.handler = engine.handler;
 }

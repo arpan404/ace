@@ -1,13 +1,14 @@
 import Foundation
 import Darwin
 
-/// Two bounded packets: preserve the partially written packet and replace the next.
+/// Preserve one partially written packet and the newest packet per session, fairly queued.
 final class FrameWriter {
     private let fd: Int32
     private let queue = DispatchQueue(label: "ace.screen.frames")
     private let lock = NSLock()
     private var current: Data?
-    private var latest: Data?
+    private var latest: [String: Data] = [:]
+    private var order: [String] = []
     private var offset = 0
     private var closed = false
     private var suspended = true
@@ -36,19 +37,24 @@ final class FrameWriter {
         source.setEventHandler { [weak self] in self?.flush() }
 
     }
-    func publish(_ packet: Data) {
+    func publish(_ packet: Data, sessionId: String = "legacy") {
         lock.lock()
         if !closed {
-            latest = packet
+            if latest[sessionId] == nil { order.append(sessionId) }
+            latest[sessionId] = packet
             if suspended { suspended = false; source.resume() }
         }
         lock.unlock()
+    }
+    func retire(_ sessionId: String) {
+        lock.lock(); defer { lock.unlock() }
+        latest.removeValue(forKey: sessionId); order.removeAll { $0 == sessionId }
     }
     private func flush() {
         lock.lock(); defer { lock.unlock() }
         guard !closed else { return }
         while true {
-            if current == nil { current = latest; latest = nil; offset = 0 }
+            if current == nil, !order.isEmpty { let id = order.removeFirst(); current = latest.removeValue(forKey: id); offset = 0 }
             guard let packet = current else { suspended = true; source.suspend(); return }
             let written = packet.withUnsafeBytes { buffer -> Int in
                 guard let base = buffer.baseAddress else { return 0 }

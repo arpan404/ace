@@ -1,3 +1,4 @@
+import { seedComputerUse } from "./fake-computer-use.ts";
 import {
   FakeDaemon,
   ScenarioPlayer,
@@ -59,6 +60,13 @@ export function bootFake(): {
     daemon.seedServices(
       workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
     );
+  // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
+  // browser on this Mac.
+  if (
+    (globalThis as { aceFakeWorld?: string }).aceFakeWorld === "computer-use" ||
+    new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld") === "computer-use"
+  )
+    seedComputerUse(daemon);
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);
@@ -119,6 +127,7 @@ export function fakeConnection(daemon: FakeDaemon): DaemonConnection {
         token: async () => daemon.access.token,
       },
       devices: () => daemon.appDevices.transport(),
+      screen: () => daemon.screen.transport(),
     },
   };
 }

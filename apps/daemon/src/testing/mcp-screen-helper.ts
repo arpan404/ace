@@ -15,6 +15,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     data = {
       version: 2,
       platform: "macos",
+      background: true,
+      maxSessions: 8,
       capture: { windows: true, displays: false, changeDriven: true },
       input: { pointer: true, keyboard: true, scroll: true, text: true },
       uiTree: true,

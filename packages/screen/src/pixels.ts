@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Frame } from "./frames.ts";
-import type { Helper } from "./helper.ts";
+import type { HelperPort } from "./helper-session.ts";
 import { nodeScheduler } from "./runtime.ts";
 
 /** Capture has no polling timer. A bounded set of consumers owns the native lease. */
@@ -20,11 +20,11 @@ export class Pixels {
   private latest: Frame | undefined;
   private generation = 0;
   private readonly nextGeneration: () => number;
-  private readonly helper: Helper;
+  private readonly helper: HelperPort;
   private readonly indicator: (active: boolean) => void;
   private readonly failure: (error: Error) => void;
   constructor(
-    helper: Helper,
+    helper: HelperPort,
     indicator: (active: boolean) => void,
     failure: (error: Error) => void,
     nextGeneration: () => number,
@@ -140,6 +140,9 @@ export class Pixels {
     void guarded.catch(() => {});
     try {
       await lease.ready;
+      // Revalidate an already streaming window before returning its cached unchanged frame.
+      if (this.helper.capabilities?.background)
+        await this.helper.request({ op: "capture", enabled: true });
       if (pending) pending.floor = this.floor;
       if (this.latest) this.frame(this.latest);
       return await guarded;

@@ -18,6 +18,15 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
       guarantees: supported
         ? [
             {
+              mode: "ask",
+              level: "sandbox",
+              gates: { writes: true, network: true, protectedReads: false, shell: true },
+              limitations: [
+                "Read-only sandbox blocks edits, including shell writes, until a human approves native escalation.",
+                "Sandbox-allowed read commands can run without approval; protected reads are not gated.",
+              ],
+            },
+            {
               mode: "auto-review",
               level: "sandbox",
               gates: { writes: true, network: true, protectedReads: false, shell: true },

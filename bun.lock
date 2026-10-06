@@ -147,6 +147,7 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/adapter-opencode": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@babel/core": "^8.0.6",
         "@playwright/test": "1.63.0",
@@ -258,6 +259,7 @@
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
         "@ace/projection": "workspace:*",
+        "jsonc-parser": "^3.3.1",
       },
     },
     "packages/adapter-pi": {
@@ -329,6 +331,7 @@
         "@ace/files": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/screen": "workspace:*",
         "@ace/secure-channel": "workspace:*",
         "zod": "^4.3.6",
       },
@@ -457,6 +460,7 @@
         "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/screen": "workspace:*",
         "@ace/search": "workspace:*",
         "@ace/settings": "workspace:*",
         "@ace/ui-core": "workspace:*",
@@ -465,6 +469,7 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/adapter-opencode": "workspace:*",
         "@ace/conductor": "workspace:*",
       },
     },
@@ -697,6 +702,7 @@
         "@ace/accounts": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/screen": "workspace:*",
         "zod": "^4.6.5",
       },
     },

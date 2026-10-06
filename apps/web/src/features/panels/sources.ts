@@ -49,6 +49,39 @@ export interface BrowserView {
   backend?: "embedded" | "headless" | undefined;
   /** The page was reopened after its backend was lost; cookies and page state are gone. */
   pageStateLost?: boolean | undefined;
+  /** The agent's tabs in this thread's browser, by stable id (not by address). */
+  tabs?: readonly BrowserTabView[] | undefined;
+  activeTabId?: string | undefined;
+  /** Files the page downloaded into this thread's quarantine. */
+  downloads?: readonly BrowserDownloadView[] | undefined;
+  /** An alert, confirm or prompt waiting for an answer, on whichever tab raised it. */
+  pendingDialog?: BrowserDialogView | undefined;
+  /** "private": a person holds the page and agents can't see or read it. */
+  takeoverMode?: "shared" | "private" | undefined;
+}
+export interface BrowserDialogView {
+  dialogId: string;
+  tabId: string;
+  type: "alert" | "confirm" | "prompt" | "beforeunload";
+  message: string;
+  defaultPrompt?: string | undefined;
+}
+export interface BrowserTabView {
+  tabId: string;
+  url: string;
+  title: string;
+  pendingDialog?: BrowserDialogView | undefined;
+}
+export interface BrowserDownloadView {
+  downloadId: string;
+  tabId: string;
+  filename: string;
+  bytes: number;
+  mimeType: string;
+  flags: readonly ("executable" | "archive")[];
+  state: "pending" | "complete" | "denied" | "failed" | "too_large";
+  /** Where the file is on the daemon's machine, once complete. */
+  path?: string | undefined;
 }
 /** A device the page can pretend to be (BrowserCommand `emulate`). */
 export interface Emulation {
@@ -123,7 +156,8 @@ export interface PreviewSource {
   emulate(threadId: string, emulation: Emulation): Promise<void>;
   /** Close the thread's page (agents can open it again). */
   close(threadId: string): Promise<void>;
-  takeover(threadId: string): Promise<void>;
+  /** Take control; `private` also hides the page from agents until you hand it back. */
+  takeover(threadId: string, mode?: "shared" | "private"): Promise<void>;
   handback(threadId: string): Promise<void>;
   /**
    * The daemon connection through which this client holds the thread's page, while the page's
@@ -132,5 +166,6 @@ export interface PreviewSource {
   heldAs(threadId: string): string | undefined;
   input(threadId: string, input: ForwardedInput): void;
   /** Size the page's viewport to the pane, in CSS pixels (BrowserCommand `resize`, 100–4096). */
+  capture?(threadId: string, width: number, height: number, devicePixelRatio: number): void;
   resize(threadId: string, width: number, height: number): void;
 }

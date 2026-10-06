@@ -64,3 +64,5 @@ export { modelImageGeometry } from "./image-geometry.ts";
 export { PublicToolError, PublicToolCode } from "./public-error.ts";
 
 export type { ModelImageRuntime } from "./model-image-runtime.ts";
+
+export { privateMcpConfig, readPrivateMcpConfig } from "./private-config.ts";

@@ -19,6 +19,7 @@
     "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/screen": "workspace:*",
     "@ace/search": "workspace:*",
     "@ace/settings": "workspace:*",
     "@ace/ui-core": "workspace:*",
@@ -27,6 +28,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/adapter-opencode": "workspace:*",
     "@ace/conductor": "workspace:*"
   }
 }

@@ -1,4 +1,5 @@
 import type { AccessOptions } from "@ace/client";
+import type { ScreenTransport } from "@ace/client/screen-stream";
 import type { DeviceTransport } from "@ace/client/devices";
 import { createContext, useContext } from "react";
 import type { DaemonTarget } from "./connection-settings.ts";
@@ -10,7 +11,7 @@ import type { DaemonTarget } from "./connection-settings.ts";
  */
 export type DaemonEndpoint =
   | { kind: "daemon"; target: DaemonTarget; deviceId: string }
-  | { kind: "fake"; access: AccessOptions; devices(): DeviceTransport };
+  | { kind: "fake"; access: AccessOptions; devices(): DeviceTransport; screen(): ScreenTransport };
 
 /**
  * How far this window got with its daemon. The app mounts on the first `ready` and stays

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { registerAcePiExtension, type PiExtensionApi } from "@ace/adapter-pi";
 import { join } from "node:path";
 import { browserProof } from "./browser-mcp-client.ts";
+import { validateNativeMcpConfig, shellExposesBearer } from "./provider-mcp-config.ts";
 
 const mode = z
   .enum(["codex", "opencode", "cursor", "antigravity", "acp", "pi"])
@@ -28,15 +29,18 @@ const Rpc = z.object({
 });
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
 
-function codexConnection() {
+function codexConnection(params: Record<string, unknown>) {
   if (args[0] !== "app-server") throw new Error("Codex subcommand must precede its options");
-  const option = args.find((arg) => arg.startsWith("mcp_servers.ace.url="));
-  if (!option || !args.includes('mcp_servers.ace.bearer_token_env_var="ACE_MCP_BEARER_TOKEN"'))
-    throw new Error("Codex MCP launch options missing");
-  return {
-    url: z.url().parse(JSON.parse(option.slice(option.indexOf("=") + 1))),
-    headers: { Authorization: `Bearer ${z.string().parse(process.env.ACE_MCP_BEARER_TOKEN)}` },
-  };
+  const native = z.record(z.string(), z.unknown()).parse(params.config)["mcp_servers.ace"];
+  validateNativeMcpConfig("codex", native);
+  const server = z
+    .object({
+      url: z.url(),
+      http_headers: z.object({ Authorization: z.string() }),
+      tool_timeout_sec: z.literal(300),
+    })
+    .parse(native);
+  return { url: server.url, headers: server.http_headers };
 }
 async function acpProof(params: Record<string, unknown>) {
   const servers = z
@@ -68,17 +72,22 @@ if (mode === "opencode") {
     .object({
       model: z.string(),
       mcp: z.object({
-        ace: z.object({
-          type: z.literal("remote"),
-          enabled: z.literal(true),
-          oauth: z.literal(false),
-          url: z.url(),
-          headers: z.record(z.string(), z.string()),
+        servers: z.object({
+          user: z.object({ type: z.literal("local"), command: z.array(z.string()).min(1) }),
         }),
-        user: z.object({ type: z.literal("local"), command: z.array(z.string()).min(1) }),
       }),
     })
     .parse(JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}"));
+  const remote = z.object({
+    type: z.literal("remote"),
+    disabled: z.literal(false),
+    codemode: z.literal(false),
+    oauth: z.literal(false),
+    url: z.url(),
+    headers: z.object({ Authorization: z.string() }),
+  });
+  let ace: z.infer<typeof remote> | undefined;
+  let mcpProof: Awaited<ReturnType<typeof browserProof>> | undefined;
   const server = createServer((request, response) => {
     const reply = (value: unknown) =>
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(value));
@@ -140,19 +149,40 @@ if (mode === "opencode") {
         );
         return;
       }
-      if (path === "/api/session" && request.method === "POST") {
-        const mcpProof = await browserProof(configuration.mcp.ace, "http");
+      if (path === "/api/mcp") {
         reply({
-          data: {
-            id: "native",
-            projectID: "test",
-            location: body.location,
-            mcpProof,
-            preservedModel: configuration.model,
-            echoedSecret: configuration.mcp.ace.headers.Authorization?.slice(7),
-            transportDebug: process.env.OPENCODE_PASSWORD,
-          },
+          data: [
+            ...Object.keys(configuration.mcp.servers).map((name) => ({
+              name,
+              status: { status: "connected" },
+            })),
+            ...(ace
+              ? [{ name: "ace", status: { status: mcpProof ? "connected" : "pending" } }]
+              : []),
+          ],
+          ...(ace && mcpProof
+            ? {
+                mcpProof: {
+                  ...mcpProof,
+                  shellExposesBearer: shellExposesBearer(ace.headers.Authorization),
+                },
+                preservedModel: configuration.model,
+                preservedServers: Object.keys(configuration.mcp.servers),
+                echoedSecret: ace.headers.Authorization.slice(7),
+                transportDebug: process.env.OPENCODE_PASSWORD,
+              }
+            : {}),
         });
+      } else if (path === "/api/experimental/mcp/ace" && request.method === "PUT") {
+        validateNativeMcpConfig("opencode", { mcp: { servers: { ace: body.config } } });
+        ace = remote.parse(body.config);
+        response.writeHead(204).end();
+      } else if (path === "/api/experimental/mcp/ace/connect" && request.method === "POST") {
+        if (!ace) throw new Error("Native ace server was not registered");
+        mcpProof = await browserProof(ace, "http");
+        response.writeHead(204).end();
+      } else if (path === "/api/session" && request.method === "POST") {
+        reply({ data: { id: "native", projectID: "test", location: body.location } });
       } else if (path === "/api/session/native/prompt") {
         reply({ data: { id: body.id, sessionID: "native" } });
       } else if (path === "/api/session/native/interrupt") reply({ interrupted: true });
@@ -233,7 +263,11 @@ if (mode === "opencode") {
                 },
               };
       else if (message.method === "thread/start" || message.method === "thread/resume") {
-        const mcpProof = await browserProof(codexConnection(), "http");
+        const connection = codexConnection(message.params);
+        const mcpProof = {
+          ...(await browserProof(connection, "http")),
+          shellExposesBearer: shellExposesBearer(connection.headers.Authorization),
+        };
         result = { thread: { id: "native", turns: [], mcpProof } };
       } else if (message.method === "session/new" || message.method === "session/load") {
         result = { sessionId: "native", mcpProof: await acpProof(message.params) };

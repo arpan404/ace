@@ -1,3 +1,4 @@
+import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-command-metadata.ts";
 import { isDefaultSelection } from "@ace/models";
 import type { EngineModels } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
@@ -24,6 +25,7 @@ const SessionIdentity = z.strictObject({
 });
 
 interface SessionDependencies {
+  commandEvent?(event: ProviderCommandEvent): void;
   models: EngineModels;
   repo: EngineRepository;
   permissionSettings?: import("./permissions.ts").PermissionSettings;
@@ -253,6 +255,15 @@ export class Sessions {
           const accepted = actor.frame(frame, generation);
           const committed = accepted.then(() => {
             if (actor.poisoned) throw new Error("Provider frame failed to commit");
+            if (generation === actor.generation && !lifetime.signal.aborted) {
+              const data = providerCommandMetadata(frame);
+              if (data !== undefined)
+                this.dependencies.commandEvent?.({
+                  type: "commands.runtime",
+                  threadId: actor.id,
+                  data,
+                });
+            }
           });
           // Void consumers rely on the actor's failure facts; ACK consumers still
           // receive the rejecting promise and must stop intake on failed commit.
@@ -262,6 +273,7 @@ export class Sessions {
         onExit: (exit) =>
           actor.enqueue(() => {
             if (generation !== actor.generation) return;
+            this.dependencies.commandEvent?.({ type: "session.closed", threadId: actor.id });
             actor.session = undefined;
             this.turnPermissions.delete(actor.id);
             lifetime.abort();
@@ -417,6 +429,7 @@ export class Sessions {
         throw error;
       }
       await actor.flush();
+      this.dependencies.commandEvent?.({ type: "session.closed", threadId: actor.id });
       lifetime?.abort();
       if (actor.generation === generation) {
         actor.generation++;

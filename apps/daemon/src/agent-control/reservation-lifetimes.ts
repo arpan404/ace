@@ -1,5 +1,6 @@
 import type { ThreadId } from "@ace/protocol";
 import type { DelegationReservation } from "./journal.ts";
+import { AgentControlError } from "./failure.ts";
 
 /** At most four filesystem operations; cancellation owns their I/O signals. */
 export class ReservationLifetimes {
@@ -7,7 +8,7 @@ export class ReservationLifetimes {
   watch(reservation: DelegationReservation) {
     const record = reservation.record;
     if (this.entries.has(record.childId) || this.entries.size >= 4)
-      throw new Error("Reservation lifetime capacity");
+      throw new AgentControlError("delegation_limit", "Reservation lifetime capacity");
     const entry = { parentId: record.parentId, controller: new AbortController() };
     this.entries.set(record.childId, entry);
     return {
@@ -20,11 +21,11 @@ export class ReservationLifetimes {
   cancel(thread: ThreadId, descendant: (target: ThreadId, ancestor: ThreadId) => boolean) {
     for (const entry of this.entries.values())
       if (entry.parentId === thread || descendant(entry.parentId, thread))
-        entry.controller.abort(new Error("cancelled"));
+        entry.controller.abort(new AgentControlError("delegation_cancelled", "cancelled"));
   }
   close() {
     for (const entry of this.entries.values())
-      entry.controller.abort(new Error("Admission closed"));
+      entry.controller.abort(new AgentControlError("admission_closed", "Admission closed"));
     this.entries.clear();
   }
 }

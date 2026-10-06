@@ -4,9 +4,26 @@ import { z } from "zod";
 // This catalog is authored by ace. Error messages, hints and stacks from providers or helpers
 // never become this catalog. Only intentional failures can cross the MCP boundary.
 export const PublicToolCode = z.enum([
+  "screen_disabled",
+  "target_busy",
+  "foreground_required",
+  "focus_changed",
+  "window_minimized",
+  "window_offscreen",
+  "secure_input_required",
+  "clipboard_changed",
   "invalid_arguments",
   "invalid_data",
   "execution_failed",
+  "provider_unavailable",
+  "provider_disabled",
+  "model_unavailable",
+  "account_unavailable",
+  "admission_closed",
+  "delegation_cancelled",
+  "delegation_limit",
+  "workspace_unavailable",
+  "delegation_denied",
   "stale_ref",
   "controller_changed",
   "human_controlled",
@@ -42,6 +59,38 @@ export const PublicToolCode = z.enum([
 ]);
 export type PublicToolCode = z.infer<typeof PublicToolCode>;
 const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
+  screen_disabled: {
+    message: "Computer use is disabled",
+    hint: "A human must enable screen access before an agent can use apps.",
+  },
+  target_busy: {
+    message: "App is controlled by another session",
+    hint: "Inspect screen sessions and ask the holder to hand back control.",
+  },
+  foreground_required: {
+    message: "App requires foreground approval",
+    hint: "Call screen_request_foreground with a reason. Do not repeat background input blindly.",
+  },
+  focus_changed: {
+    message: "Background action changed focus or cursor",
+    hint: "Restoration is attempted when no human input was observed. Ask the human to check their desktop.",
+  },
+  window_minimized: {
+    message: "Target window is minimized",
+    hint: "Ask the human to restore the window.",
+  },
+  window_offscreen: {
+    message: "Target window is outside display bounds",
+    hint: "Ask the human to reposition the window.",
+  },
+  secure_input_required: {
+    message: "Secure text needs session consent",
+    hint: "Ask the human to enable secure input for this session.",
+  },
+  clipboard_changed: {
+    message: "Clipboard changed during paste",
+    hint: "The human's new clipboard was retained. Inspect the target before retrying.",
+  },
   invalid_arguments: {
     message: "Invalid tool arguments",
     hint: "Check the advertised tool schema and required fields. Choose exactly one browser wait condition.",
@@ -49,6 +98,42 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   invalid_data: {
     message: "Invalid tool or backend data",
     hint: "Retry once. If the error persists, report it to the user.",
+  },
+  provider_unavailable: {
+    message: "Provider CLI is unavailable",
+    hint: "Install the provider CLI on the daemon host, set its binary path in provider settings, and check its login.",
+  },
+  provider_disabled: {
+    message: "Provider is disabled",
+    hint: "Enable this provider and account in provider settings before delegating.",
+  },
+  model_unavailable: {
+    message: "Requested model is unavailable",
+    hint: "Refresh the selected provider account's model catalog and choose an available model.",
+  },
+  account_unavailable: {
+    message: "Provider account is unavailable",
+    hint: "Check the selected account, its CLI login and quota, or choose another account.",
+  },
+  admission_closed: {
+    message: "Daemon is not accepting agent work",
+    hint: "Wait for daemon startup or maintenance to finish before retrying.",
+  },
+  delegation_cancelled: {
+    message: "Delegation was stopped",
+    hint: "Send a new message or explicitly resume the stopped parent thread before delegating again.",
+  },
+  delegation_limit: {
+    message: "Delegation capacity or budget is exhausted",
+    hint: "Wait for active children to finish or start a new root thread within the host limits.",
+  },
+  workspace_unavailable: {
+    message: "Workspace is unavailable for agent creation",
+    hint: "Check that the workspace exists and finish any workspace or worktree change before retrying.",
+  },
+  delegation_denied: {
+    message: "Child permissions exceed the parent permission ceiling",
+    hint: "Choose a permission mode allowed by the parent thread.",
   },
   execution_failed: {
     message: "Tool execution failed",

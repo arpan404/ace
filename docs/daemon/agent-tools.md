@@ -112,18 +112,24 @@ grants, private reconnect and the human approval controls.
 
 ## Screen journey
 
-A human first enables screen access, grants OS permissions, approves an app,
-starts capture, and delegates its screen session to the calling agent. Missing
-setup returns `delegation_required` with a remedy; an agent cannot approve an app.
+A human enables screen access and grants the helper's OS permissions. Call
+`screen_request_app({bundleId, reason})` for a host approval (this turn, this thread,
+always or deny), then `screen_open_app({bundleId})` to launch without activation
+and acquire a background session. Sensitive apps always ask. A human can also
+start and delegate a session. Up to eight distinct macOS apps share one helper;
+`target_busy` identifies the existing holder. Session tools accept `sessionId`;
+include it whenever the agent controls multiple apps. Cross-agent selection fails.
 
 Use `screen_ui_tree({})`, or
 `screen_ui_find({query: {name: "Name"}})`, then
 `screen_ui_act({ref: "…", action: "setValue", value: "Ada"})` or
 `screen_ui_act({ref: "…", action: "press"})`. Use only actions listed on the node.
-Action replies report whether synthesized input was needed. Refresh expired refs.
+Action replies include mode, whether synthesized input was needed and a fresh settled snapshot. Nodes advertise named secondary actions; `selectText` accepts text or a range. Refresh expired refs.
 OS accessibility support varies; unsupported operations return an error.
 
-`screen_type({text: "Ada"})` types into the focused control.
+`screen_type({text: "Ada"})` uses AX selected text before process-posted keys.
+`screen_paste({text: "Ada"})` saves and restores clipboard representations.
+Secure text fields refuse typing, keys and paste without human session consent.
 `screen_key({key: "Enter"})` sends a named v2 key.
 `screen_click({x: 10, y: 20})` uses target-window points on v2.
 `screen_scroll({dx: 0, dy: 100})` scrolls, with optional target-window `x`, `y`.
@@ -140,8 +146,18 @@ device model images are capped at 1536 pixels and 1 MiB. Large images require
 ffmpeg on the daemon host for resizing; a missing encoder returns a typed remedy.
 Live-view frames retain their original resolution.
 
+Background input never activates the app or uses HID input. `foreground_required`
+means the app needs an explicitly approved escalation; request it with
+`screen_request_foreground({sessionId, reason})`. Unsupported background events
+are never silently retried in foreground. Every action waits for a bounded UI
+settle; agents do not need to sleep. Occluded windows can be captured; minimized
+or off-display windows report explicit errors. Locked-Mac compatibility needs a
+live check. Windows/Linux background input remains a follow-up.
+
 Human takeover removes screen delegation. The human must delegate again before
-agent tools resume. Ending the provider lease releases its delegated control.
+agent tools resume. Ending the provider lease releases its delegated control. The global human kill
+switch stops all sessions and blocks reacquisition until enablement is renewed.
+See the [UI wire handoff](background-computer-use.md).
 
 ## Device journey
 
@@ -191,12 +207,49 @@ come from the installed provider interfaces; Pi uses advertised `ace/timeoutMs`.
 ACP defines no portable execution-timeout override. Its provider must permit the
 advertised daemon deadline. SDK/CLI versions can still impose their own limits.
 
-Codex uses process config overrides, Claude uses SDK HTTP MCP config, OpenCode
-uses an owned server per scoped lease, ACP uses negotiated HTTP or a supervised
-stdio bridge, and Pi uses its MCP extension. Cursor SDK receives the same scoped
-capabilities through its host options. Its read-only or unsupported-sandbox
+Codex sends `mcp_servers.ace` with `http_headers.Authorization` in the native
+`thread/start`, `thread/resume`, or `thread/fork` RPC configuration. The bearer is
+absent from the app-server argv and shell environment. Claude's SDK HTTP MCP
+configuration travels through a session-owned `--mcp-config` file: directory
+0700, file 0600, outside the workspace, removed when its supervised process exits.
+Pi reads the same private storage mechanism into its extension closure and deletes
+the file-path environment variable before registering agent tools. Neither the Pi
+MCP bearer nor its rollback control secret is inherited by shell commands.
+
+OpenCode v2 gets one owned process per scoped lease. Before admission, ace uses
+its in-memory, location-scoped `mcp.add` and `mcp.connect` APIs and checks the native
+catalog reports `connected`. The v2 config shape is `mcp.servers.ace`, with
+`disabled:false`, `codemode:false`, and `oauth:false`. Code Mode would otherwise
+hide individual tools behind a code-execution tool. The old v1 `mcp.ace` and
+`enabled:true` injection did not register a v2 server. No ace bearer is added to
+`OPENCODE_CONFIG_CONTENT`, persisted provider config, or project config. Existing
+user MCP servers are preserved; an `ace` name collision fails admission.
+
+ACP HTTP headers travel in its native session RPC as an array of name/value pairs.
+For providers that advertise only stdio, ACP has no portable private-header
+mechanism: the supervised bridge child receives `ACE_MCP_BRIDGE_BEARER` in its
+own environment. It is absent from the parent provider's environment and shell
+children, but a same-user process can inspect the bridge. Cursor SDK HTTP headers
+travel through host options and IPC, never a spawned bearer environment variable.
+Private files also protect against accidental `env`/argv disclosure, rather than
+against arbitrary same-user filesystem or process inspection.
+
+Production credentials expire after one hour, are scoped to a single thread and
+agent, and are revoked on session exit, cancellation, adapter close, or daemon
+shutdown. Expiry aborts in-flight tools, releases browser/screen/device controllers,
+and closes the owning provider session. A later session receives fresh authority.
+
+Cursor SDK receives the same scoped capabilities through its host options. Its read-only or unsupported-sandbox
 fallback intentionally excludes MCP; full access or supported sandbox admission
 is required for browser/computer tools. Unsupported ACP transport fails explicitly.
+
+OpenCode's “Network trouble” banner follows a native `session.retry.scheduled`
+event whose provider error is classified as network-related. The owner report
+included `ECONNRESET: The socket connection was closed unexpectedly` (attempt 2).
+An MCP `session.tool.failed` event instead creates a failed tool result; it does
+not create that network retry status. Correct native registration removes the
+manual urllib workaround but cannot prevent a provider model-stream connection
+reset. See [native verification evidence](native-mcp-verification.md).
 
 ## Offline regression harness
 

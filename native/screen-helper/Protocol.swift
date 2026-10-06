@@ -54,25 +54,33 @@ struct Request: Decodable {
     let id: String
     let op: String
     let sessionId: String?
-    let target: Target?
-    let allowlist: [String]?
+    var target: Target?
+    var allowlist: [String]?
     let fps: Int?
     let settings: StreamSettings?
     let action: Action?
     let input: Input?
     let enabled: Bool?
     let capture: Bool?
-    let maxDepth: Int?
-    let maxNodes: Int?
+    var maxDepth: Int?
+    var maxNodes: Int?
     let query: UIQuery?
     let limit: Int?
     let ref: String?
     let value: String?
+    let booleanValue: Bool?
+    let scrollValue: ScrollValue?
+    struct ScrollValue: Decodable { let dx: Int32; let dy: Int32 }
     let permission: String?
     let name: String?
     // ui.act's action is a string; decode it separately from v1's action object.
     let semanticAction: String?
-    enum CodingKeys: String, CodingKey { case settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name }
+    let mode: String?
+    let secureInputAllowed: Bool?
+    let bundleId: String?
+    let range: TextRange?
+    struct TextRange: Decodable { let location: Int; let length: Int }
+    enum CodingKeys: String, CodingKey { case settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name, mode, secureInputAllowed, bundleId, range }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version); id = try c.decode(String.self, forKey: .id); op = try c.decode(String.self, forKey: .op)
@@ -84,7 +92,13 @@ struct Request: Decodable {
         input = try c.decodeIfPresent(Input.self, forKey: .input); enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled)
         capture = try c.decodeIfPresent(Bool.self, forKey: .capture); maxDepth = try c.decodeIfPresent(Int.self, forKey: .maxDepth)
         maxNodes = try c.decodeIfPresent(Int.self, forKey: .maxNodes); query = try c.decodeIfPresent(UIQuery.self, forKey: .query)
-        limit = try c.decodeIfPresent(Int.self, forKey: .limit); ref = try c.decodeIfPresent(String.self, forKey: .ref); value = try c.decodeIfPresent(String.self, forKey: .value)
+        limit = try c.decodeIfPresent(Int.self, forKey: .limit); ref = try c.decodeIfPresent(String.self, forKey: .ref); value = try? c.decode(String.self, forKey: .value)
+        booleanValue = try? c.decode(Bool.self, forKey: .value)
+        scrollValue = try? c.decode(ScrollValue.self, forKey: .value)
+        mode = try c.decodeIfPresent(String.self, forKey: .mode)
+        secureInputAllowed = try c.decodeIfPresent(Bool.self, forKey: .secureInputAllowed)
+        bundleId = try c.decodeIfPresent(String.self, forKey: .bundleId)
+        range = try c.decodeIfPresent(TextRange.self, forKey: .range)
         permission = try c.decodeIfPresent(String.self, forKey: .permission); name = try c.decodeIfPresent(String.self, forKey: .name)
     }
 }
@@ -127,8 +141,8 @@ func permissions() -> [String: Bool] { ["screenRecording": CGPreflightScreenCapt
     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
 }
 func capabilities() -> [String: Any] {
-    ["version": 2, "platform": "macos", "capture": ["windows": true, "displays": true, "changeDriven": true],
+    ["version": 2, "platform": "macos", "background": true, "maxSessions": 8, "capture": ["windows": true, "displays": true, "changeDriven": true],
      "input": ["pointer": true, "keyboard": true, "scroll": true, "text": true], "uiTree": true,
-     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select"], "codecs": ["jpeg", "h264"],
+     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"], "codecs": ["jpeg", "h264"],
      "permissions": ["screen": CGPreflightScreenCaptureAccess() ? "granted" : "denied", "input": AXIsProcessTrusted() ? "granted" : "denied"]]
 }

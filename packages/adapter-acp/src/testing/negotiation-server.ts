@@ -75,14 +75,16 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       future: "kept",
     });
   else if (message.method === "session/new" || message.method === "session/load") {
-    result({
+    const opened = {
       ...(message.method === "session/new" ? { sessionId: "synthetic-session" } : {}),
       ...setup(),
       echo: message.params,
-    });
-    if (config.flood)
+    };
+    if (config.flood) {
+      // Admit the session reply and burst together, before the client can continue setup.
+      const burst: unknown[] = [{ id: message.id, result: opened }];
       for (let id = 100; id < 240; id++)
-        write({
+        burst.push({
           id,
           method: "session/request_permission",
           params: {
@@ -91,6 +93,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
             options: [{ optionId: "yes", kind: "allow_once", name: "Yes" }],
           },
         });
+      process.stdout.write(burst.map((frame) => JSON.stringify(frame)).join("\n") + "\n");
+    } else result(opened);
   } else if (message.method === "session/set_config_option") {
     if (message.params.configId !== "provider-model-id")
       write({ id: message.id, error: { code: -1, message: "Wrong config ID" } });

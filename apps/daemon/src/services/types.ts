@@ -44,6 +44,7 @@ export interface Services {
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
+  screenApprovals?: import("../screen-approvals.ts").ScreenApprovals;
   devices?: DevicesService;
   accounts?: AccountService;
   accountManagement?: import("../account-management.ts").AccountManagement;

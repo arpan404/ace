@@ -4,6 +4,7 @@ import {
   ThreadId,
   WorkspaceId,
   type BrowserInput,
+  type BrowserCaptureViewport,
   type ServerMessage,
 } from "@ace/protocol";
 import type {
@@ -37,6 +38,16 @@ const view = (state: BrowserState): BrowserView => ({
   reason: state.reason,
   backend: state.backend,
   pageStateLost: state.pageStateLost,
+  tabs: state.tabs?.map((tab) => ({
+    tabId: tab.tabId,
+    url: tab.url,
+    title: tab.title,
+    pendingDialog: tab.pending_dialog,
+  })),
+  activeTabId: state.activeTabId,
+  downloads: state.downloads,
+  pendingDialog: state.pending_dialog,
+  takeoverMode: state.takeoverMode,
 });
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
@@ -64,6 +75,7 @@ function reached(result: unknown, fallback: string): string {
 interface Watch {
   count: number;
   subscribed: boolean;
+  capture?: BrowserCaptureViewport;
   /** Cancels the next poll. */
   cancel: (() => void) | undefined;
   /** The newest frame received; an older one still decoding is dropped when it lands. */
@@ -105,6 +117,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
    * reply named as the owner (undefined when the reply named none).
    */
   const held = new Map<string, string | undefined>();
+  /** Threads this client took privately: their hold outlives the view (no automatic handback). */
+  const privateHolds = new Set<string>();
   let version = 0;
   let requests = 0;
   let download: BrowserDownload | undefined;
@@ -130,8 +144,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       | "browser.handback"
       | "browser.close",
     threadId: string,
+    mode?: "shared" | "private",
   ) => {
-    const reply = await client.request({ type, threadId: ThreadId.parse(threadId) });
+    const reply =
+      type === "browser.takeover" && mode
+        ? await client.request({ type, threadId: ThreadId.parse(threadId), mode })
+        : await client.request({ type, threadId: ThreadId.parse(threadId) });
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
   };
@@ -155,6 +173,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     changed(threadId);
   };
   const readServers = (threadId: string) => previews(threadId, { op: "list" });
+  const sendCapture = (threadId: string, watch: Watch) => {
+    if (!watch.subscribed || !watch.capture || client.state !== "ready") return;
+    void client
+      .request({
+        type: "browser.capture",
+        threadId: ThreadId.parse(threadId),
+        viewport: watch.capture,
+      })
+      .catch(() => {});
+  };
   /** Reads the dev servers and retries the browser, every few seconds while the page shows. */
   const poll = (threadId: string) => {
     const watch = watches.get(threadId);
@@ -166,8 +194,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           // A view that left and came back meanwhile (a tab replaced by another, a remount)
           // is served by this same subscription; only nobody watching gives it up.
           const current = watches.get(threadId);
-          if (current) current.subscribed = true;
-          else void call("browser.unsubscribe", threadId).catch(() => {});
+          if (current) {
+            current.subscribed = true;
+            sendCapture(threadId, current);
+          } else void call("browser.unsubscribe", threadId).catch(() => {});
         },
         () => {},
       );
@@ -212,6 +242,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       if (!watches.has(state.threadId)) return;
       views.set(state.threadId, view(state));
       if (state.controller !== "human") held.delete(state.threadId);
+      if (state.takeoverMode !== "private") privateHolds.delete(state.threadId);
       changed(state.threadId);
       return;
     }
@@ -295,7 +326,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           release(oldest);
         }
         if (client.state !== "ready") return;
-        if (held.delete(threadId)) void call("browser.handback", threadId).catch(() => {});
+        // A shared hold ends with the view; a private one never does: only the person's own
+        // Hand back (or closing the browser) may show the page to agents again.
+        const privately =
+          privateHolds.has(threadId) || views.get(threadId)?.takeoverMode === "private";
+        if (!privately && held.delete(threadId))
+          void call("browser.handback", threadId).catch(() => {});
         if (current.subscribed) void call("browser.unsubscribe", threadId).catch(() => {});
       };
     },
@@ -361,10 +397,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     },
     async close(threadId) {
       held.delete(threadId);
+      privateHolds.delete(threadId);
       await call("browser.close", threadId);
     },
-    async takeover(threadId) {
-      const state = BrowserState.safeParse(await call("browser.takeover", threadId));
+    async takeover(threadId, mode) {
+      const state = BrowserState.safeParse(await call("browser.takeover", threadId, mode));
+      if (mode === "private") privateHolds.add(threadId);
       held.set(threadId, state.success ? state.data.owner : undefined);
     },
     heldAs(threadId) {
@@ -376,6 +414,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     },
     async handback(threadId) {
       held.delete(threadId);
+      privateHolds.delete(threadId);
       await call("browser.handback", threadId);
     },
     input(threadId, input) {
@@ -386,6 +425,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           input: wireInput(input),
         })
         .catch(() => {});
+    },
+    capture(threadId, width, height, devicePixelRatio) {
+      const watch = watches.get(threadId);
+      if (!watch) return;
+      watch.capture = {
+        width: clamp(width),
+        height: clamp(height),
+        devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)),
+      };
+      sendCapture(threadId, watch);
     },
     resize(threadId, width, height) {
       void client
