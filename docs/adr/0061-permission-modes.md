@@ -28,6 +28,8 @@ Owner decision on PR #84: every provider launches in auto-review using its best 
 
 Capabilities expose supported modes, nativeAutoReview, toolGate and an additive auto-review guarantee. A guarantee has a level, gates for writes/network/protectedReads/shell, and limitations. A true gate means the provider constrains that action class through sandboxing, tool exclusion or a pre-execution approval gate. It does not mean every action receives an ace review. False means ace cannot promise coverage. toolGate means surfaced approval requests can be answered, not that the provider surfaces every action. Missing guarantee metadata is unknown to clients, never full protection.
 
+Ask requires an explicitly advertised mode and a pre-execution tool gate. An auto-review guarantee cannot substitute for this contract. Cursor has no public decision callback, and generic ACP can perform unsurfaced actions. These providers do not advertise Ask; the daemon rejects explicit Ask selections before launch and retains inputs whose inherited Ask policy cannot be enforced. Codex advertises Ask with its read-only sandbox and human approval for mutation escalation, as described in the QA correction below. Claude, OpenCode and Pi advertise Ask through their comprehensive tool gates. There is no weaker-policy fallback for Ask.
+
 | Provider          | Auto-review native guard                                                                  | Level               | Writes / network / protected reads / shell | Audit limits                                                                                                                                                                                                       |
 | ----------------- | ----------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Codex app-server  | workspace-write, network disabled, on-request, approvalsReviewer user                     | sandbox             | true / true / false / true                 | Workspace writes and sandbox-allowed commands can execute without approval; secret-file reads inside the workspace aren't gated. Native auto_review stays off.                                                     |
@@ -45,7 +47,7 @@ Sources: pinned official SDK declarations, Codex generated app-server 0.159.1 sc
 
 ## Reviewer and audit
 
-The deterministic reviewer consumes a schema-validated exact command, paths or tool input and the thread's physical workspace. It does not execute commands. Path checks resolve existing ancestors, including symlinks, before granting access. Unknown tools, shell composition, broad permission grants and incomplete targets escalate. A small allowlist permits low-risk commands and exact Read/read operations on physically verified regular workspace files. Directories, recursive searches (including Grep/Glob), unknown read tools and missing files escalate; containment alone cannot prove which files a broad read touches. Generic ACP read categories always escalate. [ACP kinds are categories and locations support follow-along](https://agentclientprotocol.com/protocol/v1/tool-calls); they do not provide an exhaustive file-input contract. The adapter retains the category as acp/read, even when rawInput appears to name one file. Provider-specific exact-read proof requires a separate audited input contract. The fake daemon has no physical-file proof and escalates these reads too. Clearly destructive workspace commands are denied. Secret/credential access and destructive actions outside the workspace always escalate, even when another rule would deny them. Read-only never approves writes.
+The deterministic reviewer consumes a schema-validated exact command, paths or tool input and the thread's physical workspace. It does not execute commands. Path checks resolve existing ancestors, including symlinks, before granting access. Unknown tools, shell composition, broad permission grants and incomplete targets escalate. A bounded allowlist permits `pwd`, non-recursive `ls`, and `cat`, `head`, `tail`, and `wc` on exact regular workspace files. The host verifies system utility identity through PATH, and verifies absolute shell wrappers separately. Expansion, redirection, composition, recursive search and arbitrary programs remain uncertain. Exact native Read/read operations also require regular-file proof. Exact Edit/Write, OpenCode edit/write and correlated Codex file changes can create or update ordinary workspace files. Existing directories, missing read files, symlink escapes and workspace control metadata in `.git`/`.ace` cannot earn automatic approval. Every destination of a Codex rename is checked; deletes, missing file-change attribution and broad `grantRoot` requests escalate. Generic ACP read categories always escalate. [ACP kinds are categories and locations support follow-along](https://agentclientprotocol.com/protocol/v1/tool-calls); they do not provide an exhaustive file-input contract. The adapter retains the category as acp/read, even when rawInput appears to name one file. Provider-specific exact-read proof requires a separate audited input contract. The fake daemon has no physical-file proof and escalates these reads too. Clearly destructive workspace commands are denied; Git mutation requests remain human work. Secret/credential access and destructive actions outside the workspace always escalate, even when another rule would deny them. Read-only never approves writes.
 
 Each ace review creates a durable permission.reviewed event containing interaction identity, target, effective mode, decision and reason. The same transaction creates a transcript notice and, for allow/deny, a single-use resolution intent. When a provider has no one-shot denial but offers cancellation, deny cancels the current action. No session-wide or permanent grants are synthesized. Restricted ace modes also refuse permanent native grants submitted by a human; full access requires the explicit mode command. Read-only refuses human mutation approvals. Escalation leaves the interaction pending, so ADR 0004 derives needs_you for the whole tree. Retries cannot duplicate decisions or race a human resolution; uncertain delivery after restart is never replayed automatically.
 
@@ -99,3 +101,52 @@ and [RPC confirmation contract](https://raw.githubusercontent.com/badlogic/pi-mo
 Resume/read history reconstructs transcript and background work. It does not prove a live answer transport: historical questions and plans never open interactions, and their native question identities remain terminal on duplicate notifications. A fresh server request owns a process-scoped key. Stale resolution returns `interaction_unavailable`; it never writes to a replacement process. The engine retains durable interaction outcomes and generation fencing (WP5).
 
 Each Codex exit emits bounded, redacted `codex-session-exit` diagnostic evidence: process-generation token, deliberate flag, retirement reason, native reason, code, signal, and a 4 KiB stderr tail. Planned idle/user/shutdown retirement is distinct from native disconnect and failed-open cleanup. This evidence uses the existing provider diagnostic sink; the daemon currently persists that sink only at debug level. WP5 must wire this specific exit record at ordinary log levels as part of its engine logging ownership.
+
+## QA correction: Ask admission and Codex workspace writes
+
+The October 5 QA shell-edit reproduction established that Ask and Auto-review
+must not share Codex's writable sandbox. Ask now explicitly uses read-only at
+thread start, resume, fork and each engine-owned turn. Native escalation remains
+on-request with the user reviewer. A shell write is held until the user grants
+that action, and denial leaves the workspace unchanged. Sandboxed read commands
+can run without asking. The picker describes approval for edits and risky actions,
+and Codex's Ask guarantee discloses those read exceptions.
+
+Claude, OpenCode and Pi retain their pre-execution tool gates and now publish
+Ask guarantees separately from Auto-review. Their surfaced Ask approvals remain
+pending for a person. Cursor SDK and generic ACP, including the Cursor CLI and
+Antigravity ACP profiles, do not offer Ask because their contracts cannot
+promise a human decision before mutations. ACP rejects explicit Ask before
+spawning its CLI. An Auto-review guarantee can no longer imply Ask support at
+engine admission. Existing Auto-review behavior remains governed by the provider
+guarantees above.
+
+The regressions use isolated scripted CLIs and existing recorded Codex, Claude
+and OpenCode approval flows. No recorder or subscription prompts were run.
+
+## Corrections from the installed-app reports
+
+The October 5 investigation replayed recorder fixtures and used a real daemon in
+isolated temporary homes. OpenCode v2 edit approvals supply `metadata.files`,
+while shell/read approvals identify a tool through `source`. The complete tool
+input is JSON in `session.tool.input.ended`, before `permission.asked` and before
+`session.tool.called`. That completed input, bounded and matched to the tool
+identity and action, is authority. Permission `resources` and `save` are patterns
+and never substitute for exact input. Raw frames retain unknown fields.
+
+The deterministic policy is deliberately narrower than arbitrary local command
+execution. It approves the proven cases above without executing reviewer commands
+or calling a model. Network, credential access, outside paths, ambiguous effects,
+and browser/screen consent remain human work. `defaultToNo` browser and screen
+host approvals and external-effect ace tools retain their existing consent path.
+Safe ace inspection, scoped thread changes and inherited delegation already had
+specific risk classes; they were not the cause of the reported failures. Pi's
+blocking extension confirmations use this same durable reviewer, including
+exact read/write/edit inputs and shell commands. Generic ACP shell requests can
+earn approval from exact input; follow-along file locations remain insufficient.
+
+This follows the sandbox boundary documented by OpenAI for
+[agent approvals and security](https://learn.chatgpt.com/docs/agent-approvals-security)
+and [auto-review](https://learn.chatgpt.com/docs/sandboxing/auto-review).
+ace continues to use its own deterministic reviewer rather than the native
+Codex reviewer, and does not claim to reproduce every native reviewer decision.

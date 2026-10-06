@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ProviderInstance, AccountQuota } from "@ace/protocol/accounts";
-import { availability } from "./availability.ts";
+import { availability, blockedUntil } from "./availability.ts";
 import { object } from "./quota-decode.ts";
 
 export type RolePolicy = Record<string, { speed: "standard" | "fast" }>;
@@ -73,4 +73,18 @@ export function pickInstance(
     }
   }
   return best;
+}
+
+/** Explicit selection of the normal CLI home needs no prior quota probe.
+ * Known authentication failures and live quota blockers still prevent launch. */
+export function explicitInstance(
+  input: { provider: ProviderInstance["provider"]; role: string; estimatedLoad: number },
+  candidate: Candidate,
+  now: number,
+): ProviderInstance | undefined {
+  const selected = pickInstance(input, [candidate], now);
+  if (selected || !candidate.instance.implicit || candidate.quota.auth !== "unknown")
+    return selected;
+  if (candidate.instance.provider !== input.provider) return undefined;
+  return blockedUntil(candidate.quota, now) === undefined ? candidate.instance : undefined;
 }

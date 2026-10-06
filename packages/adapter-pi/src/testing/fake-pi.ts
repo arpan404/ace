@@ -1,12 +1,18 @@
 /** Synthetic documented RPC peer. This executable never imports or starts Pi. */
+import { privateMcpConfig, readPrivateMcpConfig } from "@ace/mcp-server";
 import { createInterface } from "node:readline";
 import { writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { realpathSync } from "node:fs";
 import { NativeHistory } from "./native-history.ts";
 import { registerAcePiExtension, type PiExtensionApi } from "../index.ts";
 import { join } from "node:path";
 import { z } from "zod";
 const Command = z.looseObject({ type: z.string(), id: z.string().optional() });
+const nativeSession = z
+  .object({ controlSecret: z.string(), mcp: z.object({ bearer: z.string() }).optional() })
+  .parse(JSON.parse(readPrivateMcpConfig(z.string().parse(process.env.ACE_PI_SESSION_FILE))));
 const history = new NativeHistory();
 if (process.env.FAKE_PI_HOME) history.load(join(process.env.FAKE_PI_HOME, "source.jsonl"));
 let queue = false,
@@ -22,24 +28,33 @@ const hooks = new Map<string, unknown>();
 const approvals = new Map<string, (confirmed: boolean) => void>();
 let approvalId = 0;
 const commands = new Map<string, Parameters<PiExtensionApi["registerCommand"]>[1]>();
-await registerAcePiExtension(
-  {
-    registerCommand(name, command) {
-      commands.set(name, command);
-    },
-    appendEntry(customType, data) {
-      emit({ type: "entry_appended", entry: history.append(customType, data) });
-    },
-    registerTool() {},
-    on(event, handler) {
-      hooks.set(event, handler);
-    },
-  },
-  {
-    ACE_PI_CONTROL_SECRET: process.env.ACE_PI_CONTROL_SECRET,
-    ACE_PI_PERMISSION_MODE: process.env.ACE_PI_PERMISSION_MODE,
-  },
+// This RPC peer exercises control hooks; it never opens a real MCP connection.
+const controlConfig = privateMcpConfig(
+  JSON.stringify({ controlSecret: nativeSession.controlSecret }),
+  process.cwd(),
 );
+try {
+  await registerAcePiExtension(
+    {
+      registerCommand(name, command) {
+        commands.set(name, command);
+      },
+      appendEntry(customType, data) {
+        emit({ type: "entry_appended", entry: history.append(customType, data) });
+      },
+      registerTool() {},
+      on(event, handler) {
+        hooks.set(event, handler);
+      },
+    },
+    {
+      ACE_PI_SESSION_FILE: controlConfig.path,
+      ACE_PI_PERMISSION_MODE: process.env.ACE_PI_PERMISSION_MODE,
+    },
+  );
+} finally {
+  controlConfig.remove();
+}
 const input = createInterface({ input: process.stdin });
 input.on("line", (line) => {
   void handle(line);
@@ -172,9 +187,9 @@ async function handle(line: string) {
           type: "extension_ui_request",
           id: "control-echo",
           method: "notify",
-          message: process.env.ACE_PI_CONTROL_SECRET,
+          message: nativeSession.controlSecret,
         });
-        process.stderr.write(`control=${process.env.ACE_PI_CONTROL_SECRET}\n`);
+        process.stderr.write(`control=${nativeSession.controlSecret}\n`);
         const command = commands.get("ace-rollback");
         if (!command) throw new Error("Missing synthetic control command");
         await command.handler(message.slice("/ace-rollback ".length), {
@@ -206,22 +221,27 @@ async function handle(line: string) {
         method: "notify",
         message: JSON.stringify(c),
       });
-      if (message === "gated-write") {
+      if (message === "gated-write" || message === "gated-shell") {
         const hook = hooks.get("tool_call");
         const path = join(process.env.FAKE_PI_HOME ?? "", "approved.txt");
+        const toolName = message === "gated-shell" ? "bash" : "write";
+        const toolInput =
+          toolName === "bash"
+            ? { command: `printf approved >> ${path}` }
+            : { path, content: "approved" };
         emit({
           type: "tool_execution_start",
           toolCallId: "write-call",
-          toolName: "write",
-          args: { path, content: "approved" },
+          toolName,
+          args: toolInput,
         });
         const reviewed: Promise<unknown> =
           typeof hook === "function"
             ? Reflect.apply(hook, undefined, [
                 {
-                  toolName: process.env.FAKE_PI_MALFORMED_TOOL ? "x".repeat(1025) : "write",
+                  toolName: process.env.FAKE_PI_MALFORMED_TOOL ? "x".repeat(1025) : toolName,
                   toolCallId: "write-call",
-                  input: { path, content: "approved" },
+                  input: toolInput,
                 },
                 {
                   cwd: process.env.FAKE_PI_HOME,
@@ -249,11 +269,15 @@ async function handle(line: string) {
           .object({ block: z.boolean().optional() })
           .optional()
           .parse(await reviewed);
-        if (!decision?.block) await writeFile(path, "approved");
+        if (!decision?.block) {
+          if (toolName === "bash")
+            await promisify(execFile)("sh", ["-c", 'printf approved >> "$1"', "ace-qa", path]);
+          else await writeFile(path, "approved");
+        }
         emit({
           type: "tool_execution_end",
           toolCallId: "write-call",
-          toolName: "write",
+          toolName,
           isError: decision?.block === true,
           result: {
             content: [
@@ -318,7 +342,7 @@ async function handle(line: string) {
                 ? "write available"
                 : "write unavailable"
               : message === "env-proof"
-                ? (process.env.ACE_PI_MCP_BEARER ?? "")
+                ? (nativeSession.mcp?.bearer ?? "")
                 : message === "context-proof"
                   ? history.context()
                   : "hello\u2028world\u2029!";

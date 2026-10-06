@@ -1,50 +1,54 @@
 /*
- * The Home list as the sidebar draws it: one flat list of task rows, pinned threads first, then
- * the rest in Home order (what needs you, work in motion, trouble, the rest, most recent first
- * within each), then the collapsible Settled section. Pure: the caller passes the arrangement.
+ * The Home list as the sidebar draws it: the Pinned group under its heading, in the person's
+ * own order, then the rest in Home order (what needs you, work in motion, trouble, the rest, most
+ * recent first within each), then the collapsible Settled section. Pure: the caller passes the
+ * arrangement.
  */
 
-/** One active thread in Home order, with what the list order needs to know about it. */
-export interface HomeEntry {
-  id: string;
-  pinned: boolean;
-}
-
-/** Pinned threads lead, each part keeping Home order. */
-export function homeOrder(active: readonly HomeEntry[]): string[] {
-  const pinned: string[] = [];
-  const rest: string[] = [];
-  for (const entry of active) (entry.pinned ? pinned : rest).push(entry.id);
-  return [...pinned, ...rest];
-}
-
 export type HomeRow =
+  | { kind: "pinned-header"; count: number }
+  | { kind: "pinned"; id: string }
+  | { kind: "pinned-end" }
   | { kind: "thread"; id: string }
   | { kind: "settled-header"; count: number }
   | { kind: "settled"; id: string };
 
-/** Every row of the list, top to bottom. */
+export interface HomeGroups {
+  pinned: readonly string[];
+  active: readonly string[];
+  settled: readonly string[];
+}
+
+/**
+ * Every row of the list, top to bottom. The Pinned heading shows while anything is pinned, and
+ * during a drag (`pinZone`) even when nothing is, as the place to drop a thread to pin it. A
+ * rule closes the group.
+ */
 export function homeRows(
-  active: readonly string[],
-  settled: readonly string[],
-  options: { settledOpen: boolean },
+  groups: HomeGroups,
+  options: { settledOpen: boolean; pinZone?: boolean },
 ): HomeRow[] {
-  const rows: HomeRow[] = active.map((id) => ({ kind: "thread", id }));
-  rows.push({ kind: "settled-header", count: settled.length });
-  if (options.settledOpen) for (const id of settled) rows.push({ kind: "settled", id });
+  const rows: HomeRow[] = [];
+  const pinnedGroup = groups.pinned.length > 0 || options.pinZone === true;
+  if (pinnedGroup) rows.push({ kind: "pinned-header", count: groups.pinned.length });
+  for (const id of groups.pinned) rows.push({ kind: "pinned", id });
+  if (pinnedGroup) rows.push({ kind: "pinned-end" });
+  for (const id of groups.active) rows.push({ kind: "thread", id });
+  rows.push({ kind: "settled-header", count: groups.settled.length });
+  if (options.settledOpen) for (const id of groups.settled) rows.push({ kind: "settled", id });
   return rows;
 }
 
 /**
  * A stable key per row, for the virtualizer and the list's motion. Threads and headings have
  * their own prefixes, so no thread id (ids are any string) can take a heading's key. A thread
- * keeps one key whether it shows active or settled, so moving between them slides.
+ * keeps one key whether it shows pinned, active or settled, so moving between them slides.
  */
 export function homeRowKey(row: HomeRow): string {
-  return row.kind === "settled-header" ? "section:settled-header" : `thread:${row.id}`;
+  return "id" in row ? `thread:${row.id}` : `section:${row.kind}`;
 }
 
 /** The thread a row shows, if it shows one. */
 export function homeRowThread(row: HomeRow): string | undefined {
-  return row.kind === "settled-header" ? undefined : row.id;
+  return "id" in row ? row.id : undefined;
 }

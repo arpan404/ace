@@ -10,7 +10,13 @@ export {
   type Availability,
 } from "./availability.ts";
 export { parseLimitReset } from "./reset-time.ts";
-export { pickInstance, speedHint, type Candidate, type RolePolicy } from "./scheduler.ts";
+export {
+  pickInstance,
+  explicitInstance,
+  speedHint,
+  type Candidate,
+  type RolePolicy,
+} from "./scheduler.ts";
 export { migrateSession, type MigrationSafety, type MigrationRequest } from "./migration.ts";
 
 export type { MigrationObserver, MigrationProgress } from "./migration-files.ts";

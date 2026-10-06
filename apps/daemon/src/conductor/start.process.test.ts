@@ -54,3 +54,33 @@ test("an explicitly logged-out default CLI account rejects start without creatin
   expect(await h.listRuns()).toEqual([]);
   expect(h.daemon.store.listThreads()).toEqual([]);
 });
+
+test.each(["logged_in", "unknown"] as const)(
+  "Deck runs on the explicitly selected normal CLI account while its quota authentication is unknown, discovery=%s",
+  async (auth) => {
+    const h = await deckFixture({ auth });
+    if (!h.daemon.accounts) throw new Error("Missing accounts service");
+    const accounts = await h.daemon.accounts.handle({
+      type: "accounts.list",
+      requestId: "accounts",
+    });
+    if (accounts.type !== "accounts.list") throw new Error("Missing accounts");
+    const normal = accounts.accounts.find(
+      (account) => account.provider === "codex" && account.id === "codex-cli-default",
+    );
+    if (!normal) throw new Error("Missing normal CLI account");
+    expect(normal.quota.auth).toBe("unknown");
+    const spec = ConductorSpec.parse({
+      ...h.spec,
+      constraints: { ...h.spec.constraints, accounts: [normal.id] },
+    });
+    expect(await h.commands({ type: "conductor.start", runId: h.runId, spec })).toMatchObject({
+      ok: true,
+    });
+    await h.subscribe();
+    await h.waitFor((run) => run.phase === "done");
+    expect(h.daemon.store.listThreads().some((thread) => thread.live?.account === normal.id)).toBe(
+      true,
+    );
+  },
+);

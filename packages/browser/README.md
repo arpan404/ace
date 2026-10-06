@@ -98,10 +98,12 @@ After rendering a frame, acknowledge its `sequence`. Each viewer gets one
 in-flight frame and one replaceable latest frame. Slow viewers cannot hold back
 others. A new subscription gets the latest captured frame and current state.
 CDP acknowledgements happen independently of client acknowledgements. Quality
-and capture rate drop from JPEG 70 at up to 15 FPS to JPEG 40 at up to 6 FPS under
-pressure. CDP captures changed frames, not a heartbeat. Capture dimensions are
-limited to 1280 by 960; frame width/height describe the CSS viewport for mapping
-pointer and touch coordinates.
+and capture rate drop to JPEG 40 at up to 6 FPS after sustained pressure. Local
+viewers report CSS pane size and DPR through `browser.capture`, capped at 2560
+pixels on the long edge with a 30 FPS / JPEG 90 target. Remote demand is capped at
+1280 pixels with a 15 FPS / JPEG 80 target. CDP captures changed frames, not a
+heartbeat. Frame width/height describe the CSS viewport for mapping pointer and
+touch coordinates. Capture demand follows page replacement and reconnects.
 
 Take-over is immediate. Agent input checks ownership when it reaches dispatch
 and after awaited preparation. An action already sent to Chromium may finish.
@@ -188,10 +190,10 @@ They need run at merge under the owner's current verification policy.
 
 See [ADR 0067](../../docs/adr/0067-browser-parity.md) and the
 [UI wire handoff](../../docs/daemon/browser-parity-ui.md). The daemon's automatic
-backend is headless; agent open requests background operation explicitly. A human
-can retain the legacy embedded bridge by selecting it, but agent use converts an
-agent-owned embedded session to a fresh headless context. Human ownership blocks
-that conversion.
+backend prefers a registered desktop backend for human opens; agent open requests
+background operation explicitly and remains headless. Existing sessions keep their
+backend until closed. Agent use converts an agent-owned embedded session to a fresh
+headless context. Human ownership blocks that conversion.
 
 `ace_browser_tabs` accepts operation list/open/switch/close and optional tabId/url.
 `ace_browser_open` also accepts newTab. Stable tab IDs select pages without any
@@ -214,3 +216,8 @@ with at most 200 entries. Network bodies are retrieved individually, capped and
 redacted through @ace/redaction. No request bodies or response headers are kept.
 Private takeover excludes agent observations, logs, network inspection, downloads
 and recorded frames. Shared takeover retains agent observation access.
+
+`node packages/browser/bench/crisp.ts` measures a local CSS animation and click-to-decoded
+pixel latency in an isolated Chromium context. It prints encoded dimensions, mean JPEG
+bytes, delivered fps, median latency and starting host load. It excludes the daemon's
+command and viewer WebSocket routing. Run timing comparisons on an otherwise idle host.

@@ -415,16 +415,19 @@ test("archiving from the ⋯ menu leaves the thread", async () => {
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
 });
 
-test("deleting from the ⋯ menu leaves the thread with an Undo window, and Undo keeps it", async () => {
+test("deleting a thread with work still running from the ⋯ menu keeps it and says why", async () => {
   const app = await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
-  const undo = await screen.findByRole("button", { name: "Undo" });
-  expect(screen.getByText("Deleted · Replay cursor resets on every resume")).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
-  await userEvent.click(undo);
+  expect(
+    await screen.findByText("Stop its agents and close its terminals first.", undefined, {
+      timeout: 9_000,
+    }),
+  ).toBeTruthy();
+  expect(screen.getByRole("feed", { name: "Transcript" })).toBeTruthy();
   const view = app.daemon.snapshot({ kind: "threads" });
   expect(view?.kind === "threads" && view.threads["thread-replay-cursor"]).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
 });
 
 test("the ⋯ menu offers the same thread actions, in the same order, as the row's context menu", async () => {
@@ -439,7 +442,7 @@ test("the ⋯ menu offers the same thread actions, in the same order, as the row
   const menu = await screen.findByRole("menu", { name: /^Actions for/ });
   const context = within(menu)
     .getAllByRole("menuitem")
-    .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R)$/, ""));
+    .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R|P)$/, ""));
   // The thread screen adds a side chat and the agent tree, and shows its own shortcuts.
   const shortcut = /(Alt\+Ctrl\+[RP]|(Alt\+)?Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
   expect(

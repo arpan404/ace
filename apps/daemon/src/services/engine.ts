@@ -172,6 +172,14 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ...acp,
     ...engineOptions,
     registry,
+    onCommandEvent(event) {
+      engineOptions.onCommandEvent?.(event);
+      if (event.type === "session.closed") services.commands?.clearRuntime(event.threadId);
+      else
+        void services.commands
+          ?.updateRuntime(event.threadId, event.data)
+          .catch((error) => log.log("warn", "Provider command metadata unavailable", error));
+    },
     ...(services.models ? { models: services.models } : {}),
     providerEnabled: (provider, instance) =>
       services.providerConfigurations?.for(provider, instance).enabled !== false,
@@ -239,13 +247,15 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     onProviderDiagnostic:
       engineOptions.onProviderDiagnostic ??
       ((thread, raw) => {
-        if (config.logLevel !== "debug") return;
+        const warnings = raw.filter((payload) => payload.type === "stderr");
+        const evidence = config.logLevel === "debug" ? raw : warnings;
+        if (!evidence.length) return;
         log.log(
-          "debug",
+          warnings.length ? "warn" : "debug",
           "Provider diagnostic",
           logFields([
             ["thread", thread],
-            ["raw", raw.slice(0, 8).map((payload) => logMetadata(payload))],
+            ["raw", evidence.slice(0, 8).map((payload) => logMetadata(payload))],
           ]),
         );
       }),

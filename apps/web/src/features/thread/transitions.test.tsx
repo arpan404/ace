@@ -78,12 +78,12 @@ test("picking another provider's model asks first, then switches after the runni
   expect(await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ })).toBeTruthy();
 });
 
-test("deleting from the ⋯ menu leaves the thread, and the daemon deletes it once Undo has passed", async () => {
+test("deleting from the ⋯ menu leaves the thread and persists deletion immediately", async () => {
   const { app } = await openRouter();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
-  expect(screen.getByText("Deleted · Document the router")).toBeTruthy();
+  expect(await screen.findByText("Deleted · Document the router")).toBeTruthy();
   await waitFor(() => expect(thread(app, "thread-router")).toBeUndefined(), { timeout: 9_000 });
 }, 15_000);
 

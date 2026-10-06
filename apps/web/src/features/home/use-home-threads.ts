@@ -3,18 +3,19 @@ import { arrayEqual, useSidebar, type SidebarKey } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { useCallback } from "react";
 import { useNow } from "@/lib/time.ts";
-import { arrange, homeOrder, projectCounts, type ProjectCount } from "@ace/ui-core";
+import { arrange, projectCounts, type ProjectCount } from "@ace/ui-core";
 import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
 
-/** Home's threads: pinned first, then the rest in Home order, and Settled apart. */
+/** Home's threads: pinned first in their own order, then the rest in Home order, Settled apart. */
 export interface HomeList {
+  pinned: string[];
   active: string[];
   settled: string[];
   /** The listed threads that need you, which may rise while the list otherwise holds still. */
   needsYou: string[];
 }
-const empty: HomeList = { active: [], settled: [], needsYou: [] };
+const empty: HomeList = { pinned: [], active: [], settled: [], needsYou: [] };
 const noProjects: ProjectCount[] = [];
 
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
@@ -44,14 +45,16 @@ function useEveryEntryKey(): readonly SidebarKey[] {
 }
 
 const listEqual = (a: HomeList, b: HomeList) =>
+  arrayEqual(a.pinned, b.pinned) &&
   arrayEqual(a.active, b.active) &&
   arrayEqual(a.settled, b.settled) &&
   arrayEqual(a.needsYou, b.needsYou);
 
 /**
- * Home order (needs you, moving, trouble, the rest, most recent first in each; settled apart),
- * pinned threads first, across every project the filter lets through. Only ids are selected, so
- * a status change re-renders its own row and moves rows only when the order changes.
+ * Pinned threads in the person's order, then Home order (needs you, moving, trouble, the rest,
+ * most recent first in each; settled apart), across every project the filter lets through. Only
+ * ids are selected, so a status change re-renders its own row and moves rows only when the
+ * order changes.
  */
 export function useHomeList(): HomeList {
   const keys = useEveryEntryKey();
@@ -61,13 +64,10 @@ export function useHomeList(): HomeList {
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
       const entries = read(reader);
-      const { active, settled } = arrange(entries, state, now);
+      const { pinned, active, settled } = arrange(entries, state, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
-      const ordered = homeOrder(
-        active.map((id) => ({ id, pinned: byId.get(id)?.pinned === true })),
-      );
-      return { active: ordered, settled, needsYou };
+      return { pinned, active, settled, needsYou };
     },
     [state, now, read],
   );
@@ -76,7 +76,7 @@ export function useHomeList(): HomeList {
 
 /** The top of the Home list: the first pinned thread, else the first thread in Home order. */
 export function topThread(list: HomeList): string | undefined {
-  return list.active[0];
+  return list.pinned[0] ?? list.active[0];
 }
 
 const countsEqual = (a: ProjectCount[], b: ProjectCount[]) =>

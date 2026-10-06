@@ -1,3 +1,4 @@
+import { inspectionCommand } from "./permission-commands.ts";
 import { unwrapShellCommand } from "@ace/provider-kit/shell-command";
 import type {
   ApprovalTarget,
@@ -44,6 +45,7 @@ export function supportsPermissionMode(
   capabilities: PermissionCapabilities | undefined,
   mode: PermissionMode,
 ): boolean {
+  if (mode === "ask") return capabilities?.modes.includes(mode) === true && capabilities.toolGate;
   return (
     capabilities?.modes.includes(mode) === true ||
     (mode !== "full-access" &&
@@ -71,7 +73,7 @@ export function permissionDecisionOption(
 /** Boundary resolves symlinks and existing ancestors. Unknown paths can never earn approval. */
 export type PathRisk = "workspace-file" | "workspace" | "outside" | "secret" | "unknown";
 const secret =
-  /(?:^|[\s/\\"':])(?:\.env(?:\.[\w.-]+)?|\.ssh|\.aws|\.azure|\.gnupg|\.codex|\.claude|\.kube|\.git-credentials|secrets?(?:\.[\w.-]+)?|credentials(?:\.[\w.-]+)?|\.netrc|\.npmrc|id_rsa|id_ed25519)(?:$|[\s/\\"'*:])|(?:api[_-]?key|access[_-]?token|password|keychain|printenv|process\.env|gcloud|hosts\.yml)/i;
+  /(?:^|[\s/\\"':])(?:\.env(?:\.[\w.-]+)?|\.ssh|\.aws|\.azure|\.gnupg|\.codex|\.claude|\.kube|\.git-credentials|\.git|\.ace|secrets?(?:\.[\w.-]+)?|credentials(?:\.[\w.-]+)?|\.netrc|\.npmrc|id_rsa|id_ed25519)(?:$|[\s/\\"'*:])|(?:api[_-]?key|access[_-]?token|password|keychain|printenv|process\.env|gcloud|hosts\.yml)/i;
 export function containsSecretReference(value: string): boolean {
   return secret.test(value);
 }
@@ -82,6 +84,7 @@ export function reviewPermission(input: {
   paths: readonly PathRisk[];
   /** Executables verified by the host filesystem boundary, never provider metadata. */
   trustedShells?: readonly string[];
+  trustedCommands?: readonly string[];
 }): RiskDecision {
   const { mode, target, paths } = input;
   const text = [
@@ -128,21 +131,31 @@ export function reviewPermission(input: {
     if (wrapper && !input.trustedShells?.includes(wrapper.shell))
       return { decision: "escalate", reason: "Shell executable identity could not be verified" };
     const command = wrapper?.inner ?? target.command;
+    const inspection = inspectionCommand(command);
+    if (
+      inspection &&
+      (inspection.executable === "pwd" || input.trustedCommands?.includes(inspection.executable))
+    ) {
+      if (
+        paths.length !== inspection.paths.length ||
+        (inspection.regularFiles && paths.some((path) => path !== "workspace-file"))
+      )
+        return { decision: "escalate", reason: "Command file inputs could not be verified" };
+      return { decision: "approve", reason: "Read-only workspace inspection command" };
+    }
     // Absolute paths, expansion and composition must not hide outside-workspace destruction.
     if (/(?:^|[\s=])(?:\/|~)|(?:^|[\s=/])\.\.(?:\/|$)|[;&|<>`$\n\\'"]/.test(command))
       return {
         decision: "escalate",
         reason: "Shell paths, expansion or composition require a human",
       };
-    if (
-      /^(?:sudo\s+)?(?:rm|rmdir|shred|mkfs|dd)(?:\s|$)|^git\s+(?:reset\s+--hard|clean|push)(?:\s|$)/.test(
-        command,
-      )
-    )
+    if (/^(?:sudo\s+)?(?:rm|rmdir|shred|mkfs|dd)(?:\s|$)/.test(command))
       return {
         decision: "deny",
         reason: "Destructive command is outside the automatic risk policy",
       };
+    if (/^git\s+(?:reset|clean|push|checkout|restore|branch)(?:\s|$)/.test(command))
+      return { decision: "escalate", reason: "Git mutation requires a human" };
     if (/^pwd$/.test(command.trim()))
       return { decision: "approve", reason: "Read-only workspace inspection command" };
     return { decision: "escalate", reason: "Command is not in the low-risk allowlist" };
@@ -155,6 +168,14 @@ export function reviewPermission(input: {
     paths.every((path) => path === "workspace-file")
   )
     return { decision: "approve", reason: "Read of verified non-secret workspace files" };
+  if (
+    target.access === "write" &&
+    ["Edit", "Write", "edit", "write", "item/fileChange/requestApproval"].includes(target.tool) &&
+    target.paths?.length &&
+    paths.length === target.paths.length &&
+    paths.every((path) => path === "workspace" || path === "workspace-file")
+  )
+    return { decision: "approve", reason: "Exact write within the verified workspace" };
   return { decision: "escalate", reason: "Tool effects are not proven low risk" };
 }
 

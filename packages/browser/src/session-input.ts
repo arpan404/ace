@@ -15,6 +15,14 @@ export async function sendHumanInput(
         x: input.x,
         y: input.y,
         button: input.button,
+        buttons:
+          input.event === "mouseReleased" || input.button === "none"
+            ? 0
+            : input.button === "left"
+              ? 1
+              : input.button === "right"
+                ? 2
+                : 4,
         clickCount: input.clickCount,
       });
       break;

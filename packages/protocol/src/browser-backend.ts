@@ -28,6 +28,7 @@ export const BrowserBackendOperation = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("open"),
     options: BrowserOpen,
+    downloadDir: z.string().min(1).max(8192).optional(),
     viewport: z.object({ width: z.number().int(), height: z.number().int() }),
     lease: BrowserControllerLease,
   }),

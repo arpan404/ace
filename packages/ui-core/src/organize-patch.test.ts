@@ -13,7 +13,7 @@ test("settling puts a finished thread in Settled and drops its snooze", () => {
   const settled = patchEntry(done({ snoozedUntil: now + 3_600_000 }), { settled: true }, now);
   expect(isSettled(settled)).toBe(true);
   expect(isSnoozed(settled, now)).toBe(false);
-  expect(arrange([settled], view, now)).toEqual({ active: [], settled: ["t"] });
+  expect(arrange([settled], view, now)).toEqual({ pinned: [], active: [], settled: ["t"] });
 });
 
 test("unsettling brings it back to the list as the newest activity", () => {
@@ -72,4 +72,22 @@ test("marking read shows only once the daemon records a new read time", () => {
   // Not flagged unread, but its activity is newer than the last read: nothing new arrived yet.
   expect(reflects(before, { unread: false }, before)).toBe(false);
   expect(reflects({ ...before, unread: false, readAt: now }, { unread: false }, before)).toBe(true);
+});
+
+test("a pin shows in its place at once: dragged ones where dropped, others at the top", () => {
+  const top = patchEntry(done(), { pinned: true }, now);
+  expect(top).toMatchObject({ pinned: true, pinOrder: now });
+  const dropped = patchEntry(top, { pinned: true, pinOrder: 12.5 }, now + 1);
+  expect(dropped.pinOrder).toBe(12.5);
+  // Pinning again from a menu keeps the dragged place, as the daemon does.
+  expect(patchEntry(dropped, { pinned: true }, now + 2).pinOrder).toBe(12.5);
+  const unpinned = patchEntry(dropped, { pinned: false }, now + 3);
+  expect(unpinned.pinned).toBe(false);
+  expect(unpinned.pinOrder).toBeUndefined();
+});
+
+test("a move among pinned threads shows until the daemon's entry has the new place", () => {
+  const before = { ...done(), pinned: true, pinOrder: 4 };
+  expect(reflects(before, { pinned: true, pinOrder: 7 }, before)).toBe(false);
+  expect(reflects({ ...before, pinOrder: 7 }, { pinned: true, pinOrder: 7 }, before)).toBe(true);
 });

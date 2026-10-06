@@ -121,5 +121,9 @@ export function keyEvent(input: KeyInput) {
     location,
     ...(location === 3 ? { isKeypad: true } : {}),
     modifiers: input.modifiers,
+    // Chromium's macOS editor needs explicit CDP commands for Meta editing chords.
+    ...(input.event === "keyDown" && input.modifiers === 4 && input.key.toLowerCase() === "a"
+      ? { commands: ["selectAll"] }
+      : {}),
   };
 }

@@ -1,4 +1,5 @@
-import { expect, test } from "vitest";
+import { privateMcpConfig } from "@ace/mcp-server";
+import { expect, test, onTestFinished } from "vitest";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { AgentId, ThreadId } from "@ace/protocol";
@@ -54,12 +55,15 @@ test("Pi extension forwards scoped tools, structured results and MCP errors acro
       hooks.set(event, handler);
     },
   };
+  const configuration = privateMcpConfig(
+    JSON.stringify({
+      controlSecret: "a".repeat(64),
+      mcp: { url: server.url, bearer: lease.bearer },
+    }),
+  );
+  onTestFinished(configuration.remove);
   try {
-    await registerAcePiExtension(pi, {
-      ACE_PI_CONTROL_SECRET: "a".repeat(64),
-      ACE_PI_MCP_URL: server.url,
-      ACE_PI_MCP_BEARER: lease.bearer,
-    });
+    await registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path });
     const echo = tools.get("ace_echo"),
       failure = tools.get("ace_failure");
     if (!echo || !failure) throw new Error("Missing MCP tools");
@@ -132,12 +136,15 @@ test("Pi executes authorized browser, screen and device tools and projects their
       else project = (result) => Reflect.apply(handler, undefined, [result]);
     },
   };
+  const configuration = privateMcpConfig(
+    JSON.stringify({
+      controlSecret: "a".repeat(64),
+      mcp: { url: server.url, bearer: lease.bearer },
+    }),
+  );
+  onTestFinished(configuration.remove);
   try {
-    await registerAcePiExtension(pi, {
-      ACE_PI_CONTROL_SECRET: "a".repeat(64),
-      ACE_PI_MCP_URL: server.url,
-      ACE_PI_MCP_BEARER: lease.bearer,
-    });
+    await registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path });
     for (const name of ["ace_browser_click", "screen_ui_act", "device_tap"]) {
       const tool = tools.get(name);
       if (!tool) throw new Error(`Missing authorized feature tool: ${name}`);
