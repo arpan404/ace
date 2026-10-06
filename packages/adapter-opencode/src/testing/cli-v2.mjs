@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { parse as parseJsonc } from "jsonc-parser";
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
 const args = process.argv.slice(2);
@@ -22,6 +21,16 @@ if (args[0] === "models") {
 }
 if (args[0] !== "serve") process.exit(1);
 if (!args.includes("--stdio") || !process.env.OPENCODE_PASSWORD) process.exit(2);
+// This fixture is also copied into dependency-free CLI homes for catalog probes.
+// Resolve the optional JSONC decoder only when comments actually require it.
+let configuration;
+try {
+  configuration = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
+} catch {
+  const { parse } = await import("jsonc-parser");
+  configuration = parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
+}
+
 const streams = new Set(),
   requests = [],
   sessions = new Map(),
@@ -95,12 +104,7 @@ const server = createServer(async (req, res) => {
   if (path === "/api/mcp") {
     json({
       data: [
-        ...new Set([
-          ...Object.keys(
-            parseJsonc(process.env.OPENCODE_CONFIG_CONTENT ?? "{}").mcp?.servers ?? {},
-          ),
-          ...nativeMcp.keys(),
-        ]),
+        ...new Set([...Object.keys(configuration.mcp?.servers ?? {}), ...nativeMcp.keys()]),
       ].map((name) => ({
         name,
         status: { status: process.env.ACE_TEST_MCP_FAILED ? "failed" : "connected" },
@@ -118,7 +122,7 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (path === "/test/mcp") {
-    const config = parseJsonc(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
+    const config = configuration;
     const ace = nativeMcp.get("ace");
     if (!ace) {
       json({ missing: true });
