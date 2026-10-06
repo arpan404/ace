@@ -1,6 +1,7 @@
 import { FileIcon, XIcon } from "@phosphor-icons/react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { formatBytes } from "./format-bytes.ts";
 import { cn } from "@/lib/cn.ts";
 
 /** A file being added to the next message, as the composer's chip shows it. */
@@ -10,6 +11,7 @@ export interface ChipAttachment {
   /** Object URL for image previews; a draft restored after a reload has none. */
   preview?: string | undefined;
   mimeType?: string | undefined;
+  bytes?: number | undefined;
   state: "uploading" | "ready" | "failed";
   /** 0..1 */
   progress: number;
@@ -69,6 +71,14 @@ function Chip(props: {
     >
       <Thumb item={item} />
       <span className="min-w-0 truncate">{item.name}</span>
+      {!item.preview && item.bytes !== undefined && (
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {formatBytes(item.bytes)} ·{" "}
+          {item.mimeType === "application/pdf"
+            ? "PDF"
+            : (item.name.split(".").at(-1)?.toUpperCase() ?? "File")}
+        </span>
+      )}
       {failed && (
         <>
           <Tip label={reason}>

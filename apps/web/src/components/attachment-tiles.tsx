@@ -63,6 +63,13 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
   const { show, lightbox } = useLightbox(images);
   return (
     <div className={cn("flex flex-col items-end gap-1.5", props.className)}>
+      {images.some((image) => image.delivery) && (
+        <span className="text-xs text-muted-foreground">
+          {images.some((image) => image.delivery === "file_path")
+            ? "Images sent as files"
+            : "Native images"}
+        </span>
+      )}
       {images.length > 0 && (
         <ul
           aria-label={images.length === 1 ? "Image" : `${images.length} images`}
@@ -174,7 +181,16 @@ function fileIcon(file: ShownFile) {
 
 /** "report.pdf · 1.2 MB" with an icon by type; the full name in the tooltip. */
 export function FileChip(props: { file: ShownFile }) {
-  const label = fileLabel(props.file);
+  const modes = {
+    native_image: "native image",
+    native_pdf: "native PDF",
+    native_resource: "native resource",
+    inline_text: "inline text",
+    inline_text_and_path: "inline text + file",
+    file_path: "sent as file",
+  };
+  const label =
+    fileLabel(props.file) + (props.file.delivery ? ` · ${modes[props.file.delivery]}` : "");
   return (
     <Tip label={props.file.name}>
       <span
