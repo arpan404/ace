@@ -21,8 +21,9 @@ function valueOf(name: string): string {
 
 async function setToken(name: string, value: string) {
   const field = await screen.findByRole("textbox", { name });
-  await userEvent.clear(field);
-  await userEvent.type(field, value);
+  // These cases exercise draft validation and commit, not keyboard sequencing or the debounce.
+  fireEvent.change(field, { target: { value } });
+  fireEvent.blur(field);
 }
 
 test("editing a preset forks a custom copy, applies it live and lists it under Appearance", async () => {
