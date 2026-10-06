@@ -240,17 +240,20 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(1);
       await click("button[onclick*=alert]");
       await p.getByRole("alertdialog").getByRole("button", { name: "OK", exact: true }).click();
+      await p.getByRole("alertdialog").waitFor({ state: "hidden" });
       await click("button[onclick*=confirm]");
       await p.getByRole("alertdialog").getByRole("button", { name: "OK", exact: true }).click();
       await expect
         .poll(() => nativeRead("document.querySelector('#result').textContent"))
         .toBe("true");
+      await p.getByRole("alertdialog").waitFor({ state: "hidden" });
       await click("button[onclick*=prompt]");
       await p.getByRole("textbox", { name: "Answer", exact: true }).fill("answered");
       await p.getByRole("alertdialog").getByRole("button", { name: "OK", exact: true }).click();
       await expect
         .poll(() => nativeRead("document.querySelector('#result').textContent"))
         .toBe("answered");
+      await p.getByRole("alertdialog").waitFor({ state: "hidden" });
       await nativeRead(
         "setTimeout(()=>document.querySelector('iframe').contentWindow.document.querySelector('button[onclick*=prompt]').click(),0)",
       );
@@ -263,6 +266,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
           ),
         )
         .toBe("iframe answer");
+      await p.getByRole("alertdialog").waitFor({ state: "hidden" });
       const crossFrame = (expression: string) =>
         s.app.evaluate(
           ({ webContents }, args) => {
@@ -285,6 +289,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect
         .poll(() => crossFrame("document.querySelector('#result').textContent"))
         .toBe("cross-origin answer");
+      await p.getByRole("alertdialog").waitFor({ state: "hidden" });
       expect(await nativeRead("document.querySelector('#video').paused")).toBe(false);
       await s.app.evaluate(({ webContents }, url) => {
         const c = webContents.getAllWebContents().find((entry) => entry.getURL() === url);
@@ -336,7 +341,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(exact).toBe(true);
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Copy address", exact: true }).click();
-      expect(await s.app.evaluate(({ clipboard }) => clipboard.readText())).toBe(s.url);
+      await expect.poll(() => s.app.evaluate(({ clipboard }) => clipboard.readText())).toBe(s.url);
       await p.getByRole("button", { name: "Open in your browser", exact: true }).click();
       expect(await s.app.evaluate(() => Reflect.get(globalThis, "testOpened"))).toContain(s.url);
       await p.getByRole("button", { name: "Browser options" }).click();

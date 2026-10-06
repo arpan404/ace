@@ -126,6 +126,41 @@ Back; keep Back disabled when the first attempted navigation fails; leave the
 failure UI after successful document traversal; make Reload leave the frame
 unchanged.
 
+## Iframe prompt follow-up
+
+The desktop merge gate reported that an iframe prompt received its default
+`seed` instead of `iframe answer`. An isolated run reproduced the failure.
+Temporary tracing showed the field edit belonged to the previous main-page
+dialog, while the OK submission belonged to the newer iframe dialog. Native
+IPC received `seed`; the frame bridge delivered exactly the submitted answer.
+
+An answered prompt now disables its field and controls until authoritative
+browser state removes or replaces that dialog. Submission state belongs to the
+dialog ID, so a late refusal cannot unlock a newer answer. Prompt fields remount
+when their dialog ID changes. Failed answers re-enable their own draft for retry.
+The desktop scenario waits for each answered dialog to disappear before opening
+the next; its main-page, same-origin iframe and cross-origin iframe result
+assertions remain unchanged.
+
+The two new UI regressions use explicitly resolved promises for answer replies
+and rerenders for browser-state publication. They cover acknowledgment arriving
+before state, a new prompt's answer, a late refusal for an old dialog, and retry
+with the draft preserved. Mutation cases are not executed (tests run at merge):
+re-enable an answered prompt on acknowledgment; leave its field editable during
+submission; clear a newer submission on an older reply; never unlock a refused
+answer; reuse the previous dialog's draft.
+
+Only the two files authorized for this follow-up ran, serially:
+
+- `apps/web/src/features/panels/browser/browser.test.tsx`: 15 tests passed.
+- `apps/desktop/e2e/browser-panel.e2e.ts`: the complete native browser scenario
+  passed with a temporary home, real daemon and localhost fixtures. The clipboard
+  assertion now waits for the async write's observable result, with the exact URL
+  comparison preserved.
+
+No other tests, probes, benchmarks or CI ran. Broader runtime validation still
+needs run at merge.
+
 ## Performance qualification
 
 The host remained heavily loaded during this pass (observed one-minute load
