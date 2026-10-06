@@ -78,6 +78,36 @@ test("two devices receive the same rename, pin, unread and snooze projections", 
   });
 });
 
+test("a pinned thread's place reaches other devices, survives a re-pin and goes with the pin", async () => {
+  let now = 1000;
+  const f = await setup(() => now);
+  f.second.send({ type: "subscribe", subscriptionId: "sidebar", scope: { kind: "threads" } });
+  await f.second.next();
+  // A pin that names no place leads: the daemon's clock orders it above earlier pins.
+  await f.command({ type: "thread.pin", threadId: f.thread.id, pinned: true });
+  expect(await f.second.next()).toMatchObject({
+    events: [{ payload: { changes: { pinned: true, pinOrder: 1000 } } }],
+  });
+  // Dragged between two others: the client names the place.
+  await f.command({ type: "thread.pin", threadId: f.thread.id, pinned: true, order: 512.5 });
+  expect(await f.second.next()).toMatchObject({
+    events: [{ payload: { changes: { pinned: true, pinOrder: 512.5 } } }],
+  });
+  // Pinning again from another device's menu keeps the place it was dragged to.
+  now = 5000;
+  await f.command({ type: "thread.pin", threadId: f.thread.id, pinned: true });
+  expect(f.store.getThread(f.thread.id)).toMatchObject({ pinned: true, pinOrder: 512.5 });
+  await f.second.next();
+  await f.command({ type: "thread.pin", threadId: f.thread.id, pinned: false });
+  expect(await f.second.next()).toMatchObject({
+    events: [{ payload: { changes: { pinned: false, pinOrder: null } } }],
+  });
+  expect(f.store.getThread(f.thread.id)?.pinOrder).toBeUndefined();
+  // Pinned anew, it leads again rather than returning to its old place.
+  await f.command({ type: "thread.pin", threadId: f.thread.id, pinned: true });
+  expect(f.store.getThread(f.thread.id)).toMatchObject({ pinned: true, pinOrder: 5000 });
+});
+
 test("archive is immediate and unarchive survives receipt retries without losing the thread", async () => {
   const f = await setup();
   await f.command({ type: "thread.archive", threadId: f.thread.id }, "archive");
