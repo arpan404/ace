@@ -71,3 +71,30 @@ clock, so creating a project does not require user.name/user.email or signing
 configuration. Templates and existing files remain uncommitted. Worktree threads
 can start immediately from HEAD. Reinitializing an existing HEAD preserves it;
 adding an existing project does not create commits.
+
+Checkpoint counter retention is bounded across all canonical root/thread pairs
+in a service. `checkpointCounterCacheSize` accepts 1 through 4096 entries and
+defaults to 128. The shared pure `BoundedCache` policy refreshes recency on reads
+and publication, then evicts the oldest entry without Git I/O. Cache work per
+allocation is constant in both cache size and checkpoint history. Eviction never
+deletes durable refs or changes a caller's pending CAS generation. A miss reads
+one durable counter commit; only legacy threads without that ref enumerate their
+checkpoint refs. CAS conflicts refresh from Git before retrying, including after
+thread deletion and recreation. `resourceUsage().checkpointCounters` reports
+current retention without exposing cache keys or generations.
+
+`bun run --filter @ace/git benchmark:counters 512` uses a temporary repository
+and isolated Git configuration. It reports retained heap/RSS after 128 and 512
+distinct threads, plus ten warm and ten evicted allocation samples at histories
+starting with 10 and 100 checkpoints. It requires Node's `--expose-gc`, supplied
+by the script, and measures full public `createCheckpoint` calls including
+snapshot and ref I/O. Memory and latency are non-gating measurements; background
+load and allocator retention can affect them.
+
+The [recorded 512-thread sample](counter-cache-benchmark.json) used Node 26.8.1
+on a busy shared host. Retention stayed at 128 counters: heap fell from 25.12 to
+20.62 MiB and RSS from 163.69 to 158.61 MiB between 128 and 512 distinct threads.
+Mean warm/evicted allocation times were 213/209 ms at 10 prior checkpoints and
+219/249 ms at 100. These are observations of full allocation I/O under changing
+load, not a speedup claim or a latency gate. The history-unavailable public API
+regression independently verifies that durable recovery needs no history scan.

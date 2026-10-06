@@ -1,9 +1,16 @@
 /**
  * Thread organization (ADR 0057): the daemon commands behind settle, snooze, pin, read,
  * rename, archive and delete, shown at once and undone on a refusal (`overlay.ts`), with their
- * toasts and Undo, this device's list view state, and the one menu of thread actions both Home
- * and the thread screen show.
+ * toasts and Undo, this device's list view state (with the threads picked for a bulk action),
+ * and the one menu of thread actions both Home and the thread screen show.
  */
+export {
+  useHomeSelection,
+  useHomeSelectionState,
+  useSelected,
+  type BulkConfirm,
+  type HomeSelection,
+} from "./selection.ts";
 export { SnoozeItems } from "./snooze-items.tsx";
 export { ThreadActionItems } from "./thread-action-items.tsx";
 export { useOrganizer, useOrganizerState } from "./use-organizer.ts";

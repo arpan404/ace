@@ -284,13 +284,15 @@ test("the project filter narrows Home to one project and is remembered", async (
   await waitFor(() => expect(order()).toHaveLength(2));
 });
 
-test("Tab walks a row's link, its Snooze, then the next row", async () => {
+test("Tab walks a row's link, its Snooze and Pin, then the next row", async () => {
   await openHome(workbenchApp());
   const [first, second] = within(threads()).getAllByRole("link");
   if (!first || !second) throw new Error("expected two rows");
   first.focus();
   await userEvent.tab();
   expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Snooze /);
+  await userEvent.tab();
+  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Pin /);
   await userEvent.tab();
   expect(document.activeElement).toBe(second);
 });

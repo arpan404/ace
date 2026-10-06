@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { z } from "zod";
 import { budgets } from "./budgets.ts";
-import { workerBreakdown } from "./worker-breakdown.ts";
+import { initialBreakdown, workerBreakdown } from "./bundle-breakdown.ts";
 
 /*
  * Bundle budgets per route (ADR 0056): builds the web app once into a temporary directory and
@@ -139,7 +139,10 @@ try {
         budgets.bundle.workerTotalKb,
       );
   }
-  if (analyze) process.stdout.write(workerBreakdown(out));
+  if (analyze) {
+    process.stdout.write(initialBreakdown(out));
+    process.stdout.write(workerBreakdown(out));
+  }
   if (failures.length) {
     process.stderr.write(`bundle budgets exceeded:\n${failures.join("\n")}\n`);
     process.exitCode = 1;

@@ -1,19 +1,27 @@
-import { ArrowsClockwiseIcon, CheckIcon, MoonIcon } from "@phosphor-icons/react";
+import {
+  ArrowsClockwiseIcon,
+  CheckIcon,
+  MoonIcon,
+  PushPinIcon,
+  PushPinSlashIcon,
+} from "@phosphor-icons/react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
 import type { ComponentProps, ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { SnoozeItems, useThreadActions } from "@/features/organize/index.ts";
 
 /**
- * Settle (finished threads) and Snooze, or Unsettle on a settled row,, floating at the row's top right while the
- * pointer or keyboard focus is on the row. They cover the age, which hides meanwhile, and step
- * aside while the row's context menu is open.
+ * Settle (finished threads) and Snooze, or Unsettle on a settled row, then Pin or Unpin,
+ * floating at the row's top right while the pointer or keyboard focus is on the row. They cover
+ * the age, which hides meanwhile, and step aside while the row's context menu is open.
  */
 export function RowActions(props: {
   entry: ThreadListEntry;
   settled: boolean;
+  pinned: boolean;
   snoozed: boolean;
   className?: string;
 }) {
@@ -62,6 +70,13 @@ export function RowActions(props: {
           </Menu>
         </>
       )}
+      <Tip label={props.pinned ? "Unpin" : "Pin"} shortcut="home.pin">
+        <HoverButton
+          icon={<Icon icon={props.pinned ? PushPinSlashIcon : PushPinIcon} size={14} />}
+          aria-label={`${props.pinned ? "Unpin" : "Pin"} ${title}`}
+          onClick={() => actions.setPinned(props.entry, !props.pinned)}
+        />
+      </Tip>
     </div>
   );
 }

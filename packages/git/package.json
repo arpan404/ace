@@ -10,14 +10,13 @@
     "typecheck": "tsc -p tsconfig.json",
     "benchmark": "node benchmark.ts",
     "benchmark:history": "node benchmark-history.ts",
+    "benchmark:counters": "node --expose-gc benchmark-counters.ts",
     "benchmark:diff": "node benchmark-diff.ts"
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "koffi": "3.3.2",
     "zod": "^4.6.5"
-  },
-  "devDependencies": {
-    "@ace/provider-kit": "workspace:*"
   }
 }

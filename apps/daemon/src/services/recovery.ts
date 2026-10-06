@@ -185,6 +185,16 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
       },
     );
     try {
+      const unsupported = prepared.projection.diagnostics.filter(
+        (entry) => entry.code === "unsupported",
+      );
+      if (p.context.attachments.length && unsupported.length)
+        throw new Error(
+          `Remove the unsupported attachment or choose a provider that supports it, then send again. ${unsupported
+            .slice(0, 4)
+            .map((entry) => entry.message)
+            .join(" ")}`,
+        );
       return {
         input: [...p.input, ...canonicalContext(prepared.projection)],
         attachments: prepared.attachments,

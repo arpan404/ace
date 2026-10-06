@@ -45,10 +45,10 @@ export function supportsPermissionMode(
   capabilities: PermissionCapabilities | undefined,
   mode: PermissionMode,
 ): boolean {
+  if (mode === "ask") return capabilities?.modes.includes(mode) === true && capabilities.toolGate;
   return (
     capabilities?.modes.includes(mode) === true ||
     (mode !== "full-access" &&
-      mode !== "ask" &&
       capabilities?.guarantees?.some(
         (guarantee) => guarantee.mode === mode || guarantee.mode === "auto-review",
       ) === true)

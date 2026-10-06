@@ -173,3 +173,52 @@ test("the composer shows how full the agent's context is", async () => {
   expect(meter.getAttribute("aria-valuenow")).toBe("84");
   expect(meter.getAttribute("aria-valuetext")).toBe("168,000 of 200,000 tokens in context");
 });
+
+test("a queued ask appears after the previous reply when its execution turn starts", async () => {
+  const { facts } = await import("@ace/fake-daemon");
+  const { act } = await import("@testing-library/react");
+  const app = harness();
+  app
+    .play({
+      thread: { id: "qa-order", workspaceId: "ace", title: "Queue order", provider: "codex" },
+      steps: [
+        {
+          kind: "facts",
+          label: "busy",
+          facts: [
+            facts.rootAgent("codex"),
+            facts.turn("root"),
+            facts.message("root", "ask", "user", "Run sleep then reply QA_HOLD_DONE"),
+          ],
+        },
+      ],
+    })
+    .runThrough("busy");
+  await app.open("/t/qa-order");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await app.client.command({
+    type: "thread.send",
+    threadId: ThreadId.parse("qa-order"),
+    input: [{ type: "text", text: "Reply QA_QUEUED" }],
+    delivery: "queue",
+  });
+  await screen.findByRole("list", { name: "Queued messages" });
+  expect(within(feed).queryByText("Reply QA_QUEUED")).toBeNull();
+  act(() =>
+    app.daemon.apply("qa-order", [
+      facts.message("root", "hold-answer", "assistant", "QA_HOLD_DONE"),
+      facts.endTurn("root"),
+    ]),
+  );
+  const queued = await within(feed).findByText("Reply QA_QUEUED");
+  const answer = within(feed).getByText("QA_HOLD_DONE");
+  expect(answer.compareDocumentPosition(queued) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  act(() =>
+    app.daemon.apply("qa-order", [
+      facts.message("root", "queued-answer", "assistant", "QA_QUEUED"),
+      facts.endTurn("root"),
+    ]),
+  );
+  const reply = await within(feed).findByText("QA_QUEUED");
+  expect(queued.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});

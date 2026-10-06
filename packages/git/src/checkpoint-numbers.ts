@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import { GitCli, textOutput } from "./cli.ts";
 import { decode, hash, malformed, nul } from "./decode.ts";
 import { checkpointIdentity, checkpointPrefix, metadata } from "./checkpoint-metadata.ts";
@@ -46,12 +47,14 @@ export async function checkpointRefs(
     .toSorted((a, b) => a.sequence - b.sequence);
 }
 export class CheckpointNumbers {
-  private readonly cache = new Map<string, Counter>();
+  private readonly cache: BoundedCache<string, Counter>;
   private readonly cli: GitCli;
-  private readonly capacity: number;
   constructor(cli: GitCli, capacity = 128) {
     this.cli = cli;
-    this.capacity = z.number().int().min(1).max(4096).parse(capacity);
+    const limit = z.number().int().min(1).max(4096).parse(capacity);
+    // Only completed counter reads/allocations are cached. Eviction has no Git
+    // effects: active callers retain their CAS generation and refs stay durable.
+    this.cache = new BoundedCache(limit, limit);
   }
   get size(): number {
     return this.cache.size;
@@ -59,17 +62,11 @@ export class CheckpointNumbers {
   async get(root: string, threadId: string): Promise<Counter> {
     const value = this.cache.get(`${root}\0${threadId}`);
     if (!value) return this.refresh(root, threadId);
-    this.remember(root, threadId, value);
     return value;
   }
   remember(root: string, threadId: string, value: Counter): void {
     const key = `${root}\0${threadId}`;
-    this.cache.delete(key);
-    this.cache.set(key, value);
-    if (this.cache.size > this.capacity) {
-      const oldest = this.cache.keys().next().value;
-      if (oldest !== undefined) this.cache.delete(oldest);
-    }
+    this.cache.set(key, value, 1);
   }
   forget(root: string, threadId: string): void {
     this.cache.delete(`${root}\0${threadId}`);
