@@ -1,4 +1,5 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { lockedExitCode } from "./session-exit.ts";
 import { loadavg } from "node:os";
 import { z } from "zod";
 
@@ -23,11 +24,18 @@ if (process.platform !== "darwin") {
   }
   if (!runtime) console.log("device perf: skipped, no available iOS Simulator runtime");
   else {
-    execFileSync(process.execPath, [new URL("./session.ts", import.meta.url).pathname], {
-      stdio: "inherit",
-      timeout: 10000,
-    });
-    if ((loadavg()[0] ?? Infinity) >= 15)
+    const session = spawnSync(
+      process.execPath,
+      [new URL("./session.ts", import.meta.url).pathname],
+      { stdio: "inherit", timeout: 10000 },
+    );
+    if (session.status === lockedExitCode)
+      console.log("device perf: skipped, desktop is locked; rerun unlocked to qualify human input");
+    else if (session.status !== 0)
+      throw new Error(
+        `device perf: session precondition failed (${session.status ?? session.signal})`,
+      );
+    else if ((loadavg()[0] ?? Infinity) >= 15)
       console.log("device perf: skipped, host load >= 15; rerun on an idle host");
     else
       execFileSync("sh", [new URL("./run.sh", import.meta.url).pathname], {
