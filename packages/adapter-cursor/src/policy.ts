@@ -34,6 +34,12 @@ const baseCapabilities: Capabilities = {
   planMode: false,
   tokenUsage: true,
   imageInput: true,
+  attachmentInput: {
+    format: "acp",
+    documents: [],
+    embeddedContext: false,
+    maxInlineBytes: 128 * 1024,
+  },
   rewindFiles: false,
 };
 export function localPolicy(

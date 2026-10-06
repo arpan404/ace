@@ -64,7 +64,7 @@ export class AttachmentBytes {
     );
     if (variant === "thumbnail") {
       requireContext(
-        hasThumbnail(blob.attachment.mimeType),
+        blob.attachment.thumbnailAvailable !== false && hasThumbnail(blob.attachment.mimeType),
         "unsupported",
         "Attachment has no thumbnail",
       );

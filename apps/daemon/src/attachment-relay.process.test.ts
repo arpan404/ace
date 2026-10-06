@@ -6,7 +6,7 @@ import { expect, test } from "vitest";
 import { imageSize } from "image-size";
 import { attachmentBytes } from "@ace/client";
 import { ContextService } from "@ace/context";
-import { ContextResult, DeviceId } from "@ace/protocol";
+import { ContextResult, DeviceId, type ContextRequest, type ContextOperation } from "@ace/protocol";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { keyPair, fingerprint } from "@ace/secure-channel";
 import { Store } from "./store.ts";
@@ -57,7 +57,8 @@ test("paired relay readers resolve exact attachment bytes and previews while oth
       now: () => 1000,
       secret: randomUUID,
     });
-    const reader = auth.redeem(auth.pairing(["read"]).code, "Reader"),
+    const writer = auth.redeem(auth.pairing(["read", "operate"]).code, "Writer"),
+      reader = auth.redeem(auth.pairing(["read"]).code, "Reader"),
       operator = auth.redeem(auth.pairing(["operate"]).code, "Operator");
     const relay = await startRelay();
     cleanup.push(() => relay.close());
@@ -96,7 +97,7 @@ test("paired relay readers resolve exact attachment bytes and previews while oth
       return {
         channel,
         connection: {
-          async request(input: Parameters<Parameters<typeof attachmentBytes>[0]["request"]>[0]) {
+          async request(input: Omit<ContextRequest, "requestId">) {
             await channel.send({ ...input, requestId: `read-${++request}` });
             return ContextResult.parse(await channel.receive());
           },
@@ -104,6 +105,57 @@ test("paired relay readers resolve exact attachment bytes and previews while oth
       };
     }
     const r = await connect(reader);
+    const w = await connect(writer);
+    const fileBytes = Buffer.from([80, 75, 3, 4, 0, 255]);
+    const fileHash = createHash("sha256").update(fileBytes).digest("hex");
+    const operation = {
+      op: "upload.begin",
+      threadId: thread.id,
+      sha256: fileHash,
+      name: "phone.zip",
+      bytes: fileBytes.length,
+    } as const;
+    const ask = async (inputOperation: ContextOperation) =>
+      (
+        await w.connection.request({
+          type: "context.request",
+          operation: inputOperation,
+        })
+      ).result;
+    expect(
+      (await r.connection.request({ type: "context.request", operation })).result,
+    ).toMatchObject({ kind: "error", code: "forbidden" });
+    const begun = await ask(operation);
+    if (begun.kind !== "upload") throw new Error("Relay upload refused");
+    allowed = false;
+    expect(
+      await ask({
+        op: "upload.chunk",
+        uploadId: begun.uploadId,
+        offset: 0,
+        data: fileBytes.toString("base64"),
+      }),
+    ).toMatchObject({ kind: "error", code: "forbidden" });
+    allowed = true;
+    expect(
+      await ask({
+        op: "upload.chunk",
+        uploadId: begun.uploadId,
+        offset: 0,
+        data: fileBytes.toString("base64"),
+      }),
+    ).toMatchObject({ kind: "upload", offset: fileBytes.length });
+    expect(await ask({ op: "upload.commit", uploadId: begun.uploadId })).toMatchObject({
+      kind: "attachment",
+      attachment: { name: "phone.zip", kind: "binary" },
+    });
+    const uploaded = await attachmentBytes(r.connection, {
+      threadId: thread.id,
+      sha256: fileHash,
+      variant: "original",
+      maxBytes: fileBytes.length,
+    });
+    expect(Buffer.from(uploaded.bytes)).toEqual(fileBytes);
     const original = await attachmentBytes(r.connection, {
       threadId: thread.id,
       sha256,

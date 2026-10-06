@@ -1,5 +1,5 @@
 import { automaticTarget, blockedUntil } from "@ace/accounts/availability";
-import { canonicalContext } from "@ace/context";
+import { canonicalContext, ProjectionCapabilities } from "@ace/context";
 import type { PrepareInput } from "../engine/input.ts";
 import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
@@ -166,38 +166,27 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
     if (!p.context) return { input: p.input, release() {} };
     if (!context.services.context || !("threadId" in p) || !p.threadId)
       throw new Error("Context requires an existing thread");
-    const projectionProvider =
-      provider === "cursor" || provider === "antigravity" || provider === "pi" ? "acp" : provider;
     const prepared = await context.services.context.compose(
       command.deviceId,
       p.threadId,
       p.context,
       {
-        provider: projectionProvider,
+        provider:
+          capabilities.attachmentInput?.format ??
+          ProjectionCapabilities.shape.provider.catch("acp").parse(provider),
         images: capabilities.imageInput
           ? ["image/png", "image/jpeg", "image/gif", "image/webp"]
           : [],
-        documents: [],
-        embeddedContext: false,
-        // Pi and Cursor have smaller native input frames. Reserve space for base64,
-        // the user's text and the envelope; larger images produce a visible diagnostic.
-        maxInlineBytes: provider === "pi" || provider === "cursor" ? 128 * 1024 : 4 * 1024 * 1024,
+        documents: capabilities.attachmentInput?.documents ?? [],
+        embeddedContext: capabilities.attachmentInput?.embeddedContext ?? false,
+        maxInlineBytes: capabilities.attachmentInput?.maxInlineBytes ?? 128 * 1024,
       },
     );
     try {
-      const unsupported = prepared.projection.diagnostics.filter(
-        (entry) => entry.code === "unsupported",
-      );
-      if (p.context.attachments.length && unsupported.length)
-        throw new Error(
-          `Remove the unsupported attachment or choose a provider that supports it, then send again. ${unsupported
-            .slice(0, 4)
-            .map((entry) => entry.message)
-            .join(" ")}`,
-        );
       return {
         input: [...p.input, ...canonicalContext(prepared.projection)],
         attachments: prepared.attachments,
+        attachmentPaths: prepared.attachmentPaths,
         diagnostics: prepared.diagnostics,
         release: prepared.release,
       };

@@ -38,7 +38,22 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
 export function content(input: ContentPart[]): SDKUserMessage["message"]["content"] {
   return input.map((part) => {
     if (part.type === "text") return { type: "text" as const, text: part.text };
-    if (part.type === "file") return { type: "text" as const, text: `@${part.path}` };
+    if (part.type === "file") {
+      if (part.mimeType === "application/pdf" && part.content?.encoding === "base64")
+        return {
+          type: "document" as const,
+          title: part.name ?? part.path.split("/").at(-1) ?? "Attachment",
+          source: {
+            type: "base64" as const,
+            media_type: "application/pdf" as const,
+            data: part.content.data,
+          },
+        };
+      return {
+        type: "text" as const,
+        text: `File (${part.mimeType ?? "application/octet-stream"}): ${JSON.stringify(part.path)}`,
+      };
+    }
     const mime = ImageMime.safeParse(part.mimeType);
     const data = /^data:([^;,]+);base64,(.+)$/s.exec(part.url);
     if (!data || !mime.success || data[1] !== part.mimeType)

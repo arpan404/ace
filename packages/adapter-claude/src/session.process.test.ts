@@ -332,3 +332,35 @@ test("the Claude CLI receives image content with the original MIME and base64 by
     await h.session.close("user");
   }
 });
+
+test("the fake Claude CLI receives text and binary paths plus a native PDF document", async () => {
+  const h = await harness();
+  try {
+    await h.session.send(
+      [
+        { type: "file", path: "/files/code.ts", mimeType: "text/plain" },
+        {
+          type: "file",
+          path: "/files/report.pdf",
+          name: "report.pdf",
+          mimeType: "application/pdf",
+          content: { encoding: "base64", data: "JVBERi0xLjc=" },
+        },
+        { type: "file", path: "/files/archive.zip", mimeType: "application/zip" },
+      ],
+      "queue",
+    );
+    const received = object(object((await h.wait(subtype("fake_input"))).data).input);
+    expect(object(received.message).content).toEqual([
+      { type: "text", text: 'File (text/plain): "/files/code.ts"' },
+      {
+        type: "document",
+        title: "report.pdf",
+        source: { type: "base64", media_type: "application/pdf", data: "JVBERi0xLjc=" },
+      },
+      { type: "text", text: 'File (application/zip): "/files/archive.zip"' },
+    ]);
+  } finally {
+    await h.session.close("user");
+  }
+});

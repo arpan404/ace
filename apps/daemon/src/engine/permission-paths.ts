@@ -15,7 +15,11 @@ function physical(path: string): string {
     return resolve(physical(parent), basename(path));
   }
 }
-export function permissionPaths(workspace: string, target?: ApprovalTarget): PathRisk[] {
+export function permissionPaths(
+  workspace: string,
+  target?: ApprovalTarget,
+  attachmentRead: (path: string) => boolean = () => false,
+): PathRisk[] {
   if (!target) return [];
   const inspection = target.command ? inspectionCommand(target.command) : undefined;
   const paths = inspection?.paths ?? target.paths ?? [];
@@ -27,6 +31,7 @@ export function permissionPaths(workspace: string, target?: ApprovalTarget): Pat
       const root = realpathSync(workspace);
       const destination = physical(resolve(cwd, path));
       if (containsSecretReference(destination)) return "secret";
+      if (target.access === "read" && attachmentRead(destination)) return "workspace";
       const diff = relative(root, destination);
       return diff === "" ||
         (!isAbsolute(diff) &&

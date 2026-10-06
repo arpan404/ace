@@ -5,6 +5,7 @@ import { open } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ContextError, requireContext } from "./errors.ts";
+import { binaryMime, textEncoding, printableText } from "./file-kind.ts";
 
 export interface ImageLimits {
   maxSide: number;
@@ -96,12 +97,38 @@ export function inspectImage(
 export async function inspectBlob(
   path: string,
   limits: ImageLimits,
-): Promise<{ sha256: string; bytes: number; mimeType: string; width?: number; height?: number }> {
+  name = "file",
+  declared?: string,
+): Promise<{
+  sha256: string;
+  bytes: number;
+  mimeType: string;
+  kind: "image" | "pdf" | "text" | "binary";
+  width?: number;
+  height?: number;
+}> {
   const hash = createHash("sha256");
   let bytes = 0;
+  let decoder: TextDecoder | undefined;
+  let text = true;
   for await (const chunk of createReadStream(path, { highWaterMark: 64 * 1024 })) {
     hash.update(chunk);
     bytes += chunk.length;
+    decoder ??= new TextDecoder(textEncoding(chunk), { fatal: true });
+    if (text) {
+      try {
+        text = printableText(decoder.decode(chunk, { stream: true }));
+      } catch {
+        text = false;
+      }
+    }
+  }
+  if (text && decoder) {
+    try {
+      text = printableText(decoder.decode());
+    } catch {
+      text = false;
+    }
   }
   const file = await open(path, "r");
   try {
@@ -109,9 +136,25 @@ export async function inspectBlob(
     const trailer = Buffer.alloc(Math.min(bytes, 12));
     await file.read(header, 0, header.length, 0);
     await file.read(trailer, 0, trailer.length, bytes - trailer.length);
-    const image = inspectImage(header, trailer, bytes, limits);
-    await validateImageContainer(path, image.mimeType, bytes, image);
-    return { sha256: hash.digest("hex"), bytes, ...image };
+    const mime = sniffMime(header);
+    const digest = { sha256: hash.digest("hex"), bytes };
+    if (mime === "application/pdf") return { ...digest, mimeType: mime, kind: "pdf" };
+    if (mime.startsWith("image/")) {
+      try {
+        const image = inspectImage(header, trailer, bytes, limits);
+        await validateImageContainer(path, image.mimeType, bytes, image);
+        return { ...digest, ...image, kind: "image" };
+      } catch (error) {
+        if (!(error instanceof ContextError)) throw error;
+        // Unsafe or unsupported raster containers remain usable as opaque files.
+        return { ...digest, mimeType: mime, kind: "binary" };
+      }
+    }
+    return {
+      ...digest,
+      mimeType: text ? "text/plain" : binaryMime(name, declared),
+      kind: text ? "text" : "binary",
+    };
   } finally {
     await file.close();
   }

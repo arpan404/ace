@@ -536,3 +536,70 @@ it("ACP open failures preserve structured causes and redact launch credentials",
   expect(failure.message).toContain("Cannot launch");
   expect(failure.message).not.toContain(secret);
 });
+
+it("a fake ACP agent receives negotiated text, PDF and binary resources", async () => {
+  const h = await setup(genericQuirks, false, undefined, { ACE_TEST_EMBEDDED_CONTEXT: "1" });
+  try {
+    expect(h.session.effectiveCapabilities?.attachmentInput).toMatchObject({
+      format: "acp",
+      documents: ["*"],
+      embeddedContext: true,
+    });
+    await h.session.send(
+      [
+        { type: "text", text: "attachment-proof" },
+        {
+          type: "file",
+          path: "/files/code.ts",
+          mimeType: "text/plain",
+          content: { encoding: "text", data: "export const value = 42;" },
+        },
+        {
+          type: "file",
+          path: "/files/report.pdf",
+          mimeType: "application/pdf",
+          content: { encoding: "base64", data: "JVBERi0xLjc=" },
+        },
+        {
+          type: "file",
+          path: "/files/archive.zip",
+          mimeType: "application/zip",
+          content: { encoding: "base64", data: "UEsDBA==" },
+        },
+      ],
+      "queue",
+    );
+    const proof = await h.wait(
+      (frame) => frame.dir === "recv" && method(frame, "test/attachments"),
+    );
+    expect(object(object(proof.data).params).prompt).toEqual([
+      { type: "text", text: "attachment-proof" },
+      {
+        type: "resource",
+        resource: {
+          uri: "file:///files/code.ts",
+          mimeType: "text/plain",
+          text: "export const value = 42;",
+        },
+      },
+      {
+        type: "resource",
+        resource: {
+          uri: "file:///files/report.pdf",
+          mimeType: "application/pdf",
+          blob: "JVBERi0xLjc=",
+        },
+      },
+      {
+        type: "resource",
+        resource: {
+          uri: "file:///files/archive.zip",
+          mimeType: "application/zip",
+          blob: "UEsDBA==",
+        },
+      },
+    ]);
+  } finally {
+    await h.session.close("user");
+  }
+});

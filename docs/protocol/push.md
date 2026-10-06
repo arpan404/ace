@@ -2010,72 +2010,13 @@ Example:
 
 ```json
 {
-  "seq": 4,
+  "seq": 8,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "itemsBefore": 3,
-    "kind": "thread",
-    "queue": {
-      "paused": true,
-      "reason": null,
-      "resumeAt": null,
-      "revision": 6
-    },
-    "runs": {},
-    "seq": 4,
-    "thread": {
-      "acpAgentId": "example",
-      "createdAt": 7,
-      "id": "example",
-      "imported": {
-        "importedAt": 4,
-        "instanceId": "example",
-        "native": {
-          "acpAgentId": "example",
-          "forkedFromNativeId": "example",
-          "instanceId": "example",
-          "nativeId": "example",
-          "path": "example",
-          "provider": "opencode"
-        },
-        "sourceId": "example"
-      },
-      "installationId": "example",
-      "instanceId": "example",
-      "lineage": {
-        "lossy": true,
-        "mode": "native",
-        "parentAgentId": "example",
-        "parentThreadId": "example",
-        "point": {
-          "itemId": "example",
-          "type": "item"
-        }
-      },
-      "permission": {
-        "effective": "auto-review",
-        "override": "auto-review",
-        "pending": false
-      },
-      "provider": "codex",
-      "settledReason": "pr_merged",
-      "snoozedUntil": 4,
-      "status": {
-        "state": "unresponsive"
-      },
-      "title": "example",
-      "titleSource": "person",
-      "updatedAt": 5,
-      "workspaceId": "example"
-    },
-    "usage": {}
+    "kind": "threads",
+    "seq": 8,
+    "threads": {}
   }
 }
 ```
@@ -2099,7 +2040,7 @@ Example:
   "afterSeq": 2,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 8,
+  "throughSeq": 6,
   "type": "events"
 }
 ```
@@ -2119,9 +2060,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 9,
+  "afterSeq": 3,
   "subscriptionId": "example",
-  "throughSeq": 9,
+  "throughSeq": 4,
   "type": "progress"
 }
 ```
@@ -2154,34 +2095,48 @@ Example:
 ```json
 {
   "commandId": "example",
-  "ok": true,
-  "prStatus": {
-    "checks": [],
-    "ci": "failure",
-    "comments": [],
-    "headSha": "example",
-    "mergeability": "conflicting",
-    "raw": null,
-    "ref": {
-      "number": 9,
-      "repository": {
-        "forge": "github",
-        "host": "t9cz1reF9E6",
-        "name": "YtqLtTJ2-ve",
-        "owner": "wzTgq1W-p/cI/sYc8./379ff30IhRA/1gNxj.WYnnq/1/oh/s"
-      }
+  "detail": "example",
+  "health": {
+    "activeSessions": null,
+    "at": 3,
+    "eventLoop": {
+      "maxMs": null,
+      "meanMs": null,
+      "p99Ms": null
     },
-    "reviewThreads": [],
-    "state": "merged",
-    "title": "example",
-    "url": "example"
+    "logs": {
+      "dropped": 6,
+      "failed": 5,
+      "queued": 7
+    },
+    "memory": {
+      "heapTotalBytes": 2,
+      "heapUsedBytes": 0,
+      "rssBytes": 0
+    },
+    "openHandles": 0,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": null,
+      "walBytes": null
+    }
   },
-  "type": "commandResult",
-  "workspace": {
-    "id": "example",
-    "name": "example",
+  "inspection": {
+    "git": null,
     "path": "example"
-  }
+  },
+  "ok": true,
+  "pr": {
+    "number": 10,
+    "repository": {
+      "forge": "gitlab",
+      "host": "dULA0SGI7",
+      "name": "n",
+      "owner": "Av2q5mfDh/04BGL/NP5P9v/tl1U7gB/vC6QD/p/S-/5Be/fTRzG"
+    }
+  },
+  "threadId": "example",
+  "type": "commandResult"
 }
 ```
 
@@ -2202,8 +2157,8 @@ Example:
 ```json
 {
   "code": "example",
+  "commandId": "example",
   "message": "example",
-  "requestId": "example",
   "type": "error"
 }
 ```
@@ -2226,8 +2181,8 @@ Example:
 {
   "bytes": "example",
   "eof": true,
-  "nextOffset": 6,
-  "offset": 8,
+  "nextOffset": 0,
+  "offset": 2,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -2252,9 +2207,9 @@ Example:
 {
   "itemSeqs": {},
   "items": [],
-  "itemsBefore": 1,
+  "itemsBefore": 4,
   "requestId": "example",
-  "seq": 0,
+  "seq": 2,
   "threadId": "example",
   "type": "items.page"
 }

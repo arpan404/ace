@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ContentPart } from "@ace/protocol";
 export function messageId(now: number, sequence: number, entropy: string): string {
@@ -17,6 +17,14 @@ export function promptBody(input: ContentPart[], cwd: string, id: string) {
     files: { uri: string }[] = [];
   for (const part of input) {
     if (part.type === "text") text.push(part.text);
+    else if (
+      part.type === "file" &&
+      !part.mimeType?.startsWith("image/") &&
+      !(part.mimeType === undefined && /^\.(png|jpe?g|gif|webp)$/i.test(extname(part.path)))
+    )
+      text.push(
+        `File (${part.mimeType ?? "application/octet-stream"}): ${JSON.stringify(resolve(cwd, part.path))}`,
+      );
     else {
       if (part.type === "file" && part.mimeType?.startsWith("image/"))
         throw new Error("OpenCode images require an inline data URI with MIME type");

@@ -222,7 +222,9 @@ export class Permissions {
       let decision = reviewPermission({
         mode,
         ...(target ? { target } : {}),
-        paths: permissionPaths(this.repo.session(state.threadId).cwd, target),
+        paths: permissionPaths(this.repo.session(state.threadId).cwd, target, (path) =>
+          this.repo.attachments.canRead(state.threadId, path),
+        ),
         trustedShells: permissionShells(this.repo.session(state.threadId).cwd, target),
         trustedCommands: permissionCommands(this.repo.session(state.threadId).cwd, target),
       });

@@ -29,7 +29,13 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     result(message["id"], {
       protocolVersion: process.argv.includes("--protocol-v2") ? 2 : 1,
       agentInfo: { name: "antigravity-acp", version: "1.2.1" },
-      agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
+      agentCapabilities: {
+        loadSession: true,
+        promptCapabilities: {
+          image: true,
+          embeddedContext: process.env.ACE_TEST_EMBEDDED_CONTEXT === "1",
+        },
+      },
     });
   else if (method === "session/new" || method === "session/load") {
     if (process.argv.includes("--new-replay"))
@@ -56,6 +62,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return;
     }
     const text = string(object(list(params["prompt"])[0])["text"]);
+    if (text === "attachment-proof") {
+      send({ method: "test/attachments", params: { prompt: params["prompt"] } });
+      result(message["id"], { stopReason: "end_turn" });
+      return;
+    }
     if (text === "user-echo") {
       update({
         sessionUpdate: "user_message_chunk",

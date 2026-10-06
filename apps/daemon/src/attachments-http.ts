@@ -1,13 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { ContextError } from "@ace/context";
+import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
 import { allows } from "./devices.ts";
 import { attachmentResponse } from "./attachment-response.ts";
+import { attachmentsUpload } from "./attachments-upload.ts";
 
-/** Bearer-only reads share socket scope checks. URLs contain content ids, never credentials. */
+/** Bearer-only transfers share socket scope checks. URLs contain content ids, never credentials. */
 export function attachmentsHttp(
   options: ServerOptions,
   auth: RemoteAuth,
@@ -38,10 +40,36 @@ export function attachmentsHttp(
           response.end();
           return;
         }
-        response.setHeader("Access-Control-Allow-Headers", "Authorization, Range, If-None-Match");
-        response.setHeader("Access-Control-Allow-Methods", "GET, HEAD");
+        response.setHeader(
+          "Access-Control-Allow-Headers",
+          "Authorization, Range, If-None-Match, Content-Type, X-Ace-Sha256",
+        );
+        response.setHeader("Access-Control-Allow-Methods", "GET, HEAD, POST");
         response.statusCode = 204;
         response.end();
+        return;
+      }
+      const url = new URL(request.url ?? "", "http://daemon.local");
+      const upload = /^\/v1\/attachments\/([\w-]+)\/upload$/.exec(url.pathname);
+      if (upload?.[1]) {
+        if (request.method !== "POST") {
+          response.statusCode = 405;
+          response.end();
+          request.resume();
+          return;
+        }
+        if (active >= 8) {
+          response.statusCode = 429;
+          response.end();
+          request.resume();
+          return;
+        }
+        active++;
+        try {
+          await attachmentsUpload(request, response, options, auth, remote, upload[1], url);
+        } finally {
+          active--;
+        }
         return;
       }
       const match = /^\/v1\/attachments\/([\w-]+)\/([a-f0-9]{64})\/(original|thumbnail)$/.exec(
@@ -100,8 +128,6 @@ export function attachmentsHttp(
           variant = match[3] === "thumbnail" ? "thumbnail" : "original";
         // Authorize and validate ownership even for HEAD and conditional requests.
         const first = await budget.wait(read(device.id, thread, hash, variant, 0, 65536, allowed));
-        if (first.bytes > 32 * 1024 * 1024)
-          throw new ContextError("quota", "Attachment exceeds response limit");
         const etag = `"${hash}-${variant}-v1"`;
         response.setHeader("ETag", etag);
         response.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
@@ -181,9 +207,26 @@ export function attachmentsHttp(
         unsupported: 415,
         busy: 429,
         offset: 416,
+        quota: 413,
       };
-      response.statusCode = error instanceof ContextError ? (statuses[error.code] ?? 400) : 500;
-      response.end();
+      response.statusCode =
+        error instanceof ContextError
+          ? (statuses[error.code] ?? 400)
+          : error instanceof z.ZodError
+            ? 400
+            : 500;
+      request.resume();
+      response.setHeader("Content-Type", "application/json");
+      response.end(
+        JSON.stringify({
+          error:
+            error instanceof z.ZodError
+              ? "Invalid attachment metadata. Send a valid filename, size and SHA-256."
+              : error instanceof Error
+                ? error.message
+                : "Attachment request failed",
+        }),
+      );
     });
   };
 }

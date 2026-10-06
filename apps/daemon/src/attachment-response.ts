@@ -5,6 +5,7 @@ import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.
 export function attachmentResponse(
   response: ServerResponse,
   runtime: Pick<DeliveryRuntime, "delay"> = systemDeliveryRuntime,
+  deadlineMs = 30_000,
 ) {
   let closed = false;
   const pending = new Set<() => void>();
@@ -14,7 +15,7 @@ export function attachmentResponse(
     pending.clear();
   };
   response.once("close", onClose);
-  const cancel = runtime.delay(() => response.destroy(), 30_000);
+  const cancel = runtime.delay(() => response.destroy(), deadlineMs);
   // Detach each completed wait. Repeated Promise.race against one unresolved
   // close promise would retain all prior chunks until the response closed.
   const wait = <T>(operation: Promise<T>): Promise<T> =>
