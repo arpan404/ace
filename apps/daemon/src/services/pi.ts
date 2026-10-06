@@ -1,19 +1,15 @@
 import { join } from "node:path";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
-import {
-  createPiAdapter,
-  piProfile,
-  piHistoryErrorMessage,
-  type PiOptions,
-  type PiSession,
-} from "@ace/adapter-pi";
+import type { PiOptions, PiSession } from "@ace/adapter-pi";
+import { piProfile } from "@ace/adapter-pi/capabilities";
+import { piHistoryErrorMessage } from "@ace/adapter-pi/history-errors";
 import { discoverPi, type DiscoveryResult } from "@ace/provider-kit/discovery";
 import { AgentId, PiControlRequest, type PiControlResult, type ThreadId } from "@ace/protocol";
 import type { AdapterRegistry } from "../engine/registry.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export interface PiService {
-  register(registry: AdapterRegistry, cli: DiscoveryResult): void;
+  register(registry: AdapterRegistry, cli: DiscoveryResult): void | Promise<void>;
   handle(request: PiControlRequest): Promise<PiControlResult>;
 }
 export async function startPi(context: ServiceContext): Promise<void> {
@@ -21,9 +17,10 @@ export async function startPi(context: ServiceContext): Promise<void> {
   const openingThreads = new Set<ThreadId>();
   let cli: DiscoveryResult | undefined;
   const service: PiService = {
-    register(registry, source) {
+    async register(registry, source) {
       cli = source;
       if (!piProfile(source).supported) return;
+      const { createPiAdapter } = await import("@ace/adapter-pi");
       const adapter = createPiAdapter({
         sessionReferenceDir: join(context.config.dataDir, "pi-session-references"),
         ...context.options.pi,
@@ -147,7 +144,7 @@ export async function registerPi(
   const executable =
     context.services.providerConfigurations?.for("pi").binaryPath ?? context.options.pi?.executable;
   const cli = await discover({ signal: context.signal, ...(executable ? { executable } : {}) });
-  context.services.pi?.register(registry, cli);
+  await context.services.pi?.register(registry, cli);
 }
 export function createPiSocketSession(context: SocketContext): SocketService {
   let pending = 0;

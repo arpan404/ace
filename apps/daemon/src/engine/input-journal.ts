@@ -1,5 +1,5 @@
-import { piInput } from "@ace/adapter-pi";
-import { claudeInputContent } from "@ace/adapter-claude";
+import { piInput } from "@ace/adapter-pi/input";
+import { content as claudeInputContent } from "@ace/adapter-claude/input";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {

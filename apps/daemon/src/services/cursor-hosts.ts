@@ -1,4 +1,4 @@
-import { CursorHostSlots } from "@ace/adapter-cursor";
+import { CursorHostSlots } from "@ace/adapter-cursor/slots";
 import type { ServiceContext } from "./types.ts";
 
 /** Service composition owns a shared lifetime/capacity index, never a global process manager. */

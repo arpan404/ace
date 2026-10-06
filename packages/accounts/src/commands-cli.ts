@@ -6,7 +6,7 @@ import { NativeAccountProvider } from "@ace/protocol/accounts";
 import { openRegistry } from "./registry.ts";
 import { createInstance, discoverHomes, loginStatus } from "./instances.ts";
 import { addAccount } from "./login.ts";
-import { discoverCursorSdk } from "@ace/adapter-cursor";
+import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { daemonCursorAuth, cursorDaemonDriver, type CursorCliAuth } from "./cursor-cli-auth.ts";
 
 export async function runAccountsCommand(

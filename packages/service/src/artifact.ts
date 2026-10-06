@@ -4,7 +4,6 @@ import { mkdir } from "node:fs/promises";
 import { Transform, Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ReleaseManifest } from "@ace/protocol";
-import { Parser, extract } from "tar";
 import { createGunzip } from "node:zlib";
 export function verifyManifest(
   bytes: Uint8Array,
@@ -54,6 +53,7 @@ export async function downloadArchive(
     throw new Error("Release checksum rejected");
 }
 export async function unpackArchive(file: string, directory: string): Promise<void> {
+  const { Parser, extract } = await import("tar");
   let entries = 0,
     total = 0;
   let invalid = false;

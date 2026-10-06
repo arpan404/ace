@@ -8,7 +8,6 @@ import { pipeline } from "node:stream/promises";
 import { z } from "zod";
 import type { BrowserDownloadProgress } from "@ace/protocol";
 import { ChromiumArtifact, chromiumArtifact } from "./chromium-manifest.ts";
-import { extractChromium } from "./archive.ts";
 
 const Verified = z.object({
   checksum: z.string(),
@@ -136,6 +135,7 @@ export async function acquireChromium(options: ChromiumAcquisitionOptions): Prom
       throw new Error("Chromium archive checksum mismatch");
     await mkdir(expanded, { mode: 0o700 });
     report("extracting", total);
+    const { extractChromium } = await import("./archive.ts");
     await extractChromium(archive, expanded, signal);
     const stagedExecutable = join(expanded, artifact.executable);
     await access(stagedExecutable, constants.X_OK);

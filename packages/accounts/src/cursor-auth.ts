@@ -1,5 +1,5 @@
 import { CursorAuthRequest, CursorAuthEvent } from "@ace/protocol";
-import { CursorSdkUnavailableError } from "@ace/adapter-cursor";
+import { CursorSdkUnavailableError } from "@ace/adapter-cursor/auth";
 import type { ProviderInstance, CursorSdkAuth } from "@ace/protocol/accounts";
 import type { z } from "zod";
 import type { AccountRegistry } from "./registry.ts";

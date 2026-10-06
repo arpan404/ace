@@ -1,6 +1,5 @@
 import { connectedOpenCodeProviders } from "./opencode-connections.ts";
 import { parseVersion } from "@ace/provider-kit/discovery";
-import { discoverOpenCodeModels } from "@ace/adapter-opencode";
 import { z } from "zod";
 import { CatalogModel } from "@ace/protocol";
 import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process";
@@ -18,6 +17,7 @@ export async function discoverOpenCodeCatalog(
   const version = await installedVersion(instance, signal, spawn);
   const connected = await connectedOpenCodeProviders(instance, signal, spawn);
   if (!connected.size) return [];
+  const { discoverOpenCodeModels } = await import("@ace/adapter-opencode");
   const payload = metadata
     ? await metadata(instance, signal)
     : await discoverOpenCodeModels(

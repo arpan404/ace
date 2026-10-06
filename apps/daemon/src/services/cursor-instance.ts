@@ -1,4 +1,4 @@
-import { defaultCursorInstance, type CursorInstance } from "@ace/adapter-cursor";
+import { defaultCursorInstance, type CursorInstance } from "@ace/adapter-cursor/instance";
 import type { ServiceContext } from "./types.ts";
 
 /** Execution and SDK auth must bind the same daemon-owned default home. */

@@ -1,9 +1,6 @@
 import { discoverProviders, discoverPi } from "@ace/provider-kit/discovery";
-import {
-  discoverCursorSdk,
-  createCursorAdapter,
-  type CursorAdapterOptions,
-} from "@ace/adapter-cursor";
+import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
+import type { CursorAdapterOptions } from "@ace/adapter-cursor";
 import type { ProviderAdapter } from "@ace/engine-api";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { AdapterRegistry } from "./registry.ts";
@@ -11,7 +8,7 @@ import { AdapterRegistry } from "./registry.ts";
 /** Metadata probes only; sessions still open after committed command admission. */
 export async function discoverAdapters(
   discover: typeof discoverProviders = discoverProviders,
-  claudeAdapter?: (cli: DiscoveryResult) => ProviderAdapter,
+  claudeAdapter?: (cli: DiscoveryResult) => ProviderAdapter | Promise<ProviderAdapter>,
   additional?: (registry: AdapterRegistry) => Promise<void>,
   cursorOptions: CursorAdapterOptions = {},
   sdkDiscovery: typeof discoverCursorSdk = discoverCursorSdk,
@@ -21,7 +18,7 @@ export async function discoverAdapters(
   if (claude.installed && !registry.has("claude")) {
     const { createClaudeAdapter } = await import("@ace/adapter-claude");
     registry.register(
-      claudeAdapter?.(claude) ??
+      (await claudeAdapter?.(claude)) ??
         createClaudeAdapter(claude.path ? { executable: claude.path } : {}),
       claude,
     );
@@ -53,6 +50,7 @@ export async function discoverAdapters(
     (!registry.has("cursor") || registry.get("cursor").adapter.backend !== "cursor-sdk")
   ) {
     // Unsupported SDKs stay selected and fail on admission. Only absence permits ACP fallback.
+    const { createCursorAdapter } = await import("@ace/adapter-cursor/adapter");
     registry.register(createCursorAdapter(cursorOptions), {
       installed: true,
       auth: "unknown",

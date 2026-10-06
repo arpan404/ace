@@ -1,5 +1,5 @@
 import { SessionOpenError } from "@ace/provider-kit/open-error";
-import { OpenCode, type OpenCodeClient } from "@opencode/client";
+import type { OpenCode, OpenCodeClient } from "@opencode/client";
 import { z } from "zod";
 import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
 import type { SupervisedProcess } from "@ace/provider-kit/process";
@@ -53,6 +53,7 @@ export class OpenCodeServer {
   private authorization = "";
   private secrets: string[] = [];
   private client: OpenCodeClient | undefined;
+  private factory: typeof OpenCode | undefined;
   private identity: z.infer<typeof Identity> | undefined;
   private deliberate = false;
   private recovering = false;
@@ -126,8 +127,8 @@ export class OpenCodeServer {
     }
   }
   scoped(directory: string, frame: Observe, signal: AbortSignal): OpenCodeClient {
-    if (!this.base) throw new Error("OpenCode server is not ready");
-    return OpenCode.make({
+    if (!this.base || !this.factory) throw new Error("OpenCode server is not ready");
+    return this.factory.make({
       baseUrl: this.base.href,
       headers: { "x-opencode-directory": directory },
       fetch: observedFetch(
@@ -228,6 +229,8 @@ export class OpenCodeServer {
         });
       }
       if (!version(expected)) throw new Error("OpenCode 2.0.22 is required");
+      this.factory = (await import("@opencode/client")).OpenCode;
+      this.controller.signal.throwIfAborted();
       this.client = this.scoped("", this.frame, this.controller.signal);
       await this.verify(expected);
       const fetch = observedFetch(
