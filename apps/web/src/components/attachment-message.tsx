@@ -79,7 +79,7 @@ function Placeholder(props: Shown & { className?: string | undefined }) {
           ))}
         </span>
       )}
-      {props.files.length > 0 && <Skeleton className="h-7 w-40 rounded-md" />}
+      {props.files.length > 0 && <Skeleton className="h-10 w-40 rounded-lg" />}
     </div>
   );
 }

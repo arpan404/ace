@@ -2,15 +2,12 @@ import { ClientError } from "@ace/client";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ChipAttachment } from "@/components/attachment-chips.tsx";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
-import { formatBytes } from "@/components/format-bytes.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 
 export interface PendingAttachment extends ChipAttachment {
   /** Size in bytes; unknown for a draft restored after a reload. */
   bytes?: number | undefined;
-  /** Set once the daemon holds the file. */
-  sha256?: string | undefined;
 }
 
 /** A file the daemon holds, ready to go with the message. */
@@ -23,8 +20,25 @@ export interface ReadyAttachment {
 export type Outcome = ReadyAttachment | { error: string };
 const lost: Outcome = { error: "it was removed" };
 
-/** Client preflight matches the daemon default; the daemon enforces configured limits. */
+/** Client preflight matches the daemon defaults; the daemon enforces configured limits. */
 export const maxAttachmentBytes = 512 * 1024 * 1024;
+/** All of one message's files together (the daemon's default). */
+export const maxMessageBytes = 1024 * 1024 * 1024;
+/** Files one message carries (`MessageContext.attachments`). */
+export const maxAttachmentsPerMessage = 64;
+
+// The limits above in words (binary units, as the daemon sets them).
+const tooLarge = "Too large: files can be up to 512 MB each";
+const tooMuch = "Too much for one message: files can add up to 1 GB";
+
+/** What the hook knows of a chip: its file, whether its bytes count, and what it is once held. */
+interface Known {
+  file?: File | undefined;
+  /** Bytes counted toward the message's total; 0 for a file refused before uploading. */
+  bytes: number;
+  /** The daemon's hash and the name, once it holds the file. */
+  id?: string | undefined;
+}
 
 const ChipRow = deferredComponent(() =>
   import("@/components/attachment-chips.tsx").then((module) => module.AttachmentChipRow),
@@ -67,6 +81,11 @@ export function useAttachments(
     ),
   );
   const files = useRef(new Map<number, File>());
+  const known = useRef(
+    new Map<number, Known>(
+      restored.map((file, index) => [-1 - index, { bytes: 0, id: `${file.sha256}\0${file.name}` }]),
+    ),
+  );
   useEffect(() => {
     // The chips' code, warmed while the composer is up so the first file shows at once.
     void ChipRow.preload();
@@ -74,6 +93,20 @@ export function useAttachments(
     return () => {
       for (const url of urls) URL.revokeObjectURL(url);
     };
+  }, []);
+  /** Take one chip away, its preview and what was kept for it included. */
+  const drop = useCallback((key: number) => {
+    outcomes.current.delete(key);
+    files.current.delete(key);
+    known.current.delete(key);
+    setItems((list) => {
+      const gone = list.find((item) => item.key === key);
+      if (gone?.preview) {
+        URL.revokeObjectURL(gone.preview);
+        previews.current.delete(gone.preview);
+      }
+      return list.filter((item) => item.key !== key);
+    });
   }, []);
   const upload = useCallback(
     (key: number, file: File) => {
@@ -83,15 +116,28 @@ export function useAttachments(
         .upload(thread, file, (progress) => patch({ progress }))
         .then(
           (attachment) => {
+            files.current.delete(key);
+            const ready = { sha256: attachment.sha256, name: file.name };
+            // The same bytes under the same name are already attached: one chip is enough.
+            const id = `${attachment.sha256}\0${file.name}`;
+            const twin = [...known.current].some(
+              ([other, held]) => other !== key && held.id === id,
+            );
+            if (twin) {
+              drop(key);
+              return ready;
+            }
+            const held = known.current.get(key);
+            if (held) held.id = id;
             // The daemon's own reading of the type, which the browser may not have known.
             patch({
               state: "ready",
               progress: 1,
               sha256: attachment.sha256,
               mimeType: attachment.mimeType,
+              kind: attachment.kind,
             });
-            files.current.delete(key);
-            return { sha256: attachment.sha256, name: file.name };
+            return ready;
           },
           (error: unknown): Outcome => {
             const reason = uploadError(error);
@@ -101,48 +147,67 @@ export function useAttachments(
         );
       outcomes.current.set(key, outcome);
     },
-    [sources, thread],
+    [sources, thread, drop],
   );
+  /**
+   * Attach files: each gets its chip and starts uploading. A file already attached (same name,
+   * size and date) is skipped; one over the per-file or per-message size limit gets a chip that
+   * says so. Returns how many didn't fit the message's file count and were left out.
+   */
   const add = useCallback(
-    (added: Iterable<File>) => {
+    (added: Iterable<File>): number => {
+      let left = 0;
       for (const file of added) {
+        const held = [...known.current.values()];
+        if (
+          held.some(
+            ({ file: other }) =>
+              other?.name === file.name &&
+              other.size === file.size &&
+              other.lastModified === file.lastModified,
+          )
+        )
+          continue;
+        if (held.length >= maxAttachmentsPerMessage) {
+          left++;
+          continue;
+        }
         const key = ++next.current;
         const preview =
           file.type.startsWith("image/") && typeof URL.createObjectURL === "function"
             ? URL.createObjectURL(file)
             : undefined;
         if (preview) previews.current.add(preview);
-        const tooBig = file.size > maxAttachmentBytes;
+        const total = held.reduce((sum, { bytes }) => sum + bytes, 0);
+        const error =
+          file.size > maxAttachmentBytes
+            ? tooLarge
+            : total + file.size > maxMessageBytes
+              ? tooMuch
+              : undefined;
+        known.current.set(key, { file, bytes: error ? 0 : file.size });
         setItems((list) => [
           ...list,
           {
             key,
             name: file.name,
             preview,
+            file,
             mimeType: file.type || undefined,
             bytes: file.size,
-            state: tooBig ? "failed" : "uploading",
+            state: error ? "failed" : "uploading",
             progress: 0,
-            ...(tooBig
-              ? {
-                  error: `Too large: ${formatBytes(file.size)}, the limit is ${formatBytes(maxAttachmentBytes)}`,
-                  retryable: false,
-                }
-              : {}),
+            ...(error ? { error, retryable: false } : {}),
           },
         ]);
-        if (tooBig) {
-          outcomes.current.set(
-            key,
-            Promise.resolve({
-              error: `Too large: ${formatBytes(file.size)}, the limit is ${formatBytes(maxAttachmentBytes)}`,
-            }),
-          );
+        if (error) {
+          outcomes.current.set(key, Promise.resolve({ error }));
           continue;
         }
         files.current.set(key, file);
         upload(key, file);
       }
+      return left;
     },
     [upload],
   );
@@ -163,19 +228,10 @@ export function useAttachments(
     for (const key of keys) {
       outcomes.current.delete(key);
       files.current.delete(key);
+      known.current.delete(key);
     }
   };
-  const remove = (key: number) => {
-    forget([key]);
-    setItems((list) => {
-      const gone = list.find((item) => item.key === key);
-      if (gone?.preview) {
-        URL.revokeObjectURL(gone.preview);
-        previews.current.delete(gone.preview);
-      }
-      return list.filter((item) => item.key !== key);
-    });
-  };
+  const remove = drop;
   const clear = () => {
     for (const url of previews.current) URL.revokeObjectURL(url);
     previews.current.clear();
@@ -187,9 +243,12 @@ export function useAttachments(
    * order. Failed ones are left out. Removing or clearing chips afterwards doesn't change it.
    */
   const settled = (): Promise<ReadyAttachment[]> =>
-    Promise.all(outcomes.current.values()).then((all) =>
-      all.flatMap((file) => ("sha256" in file ? [file] : [])),
-    );
+    Promise.all(outcomes.current.values()).then((all) => {
+      const seen = new Set<string>();
+      return all.flatMap((file) =>
+        "sha256" in file && !seen.has(file.sha256) && seen.add(file.sha256) ? [file] : [],
+      );
+    });
   /**
    * Take every chip out of the composer for a message that is being sent: the files as a
    * pending bubble shows them (`local`), what `settled()` would give, each file's own outcome
@@ -254,6 +313,8 @@ export function AttachmentChips(props: {
   items: readonly PendingAttachment[];
   onRemove(key: number): void;
   onRetry?: ((key: number) => void) | undefined;
+  /** The thread the files go to, for previewing a restored draft's files; none for a draft. */
+  threadId?: string | undefined;
 }) {
   if (!props.items.length) return null;
   return (

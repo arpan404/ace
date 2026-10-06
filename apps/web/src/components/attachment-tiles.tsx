@@ -1,74 +1,44 @@
-import {
-  FileAudioIcon,
-  FileCodeIcon,
-  FileIcon,
-  FileImageIcon,
-  FilePdfIcon,
-  FileTextIcon,
-  FileVideoIcon,
-  FileZipIcon,
-} from "@phosphor-icons/react";
-import { Suspense, useRef, useState, type CSSProperties } from "react";
-import { Icon } from "@/components/icon.tsx";
+import { useState, type CSSProperties } from "react";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ImageUrl, type ImageState } from "./attachment-bytes.tsx";
+import { FileGlyph, FileName } from "./attachment-face.tsx";
 import { UnavailableTile } from "./attachment-unavailable.tsx";
 import {
-  fileLabel,
   tileSize,
   visibleImages,
   type Shown,
   type ShownFile,
   type ShownImage,
 } from "./attachment-format.ts";
+import { deliveryDetails, deliveryLabels, describeFile, fileMeta } from "./attachment-kind.ts";
+import { useFilePreview, useLightbox } from "./attachment-open.tsx";
 
 /*
  * A message's attachments: image thumbnails (one up to 320×240, two to four in a 2-column grid of
- * 160×120, more as three and a "+N" tile) and file chips with the name and size. Clicking a
- * thumbnail opens the lightbox, whose code loads only then.
+ * 160×120, more as three and a "+N" tile) and file chips by kind with the name, size and how the
+ * agent received the file. A thumbnail opens the lightbox, a file chip its preview; their code
+ * loads only then.
  */
-
-const Lightbox = deferredComponent(() =>
-  import("./attachment-lightbox.tsx").then((module) => module.Lightbox),
-);
-
-/** The lightbox over `images`: `show` opens it at an image, `lightbox` is the element to render. */
-export function useLightbox(images: readonly ShownImage[]) {
-  const [open, setOpen] = useState<number>();
-  const opener = useRef<HTMLElement | null>(null);
-  const show = (index: number, element: HTMLElement) => {
-    opener.current = element;
-    setOpen(index);
-  };
-  const lightbox = open !== undefined && (
-    <Suspense fallback={null}>
-      <Lightbox.Component
-        images={images}
-        index={open}
-        onIndex={setOpen}
-        onClose={() => setOpen(undefined)}
-        finalFocus={opener}
-      />
-    </Suspense>
-  );
-  return { show, lightbox };
-}
 
 export function AttachmentTiles(props: Shown & { className?: string | undefined }) {
   const { images, files } = props;
   const { shown, more } = visibleImages(images.length);
   const { show, lightbox } = useLightbox(images);
+  const { show: showFile, preview } = useFilePreview();
+  // Images sent as paths say so: the agent read files, not pictures.
+  const imageDelivery = images.some((image) => image.delivery === "file_path")
+    ? "file_path"
+    : images.find((image) => image.delivery)?.delivery;
   return (
     <div className={cn("flex flex-col items-end gap-1.5", props.className)}>
-      {images.some((image) => image.delivery) && (
-        <span className="text-xs text-muted-foreground">
-          {images.some((image) => image.delivery === "file_path")
-            ? "Images sent as files"
-            : "Native images"}
-        </span>
+      {imageDelivery && (
+        <Tip label={deliveryDetails[imageDelivery]}>
+          <span tabIndex={0} className="focus-ring rounded-xs text-xs text-muted-foreground">
+            {imageDelivery === "file_path" ? "Images sent as files" : "Native images"}
+          </span>
+        </Tip>
       )}
       {images.length > 0 && (
         <ul
@@ -104,12 +74,13 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
         <ul aria-label="Attached files" className="flex max-w-full flex-wrap justify-end gap-1.5">
           {files.map((file) => (
             <li key={file.key} className="max-w-full min-w-0">
-              <FileChip file={file} />
+              <FileChip file={file} onOpen={showFile} />
             </li>
           ))}
         </ul>
       )}
       {lightbox}
+      {preview}
     </div>
   );
 }
@@ -165,41 +136,49 @@ function Tile(props: TileProps & { url: ImageState }) {
   );
 }
 
-function fileIcon(file: ShownFile) {
-  const mime = file.mimeType ?? "",
-    extension = file.name.split(".").at(-1)?.toLowerCase() ?? "";
-  if (mime.startsWith("image/")) return FileImageIcon;
-  if (mime.startsWith("audio/")) return FileAudioIcon;
-  if (mime.startsWith("video/")) return FileVideoIcon;
-  if (mime === "application/pdf" || extension === "pdf") return FilePdfIcon;
-  if (/zip|tar|gzip|compressed/.test(mime) || ["zip", "tar", "gz", "tgz"].includes(extension))
-    return FileZipIcon;
-  if (/json|javascript|typescript|xml|x-sh/.test(mime)) return FileCodeIcon;
-  if (mime.startsWith("text/")) return FileTextIcon;
-  return FileIcon;
-}
-
-/** "report.pdf · 1.2 MB" with an icon by type; the full name in the tooltip. */
-export function FileChip(props: { file: ShownFile }) {
-  const modes = {
-    native_image: "native image",
-    native_pdf: "native PDF",
-    native_resource: "native resource",
-    inline_text: "inline text",
-    inline_text_and_path: "inline text + file",
-    file_path: "sent as file",
-  };
-  const label =
-    fileLabel(props.file) + (props.file.delivery ? ` · ${modes[props.file.delivery]}` : "");
-  return (
-    <Tip label={props.file.name}>
-      <span
-        tabIndex={0}
-        className="inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md bg-secondary px-2 text-xs text-muted-foreground"
-      >
-        <Icon icon={fileIcon(props.file)} size={14} className="text-subtle-foreground" />
-        <span className="min-w-0 truncate">{label}</span>
+/**
+ * A sent file: its kind's glyph, the name, and under it the size, type and how the agent got
+ * it ("native PDF", "inline text, truncated"), which the tooltip explains. A file this device
+ * can read opens its preview; one an agent only named by path is a quiet label.
+ */
+export function FileChip(props: {
+  file: ShownFile;
+  onOpen?: ((file: ShownFile, element: HTMLElement) => void) | undefined;
+}) {
+  const { file } = props;
+  const kind = describeFile(file).kind;
+  const meta = fileMeta(file) + (file.delivery ? ` · ${deliveryLabels[file.delivery]}` : "");
+  const tip = file.delivery ? deliveryDetails[file.delivery] : file.name;
+  const face = (
+    <>
+      <FileGlyph kind={kind} />
+      <span className="flex min-w-0 flex-col items-start">
+        <span className="flex max-w-full min-w-0 text-ui text-foreground">
+          <FileName name={file.name} />
+        </span>
+        <span className="max-w-full truncate text-xs text-muted-foreground">{meta}</span>
       </span>
+    </>
+  );
+  const chip =
+    "flex max-w-full min-w-0 items-center gap-1.5 rounded-lg bg-secondary py-1 pr-2.5 pl-1.5 text-left leading-4";
+  const onOpen = props.onOpen;
+  return (
+    <Tip label={tip}>
+      {file.source && onOpen ? (
+        <button
+          type="button"
+          aria-label={`${file.name}, ${meta}`}
+          onClick={(event) => onOpen(file, event.currentTarget)}
+          className={cn(chip, "focus-ring transition-colors duration-(--dur-1) hover:bg-accent")}
+        >
+          {face}
+        </button>
+      ) : (
+        <span tabIndex={0} aria-label={`${file.name}, ${meta}`} className={cn(chip, "focus-ring")}>
+          {face}
+        </span>
+      )}
     </Tip>
   );
 }
