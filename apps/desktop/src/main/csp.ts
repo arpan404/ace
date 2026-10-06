@@ -37,7 +37,8 @@ export function contentSecurityPolicy(options: {
       ...(dev && devSocket ? [dev, devSocket] : []),
     ],
     "media-src": ["'self'", "blob:", "data:"],
-    "frame-src": ["http://127.0.0.1:*", "http://localhost:*"],
+    // `blob:` frames hold attachment previews this page typed as PDFs (the built-in viewer).
+    "frame-src": ["http://127.0.0.1:*", "http://localhost:*", "blob:"],
     "worker-src": ["'self'", "blob:"],
     "object-src": ["'none'"],
     "base-uri": ["'none'"],

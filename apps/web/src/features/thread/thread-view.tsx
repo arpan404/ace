@@ -23,6 +23,7 @@ import {
   useSummaryPlacement,
 } from "./header/summary.tsx";
 import type { ComposerHandle } from "./composer/composer.tsx";
+import { useFileDrop } from "./composer/file-drop.tsx";
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkOpener } from "./transitions/fork-opener.ts";
@@ -145,6 +146,8 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   useEffect(() => whenIdle(() => void preloadDeferred()), []);
   const title = useShownTitle(id, meta?.title);
   const composer = useRef<ComposerHandle>(null);
+  // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.
+  const drop = useFileDrop(composer);
   const column = useRef<HTMLDivElement>(null);
   const placement = useSummaryPlacement(column);
   const pinned = useScopeWorkspace(id).summaryPinned;
@@ -210,7 +213,13 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           <TranscriptSkeleton />
         ) : (
           <ForkOpener value={setForking}>
-            <div ref={column} style={inset} className="relative flex h-full min-h-0 flex-col">
+            <div
+              ref={column}
+              style={inset}
+              className="relative flex h-full min-h-0 flex-col"
+              {...drop.handlers}
+            >
+              {drop.overlay}
               {thread && !nav.turnsOpen && (
                 <PinnedSummary
                   thread={thread}

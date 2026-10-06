@@ -22,6 +22,21 @@ export type ImageSource =
   | { kind: "attachment"; threadId: string; sha256: string; bytes: number; thumbnail: boolean }
   | { kind: "url"; url: string };
 
+/** Where a file's bytes come from: the browser's own file before it is sent, else the daemon. */
+export type FileSource =
+  | { kind: "file"; file: File }
+  | { kind: "attachment"; threadId: string; sha256: string; bytes: number };
+
+/** A file the preview can show: what it is, and where its bytes are when this device has them. */
+export interface PreviewFile {
+  name: string;
+  bytes?: number | undefined;
+  mimeType?: string | undefined;
+  kind?: Attachment["kind"] | undefined;
+  delivery?: Attachment["delivery"] | undefined;
+  source?: FileSource | undefined;
+}
+
 export interface ShownImage {
   delivery?: Attachment["delivery"];
   key: string;
@@ -36,7 +51,11 @@ export interface ShownFile {
   key: string;
   name: string;
   mimeType?: string | undefined;
+  /** The daemon's reading of the bytes (`image`, `pdf`, `text`, `binary`). */
+  kind?: Attachment["kind"];
   bytes?: number | undefined;
+  /** Where this device can read the file for its preview; a path an agent named has none. */
+  source?: Extract<FileSource, { kind: "attachment" }> | undefined;
 }
 export interface Shown {
   images: ShownImage[];
@@ -55,11 +74,6 @@ export function displayName(path: string, fallback = "Attached file"): string {
 /** Image URLs a message may load as-is: inline data, this page's blobs and the web. */
 export function loadableImageUrl(url: string): boolean {
   return /^(data:image\/|blob:|https?:)/i.test(url);
-}
-
-/** "report.pdf · 1.2 MB" */
-export function fileLabel(file: { name: string; bytes?: number | undefined }): string {
-  return file.bytes === undefined ? file.name : `${file.name} · ${formatBytes(file.bytes)}`;
 }
 
 /** Split a message's attachments, content parts and local files into thumbnails and chips. */
@@ -105,7 +119,16 @@ export function collectAttachments(input: {
         delivery: attachment.delivery,
         name: attachment.name,
         mimeType: attachment.mimeType,
+        kind: attachment.kind,
         bytes: attachment.bytes,
+        source: input.threadId
+          ? {
+              kind: "attachment",
+              threadId: input.threadId,
+              sha256: attachment.sha256,
+              bytes: attachment.bytes,
+            }
+          : undefined,
       });
   }
   for (const [index, part] of (input.parts ?? []).entries()) {
