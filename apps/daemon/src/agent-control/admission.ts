@@ -1,7 +1,8 @@
+import { AgentControlError, controlAdmissionError } from "./failure.ts";
 import { delegationModel } from "./models.ts";
 import { callerThread } from "./authorization.ts";
 import { admitDelegation, delegationBudget } from "@ace/orchestrator";
-import { pickInstance } from "@ace/accounts";
+import { pickInstance, explicitInstance } from "@ace/accounts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import {
   Command,
@@ -33,19 +34,27 @@ export class DelegationAdmission {
     this.policy = policy;
     this.admits = admits;
   }
-  private validate(caller: McpAttribution, input: DelegationRequest) {
-    if (!this.admits()) throw new Error("Admission closed");
+  validate(caller: McpAttribution, input: DelegationRequest) {
+    if (!this.admits()) throw new AgentControlError("admission_closed", "Admission closed");
     callerThread(this.deps.store, caller);
+    if (this.deps.providerEnabled?.(input.provider, input.accountId ?? input.instanceId) === false)
+      throw new AgentControlError("provider_disabled", `Provider ${input.provider} is disabled`);
+    if (!this.deps.engine.providerAvailability(input.provider).installed)
+      throw new AgentControlError(
+        "provider_unavailable",
+        `No installed CLI adapter for ${input.provider}`,
+      );
+
     if (
       this.journal.get(caller.threadId)?.phase === "cancelling" ||
       this.journal.stopped(caller.threadId) ||
       this.journal.ancestorStopped(caller.threadId)
     )
-      throw new Error("cancelled");
+      throw new AgentControlError("delegation_cancelled", "cancelled");
     if (input.provider === "acp") {
       const identity = AcpIdentity.parse(input);
       if (input.accountId && input.accountId !== identity.instanceId)
-        throw new Error("Account identity mismatch");
+        throw new AgentControlError("account_unavailable", "Account identity mismatch");
     }
     const capabilities = this.deps.engine.capabilities(input.provider);
     if (
@@ -53,7 +62,7 @@ export class DelegationAdmission {
         (key) => !capabilities.launchOptions?.some((supported) => supported === key),
       )
     )
-      throw new Error("launch_options_unsupported");
+      throw controlAdmissionError("launch_options_unsupported");
   }
   reserve(
     caller: McpAttribution,
@@ -79,7 +88,10 @@ export class DelegationAdmission {
         now,
       );
       if (rejection || this.journal.activeCount() >= 64)
-        throw new Error(rejection ?? "active_limit");
+        throw new AgentControlError(
+          rejection === "cancelled" ? "delegation_cancelled" : "delegation_limit",
+          rejection ?? "active_limit",
+        );
       this.journal.assertCapacity();
       const provider = AccountProvider.safeParse(
         input.provider === "acp" ? undefined : input.provider,
@@ -96,14 +108,23 @@ export class DelegationAdmission {
             ) ?? [])
         : [];
       const selected = provider.success
-        ? pickInstance(
-            { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
-            candidates,
-            now,
-          )
+        ? input.accountId && candidates[0]
+          ? explicitInstance(
+              { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
+              candidates[0],
+              now,
+            )
+          : pickInstance(
+              { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
+              candidates,
+              now,
+            )
         : undefined;
       if (provider.success && (input.accountId || candidates.length > 0) && !selected)
-        throw new Error("Account unavailable or quota exhausted");
+        throw new AgentControlError(
+          "account_unavailable",
+          "Account unavailable or quota exhausted",
+        );
       const resolvedModel = delegationModel(
         this.deps.models,
         input,
@@ -166,20 +187,27 @@ export class DelegationAdmission {
       const rejection = tree.cancelled
         ? "cancelled"
         : delegationBudget(tree, this.policy, this.deps.clock.now());
-      if (rejection) throw new Error(rejection);
+      if (rejection)
+        throw new AgentControlError(
+          rejection === "cancelled" ? "delegation_cancelled" : "delegation_limit",
+          rejection,
+        );
       // Quota may have changed during filesystem work; selected identity is immutable.
       if (current.accountId) {
         const account = this.deps.accounts?.get(current.accountId);
         const provider = AccountProvider.parse(r.request.provider);
         if (
           !account ||
-          !pickInstance(
+          !explicitInstance(
             { provider, role: r.request.role, estimatedLoad: r.request.estimatedLoad },
-            [account],
+            account,
             this.deps.clock.now(),
           )
         )
-          throw new Error("Account unavailable or quota exhausted");
+          throw new AgentControlError(
+            "account_unavailable",
+            "Account unavailable or quota exhausted",
+          );
       }
       const identity = r.request.provider === "acp" ? AcpIdentity.parse(r.request) : undefined;
       const parentDeck = this.deps.store.getThread(r.parentId)?.deck;
@@ -209,7 +237,7 @@ export class DelegationAdmission {
           ...(r.request.permissionMode ? { permissionMode: r.request.permissionMode } : {}),
         },
       );
-      if (!result.ok) throw new Error(result.error);
+      if (!result.ok) throw controlAdmissionError(result.error ?? "Child creation failed");
       const child = this.deps.store.getThread(r.childId);
       if (!child) throw new Error("Child creation failed");
       this.journal.add(r);

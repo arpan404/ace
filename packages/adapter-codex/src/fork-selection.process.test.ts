@@ -85,15 +85,33 @@ test("Codex starts with a lifetime-scoped ace lease and redacts the native conne
   });
   try {
     const initialized = await h.wait(
-      (frame) => obj(obj(obj(frame.data)["result"])["aceConnection"])["authenticated"] === true,
+      (frame) => obj(obj(obj(frame.data)["params"])["aceConnection"])["authenticated"] === true,
     );
-    expect(obj(obj(initialized.data)["result"])["aceConnection"]).toEqual({
-      url: JSON.stringify(url),
+    expect(obj(obj(initialized.data)["params"])["aceConnection"]).toEqual({
+      url,
       authenticated: true,
     });
     await h.session.send([{ type: "text", text: "same-chunk" }], "queue");
     await h.wait((frame) => obj(frame.data)["method"] === "turn/completed");
     expect(JSON.stringify(h.frames)).not.toContain(bearer);
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("a native fork shows inherited asks and answers before its first new turn", async () => {
+  const h = await sessionHarness(false, "", {
+    nativeSessionId: "source-native",
+    point: { type: "turn", nativeId: "source-turn" },
+  });
+  try {
+    const messages = Object.values(h.replay.state.items).filter((i) => i.type === "message");
+    const text = JSON.stringify(messages);
+    expect(text).toContain("ask private native earlier context");
+    expect(text).toContain("private native selected context");
+    expect(text).not.toContain("private native future secret");
+    expect(messages.filter((i) => i.type === "message" && i.role === "user")).toHaveLength(2);
+    expect(messages.filter((i) => i.type === "message" && i.role === "assistant")).toHaveLength(2);
   } finally {
     await h.dispose();
   }

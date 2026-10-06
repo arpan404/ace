@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { SessionContext } from "@ace/engine-api";
 import { OpenCodeServer, type ServerOptions } from "./server.ts";
 import { AceMcpConnectionSchema } from "@ace/mcp-server";
-import { mcpEnvironment } from "./mcp-environment.ts";
 const Environment = z
   .record(z.string().max(256), z.string().max(32768).optional())
   .refine((env) => Object.keys(env).length <= 512);
@@ -37,16 +36,7 @@ export class ServerPool {
       throw new Error(
         "Scoped ace MCP requires an owned OpenCode server; external attachment cannot isolate session credentials",
       );
-    const env = connection
-      ? Environment.parse(
-          mcpEnvironment(
-            Environment.parse({ ...process.env, ...this.options.discovery?.env, ...ctx.env }),
-            connection,
-          ),
-        )
-      : ctx.env === undefined
-        ? undefined
-        : Environment.parse(ctx.env);
+    const env = ctx.env === undefined ? undefined : Environment.parse(ctx.env);
     let key =
       ctx.instanceId === undefined
         ? "default"

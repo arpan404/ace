@@ -20,6 +20,7 @@ export interface BackgroundOptions {
   userData: string;
   /** The tray's template image (`appPaths().trayIcon`). */
   trayIcon: string;
+  browserPreload?: string | undefined;
   runtime: DaemonRuntime;
   settings(): DesktopSettings;
   window(): BrowserWindow | undefined;
@@ -164,6 +165,7 @@ export class Background {
     if (this.stopped) return;
     const { runtime, log } = this.options;
     const views = new EmbeddedViews({
+      preload: this.options.browserPreload,
       window: this.options.window,
       platform: process.platform,
       log,

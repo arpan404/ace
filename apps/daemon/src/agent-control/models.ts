@@ -1,3 +1,4 @@
+import { AgentControlError } from "./failure.ts";
 import {
   executionModelId,
   isDefaultSelection,
@@ -17,7 +18,11 @@ export function delegationModel(
 ): string {
   const identity = request.provider === "acp" ? AcpIdentity.parse(request) : undefined;
   const filter = selectionModelFilter(request.provider, instance, identity);
-  if (!filter) throw new Error("Cannot delegate without a source-qualified model identity");
+  if (!filter)
+    throw new AgentControlError(
+      "model_unavailable",
+      "Cannot delegate without a source-qualified model identity",
+    );
   // Page the selected account, preserving the catalog's explicit default and aliases.
   const rows = [];
   let offset = 0;
@@ -43,7 +48,8 @@ export function delegationModel(
     available.find((row) => row.isDefault) ??
     (parent.provider === request.provider ? find(parent.execution?.model) : undefined);
   if (!chosen)
-    throw new Error(
+    throw new AgentControlError(
+      "model_unavailable",
       `Cannot delegate to ${request.provider}${instance ? ` account ${instance}` : ""}: requested model ${request.model ?? "(default)"} is unavailable and no valid configured default exists. Refresh the target account's model catalog or choose an available model.`,
     );
   return executionModelId(chosen);

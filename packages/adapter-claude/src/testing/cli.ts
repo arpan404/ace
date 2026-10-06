@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Synthetic provider boundary. No model, auth service, or installed CLI is invoked.
+import { readPrivateMcpConfig } from "@ace/mcp-server";
 import { list, object } from "../native.ts";
 import { createInterface } from "node:readline";
 if (process.argv.includes("--version")) {
@@ -21,7 +22,9 @@ let elicitationWaiting = false;
 const configIndex = process.argv.indexOf("--mcp-config");
 let mcp: Record<string, unknown> =
   configIndex >= 0
-    ? object(object(JSON.parse(process.argv[configIndex + 1] ?? "{}"))["mcpServers"])
+    ? object(
+        object(JSON.parse(readPrivateMcpConfig(process.argv[configIndex + 1] ?? "")))["mcpServers"],
+      )
     : {};
 const ownedServers = [
   {
@@ -48,6 +51,7 @@ for await (const line of lines) {
       subtype: "fake_control",
       request,
       argv: process.argv,
+      mcpServers: mcp,
       settings: {
         permissionMode: option("--permission-mode"),
         settingSources: (option("--setting-sources") ?? "").split(",").filter(Boolean),
@@ -126,6 +130,16 @@ for await (const line of lines) {
     const text = parts.map((p) => object(p)["text"] ?? "image").join(" ");
     write({ type: "system", subtype: "init", session_id: session, cwd: process.cwd() });
     write({ type: "system", subtype: "fake_input", input: data });
+    if (process.env["ACE_TEST_DELEGATION_RESULT"] === "1")
+      write({
+        type: "assistant",
+        session_id: session,
+        message: {
+          id: `delegation-${++id}`,
+          role: "assistant",
+          content: [{ type: "text", text: "Claude delegated result" }],
+        },
+      });
     if (text === "permission-gate" && preToolCallback) {
       write({
         type: "control_request",

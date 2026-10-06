@@ -1,5 +1,5 @@
 import { addressHost } from "@ace/ui-core";
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon, PlusIcon } from "@phosphor-icons/react";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -12,11 +12,11 @@ const tabName = (tab: BrowserTabView) =>
 /**
  * The agent's tabs in this thread's browser: switch to one or close it. Tabs keep the daemon's
  * stable ids (two tabs on one address stay two); a tab with a question waiting carries a dot.
- * Both take control from the agent first, as the daemon requires.
+ * Opening, switching and closing take control from the agent first, as the daemon requires.
  */
 export function AgentTabs(props: { view: BrowserView; browser: BrowserFeatures; busy: boolean }) {
   const tabs = props.view.tabs ?? [];
-  if (tabs.length < 2) return null;
+  if (!tabs.length) return null;
   const agentDrives = props.view.controller === "agent";
   return (
     <div
@@ -53,7 +53,7 @@ export function AgentTabs(props: { view: BrowserView; browser: BrowserFeatures; 
             <button
               type="button"
               aria-label={`Close ${name}`}
-              disabled={props.busy}
+              disabled={props.busy || tabs.length === 1}
               onClick={() => void props.browser.closeTab(tab.tabId)}
               className={cn(
                 "mr-0.5 grid size-5 shrink-0 place-items-center rounded-xs text-subtle-foreground focus-ring hover:bg-foreground/8 hover:text-foreground",
@@ -66,6 +66,15 @@ export function AgentTabs(props: { view: BrowserView; browser: BrowserFeatures; 
           </div>
         );
       })}
+      <button
+        type="button"
+        aria-label="New page tab"
+        disabled={props.busy || tabs.length >= 8}
+        onClick={() => void props.browser.openTab()}
+        className="grid size-6 shrink-0 place-items-center rounded-sm focus-ring hover:bg-accent"
+      >
+        <PlusIcon aria-hidden size={12} />
+      </button>
     </div>
   );
 }

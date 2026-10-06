@@ -55,7 +55,7 @@ test("handoff capacity rejection creates no branch, worktree or workspace", asyn
           requestId: `rejected-${i}`,
           branch: `ace-rejected-${i}`,
         }),
-      ).rejects.toThrow(/concurrency/);
+      ).rejects.toMatchObject({ code: "delegation_limit" });
     await assertNoResources(f);
     expect(f.daemon.store.listThreads()).toHaveLength(2);
   } finally {
@@ -98,7 +98,7 @@ test("lease revocation while Git is pending cleans resources without accepting c
       },
       controller.signal,
     );
-    const rejection = expect(pending).rejects.toThrow();
+    const rejection = pending.catch((error: unknown) => error);
     await entered.promise;
     await expect(
       f.call({
@@ -110,10 +110,10 @@ test("lease revocation while Git is pending cleans resources without accepting c
         wait: false,
         estimatedLoad: 0,
       }),
-    ).rejects.toThrow(/concurrency/);
+    ).rejects.toMatchObject({ code: "delegation_limit" });
     controller.abort();
     ready.resolve();
-    await rejection;
+    expect(await rejection).toMatchObject({ name: "AbortError" });
     await f.daemon.engine?.flush();
     await assertNoResources(f);
     expect(f.daemon.store.listThreads()).toHaveLength(1);
@@ -197,7 +197,7 @@ test("maintenance rejects prepared launches and handoff retries at the trusted o
         requestId: "launch",
         text: "work",
       }),
-    ).rejects.toThrow(/Admission closed/);
+    ).rejects.toMatchObject({ code: "admission_closed" });
     await expect(
       f.call({
         op: "thread.handoff",
@@ -205,7 +205,7 @@ test("maintenance rejects prepared launches and handoff retries at the trusted o
         requestId: "maintenance-handoff",
         branch: "ace-ready",
       }),
-    ).rejects.toThrow(/Admission closed/);
+    ).rejects.toMatchObject({ code: "admission_closed" });
     await f.daemon.engine?.flush();
     expect(f.h.contexts.has(prepared.childId)).toBe(false);
   } finally {
@@ -213,47 +213,84 @@ test("maintenance rejects prepared launches and handoff retries at the trusted o
   }
 });
 
-test("cancelling the parent while a worktree is being created prevents child acceptance and cleans Git resources", async () => {
-  const entered = Promise.withResolvers<void>(),
-    ready = Promise.withResolvers<void>();
-  const f = await daemonFixture({
-    handoffGit: () => {
-      const git = new GitService();
-      return {
-        listWorktrees: git.listWorktrees.bind(git),
-        removeWorktree: git.removeWorktree.bind(git),
-        deleteBranch: git.deleteBranch.bind(git),
-        resolveCommit: git.resolveCommit.bind(git),
-        close: git.close.bind(git),
-        async createWorktree(options) {
-          const tree = await git.createWorktree(options);
-          entered.resolve();
-          await ready.promise;
-          return tree;
+for (const resumeRoot of [false, true])
+  test(
+    resumeRoot
+      ? "resuming the parent while cancelled Git is pending cleans old work and admits only a fresh handoff"
+      : "cancelling the parent while a worktree is being created prevents child acceptance and cleans Git resources",
+    async () => {
+      const entered = Promise.withResolvers<void>(),
+        ready = Promise.withResolvers<void>();
+      const f = await daemonFixture({
+        handoffGit: () => {
+          const git = new GitService();
+          return {
+            listWorktrees: git.listWorktrees.bind(git),
+            removeWorktree: git.removeWorktree.bind(git),
+            deleteBranch: git.deleteBranch.bind(git),
+            resolveCommit: git.resolveCommit.bind(git),
+            close: git.close.bind(git),
+            async createWorktree(options) {
+              const tree = await git.createWorktree(options);
+              entered.resolve();
+              await ready.promise;
+              return tree;
+            },
+          };
         },
-      };
+      });
+      try {
+        await initialize(f.h.home);
+        const pending = f.call({
+          op: "thread.handoff",
+          threadId: f.caller.threadId,
+          requestId: "parent-cancel",
+          branch: "ace-rejected-parent",
+        });
+        const rejection = pending.catch((error: unknown) => error);
+        await entered.promise;
+        f.controls.delegations.cancelDescendants(f.caller.threadId);
+        await expect(
+          f.call({
+            op: "thread.handoff",
+            threadId: f.caller.threadId,
+            requestId: "still-stopped",
+            branch: "ace-rejected-stopped",
+          }),
+        ).rejects.toMatchObject({ code: "delegation_cancelled" });
+        if (resumeRoot)
+          expect(
+            f.controls.delegations.command("resume-parent", {
+              type: "thread.send",
+              threadId: f.caller.threadId,
+              trigger: "user",
+              input: [{ type: "text", text: "New work" }],
+            }).ok,
+          ).toBe(true);
+        ready.resolve();
+        expect(await rejection).toMatchObject({ code: "delegation_cancelled" });
+        await assertNoResources(f);
+        expect(f.daemon.store.listThreads()).toHaveLength(1);
+        if (resumeRoot) {
+          expect(
+            (
+              await f.call({
+                op: "thread.handoff",
+                threadId: f.caller.threadId,
+                requestId: "fresh-handoff",
+                branch: "ace-fresh-handoff",
+              })
+            ).ok,
+          ).toBe(true);
+          await f.daemon.engine?.flush();
+          expect(f.daemon.store.listThreads()).toHaveLength(2);
+        }
+      } finally {
+        ready.resolve();
+        await f.daemon.close();
+      }
     },
-  });
-  try {
-    await initialize(f.h.home);
-    const pending = f.call({
-      op: "thread.handoff",
-      threadId: f.caller.threadId,
-      requestId: "parent-cancel",
-      branch: "ace-rejected-parent",
-    });
-    const rejection = expect(pending).rejects.toThrow(/cancelled/);
-    await entered.promise;
-    f.controls.delegations.cancelDescendants(f.caller.threadId);
-    ready.resolve();
-    await rejection;
-    await assertNoResources(f);
-    expect(f.daemon.store.listThreads()).toHaveLength(1);
-  } finally {
-    ready.resolve();
-    await f.daemon.close();
-  }
-});
+  );
 
 test("revoked handoff cleanup preserves a user commit made in its pending worktree", async () => {
   const created = Promise.withResolvers<string>(),
@@ -290,7 +327,7 @@ test("revoked handoff cleanup preserves a user commit made in its pending worktr
       },
       controller.signal,
     );
-    const rejection = expect(pending).rejects.toThrow(/identity changed/);
+    const rejection = pending.catch((error: unknown) => error);
     const path = await created.promise;
     await writeFile(join(path, "README.md"), "user changed this worktree\n");
     await runGit(
@@ -301,7 +338,7 @@ test("revoked handoff cleanup preserves a user commit made in its pending worktr
     const changed = (await runGit("git", ["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
     controller.abort();
     ready.resolve();
-    await rejection;
+    expect(await rejection).toMatchObject({ message: expect.stringContaining("identity changed") });
     expect(
       (await runGit("git", ["rev-parse", "ace-user-work"], { cwd: f.h.home })).stdout.trim(),
     ).toBe(changed);
@@ -317,7 +354,7 @@ test("revoked handoff cleanup preserves a user commit made in its pending worktr
         wait: false,
         estimatedLoad: 0,
       }),
-    ).rejects.toThrow(/concurrency/);
+    ).rejects.toMatchObject({ code: "delegation_limit" });
   } finally {
     ready.resolve();
     await f.daemon.close();

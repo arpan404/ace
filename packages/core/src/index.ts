@@ -28,3 +28,5 @@ export {
 } from "./provider-admission.ts";
 
 export { factRaw } from "./fact-raw.ts";
+
+export { inspectionCommand } from "./permission-commands.ts";

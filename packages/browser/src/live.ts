@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import type { BrowserFrame } from "@ace/protocol";
 import { Screencast } from "./cdp.ts";
-import { captureSettings, FrameFanout } from "./fanout.ts";
+import { captureSettings, CapturePressure, FrameFanout } from "./fanout.ts";
 
 const Ack = z.object({ sessionId: z.number().int() });
 export class LiveCapture {
@@ -16,6 +16,8 @@ export class LiveCapture {
   private lastFrame = -Infinity;
   private lastAdapt = -Infinity;
   private settings = captureSettings(false);
+  private pressure = new CapturePressure();
+  private viewport: () => { width: number; height: number };
   private adapting = false;
   private closed = false;
   private generation = 0;
@@ -24,11 +26,13 @@ export class LiveCapture {
     now: () => number,
     onFrame: (frame: BrowserFrame, epoch: number) => void,
     privacy: () => { epoch: number; since: number } = () => ({ epoch: 0, since: -Infinity }),
+    viewport: () => { width: number; height: number } = () => ({ width: 1280, height: 720 }),
   ) {
     this.cdp = cdp;
     this.now = now;
     this.onFrame = onFrame;
     this.privacy = privacy;
+    this.viewport = viewport;
   }
   private receive: (raw: unknown) => void = () => {};
   private captureFrame(raw: unknown, cdp: BrowserCdp, generation: number): void {
@@ -63,18 +67,38 @@ export class LiveCapture {
     await this.cdp.send("Page.startScreencast", {
       format: "jpeg",
       quality: this.settings.quality,
-      maxWidth: 1280,
-      maxHeight: 960,
+      maxWidth: this.settings.maxWidth,
+      maxHeight: this.settings.maxHeight,
     });
     if (this.closed || generation !== this.generation) throw new Error("Browser capture closed");
     // A static about:blank page may emit no screencast event. Seed the view so a
     // subscriber never has to wait for the first user/agent action to see pixels.
     const sequence = this.sequence,
       epoch = this.privacy().epoch;
+    const viewport = this.viewport();
+    const ratio = z
+      .object({ result: z.object({ value: z.number().positive().finite() }) })
+      .safeParse(
+        await this.cdp.send("Runtime.evaluate", {
+          expression: "window.devicePixelRatio",
+          returnByValue: true,
+        }),
+      );
+    const dpr = ratio.success ? ratio.data.result.value : 1;
     const initial = z.object({ data: z.string().max(4 * 1024 * 1024) }).parse(
       await this.cdp.send("Page.captureScreenshot", {
         format: "jpeg",
         quality: this.settings.quality,
+        clip: {
+          x: 0,
+          y: 0,
+          ...viewport,
+          scale: Math.min(
+            1,
+            this.settings.maxWidth / (viewport.width * dpr),
+            this.settings.maxHeight / (viewport.height * dpr),
+          ),
+        },
       }),
     );
     if (this.closed || generation !== this.generation) throw new Error("Browser capture closed");
@@ -83,34 +107,36 @@ export class LiveCapture {
         sequence: ++this.sequence,
         timestamp: this.now(),
         data: initial.data,
-        width: 1280,
-        height: 720,
+        ...viewport,
       };
       this.fanout.publish(frame);
       if (epoch === this.privacy().epoch) this.onFrame(frame, epoch);
     }
     this.timer = setInterval(() => {
       this.fanout.flush();
-      const settings = captureSettings(this.fanout.pressured);
+      const now = this.now();
+      const pressured = this.pressure.sample(this.fanout.pressured, now);
+      const settings = captureSettings(pressured, this.fanout.captureViewers);
       if (
         this.closed ||
         this.adapting ||
-        settings.quality === this.settings.quality ||
+        JSON.stringify(settings) === JSON.stringify(this.settings) ||
         this.now() - this.lastAdapt < 2000
       )
         return;
       this.lastAdapt = this.now();
       this.adapting = true;
-      this.settings = settings;
       void (async () => {
         await cdp.send("Page.stopScreencast");
-        if (!this.closed && generation === this.generation)
+        if (!this.closed && generation === this.generation) {
           await cdp.send("Page.startScreencast", {
             format: "jpeg",
             quality: settings.quality,
-            maxWidth: 1280,
-            maxHeight: 960,
+            maxWidth: settings.maxWidth,
+            maxHeight: settings.maxHeight,
           });
+          this.settings = settings;
+        }
       })()
         .catch(() => {})
         .finally(() => {
@@ -133,6 +159,8 @@ export class LiveCapture {
     this.cdp = cdp;
     this.closed = false;
     this.lastFrame = -Infinity;
+    this.pressure = new CapturePressure();
+    this.settings = captureSettings(false, this.fanout.captureViewers);
     await this.start();
   }
   async close(): Promise<void> {

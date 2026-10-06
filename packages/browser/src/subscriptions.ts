@@ -1,5 +1,5 @@
 import type { BrowserBackendLost, BrowserState } from "@ace/protocol";
-import type { FrameFanout, FrameSink } from "./fanout.ts";
+import type { CaptureViewer, FrameFanout, FrameSink } from "./fanout.ts";
 
 type Subscriber = {
   connectionId: string;
@@ -7,6 +7,7 @@ type Subscriber = {
   state(state: BrowserState): void;
   backendLost?(event: BrowserBackendLost): void;
   stopFrames(): void;
+  capture?: CaptureViewer;
 };
 function detachFrames(viewer: Subscriber): void {
   viewer.stopFrames();
@@ -46,7 +47,7 @@ export class BrowserSubscriptions {
       if (!viewers.size && this.threads.get(threadId) === viewers) this.threads.delete(threadId);
     };
     try {
-      owned.stopFrames = fanout.subscribe(owned.connectionId, owned.sink);
+      owned.stopFrames = fanout.subscribe(owned.connectionId, owned.sink, owned.capture);
       owned.state(state);
     } catch (error) {
       unsubscribe();
@@ -54,10 +55,15 @@ export class BrowserSubscriptions {
     }
     return unsubscribe;
   }
+  configure(threadId: string, connectionId: string, capture: CaptureViewer): void {
+    for (const viewer of this.threads.get(threadId) ?? []) {
+      if (viewer.connectionId === connectionId) viewer.capture = capture;
+    }
+  }
   replace(threadId: string, fanout: FrameFanout): void {
     for (const viewer of this.threads.get(threadId) ?? []) {
       detachFrames(viewer);
-      const stop = fanout.subscribe(viewer.connectionId, viewer.sink);
+      const stop = fanout.subscribe(viewer.connectionId, viewer.sink, viewer.capture);
       // Initial frame delivery may synchronously unsubscribe this logical viewer.
       if (this.threads.get(threadId)?.has(viewer)) viewer.stopFrames = stop;
       else stop();

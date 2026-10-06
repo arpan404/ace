@@ -21,6 +21,16 @@ if (args[0] === "models") {
 }
 if (args[0] !== "serve") process.exit(1);
 if (!args.includes("--stdio") || !process.env.OPENCODE_PASSWORD) process.exit(2);
+// This fixture is also copied into dependency-free CLI homes for catalog probes.
+// Resolve the optional JSONC decoder only when comments actually require it.
+let configuration;
+try {
+  configuration = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
+} catch {
+  const { parse } = await import("jsonc-parser");
+  configuration = parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
+}
+
 const streams = new Set(),
   requests = [],
   sessions = new Map(),
@@ -59,6 +69,7 @@ const operations = [
   "shell.remove",
   "model.list",
   "model.default",
+  "command.list",
 ];
 const publish = (type, data, directory = "/one", extra = {}) => {
   const e = {
@@ -72,6 +83,7 @@ const publish = (type, data, directory = "/one", extra = {}) => {
   for (const stream of streams) stream.write(`data: ${JSON.stringify(e)}\n\n`);
   return e;
 };
+const nativeMcp = new Map();
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost"),
     path = url.pathname;
@@ -90,9 +102,29 @@ const server = createServer(async (req, res) => {
     res.end(JSON.stringify(data));
   };
   const empty = () => res.writeHead(204).end();
+  if (path === "/api/mcp") {
+    json({
+      data: [
+        ...new Set([...Object.keys(configuration.mcp?.servers ?? {}), ...nativeMcp.keys()]),
+      ].map((name) => ({
+        name,
+        status: { status: process.env.ACE_TEST_MCP_FAILED ? "failed" : "connected" },
+      })),
+    });
+    return;
+  }
+  if (path === "/api/experimental/mcp/ace" && req.method === "PUT") {
+    nativeMcp.set("ace", body.config);
+    empty();
+    return;
+  }
+  if (path === "/api/experimental/mcp/ace/connect") {
+    empty();
+    return;
+  }
   if (path === "/test/mcp") {
-    const config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
-    const ace = config.mcp?.ace;
+    const config = configuration;
+    const ace = nativeMcp.get("ace");
     if (!ace) {
       json({ missing: true });
       return;
@@ -123,7 +155,7 @@ const server = createServer(async (req, res) => {
       }),
     });
     json({
-      names: Object.keys(config.mcp),
+      names: [...Object.keys(config.mcp?.servers ?? {}), ...nativeMcp.keys()],
       status: response.status,
       response: response.ok ? await response.json() : null,
     });
@@ -212,6 +244,17 @@ const server = createServer(async (req, res) => {
   }
   if (process.env.ACE_TEST_METADATA_ONLY === "1" && ["/api/session", "/api/auth"].includes(path)) {
     res.writeHead(500).end();
+    return;
+  }
+  if (path === "/api/command" && req.method === "GET") {
+    if (process.env.ACE_TEST_COMMANDS_UNAVAILABLE === "1") {
+      res.writeHead(404).end();
+      return;
+    }
+    json({
+      location: { directory: "/one" },
+      data: [{ name: "native-explain", description: "Explain code" }],
+    });
     return;
   }
   if (path === "/api/session" && req.method === "POST") {
@@ -376,6 +419,17 @@ const server = createServer(async (req, res) => {
         inbox.set(id, []);
         publish("session.inbox.delivered", { sessionID: id, inboxID: item.id }, directory);
         publish("session.execution.started", { sessionID: id }, directory);
+        if (process.env.ACE_TEST_DELEGATION_RESULT === "1")
+          publish(
+            "session.text.ended",
+            {
+              sessionID: id,
+              assistantMessageID: `result-${id}`,
+              ordinal: 0,
+              text: "OpenCode delegated result",
+            },
+            directory,
+          );
         publish("session.execution.succeeded", { sessionID: id }, directory);
       }
       if (fault.holdPrompt) {
