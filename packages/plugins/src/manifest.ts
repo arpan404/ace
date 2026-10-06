@@ -122,6 +122,9 @@ export const Marketplace = z
           name: PluginName,
           source: z.union([PluginPath, z.literal("."), z.literal("./")]),
           hash: PluginHash.optional(),
+          // Shown when browsing the marketplace; an unusable value is dropped, not fatal.
+          description: z.string().max(8192).optional().catch(undefined),
+          version: z.string().max(128).optional().catch(undefined),
         }),
       )
       .max(256),
@@ -131,6 +134,7 @@ export const Marketplace = z
       new Set(catalog.plugins.map((plugin) => plugin.name)).size === catalog.plugins.length,
     "Duplicate catalog entry",
   );
+export type Marketplace = z.infer<typeof Marketplace>;
 export function parseJson(input: string): unknown {
   if (Buffer.byteLength(input) > limits.json) throw new Error("JSON exceeds byte limit");
   return JSON.parse(input);

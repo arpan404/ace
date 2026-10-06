@@ -40,15 +40,16 @@ export function ThemeCard(props: {
       type="button"
       role="radio"
       aria-checked={props.selected}
+      tabIndex={props.selected ? 0 : -1}
       onClick={props.onSelect}
       className="group min-w-0 cursor-pointer text-center outline-none"
     >
       <span
         className={cn(
-          "relative block h-24 overflow-hidden rounded-lg shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--dur-2)",
+          "relative block h-20 overflow-hidden rounded-lg sm:h-24 shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--dur-2)",
           props.selected &&
             "shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_oklab,var(--ring)_18%,transparent)]",
-          "group-focus-visible:shadow-[0_0_0_2px_var(--ring)]",
+          "group-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]",
         )}
       >
         {props.theme && <Miniature theme={props.theme} />}
@@ -70,7 +71,7 @@ export function ThemeCard(props: {
       >
         {props.name}
         {props.custom && (
-          <span className="ml-1.5 rounded-sm bg-secondary px-1.5 text-[10px] font-medium text-muted-foreground">
+          <span className="ml-1.5 rounded-sm bg-secondary px-1.5 text-2xs font-medium text-muted-foreground">
             custom
           </span>
         )}

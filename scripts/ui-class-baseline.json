@@ -33,9 +33,6 @@
   "apps/web/src/components/permission-review.tsx": {
     "text-size": 1
   },
-  "apps/web/src/components/setting-row.tsx": {
-    "text-size": 2
-  },
   "apps/web/src/components/status-pill.tsx": {
     "text-size": 1
   },
@@ -110,9 +107,6 @@
   "apps/web/src/features/devices/device-screen.tsx": {
     "radius": 1
   },
-  "apps/web/src/features/files/files-page.tsx": {
-    "text-size": 3
-  },
   "apps/web/src/features/home/new-thread/context-bar.tsx": {
     "text-size": 2,
     "bare-outline": 1
@@ -136,9 +130,6 @@
   "apps/web/src/features/models/model-picker-panel.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/features/more/more-sidebar.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/panels/changes/line-comment.tsx": {
     "bare-outline": 1
   },
@@ -159,43 +150,18 @@
     "radius": 1
   },
   "apps/web/src/features/projects/form-parts.tsx": {
-    "text-size": 2
+    "text-size": 1
   },
   "apps/web/src/features/projects/manage-dialogs.tsx": {
     "text-size": 1
   },
   "apps/web/src/features/search/search-page.tsx": {
-    "radius": 1,
-    "bare-outline": 1
+    "radius": 1
   },
   "apps/web/src/features/settings/add-acp-agent.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/settings/appearance-page.tsx": {
-    "text-size": 3
-  },
-  "apps/web/src/features/settings/daemon-settings.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/settings/keyboard-page.tsx": {
-    "text-size": 3
-  },
-  "apps/web/src/features/settings/notifications-page.tsx": {
-    "text-size": 2
-  },
-  "apps/web/src/features/settings/pair-device.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/settings/providers-page.tsx": {
-    "text-size": 3
-  },
-  "apps/web/src/features/settings/theme-card.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/settings/theme-editor/theme-editor.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/settings/theme-editor/token-row.tsx": {
     "text-size": 3
   },
   "apps/web/src/features/shell/screen.tsx": {
@@ -205,15 +171,6 @@
     "bare-outline": 1
   },
   "apps/web/src/features/shell/workspace/tab-item.tsx": {
-    "bare-outline": 1
-  },
-  "apps/web/src/features/skills/install-plugin.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/skills/skill-page.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/skills/skills-sidebar.tsx": {
     "bare-outline": 1
   },
   "apps/web/src/features/thread/composer/composer.tsx": {

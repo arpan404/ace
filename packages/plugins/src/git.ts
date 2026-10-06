@@ -12,7 +12,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { z } from "zod";
 import { PluginCommit } from "@ace/protocol/plugins";
-import { limits, normalizePath } from "./manifest.ts";
+import { Marketplace, limits, normalizePath, parseJson } from "./manifest.ts";
 import { assertNoSymlinks } from "./files.ts";
 
 const treeEntry = z.object({
@@ -171,6 +171,28 @@ export async function readGitFile(
   return (
     await git(["show", `${PluginCommit.parse(commit)}:${normalizePath(path)}`], gitRoot, runtime)
   ).toString("utf8");
+}
+/** The repository's plugin catalog at `commit`, from the first marketplace file it has. */
+export async function readMarketplace(
+  gitRoot: string,
+  commit: string,
+  runtime: GitRuntime,
+): Promise<Marketplace> {
+  for (const path of [
+    "marketplace.json",
+    ".claude-plugin/marketplace.json",
+    ".cursor-plugin/marketplace.json",
+  ]) {
+    let text: string;
+    try {
+      text = await readGitFile(gitRoot, commit, path, runtime);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("does not exist")) continue;
+      throw error;
+    }
+    return Marketplace.parse(parseJson(text));
+  }
+  throw new Error("Marketplace missing");
 }
 export async function extractPlugin(
   gitRoot: string,
