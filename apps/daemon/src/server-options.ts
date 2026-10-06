@@ -47,7 +47,7 @@ export interface ServerOptions {
   accountManagement?: import("./account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
   providerActivation?: Promise<void>;
-  commands?: CommandService;
+  commands?: CommandService | undefined;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;
   relay?: { url: string; keys: KeyPair };

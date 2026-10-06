@@ -31,27 +31,29 @@ async function initializeCommands({
   now,
 }: ServiceContext) {
   const integration = options.commands ?? {};
-  const registered = services.accountRegistry?.list() ?? [];
+  const registered = () => services.accountRegistry?.list() ?? [];
+  const defaults = defaultCommandInstances(process.env);
   const library = createDaemonCommandLibrary(
     store,
     config.dataDir,
     integration.instances ??
-      (registered.length
-        ? [
-            ...defaultCommandInstances(process.env).filter(
-              (instance) =>
-                !registered.some((account) => account.instance.provider === instance.provider),
-            ),
-            ...registered.map(({ instance }) => ({
-              id: instance.id,
-              provider: instance.provider,
-              home:
-                instance.provider === "opencode"
-                  ? join(instance.env.XDG_CONFIG_HOME ?? instance.homeDir, "opencode")
-                  : instance.homeDir,
-            })),
-          ]
-        : undefined),
+      (() => [
+        ...defaults,
+        ...registered()
+          .filter(({ instance }) => !defaults.some((d) => d.id === instance.id))
+          .map(({ instance }) => ({
+            id: instance.id,
+            provider: instance.provider,
+            home: instance.implicit
+              ? (defaults.find((d) => d.provider === instance.provider)?.home ?? instance.homeDir)
+              : instance.provider === "opencode"
+                ? join(
+                    instance.env.XDG_CONFIG_HOME ?? join(instance.homeDir, "user/.config"),
+                    "opencode",
+                  )
+                : instance.homeDir,
+          })),
+      ]),
     process.env,
     integration.instanceForThread ??
       ((thread) => {
@@ -67,12 +69,13 @@ async function initializeCommands({
         const selected = provider.success
           ? pickInstance(
               { provider: provider.data, role: "worker", estimatedLoad: 1 },
-              registered,
+              registered(),
               now(),
             )
           : undefined;
         return selected?.id ?? thread.provider;
       }),
+    now,
   );
   resources.own(() => library.close());
   if (integration.events) {

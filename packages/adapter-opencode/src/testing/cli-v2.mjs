@@ -59,6 +59,7 @@ const operations = [
   "shell.remove",
   "model.list",
   "model.default",
+  "command.list",
 ];
 const publish = (type, data, directory = "/one", extra = {}) => {
   const e = {
@@ -212,6 +213,17 @@ const server = createServer(async (req, res) => {
   }
   if (process.env.ACE_TEST_METADATA_ONLY === "1" && ["/api/session", "/api/auth"].includes(path)) {
     res.writeHead(500).end();
+    return;
+  }
+  if (path === "/api/command" && req.method === "GET") {
+    if (process.env.ACE_TEST_COMMANDS_UNAVAILABLE === "1") {
+      res.writeHead(404).end();
+      return;
+    }
+    json({
+      location: { directory: "/one" },
+      data: [{ name: "native-explain", description: "Explain code" }],
+    });
     return;
   }
   if (path === "/api/session" && req.method === "POST") {

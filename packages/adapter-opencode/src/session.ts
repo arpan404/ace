@@ -173,6 +173,26 @@ export class OpenCodeSession implements ProviderSession {
         s.recovering = false;
         s.emit("note", "lifecycle", { type: "resynced" });
       }
+      try {
+        const commands = z
+          .object({
+            data: z
+              .array(
+                z.object({ name: z.string(), description: z.string().optional() }).passthrough(),
+              )
+              .max(512),
+          })
+          .parse(await s.client.command.list({ location: { directory: ctx.cwd } }));
+        s.emit("note", "commands.runtime", {
+          sessionUpdate: "available_commands_update",
+          availableCommands: commands.data,
+        });
+      } catch {
+        s.emit("note", "commands.runtime", {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [],
+        });
+      }
       ctx.signal.throwIfAborted();
       return s;
     } catch (error) {
