@@ -40,6 +40,7 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  onCommandEvent?(event: import("./provider-command-metadata.ts").ProviderCommandEvent): void;
   models?: import("@ace/models").ModelCatalogApi;
   worktreeGit?: WorktreeGit;
   permissionSettings?: PermissionSettings;
@@ -145,6 +146,7 @@ export class Engine {
     this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
     this.sessions = new Sessions({
       models,
+      ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
@@ -331,6 +333,7 @@ export class Engine {
     return actor;
   }
   providerAvailability(provider: ProviderKind) {
+    if (!this.registry.has(provider)) return { installed: false, auth: "unknown" as const };
     const { installed, auth } = this.registry.get(provider).discovery;
     return { installed, auth };
   }

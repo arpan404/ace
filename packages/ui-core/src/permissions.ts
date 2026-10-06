@@ -17,7 +17,7 @@ export const permissionModeOrder: readonly PermissionMode[] = [
 /** Each mode in one short line, so a menu row never wraps. */
 const names: Record<PermissionMode, { label: string; description: string }> = {
   "read-only": { label: "Read only", description: "Reads and answers, never edits or runs" },
-  ask: { label: "Ask first", description: "Asks before each edit, command or fetch" },
+  ask: { label: "Ask first", description: "Requires approval for edits and risky actions" },
   "auto-review": { label: "Auto-review", description: "Approves low-risk actions, asks the rest" },
   "full-access": { label: "Full access", description: "Edits, runs and fetches without asking" },
 };

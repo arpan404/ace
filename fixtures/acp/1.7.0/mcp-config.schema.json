@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/McpServerHttp",
+  "$defs": {
+    "McpServerHttp": {
+      "description": "HTTP transport configuration for MCP.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Human-readable name identifying this MCP server.",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL to the MCP server.",
+          "type": "string"
+        },
+        "headers": {
+          "description": "HTTP headers to set when making requests to the MCP server.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HttpHeader"
+          }
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": [
+            "object",
+            "null"
+          ],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "headers"
+      ]
+    },
+    "HttpHeader": {
+      "description": "An HTTP header to set when making requests to the MCP server.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The name of the HTTP header.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to set for the HTTP header.",
+          "type": "string"
+        },
+        "_meta": {
+          "description": "The _meta property is reserved by ACP to allow clients and agents to attach additional\nmetadata to their interactions. Implementations MUST NOT make assumptions about values at\nthese keys.\n\nSee protocol docs: [Extensibility](https://agentclientprotocol.com/protocol/extensibility)",
+          "type": [
+            "object",
+            "null"
+          ],
+          "x-deserialize-default-on-error": true,
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ]
+    }
+  }
+}

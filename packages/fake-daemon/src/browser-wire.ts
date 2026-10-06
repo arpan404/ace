@@ -159,7 +159,15 @@ export function fakeBrowserSession(
           const command = message.command;
           // As the daemon's browser service: a client acts as a person, and a person's commands
           // (navigate, resize, emulate) need the control lease; reads never do.
-          const reads = ["snapshot", "screenshot", "logs", "wait_for", "find", "network_body"];
+          const reads = [
+            "snapshot",
+            "screenshot",
+            "logs",
+            "wait_for",
+            "find",
+            "network_body",
+            "navigation_history",
+          ];
           if (
             !reads.includes(command.action) &&
             (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
@@ -191,7 +199,11 @@ export function fakeBrowserSession(
           } else if (command.action === "navigate") {
             browser.navigate(id, command.url, host.now());
             result = BrowserState.parse(browser.view(id));
-          } else if (command.action === "type") browser.type(id, command.text);
+          } else if (command.action === "navigation_history")
+            result = browser.navigationHistory(id);
+          else if (command.action === "history")
+            result = browser.navigateHistory(id, command.direction);
+          else if (command.action === "type") browser.type(id, command.text);
           else if (command.action === "resize") browser.resize(id, command.width, command.height);
           else if (command.action === "emulate") browser.resize(id, command.width, command.height);
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };

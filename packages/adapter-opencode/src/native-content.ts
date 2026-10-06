@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { Fact, ToolDetailDraft } from "@ace/core";
 import { array, object, raw, string, number, type Data } from "./data.ts";
 import { NativeState, type Tool } from "./native-state.ts";
@@ -24,15 +25,36 @@ export function tool(state: NativeState, p: Data, type: string, evidence: unknow
   const native = object(p.state),
     meta = object(p.metadata ?? native.metadata);
   const name = string(p.name, previous?.name ?? "unknown");
-  const supplied = p.input ?? native.input;
+  let endedInput: unknown;
+  if (type === "session.tool.input.ended") {
+    const endedText = z.string().max(65536).safeParse(p.text);
+    if (endedText.success) {
+      try {
+        endedInput = JSON.parse(endedText.data);
+      } catch {
+        /* Incomplete/unknown input remains raw evidence. */
+      }
+    }
+  }
+  const supplied =
+    p.input ??
+    native.input ??
+    (type === "session.tool.input.ended" ? (endedInput ?? {}) : undefined);
   const source = supplied === undefined ? (previous?.input ?? {}) : object(supplied);
-  // Routing/display fields only. Core retains original native input in raw evidence.
+  // Exact command/path/cwd fields serve approval attribution; display fields stay bounded.
+  // Core retains the complete native input in raw evidence.
   const input =
     supplied === undefined
       ? source
       : {
-          command: string(source.command).slice(0, 8192),
-          filePath: string(source.path, string(source.filePath)).slice(0, 4096),
+          ...(typeof source.command === "string" && source.command.length <= 8192
+            ? { command: source.command }
+            : {}),
+          ...(string(source.path, string(source.filePath)).length <= 4096
+            ? { filePath: string(source.path, string(source.filePath)) }
+            : {}),
+          ...(typeof source.workdir === "string" ? { workdir: source.workdir } : {}),
+          ...(typeof source.cwd === "string" ? { cwd: source.cwd } : {}),
           prompt: string(source.prompt).slice(0, 8192),
           agent: string(source.agent).slice(0, 256),
           background: source.background === true,
@@ -156,9 +178,15 @@ export function projected(state: NativeState, session: string, value: unknown): 
   const p = object(value),
     message = string(p.id),
     agent = state.key(session);
-  if (p.type === "assistant")
-    return array(p.content).flatMap((block, ordinal) => {
+  if (p.type === "assistant") {
+    // Live ordinals count text and reasoning independently. History interleaves
+    // those blocks with tools, so its array index is not a content identity.
+    let textOrdinal = 0;
+    let reasoningOrdinal = 0;
+    return array(p.content).flatMap((block) => {
       const c = object(block),
+        ordinal =
+          c.type === "text" ? textOrdinal++ : c.type === "reasoning" ? reasoningOrdinal++ : 0,
         data = { ...c, sessionID: session, assistantMessageID: message, ordinal };
       return c.type === "tool"
         ? tool(state, data, "snapshot.tool", c)
@@ -171,6 +199,7 @@ export function projected(state: NativeState, session: string, value: unknown): 
             )
           : [];
     });
+  }
   if (p.type === "user" || p.type === "synthetic" || p.type === "system")
     return [
       ...(p.type === "synthetic"

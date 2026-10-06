@@ -232,6 +232,7 @@ export async function startServer(options: ServerOptions): Promise<{
       options,
       socket,
       sessionId,
+      local: isLocal,
       onPresence: () => {
         hasPresence = true;
       },

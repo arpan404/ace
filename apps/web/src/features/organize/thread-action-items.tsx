@@ -49,8 +49,9 @@ export interface ThreadAction {
 
 /**
  * Every action on one thread, in menu order: start another, rename, fork, link; read and pin;
- * settle; archive (or, archived, restore) and delete (with Undo). Snooze, a submenu of times, is
- * the menus' own. `onLeave` runs once the thread is gone from the list (archived or deleted).
+ * settle; archive with Undo (or, archived, restore) and permanent delete. Snooze, a submenu of
+ * times, is the menus' own. `onLeave` runs once the thread is gone from the list (archived or
+ * deleted).
  */
 export function threadActions(
   entry: ThreadListEntry,

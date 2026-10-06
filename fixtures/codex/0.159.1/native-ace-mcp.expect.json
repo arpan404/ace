@@ -1,0 +1,31 @@
+{
+  "checkpoints": [
+    {
+      "t": 10,
+      "thread": "working",
+      "note": "Native MCP tools are active within the turn."
+    },
+    {
+      "t": 14,
+      "thread": "working",
+      "note": "MCP results and assistant output do not settle execution."
+    },
+    {
+      "t": 35,
+      "thread": "waiting",
+      "note": "The native turn ended, but descendant discovery is still pending at the capture boundary.",
+      "on": "background_task"
+    }
+  ],
+  "final": {
+    "thread": "waiting",
+    "agents": 1,
+    "items": {
+      "tool_call": 2
+    },
+    "interactions": {
+      "pending": 0
+    },
+    "on": "background_task"
+  }
+}

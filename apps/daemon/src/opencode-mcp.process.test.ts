@@ -82,6 +82,11 @@ it("OpenCode v2 sessions in one account call their own scoped MCP tools and reda
   expect(b.proof).not.toContain(a.thread.id);
   expect(JSON.stringify([...a.frames, ...b.frames])).not.toMatch(/[a-f0-9]{64}/);
   expect(JSON.stringify([...a.frames, ...b.frames])).toContain("[redacted]");
+  // This older provider omits command.list. A 404 must leave both live sessions usable.
+  for (const { frames } of [a, b])
+    expect(
+      frames.filter((frame) => frame.channel === "commands.runtime").map((frame) => frame.data),
+    ).toEqual([{ sessionUpdate: "available_commands_update", availableCommands: [] }]);
   await a.session.close("shutdown");
   // Closing A must not revoke B's credentials or stop B's native transport.
   await b.session.interrupt({ agent: "root", cascade: false });

@@ -259,7 +259,14 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     if (isInteractiveRequest(method) && id !== undefined) {
       const key = interactionKey(id);
       const item = str(p["itemId"]);
-      const opened = openRequest(agent.key, key, method, p, agent.items.has(item));
+      const opened = openRequest(
+        agent.key,
+        key,
+        method,
+        p,
+        agent.items.has(item),
+        agent.open.get(item)?.data,
+      );
       const mode = reviewPolicies.get(key);
       reviewPolicies.delete(key);
       for (const fact of opened)

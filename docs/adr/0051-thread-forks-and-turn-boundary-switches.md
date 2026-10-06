@@ -111,3 +111,11 @@ Primary contracts: [Codex app-server](https://github.com/openai/codex/blob/main/
 [Claude SDK sessions](https://platform.claude.com/docs/en/agent-sdk/sessions),
 ADR 0007 and ADR 0018. Provider extensions remain capability-gated while the
 OpenCode, Pi and Cursor workers finish their adapter changes.
+
+## QA correction: Codex inherited transcript
+
+Native Codex forks request the selected source turns in the thread/fork response.
+The adapter translates that history before accepting the first new turn, keeping
+both user asks and assistant answers visible in ace. excludeTurns must be false;
+keeping native context alone does not satisfy the fork dialog's history promise.
+The offline app-server regression excludes turns after the selected boundary.

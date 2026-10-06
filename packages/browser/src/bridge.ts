@@ -1,15 +1,32 @@
 import { BrowserOriginError } from "./policy.ts";
-import { ThreadId, BrowserClientMessage, type BrowserServerMessage } from "@ace/protocol";
+import {
+  ThreadId,
+  BrowserClientMessage,
+  type BrowserServerMessage,
+  type DeviceScope,
+} from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
 
-function requiredAccess(message: BrowserClientMessage): "read" | "operate" {
-  if (["browser.subscribe", "browser.unsubscribe", "browser.ack"].includes(message.type))
+type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
+
+function requiredAccess(message: BrowserClientMessage): BrowserAccess {
+  if (
+    ["browser.subscribe", "browser.unsubscribe", "browser.ack", "browser.capture"].includes(
+      message.type,
+    )
+  )
     return "read";
   if (
     message.type === "browser.execute" &&
-    ["snapshot", "screenshot", "logs", "wait_for", "find", "network_body"].includes(
-      message.command.action,
-    )
+    [
+      "snapshot",
+      "screenshot",
+      "logs",
+      "wait_for",
+      "find",
+      "network_body",
+      "navigation_history",
+    ].includes(message.command.action)
   )
     return "read";
   if (
@@ -29,10 +46,11 @@ export function connectBrowser(
   service: BrowserService,
   options: {
     connectionId: string;
+    local?: boolean;
     authorize: (
       threadId: string,
       workspaceId: string | undefined,
-      access: "read" | "operate",
+      access: BrowserAccess,
     ) => boolean;
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
   },
@@ -197,6 +215,14 @@ export function connectBrowser(
             respond(null);
             break;
           }
+          case "browser.capture":
+            if (!subscriptions.has(threadId)) throw new Error("Browser viewer is not subscribed");
+            service.configureCapture(threadId, options.connectionId, {
+              viewport: message.viewport,
+              local: options.local ?? false,
+            });
+            respond(null);
+            break;
           case "browser.ack":
             service.acknowledge(threadId, options.connectionId, message.sequence);
             break;
@@ -205,7 +231,12 @@ export function connectBrowser(
             respond(null);
             break;
           case "browser.recording.stop":
-            respond(await service.stopRecording(threadId));
+            respond(
+              await service.stopRecording(threadId, {
+                kind: "human",
+                connectionId: options.connectionId,
+              }),
+            );
             break;
         }
       } catch (error) {

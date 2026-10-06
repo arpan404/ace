@@ -13,7 +13,7 @@ export interface AcpQuirks {
 }
 export const baseCapabilities: Capabilities = {
   permissions: {
-    modes: ["ask", "auto-review", "full-access"],
+    modes: ["auto-review", "full-access"],
     nativeAutoReview: false,
     toolGate: true,
     guarantees: [

@@ -133,6 +133,7 @@ export class BrowserSession {
         epoch === this.ownership.epoch &&
         this.recordings.accept(frame),
       () => ({ epoch: this.ownership.epoch, since: this.ownership.since }),
+      () => options.backend.viewport(),
     );
   }
 
@@ -382,10 +383,10 @@ export class BrowserSession {
       this.recordings.start(() => this.readCheck({ kind: "agent" }, epoch)),
     );
   }
-  stopRecording(): Promise<BrowserArtifact> {
+  stopRecording(actor: Actor = { kind: "agent" }): Promise<BrowserArtifact> {
     const epoch = this.ownership.epoch;
     return this.enqueue(() => {
-      this.readCheck({ kind: "agent" }, epoch);
+      this.readCheck(actor, epoch);
       return this.recordings.stop();
     });
   }

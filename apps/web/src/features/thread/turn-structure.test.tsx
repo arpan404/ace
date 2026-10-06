@@ -122,7 +122,7 @@ test("while a step waits for approval nothing says Working: the line says it wai
 
 test("ace's review of a step joins that step's log instead of splitting the work", async () => {
   const app = harness();
-  app.play(permissionAudit()).runUntilBlocked();
+  app.play(permissionAudit()).runThrough("escalated");
   await app.open("/t/thread-release-audit");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const ask = await within(feed).findByText(/Clean out the old build/);

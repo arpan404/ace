@@ -71,8 +71,8 @@ export function cursorCapabilitiesForSandbox(supported: boolean): Capabilities {
           level: "tool-selection",
           gates: { writes: true, network: true, protectedReads: false, shell: true },
           limitations: [
-            "Limited: SDK sandbox support is unavailable or unverified. Auto-review and Ask use read-only tools; no writes, shell, network, MCP or child tools are enabled.",
-            "Read tools can access files outside the workspace. SDK 1.0.35 has no public approval decision callback.",
+            "Limited: SDK sandbox support is unavailable or unverified. Auto-review uses read-only tools; no writes, shell, network, MCP or child tools are enabled.",
+            "Read tools can access files outside the workspace. Ask is unavailable because SDK 1.0.35 has no public approval decision callback.",
           ],
         },
       ],
