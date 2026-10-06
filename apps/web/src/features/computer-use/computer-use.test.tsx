@@ -87,6 +87,31 @@ test("a Stop all the daemon can't finish says why", async () => {
   );
 });
 
+test("secure input says what it is from the session menu, and once allowed, on the card", async () => {
+  const { app, world } = await openSettings();
+  const sessionId = await world.agentApp("com.apple.TextEdit");
+  await app.open("/settings/computer-use");
+  const card = await screen.findByRole("article", { name: "TextEdit" });
+
+  await userEvent.click(within(card).getByRole("button", { name: "Session options" }));
+  const allow = await screen.findByRole("menuitem", { name: /^Allow typing in secure fields/ });
+  expect(allow.textContent).toContain("Password fields block agent typing until you allow it");
+  await userEvent.click(allow);
+
+  await waitFor(async () =>
+    expect(
+      (await world.sessions()).find((s) => s.sessionId === sessionId)?.secureInputAllowed,
+    ).toBe(true),
+  );
+  const secure = await within(card).findByRole("group", { name: "Secure input" });
+  expect(secure.textContent).toMatch(/password and other secure fields/);
+  expect(secure.textContent).toMatch(/stays hidden from it and the log/);
+  await userEvent.click(within(secure).getByRole("button", { name: "Turn off" }));
+  await waitFor(() =>
+    expect(within(card).queryByRole("group", { name: "Secure input" })).toBeNull(),
+  );
+});
+
 test("an agent's app shows live in the background; taking over and handing back move control on the daemon", async () => {
   const { app, world } = await openSettings();
   const sessionId = await world.agentApp("com.apple.TextEdit");

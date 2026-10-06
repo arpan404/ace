@@ -219,6 +219,31 @@ export type ScreenErrorCode =
   | "clipboard_changed"
   | "forbidden";
 
+/**
+ * Secure input for one session, said plainly: what it is, where it stands and what the person
+ * can do. macOS marks password and other secure fields so other apps can't read or type into
+ * them; ace keeps agents out of them until a person allows it for that session, and never logs
+ * what is typed there.
+ */
+export function secureInputCopy(allowed: boolean): {
+  /** The menu row's second line. */
+  menu: string;
+  /** The card's line: what it is and what to do. */
+  explanation: string;
+} {
+  return allowed
+    ? {
+        menu: "The agent can type into password fields in this app now",
+        explanation:
+          "Secure input is on: the agent may type into password and other secure fields in this app until it stops or changes hands. What it types stays hidden from it and the log.",
+      }
+    : {
+        menu: "Password fields block agent typing until you allow it here",
+        explanation:
+          "Secure input: macOS marks password and other secure fields, and ace keeps agents from typing into them. Allow it for this session, or take over and type it yourself. What is typed stays hidden from the agent and the log.",
+      };
+}
+
 /** What a refusal means and what to do next, in one sentence each. */
 export function screenProblem(
   code: string | undefined,
