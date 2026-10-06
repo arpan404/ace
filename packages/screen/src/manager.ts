@@ -36,6 +36,7 @@ import type { ScreenOptions } from "./options.ts";
 export class ScreenManager {
   private readonly policy = new ScreenPolicy();
   private readonly sessions = new Map<string, Session>();
+  private readonly enabledListeners = new Set<(enabled: boolean) => void>();
   private readonly listeners = new Set<(state: ScreenState) => void>();
   private readonly options: ScreenOptions;
   private reservations = 0;
@@ -107,10 +108,30 @@ export class ScreenManager {
       launches: this.launches,
       stop: (id) => this.stop(id),
       revalidate: () => this.revalidate(),
+      enabledChanged: (enabled) => this.emitEnabled(enabled),
       resumeAgents: () => {
         this.agentPaused = false;
       },
     });
+  }
+  isEnabled(): boolean {
+    return this.policy.enabled;
+  }
+  watchEnabled(listener: (enabled: boolean) => void): () => void {
+    if (this.enabledListeners.size >= 64) throw new Error("Screen observer limit");
+    this.enabledListeners.add(listener);
+    return () => {
+      this.enabledListeners.delete(listener);
+    };
+  }
+  private emitEnabled(enabled: boolean): void {
+    for (const listener of this.enabledListeners) {
+      try {
+        listener(enabled);
+      } catch {
+        /* An observer cannot prevent shutdown. */
+      }
+    }
   }
   enable(enabled: boolean): Promise<void> {
     return this.accessPolicy.enable(enabled);
@@ -256,7 +277,9 @@ export class ScreenManager {
   }
   async stopAll() {
     this.accessPolicy.access?.enable(false);
+    const changed = this.policy.enabled;
     this.policy.enable(false);
+    if (changed) this.emitEnabled(false);
     await this.terminateAll();
   }
   private async terminateAll() {
@@ -570,6 +593,7 @@ export class ScreenManager {
         await this.host.close();
       } finally {
         this.listeners.clear();
+        this.enabledListeners.clear();
       }
     }
   }

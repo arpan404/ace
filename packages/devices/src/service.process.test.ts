@@ -308,6 +308,10 @@ describe("in-app device ownership", () => {
   it("an approved device still rejects a different agent or thread", async () => {
     const h = await harness();
     await delegate(h);
+    expect(h.service.states()[0]).toMatchObject({
+      controller: "agent",
+      holder: { threadId: "thread-1", agentId: "agent-1" },
+    });
     const input: DeviceInput = { kind: "tap", x: 5, y: 10 };
     await h.request({ op: "input", deviceId, input }, agent);
     expect(h.effects[0]).toContain("'tap' '5' '10'");

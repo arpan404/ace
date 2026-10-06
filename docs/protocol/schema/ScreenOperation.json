@@ -20,6 +20,18 @@
     },
     {
       "properties": {
+        "op": {
+          "const": "status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "allowed": {
           "type": "boolean"
         },
@@ -144,6 +156,26 @@
       },
       "required": [
         "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "permissions.request",
+          "type": "string"
+        },
+        "permission": {
+          "enum": [
+            "screenRecording",
+            "accessibility"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "permission"
       ],
       "type": "object"
     },

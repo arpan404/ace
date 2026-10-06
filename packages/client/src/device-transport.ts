@@ -32,7 +32,7 @@ export interface AuthenticatedChannel {
 /** One authenticated channel per feature. No input queue, replay or token in a URL. */
 export function authenticatedChannel(
   options: AuthenticatedChannelOptions,
-  kind: "devices" | "files",
+  kind: "devices" | "files" | "screen",
 ): AuthenticatedChannel {
   let socket: PortableSocket | undefined;
   let relay: PortableRelay | undefined;

@@ -4,6 +4,7 @@
   "properties": {
     "code": {
       "enum": [
+        "forbidden",
         "permission_denied",
         "approval_required",
         "screen_disabled",

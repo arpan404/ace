@@ -9,6 +9,9 @@ const endpoint = (fetch: (input: string, init: RequestInit) => Promise<Response>
     {
       kind: "fake",
       access: { origin: "http://127.0.0.1:4242/", fetch, token: async () => token },
+      screen: () => {
+        throw new Error("unused");
+      },
       devices: () => {
         throw new Error("unused");
       },

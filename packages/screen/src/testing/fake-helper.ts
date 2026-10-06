@@ -389,7 +389,7 @@ function processRequest(request: ScreenHelperRequest) {
     }
     if (capturing) frame();
   }
-  if (request.op === "permissions") {
+  if (request.op === "permissions" || request.op === "permissions.request") {
     permissionQueries++;
     data = {
       screenRecording: process.env.SCREEN_DENIED !== "1",

@@ -19,10 +19,20 @@ export class ControllerLease {
     this.deadline = 0;
     this.epoch++;
   }
-  status(): { controller: "none" | "human" | "agent"; leaseExpiresAt?: number } {
+  status(): {
+    controller: "none" | "human" | "agent";
+    leaseExpiresAt?: number;
+    holder?: { threadId: string; agentId: string };
+  } {
     if (this.now() >= this.deadline) this.release();
     return this.actor
-      ? { controller: this.actor.kind, leaseExpiresAt: this.deadline }
+      ? {
+          controller: this.actor.kind,
+          leaseExpiresAt: this.deadline,
+          ...(this.actor.kind === "agent" && this.actor.threadId && this.actor.agentId
+            ? { holder: { threadId: this.actor.threadId, agentId: this.actor.agentId } }
+            : {}),
+        }
       : { controller: "none" };
   }
   ticket(actor: Actor): number {

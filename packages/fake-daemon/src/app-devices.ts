@@ -10,11 +10,9 @@ import {
   type DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
-import { deviceScreens } from "./device-screens.ts";
+import { fakeScreenFrame } from "./screen-frame.ts";
 
 const leaseMs = 5 * 60_000;
-const width = 390;
-const height = 844;
 
 type StreamSettings = Extract<DeviceOperation, { op: "stream.configure" }>["settings"];
 
@@ -28,8 +26,9 @@ interface Session {
   /** The next H.264 frame is a keyframe: after a (re)configure, a new stream or a request. */
   keyframe: boolean;
   controller: DeviceState["controller"];
+  holder?: DeviceState["holder"];
   leaseExpiresAt?: number;
-  screen: keyof typeof deviceScreens;
+  screen: "home" | "app";
   logs: string[];
 }
 
@@ -67,13 +66,6 @@ function denied(permission: DevicePermission): Refusal {
     `Open System Settings › Privacy & Security › ${name}, turn on Ace Screen Helper, then try again.`,
     permission,
   );
-}
-
-function decode(base64: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-  return bytes;
 }
 
 /**
@@ -175,6 +167,7 @@ export class FakeAppDevices {
           for (const session of this.sessions.values())
             if (session.controller === "human") {
               session.controller = "none";
+              delete session.holder;
               delete session.leaseExpiresAt;
               this.publish(session);
             }
@@ -191,6 +184,7 @@ export class FakeAppDevices {
       lifecycle: session.lifecycle,
       ...(session.streamId ? { streamId: session.streamId } : {}),
       controller: session.controller,
+      holder: session.holder,
       ...(session.leaseExpiresAt ? { leaseExpiresAt: session.leaseExpiresAt } : {}),
     });
   }
@@ -205,29 +199,15 @@ export class FakeAppDevices {
   }
 
   private frame(session: Session): Uint8Array {
-    const payload = decode(deviceScreens[session.screen]);
-    const video =
-      session.codec === "h264"
-        ? { codec: "h264", keyframe: session.keyframe, videoCodec: "avc1.42E01F" }
-        : { codec: "jpeg" };
+    const packet = fakeScreenFrame({
+      sessionId: session.streamId ?? "idle",
+      sequence: ++this.sequence,
+      timestamp: this.clock(),
+      screen: session.screen,
+      codec: session.codec,
+      keyframe: session.keyframe,
+    });
     session.keyframe = false;
-    const header = new TextEncoder().encode(
-      JSON.stringify({
-        version: 1,
-        sessionId: session.streamId,
-        sequence: ++this.sequence,
-        timestamp: this.clock(),
-        width,
-        height,
-        ...video,
-        scale: 1,
-        bytes: payload.byteLength,
-      }),
-    );
-    const packet = new Uint8Array(4 + header.byteLength + payload.byteLength);
-    new DataView(packet.buffer).setUint32(0, header.byteLength);
-    packet.set(header, 4);
-    packet.set(payload, 4 + header.byteLength);
     return packet;
   }
 
@@ -299,6 +279,7 @@ export class FakeAppDevices {
           delete session.leaseExpiresAt;
           session.lifecycle = "idle";
           session.controller = "none";
+          delete session.holder;
         }
       return { enabled: this.enabled };
     }
@@ -324,18 +305,21 @@ export class FakeAppDevices {
       case "controller":
         if (operation.controller === "human") {
           session.controller = "human";
+          delete session.holder;
           session.leaseExpiresAt = this.clock() + leaseMs;
         } else if (operation.controller === "none") {
           session.controller = "none";
+          delete session.holder;
           delete session.leaseExpiresAt;
         } else {
-          if (!operation.threadId || session.threadId !== operation.threadId)
+          if (!operation.threadId || !operation.agentId || session.threadId !== operation.threadId)
             throw new Refusal(
               "permission_denied",
               "Agent must belong to approved thread",
               "Approve the thread and select an agent.",
             );
           session.controller = "agent";
+          session.holder = { threadId: operation.threadId, agentId: operation.agentId };
           delete session.leaseExpiresAt;
         }
         this.publish(session);

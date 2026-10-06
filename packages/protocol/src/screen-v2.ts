@@ -11,6 +11,7 @@ export const ScreenEndpoint = z
   });
 export const ScreenError = z.object({
   code: z.enum([
+    "forbidden",
     "permission_denied",
     "approval_required",
     "screen_disabled",
@@ -32,6 +33,7 @@ export const ScreenError = z.object({
   ]),
   message: z.string().max(1024),
 });
+export type ScreenError = z.infer<typeof ScreenError>;
 export const ScreenCapabilities = z
   .object({
     version: z.literal(2),

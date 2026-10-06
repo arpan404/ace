@@ -2,11 +2,8 @@ import { z } from "zod";
 import { ScreenBundle, ScreenGrant, ThreadId, type ScreenAgentScope } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
-export function sensitiveApp(bundle: string): boolean {
-  return /(?:1password|bitwarden|lastpass|dashlane|keepass|keeper|enpass|protonpass|password|keychain|systempreferences|systemsettings|terminal|iterm|^dev\.ace\.app(?:\.|$)|^com\.ace\.app(?:\.|$))/i.test(
-    bundle,
-  );
-}
+import { sensitiveApp } from "@ace/screen/sensitive-app";
+export { sensitiveApp } from "@ace/screen/sensitive-app";
 /** SQLite decisions, without retaining the event history or opening the native helper. */
 export class ScreenGrants {
   constructor(

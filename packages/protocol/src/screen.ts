@@ -133,8 +133,15 @@ export const ScreenInventory = z.object({
     )
     .max(2048),
 });
+export const ScreenStatus = z.object({
+  enabled: z.boolean(),
+  permissions: ScreenPermissions,
+  sessions: z.number().int().min(0).max(8),
+});
+export type ScreenStatus = z.infer<typeof ScreenStatus>;
 export const ScreenOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("enable"), enabled: z.boolean() }),
+  z.object({ op: z.literal("status") }),
   z.object({
     op: z.literal("approve"),
     bundleId: ScreenBundle,
@@ -153,6 +160,10 @@ export const ScreenOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("secure.input"), sessionId: ScreenId, allowed: z.boolean() }),
   z.object({ op: z.literal("open.app"), bundleId: ScreenBundle }),
   z.object({ op: z.literal("permissions") }),
+  z.object({
+    op: z.literal("permissions.request"),
+    permission: z.enum(["screenRecording", "accessibility"]),
+  }),
   z.object({ op: z.literal("targets") }),
   z.object({ op: z.literal("sessions") }),
   z.object({
@@ -189,6 +200,7 @@ export const ScreenClientMessage = z.object({
   operation: ScreenOperation,
 });
 export const ScreenServerMessage = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("screen.enabled"), enabled: z.boolean() }),
   z.object({ type: z.literal("screen.state"), state: ScreenState }),
   z.object({
     type: z.literal("screen.result"),
