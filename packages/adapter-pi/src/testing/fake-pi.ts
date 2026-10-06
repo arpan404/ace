@@ -1,5 +1,5 @@
 /** Synthetic documented RPC peer. This executable never imports or starts Pi. */
-import { readPrivateMcpConfig } from "@ace/mcp-server";
+import { privateMcpConfig, readPrivateMcpConfig } from "@ace/mcp-server";
 import { createInterface } from "node:readline";
 import { writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
@@ -26,24 +26,33 @@ const hooks = new Map<string, unknown>();
 const approvals = new Map<string, (confirmed: boolean) => void>();
 let approvalId = 0;
 const commands = new Map<string, Parameters<PiExtensionApi["registerCommand"]>[1]>();
-await registerAcePiExtension(
-  {
-    registerCommand(name, command) {
-      commands.set(name, command);
-    },
-    appendEntry(customType, data) {
-      emit({ type: "entry_appended", entry: history.append(customType, data) });
-    },
-    registerTool() {},
-    on(event, handler) {
-      hooks.set(event, handler);
-    },
-  },
-  {
-    ACE_PI_SESSION_FILE: process.env.ACE_PI_SESSION_FILE,
-    ACE_PI_PERMISSION_MODE: process.env.ACE_PI_PERMISSION_MODE,
-  },
+// This RPC peer exercises control hooks; it never opens a real MCP connection.
+const controlConfig = privateMcpConfig(
+  JSON.stringify({ controlSecret: nativeSession.controlSecret }),
+  process.cwd(),
 );
+try {
+  await registerAcePiExtension(
+    {
+      registerCommand(name, command) {
+        commands.set(name, command);
+      },
+      appendEntry(customType, data) {
+        emit({ type: "entry_appended", entry: history.append(customType, data) });
+      },
+      registerTool() {},
+      on(event, handler) {
+        hooks.set(event, handler);
+      },
+    },
+    {
+      ACE_PI_SESSION_FILE: controlConfig.path,
+      ACE_PI_PERMISSION_MODE: process.env.ACE_PI_PERMISSION_MODE,
+    },
+  );
+} finally {
+  controlConfig.remove();
+}
 const input = createInterface({ input: process.stdin });
 input.on("line", (line) => {
   void handle(line);

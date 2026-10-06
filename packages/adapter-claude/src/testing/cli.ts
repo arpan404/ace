@@ -51,6 +51,7 @@ for await (const line of lines) {
       subtype: "fake_control",
       request,
       argv: process.argv,
+      mcpServers: mcp,
       settings: {
         permissionMode: option("--permission-mode"),
         settingSources: (option("--setting-sources") ?? "").split(",").filter(Boolean),
