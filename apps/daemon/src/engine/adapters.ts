@@ -63,7 +63,8 @@ export async function discoverAdapters(
   else {
     const pi = await discoverPi();
     if (pi.installed) {
-      const { createPiAdapter, piProfile } = await import("@ace/adapter-pi");
+      const { createPiAdapter } = await import("@ace/adapter-pi/adapter");
+      const { piProfile } = await import("@ace/adapter-pi/capabilities");
       if (piProfile(pi).supported) registry.register(createPiAdapter({ cli: pi }), pi);
     }
   }
