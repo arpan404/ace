@@ -1,17 +1,17 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThreadMeta } from "@ace/client-react";
-import type { AgentStatus, Run } from "@ace/protocol";
+import type { Run } from "@ace/protocol";
 import { formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
 import { HourglassMediumIcon, StopIcon } from "@phosphor-icons/react";
 import { Suspense, useCallback, useMemo } from "react";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
+import type { Failure } from "./failure.ts";
 import { useWatched, type Watched } from "./use-watched.ts";
 
 const FailedTurn = DeferredFailedTurn.Component;
 
-export type Failure = Extract<AgentStatus, { state: "failed" }>["error"];
 type EndBlock = Extract<Block, { kind: "end" }>;
 
 /**

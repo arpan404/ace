@@ -12,11 +12,9 @@ export interface AccountRow {
   disabled?: string | undefined;
 }
 
-/**
- * Where the model list stands: still arriving (the picker shows placeholder rows), being
- * discovered again with the last list shown meanwhile, or settled.
- */
-export type CatalogState = "loading" | "refreshing" | "ready";
+import type { CatalogState } from "@/lib/model-catalog.ts";
+
+export type { CatalogState };
 
 /**
  * Everything the composer's model chip and its popover show, the same shape for New thread and

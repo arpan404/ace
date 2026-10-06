@@ -4,7 +4,7 @@ import { describeProviderError } from "@ace/ui-core";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ErrorRow, noticeError } from "../items/error-row.tsx";
-import type { Failure } from "./turn-end.tsx";
+import type { Failure } from "./failure.ts";
 
 /** The person's message again, as input: its text, images and files. */
 function resend(item: Item | undefined): ContentPart[] {

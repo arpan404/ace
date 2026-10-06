@@ -1,12 +1,17 @@
 import type { CatalogModel } from "@ace/protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import type { CatalogState } from "./control-view.ts";
 
 /*
  * The model catalog alone (`models.list`), apart from the pickers that join it with accounts and
  * providers: a thread's composer reads what its model takes from it without loading those.
  */
+
+/**
+ * Where the model list stands: still arriving (the picker shows placeholder rows), being
+ * discovered again with the last list shown meanwhile, or settled.
+ */
+export type CatalogState = "loading" | "refreshing" | "ready";
 
 /** Pages a large catalog in; the daemon returns at most 100 rows per `models.list`. */
 const maxPages = 8;
