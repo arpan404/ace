@@ -1152,6 +1152,32 @@
           "minLength": 1,
           "type": "string"
         },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.capture",
+          "type": "string"
+        },
+        "viewport": {
+          "$ref": "https://ace.local/protocol/v1/BrowserCaptureViewport.json"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "viewport"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "subscriberId": {
           "maxLength": 256,
           "minLength": 1,

@@ -1,6 +1,7 @@
 import { useRef, type KeyboardEvent, type MouseEvent, type WheelEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { BrowserView, PreviewSource, ScreenFrame } from "../sources.ts";
+import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
 
 /**
@@ -23,6 +24,7 @@ export function PageView(props: {
   const { frame } = props;
   const pane = useRef<HTMLDivElement>(null);
   useViewportSync(props.source, props.threadId, pane, props.fit && props.interactive);
+  useCaptureSize(props.source, props.threadId, pane);
   // Pointer positions map back to page pixels through the picture's rendered box.
   const point = (event: MouseEvent<HTMLElement>) => {
     const box = event.currentTarget.querySelector("img")?.getBoundingClientRect();

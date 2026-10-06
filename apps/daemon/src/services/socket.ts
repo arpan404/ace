@@ -33,6 +33,8 @@ export interface SocketContext {
   options: ServerOptions;
   socket: WebSocket;
   sessionId: string;
+  /** True only for the daemon loopback listener, never a client claim. */
+  local?: boolean;
   onPresence(): void;
   subscriptions: Map<string, () => void>;
   tasks: Set<Promise<void>>;
