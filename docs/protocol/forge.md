@@ -28,9 +28,9 @@ Example:
       "completedAt": null,
       "conclusion": "example",
       "id": "example",
-      "jobId": 4,
+      "jobId": null,
       "name": "example",
-      "status": "unknown",
+      "status": "cancelled",
       "url": "example"
     },
     "logTail": "example",
@@ -45,14 +45,13 @@ Example:
       "number": 5,
       "repository": {
         "forge": "github",
-        "host": "QmPklf5",
-        "name": "y",
-        "owner": "Gcg/Us/.Mwvsxnywk"
+        "host": "XOQPoS",
+        "name": "lOB0qH",
+        "owner": "dh6CPM/E_L4cdsZ8Tl/Lw/3TBkvJQl/jke5mGcg/hUs/.Mwvsxnywk/y"
       }
     },
     "threadId": "example"
   },
-  "linkGeneration": 7,
   "type": "auto-fix"
 }
 ```
@@ -80,8 +79,8 @@ Example:
   "id": "example",
   "jobId": null,
   "name": "example",
-  "status": "cancelled",
-  "url": "example"
+  "status": "success",
+  "url": null
 }
 ```
 
@@ -104,8 +103,8 @@ Example:
     "pr": {
       "number": 2,
       "repository": {
-        "forge": "github",
-        "host": "i9GTwBGe6",
+        "forge": "gitlab",
+        "host": "BGe6",
         "name": "og5a",
         "owner": ".T47kjSOrwo/rQWhc/orOwZrIyJ3/4/c08dOTyA60M/NxCige/foRQWCa0Z"
       }
