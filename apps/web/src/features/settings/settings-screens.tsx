@@ -1,3 +1,5 @@
+import { lazy, Suspense } from "react";
+import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
 import { AdvancedSettings } from "./advanced-page.tsx";
 import { AppearanceSettings } from "./appearance-page.tsx";
 import { GeneralSettings } from "./general-page.tsx";
@@ -68,6 +70,21 @@ export function AdvancedSettingsScreen() {
   return (
     <SettingsBody page="Advanced">
       <AdvancedSettings />
+    </SettingsBody>
+  );
+}
+
+const ComputerUseSettings = lazy(loadComputerUseSettings);
+
+export function ComputerUseSettingsScreen() {
+  return (
+    <SettingsBody
+      page="Computer use"
+      lede="Agents can use apps on this Mac in the background while you keep working. You approve each app, can take over at any time and can stop everything at once."
+    >
+      <Suspense fallback={null}>
+        <ComputerUseSettings />
+      </Suspense>
     </SettingsBody>
   );
 }

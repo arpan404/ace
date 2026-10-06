@@ -33,8 +33,8 @@ export function ApprovalDetails(props: { copy: ApprovalCopy; className?: string 
       )}
       {copy.facts.length > 0 && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-          {copy.facts.map((fact, index) => (
-            <Fact key={`${fact.label}:${index}`} label={fact.label}>
+          {copy.facts.map((fact) => (
+            <Fact key={`${fact.label}:${fact.value}`} label={fact.label}>
               <span className={cn("break-all", fact.code && "font-mono text-xs")}>
                 {fact.value}
               </span>

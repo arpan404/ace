@@ -2,6 +2,7 @@ import {
   BrowserIcon,
   CardsIcon,
   ChatsCircleIcon,
+  CursorClickIcon,
   DeviceMobileIcon,
   FilesIcon,
   GitDiffIcon,
@@ -129,6 +130,17 @@ export const devicesKind = defineTabKind({
   load: () => import("./devices-view.tsx").then((m) => ({ default: m.DevicesView })),
 });
 
+/** Apps agents use on this Mac: live sessions, Take over, Delegate, Stop and this thread's grants. */
+export const computerUseKind = defineTabKind({
+  kind: "computer-use",
+  label: "Computer use",
+  icon: CursorClickIcon,
+  singleton: true,
+  launcher: 65,
+  // Its own chunk: the screen channel, frame decoding and session cards load only when it shows.
+  load: () => import("@/features/computer-use/index.ts").then((m) => m.loadComputerUsePanel()),
+});
+
 /** One dev server (id: its port), previewed edge to edge in its own tab. */
 export const portKind = defineTabKind({
   kind: "port",
@@ -193,6 +205,7 @@ export const threadKinds: readonly TabKind[] = [
   portKind,
   devicesKind,
   deviceKind,
+  computerUseKind,
   agentsKind,
   logsKind,
   agentKind,

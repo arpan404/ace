@@ -30,7 +30,7 @@ const known: Record<string, string> = {
 export function appName(bundleId: string): string {
   const name = known[bundleId.toLowerCase()];
   if (name) return name;
-  const last = bundleId.split(".").filter(Boolean).at(-1) ?? bundleId;
+  const last = bundleId.split(".").findLast(Boolean) ?? bundleId;
   const spaced = last
     .replace(/[-_]+/g, " ")
     .replace(/([a-z])([A-Z])/g, "$1 $2")

@@ -2,6 +2,7 @@
 export {
   AdvancedSettingsScreen,
   AppearanceSettingsScreen,
+  ComputerUseSettingsScreen,
   GeneralSettingsScreen,
   KeyboardSettingsScreen,
   NotificationSettingsScreen,
