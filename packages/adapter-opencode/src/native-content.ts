@@ -156,9 +156,15 @@ export function projected(state: NativeState, session: string, value: unknown): 
   const p = object(value),
     message = string(p.id),
     agent = state.key(session);
-  if (p.type === "assistant")
-    return array(p.content).flatMap((block, ordinal) => {
+  if (p.type === "assistant") {
+    // Live ordinals count text and reasoning independently. History interleaves
+    // those blocks with tools, so its array index is not a content identity.
+    let textOrdinal = 0;
+    let reasoningOrdinal = 0;
+    return array(p.content).flatMap((block) => {
       const c = object(block),
+        ordinal =
+          c.type === "text" ? textOrdinal++ : c.type === "reasoning" ? reasoningOrdinal++ : 0,
         data = { ...c, sessionID: session, assistantMessageID: message, ordinal };
       return c.type === "tool"
         ? tool(state, data, "snapshot.tool", c)
@@ -171,6 +177,7 @@ export function projected(state: NativeState, session: string, value: unknown): 
             )
           : [];
     });
+  }
   if (p.type === "user" || p.type === "synthetic" || p.type === "system")
     return [
       ...(p.type === "synthetic"
