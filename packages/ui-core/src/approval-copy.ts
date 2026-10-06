@@ -217,3 +217,22 @@ export function approvalCopy(request: ApprovalRequest): ApprovalCopy {
     defaultToNo,
   };
 }
+
+/**
+ * A request to answer on its full card, never with a one-tap Approve from a list: ace's own
+ * tools and anything that defaults to no.
+ */
+export function deliberateApproval(request: InteractionRequest): boolean {
+  return (
+    request.kind === "approval" &&
+    (request.defaultToNo === true || approvalCopy(request).tool !== undefined)
+  );
+}
+
+/**
+ * The daemon's hold on an agent while a person keeps the thread's browser private. It closes
+ * only when the person hands the browser back (or closes it), never by answering it.
+ */
+export function privateBrowserGate(interaction: { raw: readonly { type: string }[] }): boolean {
+  return interaction.raw.some((raw) => raw.type === "ace.browser.private");
+}

@@ -134,3 +134,15 @@ test("a provider's own approval keeps its title and labels", () => {
     "No:quiet",
   ]);
 });
+
+test("ace's tools and default-to-no requests are answered on their card, not by a one-tap approve", async () => {
+  const { deliberateApproval } = await import("./approval-copy.ts");
+  expect(deliberateApproval(appRequest("com.apple.TextEdit"))).toBe(true);
+  expect(
+    deliberateApproval({
+      kind: "approval",
+      title: "Run tests",
+      options: [{ id: "yes", kind: "allow_once", label: "Yes" }],
+    }),
+  ).toBe(false);
+});
