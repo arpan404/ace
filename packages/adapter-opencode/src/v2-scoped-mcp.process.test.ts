@@ -44,7 +44,7 @@ test("OpenCode v2 native processes preserve user MCP servers and isolate thread 
         instanceId: "same-account",
         env: {
           OPENCODE_CONFIG_CONTENT: `{ // user configuration
-            "mcp": { "user": { "type": "remote", "url": "https://example.invalid" }, },
+            "mcp": { "servers": { "user": { "type": "remote", "url": "https://example.invalid" }, } },
           }`,
         },
         signal: new AbortController().signal,
@@ -82,5 +82,47 @@ test("OpenCode v2 native processes preserve user MCP servers and isolate thread 
     await adapter.close();
     for (const lease of leases) lease.end();
     await mcp.close();
+  }
+});
+
+test("OpenCode refuses a session when its native MCP catalog cannot connect", async () => {
+  const h = await setup({ discovery: { env: { ACE_TEST_MCP_FAILED: "1" } } });
+  const adapter = createOpenCodeAdapter(h.options);
+  try {
+    await expect(
+      adapter.openSession({
+        threadId: ThreadId.parse("failed"),
+        cwd: "/sandbox",
+        aceMcp: { url: "http://127.0.0.1:12345/mcp", bearer: "a".repeat(64) },
+        signal: new AbortController().signal,
+        onFrame() {},
+        onExit() {},
+      }),
+    ).rejects.toThrow("OpenCode could not connect its native ace MCP client");
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("OpenCode preserves a user's ace server by rejecting an authority name collision", async () => {
+  const h = await setup();
+  const adapter = createOpenCodeAdapter(h.options);
+  try {
+    await expect(
+      adapter.openSession({
+        threadId: ThreadId.parse("collision"),
+        cwd: "/sandbox",
+        env: {
+          OPENCODE_CONFIG_CONTENT:
+            '{"mcp":{"servers":{"ace":{"type":"remote","url":"https://example.invalid"}}}}',
+        },
+        aceMcp: { url: "http://127.0.0.1:12345/mcp", bearer: "a".repeat(64) },
+        signal: new AbortController().signal,
+        onFrame() {},
+        onExit() {},
+      }),
+    ).rejects.toThrow("OpenCode MCP server name collision: ace");
+  } finally {
+    await adapter.close();
   }
 });

@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@ace/adapter-testkit": "workspace:*",
-    "@ace/projection": "workspace:*"
+    "@ace/projection": "workspace:*",
+    "jsonc-parser": "^3.3.1"
   }
 }

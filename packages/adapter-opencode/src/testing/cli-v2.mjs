@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { parse as parseJsonc } from "jsonc-parser";
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
 const args = process.argv.slice(2);
@@ -72,6 +73,7 @@ const publish = (type, data, directory = "/one", extra = {}) => {
   for (const stream of streams) stream.write(`data: ${JSON.stringify(e)}\n\n`);
   return e;
 };
+const nativeMcp = new Map();
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost"),
     path = url.pathname;
@@ -90,9 +92,34 @@ const server = createServer(async (req, res) => {
     res.end(JSON.stringify(data));
   };
   const empty = () => res.writeHead(204).end();
+  if (path === "/api/mcp") {
+    json({
+      data: [
+        ...new Set([
+          ...Object.keys(
+            parseJsonc(process.env.OPENCODE_CONFIG_CONTENT ?? "{}").mcp?.servers ?? {},
+          ),
+          ...nativeMcp.keys(),
+        ]),
+      ].map((name) => ({
+        name,
+        status: { status: process.env.ACE_TEST_MCP_FAILED ? "failed" : "connected" },
+      })),
+    });
+    return;
+  }
+  if (path === "/api/experimental/mcp/ace" && req.method === "PUT") {
+    nativeMcp.set("ace", body.config);
+    empty();
+    return;
+  }
+  if (path === "/api/experimental/mcp/ace/connect") {
+    empty();
+    return;
+  }
   if (path === "/test/mcp") {
-    const config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
-    const ace = config.mcp?.ace;
+    const config = parseJsonc(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
+    const ace = nativeMcp.get("ace");
     if (!ace) {
       json({ missing: true });
       return;
@@ -123,7 +150,7 @@ const server = createServer(async (req, res) => {
       }),
     });
     json({
-      names: Object.keys(config.mcp),
+      names: [...Object.keys(config.mcp?.servers ?? {}), ...nativeMcp.keys()],
       status: response.status,
       response: response.ok ? await response.json() : null,
     });

@@ -1,3 +1,4 @@
+import { registerAceMcp } from "./mcp-registration.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePermissionRules } from "./permission-policy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -20,6 +21,7 @@ import { cleanupOwned } from "./cleanup.ts";
 import { SessionOwnership } from "./ownership.ts";
 import { RecoveryEvidence } from "./recovery-evidence.ts";
 export class OpenCodeSession implements ProviderSession {
+  private mcpDirectories = new Set<string>();
   private ctx: SessionContext;
   private server: OpenCodeServer;
   private client: OpenCodeClient;
@@ -162,6 +164,7 @@ export class OpenCodeSession implements ProviderSession {
         }
       }
       s.ownership.establish(info);
+      await s.ensureMcp(info.location.directory);
       s.emit("recv", "snapshot.info", { info, root: true });
       s.opening = false;
       for (const event of s.openingBuffer.splice(0)) s.receive(event);
@@ -301,11 +304,15 @@ export class OpenCodeSession implements ProviderSession {
   private async barrier(): Promise<void> {
     if (this.closed) throw new Error("OpenCode session is closed");
     this.requireLocation(this.nativeSessionId);
-    if (!this.recovering) return;
-    if (this.waiters.size >= 64) throw new Error("OpenCode recovery send limit");
-    await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
+    if (this.recovering) {
+      if (this.waiters.size >= 64) throw new Error("OpenCode recovery send limit");
+      await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
+    }
     this.controller.signal.throwIfAborted();
     this.requireLocation(this.nativeSessionId);
+    await this.ensureMcp(
+      this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd,
+    );
   }
   send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
     return this.prompts.send(input, delivery, commandId);
@@ -363,6 +370,12 @@ export class OpenCodeSession implements ProviderSession {
       this.recoveryRead = undefined;
     });
     await this.recoveryRead;
+  }
+  private async ensureMcp(directory: string): Promise<void> {
+    if (!this.ctx.aceMcp || this.mcpDirectories.has(directory)) return;
+    if (this.mcpDirectories.size >= 128) throw new Error("OpenCode MCP location limit exceeded");
+    await registerAceMcp(this.client, directory, this.ctx.aceMcp);
+    this.mcpDirectories.add(directory);
   }
   private async readSnapshots(): Promise<void> {
     if (this.closed || this.opening) return;

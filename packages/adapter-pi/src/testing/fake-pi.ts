@@ -1,4 +1,5 @@
 /** Synthetic documented RPC peer. This executable never imports or starts Pi. */
+import { readPrivateMcpConfig } from "@ace/mcp-server";
 import { createInterface } from "node:readline";
 import { writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
@@ -7,6 +8,9 @@ import { registerAcePiExtension, type PiExtensionApi } from "../index.ts";
 import { join } from "node:path";
 import { z } from "zod";
 const Command = z.looseObject({ type: z.string(), id: z.string().optional() });
+const nativeSession = z
+  .object({ controlSecret: z.string(), mcp: z.object({ bearer: z.string() }).optional() })
+  .parse(JSON.parse(readPrivateMcpConfig(z.string().parse(process.env.ACE_PI_SESSION_FILE))));
 const history = new NativeHistory();
 if (process.env.FAKE_PI_HOME) history.load(join(process.env.FAKE_PI_HOME, "source.jsonl"));
 let queue = false,
@@ -36,7 +40,7 @@ await registerAcePiExtension(
     },
   },
   {
-    ACE_PI_CONTROL_SECRET: process.env.ACE_PI_CONTROL_SECRET,
+    ACE_PI_SESSION_FILE: process.env.ACE_PI_SESSION_FILE,
     ACE_PI_PERMISSION_MODE: process.env.ACE_PI_PERMISSION_MODE,
   },
 );
@@ -172,9 +176,9 @@ async function handle(line: string) {
           type: "extension_ui_request",
           id: "control-echo",
           method: "notify",
-          message: process.env.ACE_PI_CONTROL_SECRET,
+          message: nativeSession.controlSecret,
         });
-        process.stderr.write(`control=${process.env.ACE_PI_CONTROL_SECRET}\n`);
+        process.stderr.write(`control=${nativeSession.controlSecret}\n`);
         const command = commands.get("ace-rollback");
         if (!command) throw new Error("Missing synthetic control command");
         await command.handler(message.slice("/ace-rollback ".length), {
@@ -318,7 +322,7 @@ async function handle(line: string) {
                 ? "write available"
                 : "write unavailable"
               : message === "env-proof"
-                ? (process.env.ACE_PI_MCP_BEARER ?? "")
+                ? (nativeSession.mcp?.bearer ?? "")
                 : message === "context-proof"
                   ? history.context()
                   : "hello\u2028world\u2029!";
