@@ -63,13 +63,19 @@ export function AutomationEditor(props: {
    */
   onSave(form: AutomationForm, committed: () => void): Promise<void>;
 }) {
+  const choices = useModelChoices();
   const [saveError, setSaveError] = useState<string>();
   // Set only once the daemon has the saved definition; until then leaving still asks.
   const committed = useRef(false);
   const form = useAutomationForm(props.initial, async (value) => {
     setSaveError(undefined);
     try {
-      await props.onSave(value, () => {
+      // Older definitions stored a picker row id. Repair only catalog-proven
+      // identities, preserving arbitrary provider model ids verbatim.
+      const model =
+        choices.find((choice) => choice.provider === value.provider && choice.id === value.model)
+          ?.modelId ?? value.model;
+      await props.onSave({ ...value, model }, () => {
         committed.current = true;
       });
     } catch (error) {
@@ -394,7 +400,8 @@ function AgentSelect(props: {
         const model = props.currentModel();
         props.onChange(
           provider,
-          !model || choices.some((choice) => choice.provider === provider && choice.id === model),
+          !model ||
+            choices.some((choice) => choice.provider === provider && choice.modelId === model),
         );
       }}
       className="w-full min-w-0"
@@ -408,10 +415,19 @@ function AgentSelect(props: {
  */
 function ModelSelect(props: { provider: ProviderKind; value: string; onChange(id: string): void }) {
   const choices = useModelChoices();
+  const seen = new Set<string>();
   const own = choices
     .filter((choice) => choice.provider === props.provider)
-    .map((choice) => ({ value: choice.id, label: choiceLine(choice) }));
-  const known = !props.value || own.some((option) => option.value === props.value);
+    .filter((choice) => {
+      if (seen.has(choice.modelId)) return false;
+      seen.add(choice.modelId);
+      return true;
+    })
+    .map((choice) => ({ value: choice.modelId, label: choiceLine(choice) }));
+  const selected =
+    choices.find((choice) => choice.provider === props.provider && choice.id === props.value)
+      ?.modelId ?? props.value;
+  const known = !selected || own.some((option) => option.value === selected);
   const options = [
     { value: agentDefault, label: "Agent's default" },
     ...own,
@@ -422,7 +438,7 @@ function ModelSelect(props: { provider: ProviderKind; value: string; onChange(id
   return (
     <Select
       label="Model"
-      value={props.value || agentDefault}
+      value={selected || agentDefault}
       options={options}
       onValueChange={(value) => props.onChange(value === agentDefault ? "" : value)}
       className="w-full min-w-0"

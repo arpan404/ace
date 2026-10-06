@@ -42,6 +42,12 @@ export async function openAcpSession(
   launch: LaunchOptions,
   runtime: SessionRuntime = { spawn: spawnSupervised, now: () => performance.now() },
 ): Promise<ProviderSession> {
+  if (ctx.permissionMode === "ask") {
+    ctx.mcp?.end();
+    throw new Error(
+      "permission_mode_unsupported: ACP cannot guarantee approval before edits or commands",
+    );
+  }
   if (ctx.signal.aborted) {
     ctx.mcp?.end();
     throw new Error("ACP session lifetime already ended");

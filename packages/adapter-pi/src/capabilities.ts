@@ -21,17 +21,15 @@ export function piCapabilities(cli: DiscoveryResult): Capabilities {
       nativeAutoReview: false,
       toolGate: supported,
       guarantees: supported
-        ? [
-            {
-              mode: "auto-review",
-              level: "tool-gate",
-              gates: { writes: true, network: true, protectedReads: true, shell: true },
-              limitations: [
-                "The ace extension gates each selected tool before execution using Pi tool_call and RPC confirmation. Ambient extensions are excluded.",
-                "Pi is not an OS sandbox. Approved shell commands and tools retain the provider process permissions; unknown effects require a human.",
-              ],
-            },
-          ]
+        ? (["ask", "auto-review"] as const).map((mode) => ({
+            mode,
+            level: "tool-gate",
+            gates: { writes: true, network: true, protectedReads: true, shell: true },
+            limitations: [
+              "The ace extension gates each selected tool before execution using Pi tool_call and RPC confirmation. Ambient extensions are excluded.",
+              "Pi is not an OS sandbox. Approved shell commands and tools retain the provider process permissions; unknown effects require a human.",
+            ],
+          }))
         : [],
     },
     interruptCascades: false,
