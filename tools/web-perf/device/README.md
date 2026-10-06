@@ -42,12 +42,13 @@ ace window in a full-screen Space, or `ACE_PERF_KEEP=1` to retain the sandbox.
 `ACE_PERF_HELPER` can select a baseline helper. `ACE_PERF_BASELINE` is a legacy
 10-fps experiment and does **not** represent main's #138 H.264 build.
 
-Simulator typing, Enter, Home and Lock use idb's native device HID when idb is on the daemon PATH;
-its companion must target the disposable UDID. Without idb, background Mac keyboard events are unsupported on the tested Xcode
-version: the helper returns `foreground_required` rather than acknowledging lost
-text or activating another device. Its foreground keyboard route verifies the
-selected window. Agents never steal desktop focus; unsupported background interactions return
-`foreground_required`. This benchmark deliberately fails an unacknowledged input.
+Human actions activate and verify the selected Simulator window before sending input.
+Typing and Enter work without idb while ace or another app is frontmost. Pointer events
+retain the selected window number. The benchmark uses a uniquely named disposable device.
+The helper verifies its exact window before input; the owner's device receives no events.
+Native idb HID remains an optional background input path. Agents retain the background
+focus guard and return `foreground_required` when background keyboard injection is
+unsupported. This benchmark fails every unacknowledged input.
 
 Android is an explicit opt-in: start your own read-only emulator on an unused
 port, then run `android-probe.sh` with `ACE_PERF_ANDROID_SERIAL` set to that serial.
@@ -106,10 +107,27 @@ find load below 15 within three minutes.
 The daemon benchmark passed after load fell to 13.19: idle RSS was 216.7 MiB
 against its 256 MiB budget. An idle device run is still required to qualify
 45+ fps and the input budgets. The owner's live check should cover their Simulator/Xcode
-version, their permission state, idb/idb_companion installation for background typing, a Retina display, and Space
+version, their permission state, agent background typing with optional idb, a Retina display, and Space
 changes. The sandbox Space run did not terminate capture, but it did not induce
 an actual ScreenCaptureKit system-interruption error; restart eligibility is also
 covered by native behaviour tests.
 
-Helper-only background typing was explicitly tested and refused with
-`foreground_required`; it remains a tooling requirement, not a passing result.
+The earlier helper-only run incorrectly refused human typing with `foreground_required`.
+Human keyboard control now uses the verified foreground route; only agents require a
+background-capable input path.
+
+## Human keyboard regression follow-up
+
+Human Simulator input now uses the existing verified foreground route, without the
+agent focus guard or an idb requirement. Pointer input bypasses macOS AX hit-testing
+and sends native events to the selected window. Agents keep the background route;
+unsupported background typing returns `foreground_required`. Process coverage verifies
+human typing and Enter behind another app without idb, agent refusal, and lease ownership.
+
+The October 6 follow-up ran `check:perf` and the strict packaged device benchmark.
+The console was locked (`CGSSessionScreenIsLocked=Yes`), so macOS rejected activation
+and Simulator exposed no usable AX window bounds. Those runs failed the existing
+input acknowledgements and budgets; they are not passing measurements. A locked-console run
+decoded H.264 at 28.3 fps with source p50/p95 31/45 ms and full DPR, but acknowledged
+no input while locked. Native input latency and 45+ fps still need an unlocked run.
+The daemon idle budget passed at 217.8 MiB with zero violations; web budgets passed.

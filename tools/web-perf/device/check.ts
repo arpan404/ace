@@ -22,19 +22,25 @@ if (process.platform !== "darwin") {
     /* no usable Xcode */
   }
   if (!runtime) console.log("device perf: skipped, no available iOS Simulator runtime");
-  else if ((loadavg()[0] ?? Infinity) >= 15)
-    console.log("device perf: skipped, host load >= 15; rerun on an idle host");
-  else
-    execFileSync("sh", [new URL("./run.sh", import.meta.url).pathname], {
+  else {
+    execFileSync(process.execPath, [new URL("./session.ts", import.meta.url).pathname], {
       stdio: "inherit",
-      env: {
-        ...process.env,
-        ACE_PERF_RUNTIME: runtime,
-        ACE_PERF_DRIVER: "electron",
-        ACE_PERF_ASSERT: "1",
-        ACE_PERF_REBUILD: "1",
-        ACE_PERF_PACKAGED: "1",
-      },
-      timeout: 300000,
+      timeout: 10000,
     });
+    if ((loadavg()[0] ?? Infinity) >= 15)
+      console.log("device perf: skipped, host load >= 15; rerun on an idle host");
+    else
+      execFileSync("sh", [new URL("./run.sh", import.meta.url).pathname], {
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          ACE_PERF_RUNTIME: runtime,
+          ACE_PERF_DRIVER: "electron",
+          ACE_PERF_ASSERT: "1",
+          ACE_PERF_REBUILD: "1",
+          ACE_PERF_PACKAGED: "1",
+        },
+        timeout: 300000,
+      });
+  }
 }

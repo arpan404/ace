@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname "$0")/../../.." && pwd)
+node "$root/tools/web-perf/device/session.ts"
 perf_dir=$(mktemp -d /tmp/ace-device-perf.XXXXXX)
 udid=
 cleanup() {
@@ -15,7 +16,8 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 runtime=${ACE_PERF_RUNTIME:-$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; print(next(r["identifier"] for r in json.load(sys.stdin)["runtimes"] if r["isAvailable"] and "iOS" in r["identifier"]))')}
-udid=$(xcrun simctl create ace-perf com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$runtime")
+device_name="ace-perf-${perf_dir##*.}"
+udid=$(xcrun simctl create "$device_name" com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$runtime")
 xcrun simctl boot "$udid"
 xcrun simctl bootstatus "$udid" -b >&2
 mkdir -p "$perf_dir/Probe.app"
@@ -30,4 +32,4 @@ helper=${ACE_PERF_HELPER:-$root/native/screen-helper/build/ace-screen-helper}
 if [ -z "${ACE_PERF_HELPER:-}" ]; then sh "$root/native/screen-helper/build.sh" >&2; fi
 fps=${ACE_PERF_FPS:-60}
 if [ "${ACE_PERF_BASELINE:-0}" = 1 ]; then fps=${ACE_PERF_FPS:-10}; fi
-ACE_HOME="$perf_dir" ACE_PERF_UDID="$udid" ACE_PERF_FPS="$fps" ACE_SCREEN_HELPER="$helper" ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY=1 node "$root/tools/web-perf/device/${ACE_PERF_DRIVER:-measure}.ts"
+ACE_HOME="$perf_dir" ACE_PERF_DEVICE_NAME="$device_name" ACE_PERF_UDID="$udid" ACE_PERF_FPS="$fps" ACE_SCREEN_HELPER="$helper" ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY=1 node "$root/tools/web-perf/device/${ACE_PERF_DRIVER:-measure}.ts"

@@ -76,6 +76,11 @@ extension Capture {
                 inputWindow = hit
             }
         }
+        if mode == "background", bundle == "com.apple.iphonesimulator",
+           ["type", "key", "paste"].contains(action.kind), !humanDeviceInput,
+           keyboardApplicationPID() != window.owningApplication?.processID {
+            throw HelperError("Background Simulator typing requires native idb HID", code: "foreground_required")
+        }
         // Background keyboard follows the app's own AX focus, never changes system focus.
         if target.kind == "window" && ["type", "key", "paste"].contains(action.kind) && !humanDeviceInput {
             try requireFocusedWindow(window, candidates: candidates)
@@ -120,7 +125,7 @@ extension Capture {
         case "click":
             guard action.button == "left" || action.button == "right" else { throw HelperError("Invalid mouse button") }
             let right = action.button == "right"
-            if try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction]) { return }
+            if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction]) { return }
             for type: NSEvent.EventType in right ? [.rightMouseDown, .rightMouseUp] : [.leftMouseDown, .leftMouseUp] {
                 try post(try pointer(type))
             }
@@ -198,7 +203,7 @@ extension Capture {
             guard let dx = action.deltaX, let dy = action.deltaY, abs(Int(dx)) <= 1000, abs(Int(dy)) <= 1000 else { throw HelperError("Invalid scroll", code: "bounds") }
             if dx != 0 || dy != 0 {
                 let name = abs(Int(dx)) > abs(Int(dy)) ? (dx > 0 ? "AXScrollRightByPage" : "AXScrollLeftByPage") : (dy > 0 ? "AXScrollUpByPage" : "AXScrollDownByPage")
-                if try performTargetedAXAction(inputWindow, at: location, names: [name]) { return }
+                if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [name]) { return }
             }
             let event = try pointer(.leftMouseDown)
             event.type = .scrollWheel

@@ -7,9 +7,10 @@ import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { nodeBinary } from "@ace/provider-kit/testing";
 import type { DeviceRuntime } from "./runtime.ts";
 import { ScreenManager } from "@ace/screen";
+import { ThreadId, AgentId } from "@ace/protocol";
 import type { DeviceServerMessage } from "@ace/protocol/devices";
 import { DeviceClient, DeviceClientError, type DeviceTransport } from "./client.ts";
-import { DevicesService, DevicePlatform, connectDevices } from "./index.ts";
+import { DevicesService, DevicePlatform, connectDevices, agentOwner } from "./index.ts";
 
 /*
  * The iOS Simulator live view end to end, minus macOS: a fake `xcrun simctl` keeps the
@@ -447,7 +448,7 @@ it("a tap refused for want of Accessibility names that permission", async () => 
   expect(await f.helperJournal()).toEqual([]);
 });
 
-it("typing while Simulator is behind another app says how to type instead of dropping the text", async () => {
+it("human typing reaches Simulator behind another app without native idb", async () => {
   const f = await fixture({ frontmost: false });
   await writeFile(f.state, "booted");
   const { client } = connect(f.service);
@@ -457,19 +458,42 @@ it("typing while Simulator is behind another app says how to type instead of dro
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "controller", deviceId, controller: "human" });
 
-  const refused: unknown = await client
-    .request({ op: "input", deviceId, input: { kind: "type", text: "hello" } })
-    .catch((error: unknown) => error);
-  if (!(refused instanceof DeviceClientError)) throw new Error("Expected a device refusal");
-  expect(refused.code).toBe("not_supported");
-  expect(refused.hint).toContain("Connect Hardware Keyboard");
-  // Taps and the window's own buttons still reach a Simulator in the background.
+  await client.request({ op: "input", deviceId, input: { kind: "type", text: "hello" } });
+  await client.request({ op: "input", deviceId, input: { kind: "key", key: "enter" } });
   await client.request({ op: "input", deviceId, input: { kind: "tap", x: 10, y: 20 } });
   await client.request({ op: "input", deviceId, input: { kind: "key", key: "home" } });
   expect(await f.helperJournal()).toEqual([
+    { input: { kind: "text.type", text: "hello" } },
+    { input: { kind: "key.press", key: "Return", modifiers: [] } },
     { input: { kind: "pointer.click", x: 10, y: 20, button: "left" } },
     { button: "Home" },
   ]);
+});
+
+it("agent typing cannot activate a background Simulator without native idb", async () => {
+  const threadId = ThreadId.parse("thread-1");
+  const agentId = AgentId.parse("agent-1");
+  const f = await fixture({ frontmost: false });
+  await writeFile(f.state, "booted");
+  const { client } = connect(f.service);
+  await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
+  await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId, allowed: true });
+  await client.request({ op: "start", deviceId, fps: 10 });
+  await client.request({
+    op: "controller",
+    deviceId,
+    controller: "agent",
+    threadId,
+    agentId,
+  });
+  await expect(
+    f.service.request(
+      { op: "input", deviceId, input: { kind: "type", text: "hello" } },
+      { kind: "agent", owner: agentOwner(threadId, agentId), threadId, agentId },
+    ),
+  ).rejects.toMatchObject({ code: "foreground_required" });
+  expect(await f.helperJournal()).toEqual([]);
 });
 
 it("lease expiry posts mouse-up at the native boundary without another client command", async () => {
