@@ -1,0 +1,29 @@
+{
+  "source": "Owner events.sqlite copy, installed main 84773d6d. Recorded interrupt/send intents and failure response. User text, ids and paths redacted.",
+  "provider": "opencode",
+  "model": "opencode-go/muse-spark-1.3-contributor",
+  "rootStopPersisted": true,
+  "treeCancelledPersisted": true,
+  "failedCreationTools": ["delegate_task", "ace_spawn_agent", "ace_thread_create"],
+  "publicFailure": {
+    "code": "execution_failed",
+    "message": "Tool execution failed",
+    "hint": "Retry once or report the failure to the user."
+  },
+  "actions": [
+    {
+      "type": "thread.interrupt",
+      "cascade": true
+    },
+    {
+      "type": "thread.send",
+      "trigger": "user",
+      "input": [
+        {
+          "type": "text",
+          "text": "Hello again"
+        }
+      ]
+    }
+  ]
+}

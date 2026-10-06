@@ -1,3 +1,4 @@
+import { AgentControlError } from "./failure.ts";
 import { counterPolicy, accountSample, Counts } from "@ace/usage";
 import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
@@ -76,6 +77,20 @@ export class DelegationJournal {
     `),
     );
     store.atomic((db) => {
+      if (
+        !db
+          .prepare("PRAGMA table_info(delegated_threads)")
+          .all()
+          .some((column) => column.name === "wake_suppressed")
+      ) {
+        db.exec(
+          "ALTER TABLE delegated_threads ADD COLUMN wake_suppressed INTEGER NOT NULL DEFAULT 0",
+        );
+        // Existing stopped children must not wake a resumed root after upgrading.
+        db.exec(
+          "UPDATE delegated_threads SET wake_suppressed=1,result_pending=0 WHERE child_id IN (SELECT thread_id FROM delegation_subtree_stops)",
+        );
+      }
       const columns = db.prepare("PRAGMA table_info(delegation_trees)").all();
       if (!columns.some((column) => column.name === "retry_at"))
         db.exec(
@@ -136,7 +151,7 @@ export class DelegationJournal {
         this.sql("SELECT receipts,reservations FROM delegation_capacity WHERE singleton=1").get(),
       );
     if (row.receipts + row.reservations >= this.capacity)
-      throw new Error("Delegation journal capacity");
+      throw new AgentControlError("delegation_limit", "Delegation journal capacity");
   }
   reservation(parent: ThreadId, request: string) {
     const row = this.sql(
@@ -159,7 +174,7 @@ export class DelegationJournal {
           ?.reservations,
       ) >= 4
     )
-      throw new Error("Reservation capacity");
+      throw new AgentControlError("delegation_limit", "Reservation capacity");
     const r = reservation.record;
     this.sql("INSERT INTO delegation_reservations VALUES (?,?,?,?,?)").run(
       r.childId,
@@ -260,7 +275,9 @@ export class DelegationJournal {
     delete record.outcome;
     this.save(record);
     this.sql("UPDATE delegation_trees SET active=active+1 WHERE root_id=?").run(record.rootId);
-    this.sql("UPDATE delegated_threads SET result_pending=0 WHERE child_id=?").run(record.childId);
+    this.sql(
+      "UPDATE delegated_threads SET result_pending=0,wake_suppressed=0 WHERE child_id=?",
+    ).run(record.childId);
     this.sql(
       "DELETE FROM delegation_wakes WHERE parent_id=? AND NOT EXISTS (SELECT 1 FROM delegated_threads WHERE parent_id=? AND result_pending=1)",
     ).run(record.parentId, record.parentId);
@@ -274,6 +291,11 @@ export class DelegationJournal {
     record.outcome = outcome;
     this.save(record);
     if (record.resultDelivery === "owner") return;
+    if (
+      this.sql("SELECT wake_suppressed FROM delegated_threads WHERE child_id=?").get(record.childId)
+        ?.wake_suppressed === 1
+    )
+      return;
     this.sql("UPDATE delegated_threads SET result_pending=1 WHERE child_id=?").run(record.childId);
     this.sql("INSERT INTO delegation_wakes VALUES (?,?) ON CONFLICT(parent_id) DO NOTHING").run(
       record.parentId,
@@ -334,9 +356,20 @@ export class DelegationJournal {
   stop(thread: ThreadId) {
     this.sql("INSERT OR IGNORE INTO delegation_subtree_stops VALUES (?)").run(thread);
   }
+  suppressWake(child: ThreadId) {
+    this.sql(
+      "UPDATE delegated_threads SET wake_suppressed=1,result_pending=0 WHERE child_id=?",
+    ).run(child);
+  }
   cancel(thread: ThreadId) {
     this.stop(thread);
     this.sql("UPDATE delegation_trees SET cancelled=1 WHERE root_id=?").run(thread);
+  }
+  /** A new accepted person input reopens only the root, preserving child stops and budgets. */
+  resumeRoot(thread: ThreadId) {
+    this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(thread);
+    this.sql("UPDATE delegation_trees SET cancelled=0 WHERE root_id=?").run(thread);
+    this.consume(thread);
   }
   metadata(thread: ThreadId, input: { prUrl?: string; until?: number | null }) {
     this.sql("INSERT OR IGNORE INTO agent_thread_metadata(thread_id) VALUES (?)").run(thread);
