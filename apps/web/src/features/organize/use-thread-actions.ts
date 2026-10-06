@@ -8,7 +8,7 @@ import { failureMessage, waitingNote } from "@/lib/daemon-command.ts";
 import { describeWake, type OrganizePatch } from "@ace/ui-core";
 import { useOrganizeOverlay } from "./overlay.ts";
 
-/** How long Undo stays on screen; a delete becomes permanent only after it. */
+/** How long Undo stays on screen for reversible actions. */
 export const undoWindowMs = 6_000;
 
 /** What an action needs of a thread: a Home list entry or the open thread's meta. */
@@ -65,11 +65,8 @@ interface Action {
  * only when the daemon refuses it; offline it waits and applies on reconnect. The reversible
  * ones offer Undo, which sends the opposite command.
  *
- * Delete is permanent on the daemon and there is no restore command, so it archives at once
- * (hidden on every device, and recoverable), Undo unarchives, and the delete itself is sent
- * when the Undo toast closes. A window closed in between leaves the thread archived, never
- * half deleted. The Home context menu and the thread's ⋯ menu both use these, so labels,
- * toasts and Undo match wherever the person acts.
+ * Delete submits the permanent command immediately, including to the durable outbox when
+ * offline. Its persistence must not depend on a toast or the lifetime of this window.
  */
 export function useThreadActions(): ThreadActions {
   const overlay = useOrganizeOverlay();
@@ -148,12 +145,6 @@ export function useThreadActions(): ThreadActions {
       verb: "Unarchive",
       failed: "unarchive it",
     });
-    /** Undoing a delete, or taking back one the daemon refused. */
-    const restore = (entry: ThreadTarget): Action => ({
-      ...unarchive(entry),
-      verb: "Restore",
-      failed: "restore it",
-    });
     const rename = (entry: ThreadTarget, title: string): Action => ({
       patch: { title },
       payload: { type: "thread.rename", threadId: id(entry), title },
@@ -204,39 +195,14 @@ export function useThreadActions(): ThreadActions {
       archive: (entry) =>
         void reversible(entry, archive(entry), `Archived · ${entry.title}`, unarchive(entry)),
       remove: (entry) => {
-        let undone = false;
-        const toastId = toast.add({
-          title: `Deleted · ${entry.title}`,
-          ...waiting(),
-          timeout: undoWindowMs,
-          actionProps: {
-            children: "Undo",
-            onClick: () => {
-              undone = true;
-              toast.close(toastId);
-              void act(entry, restore(entry));
-            },
-          },
-          onClose: () => {
-            if (undone) return;
-            void act(entry, {
-              patch: { deleted: true },
-              payload: { type: "thread.delete", threadId: id(entry) },
-              verb: "Delete",
-              failed: "delete the thread",
-            }).then((deleted) => {
-              // Refused (its agents still work, say): bring it back rather than leave it hidden.
-              if (!deleted) void act(entry, restore(entry));
-            });
-          },
+        void act(entry, {
+          patch: { deleted: true },
+          payload: { type: "thread.delete", threadId: id(entry) },
+          verb: "Delete",
+          failed: "delete the thread",
+        }).then((deleted) => {
+          if (deleted) toast.add({ title: `Deleted · ${entry.title}` });
         });
-        void act(entry, { ...archive(entry), verb: "Delete", failed: "delete the thread" }).then(
-          (hidden) => {
-            if (hidden) return;
-            undone = true;
-            toast.close(toastId);
-          },
-        );
       },
       newThreadOnMain: (entry) =>
         void navigate({ to: "/new", search: { project: entry.workspaceId, base: "main" } }),

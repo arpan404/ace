@@ -3,15 +3,16 @@ import { ThreadId } from "@ace/protocol";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
-import { harness } from "@/test/harness.tsx";
+import { fakeClient, harness } from "@/test/harness.tsx";
+import { memoryStorage } from "@/boot/client.ts";
 
 beforeEach(() => localStorage.clear());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
 
-async function openHome() {
-  const app = harness();
+async function openHome(options: Parameters<typeof harness>[0] = {}) {
+  const app = harness(options);
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
   await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
@@ -112,24 +113,53 @@ test("a rename the daemon refuses opens the field again with the typed title", a
   );
 });
 
-test("Delete archives at once, so a window closed within Undo leaves it archived, not lost", async () => {
-  const app = await openHome();
+test.each([false, true])(
+  "Delete persists before the window closes and stays deleted after reconnect, worker=%s",
+  async (throughWorker) => {
+    const app = await openHome({ throughWorker });
+    await choose(/Invoice PDF/, "Delete thread");
+    expect(card(/Invoice PDF/)).toBeNull();
+    await waitFor(() => expect(listed(app, "thread-pdf-locale")).toBeUndefined());
+
+    // Closing the window and advancing the old grace period cannot lose the deletion.
+    vi.useFakeTimers();
+    cleanup();
+    await vi.advanceTimersByTimeAsync(6_500);
+    vi.useRealTimers();
+    const threadId = ThreadId.parse("thread-pdf-locale");
+    expect(app.daemon.snapshot({ kind: "thread", threadId })).toBeUndefined();
+    expect(listed(app, "thread-pdf-locale")).toBeUndefined();
+
+    // A fresh window sees the persisted tombstone.
+    await app.open("/");
+    await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+    expect(card(/Invoice PDF/)).toBeNull();
+  },
+  15_000,
+);
+
+test("offline Delete survives closing the window in the durable outbox", async () => {
+  const outbox = memoryStorage();
+  const app = await openHome({ outbox });
+  app.client.networkOnline(false);
   await choose(/Invoice PDF/, "Delete thread");
   expect(card(/Invoice PDF/)).toBeNull();
-  await waitFor(() => expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeDefined());
-
-  // The window goes away inside the Undo window; then the Undo window passes (on a fake clock,
-  // so a delete still scheduled anywhere would fire here).
-  vi.useFakeTimers();
+  await waitFor(async () => expect(await outbox.load()).toContain("thread.delete"));
   cleanup();
-  await vi.advanceTimersByTimeAsync(6_500);
-  vi.useRealTimers();
-  const threadId = ThreadId.parse("thread-pdf-locale");
-  expect(app.daemon.snapshot({ kind: "thread", threadId })).toBeDefined();
-  expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeDefined();
-
-  // Every other window already shows it gone.
-  await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
-  expect(card(/Invoice PDF/)).toBeNull();
-}, 15_000);
+  await app.client.close();
+  const fresh = fakeClient(app.daemon, app.daemon.token, outbox);
+  const lease = fresh.threads();
+  try {
+    await fresh.start();
+    await waitFor(() => expect(fresh.state).toBe("ready"));
+    await waitFor(() =>
+      expect(
+        app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pdf-locale") }),
+      ).toBeUndefined(),
+    );
+    await waitFor(() => expect(lease.store.thread("thread-pdf-locale")).toBeUndefined());
+  } finally {
+    lease.release();
+    await fresh.close();
+  }
+});
