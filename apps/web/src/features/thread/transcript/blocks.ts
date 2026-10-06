@@ -1,3 +1,4 @@
+import { executionOrder } from "./execution-order.ts";
 import type { Item, Run } from "@ace/protocol";
 import { reviewedInteraction, type InlineQuestion } from "@ace/ui-core";
 
@@ -232,7 +233,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     placed(blocks.length - 1, message);
   };
   const reviewsPlaced = new Map<string, number>();
-  for (const id of source.order) {
+  for (const id of executionOrder(source)) {
     const item = source.item(id);
     if (!item) continue;
     const person = item.type === "message" && item.role === "user" && !item.synthetic;

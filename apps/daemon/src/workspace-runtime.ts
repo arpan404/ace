@@ -182,6 +182,17 @@ export class WorkspaceRuntime {
       );
     if (op.op === "thread.details")
       return wrap({ kind: "details", details: await this.details(op.threadId) });
+    if (op.op === "git.diff") {
+      const root = this.root(op.threadId);
+      const diff = await this.git.diff({
+        worktree: root,
+        from: { kind: "commit", ref: "HEAD" },
+        to: { kind: "working-tree" },
+        maxPatchBytes: 262144,
+      });
+      if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+      return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
+    }
     if (op.op === "git.status") {
       const { files, truncated } = await this.git.changedFiles(
         this.root(op.threadId),

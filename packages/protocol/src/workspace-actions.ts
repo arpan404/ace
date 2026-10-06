@@ -55,6 +55,7 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("pr.status"), threadId: ThreadId }),
     /** The files a commit of the thread's checkout would take, as `git status` reports them. */
     z.object({ op: z.literal("git.status"), threadId: ThreadId }),
+    z.object({ op: z.literal("git.diff"), threadId: ThreadId }),
     z.object({
       op: z.literal("runs.list"),
       threadId: ThreadId,
@@ -86,6 +87,11 @@ export const WorkspaceActionResult = z.object({
       kind: z.literal("gitStatus"),
       files: z.array(GitStatusFile).max(gitStatusLimit),
       /** More files changed than `files` holds. */
+      truncated: z.boolean(),
+    }),
+    z.object({
+      kind: z.literal("gitDiff"),
+      patch: z.string().max(262144),
       truncated: z.boolean(),
     }),
     z.object({
