@@ -1,3 +1,4 @@
+import type { ModelScope } from "@ace/client";
 import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
 import { tightestWindow, type AccountView } from "./accounts.ts";
 import { accountLimit } from "./limits.ts";
@@ -7,23 +8,26 @@ import { modelLabel, providerNames } from "./providers.ts";
 
 /** One model on one of the person's signed-in accounts, as the composer's picker lists it. */
 export interface ModelChoice {
-  /** The catalog row id; unique per model and account. */
+  /** The row on one account: `instance:catalog id`. Catalog ids repeat across accounts. */
   id: string;
   provider: ProviderKind;
   /** Display name, "Opus 4.1". */
   model: string;
-  /** What thread.create carries as `model`. */
+  /** The catalog id (OpenCode's `provider/model`), which commands carry as `model`. */
   modelId: string;
+  /** Other ids a thread's record may name this model by: native, resolved and alias ids. */
+  aliases: readonly string[];
   /** The account label, "Personal"; empty when the provider has no accounts. */
   account: string;
   accountId: string;
-  /** "62% of 5-hour window used", "Default model", or the provider's own config. */
+  /** "62% of 5-hour window used", or nothing when the provider has no accounts. */
   note: string;
   /** Share of the tightest window spent, 0..1, when the provider reports it. */
   used: number | undefined;
   /** The account can't take work until its window resets. */
   exhausted: boolean;
   resetsAt: number | undefined;
+  /** This account's default model; another account may default to another one. */
   isDefault: boolean;
   /** Reasoning efforts the model takes, in the catalog's order; empty when it has no choice. */
   efforts: readonly string[];
@@ -41,8 +45,8 @@ export interface ModelChoice {
 }
 
 /**
- * A model's identity in pickers and favorites: its provider and native id. Providers share
- * native ids (Codex, Pi and Cursor all list `gpt-5.5`), so the id alone never identifies one.
+ * A model's identity in pickers and favorites: its provider and catalog id. Providers share
+ * ids (Codex, Pi and Cursor all list `gpt-5.5`), so the id alone never identifies one.
  */
 export function modelKey(provider: ProviderKind, id: string): string {
   return `${provider}\u0000${id}`;
@@ -73,8 +77,8 @@ export function fastByDefault(model: Pick<CatalogModel, "serviceTiers" | "defaul
 
 /**
  * The model a thread runs on, read from the thread's own record when the catalog can't be read
- * (offline, before it loads): its name (or the provider's default), with no account or usage
- * claimed.
+ * (offline, before it loads): its name, with no account or usage claimed. A record without a
+ * model says so rather than naming a default the provider may not run.
  */
 export function recordedChoice(
   selection: { provider: ProviderKind; model?: string | undefined } | undefined,
@@ -82,11 +86,11 @@ export function recordedChoice(
   if (!selection) return undefined;
   const model = selection.model;
   return {
-    id: `recorded:${selection.provider}:${model ?? "default"}`,
+    id: `recorded:${selection.provider}:${model ?? ""}`,
     provider: selection.provider,
-    // No model on record: the provider runs its own default, "Claude Code · Default".
-    model: modelName(selection.provider, model && modelLabel(model)),
+    model: model ? modelLabel(model) : unreportedModel,
     modelId: model ?? "",
+    aliases: [],
     account: "",
     accountId: "",
     note: "",
@@ -96,13 +100,16 @@ export function recordedChoice(
     isDefault: false,
     efforts: [],
     defaultEffort: undefined,
-    key: modelKey(selection.provider, model ?? `${selection.provider}:default`),
+    key: modelKey(selection.provider, model ?? ""),
     isNew: false,
     legacy: false,
     fastTier: undefined,
     fastDefault: false,
   };
 }
+
+/** What a thread's model reads as when neither the catalog nor its record names one. */
+export const unreportedModel = "Unknown model";
 
 /**
  * An account label as the quiet tag shown beside a model ("Opus 4.1 personal",
@@ -117,11 +124,27 @@ export function choiceLine(choice: ModelChoice): string {
   return modelLine(choice.provider, choice.model, choice.account && accountTag(choice.account));
 }
 
-function note(model: CatalogModel, account: AccountView | undefined): string {
-  if (!account) return model.isDefault ? "Default model" : "";
+function note(account: AccountView | undefined): string {
+  if (!account) return "";
   if (!account.signedIn) return "Signed out";
   const window = tightestWindow(account);
   return window ? `${window.usedPercent}% of ${window.label} window used` : "No usage reported";
+}
+
+/** One catalog row: the account (instance) serving it and its catalog id. */
+function rowId(model: Pick<CatalogModel, "instance" | "id">): string {
+  return `${model.instance}:${model.id}`;
+}
+
+/** Ids other than the catalog id that name the row: native, resolved and alias ids. */
+function modelAliases(model: CatalogModel): string[] {
+  const ids = [model.nativeModelId, model.resolvedModelId, ...(model.aliases ?? [])];
+  return [...new Set(ids.filter((id): id is string => id !== undefined && id !== model.id))];
+}
+
+/** A thread's record names the model by its catalog id or by one of its other ids. */
+function names(choice: Pick<ModelChoice, "modelId" | "aliases">, model: string): boolean {
+  return choice.modelId === model || choice.aliases.includes(model);
 }
 
 /**
@@ -147,22 +170,23 @@ export function modelChoices(
         const exhausted = limit?.level === "reached";
         return [
           {
-            id: model.id,
+            id: rowId(model),
             provider,
             model: modelName(provider, model.displayName),
-            modelId: model.nativeModelId,
+            modelId: model.id,
+            aliases: modelAliases(model),
             account: account?.label ?? "",
             accountId: model.instance,
-            note: note(model, account),
+            note: note(account),
             used: window ? window.usedPercent / 100 : undefined,
             exhausted,
             resetsAt: limit?.resetsAt,
             isDefault: model.isDefault,
             efforts: model.reasoningEfforts,
             defaultEffort: model.defaultEffort,
-            key: modelKey(provider, model.nativeModelId),
+            key: modelKey(provider, model.id),
             isNew: model.isNew ?? false,
-            legacy: model.deprecated,
+            legacy: model.deprecated || model.legacy === true,
             fastTier: fastTier(model),
             fastDefault: fastByDefault(model),
           },
@@ -205,13 +229,15 @@ export function currentModelChoice(
   const sameModel = choices.filter(
     (choice) =>
       choice.provider === selection.provider &&
-      (selection.model === undefined || choice.modelId === selection.model),
+      (selection.model === undefined || names(choice, selection.model)),
   );
   // Never another provider's model: a thread shows what it runs on, and picking from a wrong
   // choice (an effort change) would move it to that provider. With no catalog choice for its
   // provider, the caller shows the recorded selection (`recordedChoice`).
+  const onAccount = sameModel.filter((choice) => choice.accountId === selection.instanceId);
   return (
-    sameModel.find((choice) => choice.accountId === selection.instanceId) ??
+    (selection.model === undefined ? onAccount.find((choice) => choice.isDefault) : undefined) ??
+    onAccount[0] ??
     (selection.model === undefined ? sameModel.find((choice) => choice.isDefault) : undefined) ??
     sameModel[0] ??
     defaultModelChoice(
@@ -221,7 +247,7 @@ export function currentModelChoice(
   );
 }
 
-/** The `thread.switch` selection that moves a thread onto a choice. */
+/** The `thread.switch` selection that moves a thread onto a choice, by its catalog id. */
 export function choiceSelection(choice: ModelChoice): ThreadSelection & { model: string } {
   return {
     provider: choice.provider,
@@ -231,20 +257,26 @@ export function choiceSelection(choice: ModelChoice): ThreadSelection & { model:
   };
 }
 
-/** A model to start a thread with; the account is picked separately. */
+/**
+ * A model on one account, to start a thread with. Accounts keep their own rows: each has its own
+ * default and capabilities, so New thread picks the account first and then its model.
+ */
 export interface ModelOption {
   /**
-   * Identifies the option in the picker. Providers share native ids (Codex, Pi and Cursor all
-   * list `gpt-5.5`), so picking by `id` alone would land on another provider's model.
+   * The model's identity across accounts (`modelKey`). Providers share ids (Codex, Pi and Cursor
+   * all list `gpt-5.5`), so picking by `id` alone would land on another provider's model.
    */
   key: string;
-  /** `nativeModelId`, which is what thread.create carries. */
+  /** The catalog id (OpenCode's `provider/model`), which thread.create carries. */
   id: string;
+  /** The account (catalog instance) serving this row. */
+  account: string;
+  /** What `ModelClient` lists and resolves this row's account by. */
+  scope: ModelScope;
   label: string;
   provider: ProviderKind;
+  /** This account's default model. */
   isDefault: boolean;
-  /** False for "the provider's default" when the catalog is empty: thread.create sends no model. */
-  fromCatalog: boolean;
   /** Reasoning efforts the model takes, in the catalog's order; empty when it has no choice. */
   efforts: readonly string[];
   defaultEffort: string | undefined;
@@ -269,12 +301,20 @@ export interface AccountOption {
   isDefault: boolean;
 }
 
+/** The account scope a row is listed and resolved under; ACP rows need their source identity. */
+export function modelScope(model: CatalogModel): ModelScope | undefined {
+  if (model.provider !== "acp") return { provider: model.provider, instance: model.instance };
+  const { acpAgentId, installationId, instanceId } = model;
+  return acpAgentId && installationId && instanceId
+    ? { provider: "acp", acpAgentId, installationId, instanceId }
+    : undefined;
+}
+
 /**
- * The New thread pickers: each model once per provider (whichever accounts serve it), and the
+ * The New thread pickers: every visible model on every account that serves it, and the
  * signed-in accounts, the first with headroom marked as the default for its provider. Only
- * providers discovery found installed are offered; an installed CLI the catalog lists no models
- * for is offered on its own default model, so a daemon without a model catalog still starts
- * threads on whatever the person has installed.
+ * providers discovery found installed are offered. A provider whose catalog lists no models
+ * offers none: no stand-in "default" model is made up for it.
  */
 export function newThreadOptions(
   models: readonly CatalogModel[],
@@ -284,47 +324,27 @@ export function newThreadOptions(
   const missing = new Set(
     providers.filter((status) => status.state === "not_installed").map((s) => s.provider),
   );
-  const seen = new Set<string>();
   const options: ModelOption[] = [];
   for (const model of models) {
-    const key = modelKey(model.provider, model.nativeModelId);
-    if (model.hidden || missing.has(model.provider) || seen.has(key)) continue;
-    seen.add(key);
+    // An ACP agent needs its identity to start, which only its catalog rows carry.
+    const scope = modelScope(model);
+    if (model.hidden || missing.has(model.provider) || !scope) continue;
     options.push({
-      key,
-      id: model.nativeModelId,
+      key: modelKey(model.provider, model.id),
+      id: model.id,
+      account: model.instance,
+      scope,
       label: modelName(model.provider, model.displayName),
       provider: model.provider,
       isDefault: model.isDefault,
-      fromCatalog: true,
       efforts: model.reasoningEfforts,
       defaultEffort: model.defaultEffort,
       isNew: model.isNew ?? false,
-      legacy: model.deprecated,
+      legacy: model.deprecated || model.legacy === true,
       fastTier: fastTier(model),
       fastDefault: fastByDefault(model),
     });
   }
-  const listed = new Set(options.map((option) => option.provider));
-  // An ACP agent needs its identity to start, which only the catalog carries.
-  for (const { provider, state } of providers)
-    if (state !== "not_installed" && provider !== "acp" && !listed.has(provider)) {
-      listed.add(provider);
-      options.push({
-        key: modelKey(provider, `${provider}:default`),
-        id: `${provider}:default`,
-        label: modelName(provider),
-        provider,
-        isDefault: true,
-        fromCatalog: false,
-        efforts: [],
-        defaultEffort: undefined,
-        isNew: false,
-        legacy: false,
-        fastTier: undefined,
-        fastDefault: false,
-      });
-    }
   const signedIn = accounts.filter((account) => account.signedIn);
   const defaults = new Map<ProviderKind, string>();
   for (const account of signedIn)
@@ -343,6 +363,68 @@ export function newThreadOptions(
       };
     }),
   };
+}
+
+/**
+ * The model picker's list for New thread: each model once, whichever accounts serve it. Only
+ * what the list shows is shared across accounts; defaults and capabilities stay per account.
+ */
+export function distinctModelOptions(models: readonly ModelOption[]): ModelOption[] {
+  const seen = new Set<string>();
+  return models.filter((model) => {
+    if (seen.has(model.key)) return false;
+    seen.add(model.key);
+    return true;
+  });
+}
+
+/** What New thread starts with: an account of the provider, then that account's model. */
+export interface NewThreadSelection {
+  account: AccountOption | undefined;
+  /** Undefined when the account's catalog lists no models. */
+  model: ModelOption | undefined;
+}
+
+/**
+ * The account first, then its model. The account is the remembered one, else one serving the
+ * wanted model (the default account first), else the default account. The model is the wanted
+ * one on that account, else the account's own default, else its first current model. One
+ * account's default never decides another's.
+ */
+export function selectNewThreadModel(input: {
+  models: readonly ModelOption[];
+  accounts: readonly AccountOption[];
+  provider: ProviderKind;
+  /** A model key the person picked; undefined to use the account's default. */
+  model: string | undefined;
+  account: string | undefined;
+}): NewThreadSelection {
+  const own = input.models.filter((model) => model.provider === input.provider);
+  const wanted = input.model;
+  const serves = (account: string, key = wanted) =>
+    own.some((model) => model.account === account && (key === undefined || model.key === key));
+  const accounts = input.accounts.filter((account) => account.provider === input.provider);
+  const remembered = accounts.find((account) => account.id === input.account);
+  const account =
+    remembered ??
+    accounts.find((option) => option.isDefault && serves(option.id)) ??
+    accounts.find((option) => serves(option.id)) ??
+    accounts.find((option) => option.isDefault && serves(option.id, undefined)) ??
+    accounts.find((option) => serves(option.id, undefined)) ??
+    accounts.find((option) => option.isDefault) ??
+    accounts[0];
+  // Without signed-in accounts (no account service), the rows' own instance is the account.
+  const anchor = account
+    ? undefined
+    : (own.find((model) => model.key === wanted) ?? own.find((model) => model.isDefault) ?? own[0]);
+  const instance = account?.id ?? anchor?.account;
+  const rows = own.filter((model) => model.account === instance);
+  const model =
+    (wanted === undefined ? undefined : rows.find((row) => row.key === wanted)) ??
+    rows.find((row) => row.isDefault && !row.legacy) ??
+    rows.find((row) => !row.legacy) ??
+    rows[0];
+  return { account, model };
 }
 
 /** The effort an execution's options name, when they name one. */

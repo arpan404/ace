@@ -6,6 +6,23 @@ import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 
 const detailsKey = (threadId: string) => ["thread", "details", threadId];
 const prKey = (threadId: string) => ["thread", "pr", threadId];
+const statusKey = (threadId: string) => ["thread", "git-status", threadId];
+
+/**
+ * The files a commit of the checkout would take, read fresh each time a commit form opens:
+ * exactly what `git status` reports, untracked files included.
+ */
+export function useChangedFiles(thread: ThreadRef, enabled = true) {
+  const sources = useThreadSources();
+  return useDaemonQuery({
+    queryKey: statusKey(thread.id),
+    enabled: enabled && !thread.draft,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    read: (_client, signal) => sources.workspace.gitStatus(thread, signal),
+  });
+}
 
 /**
  * The thread checkout's git and PR state. Details are live thread state (the daemon publishes
@@ -49,7 +66,13 @@ export function useCheckoutState(thread: ThreadRef): {
 }
 
 export type GitChange =
-  | { kind: "commit"; message: string; push: boolean }
+  | {
+      kind: "commit";
+      message: string;
+      push: boolean;
+      /** The files picked (a rename names both paths); every change when absent. */
+      paths?: readonly string[];
+    }
   | { kind: "push" }
   | { kind: "create-pr"; title: string; summary: string; draft: boolean };
 
@@ -64,7 +87,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
     mutationFn: async (change: GitChange): Promise<number | undefined> => {
       const workspace = sources.workspace;
       if (change.kind === "commit") {
-        await workspace.commit(thread, change.message, checkout?.head ?? null);
+        await workspace.commit(thread, change.message, checkout?.head ?? null, change.paths);
         if (change.push) await workspace.push(thread);
         return undefined;
       }
@@ -89,6 +112,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
     onSettled: async () => {
       await queries.invalidateQueries({ queryKey: detailsKey(thread.id) });
       await queries.invalidateQueries({ queryKey: prKey(thread.id) });
+      await queries.invalidateQueries({ queryKey: statusKey(thread.id) });
     },
   });
   return { change: mutation.mutateAsync, pending: mutation.isPending };

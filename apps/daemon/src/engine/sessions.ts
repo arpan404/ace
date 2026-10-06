@@ -1,3 +1,5 @@
+import { isDefaultSelection } from "@ace/models";
+import type { EngineModels } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
@@ -22,6 +24,7 @@ const SessionIdentity = z.strictObject({
 });
 
 interface SessionDependencies {
+  models: EngineModels;
   repo: EngineRepository;
   permissionSettings?: import("./permissions.ts").PermissionSettings;
   prepareWorkspace?(id: ThreadId): Promise<string>;
@@ -109,6 +112,18 @@ export class Sessions {
         if (!metadata.workspaceReady || metadata.cwd !== cwd)
           throw new Error("Workspace root changed while preparing");
       }
+      const previousSelection = this.dependencies.repo.transitions.get(actor.id).selection ?? {
+        provider: state.config.provider,
+        options: {},
+        ...metadata,
+      };
+      const resolvedSelection = await this.dependencies.models.prepare(
+        previousSelection,
+        this.dependencies.models.identity(actor.id),
+      );
+      if (resolvedSelection.model && resolvedSelection.model !== metadata.model)
+        this.dependencies.models.remember(actor.id, resolvedSelection);
+      metadata = this.dependencies.repo.session(actor.id);
       const transition = this.dependencies.repo.transitions.get(actor.id);
       if (state.config.provider !== "acp" && metadata.nativeSessionId && !capabilities.resume)
         throw new Error("Provider cannot resume this thread");
@@ -182,7 +197,9 @@ export class Sessions {
           ? { fork: transition.fork }
           : {}),
         ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
-        ...(metadata.model === undefined ? {} : { model: metadata.model }),
+        ...(metadata.model === undefined || isDefaultSelection(metadata.model)
+          ? {}
+          : { model: metadata.model }),
         ...(metadata.nativeSessionId === undefined
           ? {}
           : {
@@ -355,6 +372,30 @@ export class Sessions {
     }
   }
 
+  confirmModel(actor: ThreadActor, model: string): void {
+    const metadata = this.dependencies.repo.session(actor.id);
+    this.dependencies.models.remember(actor.id, {
+      provider: this.dependencies.repo.requireState(actor.id).config.provider,
+      options: metadata.options ?? {},
+      ...metadata,
+      model,
+    });
+  }
+  async selectModel(actor: ThreadActor, model: string): Promise<string> {
+    const metadata = this.dependencies.repo.session(actor.id);
+    const selection = await this.dependencies.models.prepare(
+      {
+        provider: this.dependencies.repo.requireState(actor.id).config.provider,
+        options: metadata.options ?? {},
+        ...metadata,
+        model,
+      },
+      this.dependencies.models.identity(actor.id),
+    );
+    if (!selection.model)
+      throw new Error("No available default model; refresh the provider catalog");
+    return selection.model;
+  }
   async close(actor: ThreadActor, reason: "idle" | "user" | "shutdown"): Promise<void> {
     const session = actor.session;
     if (!session) return;

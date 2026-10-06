@@ -1,15 +1,20 @@
 import { FakeProjects } from "./projects.ts";
 import {
+  gitStatusLimit,
   ServerMessage,
+  type GitStatusFile,
   type WorkspaceActionRequest,
   type CommandPayload,
   type CommandResult,
   type ThreadId,
 } from "@ace/protocol";
+import { synthesizedStatus } from "./catalog/git-status.ts";
 import { scriptOutput } from "./catalog/scripts.ts";
 import { FakeForgeWire } from "./forge-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import type { FakeServiceContext } from "./service-context.ts";
+const emptyDiff = { files: 0, additions: 0, deletions: 0 };
+
 export class FakeWorkspaceWire {
   readonly projects: FakeProjects;
   readonly terminals = new FakeTerminals();
@@ -28,6 +33,19 @@ export class FakeWorkspaceWire {
   private scriptOverrides = new Map<string, readonly string[]>();
   setScripts(workspaceId: string, names: readonly string[]): void {
     this.scriptOverrides.set(workspaceId, names);
+  }
+  /** Per thread, the files `git status` reports, once set or once a commit changed them. */
+  private gitFiles = new Map<string, readonly GitStatusFile[]>();
+  /** What `git status` reports for a thread's checkout (`git.status`). */
+  setGitStatus(threadId: string, files: readonly GitStatusFile[]): void {
+    this.gitFiles.set(threadId, files);
+  }
+  /** Every file, sorted by path as git lists them (`git.status` pages the first 500). */
+  gitStatus(threadId: string): readonly GitStatusFile[] {
+    return (
+      this.gitFiles.get(threadId) ??
+      synthesizedStatus(this.context.thread(threadId)?.thread.details?.diff ?? emptyDiff)
+    ).toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   }
   scripts(workspaceId: string | undefined) {
     const names =
@@ -80,12 +98,18 @@ export class FakeWorkspaceWire {
             ? { kind: "branches", branches: ["main", "develop"], truncated: false }
             : op.op === "pr.status"
               ? { kind: "pr", status: this.forge.status(op.threadId) }
-              : op.op === "thread.details"
+              : op.op === "git.status"
                 ? {
-                    kind: "details",
-                    details: this.context.thread(op.threadId)?.thread.details ?? {},
+                    kind: "gitStatus",
+                    files: this.gitStatus(op.threadId).slice(0, gitStatusLimit),
+                    truncated: this.gitStatus(op.threadId).length > gitStatusLimit,
                   }
-                : { kind: "error", code: "unsupported" };
+                : op.op === "thread.details"
+                  ? {
+                      kind: "details",
+                      details: this.context.thread(op.threadId)?.thread.details ?? {},
+                    }
+                  : { kind: "error", code: "unsupported" };
     return ServerMessage.parse({ type: "workspace.result", requestId: request.requestId, result });
   }
   command(
@@ -168,6 +192,24 @@ export class FakeWorkspaceWire {
       if ((thread?.details?.head ?? null) !== payload.expectedHead)
         return { ok: false, error: "git_head_moved" };
       const commit = "a".repeat(40);
+      // Only the paths named are committed; the rest stay uncommitted, as with git. A rename
+      // named by one of its paths splits: the half not named stays (its old path a deletion,
+      // its new one an addition).
+      const named = payload.paths && new Set(payload.paths);
+      const left = named
+        ? this.gitStatus(payload.threadId).flatMap((file): GitStatusFile[] => {
+            if (!file.from) return named.has(file.path) ? [] : [file];
+            const added = named.has(file.path);
+            const removed = named.has(file.from);
+            if (added && removed) return [];
+            if (!added && !removed) return [file];
+            const { from, ...rest } = file;
+            return added
+              ? [{ path: from, status: "deleted", additions: 0, deletions: 0, binary: false }]
+              : [{ ...rest, status: "added" }];
+          })
+        : [];
+      this.gitFiles.set(payload.threadId, left);
       this.context.update(payload.threadId, {
         type: "thread.client.updated",
         changes: {
@@ -175,7 +217,11 @@ export class FakeWorkspaceWire {
             ...thread?.details,
             head: commit,
             ahead: (thread?.details?.ahead ?? 0) + 1,
-            diff: { files: 0, additions: 0, deletions: 0 },
+            diff: {
+              files: left.length,
+              additions: left.reduce((sum, file) => sum + file.additions, 0),
+              deletions: left.reduce((sum, file) => sum + file.deletions, 0),
+            },
           },
         },
       });

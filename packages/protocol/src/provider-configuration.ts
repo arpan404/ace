@@ -16,6 +16,15 @@ export const ProviderConfiguration = z.object({
   provider: ProviderKind,
   instance: id.optional(),
   enabled: z.boolean().optional(),
+  /** Concrete model ID. Null resets an account override to the built-in policy. */
+  defaultModel: id
+    .refine((value) => value.toLowerCase() !== "default", "Choose a concrete model ID")
+    .meta({
+      "x-ace-constraint":
+        "The pseudo model ID default is not accepted; choose a concrete model ID.",
+    })
+    .nullable()
+    .optional(),
   binaryPath: z
     .string()
     .min(1)

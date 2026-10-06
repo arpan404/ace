@@ -9,6 +9,7 @@ import {
 } from "./projects.ts";
 import { integrateRevision } from "./integration.ts";
 import { commitChanges, pushBranch, listBranches, switchBranch } from "./actions.ts";
+import { changedFiles } from "./changed-files.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
 import { createWorktree, removeWorktree, type CreateWorktreeOptions } from "./worktrees.ts";
 import { GitError } from "./types.ts";
-import type { Checkpoint, DiffSide, GitOptions } from "./types.ts";
+import type { ChangedFile, Checkpoint, DiffSide, GitOptions } from "./types.ts";
 
 export { validateCloneUrl } from "./projects.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
@@ -74,12 +75,21 @@ export class GitService {
     return integrateRevision(this.repository, input);
   }
 
+  /** Commit every change, or only `paths`; other changes stay as they were. */
   commit(options: {
     worktree: string;
     message: string;
     expectedHead: string | null;
+    paths?: readonly string[] | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
+  }
+  /** The files `git status` reports, with lines changed against HEAD (first `limit`). */
+  changedFiles(
+    worktree: string,
+    limit = 500,
+  ): Promise<{ files: ChangedFile[]; truncated: boolean }> {
+    return changedFiles(this.repository, worktree, limit);
   }
   push(options: { worktree: string; remote: string }): Promise<void> {
     return pushBranch(this.repository, options);

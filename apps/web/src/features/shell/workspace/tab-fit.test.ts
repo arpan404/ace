@@ -58,10 +58,36 @@ test("in a 400px strip, three tabs first narrow evenly to readable titles", () =
   expect(fit.icons.size).toBe(0);
 });
 
-test("in a 400px strip, the pinned tools fold to icons together, never one titled and one folded", () => {
+test("in a 400px strip, the pinned tools fold one at a time, Agents before Changes", () => {
   const fit = fitTabs([changes, agents, ...tabs(260)], "t0", 400);
-  expect([...fit.icons].toSorted()).toEqual(["agents", "changes"]);
-  expect(widths(fit)).toEqual([36, 36, 220]);
+  expect([...fit.icons]).toEqual(["agents"]);
+  // 396px less the showing tab's 220 and Agents' icon: 140 for Changes, a readable title.
+  expect(widths(fit)).toEqual([140, 36, 220]);
+
+  const tighter = fitTabs([changes, agents, ...tabs(260)], "t0", 330);
+  expect([...tighter.icons].toSorted()).toEqual(["agents", "changes"]);
+});
+
+test("short of room, Changes' diff stat gives way to its dot before any tab folds", () => {
+  // Changes with a +17 −5 badge (50px of it), Agents, and the showing agent tab in 390px.
+  const badged = { ...changes, badge: 50 };
+  const fit = fitTabs([badged, agents, { key: "agent", natural: 150 }], "agent", 390);
+  expect(fit.icons.size).toBe(0);
+  expect([...fit.dots]).toEqual(["changes"]);
+  expect(widths(fit)).toEqual([100, 100, 150]);
+  // Every tab shows its whole title, and less than 40px of the strip goes unused.
+  expect(fit.clipped.size).toBe(0);
+  const used = widths(fit).reduce((sum, width) => sum + width, 0) + 2 * 2;
+  expect(390 - used).toBeLessThan(40);
+
+  // With room to spare the badge stays.
+  expect(fitTabs([badged, agents, { key: "agent", natural: 150 }], "agent", 600).dots.size).toBe(0);
+});
+
+test("a tab drawn narrower than its title is marked clipped, so its tooltip carries the title", () => {
+  const fit = fitTabs(tabs(150, 160, 180), "t2", 400);
+  expect([...fit.clipped].toSorted()).toEqual(["t0", "t1"]);
+  expect(fitTabs(tabs(400), "t0", 800).clipped.has("t0")).toBe(true);
 });
 
 test("in a 400px strip of four, the tools fold before another tab loses any of its title", () => {

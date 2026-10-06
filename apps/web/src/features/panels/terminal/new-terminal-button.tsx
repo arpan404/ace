@@ -13,5 +13,5 @@ export function useNewTerminalHotkey(scope: string, dock: Dock): void {
   const store = useWorkspaceStore();
   const actions = useWorkspaceActions(scope);
   const open = useEffectEvent(() => openNewTerminal(actions, store.get(scope), dock));
-  useHotkey(keymap.newTerminal.keys, () => open());
+  useHotkey(keymap.newTerminal.keys, () => open(), { id: "newTerminal" });
 }

@@ -6,7 +6,12 @@ import { pageTitle, settingsIndex } from "@/features/settings/index.ts";
 import { views, type View } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
-import { useFocusedScope, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import {
+  useFocusedScope,
+  useScopeWorkspace,
+  useWorkspaceActions,
+  useWorkspaceCommands,
+} from "@/lib/workspace/index.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { useThreadCommands } from "./thread-commands.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
@@ -51,6 +56,8 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
   const scope = useFocusedScope();
   const workspace = useScopeWorkspace(scope);
   const docks = useWorkspaceActions(scope ?? "");
+  // The showing tab's commands (move, pin, close others, maximize, reopen): PN-05, PN-19.
+  const tabCommands = useWorkspaceCommands();
   const threadGroups = useThreadCommands(close);
   const projects = useProjectDialogs();
   const directory = useProjectDirectory();
@@ -211,6 +218,12 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
                   icon: "action",
                   run: run(() => docks.setExpanded(!workspace.expanded)),
                 } satisfies PaletteCommand,
+                ...tabCommands.map((command): PaletteCommand => ({
+                  ...command,
+                  id: `workspace-${command.id}`,
+                  icon: "action",
+                  run: run(command.run),
+                })),
               ]
             : []),
           {
@@ -270,6 +283,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
     scope,
     docks,
     workspace,
+    tabCommands,
     projects,
     noProjects,
   ]);

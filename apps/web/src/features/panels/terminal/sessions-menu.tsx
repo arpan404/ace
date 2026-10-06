@@ -85,7 +85,7 @@ export function SessionsMenu(props: { scope: string; dock: Dock }) {
             // 14px at the button's corner, ringed in the panel's colour so it stands clear of
             // the glyph under it.
             style={ring}
-            className="pointer-events-none absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-foreground px-1 text-[10px] leading-none font-semibold text-background tabular-nums"
+            className="pointer-events-none absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-foreground px-1 text-2xs leading-none font-semibold text-background tabular-nums"
           >
             {unseen}
           </span>
@@ -110,7 +110,7 @@ export function SessionsMenu(props: { scope: string; dock: Dock }) {
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="truncate">{entry.label}</span>
-                <span className="shrink-0 text-xs text-subtle-foreground">
+                <span className="shrink-0 text-xs text-muted-foreground">
                   {entry.terminal.exited ? "exited" : "running"}
                 </span>
                 {entry.open && <CheckIcon aria-label="open" size={12} className="shrink-0" />}
@@ -134,7 +134,7 @@ export function SessionsMenu(props: { scope: string; dock: Dock }) {
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="truncate">{entry.label}</span>
-                <span className="shrink-0 text-xs text-subtle-foreground">
+                <span className="shrink-0 text-xs text-muted-foreground">
                   {shellState[entry.task.status]}
                 </span>
                 {entry.open && <CheckIcon aria-label="open" size={12} className="shrink-0" />}

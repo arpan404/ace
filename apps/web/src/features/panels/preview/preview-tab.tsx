@@ -12,7 +12,7 @@ import { AddressBar } from "../browser/address-bar.tsx";
 import { setLoading } from "../browser/loading.ts";
 import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
 import { DevServerFrame, noHistory, OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
-import { portTab } from "./port.ts";
+import { portLabel, portTab } from "./port.ts";
 
 function useServers(source: PreviewSource, threadId: string) {
   // The source's reads change whenever its version does; React Compiler would memoize them
@@ -36,6 +36,13 @@ function useServers(source: PreviewSource, threadId: string) {
 export function PreviewTab(props: { threadId: string; tabKey: string }) {
   const { preview } = usePanelServices();
   const { servers, canForward } = useServers(preview, props.threadId);
+  // The tab names what it shows ("web · :5173"), and "Preview" while there is nothing yet.
+  const actions = useWorkspaceActions(props.threadId);
+  const [shown, setShown] = useState<PreviewServer>();
+  const title = servers.length && shown ? portLabel(shown) : "Preview";
+  useEffect(() => {
+    actions.update(props.tabKey, { title });
+  }, [actions, props.tabKey, title]);
   if (servers.length)
     return (
       <DevServer
@@ -43,6 +50,7 @@ export function PreviewTab(props: { threadId: string; tabKey: string }) {
         threadId={props.threadId}
         tabKey={props.tabKey}
         servers={servers}
+        onShown={setShown}
       />
     );
   return <NoPreview source={preview} threadId={props.threadId} canForward={canForward} />;
@@ -120,9 +128,6 @@ function PortForm(props: { source: PreviewSource; threadId: string }) {
   );
 }
 
-const label = (server: PreviewServer) =>
-  server.name ? `${server.name} · :${server.port}` : `:${server.port}`;
-
 /**
  * One dev server under the same toolbar as a browser page: its address (read-only), Reload,
  * and its actions (another server, its own tab, Stop preview, Open in your browser).
@@ -132,6 +137,7 @@ function DevServer(props: {
   threadId: string;
   tabKey: string;
   servers: readonly PreviewServer[];
+  onShown(server: PreviewServer | undefined): void;
 }) {
   const [port, setPort] = useState(props.servers[0]?.port);
   const [attempt, setAttempt] = useState(0);
@@ -140,6 +146,8 @@ function DevServer(props: {
   const url = server ? (server.origin ?? `http://localhost:${server.port}`) : "";
   const [phase, setPhase] = useState<FramePhase>("loading");
   const loading = !!server && phase === "loading";
+  const { onShown } = props;
+  useEffect(() => onShown(server), [onShown, server]);
   useEffect(() => {
     setLoading(props.threadId, props.tabKey, loading);
     return () => setLoading(props.threadId, props.tabKey, false);
@@ -164,7 +172,7 @@ function DevServer(props: {
                 value={String(server.port)}
                 options={props.servers.map((each) => ({
                   value: String(each.port),
-                  label: label(each),
+                  label: portLabel(each),
                 }))}
                 onValueChange={(value) => setPort(Number(value))}
                 className="h-7 w-32"

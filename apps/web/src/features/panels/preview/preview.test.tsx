@@ -32,6 +32,10 @@ test("a thread without a dev server says so, and previews one once it is found",
   await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
   const frame = await within(panel).findByTitle("Preview of http://localhost:3000");
   expect(frame.getAttribute("src")).toBe("http://localhost:3000");
+  // Its tab now says which server it shows.
+  expect(
+    await within(panel).findByRole("tab", { name: /^api · :3000/, selected: true }),
+  ).toBeTruthy();
   expect((within(panel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe(
     "localhost:3000",
   );
@@ -131,7 +135,8 @@ test("while a dev server's page loads, the frame waits behind a spinner and its 
   expect(
     within(within(panel).getByRole("tabpanel")).getByText(`Loading 127.0.0.1:${port}…`),
   ).toBeTruthy();
-  const tab = within(panel).getByRole("tab", { name: /^Preview/ });
+  // The tab is titled after the server it shows.
+  const tab = await within(panel).findByRole("tab", { name: new RegExp(`^web · :${port}`) });
   expect(within(tab).getByRole("status", { name: "Loading" })).toBeTruthy();
   release();
 });

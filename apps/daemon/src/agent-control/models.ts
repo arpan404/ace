@@ -1,5 +1,11 @@
-import type { ModelCatalogApi } from "@ace/models";
-import type { DelegationRequest, Thread } from "@ace/protocol";
+import {
+  executionModelId,
+  isDefaultSelection,
+  matchesModel,
+  selectionModelFilter,
+  type ModelCatalogApi,
+} from "@ace/models";
+import { AcpIdentity, type DelegationRequest, type Thread } from "@ace/protocol";
 
 /** Only catalog identities from the selected provider/account reach provider launch. */
 export function delegationModel(
@@ -9,18 +15,10 @@ export function delegationModel(
   instance?: string,
   configured?: string,
 ): string {
-  const filter = {
-    provider: request.provider,
-    ...(request.provider !== "acp" && instance ? { instance } : {}),
-    ...(request.provider === "acp"
-      ? {
-          acpAgentId: request.acpAgentId,
-          installationId: request.installationId,
-          instanceId: request.instanceId,
-        }
-      : {}),
-  };
-  // resolve(default) may choose the first row, which is not a user's default.
+  const identity = request.provider === "acp" ? AcpIdentity.parse(request) : undefined;
+  const filter = selectionModelFilter(request.provider, instance, identity);
+  if (!filter) throw new Error("Cannot delegate without a source-qualified model identity");
+  // Page the selected account, preserving the catalog's explicit default and aliases.
   const rows = [];
   let offset = 0;
   for (;;) {
@@ -31,8 +29,8 @@ export function delegationModel(
   }
   const available = rows.filter((row) => !row.hidden && !row.deprecated);
   const find = (id: string | undefined) => {
-    if (!id) return undefined;
-    const exact = available.find((row) => row.id === id);
+    if (!id || isDefaultSelection(id)) return undefined;
+    const exact = available.find((row) => matchesModel(row, id));
     if (exact) return exact;
     const aliases = available.filter(
       (row) => !row.nativeProviderId && [row.nativeModelId, row.resolvedModelId].includes(id),
@@ -42,11 +40,11 @@ export function delegationModel(
   const chosen =
     find(request.model) ??
     find(configured) ??
-    (parent.provider === request.provider ? find(parent.execution?.model) : undefined) ??
-    available.find((row) => row.isDefault);
+    available.find((row) => row.isDefault) ??
+    (parent.provider === request.provider ? find(parent.execution?.model) : undefined);
   if (!chosen)
     throw new Error(
       `Cannot delegate to ${request.provider}${instance ? ` account ${instance}` : ""}: requested model ${request.model ?? "(default)"} is unavailable and no valid configured default exists. Refresh the target account's model catalog or choose an available model.`,
     );
-  return chosen.nativeModelId;
+  return executionModelId(chosen);
 }

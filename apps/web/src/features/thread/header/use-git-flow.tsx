@@ -1,6 +1,7 @@
 import { prBlocker } from "@ace/ui-core";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { GitDialogKind } from "./git-dialog.tsx";
@@ -33,6 +34,7 @@ export function useGitFlow(thread: ThreadRef): {
   const { change, pending } = useGitActions(thread, checkout);
   const [dialog, setDialog] = useState<GitDialogKind>();
   const toast = useToast();
+  const workspace = useWorkspaceActions(thread.id);
   const submit = async (next: GitChange) => {
     const number = await change(next);
     toast.add({
@@ -59,7 +61,7 @@ export function useGitFlow(thread: ThreadRef): {
     pending,
     push: () =>
       void submit({ kind: "push" }).catch((error: unknown) =>
-        toast.add({ title: "Couldn't push", description: failure(error) }),
+        toast.error({ title: "Couldn't push", description: failure(error) }),
       ),
     open: setDialog,
     prBlocked,
@@ -68,11 +70,15 @@ export function useGitFlow(thread: ThreadRef): {
       <Suspense fallback={null}>
         <GitDialog
           kind={dialog}
-          title={thread.title}
+          thread={thread}
           checkout={checkout}
           pending={pending}
           onSubmit={submit}
           onClose={() => setDialog(undefined)}
+          onViewDiff={() => {
+            setDialog(undefined);
+            workspace.open({ kind: "changes" });
+          }}
         />
       </Suspense>
     ),

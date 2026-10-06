@@ -1,5 +1,6 @@
 /** The workspace docks' model, store and tab-kind registry. See apps/web/README.md. */
 export type { OpenTab, WorkspaceActions } from "./actions.ts";
+export { useWorkspaceCommands, type WorkspaceCommand } from "./commands.ts";
 export {
   docks,
   findTab,
@@ -19,6 +20,8 @@ export {
 } from "./definition.ts";
 export {
   defineTabKind,
+  type ClosingTab,
+  type CloseWarning,
   type TabKind,
   type TabKindOptions,
   type TabModule,
@@ -31,4 +34,4 @@ export {
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
-export { defaultSizes, WorkspaceStore, type PreferredSizes } from "./store.ts";
+export { defaultSizes, WorkspaceStore, type ClosedTab, type PreferredSizes } from "./store.ts";

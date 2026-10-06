@@ -14,6 +14,6 @@ export function fakeHealth(at: number, threads: number): DiagnosticsHealth {
     sqlite: { pageBytes: 4096, walBytes: 128 * 1024 },
     activeSessions: threads,
     queues: { intents: 0, notifications: 0, "output.chunks": 3 },
-    logs: { dropped: 0, failed: 0, queued: 0 },
+    logs: { dropped: 0, failed: 0, queued: 0, directory: "/Users/dev/.ace-next/logs" },
   };
 }

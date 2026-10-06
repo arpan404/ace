@@ -29,22 +29,19 @@ Example:
 
 ```json
 {
-  "concurrency": 2,
-  "enabled": false,
+  "concurrency": 9,
+  "enabled": true,
   "id": "example",
   "jitterMs": 9,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "cursor",
+  "provider": "opencode",
   "title": "example",
   "trigger": {
-    "kind": "schedule",
-    "schedule": {
-      "expression": "example",
-      "kind": "cron",
-      "startAt": 0,
-      "timezone": "example"
-    }
+    "event": "review_comment",
+    "kind": "github",
+    "pollIntervalMs": 60000,
+    "repository": "Od/7mMIBfb"
   },
   "workspace": "example",
   "worktree": false
@@ -82,7 +79,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 4,
   "runs": []
 }
 ```
@@ -104,13 +101,13 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 1,
+    "concurrency": 2,
     "enabled": true,
     "id": "example",
-    "jitterMs": 1,
+    "jitterMs": 5,
     "missedRun": "skip",
     "prompt": "example",
-    "provider": "pi",
+    "provider": "antigravity",
     "title": "example",
     "trigger": {
       "kind": "schedule",
@@ -196,7 +193,7 @@ Example:
 
 ```json
 {
-  "limit": 8,
+  "limit": 7,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -222,9 +219,9 @@ Example:
 ```json
 {
   "automations": [],
-  "error": "example",
   "ok": true,
   "requestId": "example",
+  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -252,12 +249,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 5,
   "id": "example",
-  "startedAt": 5,
-  "status": "running",
+  "startedAt": 4,
+  "status": "skipped",
   "title": "example",
-  "trigger": "manual"
+  "trigger": "schedule"
 }
 ```
 
@@ -315,7 +311,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "rrule",
+    "kind": "cron",
     "startAt": 0,
     "timezone": "example"
   }
@@ -337,11 +333,11 @@ Example:
 
 ```json
 {
-  "event": "review_comment",
+  "event": "pr_changed",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60001,
-  "repository": "cTYYA/hQzO9AUX"
+  "pollIntervalMs": 60009,
+  "pullRequest": 7,
+  "repository": "ev/wf"
 }
 ```
 

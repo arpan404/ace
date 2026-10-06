@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
+import { longAnswer, markdownSamples } from "./markdown-samples.fixture.ts";
 import { Markdown } from "./markdown.tsx";
 
 test("agent text never injects markup: raw HTML shows as text", () => {
@@ -61,4 +62,54 @@ test("images draw only bytes already on the page; web images become links, local
   expect(container.querySelectorAll("img")).toHaveLength(1);
   expect(screen.getByText("diagram (diagram.png)")).toBeTruthy();
   expect(container.textContent).not.toContain("/Users/");
+});
+
+test("a streaming answer keeps its finished blocks' elements and patches the open one in place", async () => {
+  const stream = "thread/answer-1";
+  const { rerender } = render(
+    <Markdown stream={stream} streaming text={"Para one.\n\nPara two\n"} />,
+  );
+  const first = await screen.findByText("Para one.");
+  const open = screen.getByText("Para two");
+  rerender(
+    <Markdown stream={stream} streaming text={"Para one.\n\nPara two\nkeeps going.\n\n- item"} />,
+  );
+  await screen.findByRole("listitem");
+  expect(screen.getByText("Para one.")).toBe(first);
+  // The block that was open settled where it was: the same element, with its new text.
+  expect(open.isConnected).toBe(true);
+  expect(open.textContent).toBe("Para two\nkeeps going.");
+  rerender(<Markdown stream={stream} text={"Para one.\n\nPara two\nkeeps going.\n\n- item one"} />);
+  await screen.findByText("item one");
+  expect(screen.getByText("Para one.")).toBe(first);
+  expect(open.isConnected).toBe(true);
+});
+
+test("a code block still being written shows plain, and is highlighted in place once it closes", async () => {
+  const stream = "thread/answer-2";
+  const { container, rerender } = render(
+    <Markdown stream={stream} streaming text={"```ts\nconst a = 1"} />,
+  );
+  await waitFor(() => expect(container.querySelector("pre code")?.textContent).toBe("const a = 1"));
+  const figure = container.querySelector("figure");
+  expect(screen.queryByText("const")).toBeNull();
+  rerender(<Markdown stream={stream} streaming text={"```ts\nconst a = 1;\n```\n\nDone.\n"} />);
+  // The keyword is its own highlighted span once the fence has closed and settled.
+  await screen.findByText("const");
+  expect(container.querySelector("figure")).toBe(figure);
+});
+
+test("a streamed answer, once finished, renders exactly as its whole text does", async () => {
+  for (const [name, text] of Object.entries({ ...markdownSamples, long: longAnswer })) {
+    const whole = render(<Markdown text={text} />);
+    const expected = whole.container.innerHTML;
+    whole.unmount();
+    const stream = `thread/${name}`;
+    const streamed = render(<Markdown stream={stream} streaming text="" />);
+    for (let at = 0; at < text.length; at += 97)
+      streamed.rerender(<Markdown stream={stream} streaming text={text.slice(0, at + 97)} />);
+    streamed.rerender(<Markdown stream={stream} text={text} />);
+    await waitFor(() => expect(streamed.container.innerHTML, name).toBe(expected));
+    streamed.unmount();
+  }
 });

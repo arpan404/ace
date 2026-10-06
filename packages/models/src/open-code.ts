@@ -1,6 +1,7 @@
 import { CatalogModel } from "@ace/protocol";
 import { OpenCodeModel } from "./native-schemas.ts";
 import { base } from "./model.ts";
+import { chatMetadata, legacyMetadata } from "./catalog-metadata.ts";
 import type { ModelInstance } from "./types.ts";
 
 /** Retains one bounded native object at a time, plus at most 512 normalized rows. */
@@ -37,8 +38,8 @@ export class OpenCodeParser {
       .map(([id]) => id);
     model.reasoningEfforts = Object.keys(native.variants);
     model.deprecated = native.status === "deprecated" || native.status === "legacy";
-    model.legacy = native.status === "legacy";
-    this.#rows.push(CatalogModel.parse(model));
+    model.legacy = legacyMetadata(native);
+    if (chatMetadata(native)) this.#rows.push(CatalogModel.parse(model));
     if (this.#rows.length > 512) throw new Error("Too many models");
     this.#heading = undefined;
     this.#json = [];
@@ -58,20 +59,26 @@ export function normalizeOpenCodeV2(
   const parsed = V2Catalog.parse(payload);
   if (parsed.location.directory !== instance.cwd)
     throw new Error("OpenCode model location mismatch");
-  const seen = new Set<string>();
-  const available: z.infer<typeof V2Model>[] = [];
+  const available = new Map<string, z.infer<typeof V2Model>>();
   for (const raw of parsed.data) {
     // Catalog metadata for providers without a connection cannot affect usable rows.
     const provider = V2Provider.safeParse(raw);
     if (connected && (!provider.success || !connected.has(provider.data.providerID))) continue;
     const native = V2Model.parse(raw);
+    if (!native.enabled || !chatMetadata(native)) continue;
     const id = `${native.providerID}/${native.modelID}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    available.push(native);
-    if (available.length > 512) throw new Error("Too many connected models");
+    const previous = available.get(id);
+    if (
+      previous &&
+      (legacyMetadata(previous) !== legacyMetadata(native)
+        ? legacyMetadata(native)
+        : previous.enabled || !native.enabled)
+    )
+      continue;
+    available.set(id, native);
+    if (available.size > 512) throw new Error("Too many connected models");
   }
-  return available.map((native) => {
+  return [...available.values()].map((native) => {
     // Keep the qualified execution selector supplied by base in nativeModelId.
     const model = base(instance, `${native.providerID}/${native.modelID}`, native.name, native);
     model.nativeProviderId = native.providerID;
@@ -80,9 +87,10 @@ export function normalizeOpenCodeV2(
       .filter(([, enabled]) => enabled)
       .map(([name]) => name);
     model.reasoningEfforts = native.variants.map((variant) => variant.id);
+    model.isDefault = `${native.providerID}/${native.modelID}` === parsed.configuredDefault;
     model.hidden = !native.enabled;
     model.deprecated = native.status === "deprecated" || native.status === "legacy";
-    model.legacy = native.status === "legacy";
+    model.legacy = legacyMetadata(native);
     return CatalogModel.parse(model);
   });
 }
@@ -107,5 +115,6 @@ const V2Catalog = z
   .object({
     location: z.object({ directory: z.string() }),
     data: z.array(z.unknown()).max(8192),
+    configuredDefault: z.string().min(1).max(256).optional(),
   })
   .passthrough();
