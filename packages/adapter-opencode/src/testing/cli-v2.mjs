@@ -376,6 +376,17 @@ const server = createServer(async (req, res) => {
         inbox.set(id, []);
         publish("session.inbox.delivered", { sessionID: id, inboxID: item.id }, directory);
         publish("session.execution.started", { sessionID: id }, directory);
+        if (process.env.ACE_TEST_DELEGATION_RESULT === "1")
+          publish(
+            "session.text.ended",
+            {
+              sessionID: id,
+              assistantMessageID: `result-${id}`,
+              ordinal: 0,
+              text: "OpenCode delegated result",
+            },
+            directory,
+          );
         publish("session.execution.succeeded", { sessionID: id }, directory);
       }
       if (fault.holdPrompt) {

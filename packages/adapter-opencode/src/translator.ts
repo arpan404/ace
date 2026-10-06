@@ -10,6 +10,7 @@ import { interaction } from "./interactions.ts";
 import { sessionUsage, stepContext, selectModel } from "./usage.ts";
 export class OpenCodeTranslator implements Translator {
   private state: NativeState;
+  private retrying = new Set<string>();
   private diagnostics: import("@ace/protocol").RawPayload[] = [];
   constructor(init: { threadId: ThreadId; rootKey: Key }) {
     this.state = new NativeState(init.rootKey);
@@ -301,9 +302,9 @@ export class OpenCodeTranslator implements Translator {
         p.error,
       );
     if (type.startsWith("session.text.") || type.startsWith("session.reasoning."))
-      return text(state, type, p, e);
+      return this.recovered(id, type, text(state, type, p, e));
     if (type.startsWith("session.tool."))
-      return type.endsWith("delta") ? [] : tool(state, p, type, e);
+      return this.recovered(id, type, type.endsWith("delta") ? [] : tool(state, p, type, e));
     if (type.startsWith("permission.") || type.startsWith("form."))
       return interaction(state, type, p, e);
     if (type === "session.inbox.enqueued") {
@@ -353,7 +354,8 @@ export class OpenCodeTranslator implements Translator {
         ...state.wake(id, number(e.created, Number.MAX_SAFE_INTEGER)),
       ];
     }
-    if (type === "session.retry.scheduled")
+    if (type === "session.retry.scheduled") {
+      this.retrying.add(id);
       return [
         {
           type: "retry",
@@ -364,11 +366,23 @@ export class OpenCodeTranslator implements Translator {
           message: string(object(p.error).message),
         },
       ];
+    }
     if (type === "session.model.selected") return selectModel(state, id, p.model);
     if (type === "session.usage.updated") return sessionUsage(state, id, p);
-    if (type === "session.step.ended") return stepContext(state, id, p);
-    if (type.startsWith("session.step.")) return [];
+    if (type === "session.step.ended") return this.recovered(id, type, stepContext(state, id, p));
+    if (type === "session.step.streamed") return this.recovered(id, type);
     return [];
+  }
+  /** New execution output proves a transient provider retry recovered, unlike a heartbeat. */
+  private recovered(id: string, type: string, facts: Fact[] = []): Fact[] {
+    if (!this.retrying.has(id)) return facts;
+    const progress =
+      /^(?:session\.(?:text|reasoning)\.(?:started|delta|ended)|session\.tool\.(?:input\.(?:started|delta|ended)|called|progress|success|failed)|session\.step\.(?:streamed|ended))$/.test(
+        type,
+      );
+    if (!progress) return facts;
+    this.retrying.delete(id);
+    return [{ type: "retry.cleared", agent: this.state.key(id) }, ...facts];
   }
   isSettled(): boolean {
     return this.state.settled();
