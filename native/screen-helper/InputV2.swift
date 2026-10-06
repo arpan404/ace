@@ -2,6 +2,20 @@ import ApplicationServices
 import AppKit
 
 extension Capture {
+    /// Human device actions authorize activation of their selected Simulator window.
+    /// Agent input retains the background path and never comes through this entry point.
+    func injectHumanDevice(_ input: Input) async throws {
+        if input.kind == "pointer.cancel" { try releasePointer(); return }
+        guard let window = captureWindow, let pid = window.owningApplication?.processID else {
+            throw HelperError("Simulator input window disappeared", code: "target_gone")
+        }
+        mode = "foreground"
+        try await foregroundWindow(window)
+        if ["text.type", "key.press", "text.paste"].contains(input.kind) {
+            try requireFocusedWindow(window, candidates: try await content().windows.filter { $0.owningApplication?.processID == pid })
+        }
+        try await injectV2(input)
+    }
     func injectV2(_ input: Input) async throws {
         guard target?.kind == "window" || target?.kind == "app" else { throw HelperError("Display is view-only", code: "not_supported") }
         if input.kind == "pointer.cancel" { try releasePointer(); return }

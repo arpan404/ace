@@ -76,8 +76,13 @@ extension Capture {
                 inputWindow = hit
             }
         }
+        if mode == "background", bundle == "com.apple.iphonesimulator",
+           ["type", "key", "paste"].contains(action.kind), !humanDeviceInput,
+           keyboardApplicationPID() != window.owningApplication?.processID {
+            throw HelperError("Background Simulator typing requires native idb HID", code: "foreground_required")
+        }
         // Background keyboard follows the app's own AX focus, never changes system focus.
-        if target.kind == "window" && ["type", "key", "paste"].contains(action.kind) {
+        if target.kind == "window" && ["type", "key", "paste"].contains(action.kind) && !humanDeviceInput {
             try requireFocusedWindow(window, candidates: candidates)
         }
         func post(_ event: CGEvent?) throws {
@@ -90,6 +95,9 @@ extension Capture {
             guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess(), let pid = inputWindow.owningApplication?.processID, NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == bundle else { throw HelperError("macOS permission denied or target unavailable", code: "permission_denied") }
             if ["type", "key", "paste"].contains(action.kind) { try destination().requireConsent(secureInputAllowed) }
             synthesizedInput = true
+            if humanDeviceInput && ["type", "key", "paste"].contains(action.kind), keyboardApplicationPID() != pid {
+                throw HelperError("Human focus changed during Simulator keyboard input", code: "foreground_required")
+            }
             try deliverInput(event, mode: mode, pid: pid, permission: runtime.inputAllowed) { event, destination in
                 switch destination {
                 case .foreground: event.location = location; event.post(tap: .cghidEventTap)
@@ -117,7 +125,7 @@ extension Capture {
         case "click":
             guard action.button == "left" || action.button == "right" else { throw HelperError("Invalid mouse button") }
             let right = action.button == "right"
-            if try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction]) { return }
+            if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction]) { return }
             for type: NSEvent.EventType in right ? [.rightMouseDown, .rightMouseUp] : [.leftMouseDown, .leftMouseUp] {
                 try post(try pointer(type))
             }
@@ -134,7 +142,9 @@ extension Capture {
         case "type":
             guard let text = action.text, text.utf16.count <= 4096 else { throw HelperError("Text exceeds limit", code: "bounds") }
             let typing = ValidatedTextInput(destination: destination, replaceSelection: { element, value in
-                AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, value as CFString) == .success
+                // Simulator's macOS AX destination is not the UIKit text field.
+                if bundle == "com.apple.iphonesimulator" { return false }
+                return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, value as CFString) == .success
             }, postCharacter: { character in
                 let units = Array(String(character).utf16)
                 let key = usKeys[character]
@@ -148,7 +158,12 @@ extension Capture {
                 try shift(true)
                 defer { try? shift(false) }
                 for down in [true, false] {
-                    guard let event = CGEvent(keyboardEventSource: nil, virtualKey: key?.code ?? 0, keyDown: down) else { throw HelperError("Cannot create keyboard event") }
+                    // A process-posted key must retain the selected foreign window number,
+                    // just like pointer events. A global CG key follows Simulator's key window.
+                    let event = try windowKeyEvent(down ? .keyDown : .keyUp,
+                        windowId: inputWindow.windowID, character: String(character),
+                        keyCode: key?.code ?? 0, modifiers: key?.shift == true ? [.shift] : [],
+                        timestamp: self.runtime.uptime())
                     if key?.shift == true { event.flags = .maskShift }
                     units.withUnsafeBufferPointer { buffer in
                         if let base = buffer.baseAddress { event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: base) }
@@ -179,12 +194,16 @@ extension Capture {
                 default: throw HelperError("Invalid modifier", code: "bounds")
                 }
             }
-            for down in [true, false] { let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down); event?.flags = flags; try post(event) }
+            for down in [true, false] {
+                let event = try windowKeyEvent(down ? .keyDown : .keyUp, windowId: inputWindow.windowID,
+                    character: "", keyCode: code, modifiers: NSEvent.ModifierFlags(rawValue: UInt(flags.rawValue)), timestamp: runtime.uptime())
+                event.flags = flags; try post(event)
+            }
         case "scroll":
             guard let dx = action.deltaX, let dy = action.deltaY, abs(Int(dx)) <= 1000, abs(Int(dy)) <= 1000 else { throw HelperError("Invalid scroll", code: "bounds") }
             if dx != 0 || dy != 0 {
                 let name = abs(Int(dx)) > abs(Int(dy)) ? (dx > 0 ? "AXScrollRightByPage" : "AXScrollLeftByPage") : (dy > 0 ? "AXScrollUpByPage" : "AXScrollDownByPage")
-                if try performTargetedAXAction(inputWindow, at: location, names: [name]) { return }
+                if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [name]) { return }
             }
             let event = try pointer(.leftMouseDown)
             event.type = .scrollWheel

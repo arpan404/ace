@@ -2,6 +2,16 @@ import AppKit
 import ApplicationServices
 import ScreenCaptureKit
 
+/// Query the keyboard destination directly. Workspace notifications may lag a native
+/// activation in a helper without an AppKit window/event loop.
+@MainActor func keyboardApplicationPID() -> pid_t? {
+    guard let value = axAttribute(AXUIElementCreateSystemWide(), kAXFocusedApplicationAttribute),
+          CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+    var pid: pid_t = 0
+    guard AXUIElementGetPid(value as! AXUIElement, &pid) == .success else { return nil }
+    return pid
+}
+
 /// Keyboard events go to an application's focused window. Refuse a different one.
 @MainActor func requireFocusedWindow(_ target: SCWindow, candidates: [SCWindow]) throws {
     _ = try focusedWindowElement(target, candidates: candidates)
@@ -93,15 +103,14 @@ func currentWindowBounds(_ window: SCWindow) throws -> CGRect {
     return CGRect(x: x, y: y, width: w, height: h)
 }
 
-/// Read the target and onscreen windows above it, never the full desktop history.
-/// Only windows in front can intercept a pointer; the included target verifies its live owner.
+/// Include other Spaces. Only same-process windows above the verified target intercept input.
 struct PointerGeometry {
     let bounds: CGRect
     let front: [CGRect]
 }
 func pointerGeometry(_ window: SCWindow) throws -> PointerGeometry {
     guard let app = window.owningApplication,
-          let rows = CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .optionIncludingWindow], window.windowID) as? [[String: Any]] else {
+          let rows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
         throw HelperError("Cannot verify pointer target", code: "target_gone")
     }
     var front: [CGRect] = []

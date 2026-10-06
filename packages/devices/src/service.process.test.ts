@@ -104,6 +104,33 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
     platform: "linux",
     home: root,
     env: { ANDROID_HOME: root },
+    spawn(options) {
+      if (options.name !== "device-input") return spawnSupervised(options);
+      const process = spawnSupervised({
+        command: globalThis.process.execPath,
+        args: [
+          "-e",
+          `
+        let marker, ready=false;
+        function finish(){if(marker && ready){console.log(marker+'0');marker=undefined;ready=false;}}
+        require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+          if(line==='continue'){ready=true;finish();}
+          else if(line.startsWith('printf')){marker=/ACE_INPUT_\\d+:/.exec(line)?.[0];finish();}
+          else console.log('effect:'+line);
+        });
+      `,
+        ],
+        env: {},
+        name: "fake-android-input",
+      });
+      process.stdout.on("line", (line: string) => {
+        if (!line.startsWith("effect:")) return;
+        effects.push(`-s emulator-5554 shell ${line.slice(7)}`);
+        entered.resolve();
+        void Promise.resolve(inputGate?.promise).then(() => process.stdin.write("continue\n"));
+      });
+      return process;
+    },
     async probe(_command, args) {
       const command = args.join(" ");
       if (command === "-list-avds") return { stdout: "Pixel", stderr: "", code: 0 };

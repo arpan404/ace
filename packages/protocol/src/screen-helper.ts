@@ -24,6 +24,7 @@ const HelperEnvelope = z.object({
   sessionId: ScreenId.optional(),
   mode: z.enum(["background", "foreground"]).optional(),
   secureInputAllowed: z.boolean().optional(),
+  humanDeviceInput: z.boolean().optional(),
 });
 export const ScreenHelperRequest = z.discriminatedUnion("op", [
   HelperEnvelope.extend({ op: z.literal("hello") }),

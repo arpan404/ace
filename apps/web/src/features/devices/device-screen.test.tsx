@@ -122,3 +122,35 @@ test("in control, a drag on the simulator's H.264 screen reaches the device as d
   await waitFor(() => expect(browser.draws(screenImage)).toBeGreaterThan(drawn));
   expect(after(browser.events, "decoder opened")).toContain("drew h264");
 });
+
+test("a DPR-three device viewer requests every physical pixel and follows monitor density changes", async () => {
+  const previous = Object.getOwnPropertyDescriptor(window, "devicePixelRatio");
+  Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 3 });
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    return { ...original.call(this), width: 350, height: 650 };
+  };
+  try {
+    const { app } = await liveIphone("decodes");
+    await waitFor(() =>
+      expect(app.daemon.appDevices.streamRequests.at(-1)?.settings).toMatchObject({
+        codec: "h264",
+        maxWidth: 1050,
+        maxHeight: 1950,
+        fps: 60,
+      }),
+    );
+    expect(codecs(app)).toEqual(["jpeg", "h264"]);
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 });
+    act(() => window.dispatchEvent(new Event("resize")));
+    await waitFor(() =>
+      expect(app.daemon.appDevices.streamRequests.at(-1)?.settings).toMatchObject({
+        maxWidth: 700,
+        maxHeight: 1300,
+      }),
+    );
+  } finally {
+    HTMLElement.prototype.getBoundingClientRect = original;
+    if (previous) Object.defineProperty(window, "devicePixelRatio", previous);
+  }
+});

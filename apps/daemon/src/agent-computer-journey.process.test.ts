@@ -11,6 +11,7 @@ import { DeviceOperation } from "@ace/protocol/devices";
 import { startDaemon, readConfig, createDevThread, stubHandler } from "./index.ts";
 import { invoke } from "./browser-mcp-test-support.ts";
 import { approveForeground } from "./testing/screen-foreground.ts";
+import { deviceInputProcess } from "./testing/device-input-process.ts";
 
 const Reply = z.object({
   result: z.object({
@@ -57,31 +58,36 @@ it("screen and device agents edit, submit, read results and respect takeover, ex
     };
     publish?.({ header, payload, packet: framePacket(header, payload) });
   };
+  const probe: NonNullable<ConstructorParameters<typeof DevicePlatform>[0]["probe"]> = async (
+    _command,
+    args,
+  ) => {
+    const command = args.join(" ");
+    let stdout = "";
+    if (command === "-list-avds") stdout = "Pixel";
+    if (command === "devices -l")
+      stdout = "List of devices attached\nemulator-5554 device model:Pixel";
+    if (command.endsWith("emu avd name")) stdout = "Pixel\nOK";
+    if (command.includes("exec-out cat"))
+      stdout = saved
+        ? `<hierarchy><node class="android.widget.TextView" text="Saved ${text}" bounds="[0,0][100,100]" /></hierarchy>`
+        : '<hierarchy><node class="android.widget.EditText" text="" content-desc="Name" resource-id="name" focusable="true" clickable="true" bounds="[0,0][50,50]"/><node class="android.widget.Button" text="Submit" resource-id="submit" clickable="true" bounds="[50,0][100,50]"/></hierarchy>';
+    if (command.includes("'input' 'text'")) {
+      text = command.split("'text' '")[1]?.split("'")[0] ?? "";
+      paint();
+    }
+    if (command.includes("'input' 'keyevent' '66'")) {
+      saved = true;
+      paint();
+    }
+    return { stdout, stderr: "", code: 0 };
+  };
   const platform = new DevicePlatform({
     platform: "linux",
     home,
     env: { ANDROID_HOME: home },
-    async probe(_command, args) {
-      const command = args.join(" ");
-      let stdout = "";
-      if (command === "-list-avds") stdout = "Pixel";
-      if (command === "devices -l")
-        stdout = "List of devices attached\nemulator-5554 device model:Pixel";
-      if (command.endsWith("emu avd name")) stdout = "Pixel\nOK";
-      if (command.includes("exec-out cat"))
-        stdout = saved
-          ? `<hierarchy><node class="android.widget.TextView" text="Saved ${text}" bounds="[0,0][100,100]" /></hierarchy>`
-          : '<hierarchy><node class="android.widget.EditText" text="" content-desc="Name" resource-id="name" focusable="true" clickable="true" bounds="[0,0][50,50]"/><node class="android.widget.Button" text="Submit" resource-id="submit" clickable="true" bounds="[50,0][100,50]"/></hierarchy>';
-      if (command.includes("'input' 'text'")) {
-        text = command.split("'text' '")[1]?.split("'")[0] ?? "";
-        paint();
-      }
-      if (command.includes("'input' 'keyevent' '66'")) {
-        saved = true;
-        paint();
-      }
-      return { stdout, stderr: "", code: 0 };
-    },
+    probe,
+    spawn: deviceInputProcess(probe),
   });
   const screen = new ScreenManager({
     command: process.execPath,

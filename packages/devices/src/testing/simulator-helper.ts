@@ -113,7 +113,8 @@ commands.on("line", (line) => {
         error = { code: "permission_denied", message: "macOS permission denied" };
       else if (
         ["text.type", "key.press"].includes(request.input.kind) &&
-        permissions().frontmost === false
+        permissions().frontmost === false &&
+        !request.humanDeviceInput
       )
         error = {
           code: "not_supported",

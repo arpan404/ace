@@ -67,7 +67,7 @@ export function addDeviceControls(parent: HTMLElement, context: DeviceControlCon
     "Start live view",
     async () => {
       const deviceId = context.deviceId();
-      await run({ op: "start", deviceId, fps: 10 });
+      await run({ op: "start", deviceId, fps: 60 });
       await run({ op: "subscribe", deviceId });
       context.started(deviceId);
     },
