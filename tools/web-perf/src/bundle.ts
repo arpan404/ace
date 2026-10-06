@@ -66,7 +66,7 @@ try {
   const css = weigh([...initial].filter((file) => file.endsWith(".css")));
   const failures: string[] = [];
   const report = (label: string, size: number, limit: number) => {
-    const line = `${label.padEnd(56)} ${size.toFixed(1).padStart(7)} KB  (≤ ${limit})`;
+    const line = `${label.padEnd(56)} ${size.toFixed(2).padStart(7)} KB  (≤ ${limit})`;
     process.stdout.write(`${size > limit ? "✗" : " "} ${line}\n`);
     if (size > limit) failures.push(line);
   };

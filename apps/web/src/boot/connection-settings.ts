@@ -14,7 +14,8 @@ export const DaemonUrl = z.string().check(
 export const DaemonToken = z
   .string()
   .check(z.trim(), z.regex(/^[0-9a-f]{64}$/i, "A daemon token is 64 hexadecimal characters"));
-export const DaemonTarget = z.object({ url: DaemonUrl, token: DaemonToken });
+export const DaemonTargetShape = { url: DaemonUrl, token: DaemonToken };
+export const DaemonTarget = z.object(DaemonTargetShape);
 export type DaemonTarget = z.infer<typeof DaemonTarget>;
 
 const keys = { url: "ace.daemon.url", token: "ace.daemon.token" } as const;

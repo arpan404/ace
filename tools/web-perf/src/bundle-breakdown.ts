@@ -13,7 +13,9 @@ const Chunks = z.array(
 
 /** Rendered module lengths are before minification; only chunk gzip sizes are additive budgets. */
 export function workerBreakdown(out: string): string {
-  return bundleBreakdown(out, "worker-bundle.json", "Client worker", 15);
+  return ["client-worker", "machine-worker"]
+    .map((worker) => bundleBreakdown(out, `${worker}-bundle.json`, worker, 15))
+    .join("");
 }
 
 export function initialBreakdown(out: string): string {
