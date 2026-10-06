@@ -302,11 +302,15 @@ export async function openCodexSession(
       capabilities: { experimentalApi: true, requestAttestation: false },
     } satisfies InitializeParams);
     rpc.notify("initialized");
+    const threadPolicy = codexThreadPolicy(permissionMode, ctx.cwd);
     const params = {
       cwd: ctx.cwd,
-      ...codexThreadPolicy(permissionMode, ctx.cwd),
+      ...threadPolicy,
       ...(injection
-        ? { developerInstructions: injection.developerInstructions, config: injection.config }
+        ? {
+            developerInstructions: injection.developerInstructions,
+            config: { ...threadPolicy.config, ...injection.config },
+          }
         : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
     } satisfies ThreadStartParams;
@@ -318,7 +322,7 @@ export async function openCodexSession(
               ...params,
               threadId: ctx.fork.nativeSessionId,
               ...(ctx.fork.point.type === "turn" ? { lastTurnId: ctx.fork.point.nativeId } : {}),
-              excludeTurns: true,
+              excludeTurns: false,
               deferGoalContinuation: true,
             }
           : ctx.resume

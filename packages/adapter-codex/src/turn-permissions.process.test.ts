@@ -78,7 +78,7 @@ test("answering an idle child cannot raise the child's original Ask ceiling", as
     expect(obj(obj(last?.data).params)).toMatchObject({
       threadId: "child",
       approvalPolicy: "on-request",
-      sandboxPolicy: { type: "workspaceWrite" },
+      sandboxPolicy: { type: "readOnly" },
     });
     expect(
       h.frames

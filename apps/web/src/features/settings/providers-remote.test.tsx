@@ -6,8 +6,10 @@ import { harness } from "@/test/harness.tsx";
 test("providers show what discovery found, with the account at its limit flagged", async () => {
   await harness().open("/settings/providers");
   const providers = await screen.findByRole("region", { name: "Providers" });
-  expect(within(providers).getByText("claude 2.1.4 · 3 accounts")).toBeTruthy();
-  expect(within(providers).getByText("codex 0.48 · 3 accounts · 1 at limit")).toBeTruthy();
+  expect(within(providers).getByText("claude 2.1.4 · 3 accounts · 1 sign-in unknown")).toBeTruthy();
+  expect(
+    within(providers).getByText("codex 0.48 · 3 accounts · 1 sign-in unknown · 1 at limit"),
+  ).toBeTruthy();
   expect(within(providers).getByText("opencode 1.4 · signed in")).toBeTruthy();
   expect(within(providers).getByText("via ACP · 1 account")).toBeTruthy();
   expect(
@@ -92,6 +94,8 @@ test("pairing shows a one-time QR code, its code and a link that can be copied",
 test("a CLI with no ace account says how that CLI signs in, outside ace", async () => {
   const app = harness();
   app.daemon.services.installed.add("pi");
+  const row = app.daemon.services.providerStatuses.find((entry) => entry.provider === "pi");
+  if (row) row.installed = true;
   // Explicitly model discovery before the normal CLI account is registered.
   const normal = app.daemon.services.accounts.findIndex((account) => account.provider === "pi");
   if (normal >= 0) app.daemon.services.accounts.splice(normal, 1);
@@ -102,3 +106,40 @@ test("a CLI with no ace account says how that CLI signs in, outside ace", async 
   expect(detail.textContent).toContain("Run pi in a terminal, then type /login.");
   expect(detail.textContent).not.toContain("pi login");
 });
+
+test("unknown CLI authentication stays unknown and Check again reads fresh discovery", async () => {
+  const app = harness();
+  const account = app.daemon.services.accounts.find((entry) => entry.provider === "opencode");
+  if (!account) throw new Error("Missing OpenCode account");
+  account.quota.auth = "unknown";
+  await app.open("/settings/providers");
+  const providers = await screen.findByRole("region", { name: "Providers" }, { timeout: 10_000 });
+  expect(await within(providers).findByText(/opencode.*sign-in unknown/)).toBeTruthy();
+  const row = app.daemon.services.providerStatuses.find((entry) => entry.provider === "opencode");
+  if (!row) throw new Error("Missing discovery");
+  row.auth = "logged_out";
+  await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+  expect(
+    await within(providers).findByText(/opencode.*signed out/, {}, { timeout: 10_000 }),
+  ).toBeTruthy();
+}, 30_000);
+
+test("a CLI without ace accounts shows unknown until its own login is verified", async () => {
+  const app = harness();
+  app.daemon.services.accounts = app.daemon.services.accounts.filter(
+    (account) => account.provider !== "claude",
+  );
+  const row = app.daemon.services.providerStatuses.find((entry) => entry.provider === "claude");
+  if (!row) throw new Error("Missing Claude discovery");
+  row.installed = true;
+  row.version = "qa-cli";
+  row.auth = "unknown";
+  await app.open("/settings/providers");
+  const providers = await screen.findByRole("region", { name: "Providers" }, { timeout: 10_000 });
+  expect(await within(providers).findByText("claude qa-cli · sign-in unknown")).toBeTruthy();
+  row.auth = "logged_in";
+  await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+  expect(
+    await within(providers).findByText("claude qa-cli · signed in", {}, { timeout: 10_000 }),
+  ).toBeTruthy();
+}, 30_000);

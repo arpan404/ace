@@ -126,7 +126,8 @@ export function choiceLine(choice: ModelChoice): string {
 
 function note(account: AccountView | undefined): string {
   if (!account) return "";
-  if (!account.signedIn) return "Signed out";
+  if (!account.signedIn)
+    return account.quota.auth === "logged_out" ? "Signed out" : "Sign-in unknown";
   const window = tightestWindow(account);
   return window ? `${window.usedPercent}% of ${window.label} window used` : "No usage reported";
 }
@@ -164,7 +165,7 @@ export function modelChoices(
       .filter((model) => model.provider === provider && !model.hidden)
       .flatMap((model): ModelChoice[] => {
         const account = byId.get(model.instance);
-        if (account && !account.signedIn) return [];
+        if (account?.quota.auth === "logged_out") return [];
         const window = account && tightestWindow(account);
         const limit = account && accountLimit(account, now);
         const exhausted = limit?.level === "reached";

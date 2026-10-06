@@ -23,14 +23,17 @@ export function describeInstall(install: ProviderInstall): string {
     return `${install.via} · runs ${install.binary}`;
   if (install.state === "not_installed")
     return `Not installed · ace looks for ${install.binary} on your PATH`;
-  const signedIn = install.accounts.filter((account) => account.auth === "logged_in");
+  const unknown = install.accounts.filter((account) => account.auth === "unknown");
   const atLimit = install.accounts.filter((account) => account.availability === "exhausted");
   const parts = [install.via ?? [install.binary, install.version].filter(Boolean).join(" ")];
   // No ace account: the daemon runs the CLI on the person's own login.
-  if (install.accounts.length === 0) parts.push("its own login");
-  else if (signedIn.length === 0) parts.push("signed out");
-  else if (install.accounts.length === 1 && !install.via) parts.push("signed in");
-  else parts.push(`${signedIn.length} account${signedIn.length === 1 ? "" : "s"}`);
+  if (install.state === "unknown") parts.push("sign-in unknown");
+  else if (install.state === "signed_out") parts.push("signed out");
+  else if (install.accounts.length === 0 || (install.accounts.length === 1 && !install.via))
+    parts.push("signed in");
+  else parts.push(`${install.accounts.length} account${install.accounts.length === 1 ? "" : "s"}`);
+  if (unknown.length && install.state !== "unknown")
+    parts.push(`${unknown.length} sign-in unknown`);
   if (atLimit.length) parts.push(`${atLimit.length} at limit`);
   return parts.join(" · ");
 }
@@ -123,6 +126,7 @@ function ProviderRow(props: { install: ProviderInstall }) {
 
 function accountState(account: ProviderAccount): string {
   if (account.auth === "logged_out") return "Signed out";
+  if (account.auth === "unknown") return "Sign-in unknown";
   if (account.availability === "exhausted") return "Limit reached";
   if (account.availability === "near_limit") return "Near limit";
   return "Signed in";

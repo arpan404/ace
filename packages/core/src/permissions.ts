@@ -48,6 +48,7 @@ export function supportsPermissionMode(
   return (
     capabilities?.modes.includes(mode) === true ||
     (mode !== "full-access" &&
+      mode !== "ask" &&
       capabilities?.guarantees?.some(
         (guarantee) => guarantee.mode === mode || guarantee.mode === "auto-review",
       ) === true)

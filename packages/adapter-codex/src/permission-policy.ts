@@ -10,7 +10,7 @@ export function codexThreadPolicy(
     sandbox:
       mode === "full-access"
         ? "danger-full-access"
-        : mode === "read-only"
+        : mode === "read-only" || mode === "ask"
           ? "read-only"
           : "workspace-write",
     approvalsReviewer: "user",
@@ -36,7 +36,7 @@ export function codexTurnPolicy(
     sandboxPolicy:
       mode === "full-access"
         ? { type: "dangerFullAccess" }
-        : mode === "read-only"
+        : mode === "read-only" || mode === "ask"
           ? { type: "readOnly", networkAccess: false }
           : {
               type: "workspaceWrite",
