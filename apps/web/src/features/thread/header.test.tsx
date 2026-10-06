@@ -439,7 +439,7 @@ test("the ⋯ menu offers the same thread actions, in the same order, as the row
   const menu = await screen.findByRole("menu", { name: /^Actions for/ });
   const context = within(menu)
     .getAllByRole("menuitem")
-    .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R)$/, ""));
+    .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R|P)$/, ""));
   // The thread screen adds a side chat and the agent tree, and shows its own shortcuts.
   const shortcut = /(Alt\+Ctrl\+[RP]|(Alt\+)?Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
   expect(

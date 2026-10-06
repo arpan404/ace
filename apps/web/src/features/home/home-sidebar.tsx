@@ -34,7 +34,7 @@ export function HomeSidebar() {
   const organizer = useOrganizer();
   useSeenWhileOpen();
   const loaded = useSidebarLoaded();
-  const empty = !list.active.length && !list.settled.length;
+  const empty = !list.pinned.length && !list.active.length && !list.settled.length;
   const directory = useProjectDirectory();
   const dialogs = useProjectDialogs();
   const noProjects = directory.loaded && directory.projects.length === 0;

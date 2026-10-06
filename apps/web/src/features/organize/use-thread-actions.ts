@@ -17,6 +17,15 @@ export interface ThreadTarget {
   title: string;
   workspaceId: string;
   snoozedUntil?: number | null | undefined;
+  pinned?: boolean | undefined;
+  /** Its place among pinned threads, so Undo puts an unpinned thread back where it was. */
+  pinOrder?: number | undefined;
+}
+
+/** A pinned thread's new place, from a drag or a keyboard move (`placePinned`). */
+export interface PinPlacement {
+  entry: ThreadTarget;
+  order: number;
 }
 
 export interface ThreadActions {
@@ -24,7 +33,16 @@ export interface ThreadActions {
   unsettle(entry: ThreadTarget): void;
   snooze(entry: ThreadTarget, until: number, now: number): void;
   wake(entry: ThreadTarget): void;
+  /** Pin (leading the group) or unpin (with Undo). */
   setPinned(entry: ThreadTarget, pinned: boolean): void;
+  /** Pin each thread at its new place: a drop into the Pinned group or a move within it. */
+  placePinned(placements: readonly PinPlacement[]): void;
+  /** Pin (leading the group, in list order) or unpin several at once, with one Undo. */
+  setPinnedMany(entries: readonly ThreadTarget[], pinned: boolean): void;
+  /** Archive several threads at once, with one Undo. */
+  archiveMany(entries: readonly ThreadTarget[]): void;
+  /** Delete several threads at once, with one Undo (see `remove`). */
+  removeMany(entries: readonly ThreadTarget[]): void;
   setUnread(entry: ThreadTarget, unread: boolean): void;
   rename(entry: ThreadTarget, title: string): void;
   archive(entry: ThreadTarget): void;
@@ -68,7 +86,7 @@ interface Action {
  * Delete is permanent on the daemon and there is no restore command, so it archives at once
  * (hidden on every device, and recoverable), Undo unarchives, and the delete itself is sent
  * when the Undo toast closes. A window closed in between leaves the thread archived, never
- * half deleted. The Home context menu and the thread's ⋯ menu both use these, so labels,
+ * half deleted. Unpinning offers Undo too, back to the place the thread had. The Home context menu and the thread's ⋯ menu both use these, so labels,
  * toasts and Undo match wherever the person acts.
  */
 export function useThreadActions(): ThreadActions {
@@ -94,12 +112,10 @@ export function useThreadActions(): ThreadActions {
       const note = waitingNote({ online: client.state === "ready", slow: false });
       return note ? { description: note } : {};
     };
-    /** Apply now with a toast offering Undo, which runs `undo`. */
-    const reversible = (
-      entry: ThreadTarget,
-      action: Action,
+    /** Apply each now with one toast offering Undo, which runs every `undo`. */
+    const reversibleAll = (
+      steps: readonly { entry: ThreadTarget; action: Action; undo: Action }[],
       done: string,
-      undo: Action,
     ): Promise<boolean> => {
       const toastId = toast.add({
         title: done,
@@ -109,15 +125,44 @@ export function useThreadActions(): ThreadActions {
           children: "Undo",
           onClick: () => {
             toast.close(toastId);
-            void act(entry, undo);
+            for (const step of steps) void act(step.entry, step.undo);
           },
         },
       });
-      return act(entry, action).then((applied) => {
+      return Promise.all(steps.map((step) => act(step.entry, step.action))).then((results) => {
+        const applied = results.some(Boolean);
         if (!applied) toast.close(toastId);
         return applied;
       });
     };
+    /** Apply now with a toast offering Undo, which runs `undo`. */
+    const reversible = (entry: ThreadTarget, action: Action, done: string, undo: Action) =>
+      reversibleAll([{ entry, action, undo }], done);
+    const pin = (entry: ThreadTarget, order?: number): Action => ({
+      patch: order === undefined ? { pinned: true } : { pinned: true, pinOrder: order },
+      payload: {
+        type: "thread.pin",
+        threadId: id(entry),
+        pinned: true,
+        ...(order === undefined ? {} : { order }),
+      },
+      verb: "Pin",
+      failed: "pin the thread",
+    });
+    const unpin = (entry: ThreadTarget): Action => ({
+      patch: { pinned: false },
+      payload: { type: "thread.pin", threadId: id(entry), pinned: false },
+      verb: "Unpin",
+      failed: "unpin the thread",
+    });
+    /** Unpinning, undone by pinning again in the place it had. */
+    const unpinStep = (entry: ThreadTarget) => ({
+      entry,
+      action: unpin(entry),
+      undo: pin(entry, entry.pinOrder),
+    });
+    const count = (entries: readonly unknown[]) =>
+      entries.length === 1 ? "1 thread" : `${entries.length} threads`;
     const settle = (entry: ThreadTarget): Action => ({
       patch: { settled: true },
       payload: { type: "thread.settle", threadId: id(entry) },
@@ -154,6 +199,49 @@ export function useThreadActions(): ThreadActions {
       verb: "Restore",
       failed: "restore it",
     });
+    /**
+     * Delete is permanent on the daemon and there is no restore command, so it archives at
+     * once (hidden on every device, and recoverable), Undo unarchives, and the delete itself is
+     * sent when the Undo toast closes.
+     */
+    const removeAll = (entries: readonly ThreadTarget[], done: string) => {
+      let undone = false;
+      const toastId = toast.add({
+        title: done,
+        ...waiting(),
+        timeout: undoWindowMs,
+        actionProps: {
+          children: "Undo",
+          onClick: () => {
+            undone = true;
+            toast.close(toastId);
+            for (const entry of entries) void act(entry, restore(entry));
+          },
+        },
+        onClose: () => {
+          if (undone) return;
+          for (const entry of entries)
+            void act(entry, {
+              patch: { deleted: true },
+              payload: { type: "thread.delete", threadId: id(entry) },
+              verb: "Delete",
+              failed: "delete the thread",
+            }).then((deleted) => {
+              // Refused (its agents still work, say): bring it back rather than leave it hidden.
+              if (!deleted) void act(entry, restore(entry));
+            });
+        },
+      });
+      void Promise.all(
+        entries.map((entry) =>
+          act(entry, { ...archive(entry), verb: "Delete", failed: "delete the thread" }),
+        ),
+      ).then((hidden) => {
+        if (hidden.some(Boolean)) return;
+        undone = true;
+        toast.close(toastId);
+      });
+    };
     const rename = (entry: ThreadTarget, title: string): Action => ({
       patch: { title },
       payload: { type: "thread.rename", threadId: id(entry), title },
@@ -174,12 +262,31 @@ export function useThreadActions(): ThreadActions {
         ),
       wake: (entry) => void act(entry, snooze(entry, null)),
       setPinned: (entry, pinned) =>
-        void act(entry, {
-          patch: { pinned },
-          payload: { type: "thread.pin", threadId: id(entry), pinned },
-          verb: pinned ? "Pin" : "Unpin",
-          failed: pinned ? "pin the thread" : "unpin the thread",
-        }),
+        void (pinned
+          ? act(entry, pin(entry))
+          : reversibleAll([unpinStep(entry)], `Unpinned · ${entry.title}`)),
+      placePinned: (placements) => {
+        for (const { entry, order } of placements) void act(entry, pin(entry, order));
+      },
+      setPinnedMany: (entries, pinned) => {
+        const changing = entries.filter((entry) => (entry.pinned === true) !== pinned);
+        if (!changing.length) return;
+        if (pinned) {
+          // They lead the group together, in the order they were listed.
+          const top = Date.now();
+          changing.forEach((entry, index) => {
+            void act(entry, pin(entry, top + changing.length - index));
+          });
+          return;
+        }
+        void reversibleAll(changing.map(unpinStep), `Unpinned ${count(changing)}`);
+      },
+      archiveMany: (entries) =>
+        void reversibleAll(
+          entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
+          `Archived ${count(entries)}`,
+        ),
+      removeMany: (entries) => removeAll(entries, `Deleted ${count(entries)}`),
       setUnread: (entry, unread) =>
         void act(entry, {
           patch: { unread },
@@ -203,41 +310,7 @@ export function useThreadActions(): ThreadActions {
       },
       archive: (entry) =>
         void reversible(entry, archive(entry), `Archived · ${entry.title}`, unarchive(entry)),
-      remove: (entry) => {
-        let undone = false;
-        const toastId = toast.add({
-          title: `Deleted · ${entry.title}`,
-          ...waiting(),
-          timeout: undoWindowMs,
-          actionProps: {
-            children: "Undo",
-            onClick: () => {
-              undone = true;
-              toast.close(toastId);
-              void act(entry, restore(entry));
-            },
-          },
-          onClose: () => {
-            if (undone) return;
-            void act(entry, {
-              patch: { deleted: true },
-              payload: { type: "thread.delete", threadId: id(entry) },
-              verb: "Delete",
-              failed: "delete the thread",
-            }).then((deleted) => {
-              // Refused (its agents still work, say): bring it back rather than leave it hidden.
-              if (!deleted) void act(entry, restore(entry));
-            });
-          },
-        });
-        void act(entry, { ...archive(entry), verb: "Delete", failed: "delete the thread" }).then(
-          (hidden) => {
-            if (hidden) return;
-            undone = true;
-            toast.close(toastId);
-          },
-        );
-      },
+      remove: (entry) => removeAll([entry], `Deleted · ${entry.title}`),
       newThreadOnMain: (entry) =>
         void navigate({ to: "/new", search: { project: entry.workspaceId, base: "main" } }),
       copyLink: (entry) => {

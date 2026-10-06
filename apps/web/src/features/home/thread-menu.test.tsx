@@ -53,7 +53,7 @@ test("Mark unread and Pin are kept by the daemon, so the list shows them after a
 
   menu = await rightClick(/Backpressure/);
   expect(within(menu).getByRole("menuitem", { name: "Mark read" })).toBeTruthy();
-  await userEvent.click(within(menu).getByRole("menuitem", { name: "Pin" }));
+  await userEvent.click(within(menu).getByRole("menuitem", { name: /^Pin/ }));
   await waitFor(() => expect(card(/Backpressure.*Pinned/)).toBeTruthy());
   const view = app.daemon.snapshot({ kind: "threads" });
   expect(view?.kind === "threads" && view.threads["thread-fan-out"]).toMatchObject({
@@ -67,7 +67,7 @@ test("Mark unread and Pin are kept by the daemon, so the list shows them after a
   await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
   await waitFor(() => expect(card(/Backpressure.*, unread.*Pinned/)).toBeTruthy());
   menu = await rightClick(/Backpressure/);
-  expect(within(menu).getByRole("menuitem", { name: "Unpin" })).toBeTruthy();
+  expect(within(menu).getByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
 });
 
 test("opening an unread thread marks it read", async () => {

@@ -154,11 +154,15 @@ export function threadActions(
 }
 
 /** The context menu's single-key hints, where the Home row binds them. */
-const rowHints: Partial<Record<string, string>> = { "new-on-main": "shift+n", rename: "r" };
+const rowHints: Partial<Record<string, string>> = {
+  "new-on-main": "shift+n",
+  rename: "r",
+  pin: "p",
+};
 
 /**
  * Everything a person can do to one thread, for the Home row's context menu and the thread's ⋯
- * menu alike (`threadActions`), with Snooze before settling. `hints` shows the R and ⇧N keys
+ * menu alike (`threadActions`), with Snooze before settling. `hints` shows the R, P and ⇧N keys
  * the context menu binds; `shortcuts` the open thread's own (⌥⌘R, ⌥⌘P, ⇧⌘A), where they act;
  * `extra` adds the caller's own items after the link.
  */
