@@ -44,10 +44,10 @@ Example:
     "pr": {
       "number": 4,
       "repository": {
-        "forge": "github",
-        "host": "uODdulxKR",
+        "forge": "gitlab",
+        "host": "SrPryam",
         "name": "Ur",
-        "owner": "RjRPQm/HytHBzp/jdkd-4dtq/Xj"
+        "owner": "D6ce67/Et/qK/QYZ51OxX/fmt2qar/IaeiN0iYt/CctkwKRD/jRPQmsJH/tHBzp/jdkd-4dtq/Xj"
       }
     },
     "threadId": "example"

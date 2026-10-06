@@ -29,20 +29,19 @@ Example:
 
 ```json
 {
-  "concurrency": 4,
-  "enabled": true,
+  "concurrency": 2,
+  "enabled": false,
   "id": "example",
-  "jitterMs": 6,
+  "jitterMs": 9,
   "missedRun": "skip",
-  "model": "example",
   "prompt": "example",
-  "provider": "cursor",
+  "provider": "pi",
   "title": "example",
   "trigger": {
     "kind": "schedule",
     "schedule": {
       "expression": "example",
-      "kind": "rrule",
+      "kind": "cron",
       "startAt": 0,
       "timezone": "example"
     }
@@ -83,7 +82,7 @@ Example:
 
 ```json
 {
-  "before": 9,
+  "before": null,
   "runs": []
 }
 ```
@@ -106,19 +105,22 @@ Example:
 {
   "automation": {
     "concurrency": 4,
-    "enabled": false,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 2,
+    "jitterMs": 0,
     "missedRun": "skip",
+    "model": "example",
     "prompt": "example",
     "provider": "claude",
     "title": "example",
     "trigger": {
-      "event": "ci_failed",
-      "kind": "github",
-      "label": "example",
-      "pollIntervalMs": 60003,
-      "repository": "R-/tMJV"
+      "kind": "schedule",
+      "schedule": {
+        "expression": "example",
+        "kind": "cron",
+        "startAt": 0,
+        "timezone": "example"
+      }
     },
     "workspace": "example",
     "worktree": true
@@ -195,7 +197,7 @@ Example:
 
 ```json
 {
-  "limit": 5,
+  "limit": 6,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -221,12 +223,9 @@ Example:
 ```json
 {
   "error": "example",
-  "inbox": {
-    "before": null,
-    "runs": []
-  },
   "ok": false,
   "requestId": "example",
+  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -255,9 +254,9 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "result": "example",
-  "startedAt": 8,
-  "status": "failed",
+  "startedAt": 7,
+  "status": "skipped",
+  "threadId": "example",
   "title": "example",
   "trigger": "github"
 }
@@ -342,7 +341,7 @@ Example:
   "event": "pr_changed",
   "kind": "github",
   "pollIntervalMs": 60009,
-  "repository": "F37tf/fe-"
+  "repository": "B4w-uK/lXq"
 }
 ```
 

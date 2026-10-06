@@ -3,6 +3,7 @@ export type { FakeDaemonOptions, ThreadInit } from "./daemon.ts";
 export { fakeTransport } from "./transport.ts";
 export { SoakDaemon } from "./soak.ts";
 export type { SoakOptions } from "./soak.ts";
+export { longMarkdownAnswer } from "./soak-markdown.ts";
 export { LongThreadSoak } from "./long-thread-soak.ts";
 export type { LongThreadSoakOptions } from "./long-thread-soak.ts";
 export { ScenarioPlayer } from "./scenario.ts";

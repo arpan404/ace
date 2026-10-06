@@ -35,6 +35,20 @@
       "type": "array",
       "x-ace-constraint": "Custom model IDs must be unique."
     },
+    "defaultModel": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
+          "type": "string",
+          "x-ace-constraint": "The pseudo model ID default is not accepted; choose a concrete model ID."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "enabled": {
       "type": "boolean"
     },

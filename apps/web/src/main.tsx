@@ -1,4 +1,5 @@
 import type { ClientApi } from "@ace/client";
+import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
 import { StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -7,6 +8,7 @@ import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
 import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient } from "./boot/daemon.ts";
+import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import { desktopConnection, desktopDaemon, hasDesktopBridge } from "./boot/desktop.ts";
 import { webStorage } from "./boot/web-storage.ts";
 import {
@@ -31,7 +33,14 @@ const environment = {
 const stores = { local, session };
 // Store changes reach React once per animation frame (none while the tab is hidden).
 const batch = frameBatch((flush) => requestAnimationFrame(flush));
-const app = (client: ClientApi) => <App client={client} storage={local} batch={batch} />;
+const app = (client: ClientApi, machines?: MachinePool) => (
+  <App client={client} storage={local} batch={batch} machines={machines} />
+);
+/** A real daemon's app, with the machine pool this browser has stored for its connection. */
+function DaemonApp(props: { client: ClientApi }) {
+  return app(props.client, useBrowserMachinePool(local));
+}
+const daemonApp = (client: ClientApi) => <DaemonApp client={client} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 function gate(options: { handed?: DaemonTarget | undefined; desktop?: boolean } = {}) {
@@ -45,7 +54,7 @@ function gate(options: { handed?: DaemonTarget | undefined; desktop?: boolean } 
       fragment={location.hash}
       onFragmentRead={forgetFragment}
     >
-      {app}
+      {daemonApp}
     </ConnectionGate>
   );
 }
@@ -57,9 +66,10 @@ async function content(): Promise<ReactNode> {
     const { client } = fake;
     if (!profileName(local)) setProfileName(local, fake.profileName);
     await client.start();
+    const machines = await fake.machines;
     return (
       <DaemonConnectionContext.Provider value={fake.connection}>
-        {app(client)}
+        {app(client, machines)}
       </DaemonConnectionContext.Provider>
     );
   }

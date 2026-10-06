@@ -10,7 +10,7 @@ export {
   useThreadParts,
   type ThreadParts,
 } from "./agents/thread-parts.ts";
-export { findRunningTerminal } from "./services.ts";
+export { findRunningTerminal, useRunningTerminalNames } from "./services.ts";
 export {
   newTerminal,
   openNewTerminal,

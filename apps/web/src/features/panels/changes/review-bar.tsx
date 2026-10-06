@@ -95,7 +95,7 @@ export function ReviewBar(props: {
                     onClick={() => props.onJump(draft.file)}
                     className="h-auto flex-col items-start gap-0 py-1.5"
                   >
-                    <span className="block w-full truncate font-mono text-[11.5px] text-subtle-foreground">
+                    <span className="block w-full truncate font-mono text-xs text-subtle-foreground">
                       {draft.file}:{draft.line}
                     </span>
                     <span className="block w-full truncate">{draft.text}</span>

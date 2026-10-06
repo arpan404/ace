@@ -1,6 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { daemonPreview } from "./preview/daemon-preview.ts";
-import { onTerminalEnd } from "./terminal/closing.ts";
+
 import { daemonTerminals } from "./terminal/daemon-terminals.ts";
 import { TerminalSessions } from "./terminal/sessions.ts";
 
@@ -10,7 +10,5 @@ import { TerminalSessions } from "./terminal/sessions.ts";
  */
 export function createPanelSources(client: ClientApi) {
   const terminals = new TerminalSessions(daemonTerminals(client));
-  // A closed terminal tab ends its shell (the tab kind's onClose has no client to ask).
-  onTerminalEnd((end) => terminals.end(end.threadId, end.terminalId));
   return { terminals, preview: daemonPreview(client) };
 }

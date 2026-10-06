@@ -3,7 +3,8 @@ import { useClient } from "@ace/client-react";
 import type { CommandResult, Project, ProjectsResult } from "@ace/protocol";
 import { projectProblem, type ProjectProblem } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import type { Machine } from "@/lib/machines.ts";
 import { forgetProject, rememberProject } from "@/lib/project-cache.ts";
 import { useOrganizer } from "@/features/organize/index.ts";
 
@@ -73,39 +74,62 @@ export interface CreateInput {
   gitignore?: string;
 }
 
+/** A client that refuses everything: the chosen machine isn't connected. */
+function unreachable(): never {
+  throw new ProjectRefused("machine_offline");
+}
+
 /**
- * The project commands with their receipts checked, keeping the shared project list in step as
- * soon as the daemon answers (its push follows). Each rejects with `ProjectRefused` or the
- * client's error.
+ * The project commands with their receipts checked, on `machine` (this window's daemon when
+ * none is given). Commands for this window's daemon keep the shared project list in step as
+ * soon as it answers (its push follows); another machine's projects aren't in that list. Each
+ * rejects with `ProjectRefused` (`machine_offline` when the machine isn't connected; nothing
+ * falls back to another machine) or the client's error.
  */
-export function useProjectCommands() {
-  const client = useClient();
+export function useProjectCommands(machine?: Machine) {
+  const commandsOn = useProjectCommandsOn();
+  return useMemo(() => commandsOn(machine), [commandsOn, machine]);
+}
+
+/** `useProjectCommands` for a machine chosen at call time (a row from any machine). */
+export function useProjectCommandsOn() {
+  const primary = useClient();
   const queryClient = useQueryClient();
   const organizer = useOrganizer();
-  return useMemo(() => {
-    const keep = (result: Added) => {
-      rememberProject(queryClient, result.project);
-      return result;
-    };
-    return {
-      add: async (path: string) => keep(added(await client.projects.add({ path }))),
-      create: async (input: CreateInput) => keep(added(await client.projects.create(input))),
-      clone: async (input: { parent: string; name: string; url: string }, commandId: string) =>
-        keep(added(await client.projects.clone(input, {}, commandId))),
-      cancelClone: async (commandId: string) =>
-        answer(await client.projects.cancelClone(commandId), "cancelled"),
-      rename: async (workspaceId: string, name: string) => {
-        const receipt = accepted(await client.projects.rename({ workspaceId, name }));
-        if (receipt.workspace) rememberProject(queryClient, receipt.workspace);
-      },
-      remove: async (workspaceId: string, archiveThreads: boolean) => {
-        accepted(await client.projects.remove({ workspaceId, archiveThreads }));
-        forgetProject(queryClient, workspaceId);
-        // Home stops filtering on a project that is gone.
-        if (organizer.getState().project === workspaceId) organizer.setProject(null);
-      },
-    };
-  }, [client, queryClient, organizer]);
+  return useCallback(
+    (machine?: Machine) => {
+      const client = machine ? machine.client : primary;
+      const shared = machine === undefined || machine.primary;
+      const reach = () => client ?? unreachable();
+      const keep = (result: Added) => {
+        if (shared) rememberProject(queryClient, result.project);
+        return result;
+      };
+      return {
+        add: async (path: string) => keep(added(await reach().projects.add({ path }))),
+        create: async (input: CreateInput) => keep(added(await reach().projects.create(input))),
+        clone: async (input: { parent: string; name: string; url: string }, commandId: string) =>
+          keep(added(await reach().projects.clone(input, {}, commandId))),
+        cancelClone: async (commandId: string) =>
+          answer(await reach().projects.cancelClone(commandId), "cancelled"),
+        /** Clone progress pushed by this machine; returns the unsubscribe. */
+        onCloneProgress: (listener: Parameters<ClientApi["projects"]["onCloneProgress"]>[0]) =>
+          client ? client.projects.onCloneProgress(listener) : () => {},
+        rename: async (workspaceId: string, name: string) => {
+          const receipt = accepted(await reach().projects.rename({ workspaceId, name }));
+          if (receipt.workspace && shared) rememberProject(queryClient, receipt.workspace);
+        },
+        remove: async (workspaceId: string, archiveThreads: boolean) => {
+          accepted(await reach().projects.remove({ workspaceId, archiveThreads }));
+          if (!shared) return;
+          forgetProject(queryClient, workspaceId);
+          // Home stops filtering on a project that is gone.
+          if (organizer.getState().project === workspaceId) organizer.setProject(null);
+        },
+      };
+    },
+    [primary, queryClient, organizer],
+  );
 }
 
 export type ProjectCommands = ReturnType<typeof useProjectCommands>;
@@ -114,8 +138,8 @@ export type ProjectCommands = ReturnType<typeof useProjectCommands>;
 export function projectReads(client: ClientApi) {
   return {
     home: async (signal: AbortSignal) => answer(await client.projects.home({ signal }), "home"),
-    recent: async (signal: AbortSignal) =>
-      answer(await client.projects.recentFolders(8, { signal }), "recentFolders"),
+    recent: async (limit: number, signal: AbortSignal) =>
+      answer(await client.projects.recentFolders(limit, { signal }), "recentFolders"),
     browse: async (
       input: { path: string; after?: string; showHidden: boolean },
       signal: AbortSignal,
@@ -132,6 +156,18 @@ export function projectReads(client: ClientApi) {
         ),
         "directories",
       ),
+    /** The daemon's ranked folder search (`fs.search`); a newer one supersedes it. */
+    search: async (query: string, signal: AbortSignal) =>
+      answer(await client.projects.search({ query, limit: 50 }, { signal }), "search"),
+    /** Path completion (`fs.complete`) for an absolute or `~/` path. */
+    complete: async (path: string, showHidden: boolean, signal: AbortSignal) =>
+      answer(
+        await client.projects.complete({ path, limit: 50, showHidden }, { signal }),
+        "completion",
+      ),
+    /** A clone address checked and normalised (`owner/repo` too), with the folder it suggests. */
+    validateClone: async (url: string, signal: AbortSignal) =>
+      answer(await client.projects.validateCloneUrl(url, { signal }), "cloneUrl"),
     inspect: async (path: string, signal: AbortSignal) =>
       answer(await client.projects.inspect(path, { signal }), "inspection"),
   };

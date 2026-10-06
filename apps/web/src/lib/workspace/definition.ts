@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import type { KeymapId } from "@/lib/keymap.ts";
 import type { Dock, OpenRequest, ScopeWorkspace, WorkspaceTab } from "./model.ts";
 import type { TabKind } from "./registry.ts";
@@ -24,6 +25,11 @@ export interface WorkspaceDefinitionOptions {
    * still opens the launcher there.
    */
   plus?: Partial<Record<Dock, DockPlus>>;
+  /**
+   * A dock's own controls, drawn in its strip after the showing tab's actions whatever tab
+   * shows (the bottom panel's terminal sessions). Pass lazy components: they load with the dock.
+   */
+  dockActions?: Partial<Record<Dock, ComponentType<{ scope: string; dock: Dock }>>>;
   /** The tab kinds, as a lazy module's default export. */
   kinds(): Promise<{ default: readonly TabKind[] }>;
 }
@@ -79,6 +85,7 @@ export function defineWorkspace(options: WorkspaceDefinitionOptions): WorkspaceD
     initial: options.initial,
     ...(options.shortcuts ? { shortcuts: options.shortcuts } : {}),
     ...(options.plus ? { plus: options.plus } : {}),
+    ...(options.dockActions ? { dockActions: options.dockActions } : {}),
     load,
     loaded: () => ready,
     kinds: () => [...byKind.values()],

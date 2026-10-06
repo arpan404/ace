@@ -88,6 +88,12 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
   createInterface({input: process.stdin}).on('line', line => {
     const request = JSON.parse(line);
     if (mode === 'hang') return;
+    if (mode === 'pi') {
+      if (!['get_available_models','get_state'].includes(request.type)) process.exit(9);
+      const data = request.type === 'get_state' ? {model:payload.currentModel} : {models:payload.models};
+      console.log(JSON.stringify({type:'response',id:request.id,command:request.type,success:true,data}));
+      return;
+    }
     if (mode === 'claude') {
       if (request.type !== 'control_request' || request.request?.subtype !== 'initialize') process.exit(9);
       console.log(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:request.request_id,response:payload}}));

@@ -1,3 +1,4 @@
+import { EngineModels } from "./models.ts";
 import { personCommand } from "./person-command.ts";
 import { cancelDelegatedInputs } from "./stop-intents.ts";
 import { execFile } from "node:child_process";
@@ -39,6 +40,7 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  models?: import("@ace/models").ModelCatalogApi;
   worktreeGit?: WorktreeGit;
   permissionSettings?: PermissionSettings;
   providerEnabled?(provider: import("@ace/protocol").ProviderKind, instance?: string): boolean;
@@ -126,6 +128,7 @@ export class Engine {
       options.commandId,
       options.aceToolAction,
     );
+    const models = new EngineModels(this.repo, () => this.clock.now(), options.models);
     this.admissions = new CreationAdmissions(this.repo, this.nextThreadId);
     this.selectInstance = options.selectInstance;
     this.registry = options.registry ?? new AdapterRegistry();
@@ -141,6 +144,7 @@ export class Engine {
     this.steering = new IntentWorkers((id) => this.steer(this.actor(id)), this.report);
     this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
     this.sessions = new Sessions({
+      models,
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
@@ -175,6 +179,7 @@ export class Engine {
         },
       },
       () => this.clock.now(),
+      models,
       async (id) => {
         const target = this.actor(id);
         await target.flush();
@@ -242,6 +247,7 @@ export class Engine {
       options.selectInstance,
       options.machine,
       options.providerEnabled,
+      models,
     );
     this.internalHandler = {
       handle: (command, context) =>
@@ -272,10 +278,11 @@ export class Engine {
       );
     const recovery = this.recovery;
     const repo = this.repo;
-    if (options.recovery?.preferences) {
+    if (options.recovery?.preferences || options.models) {
       this.readyPromise = (async () => {
         await recovery.prepare();
         for (const state of repo.states()) await recovery.prepare(state.threadId);
+        models.migrateCachedDefaults();
         if (!this.closing) recover();
         this.readyState = true;
       })();

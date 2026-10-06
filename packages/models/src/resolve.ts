@@ -1,3 +1,4 @@
+import { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
 import { ModelRoleSpec, type CatalogModel, type ModelResolution } from "@ace/protocol";
 
 export function resolveModel(
@@ -6,6 +7,7 @@ export function resolveModel(
   stale: (instance: string) => boolean,
 ): ModelResolution {
   const spec = ModelRoleSpec.parse(input);
+  if (isDefaultSelection(spec.model)) delete spec.model;
   const ranks = new Map<string, number>();
   for (const [index, id] of spec.preferenceOrder.entries())
     if (!ranks.has(id)) ranks.set(id, index);
@@ -21,8 +23,8 @@ export function resolveModel(
     )
       continue;
     if (spec.model) {
-      if (model.id !== spec.model && model.resolvedModelId !== spec.model) continue;
-    } else if (model.deprecated || model.hidden) continue;
+      if (!matchesModel(model, spec.model)) continue;
+    } else if (model.deprecated || model.legacy || model.hidden) continue;
     if (spec.imageInput && !model.inputModalities.includes("image")) continue;
     if (spec.effort && !model.reasoningEfforts.includes(spec.effort)) continue;
     if (

@@ -33,7 +33,7 @@ function Breadcrumb(props: {
 }) {
   const segments = props.path ? pathParts(props.path).segments : [];
   const crumb =
-    "flex h-6 min-w-0 shrink items-center rounded-[5px] px-1 text-muted-foreground outline-none hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:text-foreground";
+    "flex h-6 min-w-0 shrink items-center rounded-xs px-1 text-muted-foreground outline-none hover:text-foreground focus-ring aria-expanded:text-foreground";
   const folderOf = (index: number) => `${segments.slice(0, index + 1).join("/")}/`;
   // Deep paths fold their middle folders into a menu, so the file name always has room.
   const hidden = segments.length > 3 ? segments.slice(0, -2) : [];
