@@ -49,16 +49,23 @@ it("live screenshots and MCP actions use the approved session and human takeover
   await expect(tool("screen_type", { text: "hello" })).rejects.toThrow("ownership");
   screen.controller(id, "agent", "agent-1");
   await tool("screen_type", { text: "hello" });
-  expect((await received.promise).payload.toString()).toBe("jpeg-0");
-  expect(await tool("screen_screenshot", {})).toEqual({
+  const firstFrame = await received.promise;
+  expect(firstFrame.payload.toString()).toBe("jpeg-0");
+  const screenshot = await tool("screen_screenshot", {});
+  expect(screenshot).toEqual({
     content: [
-      { type: "image", data: Buffer.from("jpeg-1").toString("base64"), mimeType: "image/jpeg" },
+      {
+        type: "image",
+        data: screen.screenshot(id).payload.toString("base64"),
+        mimeType: "image/jpeg",
+      },
       {
         type: "text",
         text: expect.stringContaining("Screenshot scale: 1 pixels per target point"),
       },
     ],
   });
+  expect(screenshot.content[0]).not.toMatchObject({ data: firstFrame.payload.toString("base64") });
   screen.controller(id, "human", "human-1");
   await expect(tool("screen_click", { x: 1, y: 2 })).rejects.toThrow("ownership");
   await expect(
