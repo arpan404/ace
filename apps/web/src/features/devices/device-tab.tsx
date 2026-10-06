@@ -10,6 +10,8 @@ import {
   HouseSimpleIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import { useSidebarThread } from "@ace/client-react";
+import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
 import { ControlToggle } from "@/components/control-toggle.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -102,6 +104,42 @@ function DeviceKeys(props: {
   );
 }
 
+/**
+ * Who holds the device for this thread: an agent (named, with its thread when it is another
+ * one), you, or nobody. Delegate hands it to one of this thread's agents; Take back ends the
+ * agent's hold. The daemon decides whether that agent may have it.
+ */
+function Holder(props: { devices: Devices; threadId: string; controlled: boolean }) {
+  const { devices } = props;
+  const holder = devices.view.holder;
+  const name = useAgentLabel(holder?.threadId, holder?.agentId);
+  const thread = useSidebarThread(holder?.threadId ?? "");
+  const pending = devices.view.pending;
+  return (
+    <div className="flex shrink-0 items-center gap-3 text-ui">
+      <span className="min-w-0 flex-1 truncate">
+        {holder
+          ? `${name} is using it${holder.threadId !== props.threadId && thread ? ` · ${thread.title}` : ""}`
+          : props.controlled
+            ? "You're using it"
+            : "No agent is using it"}
+      </span>
+      {holder ? (
+        <Button size="sm" variant="ghost" disabled={pending} onClick={devices.takeControl}>
+          Take back
+        </Button>
+      ) : (
+        <DelegateMenu
+          threadId={props.threadId}
+          label="Delegate to an agent"
+          disabled={pending}
+          onDelegate={(agentId) => devices.delegate(agentId)}
+        />
+      )}
+    </div>
+  );
+}
+
 /** The device: who can use it, its live screen with the control bar, its keys and logs. */
 function SelectedDevice(props: { devices: Devices }) {
   const { devices } = props;
@@ -164,6 +202,9 @@ function SelectedDevice(props: { devices: Devices }) {
             </Button>
           )}
         </div>
+        {controls.approvedHere && controls.running && (
+          <Holder devices={devices} threadId={devices.threadId} controlled={controlled} />
+        )}
         {view.problem && !needsPermission(view.problem) && <Problem problem={view.problem} />}
         {controls.error && !needsPermission(controls.error) && <Problem problem={controls.error} />}
         {permission && live && (

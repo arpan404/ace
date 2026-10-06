@@ -5,6 +5,7 @@ import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts
 import { MoreMenuItems } from "@/features/more/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
+import { ComputerUseIndicator } from "@/features/computer-use/index.ts";
 import { AppSidebar, GlobalHotkeys, Rail, SidebarFrame } from "@/features/shell/index.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
@@ -53,7 +54,7 @@ export function AppShell() {
 
 /** The rail with what other slices own: More's menu. */
 function ViewRail() {
-  return <Rail moreMenu={<MoreMenuItems />} />;
+  return <Rail moreMenu={<MoreMenuItems />} status={<ComputerUseIndicator />} />;
 }
 
 /**

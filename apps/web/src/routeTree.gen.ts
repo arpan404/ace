@@ -31,6 +31,7 @@ import { Route as MoreSearchRouteImport } from "./routes/more.search"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
+import { Route as SettingsComputerUseRouteImport } from "./routes/settings.computer-use"
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
 import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
@@ -152,6 +153,11 @@ const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   path: "/appearance",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsComputerUseRoute = SettingsComputerUseRouteImport.update({
+  id: "/computer-use",
+  path: "/computer-use",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   id: "/general",
   path: "/general",
@@ -227,6 +233,7 @@ export interface FileRoutesByFullPath {
   "/more/search": typeof MoreSearchRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
@@ -254,6 +261,7 @@ export interface FileRoutesByTo {
   "/more/search": typeof MoreSearchRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
@@ -290,6 +298,7 @@ export interface FileRoutesById {
   "/more/search": typeof MoreSearchRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
@@ -327,6 +336,7 @@ export interface FileRouteTypes {
     | "/more/search"
     | "/settings/advanced"
     | "/settings/appearance"
+    | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
@@ -354,6 +364,7 @@ export interface FileRouteTypes {
     | "/more/search"
     | "/settings/advanced"
     | "/settings/appearance"
+    | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
@@ -389,6 +400,7 @@ export interface FileRouteTypes {
     | "/more/search"
     | "/settings/advanced"
     | "/settings/appearance"
+    | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
@@ -574,6 +586,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsAppearanceRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/computer-use": {
+      id: "/settings/computer-use"
+      path: "/computer-use"
+      fullPath: "/settings/computer-use"
+      preLoaderRoute: typeof SettingsComputerUseRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/general": {
       id: "/settings/general"
       path: "/general"
@@ -731,6 +750,7 @@ const MoreRouteWithChildren = MoreRoute._addFileChildren(MoreRouteChildren)
 interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsComputerUseRoute: typeof SettingsComputerUseRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
@@ -743,6 +763,7 @@ interface SettingsRouteChildren {
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAdvancedRoute: SettingsAdvancedRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsComputerUseRoute: SettingsComputerUseRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeyboardRoute: SettingsKeyboardRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,

@@ -18,3 +18,18 @@ export async function openExternal(url: string, scope: object = globalThis): Pro
   }
   window.open(url, "_blank", "noopener,noreferrer");
 }
+
+/** The desktop app's "show in Finder" for a path on this computer; undefined in a browser. */
+export function revealer(
+  scope: object = globalThis,
+): ((path: string) => Promise<void>) | undefined {
+  const ace: unknown = Reflect.get(scope, "ace");
+  const shell =
+    typeof ace === "object" && ace !== null && "shell" in ace ? (ace.shell as unknown) : undefined;
+  const reveal =
+    typeof shell === "object" && shell !== null && "reveal" in shell ? shell.reveal : undefined;
+  if (typeof reveal !== "function") return undefined;
+  return async (path) => {
+    await Promise.resolve(Reflect.apply(reveal, shell, [path]));
+  };
+}
