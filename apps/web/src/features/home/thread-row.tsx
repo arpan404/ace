@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
-import { useRefusedTitle } from "@/features/organize/index.ts";
+import { useRefusedTitle, useSelected } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { RenameField } from "./rename-field.tsx";
@@ -16,7 +16,8 @@ const card =
 /**
  * One Home task: its project and status, its title, then where the work happens and what it
  * changed. A thread that needs you carries a warm tint; the open one a filled background.
- * Settle and Snooze appear on hover; right-click opens the full menu.
+ * Pin, Settle and Snooze appear on hover; right-click opens the full menu. A picked row (for a
+ * bulk action) wears the focus colour.
  */
 export function ThreadRow(props: { threadId: string }) {
   const row = useThreadCard(props.threadId, false);
@@ -25,6 +26,7 @@ export function ThreadRow(props: { threadId: string }) {
   const refused = useRefusedTitle(props.threadId);
   const renaming = editing || refused !== undefined;
   const started = useStartedTitle(props.threadId);
+  const selected = useSelected(props.threadId);
   if (!row) return null;
   const { entry } = row;
   // A thread this window started reads its provisional title until the daemon titles it.
@@ -39,6 +41,7 @@ export function ThreadRow(props: { threadId: string }) {
       <RowTitle card={view}>
         {title}
         {view.announceUnread && <span className="sr-only">, unread</span>}
+        {selected && <span className="sr-only">, selected</span>}
         <span className="sr-only">. {threadDetails(view).join(", ")}</span>
       </RowTitle>
       <span aria-hidden className="contents">
@@ -73,6 +76,7 @@ export function ThreadRow(props: { threadId: string }) {
                   ? "bg-status-needs-you/5 group-hover/row:bg-status-needs-you/9"
                   : "group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent",
                 "data-[status=active]:bg-foreground/8",
+                selected && "bg-ring/10 shadow-[inset_0_0_0_1px_var(--ring)]",
               )}
             >
               {body(view.title)}
@@ -83,6 +87,7 @@ export function ThreadRow(props: { threadId: string }) {
           <RowActions
             entry={entry}
             settled={false}
+            pinned={view.flags.pinned}
             snoozed={view.flags.snoozed}
             className="top-[5px] right-1.5"
           />

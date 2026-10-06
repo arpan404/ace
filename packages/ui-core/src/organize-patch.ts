@@ -12,6 +12,8 @@ import { activityOf } from "./thread-state.ts";
 export interface OrganizePatch {
   title?: string;
   pinned?: boolean;
+  /** The place among pinned threads the command names; a pin naming none leads. */
+  pinOrder?: number;
   unread?: boolean;
   settled?: boolean;
   /** A wake time, or null to wake it now. */
@@ -30,7 +32,14 @@ export function patchEntry(
   // Up to now, even when this device's clock is behind the daemon's.
   const latest = Math.max(at, activityOf(entry));
   if (patch.title !== undefined) next.title = patch.title;
-  if (patch.pinned !== undefined) next.pinned = patch.pinned;
+  if (patch.pinned === false) {
+    next.pinned = false;
+    delete next.pinOrder;
+  } else if (patch.pinned === true) {
+    next.pinned = true;
+    // As the daemon does: a named place, else the place it had, else the lead (now).
+    next.pinOrder = patch.pinOrder ?? (entry.pinned ? entry.pinOrder : undefined) ?? at;
+  }
   if (patch.unread !== undefined) {
     next.unread = patch.unread;
     next.readAt = latest;
@@ -75,6 +84,7 @@ export function reflects(
   return (
     (patch.title === undefined || entry.title === patch.title) &&
     (patch.pinned === undefined || (entry.pinned === true) === patch.pinned) &&
+    (patch.pinOrder === undefined || entry.pinOrder === patch.pinOrder) &&
     (patch.unread === undefined ||
       ((entry.unread === true) === patch.unread && entry.readAt !== before?.readAt)) &&
     (patch.settled === undefined || (entry.settledAt !== undefined) === patch.settled) &&

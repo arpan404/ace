@@ -4,6 +4,31 @@ import { expect, test } from "vitest";
 import { PermissionMode } from "@ace/protocol";
 import { sessionHarness } from "./testing/harness.ts";
 
+test("Pi Ask holds a shell edit until its approval card receives a human decision", async () => {
+  const h = await sessionHarness({}, false, {}, undefined, "ask");
+  try {
+    await h.session.send([{ type: "text", text: "gated-shell" }], "queue");
+    const approval = Object.values(h.h.state.interactions).find(
+      (entry) => entry.state === "pending" && entry.request.kind === "approval",
+    );
+    expect(approval?.request).toMatchObject({
+      kind: "approval",
+      target: { tool: "bash", command: expect.stringContaining("approved.txt") },
+    });
+    if (!approval) throw new Error("Missing shell approval");
+    expect(deriveThreadStatus(h.h.state).state).toBe("needs_you");
+    expect(await readFile(`${h.home}/approved.txt`, "utf8").catch(() => "missing")).toBe("missing");
+    await h.session.resolve("tool-approval-1", { kind: "approval", optionId: "allow" });
+    await h.wait(
+      (frame) =>
+        frame.dir === "recv" && JSON.stringify(frame.data).includes("gated write completed"),
+    );
+    expect(await readFile(`${h.home}/approved.txt`, "utf8")).toBe("approved");
+  } finally {
+    await h.dispose();
+  }
+});
+
 test.each(
   ["auto-review", "ask", "read-only", "full-access"].flatMap((mode) =>
     [false, true].map((resume) => ({ mode, resume })),

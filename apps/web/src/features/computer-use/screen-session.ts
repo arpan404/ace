@@ -130,6 +130,8 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
       // Anything else leaves the grants unknown: say why rather than check forever.
       else readPermissions({ error });
     }
+    // Publish status even when session enumeration fails on an unavailable daemon.
+    publish();
     await client.request({ op: "sessions" });
     publish();
   };

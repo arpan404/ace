@@ -31,6 +31,7 @@ type Destination =
 
 /** The order groups show in with an empty query: what's at hand first, the long lists after. */
 const groupOrder = [
+  "Selected threads",
   "This thread",
   "Create",
   "Go to",

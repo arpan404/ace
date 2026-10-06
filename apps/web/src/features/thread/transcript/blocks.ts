@@ -1,3 +1,4 @@
+import { executionOrder } from "./execution-order.ts";
 import type { Item, Run } from "@ace/protocol";
 import { isBareErrorCode, reviewedInteraction, type InlineQuestion } from "@ace/ui-core";
 
@@ -159,48 +160,6 @@ type WorkBlock = Extract<Block, { kind: "work" }>;
 const isPerson = (item: Item) => item.type === "message" && item.role === "user" && !item.synthetic;
 
 /**
- * The order the transcript reads in: the order the daemon admitted items, except that the
- * person's message waits for the turn that answers it. A message queued while the agent worked
- * is admitted then (ADR 0065) but answered by a later turn, so it moves past the working turn's
- * remaining output to just before its own turn's first item, and never reads as the question
- * the older answer replies to (QA-12). A message with no turn yet, or answered by the turn that
- * is producing output (a steer), keeps its place. O(n); `source.order` itself when nothing moves.
- */
-function readingOrder(source: BlockSource): readonly string[] {
-  const turnOf = source.turnOf;
-  if (!turnOf) return source.order;
-  const result: string[] = [];
-  let held: string[] = [];
-  let moved = false;
-  // The turn whose output came last.
-  let producing: string | undefined;
-  const release = () => {
-    if (!held.length) return;
-    result.push(...held);
-    held = [];
-  };
-  for (const id of source.order) {
-    const item = source.item(id);
-    const turn = item ? turnOf(id) : undefined;
-    if (item && isPerson(item)) {
-      if (turn !== undefined && producing !== undefined && turn !== producing) {
-        held.push(id);
-        continue;
-      }
-      release();
-      result.push(id);
-      continue;
-    }
-    if (held.length && turn !== producing) release();
-    else if (held.length) moved = true;
-    result.push(id);
-    if (turn !== undefined) producing = turn;
-  }
-  release();
-  return moved ? result : source.order;
-}
-
-/**
  * The transcript's blocks. A stretch of work (one "Worked for" log, one "Started N subagents"
  * line) runs until the agent speaks, the person writes or the agent asks them something, and
  * never across turns; notices, injected messages and other events show inline without ending
@@ -208,7 +167,6 @@ function readingOrder(source: BlockSource): readonly string[] {
  */
 export function buildBlocks(source: BlockSource): Block[] {
   const blocks: Block[] = [];
-  const order = readingOrder(source);
   const anchors = anchorQuestions(source);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
@@ -284,7 +242,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     placed(blocks.length - 1, message);
   };
   const reviewsPlaced = new Map<string, number>();
-  for (const id of order) {
+  for (const id of executionOrder(source)) {
     const item = source.item(id);
     if (!item) continue;
     const person = isPerson(item);

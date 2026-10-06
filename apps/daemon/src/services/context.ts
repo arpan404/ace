@@ -85,8 +85,10 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
 
 import type { SocketContext, SocketService } from "./socket.ts";
 export function createContextSession(context: SocketContext): SocketService {
-  const { options, authorize, canReadThread, send, tasks } = context;
-  let contextBusy = false;
+  const { options, authorize, canReadThread, send, tasks, connected } = context;
+  // At most eight bounded protocol requests wait on this socket. Chunk bodies are <=64 KiB.
+  let pending = 0;
+  let tail = Promise.resolve();
   return {
     async handle(message, device) {
       switch (message.type) {
@@ -111,7 +113,7 @@ export function createContextSession(context: SocketContext): SocketService {
             });
             return true;
           }
-          if (!options.context || contextBusy) {
+          if (!options.context || pending >= 8) {
             send({
               type: "context.result",
               requestId: message.requestId,
@@ -119,20 +121,24 @@ export function createContextSession(context: SocketContext): SocketService {
                 kind: "error",
                 code: options.context ? "busy" : "unsupported",
                 message: options.context
-                  ? "Wait for the previous context result"
+                  ? "Context request queue is full"
                   : "Context service unavailable",
               },
             });
             return true;
           }
-          contextBusy = true;
-          const task = options.context
-            .handle(
-              device,
-              message,
-              () =>
-                authorize(scope) &&
-                (!("threadId" in message.operation) || canReadThread(message.operation.threadId)),
+          const service = options.context;
+          pending++;
+          const task = tail
+            .then(() =>
+              service.handle(
+                device,
+                message,
+                () =>
+                  connected() &&
+                  authorize(scope) &&
+                  (!("threadId" in message.operation) || canReadThread(message.operation.threadId)),
+              ),
             )
             .then(send)
             .catch((error: unknown) => {
@@ -148,8 +154,9 @@ export function createContextSession(context: SocketContext): SocketService {
               });
             })
             .finally(() => {
-              contextBusy = false;
+              pending--;
             });
+          tail = task;
           tasks.add(task);
           void task.finally(() => tasks.delete(task));
           return true;

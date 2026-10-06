@@ -2,6 +2,8 @@
 import { privateMcpConfig, readPrivateMcpConfig } from "@ace/mcp-server";
 import { createInterface } from "node:readline";
 import { writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { realpathSync } from "node:fs";
 import { NativeHistory } from "./native-history.ts";
 import { registerAcePiExtension, type PiExtensionApi } from "../index.ts";
@@ -219,22 +221,27 @@ async function handle(line: string) {
         method: "notify",
         message: JSON.stringify(c),
       });
-      if (message === "gated-write") {
+      if (message === "gated-write" || message === "gated-shell") {
         const hook = hooks.get("tool_call");
         const path = join(process.env.FAKE_PI_HOME ?? "", "approved.txt");
+        const toolName = message === "gated-shell" ? "bash" : "write";
+        const toolInput =
+          toolName === "bash"
+            ? { command: `printf approved >> ${path}` }
+            : { path, content: "approved" };
         emit({
           type: "tool_execution_start",
           toolCallId: "write-call",
-          toolName: "write",
-          args: { path, content: "approved" },
+          toolName,
+          args: toolInput,
         });
         const reviewed: Promise<unknown> =
           typeof hook === "function"
             ? Reflect.apply(hook, undefined, [
                 {
-                  toolName: process.env.FAKE_PI_MALFORMED_TOOL ? "x".repeat(1025) : "write",
+                  toolName: process.env.FAKE_PI_MALFORMED_TOOL ? "x".repeat(1025) : toolName,
                   toolCallId: "write-call",
-                  input: { path, content: "approved" },
+                  input: toolInput,
                 },
                 {
                   cwd: process.env.FAKE_PI_HOME,
@@ -262,11 +269,15 @@ async function handle(line: string) {
           .object({ block: z.boolean().optional() })
           .optional()
           .parse(await reviewed);
-        if (!decision?.block) await writeFile(path, "approved");
+        if (!decision?.block) {
+          if (toolName === "bash")
+            await promisify(execFile)("sh", ["-c", 'printf approved >> "$1"', "ace-qa", path]);
+          else await writeFile(path, "approved");
+        }
         emit({
           type: "tool_execution_end",
           toolCallId: "write-call",
-          toolName: "write",
+          toolName,
           isError: decision?.block === true,
           result: {
             content: [

@@ -27,7 +27,15 @@ function source(entries: Entry[], runs: Record<string, RunFacts>): BlockSource {
         raw: [],
         ...(entry.run ? { runId: entry.run } : {}),
         ...(entry.role
-          ? { type: "message", role: entry.role, parts: [{ type: "text", text: entry.id }] }
+          ? {
+              type: "message",
+              role: entry.role,
+              parts: [{ type: "text", text: entry.id }],
+              // The daemon records the command that sent the person's words (input journal).
+              ...(entry.role === "user"
+                ? { origin: { kind: "person", commandId: `send-${entry.id}` } }
+                : {}),
+            }
           : { type: "notice", level: "error", text: entry.text ?? entry.id }),
       }),
     ]),
