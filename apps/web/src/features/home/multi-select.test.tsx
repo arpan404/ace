@@ -1,8 +1,11 @@
 import { workbench } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { ThreadId } from "@ace/protocol";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { toastTimeouts } from "@/components/ui/toast.tsx";
+import { undoWindowMs } from "@/features/organize/use-thread-actions.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -23,6 +26,27 @@ function listed(app: App, id: string) {
   const view = app.daemon.snapshot({ kind: "threads" });
   return view?.kind === "threads" ? view.threads[id] : undefined;
 }
+
+/** Home with two new threads that nothing runs in, so the daemon lets them be deleted. */
+async function openWithIdle() {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  for (const [id, title] of [
+    ["thread-readme", "Tidy the README"],
+    ["thread-docs-index", "Sketch the docs index"],
+  ] as const)
+    app.daemon.createThread({ id, workspaceId: "relay", title, provider: "codex" });
+  await app.open("/");
+  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  return app;
+}
+
+/** Whether the daemon still has the thread at all. */
+function onDaemon(app: App, id: string) {
+  return app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) }) !== undefined;
+}
+/** The longest any toast here stays up. */
+const toastLife = Math.max(undoWindowMs, toastTimeouts.plain, toastTimeouts.action);
 
 async function pick(title: RegExp, keys: "{Meta>}" | "{Shift>}") {
   const user = userEvent.setup();
@@ -114,9 +138,9 @@ test("X picks the focused row, Shift+↓ extends the pick, and Escape lets it go
 });
 
 test("⌘K offers the picked threads' actions first, and asks before deleting them", async () => {
-  const app = await openHome();
-  await pick(/^Backpressure/, "{Meta>}");
-  await pick(/^Invoice PDF/, "{Meta>}");
+  const app = await openWithIdle();
+  await pick(/^Tidy the README/, "{Meta>}");
+  await pick(/^Sketch the docs index/, "{Meta>}");
   await userEvent.keyboard("{Meta>}k{/Meta}");
   const group = await screen.findByRole("group", { name: "Selected threads" });
   const names = within(group)
@@ -131,7 +155,34 @@ test("⌘K offers the picked threads' actions first, and asks before deleting th
   await userEvent.click(within(group).getByRole("option", { name: /^Delete 2/ }));
   const dialog = await screen.findByRole("dialog", { name: "Delete 2 threads?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete 2 threads" }));
-  // Hidden at once on every device; deleted for good once the Undo toast goes.
-  await waitFor(() => expect(gone(/^Backpressure/) && gone(/^Invoice PDF/)).toBe(true));
-  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined());
+  await waitFor(() =>
+    expect(gone(/^Tidy the README/) && gone(/^Sketch the docs index/)).toBe(true),
+  );
+  // Deleted on the daemon at once, with nothing to undo.
+  await waitFor(() => expect(onDaemon(app, "thread-docs-index")).toBe(false));
+  await waitFor(() => expect(onDaemon(app, "thread-readme")).toBe(false));
+  expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
 });
+
+test("threads deleted in bulk never come back: not after the toast, not after a reload", async () => {
+  const app = await openWithIdle();
+  await pick(/^Tidy the README/, "{Meta>}");
+  await pick(/^Sketch the docs index/, "{Meta>}");
+  await userEvent.click(within(bar()).getByRole("button", { name: "Delete 2 threads…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Delete 2 threads?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Delete 2 threads" }));
+  await screen.findByText("Deleted 2 threads");
+  // Past every toast's life: nothing waits on it to finish the delete or to undo it.
+  await new Promise((resolve) => setTimeout(resolve, toastLife + 500));
+  expect(gone(/^Tidy the README/) && gone(/^Sketch the docs index/)).toBe(true);
+  expect(onDaemon(app, "thread-docs-index")).toBe(false);
+  expect(onDaemon(app, "thread-readme")).toBe(false);
+
+  // A fresh window on the same daemon: the list arrives without them.
+  cleanup();
+  await app.open("/");
+  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  expect(gone(/^Tidy the README/) && gone(/^Sketch the docs index/)).toBe(true);
+  expect(listed(app, "thread-docs-index")).toBeUndefined();
+  expect(listed(app, "thread-readme")).toBeUndefined();
+}, 20_000);

@@ -8,7 +8,7 @@ import { failureMessage, waitingNote } from "@/lib/daemon-command.ts";
 import { describeWake, type OrganizePatch } from "@ace/ui-core";
 import { useOrganizeOverlay } from "./overlay.ts";
 
-/** How long Undo stays on screen; a delete becomes permanent only after it. */
+/** How long Undo stays on screen for reversible actions. */
 export const undoWindowMs = 6_000;
 
 /** What an action needs of a thread: a Home list entry or the open thread's meta. */
@@ -41,7 +41,7 @@ export interface ThreadActions {
   setPinnedMany(entries: readonly ThreadTarget[], pinned: boolean): void;
   /** Archive several threads at once, with one Undo. */
   archiveMany(entries: readonly ThreadTarget[]): void;
-  /** Delete several threads at once, with one Undo (see `remove`). */
+  /** Delete several threads at once, for good: no Undo, so ask first. */
   removeMany(entries: readonly ThreadTarget[]): void;
   setUnread(entry: ThreadTarget, unread: boolean): void;
   rename(entry: ThreadTarget, title: string): void;
@@ -83,11 +83,11 @@ interface Action {
  * only when the daemon refuses it; offline it waits and applies on reconnect. The reversible
  * ones offer Undo, which sends the opposite command.
  *
- * Delete is permanent on the daemon and there is no restore command, so it archives at once
- * (hidden on every device, and recoverable), Undo unarchives, and the delete itself is sent
- * when the Undo toast closes. A window closed in between leaves the thread archived, never
- * half deleted. Unpinning offers Undo too, back to the place the thread had. The Home context menu and the thread's ⋯ menu both use these, so labels,
- * toasts and Undo match wherever the person acts.
+ * Delete submits the permanent command immediately, including to the durable outbox when
+ * offline. Its persistence must not depend on a toast or the lifetime of this window.
+ * Unpinning offers Undo too, back to the place the thread had. Bulk actions offer one Undo
+ * for all, except delete. The Home context menu and the thread's ⋯ menu both use these, so
+ * labels, toasts and Undo match wherever the person acts.
  */
 export function useThreadActions(): ThreadActions {
   const overlay = useOrganizeOverlay();
@@ -161,8 +161,7 @@ export function useThreadActions(): ThreadActions {
       action: unpin(entry),
       undo: pin(entry, entry.pinOrder),
     });
-    const count = (entries: readonly unknown[]) =>
-      entries.length === 1 ? "1 thread" : `${entries.length} threads`;
+    const count = (n: number) => (n === 1 ? "1 thread" : `${n} threads`);
     const settle = (entry: ThreadTarget): Action => ({
       patch: { settled: true },
       payload: { type: "thread.settle", threadId: id(entry) },
@@ -193,53 +192,23 @@ export function useThreadActions(): ThreadActions {
       verb: "Unarchive",
       failed: "unarchive it",
     });
-    /** Undoing a delete, or taking back one the daemon refused. */
-    const restore = (entry: ThreadTarget): Action => ({
-      ...unarchive(entry),
-      verb: "Restore",
-      failed: "restore it",
-    });
     /**
-     * Delete is permanent on the daemon and there is no restore command, so it archives at
-     * once (hidden on every device, and recoverable), Undo unarchives, and the delete itself is
-     * sent when the Undo toast closes.
+     * Delete each now: the permanent command goes out at once (to the durable outbox when
+     * offline), never waiting on a toast. There is no Undo; the caller asked first.
      */
-    const removeAll = (entries: readonly ThreadTarget[], done: string) => {
-      let undone = false;
-      const toastId = toast.add({
-        title: done,
-        ...waiting(),
-        timeout: undoWindowMs,
-        actionProps: {
-          children: "Undo",
-          onClick: () => {
-            undone = true;
-            toast.close(toastId);
-            for (const entry of entries) void act(entry, restore(entry));
-          },
-        },
-        onClose: () => {
-          if (undone) return;
-          for (const entry of entries)
-            void act(entry, {
-              patch: { deleted: true },
-              payload: { type: "thread.delete", threadId: id(entry) },
-              verb: "Delete",
-              failed: "delete the thread",
-            }).then((deleted) => {
-              // Refused (its agents still work, say): bring it back rather than leave it hidden.
-              if (!deleted) void act(entry, restore(entry));
-            });
-        },
-      });
+    const removeAll = (entries: readonly ThreadTarget[], done: (count: number) => string) => {
       void Promise.all(
         entries.map((entry) =>
-          act(entry, { ...archive(entry), verb: "Delete", failed: "delete the thread" }),
+          act(entry, {
+            patch: { deleted: true },
+            payload: { type: "thread.delete", threadId: id(entry) },
+            verb: "Delete",
+            failed: "delete the thread",
+          }),
         ),
-      ).then((hidden) => {
-        if (hidden.some(Boolean)) return;
-        undone = true;
-        toast.close(toastId);
+      ).then((deleted) => {
+        const removed = deleted.filter(Boolean).length;
+        if (removed) toast.add({ title: done(removed) });
       });
     };
     const rename = (entry: ThreadTarget, title: string): Action => ({
@@ -279,14 +248,14 @@ export function useThreadActions(): ThreadActions {
           });
           return;
         }
-        void reversibleAll(changing.map(unpinStep), `Unpinned ${count(changing)}`);
+        void reversibleAll(changing.map(unpinStep), `Unpinned ${count(changing.length)}`);
       },
       archiveMany: (entries) =>
         void reversibleAll(
           entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
-          `Archived ${count(entries)}`,
+          `Archived ${count(entries.length)}`,
         ),
-      removeMany: (entries) => removeAll(entries, `Deleted ${count(entries)}`),
+      removeMany: (entries) => removeAll(entries, (deleted) => `Deleted ${count(deleted)}`),
       setUnread: (entry, unread) =>
         void act(entry, {
           patch: { unread },
@@ -310,7 +279,7 @@ export function useThreadActions(): ThreadActions {
       },
       archive: (entry) =>
         void reversible(entry, archive(entry), `Archived · ${entry.title}`, unarchive(entry)),
-      remove: (entry) => removeAll([entry], `Deleted · ${entry.title}`),
+      remove: (entry) => removeAll([entry], () => `Deleted · ${entry.title}`),
       newThreadOnMain: (entry) =>
         void navigate({ to: "/new", search: { project: entry.workspaceId, base: "main" } }),
       copyLink: (entry) => {

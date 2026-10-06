@@ -31,8 +31,9 @@ import {
 
 /*
  * Bulk actions on the picked Home threads: the bar under the list, the context menu of a picked
- * row and the palette all offer Pin or Unpin, Archive and Delete. Archive and Delete ask first,
- * then offer one Undo for all. Loaded once something is picked.
+ * row and the palette all offer Pin or Unpin, Archive and Delete. Archive and Delete ask first;
+ * Archive then offers one Undo for all, while Delete is permanent at once (no Undo). Loaded once
+ * something is picked.
  */
 
 /** The picked threads as this window shows them (with organize actions not yet confirmed). */
@@ -161,7 +162,7 @@ const copy: Record<BulkConfirm, { title: string; body: string; verb: string }> =
   },
   delete: {
     title: "Delete",
-    body: "They are hidden on every device at once and deleted for good when the Undo toast closes.",
+    body: "They are deleted for good, on every device. This can't be undone.",
     verb: "Delete",
   },
 };
