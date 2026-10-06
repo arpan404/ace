@@ -22,6 +22,21 @@
     "error": {
       "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
     },
+    "holder": {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "threadId",
+        "agentId"
+      ],
+      "type": "object"
+    },
     "leaseExpiresAt": {
       "minimum": 0,
       "type": "number"

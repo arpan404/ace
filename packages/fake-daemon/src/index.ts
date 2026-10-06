@@ -67,3 +67,5 @@ export { accountSummary } from "./services/accounts.ts";
 
 export { fixtureImage } from "./attachment-fixture.ts";
 export { uxAudit, uxAuditScreens } from "./scenarios/ux-audit.ts";
+
+export { FakeScreen, type FakeScreenOptions } from "./screen.ts";

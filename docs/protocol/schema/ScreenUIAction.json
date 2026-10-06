@@ -7,7 +7,9 @@
     "setValue",
     "scroll",
     "expand",
-    "select"
+    "select",
+    "performSecondaryAction",
+    "selectText"
   ],
   "type": "string"
 }

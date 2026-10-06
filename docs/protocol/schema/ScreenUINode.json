@@ -24,7 +24,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/ScreenUIAction.json"
       },
-      "maxItems": 6,
+      "maxItems": 8,
       "type": "array"
     },
     "bounds": {
@@ -51,6 +51,14 @@
     "role": {
       "maxLength": 128,
       "type": "string"
+    },
+    "secondaryActions": {
+      "items": {
+        "maxLength": 256,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
     },
     "states": {
       "items": {

@@ -1,11 +1,13 @@
 import { z } from "zod";
+import { ScreenAgentScope } from "./screen-ui.ts";
 import {
   ScreenCapabilities,
+  ScreenError,
   ScreenInput,
-  ScreenRect,
   ScreenUITreeOptions,
   ScreenUIFindOptions,
   ScreenUIActOptions,
+  ScreenRect,
 } from "./screen-v2.ts";
 export * from "./screen-v2.ts";
 // Daemon-to-helper messages: a module of their own, so clients that never talk to a screen
@@ -73,10 +75,29 @@ export const ScreenV2FrameHeader = z.object({
 export const ScreenFrameHeader = z.union([ScreenLegacyFrameHeader, ScreenV2FrameHeader]);
 export type ScreenFrameHeader = z.infer<typeof ScreenFrameHeader>;
 export type ScreenLegacyFrameHeader = z.infer<typeof ScreenLegacyFrameHeader>;
+export const ScreenMode = z.enum(["background", "foreground"]);
+export const ScreenOpenedApp = z.object({
+  bundleId: ScreenBundle,
+  pid: z.number().int().positive(),
+  mode: z.literal("background"),
+});
+export type ScreenOpenedApp = z.infer<typeof ScreenOpenedApp>;
+export const ScreenGrantScope = z.enum(["turn", "thread", "always"]);
+export const ScreenGrant = z.object({
+  bundleId: ScreenBundle,
+  scope: ScreenGrantScope,
+  threadId: ScreenAgentScope.shape.threadId.optional(),
+  turnId: z.string().max(256).optional(),
+  grantedAt: z.number(),
+});
+export type ScreenGrant = z.infer<typeof ScreenGrant>;
 export const ScreenState = z.object({
   sessionId: ScreenId,
   lifecycle: z.enum(["starting", "live", "stopping", "stopped", "failed"]),
   controller: z.enum(["agent", "human", "none"]),
+  mode: ScreenMode.default("background"),
+  secureInputAllowed: z.boolean().default(false),
+  holder: ScreenAgentScope.optional(),
   indicator: z.boolean(),
   target: ScreenTarget,
   permissions: ScreenPermissions,
@@ -112,14 +133,42 @@ export const ScreenInventory = z.object({
     )
     .max(2048),
 });
+export const ScreenStatus = z.object({
+  enabled: z.boolean(),
+  permissions: ScreenPermissions,
+  sessions: z.number().int().min(0).max(8),
+});
+export type ScreenStatus = z.infer<typeof ScreenStatus>;
 export const ScreenOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("enable"), enabled: z.boolean() }),
-  z.object({ op: z.literal("approve"), bundleId: ScreenBundle, allowed: z.boolean() }),
+  z.object({ op: z.literal("status") }),
+  z.object({
+    op: z.literal("approve"),
+    bundleId: ScreenBundle,
+    allowed: z.boolean(),
+    scope: ScreenGrantScope.optional(),
+    threadId: ScreenAgentScope.shape.threadId.optional(),
+  }),
+  z.object({ op: z.literal("approvals"), threadId: ScreenAgentScope.shape.threadId.optional() }),
+  z.object({ op: z.literal("stop.all") }),
+  z.object({
+    op: z.literal("mode"),
+    sessionId: ScreenId,
+    mode: ScreenMode,
+    reason: z.string().max(2048).optional(),
+  }),
+  z.object({ op: z.literal("secure.input"), sessionId: ScreenId, allowed: z.boolean() }),
+  z.object({ op: z.literal("open.app"), bundleId: ScreenBundle }),
   z.object({ op: z.literal("permissions") }),
+  z.object({
+    op: z.literal("permissions.request"),
+    permission: z.enum(["screenRecording", "accessibility"]),
+  }),
   z.object({ op: z.literal("targets") }),
   z.object({ op: z.literal("sessions") }),
   z.object({
     op: z.literal("start"),
+    threadId: ScreenAgentScope.shape.threadId.optional(),
     target: ScreenTarget,
     fps: z.number().int().min(1).max(60).default(10),
   }),
@@ -128,8 +177,8 @@ export const ScreenOperation = z.discriminatedUnion("op", [
     op: z.literal("controller"),
     sessionId: ScreenId,
     controller: z.enum(["agent", "human", "none"]),
-    agentId: ScreenId.optional(),
-    threadId: ScreenId.optional(),
+    agentId: ScreenAgentScope.shape.agentId.optional(),
+    threadId: ScreenAgentScope.shape.threadId.optional(),
   }),
   z.object({ op: z.literal("action"), sessionId: ScreenId, action: ScreenAction }),
   z.object({ op: z.literal("subscribe"), sessionId: ScreenId }),
@@ -151,6 +200,7 @@ export const ScreenClientMessage = z.object({
   operation: ScreenOperation,
 });
 export const ScreenServerMessage = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("screen.enabled"), enabled: z.boolean() }),
   z.object({ type: z.literal("screen.state"), state: ScreenState }),
   z.object({
     type: z.literal("screen.result"),
@@ -158,6 +208,8 @@ export const ScreenServerMessage = z.discriminatedUnion("type", [
     ok: z.boolean(),
     data: z.unknown().optional(),
     error: z.string().optional(),
+    errorCode: ScreenError.shape.code.optional(),
+    holder: z.object({ sessionId: ScreenId, owner: z.string().max(1024) }).optional(),
   }),
 ]);
 export type ScreenPermissions = z.infer<typeof ScreenPermissions>;

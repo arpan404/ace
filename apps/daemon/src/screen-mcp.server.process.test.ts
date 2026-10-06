@@ -110,6 +110,19 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
     await screen.approve("dev.ace.test", true);
     const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.test" });
     screen.delegateAgent(session.sessionId, scope);
+    screen.configureAccess({
+      enabled: () => true,
+      enable() {},
+      list: () => [{ bundleId: "dev.ace.test", scope: "always", grantedAt: 0 }],
+      allows: (bundle) => bundle === "dev.ace.test",
+      approve() {},
+      async request() {
+        throw new Error("No app request in this fixture");
+      },
+      async foreground() {},
+      audit() {},
+    });
+    await screen.mode(session.sessionId, "foreground");
     const other = createDevThread(daemon.store, workspace);
     daemon.store.appendEvents(
       other.id,
@@ -132,7 +145,9 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
         action: "setValue",
         value: "你好 😀",
       }),
-    ).toMatchObject({ result: { content: [{ type: "text", text: '{"fallback":false}' }] } });
+    ).toMatchObject({
+      result: { content: [{ type: "text", text: expect.stringContaining('"fallback":false') }] },
+    });
     await screen.targets();
     const image = z
       .object({

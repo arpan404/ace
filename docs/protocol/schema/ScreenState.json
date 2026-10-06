@@ -17,6 +17,9 @@
       "maxLength": 1024,
       "type": "string"
     },
+    "holder": {
+      "$ref": "https://ace.local/protocol/v1/ScreenAgentScope.json"
+    },
     "indicator": {
       "type": "boolean"
     },
@@ -30,8 +33,16 @@
       ],
       "type": "string"
     },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/ScreenMode.json",
+      "default": "background"
+    },
     "permissions": {
       "$ref": "https://ace.local/protocol/v1/ScreenPermissions.json"
+    },
+    "secureInputAllowed": {
+      "default": false,
+      "type": "boolean"
     },
     "sessionId": {
       "$ref": "https://ace.local/protocol/v1/ScreenId.json"

@@ -188,6 +188,7 @@ export class Permissions {
       if (event.type !== "interaction.opened" || event.interaction.request.kind !== "approval")
         continue;
       const interaction = event.interaction;
+      if (interaction.raw.some((raw) => raw.type === "ace.screen.approval")) continue;
       // save() has already published this frame. Use its identity index rather
       // than walking every pending approval for each newly opened approval.
       const key = this.repo.nativeEntity(state.threadId, "interactions", interaction.id);

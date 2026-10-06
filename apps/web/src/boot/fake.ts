@@ -119,6 +119,7 @@ export function fakeConnection(daemon: FakeDaemon): DaemonConnection {
         token: async () => daemon.access.token,
       },
       devices: () => daemon.appDevices.transport(),
+      screen: () => daemon.screen.transport(),
     },
   };
 }

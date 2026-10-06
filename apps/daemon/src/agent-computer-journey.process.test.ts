@@ -10,6 +10,7 @@ import { Agent, McpScope } from "@ace/protocol";
 import { DeviceOperation } from "@ace/protocol/devices";
 import { startDaemon, readConfig, createDevThread, stubHandler } from "./index.ts";
 import { invoke } from "./browser-mcp-test-support.ts";
+import { approveForeground } from "./testing/screen-foreground.ts";
 
 const Reply = z.object({
   result: z.object({
@@ -167,6 +168,10 @@ it("screen and device agents edit, submit, read results and respect takeover, ex
   await screen.approve("dev.ace.journey", true);
   const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.journey" });
   screen.delegateAgent(session.sessionId, scope);
+  expect(data(await call("screen_type", { text: "denied" }, true))).toMatchObject({
+    code: "foreground_required",
+  });
+  await approveForeground(daemon, screen, session.sessionId, thread.id);
   expect(
     Tree.parse(data(await call("screen_ui_find", { query: { name: "Name" } }))).nodes[0]?.ref,
   ).toBe("name");
@@ -187,6 +192,7 @@ it("screen and device agents edit, submit, read results and respect takeover, ex
   screen.controller(session.sessionId, "human", "person");
   await call("screen_type", { text: "forbidden" }, true);
   screen.delegateAgent(session.sessionId, scope);
+  await approveForeground(daemon, screen, session.sessionId, thread.id);
   await call("screen_scroll", { dx: 0, dy: 10 });
   await call("screen_click", { x: 1, y: 2 });
   await call("screen_screenshot", { threadId: "other" }, true);

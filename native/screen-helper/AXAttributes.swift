@@ -6,7 +6,7 @@ struct UIBounds: Codable { let x: Double; let y: Double; let w: Double; let h: D
 }
 struct UINode: Codable {
     let ref: String; let role: String; let name: String
-    var value: String?; let description: String?; let bounds: UIBounds
+    var secondaryActions: [String] = []; var value: String?; let description: String?; let bounds: UIBounds
     let states: [String]; var actions: [String]; var children: [UINode]
 }
 struct UITree: Codable { let nodes: [UINode]; let truncated: Bool }
@@ -50,7 +50,7 @@ func axMetadata(_ element: AXUIElement, ref: String) -> AXSnapshot {
     let values = copied as? [CFTypeRef] ?? []
     func value(_ index: Int) -> CFTypeRef? { index < values.count ? values[index] : nil }
     let role = axText(value(0), cap: 128) ?? "AXUnknown"
-    let secure = role == "AXSecureTextField" || axText(value(2), cap: 128) == "AXSecureTextField"
+    let secure = textSecurity(element) != .ordinary
     let bounds = axBounds(value(4), value(5))
     var states: [String] = []
     for (index, name) in [(6, "focused"), (7, "selected"), (9, "expanded")] { if (value(index) as? Bool) == true { states.append(name) } }
@@ -79,11 +79,21 @@ func axSnapshot(_ element: AXUIElement, ref: String) -> AXSnapshot {
 func axActions(_ element: AXUIElement, secure: Bool) -> [String] {
     let native = axActionNames(element)
     var actions: [String] = []
+    if !native.isEmpty { actions.append("performSecondaryAction") }
     if native.contains(kAXPressAction) { actions.append("press") }
-    for (attribute, action) in [(kAXFocusedAttribute, "focus"), (kAXValueAttribute, "setValue"), (kAXSelectedAttribute, "select"), ("AXExpanded", "expand")] {
+    for (attribute, action) in [(kAXFocusedAttribute, "focus"), (kAXValueAttribute, "setValue"), (kAXSelectedTextAttribute, "selectText"), (kAXSelectedAttribute, "select"), ("AXExpanded", "expand")] {
         var writable = DarwinBoolean(false)
-        if AXUIElementIsAttributeSettable(element, attribute as CFString, &writable) == .success, writable.boolValue, !(secure && action == "setValue") { actions.append(action) }
+        if AXUIElementIsAttributeSettable(element, attribute as CFString, &writable) == .success, writable.boolValue, !(secure && ["setValue", "selectText"].contains(action)) { actions.append(action) }
     }
     if native.contains("AXScrollDownByPage") || native.contains("AXScrollUpByPage") { actions.append("scroll") }
     return actions
+}
+
+/// The focused window can remain accessible on another Space when AXWindows is empty.
+func axWindows(_ application: AXUIElement) -> [AXUIElement] {
+    var windows = axChildren(application, maximum: 128, attribute: kAXWindowsAttribute)
+    if let value = axAttribute(application, kAXFocusedWindowAttribute), CFGetTypeID(value) == AXUIElementGetTypeID(), !windows.contains(where: { CFEqual($0, value) }) {
+        windows.append(value as! AXUIElement)
+    }
+    return windows
 }
