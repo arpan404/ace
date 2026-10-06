@@ -15,6 +15,9 @@ export class BoundedCache<K, V> {
     this.maxEntries = maxEntries;
     this.maxBytes = maxBytes;
   }
+  get size(): number {
+    return this.entries.size;
+  }
   get(key: K): V | undefined {
     const entry = this.entries.get(key);
     if (!entry) return undefined;

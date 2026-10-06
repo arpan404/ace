@@ -1,0 +1,43 @@
+{
+  "node": "v26.8.1",
+  "loadAtStart": [38.65576171875, 53.3974609375, 44.76318359375],
+  "loadAtEnd": [86.671875, 57.90283203125, 47.345703125],
+  "memory": [
+    {
+      "distinctThreads": 128,
+      "memory": {
+        "rss": 171638784,
+        "heapTotal": 82460672,
+        "heapUsed": 26342448,
+        "external": 6229265,
+        "arrayBuffers": 268793,
+        "counters": 128
+      }
+    },
+    {
+      "distinctThreads": 512,
+      "memory": {
+        "rss": 166313984,
+        "heapTotal": 78938112,
+        "heapUsed": 21624488,
+        "external": 6224484,
+        "arrayBuffers": 268793,
+        "counters": 128
+      }
+    }
+  ],
+  "allocation": [
+    {
+      "historyBeforeSamples": 10,
+      "samples": 10,
+      "warmMeanMs": 213.4311413999996,
+      "evictedMeanMs": 209.36159570000018
+    },
+    {
+      "historyBeforeSamples": 100,
+      "samples": 10,
+      "warmMeanMs": 218.8365374999994,
+      "evictedMeanMs": 248.88479569999907
+    }
+  ]
+}
