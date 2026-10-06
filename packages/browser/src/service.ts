@@ -340,6 +340,14 @@ export class BrowserService {
       ...(onBackendEvent ? { backendLost: onBackendEvent } : {}),
     });
   }
+  configureCapture(
+    threadId: string,
+    connectionId: string,
+    capture: import("./fanout.ts").CaptureViewer,
+  ): void {
+    this.subscriptions.configure(threadId, connectionId, capture);
+    this.get(threadId).live.fanout.configure(connectionId, capture);
+  }
   acknowledge(threadId: string, connectionId: string, sequence: number): void {
     this.get(threadId).live.fanout.acknowledge(connectionId, sequence);
   }

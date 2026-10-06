@@ -3,7 +3,11 @@ import { ThreadId, BrowserClientMessage, type BrowserServerMessage } from "@ace/
 import type { BrowserService } from "./service.ts";
 
 function requiredAccess(message: BrowserClientMessage): "read" | "operate" {
-  if (["browser.subscribe", "browser.unsubscribe", "browser.ack"].includes(message.type))
+  if (
+    ["browser.subscribe", "browser.unsubscribe", "browser.ack", "browser.capture"].includes(
+      message.type,
+    )
+  )
     return "read";
   if (
     message.type === "browser.execute" &&
@@ -29,6 +33,7 @@ export function connectBrowser(
   service: BrowserService,
   options: {
     connectionId: string;
+    local?: boolean;
     authorize: (
       threadId: string,
       workspaceId: string | undefined,
@@ -197,6 +202,14 @@ export function connectBrowser(
             respond(null);
             break;
           }
+          case "browser.capture":
+            if (!subscriptions.has(threadId)) throw new Error("Browser viewer is not subscribed");
+            service.configureCapture(threadId, options.connectionId, {
+              viewport: message.viewport,
+              local: options.local ?? false,
+            });
+            respond(null);
+            break;
           case "browser.ack":
             service.acknowledge(threadId, options.connectionId, message.sequence);
             break;

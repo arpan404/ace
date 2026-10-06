@@ -24,12 +24,13 @@ No other application's implementation or bundles were inspected.
 
 ## Decision
 
-Each thread keeps its own context and command queue. The daemon's automatic
-backend is headless. MCP opening explicitly requests background operation,
+Each thread keeps its own context and command queue. Human-opened sessions with
+`browser.backend: auto` prefer the registered desktop backend, as in ADR 0055.
+MCP opening explicitly requests background operation,
 including when an embedded backend is connected. A legacy embedded thread may
 convert to headless only under agent control; a human lease refuses conversion.
 Conversion closes the old page and starts a fresh session. The embedded bridge
-remains available when explicitly selected by a human, with its existing capabilities.
+retains its existing capabilities. Explicit `headless` remains available.
 Agents do not depend on a desktop connection or visible browser window.
 
 A headless context owns at most eight pages. A service-wide admission counter
