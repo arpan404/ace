@@ -35,10 +35,6 @@ const control = "size-7";
  * a base branch's diff.
  */
 const unavailable = [
-  {
-    label: "Uncommitted",
-    reason: "The daemon reports how much is uncommitted, not the diff itself",
-  },
   { label: "Staged", reason: "The daemon doesn't report the git index yet" },
   {
     label: "Branch",
@@ -47,6 +43,7 @@ const unavailable = [
 ] as const;
 
 export function scopeLabel(scope: Scope, turns: readonly Turn[]): string {
+  if (scope === "working-tree") return "Uncommitted";
   if (scope === "all") return "All turns";
   if (scope === "last") return "Last turn";
   const turn = turns.find((candidate) => candidate.id === scope);
@@ -54,7 +51,11 @@ export function scopeLabel(scope: Scope, turns: readonly Turn[]): string {
 }
 
 /** The scope menu: last turn, all turns, one turn, and the checkout scopes that can't open yet. */
-function ScopeMenu(props: { scope: Scope; turns: readonly Turn[]; onScope(scope: Scope): void }) {
+export function ScopeMenu(props: {
+  scope: Scope;
+  turns: readonly Turn[];
+  onScope(scope: Scope): void;
+}) {
   const last = props.turns.at(-1);
   return (
     <Menu>
@@ -69,6 +70,9 @@ function ScopeMenu(props: { scope: Scope; turns: readonly Turn[]; onScope(scope:
       </Tip>
       <MenuContent className="max-h-[min(420px,var(--available-height))] overflow-y-auto">
         <MenuRadioGroup value={props.scope} onValueChange={(value: Scope) => props.onScope(value)}>
+          <MenuRadioItem closeOnClick value="working-tree">
+            Uncommitted
+          </MenuRadioItem>
           <MenuRadioItem closeOnClick value="last">
             Last turn{last ? ` · Turn ${last.number}` : ""}
           </MenuRadioItem>

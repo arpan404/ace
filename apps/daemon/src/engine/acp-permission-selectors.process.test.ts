@@ -6,7 +6,7 @@ import { harness, scriptFrames } from "./test-support.ts";
 
 test.each(
   [false, true].flatMap((legacy) =>
-    (["auto-review", "ask", "full-access"] as const).map((mode) => ({ legacy, mode })),
+    (["auto-review", "full-access"] as const).map((mode) => ({ legacy, mode })),
   ),
 )(
   "public mode changes keep ACP's $mode permission contract, legacy: $legacy",

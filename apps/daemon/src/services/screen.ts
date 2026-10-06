@@ -141,6 +141,8 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
           errorCode: "forbidden",
           error: "Admin scope required for screen access",
         });
+      else if (!channel && message.operation.op === "sessions")
+        context.send({ type: "screen.result", requestId: message.requestId, ok: true, data: [] });
       else if (!channel)
         context.send({
           type: "screen.result",

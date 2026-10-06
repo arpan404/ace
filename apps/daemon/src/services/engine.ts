@@ -239,13 +239,15 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     onProviderDiagnostic:
       engineOptions.onProviderDiagnostic ??
       ((thread, raw) => {
-        if (config.logLevel !== "debug") return;
+        const warnings = raw.filter((payload) => payload.type === "stderr");
+        const evidence = config.logLevel === "debug" ? raw : warnings;
+        if (!evidence.length) return;
         log.log(
-          "debug",
+          warnings.length ? "warn" : "debug",
           "Provider diagnostic",
           logFields([
             ["thread", thread],
-            ["raw", raw.slice(0, 8).map((payload) => logMetadata(payload))],
+            ["raw", evidence.slice(0, 8).map((payload) => logMetadata(payload))],
           ]),
         );
       }),

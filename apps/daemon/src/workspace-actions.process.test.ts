@@ -199,3 +199,59 @@ test("editor discovery finds a macOS app without a PATH launcher", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("working-tree diff includes shell edits and untracked files without changing the git index", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const git = promisify(execFile);
+  const root = await mkdtemp(join(tmpdir(), "ace-changes-"));
+  const repo = join(root, "repo");
+  await mkdir(repo);
+  await git("git", ["init", "-q", repo]);
+  await writeFile(join(repo, "README.md"), "Initial\n");
+  await git("git", ["-C", repo, "add", "README.md"]);
+  await git("git", [
+    "-C",
+    repo,
+    "-c",
+    "user.name=QA",
+    "-c",
+    "user.email=qa@example.test",
+    "commit",
+    "-qm",
+    "initial",
+  ]);
+  const store = new Store(join(root, "events.sqlite"));
+  const workspaceId = store.createWorkspace(repo, "QA");
+  const thread = Thread.parse({
+    id: "changes",
+    workspaceId,
+    provider: "codex",
+    title: "Shell edit",
+    status: { state: "done" },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+  const runtime = new WorkspaceRuntime(store, root, () => 1000);
+  try {
+    await writeFile(join(repo, "README.md"), "Initial\nQA shell edit\n");
+    await writeFile(join(repo, "new.txt"), "QA new file\n");
+    const reply = await runtime.read({
+      type: "workspace.request",
+      requestId: "diff",
+      operation: { op: "git.diff", threadId: thread.id },
+    });
+    expect(reply.result).toMatchObject({
+      kind: "gitDiff",
+      truncated: false,
+      patch: expect.stringContaining("+QA shell edit"),
+    });
+    expect(reply.result).toMatchObject({ patch: expect.stringContaining("+QA new file") });
+    expect((await git("git", ["-C", repo, "diff", "--cached", "--name-only"])).stdout).toBe("");
+  } finally {
+    await runtime.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -12,7 +12,7 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
   return {
     steer: supported,
     permissions: {
-      modes: supported ? ["read-only", "ask", "auto-review", "full-access"] : [],
+      modes: supported ? ["read-only", "auto-review", "full-access"] : [],
       nativeAutoReview: true,
       toolGate: supported,
       guarantees: supported

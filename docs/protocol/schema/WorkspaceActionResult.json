@@ -140,6 +140,27 @@
         {
           "properties": {
             "kind": {
+              "const": "gitDiff",
+              "type": "string"
+            },
+            "patch": {
+              "maxLength": 262144,
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "patch",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
               "const": "runs",
               "type": "string"
             },
