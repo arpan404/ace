@@ -72,6 +72,14 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
       platform: "browser",
       target: "chrome140",
     },
+    {
+      ...shared,
+      entryPoints: [join(desktop, "src/preload/browser.ts")],
+      outfile: join(outdir, "browser-preload.cjs"),
+      format: "cjs",
+      platform: "browser",
+      target: "chrome140",
+    },
   ];
 }
 

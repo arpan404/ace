@@ -273,8 +273,8 @@
       "sha256": "0d8b86a1fc0b5f5355d8d31a93d9e80cb364a149a15cccc71c581c57072d385d"
     },
     "schema/BrowserBackendOperation.json": {
-      "bytes": 3305,
-      "sha256": "2e6eafe9391919932e5e7185ef784c9e19e1240c0bcc99e4864c6e22f7666967"
+      "bytes": 3423,
+      "sha256": "de6b79b5938c126a6e933b4ce5420780d435a446131e0d95476fab329a5bf659"
     },
     "schema/BrowserBackendPreference.json": {
       "bytes": 216,
@@ -305,8 +305,8 @@
       "sha256": "afc805be84a1f6ebaf95fa891555affed652c6cb3b8e846d5589e60d91e92be7"
     },
     "schema/BrowserCommand.json": {
-      "bytes": 14333,
-      "sha256": "0b54ef96ca8ebbe43df4eb25c11ae872c13e4d51b8d3dfae8173201ef6a97129"
+      "bytes": 15646,
+      "sha256": "d9b2daca227efa4cdecaf5686fc19526d4fede32bbae8227c2498688259e2d87"
     },
     "schema/BrowserControllerLease.json": {
       "bytes": 553,
@@ -2517,10 +2517,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 516591,
-      "sha256": "d488ddc5a80e549896448c3b8a0b82bab4575149d36f9a767c428f77653b9d1e"
+      "bytes": 517180,
+      "sha256": "78d60a105401a9e3c4faee865a8415a4c7ca6004a9d9d197d3ac0dd5b5f38efc"
     }
   },
-  "input": "75b17bacdfe065cf4d71722366634132778d08814aec94441b9e692f2f4fcb32",
+  "input": "15c6e20ffeab5661aa0cdce9c6a9eef499df8908dd50f2ccbcf0348a5a7d405a",
   "version": 1
 }

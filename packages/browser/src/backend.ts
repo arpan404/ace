@@ -53,6 +53,7 @@ export interface BrowserBackendSession {
     answer(dialogId: string, accept: boolean, promptText?: string): Promise<void>;
     downloads(): BrowserDownload[];
   };
+  findText?(text: string, forward: boolean): Promise<unknown>;
   privateMode?(enabled: boolean): void;
   networkBody?(requestId: string): Promise<unknown>;
   frames?(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>;

@@ -3,7 +3,14 @@ import { createWriteStream } from "node:fs";
 import { basename, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type { Download } from "playwright-core";
+import type { Readable } from "node:stream";
+interface Download {
+  suggestedFilename(): string;
+  url(): string;
+  cancel(): Promise<void>;
+  delete(): Promise<void>;
+  createReadStream(): Promise<Readable | null>;
+}
 import type { BrowserDownload } from "@ace/protocol";
 import type { BackendOpen, BrowserCdp } from "./backend.ts";
 import { z } from "zod";
