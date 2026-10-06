@@ -1,5 +1,5 @@
 import { chromium } from "playwright-core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { BrowserFrame } from "@ace/protocol";
 import { executablePath, fixture } from "./test-support.ts";
 
@@ -91,3 +91,62 @@ describe.skipIf(!executablePath)("capture adaptation in real Chromium", () => {
     stopFast();
   }, 60_000);
 });
+
+// Inspect actual JPEG dimensions; metadata remains CSS pixels for input coordinates.
+function pixelSize(data: string): { width: number; height: number } {
+  const jpeg = Buffer.from(data, "base64");
+  for (let offset = 2; offset + 9 < jpeg.length;) {
+    const marker = jpeg[offset + 1];
+    if (marker === 192 || marker === 193 || marker === 194)
+      return { height: jpeg.readUInt16BE(offset + 5), width: jpeg.readUInt16BE(offset + 7) };
+    const length = jpeg.readUInt16BE(offset + 2);
+    if (length < 2) break;
+    offset += length + 2;
+  }
+  throw new Error("JPEG dimensions missing");
+}
+
+it.skipIf(!executablePath)(
+  "a local retina viewer gets DPR-sized pixels while remote demand stays capped",
+  async () => {
+    const f = await fixture();
+    await f.navigate();
+    const received: BrowserFrame[] = [];
+    const stop = f.service.subscribe(
+      "thread",
+      "retina",
+      {
+        send(frame) {
+          received.push(frame);
+          f.service.acknowledge("thread", "retina", frame.sequence);
+          return true;
+        },
+      },
+      () => {},
+    );
+    f.service.configureCapture("thread", "retina", {
+      viewport: { width: 1280, height: 720, devicePixelRatio: 2 },
+      local: true,
+    });
+    await f.evaluate(
+      "window.animate=true;let i=0;function paint(){if(!window.animate)return;document.body.style.background=`rgb(${++i%255},30,80)`;requestAnimationFrame(paint)}paint()",
+    );
+    await vi.waitFor(
+      () => expect(pixelSize(received.at(-1)?.data ?? "")).toEqual({ width: 2560, height: 1440 }),
+      { timeout: 10_000 },
+    );
+    // Human input coordinates must still refer to the CSS viewport, not the JPEG raster.
+    expect(received.at(-1)).toMatchObject({ width: 1280, height: 720 });
+    f.service.configureCapture("thread", "retina", {
+      viewport: { width: 1280, height: 720, devicePixelRatio: 4 },
+      local: false,
+    });
+    await vi.waitFor(
+      () => expect(pixelSize(received.at(-1)?.data ?? "")).toEqual({ width: 1280, height: 720 }),
+      { timeout: 10_000 },
+    );
+    await f.evaluate("window.animate=false");
+    stop();
+  },
+  30_000,
+);

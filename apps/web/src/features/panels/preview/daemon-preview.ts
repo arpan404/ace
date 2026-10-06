@@ -4,6 +4,7 @@ import {
   ThreadId,
   WorkspaceId,
   type BrowserInput,
+  type BrowserCaptureViewport,
   type ServerMessage,
 } from "@ace/protocol";
 import type {
@@ -74,6 +75,7 @@ function reached(result: unknown, fallback: string): string {
 interface Watch {
   count: number;
   subscribed: boolean;
+  capture?: BrowserCaptureViewport;
   /** Cancels the next poll. */
   cancel: (() => void) | undefined;
   /** The newest frame received; an older one still decoding is dropped when it lands. */
@@ -171,6 +173,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     changed(threadId);
   };
   const readServers = (threadId: string) => previews(threadId, { op: "list" });
+  const sendCapture = (threadId: string, watch: Watch) => {
+    if (!watch.subscribed || !watch.capture || client.state !== "ready") return;
+    void client
+      .request({
+        type: "browser.capture",
+        threadId: ThreadId.parse(threadId),
+        viewport: watch.capture,
+      })
+      .catch(() => {});
+  };
   /** Reads the dev servers and retries the browser, every few seconds while the page shows. */
   const poll = (threadId: string) => {
     const watch = watches.get(threadId);
@@ -182,8 +194,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           // A view that left and came back meanwhile (a tab replaced by another, a remount)
           // is served by this same subscription; only nobody watching gives it up.
           const current = watches.get(threadId);
-          if (current) current.subscribed = true;
-          else void call("browser.unsubscribe", threadId).catch(() => {});
+          if (current) {
+            current.subscribed = true;
+            sendCapture(threadId, current);
+          } else void call("browser.unsubscribe", threadId).catch(() => {});
         },
         () => {},
       );
@@ -411,6 +425,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           input: wireInput(input),
         })
         .catch(() => {});
+    },
+    capture(threadId, width, height, devicePixelRatio) {
+      const watch = watches.get(threadId);
+      if (!watch) return;
+      watch.capture = {
+        width: clamp(width),
+        height: clamp(height),
+        devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)),
+      };
+      sendCapture(threadId, watch);
     },
     resize(threadId, width, height) {
       void client
