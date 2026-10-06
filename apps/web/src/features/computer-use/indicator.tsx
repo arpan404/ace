@@ -50,7 +50,7 @@ export default function ComputerUseIndicator() {
           )}
         </PopoverTrigger>
       </Tip>
-      <PopoverContent side="right" align="end" className="flex w-80 flex-col gap-2">
+      <PopoverContent side="right" align="end" className="flex w-96 flex-col gap-2">
         <PopoverTitle className="text-ui font-medium">{label}</PopoverTitle>
         <ul className="flex flex-col">
           {sessions.map((state) => (
@@ -84,8 +84,9 @@ function SessionRow(props: { state: ScreenState; use: ComputerUse }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-ui">{view.app}</p>
         <p className="truncate text-xs text-subtle-foreground">
-          {name} · {view.foreground ? "Foreground" : "Background"}
-          {view.capturing && " · Capturing"}
+          {name}
+          {view.foreground ? " · foreground" : ""}
+          {view.capturing && " · capturing"}
         </p>
       </div>
       <Button

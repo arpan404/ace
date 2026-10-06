@@ -57,7 +57,7 @@ export function LiveView(props: {
       ref={canvas}
       role="img"
       aria-label={props.label}
-      className={cn("block h-full w-full bg-foreground/5 object-contain", props.className)}
+      className={cn("absolute inset-0 size-full object-contain", props.className)}
     />
   );
 }

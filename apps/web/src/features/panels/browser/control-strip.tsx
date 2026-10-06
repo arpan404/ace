@@ -83,7 +83,7 @@ export function ControlStrip(props: {
       ) : (
         !stopped && (
           <>
-            {view.controller !== "human" && (
+            {!privately && (
               <Tip label="Sign in or handle something private: agents can't see the page meanwhile">
                 <button
                   type="button"
@@ -91,7 +91,7 @@ export function ControlStrip(props: {
                   onClick={props.onPrivate}
                   className={action}
                 >
-                  Take over privately
+                  {view.controller === "human" ? "Make private" : "Take over privately"}
                 </button>
               </Tip>
             )}
