@@ -1,4 +1,5 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
+import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
@@ -30,9 +31,14 @@ const notify = (method: string, params: unknown) => write({ method, params });
 const item = (threadId: string, turnId: string, data: unknown, complete = true) =>
   notify(complete ? "item/completed" : "item/started", { threadId, turnId, item: data });
 const message = (text: string, id = "proof") =>
-  item("native", "turn", { type: "agentMessage", id, text });
+  item(
+    "native",
+    process.env["ACE_TEST_DELEGATION_RESULT"] === "1" ? (active.get("native") ?? "turn") : "turn",
+    { type: "agentMessage", id, text },
+  );
 const active = new Map<string, string>();
 const terminals = new Map<string, { itemId: string; processId: string }[]>();
+let delegationTurn = 0;
 let pendingKind = "";
 let queued = 0;
 let policyTurn = 0;
@@ -54,6 +60,8 @@ for await (const line of createInterface({ input: process.stdin })) {
   const method = str(frame["method"]);
   const id = frame["id"];
   if (!method && id === 100) {
+    if (pendingKind === "shell-edit" && obj(frame["result"])["decision"] === "accept")
+      appendFileSync("README.md", "QA approval test\n");
     message(JSON.stringify(frame["result"]), "response-proof");
     notify("serverRequest/resolved", { threadId: "native", requestId: 100 });
     end();
@@ -66,10 +74,6 @@ for await (const line of createInterface({ input: process.stdin })) {
     else
       respond({
         userAgent: "ace/0.159.1",
-        aceConnection: {
-          url: overrides.get("mcp_servers.ace.url"),
-          authenticated: /^[a-f0-9]{64}$/.test(process.env["ACE_MCP_BEARER_TOKEN"] ?? ""),
-        },
         codexHome: "/fake",
         platformFamily: "unix",
         platformOs: "macos",
@@ -82,7 +86,25 @@ for await (const line of createInterface({ input: process.stdin })) {
     const boundary = sourceHistory.findIndex((turn) => turn.id === p["lastTurnId"]);
     forkHistory = sourceHistory.slice(0, boundary + 1);
     respond({
-      thread: { id: "fork-native", cwd: process.cwd(), status: { type: "idle" }, turns: [] },
+      thread: {
+        id: "fork-native",
+        cwd: process.cwd(),
+        status: { type: "idle" },
+        turns: p["excludeTurns"]
+          ? []
+          : forkHistory.map((turn) => ({
+              id: turn.id,
+              status: "completed",
+              items: [
+                {
+                  id: `ask-${turn.id}`,
+                  type: "userMessage",
+                  content: [{ type: "text", text: `ask ${turn.text}` }],
+                },
+                { id: `reply-${turn.id}`, type: "agentMessage", text: turn.text },
+              ],
+            })),
+      },
       model: "fake-model",
     });
   } else if (method === "thread/settings/update") {
@@ -101,6 +123,15 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/start" || method === "thread/resume") {
+    const config = obj(obj(p["config"])["mcp_servers.ace"]);
+    notify("ace/connection", {
+      aceConnection: {
+        url: config["url"],
+        authenticated:
+          /^Bearer [a-f0-9]{64}$/.test(str(obj(config["http_headers"])["Authorization"])) &&
+          !process.env["ACE_MCP_BEARER_TOKEN"],
+      },
+    });
     if (process.env["ACE_FAKE_RESUME"] === "historical-interactions") {
       respond({
         thread: {
@@ -168,6 +199,29 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (text === "shell-edit") {
+      pendingKind = text;
+      respond({ turn: { id: "turn" } });
+      active.set("native", "turn");
+      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
+      if (obj(p["sandboxPolicy"])["type"] === "readOnly") {
+        write({
+          id: 100,
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "native",
+            turnId: "turn",
+            itemId: "edit",
+            command: "printf 'QA approval test\\n' >> README.md",
+            availableDecisions: ["accept", "decline"],
+          },
+        });
+      } else {
+        appendFileSync("README.md", "QA approval test\n");
+        end();
+      }
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "overlap-policy") {
       if (p["threadId"] === "child") {
         respond({ turn: { id: "child-next" } });
@@ -296,11 +350,16 @@ for await (const line of createInterface({ input: process.stdin })) {
       );
       continue;
     }
-    respond({ turn: { id: "turn" } });
-    active.set("native", "turn");
+    const turnId =
+      process.env["ACE_TEST_DELEGATION_RESULT"] === "1" ? `delegation-${++delegationTurn}` : "turn";
+    respond({ turn: { id: turnId } });
+    active.set("native", turnId);
     if (process.env["ACE_FAKE_RESUME"] !== "reply-before-start")
-      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
-    if (text === "replay-answered") {
+      notify("turn/started", { threadId: "native", turn: { id: turnId } });
+    if (process.env["ACE_TEST_DELEGATION_RESULT"] === "1") {
+      message("Codex delegated result", "delegation-result");
+      end();
+    } else if (text === "replay-answered") {
       for (const questionId of ["answered-a", "answered-b"])
         item("native", "old", {
           type: "agentMessage",

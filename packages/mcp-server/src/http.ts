@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
+import { nodeScheduler } from "./registry.ts";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
 import type { ToolRegistry } from "./registry.ts";
 
@@ -12,7 +13,11 @@ export interface McpServerOptions {
 }
 export async function startMcpServer(options: McpServerOptions) {
   const credentials =
-    options.credentials ?? new CredentialRegistry(() => randomBytes(32).toString("hex"));
+    options.credentials ??
+    new CredentialRegistry(() => randomBytes(32).toString("hex"), 1024, {
+      scheduler: nodeScheduler,
+      maxAgeMs: 60 * 60 * 1000,
+    });
   let runtime: Promise<Awaited<ReturnType<typeof createHandler>>> | undefined;
   const load = () => (runtime ??= createHandler(options, credentials));
   let active = 0;

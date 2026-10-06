@@ -28,6 +28,18 @@ const actions = {
     description:
       "Scroll by x horizontal and y vertical pixel deltas; these are distances, not a target point.",
   },
+  navigation_history: {
+    riskClass: "read-only",
+    description: "Read whether the current page can go back or forward in Chromium history.",
+  },
+  history: {
+    riskClass: "external-effect",
+    description: "Go back, forward or reload the approved page using its real browser history.",
+  },
+  find_text: {
+    riskClass: "external-effect",
+    description: "Find visible text in the approved page without executing user-supplied scripts.",
+  },
   snapshot: {
     riskClass: "read-only",
     description:

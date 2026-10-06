@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import { EmbeddedTabs, NativeTabs } from "./embedded-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
@@ -101,7 +103,10 @@ export class EmbeddedBackend implements BrowserBackend {
       const cancelTimer = this.clock.set(
         operation.kind === "open"
           ? 60_000
-          : operation.kind === "cdp" && operation.method === "Page.navigate"
+          : operation.kind === "cdp" &&
+              (operation.method === "Page.navigate" ||
+                (operation.method === "ace.tabs.cdp" &&
+                  operation.params?.method === "Page.navigate"))
             ? 95_000
             : 30_000,
         () => {
@@ -322,6 +327,8 @@ export class EmbeddedBackend implements BrowserBackend {
       off: (method: string, listener: (raw: unknown) => void) =>
         remote.events.off(method, listener),
     };
+    let tabs: EmbeddedTabs | undefined;
+    const currentCdp = () => tabs?.current().cdp ?? cdp;
     let viewport = { width: 1280, height: 720 };
     let closing: Promise<void> | undefined;
     let guard: Awaited<ReturnType<typeof installOriginGuard>> | undefined;
@@ -347,54 +354,77 @@ export class EmbeddedBackend implements BrowserBackend {
     remote.cleanup = () => {
       request.signal.removeEventListener("abort", abort);
       guard?.close();
+      tabs?.stop();
       remote.events.removeAllListeners();
     };
     request.signal.addEventListener("abort", abort, { once: true });
     try {
-      const opened = z.object({ url: z.string().max(8192) }).parse(
-        await call({
-          kind: "open",
-          options: request.options,
-          viewport,
-          lease: { generation: 0, controller: "agent" },
-        }),
-      );
+      if (request.downloadDir) await mkdir(request.downloadDir, { recursive: true, mode: 0o700 });
+      const opened = z
+        .object({
+          url: z.string().max(8192),
+          activeTabId: z.string().optional(),
+          tabs: NativeTabs.shape.tabs.optional(),
+        })
+        .parse(
+          await call({
+            kind: "open",
+            options: request.options,
+            ...(request.downloadDir ? { downloadDir: request.downloadDir } : {}),
+            viewport,
+            lease: { generation: 0, controller: "agent" },
+          }),
+        );
       remote.url = opened.url;
       request.signal.throwIfAborted();
-      guard = await installOriginGuard(cdp, request.allowed, request.initiator);
+      if (opened.activeTabId !== undefined && opened.tabs) {
+        tabs = new EmbeddedTabs(cdp, request);
+        await tabs.start({ activeTabId: opened.activeTabId, tabs: opened.tabs });
+      } else guard = await installOriginGuard(cdp, request.allowed, request.initiator);
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");
       await cdp.send("Network.enable");
       return {
-        cdp,
-        url: () => remote.url,
+        privateMode: (enabled) => tabs?.downloadsManager.transfers.privacy(enabled),
+        findText: (text, forward) => currentCdp().send("ace.findText", { text, forward }),
+        get cdp() {
+          return currentCdp();
+        },
+        ...(tabs
+          ? {
+              tabs,
+              networkBody: tabs.inspection.body.bind(tabs.inspection),
+              frames: tabs.frames.bind(tabs),
+            }
+          : {}),
+        url: () => tabs?.current().state.url ?? remote.url,
         navigate: async (url, _timeout, signal) => {
           const navigationSignal = signal ?? request.signal;
           await navigateCdp(
             {
-              ...cdp,
+              ...currentCdp(),
               send: (method, params) =>
-                method === "Page.navigate"
+                !tabs && method === "Page.navigate"
                   ? this.call(
                       sessionId,
                       { kind: "cdp", method, ...(params ? { params } : {}) },
                       navigationSignal,
                     )
-                  : cdp.send(method, params),
+                  : currentCdp().send(method, params),
             },
             url,
             navigationSignal,
           );
         },
         async click(x, y) {
-          await cdp.send("Input.dispatchMouseEvent", {
+          await currentCdp().send("Input.dispatchMouseEvent", {
             type: "mousePressed",
             x,
             y,
             button: "left",
             clickCount: 1,
           });
-          await cdp.send("Input.dispatchMouseEvent", {
+          await currentCdp().send("Input.dispatchMouseEvent", {
             type: "mouseReleased",
             x,
             y,
@@ -403,13 +433,13 @@ export class EmbeddedBackend implements BrowserBackend {
           });
         },
         insertText: async (text) => {
-          await cdp.send("Input.insertText", { text });
+          await currentCdp().send("Input.insertText", { text });
         },
         press: async (key) => {
           await call({ kind: "press", key });
         },
         wheel: async (deltaX, deltaY) => {
-          await cdp.send("Input.dispatchMouseEvent", {
+          await currentCdp().send("Input.dispatchMouseEvent", {
             type: "mouseWheel",
             x: 0,
             y: 0,
@@ -418,9 +448,9 @@ export class EmbeddedBackend implements BrowserBackend {
           });
         },
         async screenshot(format) {
-          if (format === "jpeg") return modelScreenshot(cdp);
+          if (format === "jpeg") return modelScreenshot(currentCdp());
           const result = z.object({ data: z.string().max(768 * 1024) }).parse(
-            await cdp.send("Page.captureScreenshot", {
+            await currentCdp().send("Page.captureScreenshot", {
               format,
             }),
           );
@@ -430,9 +460,9 @@ export class EmbeddedBackend implements BrowserBackend {
           await call({ kind: "resize", width, height });
           viewport = { width, height };
         },
-        viewport: () => viewport,
+        viewport: () => tabs?.current().viewport ?? viewport,
         media: async (colorScheme) => {
-          await cdp.send("Emulation.setEmulatedMedia", {
+          await currentCdp().send("Emulation.setEmulatedMedia", {
             features: [{ name: "prefers-color-scheme", value: colorScheme }],
           });
         },

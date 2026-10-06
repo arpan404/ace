@@ -73,7 +73,7 @@ export function accountView(summary: Summary): AccountView {
     version: summary.installationVersion,
     label: summary.label,
     availability: summary.availability,
-    signedIn: summary.quota.auth !== "logged_out" && summary.availability !== "logged_out",
+    signedIn: summary.quota.auth === "logged_in" && summary.availability !== "logged_out",
     windows,
     quota: summary.quota,
   };

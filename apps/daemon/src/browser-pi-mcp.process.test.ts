@@ -6,7 +6,11 @@ import { spawnTextSupervised } from "@ace/provider-kit/process";
 import { createLogger } from "@ace/diagnostics";
 import type { PiPermissionMode } from "@ace/protocol/pi";
 import type { Frame } from "@ace/engine-api";
-import type { AceMcpConnection } from "@ace/mcp-server";
+import {
+  readPrivateMcpConfig,
+  AceMcpConnectionSchema,
+  type AceMcpConnection,
+} from "@ace/mcp-server";
 import { readConfig } from "./config.ts";
 import { AdapterRegistry } from "./engine/registry.ts";
 import { startPi } from "./services/pi.ts";
@@ -50,11 +54,18 @@ it.each<PiPermissionMode>(["unrestricted", "read_only"])(
           permissionMode,
           runtime: {
             spawn(options) {
-              if (options.env?.ACE_PI_MCP_URL)
-                connection = z.object({ url: z.url(), bearer: z.string().min(1) }).parse({
-                  url: options.env.ACE_PI_MCP_URL,
-                  bearer: options.env.ACE_PI_MCP_BEARER,
-                });
+              const configuration = z
+                .object({ mcp: AceMcpConnectionSchema.optional() })
+                .parse(
+                  JSON.parse(
+                    readPrivateMcpConfig(z.string().parse(options.env?.ACE_PI_SESSION_FILE)),
+                  ),
+                );
+              connection = configuration.mcp;
+              if (connection) {
+                expect(JSON.stringify(options.env)).not.toContain(connection.bearer);
+                expect(JSON.stringify(options.args)).not.toContain(connection.bearer);
+              }
               return spawnTextSupervised(options);
             },
           },

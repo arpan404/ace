@@ -43,6 +43,9 @@ test("New thread falls back to the first installed, logged-in provider", async (
   const made = app();
   const { services } = made.daemon;
   services.installed.delete("claude");
+  const claude = services.providerStatuses.find((status) => status.provider === "claude");
+  if (!claude) throw new Error("Missing Claude discovery");
+  claude.installed = false;
   for (const account of services.accounts)
     if (account.provider === "codex") {
       account.availability = "logged_out";
@@ -59,6 +62,7 @@ test("an installed CLI whose catalog lists no models shows an empty state, not a
   const { services } = made.daemon;
   services.models = [];
   services.installed = new Set(["codex"]);
+  for (const status of services.providerStatuses) status.installed = status.provider === "codex";
   await made.open("/new?project=relay");
 
   const chip = await screen.findByRole("button", { name: "Model: no models available" });
@@ -68,11 +72,11 @@ test("an installed CLI whose catalog lists no models shows an empty state, not a
   const field = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(field, "Explain the restart backoff{Enter}");
   // The composer empties on Enter; a message that wasn't started comes back into it.
-  await waitFor(async () =>
-    expect(
-      ((await screen.findByRole("combobox", { name: "Message" })) as HTMLTextAreaElement).value,
-    ).toBe("Explain the restart backoff"),
-  );
+  await waitFor(async () => {
+    const restored = await screen.findByRole("combobox", { name: "Message" });
+    if (!(restored instanceof HTMLTextAreaElement)) throw new Error("Expected message textarea");
+    expect(restored.value).toBe("Explain the restart backoff");
+  });
   expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
 });
 
@@ -92,6 +96,7 @@ test("the default provider picked in Settings wins over the last-used one", asyn
 test("with no provider CLI installed, New thread says so instead of loading forever", async () => {
   const made = app();
   made.daemon.services.installed = new Set();
+  for (const status of made.daemon.services.providerStatuses) status.installed = false;
   made.daemon.services.accounts = [];
   made.daemon.services.models = [];
   await made.open("/new?project=relay");

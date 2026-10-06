@@ -1,6 +1,7 @@
 import { modelScreenshot } from "./model-screenshot.ts";
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
 import { cancellableCdp } from "./cancellable-cdp.ts";
+import { sizeHeadlessContents } from "./headless-size.ts";
 import { HeadlessTabs } from "./headless-tabs.ts";
 import { chromiumCloser, type ChromiumCleanupRuntime } from "./chromium-close.ts";
 import { launchContext, type ContextLauncher } from "./io.ts";
@@ -37,6 +38,8 @@ export class HeadlessBackend implements BrowserBackend {
       executablePath,
       headless: true,
       viewport: { width: 1280, height: 720 },
+      deviceScaleFactor: 2,
+      args: ["--force-device-scale-factor=2"],
       serviceWorkers: "block",
       acceptDownloads: true,
       ...(request.downloadDir ? { downloadsPath: request.downloadDir } : {}),
@@ -132,7 +135,10 @@ export class HeadlessBackend implements BrowserBackend {
         wheel: (x, y) => page().mouse.wheel(x, y),
         screenshot: (type) =>
           type === "jpeg" ? modelScreenshot(cdp()) : page().screenshot({ type, timeout: 10_000 }),
-        resize: (width, height) => page().setViewportSize({ width, height }),
+        resize: async (width, height) => {
+          await page().setViewportSize({ width, height });
+          await sizeHeadlessContents(cdp(), width, height);
+        },
         viewport: () => page().viewportSize() ?? { width: 1280, height: 720 },
         media: (colorScheme) => page().emulateMedia({ colorScheme }),
         controller: async (lease) => {

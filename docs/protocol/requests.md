@@ -1655,9 +1655,9 @@ Example:
 ```json
 {
   "command": {
-    "action": "resize",
-    "height": 104,
-    "width": 101
+    "action": "wait_for",
+    "ref": "example",
+    "text": "example"
   },
   "requestId": "example",
   "threadId": "example",
@@ -1684,6 +1684,30 @@ Example:
 }
 ```
 
+### browser.capture
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.capture"` |  |
+| viewport | yes | [BrowserCaptureViewport.json](schema/BrowserCaptureViewport.json) |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.capture",
+  "viewport": {
+    "devicePixelRatio": 2,
+    "height": 109,
+    "width": 106
+  }
+}
+```
+
 ### browser.unsubscribe
 
 | Field | Required | Type | Constraints |
@@ -1698,7 +1722,6 @@ Example:
 ```json
 {
   "requestId": "example",
-  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.unsubscribe"
 }
@@ -1718,7 +1741,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sequence": 6,
+  "sequence": 5,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -1737,6 +1760,7 @@ Example:
 
 ```json
 {
+  "mode": "shared",
   "requestId": "example",
   "threadId": "example",
   "type": "browser.takeover"
@@ -1775,10 +1799,10 @@ Example:
 ```json
 {
   "input": {
-    "deltaX": 5,
+    "deltaX": 4,
     "deltaY": 5,
     "kind": "scroll",
-    "x": 9,
+    "x": 2,
     "y": 4
   },
   "requestId": "example",
@@ -1836,9 +1860,8 @@ Example:
 ```json
 {
   "options": {
-    "acpAgentId": "example",
-    "instanceId": "example",
-    "limit": 4
+    "instance": "example",
+    "offset": 0
   },
   "requestId": "example",
   "type": "models.list"
@@ -1876,8 +1899,6 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "instanceId": "example",
-    "provider": "claude",
     "role": "example"
   },
   "type": "models.resolve"
@@ -1896,8 +1917,8 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 5,
-  "threadId": null,
+  "inputAgeMs": 4,
+  "threadId": "example",
   "type": "presence.update"
 }
 ```
@@ -1917,9 +1938,9 @@ Example:
     "channel": "webpush",
     "platform": "web",
     "subscription": {
-      "auth": "ddY-39_Ko4eM1bSxdO038r",
+      "auth": "_Ko4eM1bSxdO038rnVR-2u",
       "endpoint": "https://example.invalid/",
-      "p256dh": "3dcYG4XGrvqe9rphETRiRwImAAnyjivW-DFXBusrsCCHKFdQ_GaLpZnFQHI2labdD8fTD4ToBuKo7p-_LPIoFzt"
+      "p256dh": "XGrvqe9rphETRiRwImAAnyjivW-DFXBusrsCCHKFdQ_GaLpZnFQHI2labdD8fTD4ToBuKo7p-_LPIoFztrddY-3"
     }
   },
   "type": "notification.register"
@@ -1937,9 +1958,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "includePreview": true
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -1958,7 +1977,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 9
+  "until": 7
 }
 ```
 
@@ -1979,6 +1998,7 @@ Example:
 
 ```json
 {
+  "channel": "screen",
   "deviceId": "example",
   "protocolVersion": 1,
   "ticket": "example",
@@ -2000,11 +2020,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 9,
-  "paced": true,
+  "afterSeq": 5,
   "scope": {
-    "kind": "thread",
-    "threadId": "example"
+    "kind": "threads"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2042,10 +2060,15 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "branch": "example",
-      "mode": "local",
+      "citations": [
+        {
+          "itemId": "example",
+          "threadId": "example"
+        }
+      ],
+      "summary": "example",
       "threadId": "example",
-      "type": "thread.workspace.set"
+      "type": "thread.merge"
     }
   },
   "type": "command"
@@ -2066,8 +2089,8 @@ Example:
 
 ```json
 {
-  "limit": 6,
-  "offset": 1,
+  "limit": 8,
+  "offset": 2,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2088,8 +2111,8 @@ Example:
 
 ```json
 {
-  "before": 2,
-  "limit": 8,
+  "before": 3,
+  "limit": 10,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -2111,8 +2134,8 @@ Example:
 
 ```json
 {
-  "before": 8,
-  "collection": "agents",
+  "before": 1,
+  "collection": "backgroundTasks",
   "limit": 3,
   "requestId": "example",
   "threadId": "example",

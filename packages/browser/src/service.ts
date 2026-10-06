@@ -340,6 +340,14 @@ export class BrowserService {
       ...(onBackendEvent ? { backendLost: onBackendEvent } : {}),
     });
   }
+  configureCapture(
+    threadId: string,
+    connectionId: string,
+    capture: import("./fanout.ts").CaptureViewer,
+  ): void {
+    this.subscriptions.configure(threadId, connectionId, capture);
+    this.get(threadId).live.fanout.configure(connectionId, capture);
+  }
   acknowledge(threadId: string, connectionId: string, sequence: number): void {
     this.get(threadId).live.fanout.acknowledge(connectionId, sequence);
   }
@@ -358,8 +366,8 @@ export class BrowserService {
   startRecording(threadId: string): Promise<void> {
     return this.get(threadId).startRecording();
   }
-  stopRecording(threadId: string): Promise<BrowserArtifact> {
-    return this.get(threadId).stopRecording();
+  stopRecording(threadId: string, actor?: Actor): Promise<BrowserArtifact> {
+    return this.get(threadId).stopRecording(actor);
   }
   async closeThread(threadId: string, actor?: Actor, signal?: AbortSignal): Promise<void> {
     // Agent closure must not revoke policies or start recovery cleanup before ownership is checked.

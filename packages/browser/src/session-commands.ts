@@ -1,3 +1,4 @@
+import { pageHistory, traverseHistory, findPageText } from "./page-navigation.ts";
 import {
   BrowserCommand,
   type BrowserState,
@@ -55,6 +56,18 @@ export async function executeBrowserCommand(
   const { backend: page, dir, id, evaluatePolicy, threadId } = context.options;
   const cdp = page.cdp;
   switch (command.action) {
+    case "navigation_history":
+      return pageHistory(cdp);
+    case "history":
+      context.check(actor, signal, generation);
+      return traverseHistory(cdp, command.direction, () =>
+        context.check(actor, signal, generation),
+      );
+    case "find_text":
+      context.check(actor, signal, generation);
+      return page.findText
+        ? page.findText(command.text, command.forward)
+        : findPageText(cdp, command.text, command.forward);
     case "navigate": {
       if (!/^https?:\/\//i.test(command.url) || !browserOrigin(command.url))
         throw new BrowserOriginError(

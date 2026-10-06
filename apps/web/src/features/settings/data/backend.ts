@@ -40,7 +40,7 @@ export interface ProviderAccount {
   id: string;
   label: string;
   plan: string;
-  auth: "logged_in" | "logged_out";
+  auth: "logged_in" | "logged_out" | "unknown";
   availability: "available" | "near_limit" | "exhausted" | "logged_out" | "unknown";
 }
 

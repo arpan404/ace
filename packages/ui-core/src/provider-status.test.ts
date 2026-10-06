@@ -32,19 +32,19 @@ const statuses = (entries: Partial<Record<ProviderKind, ProviderState>>) =>
     state: state ?? "not_installed",
   }));
 
-test("a CLI discovery found counts as ready with no ace account, on the person's own login", () => {
+test("an installed CLI with no authentication evidence stays unknown", () => {
   const listed = providerStatuses(new Set(["codex"]), []);
   const codex = listed.find((status) => status.provider === "codex");
 
-  expect(codex?.state).toBe("ready");
-  expect(codex && providerChoiceLabel(codex)).toBe("Codex");
+  expect(codex?.state).toBe("unknown");
+  expect(codex && providerChoiceLabel(codex)).toBe("Codex (sign-in unknown)");
 });
 
 test("an installed Pi is offered like the other native CLIs", () => {
   const pi = providerStatuses(new Set(["pi"]), []).find((status) => status.provider === "pi");
 
-  expect(pi && providerChoiceLabel(pi)).toBe("Pi");
-  expect(pi?.state).toBe("ready");
+  expect(pi && providerChoiceLabel(pi)).toBe("Pi (sign-in unknown)");
+  expect(pi?.state).toBe("unknown");
 });
 
 test("a CLI whose ace accounts are all signed out reads not signed in", () => {

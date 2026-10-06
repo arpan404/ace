@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -126,6 +126,7 @@ function main(target: DaemonTarget): void {
   const background = new Background({
     userData: app.getPath("userData"),
     trayIcon: paths.trayIcon,
+    browserPreload: join(dirname(paths.preload), "browser-preload.cjs"),
     runtime,
     settings: () => settings.get(),
     window: () => window,

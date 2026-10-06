@@ -1,7 +1,7 @@
 import { startRejection } from "./start-policy.ts";
 import type { Account } from "@ace/conductor";
 import type { ConductorSpec } from "@ace/protocol";
-import { pickInstance } from "@ace/accounts";
+import { explicitInstance } from "@ace/accounts";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "../agent-control/delegations.ts";
 import type { ExecutionJournal } from "./journal.ts";
@@ -46,17 +46,27 @@ export function executionAccounts(
             spec.constraints.providers.includes(instance.provider))),
     )
     .map(({ instance, quota }) => {
-      const available = pickInstance(
-        { provider: instance.provider, role: "deck", estimatedLoad: 0 },
-        [{ instance, quota }],
-        now(),
+      let usable = Boolean(
+        explicitInstance(
+          { provider: instance.provider, role: "deck", estimatedLoad: 0 },
+          { instance, quota },
+          now(),
+        ),
       );
+      if (instance.implicit) {
+        try {
+          const provider = services.engine?.providerAvailability(instance.provider);
+          usable = usable && Boolean(provider?.installed) && provider?.auth !== "logged_out";
+        } catch {
+          usable = false;
+        }
+      }
       return {
         id: instance.id,
         provider: instance.provider,
         capacity: delegations.policy.maxConcurrent,
         externalActive: Math.min(64, external(instance.id)),
-        quota: available ? 100 : 0,
+        quota: usable ? 100 : 0,
         resetAt: null,
       };
     });

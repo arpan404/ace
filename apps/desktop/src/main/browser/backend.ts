@@ -33,6 +33,7 @@ export interface ViewPage {
   resize(width: number, height: number): Promise<void>;
   /** Whether the person's own pointer and keyboard reach the page. */
   setNativeInput(enabled: boolean): void;
+  snapshot?(): { activeTabId: string; tabs: { tabId: string; url: string; title: string }[] };
   url(): string;
   /** Destroy the view, detach CDP and drop ephemeral partition data. */
   close(): Promise<void>;
@@ -41,6 +42,7 @@ export interface ViewPage {
 export interface ViewHost {
   open(request: {
     sessionId: string;
+    downloadDir?: string | undefined;
     options: BrowserOpen;
     viewport: { width: number; height: number };
   }): Promise<ViewPage>;
@@ -210,6 +212,7 @@ export class BrowserBackend {
     try {
       page = await this.host.open({
         sessionId,
+        downloadDir: operation.downloadDir,
         options: operation.options,
         viewport: operation.viewport,
       });
@@ -238,7 +241,7 @@ export class BrowserBackend {
       }),
     );
     this.applyLease(session, operation.lease);
-    return { url: page.url() };
+    return { url: page.url(), ...page.snapshot?.() };
   }
 
   private applyLease(session: Session, lease: BrowserControllerLease): void {

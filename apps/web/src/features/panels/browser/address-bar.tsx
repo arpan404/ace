@@ -137,6 +137,7 @@ export function AddressBar(props: {
         <p
           id={errorId}
           role="alert"
+          data-native-overlay=""
           className="absolute top-full right-0 left-0 z-10 mt-1.5 rounded-lg border bg-popover px-3 py-2 text-xs text-muted-foreground shadow-[var(--glass-shadow)]"
         >
           {error}
@@ -146,6 +147,7 @@ export function AddressBar(props: {
         <ul
           id={listId}
           role="listbox"
+          data-native-overlay=""
           aria-label="Suggested addresses"
           className="@container absolute top-full right-0 left-0 z-10 mt-1.5 flex flex-col overflow-hidden rounded-lg border bg-popover p-1 shadow-[var(--glass-shadow)]"
         >
