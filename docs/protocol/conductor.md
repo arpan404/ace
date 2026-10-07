@@ -22,30 +22,9 @@ Example:
 
 ```json
 {
-  "budget": 3,
-  "decision": "approve",
-  "gateId": "x_e_hSUi.CPrEA2_gpy1NUl15cM11eI0a_JHbMzlLyRyUvZf74yD7qM_sXAguhznYaZ6xd-1l-siAit_.aG",
-  "plan": {
-    "summary": "Example plan",
-    "workstreams": [
-      {
-        "brief": {
-          "acceptance": [
-            "Example acceptance"
-          ],
-          "files": [],
-          "instructions": "Example instructions",
-          "objective": "Example objective",
-          "packages": [],
-          "risks": []
-        },
-        "dependencies": [],
-        "id": "lane",
-        "priority": 0,
-        "title": "Example workstream"
-      }
-    ]
-  }
+  "budget": 4,
+  "decision": "reject",
+  "gateId": "Pkj6X"
 }
 ```
 
@@ -92,22 +71,42 @@ Example:
 ```json
 {
   "run": {
-    "budget": 7,
+    "budget": 9,
     "dag": [],
     "deadline": 5,
-    "delegations": [],
     "goal": "example",
-    "id": "TQeDmPZUi-mZ0IAdRAtl21WWTkg3cG9rWEfCuYaxHRNg.47ySqTLA2Un3cSI5Dr1",
+    "id": "emPZUi-mZ0IAdRAtl21WWTkg3cG9rWEfCuYaxHRNg.47ySqTLA2Un3cSI5D",
     "lanes": [],
     "needsUser": [],
-    "phase": "done",
-    "plan": null,
+    "phase": "running",
+    "plan": {
+      "summary": "Example plan",
+      "workstreams": [
+        {
+          "brief": {
+            "acceptance": [
+              "Example acceptance"
+            ],
+            "files": [],
+            "instructions": "Example instructions",
+            "objective": "Example objective",
+            "packages": [],
+            "risks": []
+          },
+          "dependencies": [],
+          "id": "lane",
+          "priority": 0,
+          "title": "Example workstream"
+        }
+      ]
+    },
     "planApproved": true,
-    "spent": 2,
+    "spent": 8,
+    "startedAt": 7,
     "truncated": true,
     "workspaceId": "example"
   },
-  "subscriptionId": "c.w0udDRGBsCcVjpXWl8LgRZRckj6XUSoFWPhoZeu5F3yxNq",
+  "subscriptionId": "NoZeu5F3yxNqVGQ",
   "type": "conductor.changed"
 }
 ```
