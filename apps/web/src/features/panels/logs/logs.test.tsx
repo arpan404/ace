@@ -18,7 +18,7 @@ async function openLogs(
 async function showLogs(title: string) {
   await screen.findByRole("heading", { level: 1, name: title });
   await userEvent.keyboard("{Control>}{Shift>}L{/Shift}{/Control}");
-  const panel = await screen.findByRole("region", { name: "Bottom panel" });
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("tab", { name: "Logs", selected: true });
   return panel;
 }
@@ -160,7 +160,7 @@ test("a level filter keeps to warnings and errors, and the thread's Logs come ba
   // Away to another thread and back: the filter was kept with the tab.
   await app.open("/t/thread-settings");
   await app.open("/t/thread-cold-start");
-  const again = await screen.findByRole("region", { name: "Bottom panel" });
+  const again = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(again).getByRole("button", { name: "Levels and sources (filtered)" })).toBeTruthy();
   await waitFor(() => expect(lines(again).every((line) => /warn|error/.test(line))).toBe(true));
 });

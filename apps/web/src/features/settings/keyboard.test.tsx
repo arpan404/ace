@@ -85,9 +85,9 @@ test("shortcuts are grouped, filterable, and a rebound one is marked", async () 
   expect(screen.getByRole("region", { name: "Go to" })).toBeTruthy();
   expect(screen.getByRole("region", { name: "Terminal & browser" })).toBeTruthy();
 
-  await userEvent.type(screen.getByRole("searchbox", { name: "Filter shortcuts" }), "Ctrl+J");
+  await userEvent.type(screen.getByRole("searchbox", { name: "Filter shortcuts" }), "Alt+Ctrl+O");
   expect(
-    screen.getByRole("button", { name: "Show or hide the bottom panel shortcut" }),
+    screen.getByRole("button", { name: "Show or hide the thread's work card shortcut" }),
   ).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Command palette shortcut" })).toBeNull();
   await userEvent.clear(screen.getByRole("searchbox", { name: "Filter shortcuts" }));

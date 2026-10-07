@@ -100,7 +100,7 @@ export const browserKind = defineTabKind({
   load: () => import("./browser/browser-tab.tsx"),
   fromUrl: (url, workspace) => ({
     kind: "browser",
-    id: nextBrowserId([...workspace.right.tabs, ...workspace.bottom.tabs].map((tab) => tab.key)),
+    id: nextBrowserId(workspace.tabs.map((tab) => tab.key)),
     data: { url, go: true },
   }),
   onClose: (scope, tab) => {
@@ -191,7 +191,6 @@ export const launcherKind = defineTabKind({
   kind: "new-tab",
   label: "New tab",
   icon: PlusIcon,
-  docks: ["right", "bottom"],
   load: () => import("./launcher/launcher-tab.tsx").then((m) => ({ default: m.LauncherTab })),
 });
 

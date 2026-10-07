@@ -43,8 +43,9 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         },
       });
       return normalizeCursorSdk(
-        await driver.models({ id: instance.id, homeDir: instance.homeDir }, signal),
+        await driver.models({ id: instance.id, homeDir: instance.homeDir }, signal, diagnostic),
         instance,
+        (entry) => diagnostic?.({ rejectedModels: [entry] }),
       );
     }
     // Unprofiled session/new is executable startup behavior, not a metadata query.

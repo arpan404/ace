@@ -71,11 +71,13 @@ export async function startModels(context: ServiceContext): Promise<void> {
     (provider, instance, error, source, diagnostic) =>
       context.log.log(
         diagnostic?.level ?? "warn",
-        error.code === "not_configured"
-          ? "Provider sign-in is required"
-          : error.code === "no_models"
-            ? "Connected source has no chat models enabled"
-            : "Model discovery failed",
+        diagnostic?.modelIndex !== undefined
+          ? "Model metadata entry rejected"
+          : error.code === "not_configured"
+            ? "Provider sign-in is required"
+            : error.code === "no_models"
+              ? "Connected source has no chat models enabled"
+              : "Model discovery failed",
         logFields([
           ["provider", provider],
           ["instance", instance],
@@ -84,7 +86,11 @@ export async function startModels(context: ServiceContext): Promise<void> {
           ["code", error.code],
           ["stage", diagnostic?.stage ?? null],
           ["message", error.message],
-          ...(error.code === "discovery_failed" && diagnostic?.reason
+          ...(diagnostic?.modelIndex !== undefined
+            ? [["modelIndex", diagnostic.modelIndex] as const]
+            : []),
+          ...((error.code === "discovery_failed" || diagnostic?.modelIndex !== undefined) &&
+          diagnostic?.reason
             ? [["reason", diagnostic.reason] as const]
             : []),
           ["cliVersion", diagnostic?.cliVersion ?? null],

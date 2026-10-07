@@ -43,11 +43,10 @@ export const keymap = {
   back: { keys: "mod+[", label: "Back" },
   forward: { keys: "mod+]", label: "Forward" },
   toggleSidebar: { keys: "mod+\\", label: "Hide or show the sidebar" },
-  // The workspace docks (features/shell/workspace). One map for tooltips, launcher and palette.
+  // The side panel (features/shell/workspace). One map for tooltips, launcher and palette.
   rightPanel: { keys: "shift+mod+b", nonApple: "alt+mod+b", label: "Show or hide the side panel" },
-  bottomPanel: { keys: "mod+j", label: "Show or hide the bottom panel" },
   fullView: { keys: "shift+mod+f", label: "Full view" },
-  summary: { keys: "alt+mod+o", label: "Pin or unpin the thread summary" },
+  workCard: { keys: "alt+mod+o", label: "Show or hide the thread's work card" },
   newTab: { keys: "alt+mod+t", label: "New tab" },
   closeTab: { keys: "alt+mod+w", label: "Close tab" },
   reopenTab: { keys: "shift+alt+mod+t", label: "Reopen closed tab" },
@@ -55,7 +54,8 @@ export const keymap = {
   previousTab: { keys: "shift+mod+[", label: "Previous tab" },
   changes: { keys: "shift+mod+d", label: "Changes" },
   agents: { keys: "ctrl+shift+a", label: "Agents" },
-  terminal: { keys: "ctrl+`", label: "Terminal" },
+  // ⌘J showed the bottom panel, where terminals lived; it now shows the side panel's terminal.
+  terminal: { keys: "ctrl+`", also: ["mod+j"], label: "Terminal" },
   files: { keys: "mod+p", label: "Open a file" },
   browser: { keys: "ctrl+shift+b", label: "Browser" },
   newTerminal: { keys: "ctrl+shift+`", label: "New terminal" },

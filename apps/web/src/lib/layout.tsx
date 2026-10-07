@@ -5,8 +5,8 @@ import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import type { WorkspaceStore } from "./workspace/store.ts";
 
 /**
- * Shell layout: the sidebar, the palette, and whether a screen's right dock is showing.
- * Local UI state, persisted to storage. The docks' tabs and sizes are per scope (thread) in the
+ * Shell layout: the sidebar, the palette, and whether a screen's side panel is showing.
+ * Local UI state, persisted to storage. The side panel's tabs and width are per scope (thread) in the
  * workspace store (`lib/workspace`), which reads the same storage.
  */
 export const ShellLayout = z.object({
@@ -23,12 +23,12 @@ interface LayoutValue {
   setSidebarOpen(open: boolean): void;
   paletteOpen: boolean;
   setPaletteOpen(open: boolean): void;
-  /** A screen is showing its right dock now (not just remembered open), so a crowded window
-   * can give it the sidebar's room. Set by the dock itself. */
+  /** A screen is showing its side panel now (not just remembered open), so a crowded window
+   * can give it the sidebar's room. Set by the panel itself. */
   rightPanelShown: boolean;
-  /** Put the showing right dock away (asking for the sidebar back on a crowded window). */
+  /** Put the showing side panel away (asking for the sidebar back on a crowded window). */
   hideRightPanel(): void;
-  /** The dock registers how to hide itself while it shows; undefined when it hides. */
+  /** The panel registers how to hide itself while it shows; undefined when it hides. */
   setRightPanel(hide: (() => void) | undefined): void;
   /** The injected key-value storage, for features that persist their own local UI state. */
   storage: KeyValueStorage | undefined;
@@ -47,7 +47,7 @@ export function LayoutProvider(props: {
   );
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [rightPanel, setRightPanelState] = useState<{ hide(): void }>();
-  // Stable, so the dock registering itself doesn't re-run on every layout change.
+  // Stable, so the panel registering itself doesn't re-run on every layout change.
   const setRightPanel = useCallback(
     (hide: (() => void) | undefined) => setRightPanelState(hide ? { hide } : undefined),
     [],

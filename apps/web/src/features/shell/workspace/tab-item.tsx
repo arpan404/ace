@@ -9,12 +9,7 @@ import {
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Tip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
-import type {
-  Dock,
-  WorkspaceActions,
-  WorkspaceDefinition,
-  WorkspaceTab,
-} from "@/lib/workspace/index.ts";
+import type { WorkspaceActions, WorkspaceDefinition, WorkspaceTab } from "@/lib/workspace/index.ts";
 import { tabDomId } from "./tab-content.tsx";
 
 /** Dragged tabs carry their key under this type, so a strip can tell a tab drag from a file. */
@@ -61,11 +56,10 @@ export function measureTab(element: HTMLElement): {
 /**
  * One tab: icon, title, live badge and a close button whose room is always kept, so the strip
  * never shifts on hover. Pinned tool tabs have no close button (their menu still closes them).
- * Right-click (or the context-menu key) for pin, move and close actions.
+ * Right-click (or the context-menu key) for full view, pin, move and close actions.
  */
 export function TabItem(props: {
   scope: string;
-  dock: Dock;
   tab: WorkspaceTab;
   index: number;
   count: number;
@@ -90,8 +84,6 @@ export function TabItem(props: {
   const { tab, definition, actions } = props;
   const kind = definition.kind(tab.kind);
   const title = definition.title(tab);
-  const other: Dock = props.dock === "right" ? "bottom" : "right";
-  const canMove = kind?.docks.includes(other) ?? false;
   const Badge = kind?.Badge;
   const closable = !tab.pinned;
   const iconOnly = props.iconOnly && !props.active;
@@ -145,8 +137,8 @@ export function TabItem(props: {
               <button
                 type="button"
                 role="tab"
-                id={tabDomId(props.dock, tab.key, "tab")}
-                aria-controls={tabDomId(props.dock, tab.key, "panel")}
+                id={tabDomId(tab.key, "tab")}
+                aria-controls={tabDomId(tab.key, "panel")}
                 aria-selected={props.active}
                 aria-label={iconOnly ? title : undefined}
                 tabIndex={props.focusable ? 0 : -1}
@@ -252,30 +244,15 @@ export function TabItem(props: {
         )}
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {props.dock === "right" && (
-          <MenuItem
-            shortcut="fullView"
-            onClick={() => {
-              actions.activate(tab.key);
-              actions.setExpanded(true);
-            }}
-          >
-            Open in full view
-          </MenuItem>
-        )}
-        {canMove && (
-          <MenuItem
-            onClick={() => {
-              actions.moveToDock(tab.key, other);
-              // Keyboard users carry on from the tab where it now sits.
-              requestAnimationFrame(() =>
-                document.getElementById(tabDomId(other, tab.key, "tab"))?.focus(),
-              );
-            }}
-          >
-            {other === "bottom" ? "Move to bottom panel" : "Move to side panel"}
-          </MenuItem>
-        )}
+        <MenuItem
+          shortcut="fullView"
+          onClick={() => {
+            actions.activate(tab.key);
+            actions.setExpanded(true);
+          }}
+        >
+          Open in full view
+        </MenuItem>
         <MenuItem onClick={() => actions.setPinned(tab.key, !tab.pinned)}>
           {tab.pinned ? "Unpin tab" : "Pin tab"}
         </MenuItem>

@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
+import { openTurns } from "./thread-header.ts";
 
 /**
  * The long-thread screens against the fake daemon, in Dark and Light at 1440x900, to
@@ -27,9 +28,9 @@ async function openThread(page: Page) {
     .getByRole("button", { name: "Dismiss" })
     .click();
 }
-async function openTurns(page: Page) {
-  await page.getByRole("button", { name: "Turns" }).click();
-  await page.getByRole("option", { name: /^Turn 24: / }).waitFor();
+async function showTurns(page: Page) {
+  const turns = await openTurns(page);
+  await turns.getByRole("option", { name: /^Turn 24: / }).waitFor();
 }
 
 /**
@@ -77,12 +78,12 @@ const screens: Record<string, Setup> = {
   },
   "long-timeline": async (page) => {
     await openThread(page);
-    await openTurns(page);
+    await showTurns(page);
     for (let n = 0; n < 3; n++) await page.keyboard.press("ArrowUp");
   },
   "long-jumped": async (page) => {
     await openThread(page);
-    await openTurns(page);
+    await showTurns(page);
     await page.keyboard.press("Home");
     for (let n = 0; n < 6; n++) await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");

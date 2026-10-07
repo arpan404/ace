@@ -7,7 +7,6 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const sidePanel = (page: Page) => page.getByRole("region", { name: "Thread panel" });
-const bottomPanel = (page: Page) => page.getByRole("region", { name: "Bottom panel" });
 const sideTabs = (page: Page) =>
   sidePanel(page).getByRole("tablist", { name: "Thread panel tabs" }).getByRole("tab");
 
@@ -38,36 +37,38 @@ const daemonTerminals = (page: Page, threadId: string) =>
     threadId,
   );
 
-test("a new terminal keeps its shell while the bottom panel hides, and closing its tab ends it", async ({
+test("a new terminal keeps its shell while the side panel hides, and closing its tab ends it", async ({
   page,
 }) => {
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
-  await page.getByRole("button", { name: "Bottom panel" }).click();
-  await expect(bottomPanel(page).getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+j");
+  await expect(sidePanel(page).getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
   const before = (await daemonTerminals(page, "thread-cold-start")).length;
 
-  await bottomPanel(page).getByRole("button", { name: "New terminal" }).click();
-  await expect(bottomPanel(page).getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
+  await sidePanel(page)
+    .getByRole("button", { name: /^Terminal sessions/ })
+    .click();
+  await page.getByRole("menuitem", { name: /^New terminal/ }).click();
+  await expect(sidePanel(page).getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
+  const terminal = sidePanel(page).getByRole("group", { name: "zsh 2 terminal" });
+  await terminal.click();
   await page.keyboard.type("echo still-here");
   await page.keyboard.press("Enter");
-  const terminal = bottomPanel(page).getByRole("group", { name: "zsh 2 terminal" });
   await expect(terminal).toContainText("still-here");
   await expect.poll(() => daemonTerminals(page, "thread-cold-start")).toHaveLength(before + 1);
 
-  // Hiding the dock is not closing: the shell and what it printed come back with ⌘J.
-  await bottomPanel(page).getByRole("button", { name: "Hide bottom panel" }).click();
-  await expect(bottomPanel(page)).toHaveCount(0);
+  // Hiding the panel is not closing: the shell and what it printed come back with it.
+  await sidePanel(page).getByRole("button", { name: "Right panel" }).click();
+  await expect(sidePanel(page)).toHaveCount(0);
   expect(await daemonTerminals(page, "thread-cold-start")).toHaveLength(before + 1);
-  await page.keyboard.press("ControlOrMeta+j");
-  await expect(bottomPanel(page).getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
-  await expect(bottomPanel(page).getByRole("group", { name: "zsh 2 terminal" })).toContainText(
-    "still-here",
-  );
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await expect(sidePanel(page).getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
+  await expect(terminal).toContainText("still-here");
 
   // Closing the tab ends that shell, and only that one.
-  await bottomPanel(page).getByRole("button", { name: "Close zsh 2" }).click();
-  await expect(bottomPanel(page).getByRole("tab", { name: "zsh 2" })).toHaveCount(0);
-  await expect(bottomPanel(page).getByRole("tab", { name: "zsh", exact: true })).toBeVisible();
+  await sidePanel(page).getByRole("button", { name: "Close zsh 2" }).click();
+  await expect(sidePanel(page).getByRole("tab", { name: "zsh 2" })).toHaveCount(0);
+  await expect(sidePanel(page).getByRole("tab", { name: "zsh", exact: true })).toBeVisible();
   await expect.poll(() => daemonTerminals(page, "thread-cold-start")).toHaveLength(before);
 });
 

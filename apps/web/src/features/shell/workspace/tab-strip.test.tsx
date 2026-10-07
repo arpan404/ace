@@ -1,5 +1,6 @@
 import { FileIcon, GitDiffIcon } from "@phosphor-icons/react";
 import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { LayoutProvider } from "@/lib/layout.tsx";
@@ -87,9 +88,8 @@ function Strip(props: { definition: WorkspaceDefinition }) {
   return (
     <TabStrip
       scope="scope"
-      dock="right"
       label="Tabs"
-      state={workspace.right}
+      state={workspace}
       definition={props.definition}
       actions={actions}
     />
@@ -109,12 +109,8 @@ test("the showing tab grows to fit its badge when the badge arrives after the ta
   stat = "";
   const definition = defineWorkspace({
     label: "Side panel",
-    docks: ["right"],
     launcher: "file",
-    initial: [
-      { kind: "changes", dock: "right" },
-      { kind: "file", id: "a", title: "notes.md", dock: "right" },
-    ],
+    initial: [{ kind: "changes" }, { kind: "file", id: "a", title: "notes.md" }],
     kinds: () => Promise.resolve({ default: [changes, file] }),
   });
   await definition.load();
@@ -145,9 +141,8 @@ test("while a tool's code loads, its tab shows the tool's shape rather than a sp
   });
   const definition = defineWorkspace({
     label: "Side panel",
-    docks: ["right"],
     launcher: "files",
-    initial: [{ kind: "files", id: "a", dock: "right" }],
+    initial: [{ kind: "files", id: "a" }],
     kinds: () => Promise.resolve({ default: [slow] }),
   });
   await definition.load();
@@ -155,7 +150,6 @@ test("while a tool's code loads, its tab shows the tool's shape rather than a sp
   render(
     <TabContent
       scope="scope"
-      dock="right"
       definition={definition}
       tabs={[tab]}
       shown={tab.key}
@@ -164,4 +158,32 @@ test("while a tool's code loads, its tab shows the tool's shape rather than a sp
   );
   expect(await screen.findByRole("status", { name: "Loading Files" })).toBeTruthy();
   expect(screen.queryByRole("status", { name: "Loading" })).toBeNull();
+});
+
+const names = () => screen.getAllByRole("tab").map((tab) => tab.textContent);
+
+test("Alt+Shift+arrows move the focused tab, and the strip says where it went", async () => {
+  const definition = defineWorkspace({
+    label: "Side panel",
+    launcher: "file",
+    initial: [
+      { kind: "file", id: "a", title: "notes.md" },
+      { kind: "file", id: "b", title: "todo.md" },
+      { kind: "file", id: "c", title: "plan.md" },
+    ],
+    kinds: () => Promise.resolve({ default: [changes, file] }),
+  });
+  await definition.load();
+  render(
+    <LayoutProvider>
+      <Strip definition={definition} />
+    </LayoutProvider>,
+  );
+  screen.getByRole("tab", { name: /notes\.md/ }).focus();
+  await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
+  expect(names()).toEqual(["todo.md", "notes.md", "plan.md"]);
+  expect(screen.getByText("notes.md moved to position 2 of 3")).toBeTruthy();
+  // Focus stays with the moved tab, so it can go on moving.
+  await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
+  expect(names()).toEqual(["todo.md", "plan.md", "notes.md"]);
 });

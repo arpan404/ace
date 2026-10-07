@@ -19,7 +19,7 @@ export function useTurns(threadId: string): readonly Turn[] {
   return useThread(threadId, keys, collectTurns, turnsEqual) ?? noTurns;
 }
 
-/** Lines added and removed across the whole thread: the Changes tab and the summary card. */
+/** Lines added and removed across the whole thread: the Changes tab and the work card. */
 export function useThreadDiffStat(threadId: string): { additions: number; deletions: number } {
   const turns = useTurns(threadId);
   const edits = useMemo(() => turns.flatMap((turn) => turn.edits), [turns]);

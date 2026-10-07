@@ -28,12 +28,11 @@ const file = defineTabKind({ kind: "file", label: "File", icon: FileIcon, ...vie
 function setup(kinds: () => Promise<{ default: readonly (typeof shell)[] }>) {
   const definition = defineWorkspace({
     label: "Side panel",
-    docks: ["right"],
     launcher: "file",
     initial: [
-      { kind: "file", id: "notes", dock: "right" },
-      { kind: "shell", id: "live-1", dock: "right" },
-      { kind: "shell", id: "pending-1", dock: "right" },
+      { kind: "file", id: "notes" },
+      { kind: "shell", id: "live-1" },
+      { kind: "shell", id: "pending-1" },
     ],
     kinds,
   });
@@ -47,7 +46,7 @@ function setup(kinds: () => Promise<{ default: readonly (typeof shell)[] }>) {
       return new Promise((resolve) => (answer = resolve));
     });
   };
-  const keys = () => store.get("thread").right.tabs.map((tab: WorkspaceTab) => tab.key);
+  const keys = () => store.get("thread").tabs.map((tab: WorkspaceTab) => tab.key);
   return {
     store,
     actions: workspaceActions(store, "thread"),

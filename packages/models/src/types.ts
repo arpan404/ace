@@ -49,6 +49,8 @@ export type DiscoveryReport = {
 export type DiscoveryDiagnostics = {
   cliVersion?: string;
   stage?: "version" | "connections" | "metadata" | "model-ids";
+  /** Bounded fixed reasons for skipped SDK rows. Local logger only, never cache/wire. */
+  rejectedModels?: readonly { index: number; reason: string }[];
   /** Attempt-local sanitized text. Never part of a catalog row or cache entry. */
   sourceFailures?: readonly { source: string; reason: string }[];
   sources?: readonly ModelSource[];

@@ -70,3 +70,28 @@ export async function launchEditor(target: LaunchTarget, scope: object = globalT
   // A registered URL handler opens the editor and leaves this page where it is.
   window.open(url, "_self");
 }
+
+/** A PNG data URL, as the desktop bridge returns an editor's icon. */
+const pngDataUrl = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/;
+
+/**
+ * The desktop app's reader of an installed editor's own icon, from the OS (the app the editor's
+ * URL scheme opens); undefined in a browser, which can't ask. Resolves null when this computer
+ * has no icon for it, or for an editor the desktop app doesn't know.
+ */
+export function editorIconReader(
+  scope: object = globalThis,
+): ((editorId: string) => Promise<string | null>) | undefined {
+  const ace: unknown = Reflect.get(scope, "ace");
+  if (typeof ace !== "object" || ace === null || !("shell" in ace)) return undefined;
+  const shell: unknown = ace.shell;
+  if (typeof shell !== "object" || shell === null || !("editorIcon" in shell)) return undefined;
+  const read: unknown = shell.editorIcon;
+  if (typeof read !== "function") return undefined;
+  return async (editorId) => {
+    const editor = desktopEditors[editorId];
+    if (!editor) return null;
+    const icon: unknown = await Promise.resolve(Reflect.apply(read, shell, [editor]));
+    return typeof icon === "string" && pngDataUrl.test(icon) ? icon : null;
+  };
+}

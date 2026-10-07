@@ -11,6 +11,7 @@ import {
   scriptedReply,
 } from "../src/real-daemon-config.ts";
 import { scrollToRow } from "./fake/thread-list.ts";
+import { openTurns } from "./thread-header.ts";
 
 /**
  * A long thread on a real apps/daemon with scripted providers (src/real-daemon.ts seeds 110
@@ -50,8 +51,7 @@ test("jump to an early turn, search for one, and catch up after another device's
 
   // The turn index: the first turn is far older than the transcript's window.
   await expect(feed.getByText(longAsk(1))).toHaveCount(0);
-  await page.getByRole("button", { name: "Turns" }).click();
-  const turns = page.getByRole("listbox", { name: "Turns of this thread" });
+  const turns = await openTurns(page);
   await expect(
     turns.getByRole("option", { name: new RegExp(`^Turn ${longTurns}: `) }),
   ).toBeVisible();

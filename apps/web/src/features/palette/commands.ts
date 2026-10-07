@@ -57,8 +57,8 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
   // Workspace commands act on the screen showing one (a thread), and only appear there.
   const scope = useFocusedScope();
   const workspace = useScopeWorkspace(scope);
-  const docks = useWorkspaceActions(scope ?? "");
-  // The showing tab's commands (move, pin, close others, maximize, reopen): PN-05, PN-19.
+  const panel = useWorkspaceActions(scope ?? "");
+  // The showing tab's commands (pin, close others, reopen): PN-05, PN-19.
   const tabCommands = useWorkspaceCommands();
   const threadGroups = useThreadCommands(close);
   const projects = useProjectDialogs();
@@ -149,77 +149,70 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
                   label: "Show changes",
                   keys: keymap.changes.keys,
                   icon: "action",
-                  run: run(() => docks.toggleKind("changes")),
+                  run: run(() => panel.toggleKind("changes")),
                 } satisfies PaletteCommand,
                 {
                   id: "open-agents",
                   label: "Open agent tree",
                   keys: keymap.agents.keys,
                   icon: "action",
-                  run: run(() => docks.toggleKind("agents")),
+                  run: run(() => panel.toggleKind("agents")),
                 } satisfies PaletteCommand,
                 {
                   id: "open-terminal",
                   label: "Open terminal",
                   keys: keymap.terminal.keys,
                   icon: "action",
-                  run: run(() => docks.toggleKind("terminal")),
+                  run: run(() => panel.toggleKind("terminal")),
                 } satisfies PaletteCommand,
                 {
                   id: "open-file",
                   label: "Open a file from the checkout",
                   keys: keymap.files.keys,
                   icon: "action",
-                  run: run(() => docks.shortcut("files")),
+                  run: run(() => panel.shortcut("files")),
                 } satisfies PaletteCommand,
                 {
                   id: "open-browser",
                   label: "Open the browser",
                   keys: keymap.browser.keys,
                   icon: "action",
-                  run: run(() => docks.shortcut("browser")),
+                  run: run(() => panel.shortcut("browser")),
                 } satisfies PaletteCommand,
                 {
                   id: "new-terminal",
                   label: "New terminal",
                   keys: keymap.newTerminal.keys,
                   icon: "action",
-                  run: run(() => openNewTerminal(docks, workspace)),
+                  run: run(() => openNewTerminal(panel, workspace)),
                 } satisfies PaletteCommand,
                 {
                   id: "open-logs",
                   label: "Show logs",
                   keys: keymap.logs.keys,
                   icon: "action",
-                  run: run(() => docks.toggleKind("logs")),
+                  run: run(() => panel.toggleKind("logs")),
                 } satisfies PaletteCommand,
                 {
                   id: "toggle-right",
-                  label: `${workspace.right.open ? "Hide" : "Show"} side panel`,
+                  label: `${workspace.open ? "Hide" : "Show"} side panel`,
                   keys: keymap.rightPanel.keys,
                   icon: "action",
-                  run: run(() => docks.toggle("right")),
-                } satisfies PaletteCommand,
-                {
-                  id: "toggle-bottom",
-                  label: `${workspace.bottom.open ? "Hide" : "Show"} bottom panel`,
-                  keys: keymap.bottomPanel.keys,
-                  icon: "action",
-                  run: run(() => docks.toggle("bottom")),
+                  run: run(() => panel.toggle()),
                 } satisfies PaletteCommand,
                 {
                   id: "new-tab",
                   label: "New tab in the side panel",
                   keys: keymap.newTab.keys,
                   icon: "action",
-                  run: run(() => docks.newTab("right")),
+                  run: run(() => panel.newTab()),
                 } satisfies PaletteCommand,
                 {
                   id: "full-view",
                   label: workspace.expanded ? "Exit full view" : "Side panel in full view",
                   keys: keymap.fullView.keys,
                   icon: "action",
-                  run: run(() => docks.setExpanded(!workspace.expanded)),
+                  run: run(() => panel.setExpanded(!workspace.expanded)),
                 } satisfies PaletteCommand,
                 ...tabCommands.map((command): PaletteCommand => ({
                   ...command,
@@ -284,7 +277,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
     theme.scheme,
     update,
     scope,
-    docks,
+    panel,
     workspace,
     tabCommands,
     projects,
