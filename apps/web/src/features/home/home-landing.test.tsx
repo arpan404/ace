@@ -32,6 +32,10 @@ test("Home opens on the top thread, then comes back to the thread last opened", 
 });
 
 test("with no threads at all, Home says how to start one", async () => {
-  await harness().open("/");
+  const app = harness();
+  // A project to start in, so what's missing is a thread (with none, Home asks for a project).
+  app.daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/relay", git: true }]);
+  app.daemon.projects.command({ type: "workspace.add", path: "/home/dev/relay" });
+  await app.open("/");
   expect(await within(await screen.findByRole("main")).findByText("No threads yet")).toBeTruthy();
 });

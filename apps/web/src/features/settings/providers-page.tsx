@@ -1,16 +1,25 @@
-import { signInSteps } from "@ace/ui-core";
+import { readinessView, signInSteps, type CatalogSignal, type ReadinessView } from "@ace/ui-core";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
+import { CopyCommand } from "@/components/copy-command.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { providerStatusesKey } from "@/lib/provider-statuses.ts";
+import {
+  onboardingKey,
+  useProviderReadiness,
+  type ProviderReadiness,
+} from "@/lib/provider-readiness.ts";
+import { ManageMenu, ReadinessActions } from "@/features/sign-in/index.ts";
+import { useCatalogSignals } from "@/lib/provider-signals.ts";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
+import { UpstreamSources } from "./upstream-sources.tsx";
 import type { ProviderAccount, ProviderInstall } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 
@@ -18,7 +27,7 @@ import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
  * "claude 2.1.4 · 2 accounts · 1 at limit", "codex · its own login", "Not installed",
  * "via ACP · 1 account".
  */
-export function describeInstall(install: ProviderInstall): string {
+export function describeInstall(install: ProviderInstall, ready?: boolean): string {
   if (install.via && install.accounts.length === 0)
     return `${install.via} · runs ${install.binary}`;
   if (install.kind === "cursor" && install.state === "not_installed")
@@ -28,12 +37,15 @@ export function describeInstall(install: ProviderInstall): string {
   const unknown = install.accounts.filter((account) => account.auth === "unknown");
   const atLimit = install.accounts.filter((account) => account.availability === "exhausted");
   const parts = [install.via ?? [install.binary, install.version].filter(Boolean).join(" ")];
-  // No ace account: the daemon runs the CLI on the person's own login.
+  // No ace account: the daemon runs the CLI on the person's own login. Where readiness (`ready`)
+  // says otherwise, the accounts' word is left out rather than contradict it.
   if (install.state === "unknown") parts.push("sign-in unknown");
-  else if (install.state === "signed_out") parts.push("signed out");
-  else if (install.accounts.length === 0 || (install.accounts.length === 1 && !install.via))
-    parts.push("signed in");
-  else parts.push(`${install.accounts.length} account${install.accounts.length === 1 ? "" : "s"}`);
+  else if (install.state === "signed_out") {
+    if (ready !== true) parts.push("signed out");
+  } else if (install.accounts.length === 0 || (install.accounts.length === 1 && !install.via)) {
+    if (ready !== false) parts.push("signed in");
+  } else
+    parts.push(`${install.accounts.length} account${install.accounts.length === 1 ? "" : "s"}`);
   if (unknown.length && install.state !== "unknown")
     parts.push(`${unknown.length} sign-in unknown`);
   if (atLimit.length) parts.push(`${atLimit.length} at limit`);
@@ -44,6 +56,9 @@ export function describeInstall(install: ProviderInstall): string {
 export function ProviderSettings() {
   const backend = useSettingsBackend();
   const providers = useQuery(settingsQueries.providers(backend));
+  // Each CLI's own login (signed in as whom, or what it needs), live as sign-ins finish.
+  const readiness = useProviderReadiness();
+  const signals = useCatalogSignals();
   if (providers.isPending)
     return <ListSkeleton label="providers" shape="row" rows={5} className="mt-7" />;
   if (providers.isError)
@@ -53,9 +68,29 @@ export function ProviderSettings() {
       </p>
     );
   return (
-    <SettingSection label="Providers" card actions={<RediscoverButton />}>
+    <SettingSection
+      label="Providers"
+      card
+      actions={
+        <>
+          <Link to="/setup" className={buttonVariants({ size: "sm", variant: "ghost" })}>
+            Set up providers
+          </Link>
+          <RediscoverButton />
+        </>
+      }
+    >
       {providers.data.map((install) => (
-        <ProviderRow key={`${install.kind}:${install.name}`} install={install} />
+        <ProviderRow
+          key={`${install.kind}:${install.name}`}
+          install={install}
+          readiness={
+            install.kind === "acp"
+              ? undefined
+              : readiness.data?.find((row) => row.provider === install.kind)
+          }
+          catalog={signals(install.kind)}
+        />
       ))}
       <SettingRow title="Any ACP agent" description="Add a command and ace will drive it." inline>
         <AddAcpAgent />
@@ -71,7 +106,9 @@ export function RediscoverButton() {
     mutationFn: () => backend.rediscover(),
     onSuccess: (list) => {
       queryClient.setQueryData(settingsQueries.providers(backend).queryKey, list);
-      void queryClient.invalidateQueries({ queryKey: providerStatusesKey });
+      // Readiness and the pickers' statuses (both under "providers"), and setup's checklist.
+      void queryClient.invalidateQueries({ queryKey: ["providers"] });
+      void queryClient.invalidateQueries({ queryKey: onboardingKey });
     },
   });
   return (
@@ -87,10 +124,17 @@ export function RediscoverButton() {
   );
 }
 
-function ProviderRow(props: { install: ProviderInstall }) {
-  const { install } = props;
+function ProviderRow(props: {
+  install: ProviderInstall;
+  readiness: ProviderReadiness | undefined;
+  catalog: CatalogSignal | undefined;
+}) {
+  const { install, readiness } = props;
   const [open, setOpen] = useState(false);
   const installed = install.state !== "not_installed";
+  const view = readiness && readinessView(readiness, props.catalog);
+  // Accounts and models, from the row's one Manage menu.
+  const details = { label: open ? "Hide details" : "Show details", onSelect: () => setOpen(!open) };
   return (
     <>
       <SettingRow
@@ -106,24 +150,69 @@ function ProviderRow(props: { install: ProviderInstall }) {
             {install.name}
           </span>
         }
-        description={describeInstall(install)}
+        description={
+          <>
+            <span>{describeInstall(install, view?.ready)}</span>
+            {readiness && view && (
+              <ReadinessLine
+                row={readiness}
+                view={view}
+                saysUnknown={install.state === "unknown"}
+              />
+            )}
+          </>
+        }
       >
         {install.added && <RemoveAgent name={install.name} />}
-        {installed && (
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-expanded={open}
-            aria-label={`Manage ${install.name}`}
-            onClick={() => setOpen(!open)}
-          >
-            Manage
-          </Button>
+        {readiness && view ? (
+          <ReadinessActions
+            provider={readiness.provider}
+            name={install.name}
+            view={view}
+            extra={installed ? [details] : []}
+          />
+        ) : (
+          installed && <ManageMenu label={`Manage ${install.name}`} items={[details]} />
         )}
       </SettingRow>
+      {installed && readiness && (install.kind === "opencode" || install.kind === "pi") && (
+        <UpstreamSources provider={install.kind} name={install.name} />
+      )}
       {open && <ProviderDetail install={install} />}
     </>
   );
+}
+
+/**
+ * What the CLI's own login says, where it adds to the accounts line: who is signed in, what
+ * needs attention, or the command that installs it. A CLI that doesn't report its sign-in is
+ * said so once, quietly.
+ */
+function ReadinessLine(props: {
+  row: ProviderReadiness;
+  view: ReadinessView;
+  saysUnknown: boolean;
+}) {
+  const { row, view } = props;
+  if (view.state === "not_installed")
+    return row.installCommand ? (
+      <span className="mt-1 block">
+        Install with <CopyCommand command={row.installCommand} />
+      </span>
+    ) : view.detail ? (
+      <span className="block">{view.detail}</span>
+    ) : null;
+  // OpenCode and Pi: how many upstreams are connected, or that none is.
+  if (view.upstreams)
+    return <span className="block">{[view.label, view.detail].filter(Boolean).join(" · ")}</span>;
+  const unreported =
+    row.auth === "unknown" && (view.state === "ready" || view.state === "unconfirmed");
+  if (unreported)
+    return props.saysUnknown ? null : (
+      <span className="block text-subtle-foreground">Sign-in not reported by this CLI</span>
+    );
+  if (view.state === "ready" && !row.accountLabel) return null;
+  return <span className="block">{[view.label, view.detail].filter(Boolean).join(" · ")}</span>;
 }
 
 function accountState(account: ProviderAccount): string {

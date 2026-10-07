@@ -21,3 +21,6 @@ export {
 export { useBackgroundShells } from "./terminal/use-terminals.ts";
 /** A checkout file's tab, for whatever opens a file from outside the Files tool. */
 export { fileTab } from "./files/tab-id.ts";
+/** A provider's sign-in terminal, outside any thread (the sign-in dialog shows it). */
+export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
+export type { AuthTerminalProps } from "./terminal/auth-terminal.tsx";

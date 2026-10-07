@@ -3,6 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+/** A provider's accounts and models, from its row's one Manage menu. */
+async function showDetails(name: string) {
+  await userEvent.click(await screen.findByRole("button", { name: `Manage ${name}` }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Show details" }));
+}
+
 test("providers show what discovery found, with the account at its limit flagged", async () => {
   await harness().open("/settings/providers");
   const providers = await screen.findByRole("region", { name: "Providers" });
@@ -21,7 +27,7 @@ test("providers show what discovery found, with the account at its limit flagged
 
 test("Manage opens a provider's accounts and its models by name, older ones folded away", async () => {
   await harness().open("/settings/providers");
-  await userEvent.click(await screen.findByRole("button", { name: "Manage Codex" }));
+  await showDetails("Codex");
   const detail = screen.getByRole("region", { name: "Codex details" });
   expect(within(detail).getByText("Limit reached")).toBeTruthy();
   const models = await within(detail).findByRole("list", { name: "Models" });
@@ -35,13 +41,14 @@ test("Manage opens a provider's accounts and its models by name, older ones fold
   expect(within(personal).getByText("GPT-5.5")).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Manage Codex" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Hide details" }));
   expect(screen.queryByRole("region", { name: "Codex details" })).toBeNull();
 });
 
 test("a provider's default model can be changed, even to a legacy one, and reads as the person's", async () => {
   const app = harness();
   await app.open("/settings/providers");
-  await userEvent.click(await screen.findByRole("button", { name: "Manage Claude Code" }));
+  await showDetails("Claude Code");
   const detail = screen.getByRole("region", { name: "Claude Code details" });
   const field = await within(detail).findByRole("button", { name: "Default model: Opus 5.5" });
   await userEvent.click(field);
@@ -130,7 +137,7 @@ test("a CLI with no ace account says how that CLI signs in, outside ace", async 
   const normal = app.daemon.services.accounts.findIndex((account) => account.provider === "pi");
   if (normal >= 0) app.daemon.services.accounts.splice(normal, 1);
   await app.open("/settings/providers");
-  await userEvent.click(await screen.findByRole("button", { name: "Manage Pi" }));
+  await showDetails("Pi");
   const detail = screen.getByRole("region", { name: "Pi details" });
   // Pi signs in from its own prompt; it has no `pi login` command.
   expect(detail.textContent).toContain("Run pi in a terminal, then type /login.");
@@ -142,6 +149,14 @@ test("unknown CLI authentication stays unknown and Check again reads fresh disco
   const account = app.daemon.services.accounts.find((entry) => entry.provider === "opencode");
   if (!account) throw new Error("Missing OpenCode account");
   account.quota.auth = "unknown";
+  // No upstream connected either, so nothing but the CLI's own login decides.
+  app.daemon.services.models = app.daemon.services.models.filter(
+    (model) => model.provider !== "opencode",
+  );
+  const discovered = app.daemon.services.providerStatuses.find(
+    (entry) => entry.provider === "opencode",
+  );
+  if (discovered) discovered.auth = "unknown";
   await app.open("/settings/providers");
   const providers = await screen.findByRole("region", { name: "Providers" }, { timeout: 10_000 });
   expect(await within(providers).findByText(/opencode.*sign-in unknown/)).toBeTruthy();

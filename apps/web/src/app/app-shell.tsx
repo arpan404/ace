@@ -7,6 +7,7 @@ import { MoveToProjectHost } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
 import { ComputerUseIndicator } from "@/features/computer-use/index.ts";
+import { SignInHost } from "@/features/sign-in/index.ts";
 import { AppSidebar, GlobalHotkeys, Rail, SidebarFrame } from "@/features/shell/index.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
@@ -25,31 +26,33 @@ export function AppShell() {
   useDesktopUpdates();
   return (
     <ProjectsHost>
-      <div
-        ref={shell}
-        data-connection={connection}
-        className={cn(
-          "relative flex h-dvh min-h-0 overflow-hidden",
-          "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
-          "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:opacity-60",
-        )}
-      >
-        <div className="wallpaper" />
-        <a
-          href="#main"
-          // The desktop's macOS traffic lights cover the window's top-left corner.
-          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+      <SignInHost>
+        <div
+          ref={shell}
+          data-connection={connection}
+          className={cn(
+            "relative flex h-dvh min-h-0 overflow-hidden",
+            "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
+            "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:opacity-60",
+          )}
         >
-          Skip to content
-        </a>
-        <SidebarFrame rail={<ViewRail />} sidebar={<ShellSidebar />}>
-          <Outlet />
-        </SidebarFrame>
-        <CommandPalette />
-        <MoveToProjectHost />
-        <ShellHotkeys />
-        <ActivityNotifier />
-      </div>
+          <div className="wallpaper" />
+          <a
+            href="#main"
+            // The desktop's macOS traffic lights cover the window's top-left corner.
+            className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+          >
+            Skip to content
+          </a>
+          <SidebarFrame rail={<ViewRail />} sidebar={<ShellSidebar />}>
+            <Outlet />
+          </SidebarFrame>
+          <CommandPalette />
+          <MoveToProjectHost />
+          <ShellHotkeys />
+          <ActivityNotifier />
+        </div>
+      </SignInHost>
     </ProjectsHost>
   );
 }

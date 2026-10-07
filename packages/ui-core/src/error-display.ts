@@ -18,6 +18,8 @@ export interface ErrorView {
   /** The provider's own text, for "Details". */
   raw?: string | undefined;
   code?: string | undefined;
+  /** The provider the action is for (who to sign in to), when the failure names one. */
+  provider?: ProviderKind | undefined;
 }
 
 export interface ErrorInput {
@@ -139,6 +141,7 @@ export function describeProviderError(input: ErrorInput): ErrorView {
         action: "sign_in",
         raw,
         code,
+        provider,
       };
     case "quota":
       return {

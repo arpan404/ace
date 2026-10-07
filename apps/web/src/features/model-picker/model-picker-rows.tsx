@@ -1,3 +1,4 @@
+import type { ProviderKind } from "@ace/protocol";
 import type { ModelProblem, PickerGroup, PickerModel } from "@ace/ui-core";
 import { providerNames } from "@ace/ui-core";
 import { CaretRightIcon, CheckIcon, StarIcon, WarningCircleIcon } from "@phosphor-icons/react";
@@ -7,6 +8,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { titleWhenClipped } from "@/lib/clipped-title.ts";
 import { cn } from "@/lib/cn.ts";
+import { SignInButton } from "@/features/sign-in/index.ts";
 
 /*
  * The model picker's rows: a model (its name, a quiet detail, Default, the check on the current
@@ -184,23 +186,43 @@ export function GroupHeader(props: { group: PickerGroup }) {
   );
 }
 
+/** Discovery problems that signing in fixes: not set up, signed out, nothing entitled. */
+const fixedBySignIn = new Set<ModelProblem["code"]>([
+  "not_configured",
+  "auth_expired",
+  "no_models",
+]);
+
 /**
  * Why a group's list may be out of date, in the daemon's words, with what to do: "OpenRouter
  * could not be reached. Check your network and refresh models." Its last models still list.
+ * Where signing in fixes it, Sign in starts that provider's (or upstream's) own sign-in.
  */
-export function GroupProblem(props: { problem: ModelProblem; id: string }) {
+export function GroupProblem(props: { problem: ModelProblem; id: string; provider: ProviderKind }) {
+  const { problem } = props;
   return (
     <p
       id={props.id}
       role="presentation"
       className="flex gap-1.5 px-2.5 py-1 text-xs leading-4 text-muted-foreground"
     >
-      {props.problem.severity !== "info" && (
+      {problem.severity !== "info" && (
         <WarningCircleIcon aria-hidden size={14} className="mt-px shrink-0 text-status-failed" />
       )}
-      <span>
-        <span className="text-foreground">{props.problem.message}</span> {props.problem.hint}
+      <span className="flex-1">
+        <span className="text-foreground">{problem.message}</span> {problem.hint}
       </span>
+      {(problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code)) && (
+        <SignInButton
+          className="-my-0.5 shrink-0"
+          target={{
+            provider: props.provider,
+            ...(problem.source ? { choice: problem.source } : {}),
+          }}
+        >
+          Sign in
+        </SignInButton>
+      )}
     </p>
   );
 }

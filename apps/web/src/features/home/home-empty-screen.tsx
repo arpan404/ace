@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useOnboarding } from "@/lib/provider-readiness.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { lastThread } from "./last-thread.ts";
@@ -13,8 +14,9 @@ import { topThread, useHomeList } from "./use-home-threads.ts";
 
 /**
  * Home never rests on an empty pane: it reopens the last thread if the list still shows it, else
- * the top of the list. Only a genuinely empty list shows the hint, and a daemon with no projects
- * yet (the first run) shows how to add one.
+ * the top of the list. A genuinely empty list on a device that hasn't been through setup (the
+ * first run) opens provider setup; after that, a daemon with no projects shows how to add one,
+ * and an empty list the hint.
  */
 export function HomeEmptyScreen() {
   const { storage } = useLayout();
@@ -27,7 +29,13 @@ export function HomeEmptyScreen() {
     last !== null &&
     (list.pinned.includes(last) || list.active.includes(last) || list.settled.includes(last));
   const target = listed ? last : loaded ? topThread(list) : undefined;
+  // Asked only once the list is known to be empty: a returning person never waits on it.
+  const onboarding = useOnboarding({ enabled: loaded && !target });
   if (target) return <Navigate to="/t/$threadId" params={{ threadId: target }} replace />;
+  if (onboarding.data && !onboarding.data.dismissed) return <Navigate to="/setup" replace />;
+  // Until it's known whether setup comes first, show nothing rather than a hint that flashes.
+  const settled = onboarding.data !== undefined || onboarding.isError;
+  if (!settled) return <Screen title="Home">{null}</Screen>;
   if (loaded && directory.loaded && directory.projects.length === 0)
     return (
       <Screen title="Home">

@@ -51,6 +51,9 @@ test("New thread falls back to the first installed, logged-in provider", async (
       account.availability = "logged_out";
       account.quota.auth = "logged_out";
     }
+  // Codex's own login doesn't vouch for it either.
+  const codex = services.providerStatuses.find((status) => status.provider === "codex");
+  if (codex) codex.auth = "unknown";
   await made.open("/new?project=relay");
 
   // Claude Code isn't installed and every Codex account is signed out: OpenCode is next.

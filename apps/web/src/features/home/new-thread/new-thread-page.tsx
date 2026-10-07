@@ -25,6 +25,7 @@ import { ModelPicker } from "./model-picker.tsx";
 import { useBranches } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
+import { SignInNotice } from "@/features/sign-in/index.ts";
 
 /**
  * ⌘N: pick a project, a model and account, how actions get approved, a worktree or the local
@@ -199,6 +200,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
             base={base}
             onBase={setBase}
           />
+          <SignInNotice provider={provider} />
           {error && (
             <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
               {error}
