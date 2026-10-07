@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { resolveDaemonHome } from "@ace/service/home";
 import { join } from "node:path";
 import { z } from "zod";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -31,7 +32,7 @@ export async function runAccountsCommand(
   const driver = async () =>
     cursorDaemonDriver((auth ??= await (options.cursorAuth ?? (() => daemonCursorAuth(env)))()));
   const [namespace, command, ...rest] = args;
-  const dataDir = env["ACE_HOME"] ?? join(homedir(), ".ace");
+  const dataDir = resolveDaemonHome(env.HOME ?? homedir(), env.ACE_HOME);
   const path = env["ACE_ACCOUNTS_DB"] ?? join(dataDir, "accounts.sqlite");
   if (namespace !== "accounts" || !["add", "list", "status", "discover"].includes(command ?? ""))
     throw new Error(
@@ -87,7 +88,8 @@ export async function runAccountsCommand(
         `${JSON.stringify(registry.summaries(now()).find((a) => a.id === account.instance.id))}\n`,
       );
     } else if (command === "discover") {
-      for (const instance of await discoverHomes(homedir())) write(`${JSON.stringify(instance)}\n`);
+      for (const instance of await discoverHomes(env.HOME ?? homedir()))
+        write(`${JSON.stringify(instance)}\n`);
     } else write(`${JSON.stringify(registry.summaries(now()))}\n`);
   } finally {
     try {

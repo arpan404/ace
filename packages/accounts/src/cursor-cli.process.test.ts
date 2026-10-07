@@ -82,7 +82,7 @@ it("a fresh SDK account added through the CLI obtains its browser challenge from
     await runAccountsCommand(
       ["accounts", "add", "cursor", "fresh", join(alias, "private-account"), "Fresh"],
       {
-        env: { ACE_ACCOUNTS_DB: path },
+        env: { HOME: root, ACE_ACCOUNTS_DB: path },
         now: () => 1,
         sdkDiscovery: async () => ({
           installed: true,

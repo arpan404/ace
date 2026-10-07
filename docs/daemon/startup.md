@@ -9,8 +9,9 @@ listener. `services/composition.ts` declares the order. `requires` means a
 successfully initialized dependency is necessary; `after` permits an optional
 dependency to be degraded. Core services precede listener services. Missing,
 forward and duplicate dependency declarations are rejected before any start.
-Dependencies that need warmed data explicitly await its readiness in their own
-background initialization: commands wait for account-home validation.
+Account-home validation and repair finish before the accounts service is
+published. Models and the engine require that service, so failed repairs cannot
+admit provider hosts under an unvalidated account identity.
 Settings open before browser backend setup; browser and screen setup precede MCP
 so their toolkits are registered. Thread transitions start after the account-service
 attempt and before the engine; git patch application and account migration remain
@@ -173,8 +174,8 @@ port, with `*.preview.localhost` origins. Ports require explicit trusted forward
 signed sessions require paired operate authority. Remote daemon access does not
 change this listener's binding.
 
-When `~/.ace` contains legacy 0.x or unrecognized data, default CLI startup uses
-`~/.ace-next` and records the reason in `legacy-home.json`. An explicit legacy
+Default CLI startup uses `~/.ace-next`, including on fresh machines, and records
+the isolation from legacy `~/.ace` in `legacy-home.json`. An explicit legacy
 `ACE_HOME` is refused. The old binary, service and databases are left untouched.
 See ADR 0041 for version checks and the desktop home-selection limitation.
 

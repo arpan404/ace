@@ -63,7 +63,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     after: ["workspaceActions"],
     start: startProjects,
   },
-  { name: "models", phase: "core", requires: [], after: ["settings"], start: startModels },
+  {
+    name: "models",
+    phase: "core",
+    requires: ["accounts"],
+    after: ["settings", "accounts"],
+    start: startModels,
+  },
   {
     name: "mcp",
     phase: "core",
@@ -83,7 +89,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   {
     name: "engine",
     phase: "core",
-    requires: [],
+    requires: ["accounts"],
     after: [
       "accounts",
       "plugins",

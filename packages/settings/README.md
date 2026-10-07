@@ -5,7 +5,7 @@ Typed settings for the local daemon and its clients. Schemas live in `@ace/proto
 ```ts
 import { SettingsService } from "@ace/settings";
 
-const settings = new SettingsService({ dataDir: "/home/me/.ace" });
+const settings = new SettingsService({ dataDir: "/home/me/.ace-next" });
 const scope = { workspace: "/home/me/project", thread: "thread-123" };
 await settings.set("conductor.maxFixRounds", 5, { kind: "global" });
 const result = await settings.get("conductor.maxFixRounds", scope);

@@ -18,8 +18,8 @@ const localDaemonPlatforms = new Set<NodeJS.Platform>(["darwin", "linux"]);
  *   unrecognized data in the isolated home); nothing is spawned and the page says why.
  *
  * A local target's `home` comes from `@ace/service`'s shared resolver, as the daemon's own
- * does (ADR 0041): `~/.ace` for a fresh or recognized home, `~/.ace-next` when `~/.ace` holds
- * legacy 0.x or unrecognized data. `isolated` says the resolver chose that separate home.
+ * does: `~/.ace-next` unless ACE_HOME selects an explicit home. `isolated` says the
+ * resolver chose the rewrite home separately from legacy `~/.ace`.
  */
 export type DaemonTarget =
   | { kind: "managed"; home: string; entry: string; isolated: boolean }

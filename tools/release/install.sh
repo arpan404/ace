@@ -42,4 +42,4 @@ if (data.target !== target || data.sha256 !== sha) throw new Error("Release targ
 ' "$scratch/manifest.json" "$scratch/signature.txt" "$scratch/key.pem" "$target" "$actual"
 cp "$scratch/manifest.json" "$scratch/artifact/release.json"
 "$scratch/artifact/bin/node" "$scratch/artifact/ace.mjs" install-artifact "$scratch/artifact"
-printf 'Installed. Run %s/bin/ace status\n' "${ACE_HOME:-$HOME/.ace}"
+printf 'Installed. Run ace status using the installed launcher.\n'

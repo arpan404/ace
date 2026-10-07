@@ -87,11 +87,11 @@ describe("the desktop's daemon home and data folder", () => {
     expect(chosen.kind === "managed" && loginService(chosen.home)).toBeUndefined();
   });
 
-  it("keeps ~/.ace for the daemon on a fresh machine", () => {
+  it("uses ~/.ace-next for the daemon on a fresh machine", () => {
     expect(target({})).toMatchObject({
       kind: "managed",
-      home: join(user, ".ace"),
-      isolated: false,
+      home: join(user, ".ace-next"),
+      isolated: true,
     });
   });
 

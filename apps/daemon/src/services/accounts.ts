@@ -12,12 +12,24 @@ export async function startAccounts(context: ServiceContext) {
     process.env.ACE_ACCOUNTS_DB ?? join(config.dataDir, "accounts.sqlite"),
     context.signal,
     config.dataDir,
+    {
+      notice: (event) =>
+        context.log.log(
+          event.outcome === "moved" ? "info" : "warn",
+          "Account instance home migrated",
+          { ...event },
+        ),
+    },
   );
-  const validation = warmup(context, "accounts", () => registry.ready);
+  const validation = registry.ready;
   resources.own(async () => {
-    await validation;
-    registry.close();
+    try {
+      await validation;
+    } finally {
+      registry.close();
+    }
   });
+  await validation;
   services.accountRegistry = registry;
   services.accounts = new AccountService({
     registry,

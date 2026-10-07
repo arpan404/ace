@@ -7,7 +7,7 @@ import { openHistory } from "@ace/history-import";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
 
 const history = await openHistory({
-  indexPath: "/home/user/.ace/history.sqlite",
+  indexPath: "/home/user/.ace-next/history.sqlite",
   instances: [
     { id: "personal", provider: "claude", homeDir: "/home/user/.claude" },
     { id: "work", provider: "codex", homeDir: "/home/user/.codex-work" },
