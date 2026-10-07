@@ -29,13 +29,14 @@ Example:
 
 ```json
 {
-  "concurrency": 4,
+  "concurrency": 1,
   "enabled": true,
   "id": "example",
-  "jitterMs": 4,
-  "missedRun": "skip",
+  "jitterMs": 8,
+  "missedRun": "run_once",
+  "model": "example",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "acp",
   "title": "example",
   "trigger": {
     "kind": "file",
@@ -44,7 +45,7 @@ Example:
     ]
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -101,20 +102,24 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 4,
+    "concurrency": 9,
     "enabled": false,
     "id": "example",
-    "jitterMs": 0,
+    "jitterMs": 4,
     "missedRun": "skip",
     "model": "example",
     "prompt": "example",
-    "provider": "cursor",
+    "provider": "pi",
     "title": "example",
     "trigger": {
-      "kind": "manual"
+      "event": "ci_failed",
+      "kind": "github",
+      "label": "example",
+      "pollIntervalMs": 60001,
+      "repository": "1es-me/wCSrGZ3nae"
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -188,7 +193,8 @@ Example:
 
 ```json
 {
-  "limit": 6,
+  "before": 7,
+  "limit": 3,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -215,7 +221,6 @@ Example:
 {
   "ok": false,
   "requestId": "example",
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -244,10 +249,11 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "startedAt": 8,
-  "status": "running",
+  "result": "example",
+  "startedAt": 1,
+  "status": "skipped",
   "title": "example",
-  "trigger": "file"
+  "trigger": "schedule"
 }
 ```
 
@@ -305,7 +311,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "rrule",
+    "kind": "cron",
     "startAt": 0,
     "timezone": "example"
   }
@@ -329,8 +335,9 @@ Example:
 {
   "event": "review_comment",
   "kind": "github",
-  "pollIntervalMs": 60003,
-  "repository": "urqMI/59NkkT"
+  "pollIntervalMs": 60005,
+  "pullRequest": 10,
+  "repository": "a2.GPY/nuL15Cm11E"
 }
 ```
 

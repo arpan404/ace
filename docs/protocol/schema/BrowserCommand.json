@@ -210,6 +210,71 @@
     {
       "properties": {
         "action": {
+          "const": "drag",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "toRef": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "ref",
+        "toRef"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "measure_interaction",
+          "type": "string"
+        },
+        "filmstrip": {
+          "default": true,
+          "type": "boolean"
+        },
+        "interaction": {
+          "$ref": "https://ace.local/protocol/v1/BrowserInteractionAction.json"
+        },
+        "observeMs": {
+          "default": 2000,
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "repeat": {
+          "default": 1,
+          "maximum": 5,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
           "const": "snapshot",
           "type": "string"
         },
@@ -561,35 +626,6 @@
       "required": [
         "action",
         "ref"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "action": {
-          "const": "drag",
-          "type": "string"
-        },
-        "ref": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "tabId": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "toRef": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "action",
-        "ref",
-        "toRef"
       ],
       "type": "object"
     },

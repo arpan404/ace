@@ -1,0 +1,81 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionRepeat.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "metrics": {
+      "properties": {
+        "captureOverheadPct": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "droppedFrames": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "effectiveFps": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "frames": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "hitchMs": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "hitchRatioMsPerS": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "hostLoad": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "latencyMs": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "layoutShift": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "longTaskMs": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "refreshHz": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "settleMs": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        },
+        "windowMs": {
+          "$ref": "https://ace.local/protocol/v1/InteractionMetricSummary.json"
+        }
+      },
+      "required": [
+        "refreshHz",
+        "windowMs",
+        "frames",
+        "hitchMs"
+      ],
+      "type": "object"
+    },
+    "runs": {
+      "items": {
+        "properties": {
+          "confidence": {
+            "$ref": "https://ace.local/protocol/v1/InteractionConfidence.json"
+          },
+          "verdict": {
+            "$ref": "https://ace.local/protocol/v1/InteractionVerdict.json"
+          }
+        },
+        "required": [
+          "verdict",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "runs",
+    "metrics"
+  ],
+  "type": "object"
+}

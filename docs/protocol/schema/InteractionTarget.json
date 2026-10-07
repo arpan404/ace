@@ -1,0 +1,51 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionTarget.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "bundleId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+        },
+        "kind": {
+          "const": "window",
+          "type": "string"
+        },
+        "windowId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "bundleId",
+        "windowId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "browser-tab",
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "threadId"
+      ],
+      "type": "object"
+    }
+  ]
+}

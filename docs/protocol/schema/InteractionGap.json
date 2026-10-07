@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionGap.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "atMs": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "durationMs": {
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "atMs",
+    "durationMs"
+  ],
+  "type": "object"
+}

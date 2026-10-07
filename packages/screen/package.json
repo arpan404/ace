@@ -13,6 +13,7 @@
     "bench": "node bench/stream.ts"
   },
   "dependencies": {
+    "@ace/interaction": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
