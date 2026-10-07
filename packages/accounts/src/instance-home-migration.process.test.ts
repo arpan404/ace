@@ -8,6 +8,7 @@ import {
   symlink,
   access,
   stat,
+  chmod,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,7 +42,7 @@ async function seed(root: string, homeDir: string) {
   return { path, dataDir, instance, target: join(dataDir, "instances", instance.id) };
 }
 
-test.each(["existing destination", "source symlink"])(
+test.each(["existing destination", "source symlink", "source rename denied"])(
   "%s preserves original data while the registry adopts a safe canonical home",
   async (scenario) => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "ace-account-home-migration-")));
@@ -61,6 +62,7 @@ test.each(["existing destination", "source symlink"])(
       await mkdir(f.target, { recursive: true });
       await writeFile(join(f.target, "canonical-data"), "existing canonical state");
     }
+    if (scenario === "source rename denied") await chmod(join(root, ".ace", "instances"), 0o500);
     const notices: unknown[] = [];
     const registry = await openRegistryIndex(f.path, undefined, f.dataDir, {
       notice: (notice) => notices.push(notice),
@@ -75,14 +77,20 @@ test.each(["existing destination", "source symlink"])(
         {
           instance: f.instance.id,
           outcome: "recreated",
-          reason: scenario === "existing destination" ? "destination_exists" : "unsafe_source",
+          reason:
+            scenario === "existing destination"
+              ? "destination_exists"
+              : scenario === "source symlink"
+                ? "unsafe_source"
+                : "move_refused",
         },
       ]);
       expect(await readFile(join(cli, "user-data"), "utf8")).toBe("untouched user state");
       expect(await stat(cli)).toMatchObject({ ino: cliStat.ino, mtimeMs: cliStat.mtimeMs });
       await access(source);
-      if (scenario === "existing destination") {
+      if (scenario !== "source symlink")
         expect(await readFile(join(source, "original-data"), "utf8")).toBe("original state");
+      if (scenario === "existing destination") {
         expect(await readFile(join(f.target, "canonical-data"), "utf8")).toBe(
           "existing canonical state",
         );
@@ -90,6 +98,7 @@ test.each(["existing destination", "source symlink"])(
     } finally {
       await registry.ready.catch(() => {});
       registry.close();
+      await chmod(join(root, ".ace", "instances"), 0o700);
       await rm(root, { recursive: true, force: true });
     }
   },
