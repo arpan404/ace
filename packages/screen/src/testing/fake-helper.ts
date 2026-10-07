@@ -479,6 +479,38 @@ function processRequest(request: ScreenHelperRequest) {
       },
     };
   }
+  if (request.op === "measure_interaction") {
+    const preparationMs = process.env.MEASUREMENT_PREPARATION === "1" ? 250 : 0;
+    const requestedMs = request.observeMs + preparationMs;
+    const windowMs = Math.min(requestedMs, request.maxWindowMs ?? 10_000);
+    if (request.action) {
+      actions++;
+      if (request.action.kind === "text.type") textValue += request.action.text;
+    }
+    data = {
+      refreshHz: 60,
+      windowMs,
+      updatesMs: Array.from(
+        { length: 60 },
+        (_, frameIndex) => preparationMs + ((frameIndex + 1) * 1000) / 60,
+      ).filter((time) => time <= windowMs),
+      ...(request.action ? { actionAtMs: preparationMs } : {}),
+      ...(windowMs < requestedMs ? { truncated: true } : {}),
+      hostLoad: 0,
+      hostCores: 8,
+      captureOverheadPct: 1,
+      notes: [],
+      ...(request.filmstrip
+        ? {
+            filmstrip: {
+              type: "image",
+              mimeType: "image/jpeg",
+              data: Buffer.from("fake filmstrip").toString("base64"),
+            },
+          }
+        : {}),
+    };
+  }
   saveSession();
   const reply = JSON.stringify({ version: request.version, id: request.id, ok: true, data });
   if (

@@ -325,11 +325,13 @@ export class Helper {
       const cancel = (this.options.scheduler ?? nodeScheduler).schedule(
         () => this.fail(new Error("Helper command timed out")),
         this.options.timeoutMs ??
-          (dragDuration !== undefined
-            ? dragDuration + 5_000
-            : request.op === "start" && this.capabilities?.platform === "linux-wayland"
-              ? 130_000
-              : 10_000),
+          (request.op === "measure_interaction"
+            ? request.observeMs + 15_000
+            : dragDuration !== undefined
+              ? dragDuration + 5_000
+              : request.op === "start" && this.capabilities?.platform === "linux-wayland"
+                ? 130_000
+                : 10_000),
       );
       this.pending.set(request.id, { resolve, reject, cancel });
       this.proc.stdin.write(line, (error) => {

@@ -80,6 +80,7 @@ import Darwin
                     capture.mode = request.mode ?? "background"
                     capture.secureInputAllowed = request.secureInputAllowed == true
                     capture.humanDeviceInput = false
+                    if request.op == "measure_interaction" { reply(request, data: try await capture.measureInteraction(request, accessibility: accessibility)); continue }
                     if request.op == "stream.configure" {
                         guard let settings = request.settings else { throw HelperError("Stream settings required", code: "bounds") }
                         try await capture.configureStream(settings); reply(request, data: ["codec": settings.codec]); continue
