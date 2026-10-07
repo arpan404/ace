@@ -5,7 +5,6 @@ import { z } from "zod";
 import { installShutdownHandlers } from "@ace/provider-kit/process";
 import { claude } from "./providers/claude.ts";
 import { codex } from "./providers/codex.ts";
-import { cursor } from "./providers/cursor.ts";
 import { opencode } from "./providers/opencode.ts";
 import type { Driver, RunContext } from "./providers/types.ts";
 import { Recording } from "./recording.ts";
@@ -14,7 +13,7 @@ import { SCENARIOS, findScenario, type Scenario } from "./scenarios.ts";
 import { settleWatcher } from "./settle.ts";
 import { createWorkspace } from "./workspace.ts";
 
-const DRIVERS: readonly Driver[] = [claude, codex, opencode, cursor];
+const DRIVERS: readonly Driver[] = [claude, codex, opencode];
 const REPO_ROOT = resolve(import.meta.dirname, "../../..");
 const RAW_DIR = join(REPO_ROOT, ".recordings");
 const FIXTURE_DIR = join(REPO_ROOT, "fixtures");

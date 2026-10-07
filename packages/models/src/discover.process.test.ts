@@ -1,7 +1,4 @@
 import { join } from "node:path";
-import { createReadStream } from "node:fs";
-import { createInterface } from "node:readline";
-import { z } from "zod";
 import { afterEach, expect, test } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import {
@@ -31,27 +28,6 @@ async function launch(provider: ModelInstance["provider"], payload: unknown) {
     env: { FAKE_PROVIDER: provider, FAKE_PAYLOAD: JSON.stringify(payload) },
   };
   return { work, config };
-}
-async function cursorFixture(): Promise<unknown> {
-  const stream = createReadStream(
-    new URL("../../../fixtures/cursor/2026.09.26-dd393fe/tool-read.jsonl", import.meta.url),
-  );
-  const lines = createInterface({ input: stream });
-  const frame = z.object({
-    data: z.object({
-      result: z.object({ models: z.unknown(), configOptions: z.unknown() }).passthrough(),
-    }),
-  });
-  try {
-    for await (const line of lines) {
-      const parsed = frame.safeParse(JSON.parse(line));
-      if (parsed.success) return parsed.data.data.result;
-    }
-    throw new Error("Fixture has no model options");
-  } finally {
-    lines.close();
-    stream.destroy();
-  }
 }
 
 test("Codex discovery pages model/list without ever starting a turn", async () => {
@@ -168,22 +144,6 @@ test("shared discovery keeps OpenCode metadata without starting an unprofiled AC
     }),
   ]);
   expect(acp).toEqual([]);
-});
-
-test("recorded Cursor model options apply session parameters only to its current model", async () => {
-  const { config } = await launch("cursor", await cursorFixture());
-  const rows = await createModelDiscovery()(config, new AbortController().signal);
-  const current = rows.find((row) => row.isDefault);
-  expect(current).toMatchObject({
-    id: "grok-4.7",
-    contextWindow: 256000,
-    reasoningEfforts: ["low", "medium", "high", "xhigh"],
-    serviceTiers: [{ id: "fast", parameters: { fast: "true" } }],
-  });
-  const other = rows.find((row) => row.id === "claude-opus-5-5");
-  expect(other?.reasoningEfforts).toEqual([]);
-  expect(other?.serviceTiers).toEqual([]);
-  expect(rows.length).toBeGreaterThan(30);
 });
 
 for (const provider of ["antigravity"] as const) {
@@ -366,57 +326,6 @@ test("otherwise valid model metadata exceeding the output cap is rejected", asyn
       new AbortController().signal,
     ),
   ).rejects.toThrow();
-});
-
-test("Cursor reads per-model parameter options when the listing extension is available", async () => {
-  const { config } = await launch("cursor", {
-    models: {
-      currentModelId: "first",
-      availableModels: [
-        { modelId: "first", name: "First" },
-        { modelId: "second", name: "Second" },
-      ],
-    },
-  });
-  const listing = {
-    models: [
-      { value: "first", name: "First", configOptions: [] },
-      {
-        value: "second",
-        name: "Second",
-        configOptions: [
-          {
-            id: "reasoning_effort",
-            type: "select",
-            currentValue: "high",
-            options: [
-              { value: "low", name: "Low" },
-              { value: "high", name: "High" },
-            ],
-          },
-          {
-            id: "fast",
-            type: "select",
-            currentValue: "false",
-            options: [
-              { value: "true", name: "Fast" },
-              { value: "false", name: "Normal" },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-  const rows = await createModelDiscovery()(
-    { ...config, env: { ...config.env, FAKE_CURSOR_MODELS: JSON.stringify(listing) } },
-    new AbortController().signal,
-  );
-  expect(rows.find((row) => row.id === "second")).toMatchObject({
-    isDefault: false,
-    reasoningEfforts: ["low", "high"],
-    serviceTiers: [{ id: "fast", parameters: { fast: "true" } }],
-  });
-  expect(rows.find((row) => row.id === "first")?.reasoningEfforts).toEqual([]);
 });
 
 test("large normalized model metadata cannot inflate picker wire pages past their byte bound", async () => {

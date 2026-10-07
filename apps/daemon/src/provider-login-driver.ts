@@ -27,8 +27,9 @@ export const upstreamChoices = {
     { id: "other", label: "Other provider (terminal)" },
   ],
 };
+type NativeLoginProvider = Exclude<ProviderKind, "cursor">;
 export function manualLogin(
-  provider: ProviderKind,
+  provider: NativeLoginProvider,
   action: "login" | "logout",
   instance?: string,
 ): NonNullable<ProviderLoginProgress["manual"]> {
@@ -39,13 +40,11 @@ export function manualLogin(
         ? `claude auth ${action}`
         : provider === "opencode"
           ? `opencode auth ${action}`
-          : provider === "cursor"
-            ? `agent ${action}`
-            : provider === "codex"
-              ? `codex ${action}`
-              : provider === "antigravity"
-                ? "agy"
-                : "Use the agent's own CLI";
+          : provider === "codex"
+            ? `codex ${action}`
+            : provider === "antigravity"
+              ? "agy"
+              : "Use the agent's own CLI";
   return {
     action: "open_terminal",
     command,
@@ -57,7 +56,7 @@ export function manualLogin(
   };
 }
 export interface CliLoginOptions {
-  provider: ProviderKind;
+  provider: NativeLoginProvider;
   action: "login" | "logout";
   instance?: string;
   command: string;
@@ -147,9 +146,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
           ? /^(?:0|1)\.\d+\.\d+$/
           : provider === "claude"
             ? /^2\.\d+\.\d+$/
-            : provider === "opencode"
-              ? /^(?:1|2)\.\d+\.\d+$/
-              : /^2026\.\d{2}\.\d{2}-[a-z0-9]+$/;
+            : /^(?:1|2)\.\d+\.\d+$/;
       if (
         !options.version ||
         !supportedVersion.test(options.version) ||

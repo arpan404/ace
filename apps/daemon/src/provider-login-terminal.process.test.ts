@@ -134,3 +134,27 @@ test("operate-only native terminal fallback uses the default CLI profile and has
     await f.close();
   }
 });
+
+test("Cursor browser sign-in cannot create a native CLI fallback or reserve its SDK account", async () => {
+  const f = await harness();
+  try {
+    const added = await f.management.handle("settings", {
+      type: "accounts.add",
+      requestId: "add-cursor",
+      provider: "cursor",
+      label: "Cursor SDK",
+    });
+    if (added.type !== "accounts.changed" || !added.account) throw new Error("Missing SDK account");
+    const instanceId = added.account.id;
+    expect(() => f.management.openProviderTerminal("phone", instanceId, "login")).toThrow(
+      "Unsupported auth terminal",
+    );
+    const release = f.accounts.reserveAccountChange(added.account.id);
+    release();
+    await expect(
+      readFile(join(f.dataDir, "account-homes", added.account.id, "fixture-launch.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await f.close();
+  }
+});

@@ -201,7 +201,7 @@ test("the lightbox steps through the message's images and gives focus back on Es
 
   await user.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(document.activeElement).toBe(thumbnail);
+  await waitFor(() => expect(document.activeElement).toBe(thumbnail));
 });
 
 test("a file the agent saved is named relative to the project, and its image reads as unavailable", async () => {

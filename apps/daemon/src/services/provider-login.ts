@@ -1,5 +1,7 @@
 import {
   ProviderLoginSessions,
+  cursorSdkLoginDriver,
+  createInstance,
   instanceEnv,
   assertManagedHome,
   type ProviderLoginDriver,
@@ -13,6 +15,9 @@ import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { cliLoginDriver, manualLogin } from "../provider-login-driver.ts";
 import { cursorLoginDriver } from "../provider-login-cursor.ts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
+import { cursorHosts } from "./cursor-hosts.ts";
+import { registerCursorSdkCatalog } from "./cursor-activation.ts";
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { registerImplicitAccounts } from "../account-homes.ts";
 import { Onboarding } from "../onboarding.ts";
 import { join } from "node:path";
@@ -33,14 +38,13 @@ export async function startProviderLogin(context: ServiceContext): Promise<void>
       ...options.accounts?.terminal?.dependencies,
     },
   });
-  const cursorInstallation = await discoverCursorSdk(options.engine?.cursor?.discovery);
-  const cursorDefault = cursorInstallation.installed
-    ? (await daemonCursorInstance(context)).id
-    : undefined;
+  const cursorDefault = await daemonCursorInstance(context);
   const sessions = new ProviderLoginSessions({
     instanceKey(provider, instance) {
-      return provider === "cursor" && cursorInstallation.installed
-        ? (instance ?? services.accountRegistry?.selectedCursorSdk() ?? cursorDefault)
+      return provider === "cursor"
+        ? (cursorInstanceId(instance) ??
+            services.accountRegistry?.selectedCursorSdk() ??
+            cursorDefault.id)
         : instance === `${provider}-cli-default`
           ? "default"
           : instance;
@@ -52,55 +56,68 @@ export async function startProviderLogin(context: ServiceContext): Promise<void>
       timer.unref();
       return () => clearTimeout(timer);
     },
-    async prepare(target, action, signal, owner) {
+    async prepare(target, action, signal) {
       const registry = services.accountRegistry;
       if (!registry || !services.accounts) throw new Error("Accounts unavailable");
-      if (target.provider === "acp" || target.provider === "antigravity")
+      if (target.provider === "acp" || target.provider === "antigravity") {
+        const manual = manualLogin(target.provider, action, target.instance);
         return {
           run: async () => ({
             success: false,
-            manual: manualLogin(target.provider, action, target.instance),
+            manual,
           }),
         };
-      const provider = target.provider;
+      }
       const configuration = services.providerConfigurations?.for(target.provider, target.instance);
       if (configuration?.enabled === false) throw new Error("Provider disabled");
-      const sdk =
-        target.provider === "cursor"
-          ? await discoverCursorSdk(options.engine?.cursor?.discovery)
-          : undefined;
-      signal.throwIfAborted();
-      if (sdk?.installed) {
+      if (target.provider === "cursor") {
+        const sdk = await discoverCursorSdk(options.engine?.cursor?.discovery);
+        signal.throwIfAborted();
+        if (!sdk.supported) throw new Error("SDK unavailable");
         await services.providerActivation;
-        const auth = services.cursorAuth;
-        if (!auth || !sdk.supported) throw new Error("SDK unavailable");
-        const instance =
-          target.instance ??
-          registry.selectedCursorSdk() ??
-          (await daemonCursorInstance(context)).id;
-        if (registry.get(instance)?.instance.implicit)
+        signal.throwIfAborted();
+        const binding = services.cursorAccounts;
+        if (!binding) throw new Error("SDK unavailable");
+        const instanceId =
+          cursorInstanceId(target.instance) ?? registry.selectedCursorSdk() ?? cursorDefault.id;
+        if (!registry.get(instanceId) && instanceId === cursorDefault.id)
+          await registry.register(
+            createInstance({ ...cursorDefault, provider: "cursor", label: "Cursor" }),
+          );
+        const instance = registry.get(instanceId)?.instance;
+        if (!instance || instance.provider !== "cursor" || instance.implicit)
           throw new Error("SDK requires an SDK instance");
-        const driver = cursorLoginDriver(auth, owner, instance, action, id);
+        if (services.cursorAuth?.isChangingInstance(instanceId))
+          throw new Error("SDK auth is busy");
+        const slots = cursorHosts(context);
+        const release = services.accounts.reserveAccountChange(instanceId);
+        const before = instance.loginRevision;
+        const account = cursorSdkLoginDriver(registry, {
+          ...options.engine?.cursor,
+          now,
+          launchEnv: options.engine?.cursor?.env ?? process.env,
+          slots,
+          stopInstance: (accountId) => binding.stopInstance(accountId),
+        });
         return {
-          ...driver,
+          ...cursorLoginDriver(instance, account, action),
+          release,
           async changed() {
-            registry.loginChanged(instance);
-            if (
-              action === "logout" &&
-              registry.get(instance)?.quota.cursorSdkAuth?.status !== "logged-in"
-            ) {
-              await services.models?.removeInstance(instance);
-            } else {
-              await services.models?.loginChanged(
-                instance,
-                registry.get(instance)?.instance.loginRevision ?? id(),
-              );
-            }
+            if (registry.get(instanceId)?.instance.loginRevision === before)
+              registry.loginChanged(instanceId);
+            if (registry.get(instanceId)?.quota.cursorSdkAuth?.status === "logged-in")
+              await binding.rebindInstance(instanceId);
+            registerCursorSdkCatalog(context, instance);
+            await services.models?.loginChanged(
+              instanceId,
+              registry.get(instanceId)?.instance.loginRevision ?? id(),
+            );
             await services.providerStatuses?.refresh();
             services.providerStatuses?.publish();
           },
         };
       }
+      const provider = target.provider;
       const instanceId = target.instance ?? `${target.provider}-cli-default`;
       const instance = registry.get(instanceId)?.instance;
       if (

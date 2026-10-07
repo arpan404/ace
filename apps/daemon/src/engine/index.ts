@@ -753,7 +753,7 @@ export class Engine {
   }
   private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
-    if (this.closing) return;
+    if (this.closing || this.repo.store.getThread(id)?.continuation) return;
     if (this.repo.store.isHistoryWriting()) {
       if (!this.deferredWakes.has(id)) {
         this.deferredWakes.add(id);

@@ -41,7 +41,7 @@ export async function addAccount(
         installed: true,
         auth: after.status === "logged-in" ? ("logged_in" as const) : ("logged_out" as const),
         version: "1.0.35",
-        loginHint: "Cursor SDK sign-in is separate from CLI/editor login",
+        loginHint: "Sign in to Cursor",
       },
     };
   }
@@ -53,11 +53,6 @@ export async function addAccount(
   await mkdir(instance.homeDir, { recursive: true, mode: 0o700 });
   const status = await loginStatus(instance, options.discovery);
   if (!status.path) throw new Error("Provider CLI is not installed");
-  if (
-    instance.provider === "cursor" &&
-    status.error === "Cursor account isolation is not verified for this CLI version"
-  )
-    throw new Error(status.error);
   const env = instanceEnv(instance, options.discovery?.env ?? process.env);
   options.signal?.throwIfAborted();
   const child = (options.spawn ?? spawnInteractive)({ command: status.path, args, env });

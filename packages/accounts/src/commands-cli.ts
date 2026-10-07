@@ -48,6 +48,7 @@ export async function runAccountsCommand(
         throw new Error("Unknown login option");
       const [provider, id, homeDir, label] = parsed;
       const sdk = provider === "cursor" ? await discovery() : undefined;
+      if (sdk && !sdk.installed) throw new Error("Cursor SDK is not installed");
       if (sdk?.installed && !sdk.supported) throw new Error(sdk.error ?? "Unsupported Cursor SDK");
       if (sdk?.installed && rest[4] === "--console")
         throw new Error(
@@ -71,6 +72,7 @@ export async function runAccountsCommand(
       if (!account) throw new Error("Unknown instance");
       await registry.validateHome(account.instance);
       const sdk = account.instance.provider === "cursor" ? await discovery() : undefined;
+      if (sdk && !sdk.installed) throw new Error("Cursor SDK is not installed");
       if (sdk?.installed && !sdk.supported) throw new Error(sdk.error ?? "Unsupported Cursor SDK");
       const sdkStatus = sdk?.installed
         ? await (await driver()).status(account.instance, new AbortController().signal)

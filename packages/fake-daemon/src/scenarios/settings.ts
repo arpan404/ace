@@ -189,7 +189,7 @@ export function settingsFixture(now: number): SettingsFixture {
       {
         kind: "cursor",
         name: "Cursor",
-        binary: "cursor-agent",
+        binary: "@cursor/sdk",
         version: "0.9",
         accounts: [
           {

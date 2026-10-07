@@ -2,7 +2,11 @@ import type { CatalogModel, ModelSourceStatus } from "@ace/protocol";
 import type { CacheEntry } from "./types.ts";
 
 export function sourceFailed(source: ModelSourceStatus): boolean {
-  return source.error !== undefined && source.error.code !== "no_models";
+  return (
+    source.error !== undefined &&
+    source.error.code !== "no_models" &&
+    source.error.code !== "not_configured"
+  );
 }
 
 export function refreshedSources(

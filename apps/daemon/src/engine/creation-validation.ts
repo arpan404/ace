@@ -1,3 +1,4 @@
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { portableContext } from "@ace/context";
 import { supportsPermissionMode } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
@@ -45,13 +46,20 @@ export function validateCreation(
   const entry = registry.get(p.provider);
   if (p.permissionMode && !supportsPermissionMode(entry.capabilities.permissions, p.permissionMode))
     return fail("permission_mode_unsupported");
-  const accountId = p.accountId ?? ("account" in p ? p.account : undefined);
-  if (p.type === "thread.create" && p.instanceId && accountId && p.instanceId !== accountId)
+  const accountSelection = p.accountId ?? ("account" in p ? p.account : undefined);
+  const accountId = p.provider === "cursor" ? cursorInstanceId(accountSelection) : accountSelection;
+  if (
+    p.type === "thread.create" &&
+    p.instanceId &&
+    accountId &&
+    (p.provider === "cursor" ? cursorInstanceId(p.instanceId) : p.instanceId) !== accountId
+  )
     return fail("conflicting_account_selection");
-  const instanceId =
+  const selectedId =
     (p.type === "thread.create" ? p.instanceId : undefined) ??
     accountId ??
     selectInstance?.(p.provider, entry.adapter.backend);
+  const instanceId = p.provider === "cursor" ? cursorInstanceId(selectedId) : selectedId;
   let handoff: ReturnType<typeof portableContext> | undefined;
   if (p.handoffFrom) {
     const source = repo.store.getThread(p.handoffFrom);

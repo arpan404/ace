@@ -1,18 +1,14 @@
 import { it, expect } from "vitest";
-import { discoverProviders, findExecutable } from "@ace/provider-kit/discovery";
+import { findExecutable } from "@ace/provider-kit/discovery";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { object } from "./data.ts";
-import { cursorQuirks } from "./quirks/cursor.ts";
 import { antigravityQuirks } from "./quirks/antigravity.ts";
-for (const quirks of [cursorQuirks, antigravityQuirks]) {
+for (const quirks of [antigravityQuirks]) {
   it.skipIf(process.env["ACE_LIVE_CLI"] !== "1")(
     `${quirks.provider} initializes its installed ACP server without a model session`,
     async () => {
-      const path =
-        quirks.provider === "cursor"
-          ? (await discoverProviders()).cursor.path
-          : await findExecutable(quirks.command);
+      const path = await findExecutable(quirks.command);
       if (!path) throw new Error(`Opted-in live ACP check requires installed ${quirks.command}`);
       const proc = spawnSupervised({
         command: path,

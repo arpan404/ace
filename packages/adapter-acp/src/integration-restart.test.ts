@@ -1,20 +1,17 @@
 import { expect, it } from "vitest";
 import { apply } from "@ace/core";
 import type { Frame } from "@ace/engine-api";
-import { createAcpTranslator, cursorQuirks } from "./index.ts";
+import { createAcpTranslator } from "./index.ts";
 import { chunk, end, harness, spawn } from "./test-helper.ts";
 
 function restored(h: ReturnType<typeof harness>) {
   // Trusted public core state is copied; this does not substitute for the engine's file decoder.
   const state = structuredClone(h.state);
-  const translator = createAcpTranslator(
-    {
-      threadId: state.threadId,
-      rootKey: "root",
-      identity: { generation: "after-core-restore", cursor: 0 },
-    },
-    cursorQuirks,
-  );
+  const translator = createAcpTranslator({
+    threadId: state.threadId,
+    rootKey: "root",
+    identity: { generation: "after-core-restore", cursor: 0 },
+  });
   let sequence = 1000;
   let ids = 1000;
   function frame(dir: Frame["dir"], data: unknown) {

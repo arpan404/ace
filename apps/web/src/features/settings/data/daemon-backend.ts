@@ -23,6 +23,7 @@ function providerInstall(status: ProviderStatus): ProviderInstall {
     name: status.name,
     binary: status.binary,
     state: status.state,
+    ...(status.actionId ? { actionId: status.actionId } : {}),
     version: status.version,
     ...(status.provider === "acp" ? { via: "via ACP" } : {}),
     accounts: status.accounts.map(login),

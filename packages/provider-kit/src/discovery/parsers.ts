@@ -62,19 +62,6 @@ export function parseCodexAuth(text: string): AuthStatus {
   };
 }
 
-export function parseCursorAuth(text: string): AuthStatus {
-  const clean = stripVTControlCharacters(text);
-  const value = record(clean);
-  if (value?.["isAuthenticated"] === true)
-    return { auth: "logged_in", ...accountLabel(value["email"]) };
-  if (value?.["isAuthenticated"] === false) return { auth: "logged_out" };
-  if (/\b(?:not logged in|logged out|not authenticated)\b/i.test(clean))
-    return { auth: "logged_out" };
-  if (/\blogged in\b/i.test(clean))
-    return { auth: "logged_in", ...accountLabel(/\blogged in as\s+([^\s]+)/i.exec(clean)?.[1]) };
-  return unknown;
-}
-
 export function parseOpenCodeAuth(text: string): AuthStatus {
   const clean = stripVTControlCharacters(text);
   if (clean.startsWith("[")) {
@@ -132,14 +119,12 @@ export function parseOpenCodeAuth(text: string): AuthStatus {
 }
 
 export function parseVersion(
-  provider: "claude" | "codex" | "opencode" | "cursor" | "antigravity",
+  _provider: "claude" | "codex" | "opencode" | "cursor" | "antigravity",
   text: string,
 ): string | undefined {
   const clean = stripVTControlCharacters(text)
     .trim()
     .replace(/^(?:codex-cli|agy|antigravity(?: CLI)?)\s+/i, "")
     .replace(/^opencode\s+v?/i, "");
-  return provider === "cursor"
-    ? /^(\d{4}\.\d{2}\.\d{2}-[a-f\d]+)/i.exec(clean)?.[1]
-    : /^(\d+\.\d+\.\d+(?:-[\w.-]+)?)/.exec(clean)?.[1];
+  return /^(\d+\.\d+\.\d+(?:-[\w.-]+)?)/.exec(clean)?.[1];
 }

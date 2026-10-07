@@ -37,3 +37,5 @@ export type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./run
 export { type SandboxAdmission, probeCursorSandbox } from "./sandbox-support.ts";
 
 export { cursorModelsInHost } from "./model-discovery.ts";
+
+export { createCursorLoginDriver, type CursorLoginProgress } from "./login.ts";

@@ -28,7 +28,7 @@ const transcripts = z
       ),
     ),
   );
-async function harness(provider: ProviderKind, source?: string) {
+async function harness(provider: Exclude<ProviderKind, "cursor">, source?: string) {
   const root = await mkdtemp(join(tmpdir(), "ace-login-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const bin = join(root, "bin");
@@ -97,7 +97,7 @@ async function harness(provider: ProviderKind, source?: string) {
   return { root, sessions, start, wait, events, expire: () => expire?.() };
 }
 
-test.each(["codex", "claude", "opencode", "cursor"] as const)(
+test.each(["codex", "claude", "opencode"] as const)(
   "%s native login relays safe challenges and Enter input without output history",
   async (provider) => {
     const f = await harness(provider);

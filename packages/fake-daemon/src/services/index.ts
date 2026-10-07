@@ -75,11 +75,11 @@ export class FakeServices {
       ["claude", "codex", "opencode", "cursor", "pi", "antigravity"] as const
     ).map((provider): import("@ace/protocol").ProviderStatus => ({
       provider,
-      runtime: "cli",
+      runtime: provider === "cursor" ? "cursor-sdk" : "cli",
       installed: this.installed.has(provider),
       auth: loggedIn.has(provider) ? "logged_in" : provider === "codex" ? "logged_out" : "unknown",
       accountLabel: loggedIn.has(provider) ? "ada@example.com" : undefined,
-      loginHint: "Use the CLI login command",
+      loginHint: provider === "cursor" ? "Sign in to Cursor" : "Use the CLI login command",
       checkedAt: now,
       stale: false,
       refreshing: false,

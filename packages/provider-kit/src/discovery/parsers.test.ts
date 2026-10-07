@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  parseClaudeAuth,
-  parseCodexAuth,
-  parseCursorAuth,
-  parseOpenCodeAuth,
-  parseVersion,
-} from "./index.ts";
+import { parseClaudeAuth, parseCodexAuth, parseOpenCodeAuth, parseVersion } from "./index.ts";
 import { fixture } from "./testing/cli.ts";
 
 describe("CLI auth parsing", () => {
@@ -21,15 +15,13 @@ describe("CLI auth parsing", () => {
           authEvidence: "credentials_configured",
         },
       },
-      cursor: { version: "2026.09.26-dd393fe", auth: { auth: "logged_in" } },
     };
     const parsers = {
       claude: parseClaudeAuth,
       codex: parseCodexAuth,
       opencode: parseOpenCodeAuth,
-      cursor: parseCursorAuth,
     };
-    for (const provider of ["claude", "codex", "opencode", "cursor"] as const) {
+    for (const provider of ["claude", "codex", "opencode"] as const) {
       const captured = await fixture(provider);
       expect(parseVersion(provider, captured.version.stdout)).toBe(expected[provider].version);
       expect(parsers[provider](captured.auth.stdout || captured.auth.stderr)).toEqual(
@@ -40,13 +32,10 @@ describe("CLI auth parsing", () => {
   it("recognizes logged out outputs and treats unreadable status as unknown", () => {
     expect(parseClaudeAuth('{"loggedIn":false}')).toEqual({ auth: "logged_out" });
     expect(parseCodexAuth("Not logged in")).toEqual({ auth: "logged_out" });
-    expect(parseCursorAuth("You are not logged in. Run agent login")).toEqual({
-      auth: "logged_out",
-    });
     expect(parseOpenCodeAuth("└  0 credentials")).toEqual({
       auth: "logged_out",
     });
-    for (const parse of [parseClaudeAuth, parseCodexAuth, parseCursorAuth, parseOpenCodeAuth]) {
+    for (const parse of [parseClaudeAuth, parseCodexAuth, parseOpenCodeAuth]) {
       expect(parse("Error: broken CLI")).toEqual({ auth: "unknown" });
       expect(parse("")).toEqual({ auth: "unknown" });
     }
@@ -68,17 +57,6 @@ describe("CLI auth parsing", () => {
         '{"loggedIn":true,"authMethod":"sk-synthetic-secret","email":"private@example.test","orgName":"private"}',
       ),
     ).toEqual({ auth: "logged_in", accountLabel: "private@example.test" });
-    expect(
-      parseCursorAuth(
-        '{"isAuthenticated":true,"userInfo":{"email":"private@example.test"},"accessToken":"synthetic-secret"}',
-      ),
-    ).toEqual({ auth: "logged_in" });
-    const safe = parseCursorAuth(
-      '{"isAuthenticated":true,"email":"private@example.test","accessToken":"synthetic-secret","apiKey":"synthetic-key"}',
-    );
-    expect(safe).toEqual({ auth: "logged_in", accountLabel: "private@example.test" });
-    expect(JSON.stringify(safe)).not.toContain("synthetic");
-    expect(parseCursorAuth('{"isAuthenticated":false}')).toEqual({ auth: "logged_out" });
     expect(parseOpenCodeAuth("●  private@example.test api\n└  1 credential")).toEqual({
       auth: "unknown",
       authDetail: "1 configured credentials",

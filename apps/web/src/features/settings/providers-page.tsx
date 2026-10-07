@@ -30,6 +30,8 @@ import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 export function describeInstall(install: ProviderInstall, ready?: boolean): string {
   if (install.via && install.accounts.length === 0)
     return `${install.via} · runs ${install.binary}`;
+  if (install.kind === "cursor" && install.state === "not_installed")
+    return "Cursor SDK is unavailable";
   if (install.state === "not_installed")
     return `Not installed · ace looks for ${install.binary} on your PATH`;
   const unknown = install.accounts.filter((account) => account.auth === "unknown");
@@ -58,11 +60,11 @@ export function ProviderSettings() {
   const readiness = useProviderReadiness();
   const signals = useCatalogSignals();
   if (providers.isPending)
-    return <ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-7" />;
+    return <ListSkeleton label="providers" shape="row" rows={5} className="mt-7" />;
   if (providers.isError)
     return (
       <p role="alert" className="mt-7 text-sm text-muted-foreground">
-        Couldn't list provider CLIs. {providers.error.message}
+        Couldn't list providers. {providers.error.message}
       </p>
     );
   return (
@@ -227,6 +229,10 @@ function Code(props: { text: string }) {
 
 /** The provider's own sign-in, run outside ace (`signInSteps`). */
 function SignInHint(props: { install: ProviderInstall }) {
+  if (props.install.kind === "cursor")
+    return (
+      <p className="text-sm text-muted-foreground">Sign in to Cursor using its browser sign-in.</p>
+    );
   const steps = signInSteps(props.install.kind);
   return (
     <p className="text-sm text-muted-foreground">
@@ -268,7 +274,7 @@ function ProviderDetail(props: { install: ProviderInstall }) {
           ))}
         </ul>
         <p className="mt-2 text-sm text-subtle-foreground">
-          ace uses the CLI's own login and never stores credentials.
+          ace uses the provider's own login and never stores credentials.
         </p>
       </div>
       <Suspense fallback={<Spinner label="Loading models" />}>

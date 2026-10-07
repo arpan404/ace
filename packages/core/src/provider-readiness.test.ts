@@ -53,19 +53,55 @@ test("a CLI that doesn't report its sign-in is usable, not a problem", () => {
   });
 });
 
-test("Cursor SDK readiness uses its own login while an absent SDK leaves the CLI available", () => {
-  const cli: ProviderStatus = { ...row, provider: "cursor", auth: "logged_in" };
-  expect(
-    onboardingChecklist([cli, { ...cli, runtime: "cursor-sdk", auth: "logged_out" }]),
-  ).toMatchObject({
+test("Cursor setup recommends SDK sign-in and never falls back to a legacy CLI", () => {
+  const sdk: ProviderStatus = {
+    ...row,
+    provider: "cursor",
+    runtime: "cursor-sdk",
+    state: "not_configured",
+  };
+  const cli: ProviderStatus = { ...sdk, runtime: "cli", auth: "logged_in" };
+  for (const rows of [
+    [cli, sdk],
+    [sdk, cli],
+  ])
+    expect(onboardingChecklist(rows)).toMatchObject({
+      ready: [],
+      next: { action: "sign_in", provider: "cursor" },
+      providers: [
+        {
+          runtime: "cursor-sdk",
+          readiness: "installed_signed_out",
+          loginHint: "Sign in to Cursor",
+        },
+      ],
+    });
+  expect(onboardingChecklist([{ ...sdk, installed: false }, cli])).toMatchObject({
     ready: [],
-    next: { action: "sign_in", provider: "cursor" },
-    providers: [{ runtime: "cursor-sdk" }],
+    providers: [{ runtime: "cursor-sdk", readiness: "not_configured" }],
   });
-  expect(
-    onboardingChecklist([cli, { ...cli, runtime: "cursor-sdk", installed: false }]),
-  ).toMatchObject({ ready: ["cursor"], providers: [{ runtime: "cli" }] });
-  expect(
-    onboardingChecklist([{ ...cli, runtime: "cursor-sdk", auth: "logged_out" }, cli]),
-  ).toMatchObject({ ready: [], providers: [{ runtime: "cursor-sdk" }] });
+  expect(onboardingChecklist([{ ...sdk, state: undefined, auth: "logged_in" }])).toMatchObject({
+    ready: ["cursor"],
+  });
 });
+
+test.each(["opencode", "pi"] as const)(
+  "%s readiness follows connected upstreams without inventing entitlement",
+  (provider) => {
+    expect(
+      providerReadiness({
+        ...row,
+        provider,
+        auth: "unknown",
+        authEvidence: "credentials_configured",
+      }),
+    ).toMatchObject({
+      readiness: "signed_in",
+      auth: "unknown",
+      authEvidence: "credentials_configured",
+    });
+    expect(providerReadiness({ ...row, provider, auth: "logged_out" }).readiness).toBe(
+      "installed_signed_out",
+    );
+  },
+);

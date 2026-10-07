@@ -90,12 +90,6 @@ test("provider status reports native installation and sign-in independently of a
           auth: "unknown",
           authEvidence: "credentials_configured",
         }),
-        expect.objectContaining({
-          provider: "cursor",
-          runtime: "cli",
-          auth: "logged_in",
-          accountLabel: "cursor@example.com",
-        }),
         expect.objectContaining({ provider: "pi", auth: "logged_in", authDetail: "oauth" }),
         expect.objectContaining({ provider: "antigravity", installed: false, auth: "unknown" }),
         expect.objectContaining({
@@ -120,12 +114,10 @@ test("provider status reports native installation and sign-in independently of a
     await writeFile(join(bin, "opencode-auth"), "[]");
     await rm(join(bin, "claude"));
     const loggedOut = await read("refresh");
-    expect(
-      loggedOut.find((row) => row.provider === "cursor" && row.runtime === "cli"),
-    ).toMatchObject({ auth: "logged_out" });
-    expect(
-      loggedOut.find((row) => row.provider === "cursor" && row.runtime === "cli"),
-    ).not.toHaveProperty("accountLabel");
+    expect(loggedOut.filter((row) => row.provider === "cursor")).toEqual([
+      expect.objectContaining({ runtime: "cursor-sdk", installed: false, auth: "unknown" }),
+    ]);
+    expect(await readFile(join(bin, "calls"), "utf8")).not.toContain("agent:");
     const absent = loggedOut.find((row) => row.provider === "claude");
     expect(absent).toMatchObject({ installed: false, auth: "unknown" });
     expect(absent).not.toHaveProperty("path");

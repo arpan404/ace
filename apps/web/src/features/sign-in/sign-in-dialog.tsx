@@ -59,8 +59,8 @@ export function SignInDialog(props: {
             {action === "logout" ? `Sign out of ${name}` : `Sign in to ${name}`}
           </DialogTitle>
           <DialogDescription>
-            {row?.runtime === "cursor-sdk"
-              ? "Uses the Cursor SDK's own sign-in, separate from the Cursor editor and its agent CLI."
+            {provider === "cursor"
+              ? "Signs in to Cursor in your browser, through the Cursor SDK ace runs. It's separate from the Cursor editor's sign-in; ace never sees your credentials."
               : `ace runs ${name}'s own sign-in. Your credentials stay with the CLI; ace never sees them.`}
           </DialogDescription>
         </DialogHeader>

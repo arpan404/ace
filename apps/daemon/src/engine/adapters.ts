@@ -14,7 +14,7 @@ export async function discoverAdapters(
   sdkDiscovery: typeof discoverCursorSdk = discoverCursorSdk,
   registry: AdapterRegistry = new AdapterRegistry(),
 ): Promise<AdapterRegistry> {
-  const { claude, codex, opencode, cursor } = await discover();
+  const { claude, codex, opencode } = await discover();
   if (claude.installed && !registry.has("claude")) {
     const { createClaudeAdapter } = await import("@ace/adapter-claude");
     registry.register(
@@ -36,25 +36,17 @@ export async function discoverAdapters(
       opencode,
     );
   }
-  if (cursor.installed && !registry.has("cursor")) {
-    const { createAcpAdapter, cursorQuirks } = await import("@ace/adapter-acp");
-    registry.registerFallback(
-      createAcpAdapter(cursorQuirks, cursor.path ? { command: cursor.path } : {}),
-      cursor,
-      "acp",
-    );
-  }
   const sdk = await sdkDiscovery(cursorOptions.discovery);
   if (
     sdk.installed &&
     (!registry.has("cursor") || registry.get("cursor").adapter.backend !== "cursor-sdk")
   ) {
-    // Unsupported SDKs stay selected and fail on admission. Only absence permits ACP fallback.
+    // Unsupported SDKs fail on admission; Cursor has no alternate runtime.
     const { createCursorAdapter } = await import("@ace/adapter-cursor/adapter");
     registry.register(createCursorAdapter(cursorOptions), {
       installed: true,
       auth: "unknown",
-      loginHint: "Cursor SDK sign-in is separate from agent login",
+      loginHint: "Sign in to Cursor",
       ...(sdk.version ? { version: sdk.version } : {}),
       ...(sdk.error ? { error: sdk.error } : {}),
     });

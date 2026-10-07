@@ -16,11 +16,11 @@ const instance = (provider: "codex" | "claude" | "opencode" | "cursor") =>
   createInstance({ id: provider, provider, label: provider, homeDir: `/tmp/${provider}` });
 
 async function fakeClis(root: string) {
-  for (const command of ["codex", "claude", "opencode", "agent"]) {
+  for (const command of ["codex", "claude", "opencode"]) {
     await nodeBinary(
       root,
       command,
-      `const fs = require('node:fs');\nconst path = require('node:path');\nconst command = path.basename(process.argv[1]);\nconst args = process.argv.slice(2);\nconst home = command === 'codex' ? process.env.CODEX_HOME : command === 'claude' ? process.env.CLAUDE_CONFIG_DIR : command === 'agent' ? (process.env.AGENT_CLI_CREDENTIAL_STORE === 'file' && process.env.HOME?.startsWith(${JSON.stringify(root)}) ? path.join(process.env.HOME,'.cursor') : path.join(${JSON.stringify(root)},'global-cursor')) : path.join(process.env.XDG_DATA_HOME, 'opencode');\nif (args[0] === '--version') {console.log(command === 'agent' ? '2026.09.26-dd393fe' : '2.1.286');}\nelse if (args.includes('login') && !args.includes('status')) {fs.mkdirSync(home,{recursive:true});fs.writeFileSync(path.join(home,'logged-in'),JSON.stringify(args));}\nelse {const yes = fs.existsSync(path.join(home,'logged-in'));console.log(command === 'claude' ? JSON.stringify({loggedIn:yes}) : command === 'opencode' ? (yes ? '1 credential' : '0 credentials') : (yes ? 'Logged in using ChatGPT' : 'Not logged in'));}\n`,
+      `const fs = require('node:fs');\nconst path = require('node:path');\nconst command = path.basename(process.argv[1]);\nconst args = process.argv.slice(2);\nconst home = command === 'codex' ? process.env.CODEX_HOME : command === 'claude' ? process.env.CLAUDE_CONFIG_DIR : path.join(process.env.XDG_DATA_HOME, 'opencode');\nif (args[0] === '--version') {console.log('2.1.286');}\nelse if (args.includes('login') && !args.includes('status')) {fs.mkdirSync(home,{recursive:true});fs.writeFileSync(path.join(home,'logged-in'),JSON.stringify(args));}\nelse {const yes = fs.existsSync(path.join(home,'logged-in'));console.log(command === 'claude' ? JSON.stringify({loggedIn:yes}) : command === 'opencode' ? (yes ? '1 credential' : '0 credentials') : (yes ? 'Logged in using ChatGPT' : 'Not logged in'));}\n`,
     );
   }
 }
@@ -34,12 +34,12 @@ test("each provider selects an independent home and strips ambient auth override
   };
   expect(instanceEnv(instance("codex"), base)["CODEX_HOME"]).toBe("/tmp/codex");
   expect(instanceEnv(instance("claude"), base)["CLAUDE_CONFIG_DIR"]).toBe("/tmp/claude");
-  expect(instanceEnv(instance("cursor"), base)).toMatchObject({
-    CURSOR_DATA_DIR: "/tmp/cursor",
-    CURSOR_CONFIG_DIR: "/tmp/cursor",
-    AGENT_CLI_CREDENTIAL_STORE: "file",
+  expect(instanceEnv(instance("cursor"), base, "cursor-sdk")).toMatchObject({
     HOME: "/tmp/cursor/user",
-    XDG_CONFIG_HOME: "/tmp/cursor/config",
+    USERPROFILE: "/tmp/cursor/user",
+    CURSOR_API_KEY: "never-persist",
+    CURSOR_DATA_DIR: undefined,
+    CURSOR_CONFIG_DIR: undefined,
   });
   expect(instanceEnv(instance("opencode"), base)).toMatchObject({
     XDG_DATA_HOME: "/tmp/opencode/data",
@@ -60,9 +60,7 @@ test("login discovery sees the selected home rather than another account", async
   const root = await temp();
   await fakeClis(root);
   const discovery = { env: { PATH: root } };
-  await mkdir(join(root, "global-cursor"));
-  await writeFile(join(root, "global-cursor", "logged-in"), "global account");
-  for (const provider of ["codex", "claude", "opencode", "cursor"] as const) {
+  for (const provider of ["codex", "claude", "opencode"] as const) {
     const a = createInstance({
       id: `${provider}-a`,
       provider,
@@ -75,12 +73,7 @@ test("login discovery sees the selected home rather than another account", async
       label: "b",
       homeDir: join(root, `${provider}-b`),
     });
-    const actualHome =
-      provider === "opencode"
-        ? join(a.homeDir, "data", "opencode")
-        : provider === "cursor"
-          ? join(a.homeDir, "user", ".cursor")
-          : a.homeDir;
+    const actualHome = provider === "opencode" ? join(a.homeDir, "data", "opencode") : a.homeDir;
     await mkdir(actualHome, { recursive: true });
     await writeFile(join(actualHome, "logged-in"), "yes");
     const selected = await loginStatus(a, discovery);
@@ -130,7 +123,8 @@ test("discovery finds conventional sibling homes and ignores files and unrelated
     ".local/share/opencode",
   ])
     await mkdir(join(root, dir), { recursive: true });
-  await writeFile(join(root, ".cursor"), "not a home");
+  await mkdir(join(root, ".cursor"));
+  await mkdir(join(root, ".cursor-work"));
   const found = await discoverHomes(root);
   expect(found.map((a) => a.id).toSorted()).toEqual([
     "claude-max",
@@ -195,38 +189,11 @@ test("the registry caps account inventory while allowing updates to existing lab
   }
 });
 
-test("unverified Cursor versions cannot advertise isolated auth or launch an accounts login", async () => {
-  const root = await temp();
-  await fakeClis(root);
-  const path = join(root, "agent");
-  await writeFile(
-    path,
-    (await readFile(path, "utf8")).replace("2026.09.26-dd393fe", "2026.10.01-abcdef0"),
-    { mode: 0o755 },
-  );
-  const account = createInstance({
-    id: "cursor-new",
-    provider: "cursor",
-    label: "new",
-    homeDir: join(root, "new"),
-  });
-  const discovery = { env: { PATH: root } };
-  expect((await loginStatus(account, discovery)).auth).toBe("unknown");
-  const registry = await openRegistry(join(root, "registry.sqlite"));
-  try {
-    await expect(addAccount(registry, account, { now: () => 1234, discovery })).rejects.toThrow(
-      "not verified",
-    );
-  } finally {
-    registry.close();
-  }
-  await expect(readFile(join(account.homeDir, "user", ".cursor", "logged-in"))).rejects.toThrow();
-});
 test("checking one account does not execute unrelated provider programs", async () => {
   const root = await temp();
   await fakeClis(root);
   const sentinel = join(root, "unrelated-probe");
-  for (const command of ["claude", "opencode", "agent"])
+  for (const command of ["claude", "opencode"])
     await writeFile(
       join(root, command),
       `#!${process.execPath}\nconst fs = require('node:fs');fs.writeFileSync(${JSON.stringify(sentinel)},'unrelated provider ran');`,

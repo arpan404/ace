@@ -6,7 +6,7 @@ import { AgentId, type ExecutionSelection } from "@ace/protocol";
 import { z } from "zod";
 import { createCodexAdapter } from "@ace/adapter-codex";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
-import { createAcpAdapter, genericQuirks, cursorQuirks, antigravityQuirks } from "@ace/adapter-acp";
+import { createAcpAdapter, genericQuirks, antigravityQuirks } from "@ace/adapter-acp";
 import { acpInjection, acpStdioInjection } from "@ace/mcp-server";
 import type { ProviderAdapter, Frame } from "@ace/engine-api";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
@@ -35,7 +35,6 @@ const cases = [
   { provider: "codex", http: true, resume: false },
   { provider: "codex", http: true, resume: true },
   { provider: "opencode", http: true, resume: false },
-  { provider: "cursor", http: true, resume: false },
   { provider: "antigravity", http: true, resume: false },
   { provider: "acp", http: true, resume: false },
   { provider: "acp", http: true, resume: true },
@@ -164,18 +163,11 @@ it.each(cases)(
       cleanups.push(() => owner.close());
       source = owner;
     } else
-      source = createAcpAdapter(
-        provider === "cursor"
-          ? cursorQuirks
-          : provider === "antigravity"
-            ? antigravityQuirks
-            : genericQuirks,
-        {
-          command: provider === "cursor" ? cli : process.execPath,
-          args: provider === "cursor" ? ["acp"] : [entry],
-          env,
-        },
-      );
+      source = createAcpAdapter(provider === "antigravity" ? antigravityQuirks : genericQuirks, {
+        command: process.execPath,
+        args: [entry],
+        env,
+      });
     const adapter = withDaemonMcp(
       { store: f.store, services: { mcp: f.mcp }, id: () => "fake-cli-session" },
       source,

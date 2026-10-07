@@ -69,7 +69,7 @@ export function transitionHarness(
   for (const provider of ["codex", "claude", "cursor", "acp"] satisfies ProviderKind[]) {
     const adapter: ProviderAdapter = {
       provider,
-      ...(provider === "cursor" && options.cursorBackend ? { backend: options.cursorBackend } : {}),
+      ...(provider === "cursor" ? { backend: options.cursorBackend ?? "cursor-sdk" } : {}),
       ...(provider === "acp"
         ? {
             acceptsIdentity: (identity: SessionContext["acpIdentity"]) =>

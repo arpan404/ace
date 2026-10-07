@@ -1,3 +1,4 @@
+import { delegationRequest } from "./cursor-request.ts";
 import { AgentControlError, controlAdmissionError } from "./failure.ts";
 import { callerThread } from "./authorization.ts";
 import { ReservationLifetimes } from "./reservation-lifetimes.ts";
@@ -141,7 +142,8 @@ export class DelegationService {
     this.arm();
     return result;
   }
-  async prepareModels(caller: McpAttribution, request: DelegationRequest) {
+  async prepareModels(caller: McpAttribution, value: DelegationRequest) {
+    const request = delegationRequest(value);
     this.admission.validate(caller, request);
     await this.deps.modelsReady;
     if (
@@ -193,7 +195,7 @@ export class DelegationService {
     workspace: WorkspaceId,
     configuredModel?: string,
   ): DelegationRecord {
-    const input = DelegationRequest.parse(value);
+    const input = delegationRequest(value);
     return this.deps.store.atomic(() => {
       if (this.closed || this.deps.admitsWork?.() === false)
         throw new AgentControlError("admission_closed", "Admission closed");

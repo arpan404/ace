@@ -212,7 +212,7 @@ export function GroupProblem(props: { problem: ModelProblem; id: string; provide
       <span className="flex-1">
         <span className="text-foreground">{problem.message}</span> {problem.hint}
       </span>
-      {fixedBySignIn.has(problem.code) && (
+      {(problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code)) && (
         <SignInButton
           className="-my-0.5 shrink-0"
           target={{

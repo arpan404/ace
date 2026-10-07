@@ -6,7 +6,7 @@ import { spawnTextSupervised } from "@ace/provider-kit/process";
 import { createLogger } from "@ace/diagnostics";
 import type { PiPermissionMode } from "@ace/protocol/pi";
 import { AgentId } from "@ace/protocol";
-import type { Frame } from "@ace/engine-api";
+import type { Frame, SessionContext } from "@ace/engine-api";
 import {
   readPrivateMcpConfig,
   AceMcpConnectionSchema,
@@ -137,7 +137,8 @@ it.each<LazyProvider>([
   "acp",
   "antigravity",
 ])("the first %s session opens through the discovered registry", async (provider) => {
-  const f = await setup(provider === "cursor-sdk" ? "cursor" : provider);
+  const cursor = provider === "cursor" || provider === "cursor-sdk";
+  const f = await setup(cursor ? "cursor" : provider);
   const { registry, env } = await discoveredProvider(provider, f.home);
   cleanups.push(() => registry.close());
   registry.bindSessions((adapter) =>
@@ -164,11 +165,18 @@ it.each<LazyProvider>([
       : undefined;
   if (lease) cleanups.push(async () => lease.end());
   const connection = lease ? { url: f.mcp.url, bearer: lease.bearer } : undefined;
-  const source = registry.get(provider === "cursor-sdk" ? "cursor" : provider).adapter;
+  const source = registry.get(
+    cursor ? "cursor" : provider,
+    provider === "cursor-sdk" ? "cursor-sdk" : undefined,
+  ).adapter;
+  let identity: Parameters<NonNullable<SessionContext["onSessionIdentity"]>>[0] | undefined;
   const session = await source.openSession({
     threadId: f.thread.id,
     cwd: f.home,
     env,
+    onSessionIdentity(value) {
+      identity = value;
+    },
     signal: new AbortController().signal,
     onFrame() {},
     onExit() {},
@@ -201,14 +209,15 @@ it.each<LazyProvider>([
         aceTools: expect.arrayContaining(["ace_browser_open"]),
       }),
     ]);
-  } else
-    expect(session.nativeSessionId).toBe(provider === "cursor-sdk" ? "synthetic-sdk" : "native");
-  if (provider === "cursor-sdk")
+  } else expect(session.nativeSessionId).toBe(cursor ? "synthetic-sdk" : "native");
+  if (cursor) {
+    expect(identity).toMatchObject({ backend: "cursor-sdk", instanceId: "lazy-sdk" });
     expect(JSON.parse(await readFile(join(f.home, "sdk-open.json"), "utf8"))).toMatchObject({
       threadId: f.thread.id,
       cwd: f.home,
     });
-  if (provider !== "claude" && provider !== "cursor-sdk")
+  }
+  if (provider !== "claude" && !cursor)
     expect(f.browser.state(f.thread.id)?.url).toBe(env.ACE_TEST_BROWSER_URL);
   await session.close("shutdown");
 });

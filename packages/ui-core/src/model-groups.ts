@@ -14,7 +14,8 @@ import type { PickerModel } from "./model-picker.ts";
 
 /** Why a group's list may be out of date, and what to do about it, in the daemon's words. */
 export interface ModelProblem {
-  severity?: "info";
+  severity?: "info" | "warning" | undefined;
+  actionId?: "provider.sign_in" | undefined;
   message: string;
   hint: string;
   /** The daemon's category, which says whether signing in fixes it. */
@@ -126,7 +127,10 @@ export function pickerGroups(
         ...(source && source.kind !== "local" && source.kind !== "account"
           ? { source: source.id }
           : {}),
-        ...(problem.code === "no_models" ? { severity: "info" as const } : {}),
+        ...(problem.actionId ? { actionId: problem.actionId } : {}),
+        ...(problem.code === "no_models" || problem.code === "not_configured"
+          ? { severity: "info" as const }
+          : {}),
       });
   };
   for (const status of statuses) {

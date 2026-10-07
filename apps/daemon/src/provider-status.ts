@@ -29,7 +29,7 @@ const providers = ["claude", "codex", "opencode", "cursor", "pi", "antigravity"]
 export class ProviderStatuses {
   private rows: Status[] = providers.map((provider) => ({
     provider,
-    runtime: "cli",
+    runtime: provider === "cursor" ? "cursor-sdk" : "cli",
     installed: null,
     auth: "unknown",
     loginHint: "",
@@ -53,16 +53,6 @@ export class ProviderStatuses {
     assertTestEnvironmentIsolation({ ...process.env, ...options.env });
     this.options = options;
     this.runtime = runtime;
-    if (options.cursorSdk)
-      this.rows.push({
-        provider: "cursor",
-        runtime: "cursor-sdk",
-        installed: null,
-        auth: "unknown",
-        loginHint: "Cursor SDK sign-in",
-        stale: true,
-        refreshing: false,
-      });
     void this.refresh();
   }
   list(): Status[] {
@@ -114,8 +104,8 @@ export class ProviderStatuses {
         case "claude":
         case "codex":
         case "opencode":
-        case "cursor":
           return discoverProvider(row.provider, configured);
+        case "cursor":
         case "acp":
           return Promise.resolve(undefined);
       }

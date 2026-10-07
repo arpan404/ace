@@ -16,7 +16,12 @@ import * as queue from "@ace/protocol/queue";
 import * as contextMeter from "@ace/protocol/context-meter";
 import * as protocol from "@ace/protocol";
 import * as forge from "@ace/protocol/forge";
-import { builtinToolCatalog, agentControlToolCatalog, handoffToolCatalog } from "@ace/mcp-server";
+import {
+  builtinToolCatalog,
+  agentControlToolCatalog,
+  handoffToolCatalog,
+  statusToolCatalog,
+} from "@ace/mcp-server";
 import { z } from "zod";
 import type { SchemaEntry, ToolEntry } from "./model.ts";
 
@@ -56,23 +61,26 @@ export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] 
       exported.set(name, schema);
     }
   const entries: SchemaEntry[] = [...exported].map(([name, schema]) => ({ name, schema }));
-  const tools = [...builtinToolCatalog, ...agentControlToolCatalog, ...handoffToolCatalog].map(
-    (tool): ToolEntry => {
-      const input = `${tool.name}.input`;
-      const output = `${tool.name}.output`;
-      entries.push(
-        { name: input, schema: tool.input },
-        { name: output, schema: tool.output, io: "output" },
-      );
-      return {
-        name: tool.name,
-        description: tool.description,
-        capability: tool.capability,
-        timeoutMs: tool.timeoutMs,
-        input,
-        output,
-      };
-    },
-  );
+  const tools = [
+    ...builtinToolCatalog,
+    ...agentControlToolCatalog,
+    ...handoffToolCatalog,
+    ...statusToolCatalog,
+  ].map((tool): ToolEntry => {
+    const input = `${tool.name}.input`;
+    const output = `${tool.name}.output`;
+    entries.push(
+      { name: input, schema: tool.input },
+      { name: output, schema: tool.output, io: "output" },
+    );
+    return {
+      name: tool.name,
+      description: tool.description,
+      capability: tool.capability,
+      timeoutMs: tool.timeoutMs,
+      input,
+      output,
+    };
+  });
   return { entries: entries.toSorted((a, b) => a.name.localeCompare(b.name, "en")), tools };
 }

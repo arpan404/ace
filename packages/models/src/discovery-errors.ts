@@ -56,7 +56,7 @@ export function discoveryError(
   const correctiveHint =
     context?.backend === "cursor-sdk" && (kind === "not_configured" || kind === "auth_expired")
       ? kind === "not_configured"
-        ? "Sign in to Cursor. Cursor SDK isn't set up on this Mac. Hide it in Settings → Providers if you don't use it."
+        ? "Sign in to Cursor"
         : "Sign in to Cursor, then refresh models."
       : context?.provider === "opencode" && kind === "auth_expired"
         ? context.source === "github-copilot"
@@ -65,6 +65,9 @@ export function discoveryError(
         : hint;
   return Object.freeze({
     code: kind,
+    ...(kind === "not_configured"
+      ? { severity: "info" as const, actionId: "provider.sign_in" as const }
+      : {}),
     message:
       kind === "no_models" && context?.source === "github-copilot"
         ? "GitHub Copilot is connected in OpenCode but has no chat models enabled."

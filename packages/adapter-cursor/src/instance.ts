@@ -1,5 +1,6 @@
 import { join, isAbsolute } from "node:path";
 import { z } from "zod";
+import { cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 
 export const CursorInstance = z.strictObject({
   id: z.string().min(1).max(256),
@@ -13,8 +14,8 @@ export function cursorInstanceHome(dataDir: string, id: string): string {
 /** One identity/home owner for the SDK default, including pre-accounts checkpoints. */
 export function defaultCursorInstance(dataDir: string): CursorInstance {
   return CursorInstance.parse({
-    id: "cursor-sdk-default",
-    homeDir: cursorInstanceHome(dataDir, "cursor-sdk-default"),
+    id: cursorDefaultInstanceId,
+    homeDir: cursorInstanceHome(dataDir, cursorDefaultInstanceId),
   });
 }
 /** The accounts owner calls this only for its selected cursor-sdk backend. */

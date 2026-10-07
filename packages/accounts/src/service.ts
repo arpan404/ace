@@ -1,3 +1,4 @@
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import {
   AccountsRequest,
   AccountsResponse,
@@ -196,10 +197,11 @@ export class AccountService {
         : undefined;
     if (context.resume && !selection.instanceId)
       throw new Error("Resuming requires a pinned provider instance");
+    const selectedId =
+      selection.instanceId ?? this.registry.selectedProvider(adapter.provider) ?? preferred;
     const assignment = AccountAssignment.parse({
       ...selection,
-      instanceId:
-        selection.instanceId ?? this.registry.selectedProvider(adapter.provider) ?? preferred,
+      instanceId: adapter.provider === "cursor" ? cursorInstanceId(selectedId) : selectedId,
     });
     if (context.resume && !assignment.instanceId)
       throw new Error("Resuming requires a pinned provider instance");
