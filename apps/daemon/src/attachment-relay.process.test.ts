@@ -6,7 +6,13 @@ import { expect, test } from "vitest";
 import { imageSize } from "image-size";
 import { attachmentBytes } from "@ace/client";
 import { ContextService } from "@ace/context";
-import { ContextResult, DeviceId, type ContextRequest, type ContextOperation } from "@ace/protocol";
+import {
+  ServerMessage,
+  ContextResult,
+  DeviceId,
+  type ContextRequest,
+  type ContextOperation,
+} from "@ace/protocol";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { keyPair, fingerprint } from "@ace/secure-channel";
 import { Store } from "./store.ts";
@@ -99,7 +105,11 @@ test("paired relay readers resolve exact attachment bytes and previews while oth
         connection: {
           async request(input: Omit<ContextRequest, "requestId">) {
             await channel.send({ ...input, requestId: `read-${++request}` });
-            return ContextResult.parse(await channel.receive());
+            for (;;) {
+              const message = await channel.receive();
+              if (ServerMessage.parse(message).type !== "models.changed")
+                return ContextResult.parse(message);
+            }
           },
         },
       };

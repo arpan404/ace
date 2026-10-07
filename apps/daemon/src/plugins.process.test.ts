@@ -12,6 +12,7 @@ import { ServerMessage } from "@ace/protocol";
 import { PluginServerMessage, type PluginRequest } from "@ace/protocol/plugins";
 import { expect, test } from "vitest";
 import { startDaemon } from "./index.ts";
+import { Client } from "./socket-test-support.ts";
 
 const execute = promisify(execFile);
 test("authenticated daemon installation is reviewed, survives restart and supplies materialized adapter overrides", async () => {
@@ -79,9 +80,9 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
       code: "unauthorized",
     });
     socket.terminate();
-    socket = new WebSocket(daemon.url);
+    const scoped = new Client(daemon.url);
+    socket = scoped.socket;
     await once(socket, "open");
-    const welcome = once(socket, "message");
     socket.send(
       JSON.stringify({
         type: "hello",
@@ -90,15 +91,15 @@ test("authenticated daemon installation is reviewed, survives restart and suppli
         token: (await readFile(daemon.tokenPath, "utf8")).trim(),
       }),
     );
-    expect(ServerMessage.parse(JSON.parse(String((await welcome)[0])))).toMatchObject({
+    expect(await scoped.next()).toMatchObject({
       type: "welcome",
     });
     const client = socket;
     async function request(input: z.input<typeof PluginRequest>) {
       const requestId = randomUUID();
-      const pending = once(client, "message");
+      const pending = scoped.next();
       client.send(JSON.stringify({ type: "pluginRequest", requestId, request: input }));
-      const result = PluginServerMessage.parse(JSON.parse(String((await pending)[0])));
+      const result = PluginServerMessage.parse(await pending);
       expect(result.requestId).toBe(requestId);
       return result.response;
     }

@@ -14,10 +14,12 @@ export class BrowserClient {
     reject: (error: Error) => void;
   }[] = [];
   private closed = false;
+  receiveCatalogPushes = false;
   constructor(url: string, options: import("ws").ClientOptions = {}) {
     this.socket = new WebSocket(url, options);
     this.socket.on("message", (data) => {
       const message = Message.parse(JSON.parse(data.toString()));
+      if (message.type === "models.changed" && !this.receiveCatalogPushes) return;
       const index = this.waiters.findIndex((waiter) => waiter.predicate(message));
       const waiter = this.waiters[index];
       if (waiter) {
