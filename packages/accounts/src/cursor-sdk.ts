@@ -1,9 +1,6 @@
-import {
-  createCursorAdapter,
-  createCursorAccountDriver,
-  CursorHostSlots,
-  type CursorAdapterOptions,
-} from "@ace/adapter-cursor";
+import { createCursorAdapter, type CursorAdapterOptions } from "@ace/adapter-cursor/adapter";
+import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
+import { CursorHostSlots } from "@ace/adapter-cursor/slots";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import type { AccountRegistry } from "./registry.ts";

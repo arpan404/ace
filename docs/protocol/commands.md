@@ -503,6 +503,24 @@ Example:
 }
 ```
 
+### thread.move
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.move"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "type": "thread.move",
+  "workspaceId": "example"
+}
+```
+
 ### thread.workspace.set
 
 | Field | Required | Type | Constraints |

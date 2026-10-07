@@ -7,10 +7,11 @@ import { expect, test } from "vitest";
 import { build, type Plugin } from "vite";
 import { workerBundle } from "./worker-bundle.ts";
 
-const entry = join(import.meta.dirname, "src/boot/client-worker.ts");
+const workers = ["client-worker", "machine-worker"];
 const service = join(import.meta.dirname, "../../packages/protocol/src/history.ts");
 
-function compile(source: string) {
+function compile(worker: string, source: string) {
+  const entry = join(import.meta.dirname, `src/boot/${worker}.ts`);
   const fixture: Plugin = {
     name: "worker-fixture",
     load(id) {
@@ -30,14 +31,17 @@ function compile(source: string) {
   });
 }
 
-test("a cold service accidentally made eager fails the build with its module name", async () => {
-  await expect(compile(`export { reply } from ${JSON.stringify(service)};`)).rejects.toThrow(
-    "Forbidden eager client worker module: ../../packages/protocol/src/history.ts",
-  );
+test.each(workers)("%s rejects a cold service made eager with its module name", async (worker) => {
+  await expect(
+    compile(worker, `export { reply } from ${JSON.stringify(service)};`),
+  ).rejects.toThrow("Forbidden eager client worker module: ../../packages/protocol/src/history.ts");
 });
 
-test("a cold service stays available through a lazy import without failing the startup guard", async () => {
-  const result = await compile(`export const load = () => import(${JSON.stringify(service)});`);
+test.each(workers)("%s can execute a cold service through a lazy import", async (worker) => {
+  const result = await compile(
+    worker,
+    `export const load = () => import(${JSON.stringify(service)});`,
+  );
   const outputs = (Array.isArray(result) ? result : [result]).flatMap(
     (buildResult) => buildResult.output,
   );

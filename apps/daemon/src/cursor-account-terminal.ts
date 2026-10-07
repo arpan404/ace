@@ -1,4 +1,4 @@
-import { createCursorAccountDriver } from "@ace/adapter-cursor";
+import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
 import { runCursorAccountFlow } from "./cursor-account-flow.ts";
 
 // A PTY-owned helper. The SDK host discards keys; only its browser URL reaches this terminal.

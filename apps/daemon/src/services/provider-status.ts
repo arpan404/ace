@@ -1,5 +1,6 @@
 import { instanceEnv } from "@ace/accounts";
-import { createCursorAccountDriver, discoverCursorSdk } from "@ace/adapter-cursor";
+import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
+import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { ProviderStatuses } from "../provider-status.ts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorHosts } from "./cursor-hosts.ts";

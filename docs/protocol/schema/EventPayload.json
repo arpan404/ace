@@ -98,6 +98,9 @@
         "type": {
           "const": "thread.updated",
           "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
         }
       },
       "required": [

@@ -1,8 +1,10 @@
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 import type { Plugin } from "vite";
 import { initialChunk } from "./initial-preloads.ts";
 
-const entry = join(import.meta.dirname, "src/boot/client-worker.ts");
+const entries = ["client-worker", "machine-worker"].map((name) =>
+  join(import.meta.dirname, `src/boot/${name}.ts`),
+);
 
 /** Keep cold services and page-only implementations off the worker's startup path. */
 export const forbiddenEagerWorkerModules = [
@@ -18,7 +20,7 @@ export const forbiddenEagerWorkerModules = [
 
 /** Guard the actual worker graph; optionally emit Rolldown's retained-module breakdown. */
 export function workerBundle(): Plugin {
-  let clientWorker = false;
+  let entry: string | undefined;
   return {
     name: "ace:worker-bundle",
     options(options) {
@@ -28,10 +30,10 @@ export function workerBundle(): Plugin {
           : Array.isArray(options.input)
             ? options.input
             : Object.values(options.input ?? {});
-      clientWorker = inputs.includes(entry);
+      entry = entries.find((candidate) => inputs.includes(candidate));
     },
     outputOptions(options) {
-      if (!clientWorker) return;
+      if (!entry) return;
       return {
         ...options,
         codeSplitting: {
@@ -52,6 +54,7 @@ export function workerBundle(): Plugin {
       };
     },
     generateBundle(_options, bundle) {
+      if (!entry) return;
       const start = Object.values(bundle).find(
         (chunk) => chunk.type === "chunk" && chunk.facadeModuleId === entry,
       );
@@ -96,7 +99,7 @@ export function workerBundle(): Plugin {
       );
       this.emitFile({
         type: "asset",
-        fileName: "worker-bundle.json",
+        fileName: `${basename(entry, ".ts")}-bundle.json`,
         source: JSON.stringify(chunks),
       });
     },

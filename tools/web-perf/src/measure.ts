@@ -13,12 +13,14 @@ export const observe = () => {
     events: new Map<number, number>(),
     start: 0,
     startEvents: 0,
+    startStreamedAt: 0,
   };
   const reset = () => {
     record.longTasks.length = 0;
     record.events.clear();
     record.start = performance.now();
     record.startEvents = Reflect.get(globalThis, "acePerf")?.events ?? 0;
+    record.startStreamedAt = Reflect.get(globalThis, "acePerf")?.at ?? 0;
     return record.start;
   };
   Object.assign(globalThis, { acePerfRecord: Object.assign(record, { reset }) });
@@ -62,12 +64,16 @@ export interface MainThread {
 export async function readRecord(
   page: Page,
   start: number,
-): Promise<MainThread & { streamedEvents: number }> {
+): Promise<MainThread & { streamedEvents: number; streamedSeconds: number }> {
   const sample = await page.evaluate((from) => {
     const record = Reflect.get(globalThis, "acePerfRecord");
     if (from !== record.start) throw new Error("Measurement window was reset before reading");
     const elapsed = (performance.now() - from) / 1000;
-    const streamedEvents = (Reflect.get(globalThis, "acePerf")?.events ?? 0) - record.startEvents;
+    const stream = Reflect.get(globalThis, "acePerf");
+    const streamedEvents = (stream?.events ?? 0) - record.startEvents;
+    // Counters arrive in worker batches. Pair their difference with the delivery clock,
+    // not the page clock sampled between batches (which biases a fixed-rate source).
+    const streamedSeconds = ((stream?.at ?? 0) - record.startStreamedAt) / 1000;
     const durations = [...record.events.values()].toSorted((a: number, b: number) => a - b);
     const at = (q: number) =>
       durations[Math.min(durations.length - 1, Math.floor(q * durations.length))] ?? 0;
@@ -81,6 +87,7 @@ export async function readRecord(
       longCount: longTasks.length,
       seconds: elapsed,
       streamedEvents,
+      streamedSeconds,
     };
   }, start);
   return MainThreadSample.parse(sample);
@@ -95,11 +102,12 @@ const MainThreadSample = z.object({
   longCount: z.number().int().nonnegative(),
   seconds: z.number().nonnegative(),
   streamedEvents: z.number().int().nonnegative(),
+  streamedSeconds: z.number().nonnegative(),
 });
 
-/** Delivered events and elapsed time must come from the same reset/read window. */
-export function streamedRate(sample: { streamedEvents: number; seconds: number }): number {
-  return sample.streamedEvents / sample.seconds;
+/** Measure completed delivery batches using their own monotonic timestamps. */
+export function streamedRate(sample: { streamedEvents: number; streamedSeconds: number }): number {
+  return sample.streamedSeconds > 0 ? sample.streamedEvents / sample.streamedSeconds : 0;
 }
 
 /** The page's retained heap in MB after forced collection, and its DOM size. */

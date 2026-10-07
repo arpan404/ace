@@ -14,9 +14,9 @@ export function startWorkspaceActions({
 }: ServiceContext): void {
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     ...options.workspaceActions,
-    changeWorkspace: (id, commandId, effect, reservation) => {
+    changeWorkspace: (id, commandId, effect, reservation, commit) => {
       if (!services.engine) throw new Error("engine_unavailable");
-      return services.engine.changeWorkspace(id, commandId, effect, reservation);
+      return services.engine.changeWorkspace(id, commandId, effect, reservation, commit);
     },
   });
   services.workspaceActions = workspace;

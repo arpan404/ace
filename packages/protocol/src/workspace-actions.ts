@@ -119,6 +119,7 @@ export const WorkspaceActionResult = z.object({
 });
 export type WorkspaceActionResult = z.infer<typeof WorkspaceActionResult>;
 export const WorkspaceCommands = [
+  z.object({ type: z.literal("thread.move"), threadId: ThreadId, workspaceId: WorkspaceId }),
   z.object({
     type: z.literal("thread.workspace.set"),
     threadId: ThreadId,

@@ -61,15 +61,56 @@ export const droppedZodMethods: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
- * The worker never uses fallback schemas; the page's saved Choices still need .catch().
+ * The worker never uses fallback schemas or schema introspection; the page's saved Choices still
+ * need .catch(). Metadata getters would call the omitted JSON Schema processor anyway.
  * Keep .array(): browser origin replies use it at runtime, and perf workers build core
  * validation schemas with it too. These omissions apply to every Vite worker.
  */
 export const droppedWorkerZodMethods = {
   ...droppedZodMethods,
-  ZodType: [...(droppedZodMethods["ZodType"] ?? []), "or", "parseAsync", "safeParseAsync", "catch"],
-  ZodObject: [...(droppedZodMethods["ZodObject"] ?? []), "merge"],
+  ZodType: [
+    ...(droppedZodMethods["ZodType"] ?? []),
+    "or",
+    "parseAsync",
+    "safeParseAsync",
+    "catch",
+    "with",
+    "toJSONSchema",
+    "spa",
+    "isOptional",
+    "isNullable",
+    "nullish",
+    "describe",
+    "meta",
+    "register",
+    "apply",
+  ],
+  ZodObject: [...(droppedZodMethods["ZodObject"] ?? []), "merge", "loose", "strip"],
+  ZodNumber: [
+    ...(droppedZodMethods["ZodNumber"] ?? []),
+    "gt",
+    "lt",
+    "negative",
+    "nonpositive",
+    "safe",
+    "gte",
+    "lte",
+    "minValue",
+    "maxValue",
+    "isInt",
+    "format",
+  ],
+  ZodArray: ["length", "nonempty"],
+  ZodTuple: ["rest", "partial"],
+  ZodInstanceOf: ["properties"],
+  ZodEnum: ["extract"],
   _ZodString: [
+    "format",
+    "minLength",
+    "maxLength",
+    "length",
+    "nonempty",
+    "trim",
     "includes",
     "startsWith",
     "endsWith",
@@ -105,14 +146,15 @@ const nameOf = (node: unknown): string | undefined =>
       : undefined;
 
 /**
- * The member table of `export const <name> = core.$constructor("<name>", init, members)`, where
+ * The member tables of `export const <name> = core.$constructor("<name>", init, members)`, where
  * `members` is `{ ... }` or `util.derived(getters, { ... })`.
  */
-function memberTable(declarator: Node): [string, Node] | undefined {
+function memberTables(declarator: Node): [string, Node][] {
   const name = nameOf(declarator["id"]);
   const call = declarator["init"];
-  if (!name || !isNode(call) || call.type !== "CallExpression") return;
-  let table = (call["arguments"] as unknown[])[2];
+  if (!name || !isNode(call) || call.type !== "CallExpression") return [];
+  const table = (call["arguments"] as unknown[])[2];
+  let tables: unknown[] = [table];
   if (isNode(table) && table.type === "CallExpression") {
     const callee = table["callee"];
     if (
@@ -120,9 +162,11 @@ function memberTable(declarator: Node): [string, Node] | undefined {
       callee.type === "MemberExpression" &&
       nameOf(callee["property"]) === "derived"
     )
-      table = (table["arguments"] as unknown[])[1];
+      tables = table["arguments"] as unknown[];
   }
-  return isNode(table) && table.type === "ObjectExpression" ? [name, table] : undefined;
+  return tables.flatMap((member): [string, Node][] =>
+    isNode(member) && member.type === "ObjectExpression" ? [[name, member]] : [],
+  );
 }
 
 function* declarators(program: Node): Generator<Node> {
@@ -155,7 +199,7 @@ export function zodWithoutUnusedMethods(
             `_lazyMethod(proto, "${name}", () => () => ${stub}("${name}"));`,
         );
         out.append(
-          `\nfunction ${stub}(name) { throw new Error(\`Zod's .\${name}() is left out of browser builds (apps/web/zod-methods.ts).\`); }\n`,
+          `\nfunction ${stub}(name) { throw new Error(\`Zod's .\${name}() is left out of browser builds.\`); }\n`,
         );
         return { code: out.toString(), map: out.generateMap({ hires: true, source: id }) };
       }
@@ -163,20 +207,59 @@ export function zodWithoutUnusedMethods(
       const out = new MagicString(code);
       let changed = false;
       for (const declarator of declarators(this.parse(code) as unknown as Node)) {
-        const found = memberTable(declarator);
-        const names = found && new Set(dropped[found[0]]);
-        if (!found || !names?.size) continue;
-        for (const member of found[1]["properties"] as unknown[]) {
-          if (!isNode(member) || member.type !== "Property" || member["computed"]) continue;
-          const name = nameOf(member["key"]);
-          if (!name || !names.has(name)) continue;
-          out.overwrite(member.start, member.end, `${name}() { ${stub}("${name}"); }`);
+        // Some methods still live on instances in Zod, notably enum extraction.
+        const owner = nameOf(declarator["id"]);
+        const call = declarator["init"];
+        const init =
+          isNode(call) && Array.isArray(call["arguments"]) ? call["arguments"][1] : undefined;
+        const body = isNode(init) ? init["body"] : undefined;
+        if (owner && isNode(body) && Array.isArray(body["body"]))
+          for (const statement of body["body"]) {
+            const assignment = isNode(statement) ? statement["expression"] : undefined;
+            if (!isNode(assignment) || assignment.type !== "AssignmentExpression") continue;
+            const left = assignment["left"];
+            const right = assignment["right"];
+            if (
+              !isNode(left) ||
+              left.type !== "MemberExpression" ||
+              left["computed"] ||
+              !isNode(right)
+            )
+              continue;
+            const method = nameOf(left["property"]);
+            if (!method || !dropped[owner]?.includes(method)) continue;
+            out.overwrite(right.start, right.end, `() => ${stub}("${method}")`);
+            changed = true;
+          }
+        for (const found of memberTables(declarator)) {
+          const names = new Set(dropped[found[0]]);
+          if (!names.size) continue;
+          const removed: { node: Node; name: string }[] = [];
+          for (const member of found[1]["properties"] as unknown[]) {
+            if (!isNode(member) || member.type !== "Property" || member["computed"]) continue;
+            const name = nameOf(member["key"]);
+            if (name && names.has(name)) removed.push({ node: member, name });
+          }
+          const first = removed[0];
+          if (!first) continue;
+          // A shared factory keeps every unsupported method's diagnostic while avoiding a
+          // repeated function body for each prototype entry.
+          out.overwrite(
+            first.node.start,
+            first.node.end,
+            `.../* @__PURE__ */ ${stub}Methods(${JSON.stringify(removed.map(({ name }) => name).join(" "))})`,
+          );
+          for (const { node } of removed.slice(1)) {
+            let end = node.end;
+            while (/\s/.test(code[end] ?? "")) end++;
+            out.remove(node.start, code[end] === "," ? end + 1 : node.end);
+          }
           changed = true;
         }
       }
       if (!changed) return null;
       out.append(
-        `\nfunction ${stub}(name) {\n  throw new Error(\`Zod's .\${name}() is left out of browser builds (apps/web/zod-methods.ts).\`);\n}\n`,
+        `\nfunction ${stub}(name) {\n  throw new Error(\`Zod's .\${name}() is left out of browser builds.\`);\n}\nfunction ${stub}Methods(names) { return Object.fromEntries(names.split(" ").map(name => [name, () => ${stub}(name)])); }\n`,
       );
       return { code: out.toString(), map: out.generateMap({ hires: true, source: id }) };
     },

@@ -4,7 +4,12 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./adapter": "./src/adapter.ts",
+    "./auth": "./src/auth.ts",
+    "./discovery": "./src/host.ts",
+    "./slots": "./src/slots.ts",
+    "./instance": "./src/instance.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

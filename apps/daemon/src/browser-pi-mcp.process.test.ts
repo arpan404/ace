@@ -1,15 +1,18 @@
-import { writeFile } from "node:fs/promises";
+import { writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { spawnTextSupervised } from "@ace/provider-kit/process";
 import { createLogger } from "@ace/diagnostics";
 import type { PiPermissionMode } from "@ace/protocol/pi";
+import { AgentId } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
 import {
   readPrivateMcpConfig,
   AceMcpConnectionSchema,
   type AceMcpConnection,
+  acpInjection,
+  acpStdioInjection,
 } from "@ace/mcp-server";
 import { readConfig } from "./config.ts";
 import { AdapterRegistry } from "./engine/registry.ts";
@@ -18,6 +21,7 @@ import { Resources } from "./services/resources.ts";
 import type { ServiceContext } from "./services/types.ts";
 import { withDaemonMcp } from "./services/provider-mcp.ts";
 import { setup, cleanups, invoke } from "./browser-mcp-test-support.ts";
+import { discoveredProvider, type LazyProvider } from "./testing/lazy-provider.ts";
 
 it.each<PiPermissionMode>(["unrestricted", "read_only"])(
   "Pi's own MCP lease offers browser tools only in %s mode and expires with its process",
@@ -123,3 +127,88 @@ it.each<PiPermissionMode>(["unrestricted", "read_only"])(
     if (connection) expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
   },
 );
+
+it.each<LazyProvider>([
+  "claude",
+  "codex",
+  "opencode",
+  "cursor",
+  "cursor-sdk",
+  "acp",
+  "antigravity",
+])("the first %s session opens through the discovered registry", async (provider) => {
+  const f = await setup(provider === "cursor-sdk" ? "cursor" : provider);
+  const { registry, env } = await discoveredProvider(provider, f.home);
+  cleanups.push(() => registry.close());
+  registry.bindSessions((adapter) =>
+    withDaemonMcp(
+      {
+        store: f.store,
+        services: { mcp: f.mcp, browser: f.browser },
+        id: () => "lazy-provider-lease",
+      },
+      adapter,
+    ),
+  );
+  const lease =
+    provider === "acp"
+      ? f.mcp.openSession(
+          {
+            sessionId: "generic-acp",
+            threadId: f.thread.id,
+            agentId: AgentId.parse("root"),
+            capabilities: ["browser"],
+          },
+          new AbortController().signal,
+        )
+      : undefined;
+  if (lease) cleanups.push(async () => lease.end());
+  const connection = lease ? { url: f.mcp.url, bearer: lease.bearer } : undefined;
+  const source = registry.get(provider === "cursor-sdk" ? "cursor" : provider).adapter;
+  const session = await source.openSession({
+    threadId: f.thread.id,
+    cwd: f.home,
+    env,
+    signal: new AbortController().signal,
+    onFrame() {},
+    onExit() {},
+    ...(connection && lease
+      ? {
+          mcp: {
+            httpServers: acpInjection(connection).mcpServers,
+            stdioServers: acpStdioInjection(connection).mcpServers,
+            secrets: [connection.bearer],
+            end: lease.end,
+          },
+        }
+      : {}),
+  });
+  cleanups.push(() => session.close("shutdown"));
+  if (provider === "claude") {
+    const status = z
+      .array(
+        z.object({
+          name: z.string(),
+          validAceConnection: z.boolean(),
+          aceTools: z.array(z.string()),
+        }),
+      )
+      .parse(await session.mcp?.status());
+    expect(status).toMatchObject([
+      expect.objectContaining({
+        name: "ace",
+        validAceConnection: true,
+        aceTools: expect.arrayContaining(["ace_browser_open"]),
+      }),
+    ]);
+  } else
+    expect(session.nativeSessionId).toBe(provider === "cursor-sdk" ? "synthetic-sdk" : "native");
+  if (provider === "cursor-sdk")
+    expect(JSON.parse(await readFile(join(f.home, "sdk-open.json"), "utf8"))).toMatchObject({
+      threadId: f.thread.id,
+      cwd: f.home,
+    });
+  if (provider !== "claude" && provider !== "cursor-sdk")
+    expect(f.browser.state(f.thread.id)?.url).toBe(env.ACE_TEST_BROWSER_URL);
+  await session.close("shutdown");
+});

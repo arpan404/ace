@@ -4,8 +4,7 @@ import { dirname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
 import { createGunzip } from "node:zlib";
-import { extract } from "tar-stream";
-import { open as openZip, type ZipFile, type Entry } from "yauzl";
+import type { ZipFile, Entry } from "yauzl";
 import { contained } from "./plans.ts";
 const maximum = 256 * 1024 * 1024;
 class ExpansionBudget {
@@ -25,8 +24,9 @@ class ExpansionBudget {
   }
 }
 export async function extractTar(path: string, root: string, signal: AbortSignal): Promise<void> {
+  const { default: tar } = await import("tar-stream");
   const budget = new ExpansionBudget();
-  const archive = extract();
+  const archive = tar.extract();
   const active = new Set<Promise<void>>();
   archive.on("entry", (header, stream, next) => {
     const task = (async () => {
@@ -70,8 +70,9 @@ export async function extractTar(path: string, root: string, signal: AbortSignal
   }
 }
 export async function extractZip(path: string, root: string, signal: AbortSignal): Promise<void> {
+  const { default: yauzl } = await import("yauzl");
   const zip = await new Promise<ZipFile>((resolve, reject) =>
-    openZip(
+    yauzl.open(
       path,
       { lazyEntries: true, autoClose: false, validateEntrySizes: true, strictFileNames: true },
       (error, result) =>

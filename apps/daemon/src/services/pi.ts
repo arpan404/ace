@@ -1,12 +1,9 @@
 import { join } from "node:path";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
-import {
-  createPiAdapter,
-  piProfile,
-  piHistoryErrorMessage,
-  type PiOptions,
-  type PiSession,
-} from "@ace/adapter-pi";
+import type { PiOptions, PiSession } from "@ace/adapter-pi";
+import { createPiAdapter } from "@ace/adapter-pi/adapter";
+import { piProfile } from "@ace/adapter-pi/capabilities";
+import { piHistoryErrorMessage } from "@ace/adapter-pi/history-errors";
 import { discoverPi, type DiscoveryResult } from "@ace/provider-kit/discovery";
 import { AgentId, PiControlRequest, type PiControlResult, type ThreadId } from "@ace/protocol";
 import type { AdapterRegistry } from "../engine/registry.ts";

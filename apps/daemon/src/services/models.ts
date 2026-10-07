@@ -1,4 +1,4 @@
-import { discoverCursorSdk } from "@ace/adapter-cursor";
+import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { cursorSdkCatalogInstance, registerCursorSdkCatalog } from "./cursor-activation.ts";
 import { createInstance, instanceEnv } from "@ace/accounts";
 import { cursorHosts } from "./cursor-hosts.ts";

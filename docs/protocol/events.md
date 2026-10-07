@@ -155,6 +155,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"thread.updated"` |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | backend | no | ["acp","cursor-sdk"] |  |
 | capabilities | no | [Capabilities.json](schema/Capabilities.json) |  |
 | permission | no | [PermissionState.json](schema/PermissionState.json) |  |
@@ -174,11 +175,16 @@ Example:
 ```json
 {
   "archivedAt": null,
-  "execution": {
-    "instanceId": "example",
-    "provider": "opencode"
+  "lineage": {
+    "lossy": true,
+    "mode": "portable",
+    "parentAgentId": "example",
+    "parentThreadId": "example",
+    "point": {
+      "runId": "example",
+      "type": "turn"
+    }
   },
-  "provider": "antigravity",
   "status": {
     "state": "unresponsive"
   },
@@ -193,6 +199,7 @@ Example:
     },
     "state": "failed"
   },
+  "titleSource": "person",
   "type": "thread.updated"
 }
 ```

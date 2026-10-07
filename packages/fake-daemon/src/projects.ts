@@ -138,6 +138,10 @@ export class FakeProjects {
       });
     }
   }
+  get(id: string): Project | undefined {
+    this.seed();
+    return this.projects.get(id);
+  }
   isRemoved(id: string): boolean {
     return this.removed.has(id);
   }

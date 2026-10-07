@@ -6,7 +6,6 @@ import { Readable, type Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { StringDecoder } from "node:string_decoder";
 import { createGzip } from "node:zlib";
-import tar from "tar-stream";
 import { boundedMetadata } from "./bounded.ts";
 import { DoctorReport } from "./doctor.ts";
 export interface BundleOptions {
@@ -143,6 +142,8 @@ export async function writeSupportBundle(options: BundleOptions): Promise<void> 
   if (!Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1 || maxInputBytes > 1024 ** 3)
     throw new RangeError("Invalid input cap");
   const budget = { remaining: maxInputBytes };
+  // CommonJS named exports are not guaranteed when this import is bundled.
+  const { default: tar } = await import("tar-stream");
   const staging = await mkdtemp(join(options.temporaryRoot, "ace-support-"));
   const pack = tar.pack();
   const output = pipeline(pack, createGzip(), options.output);

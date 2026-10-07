@@ -1,9 +1,5 @@
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
-import {
-  createClaudeAdapter,
-  type ClaudeOptions,
-  type ClaudeRateLimitObservation,
-} from "@ace/adapter-claude";
+import type { ClaudeOptions, ClaudeRateLimitObservation } from "@ace/adapter-claude";
 import { createRedactor } from "@ace/redaction";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { claudeInjection } from "@ace/mcp-server";
@@ -16,10 +12,11 @@ export interface DaemonClaudeOptions extends Omit<ClaudeOptions, "executable" | 
   /** The accounts owner consumes native metadata; no polling or credential handling here. */
   onRateLimit?(thread: ThreadId, observation: ClaudeRateLimitObservation): void;
 }
-export function daemonClaudeAdapter(
+export async function daemonClaudeAdapter(
   context: Pick<ServiceContext, "store" | "services" | "id" | "options">,
   cli: DiscoveryResult,
-): ProviderAdapter {
+): Promise<ProviderAdapter> {
+  const { createClaudeAdapter } = await import("@ace/adapter-claude");
   const { onRateLimit, ...configured } = context.options.claude ?? {};
   const options = { ...configured, ...(cli.path ? { executable: cli.path } : {}) };
   const base = createClaudeAdapter(options);
