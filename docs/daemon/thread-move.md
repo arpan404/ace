@@ -5,8 +5,10 @@ Send a durable command with payload
 existing operate authority and a registered destination. It does not register,
 clone or move folders. The receipt returns the same thread id.
 
-The daemon refuses a live tree, outstanding durable input, or any owned terminal.
-An exited terminal still needs explicit close. An isolated worktree or a session
+The daemon first settles what dead work left behind: exited or externally killed
+terminals are closed, and a thread whose provider is no longer running is marked
+stopped, with its orphaned approvals and controls retired. It then refuses a live
+tree, a live terminal, or durable input that can still run. An isolated worktree or a session
 whose execution root differs from the old project's root returns
 `thread_move_requires_local_workspace`. Switch that thread to local mode first.
 There is no branch or worktree transfer between repositories.
