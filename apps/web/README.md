@@ -20,7 +20,7 @@ Import `cn` from `@/lib/cn.ts`, never from `cn` directly: the local one knows th
 | `theme/`            | foundation | Theme engine: presets from seeds, token list, CSS generation, contrast checks, custom theme files, `ThemeProvider` / `useTheme()`   |
 | `styles/`           | foundation | Static tokens (`tokens.css`), Tailwind mapping and base styles (`index.css`), vendored shadcn variants                              |
 | `components/ui/`    | foundation | Owned primitives restyled to the design. Slices use them, never fork them                                                           |
-| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusPill`, `DataTable`                                                                  |
+| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusLabel`, `DataTable`                                                                 |
 | `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `time.ts` (`useNow`) |
 | `boot/`             | foundation | Client construction, daemon URL and token handling, fake boot, the fake backend for features without protocol (`fake-backend.ts`)   |
 | `features/shell/`   | foundation | `Rail`, `AppSidebar`, `SidebarFrame`, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice                  |
@@ -160,10 +160,12 @@ Rules:
     wash and `bg-ring/45` for drawn lines. Each theme has its own (`--accent-theme`);
     Appearance can pin another.
   - **Status** through `data-tone="working | needs-you | waiting | failed | done | idle"`, which
-    sets `--tone` (`styles/index.css`): `StatusPill`, `Dot`, the Activity tiles and the spinner
-    (working blue) read it. Words always carry the status too. Waiting and limited share the
-    violet: a thread held at a usage limit waits on its provider, not on you, so its row dot is a
-    hollow violet ring beside a violet Limited pill; amber is only for needs you.
+    sets `--tone` (`styles/index.css`) for dots, rings and the spinner (working blue), and
+    `--tone-text` for words: the hue made AA on every surface (`theme/status-text.ts`). A status
+    is coloured words (`StatusLabel`) with a dot or icon, never a fill, border or tinted row.
+    Words always carry the status too. Waiting and limited share the violet: a thread held at a
+    usage limit waits on its provider, not on you, so its row dot is a hollow violet ring beside a
+    violet Limited; amber is only for needs you.
   - **Diff**: green added, red removed (`--diff-add`, `--diff-del`, `text-status-done/failed` for counts).
   - **Projects**: `var(--project-${projectTint(id)})` from `@ace/ui-core`, twelve tints per theme
     that read as text at AA; a badge draws its letters in the tint on a wash of it.

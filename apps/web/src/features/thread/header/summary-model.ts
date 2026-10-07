@@ -97,6 +97,22 @@ export const sameSources = (a: readonly Source[], b: readonly Source[]) =>
 export const pendingInteractions = (reader: ThreadReader): number =>
   reader.interactionIds().filter((id) => reader.interaction(id)?.state === "pending").length;
 
+/** What the summary says waits, as one line: approvals on the person, else a usage limit. */
+export interface SummaryWait {
+  kind: "needs-you" | "limited";
+  label: string;
+}
+
+/**
+ * The one wait the summary shows, most pressing first: pending approvals and questions are the
+ * person's to act on, so they win over a usage limit, which waits on the provider. Never both.
+ */
+export function summaryWait(pending: number, limited: boolean): SummaryWait | undefined {
+  if (pending > 0) return { kind: "needs-you", label: `${pending} waiting on you` };
+  if (limited) return { kind: "limited", label: "Limited · usage limit reached" };
+  return undefined;
+}
+
 export const runningShell = (reader: ThreadReader): string | undefined =>
   reader.taskIds().findLast((id) => {
     const task = reader.task(id);

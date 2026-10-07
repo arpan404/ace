@@ -16,7 +16,8 @@ const card =
 
 /**
  * One Home task: its project and status, its title, then where the work happens and what it
- * changed. A thread that needs you carries a warm tint; the open one a filled background.
+ * changed. Its status is coloured words on the first line, never a tint behind the row; the open
+ * row has a filled background.
  * Pin, Settle and Snooze appear on hover; right-click opens the full menu. A picked row (for a
  * bulk action) wears the focus colour. On a touch screen a pinned row carries a drag handle: a
  * finger on the row scrolls the list, a finger on the handle moves the row (the list owns both).
@@ -34,7 +35,6 @@ export function ThreadRow(props: { threadId: string }) {
   // A thread this window started reads its provisional title until the daemon titles it.
   const view =
     started && row.card.title === "New thread" ? { ...row.card, title: started } : row.card;
-  const needsYou = view.status.tone === "needs-you";
   const handle = view.flags.pinned && !renaming;
   const body = (title: ReactNode) => (
     <>
@@ -75,9 +75,7 @@ export function ThreadRow(props: { threadId: string }) {
               className={cn(
                 card,
                 "group/link focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
-                needsYou
-                  ? "bg-status-needs-you/5 group-hover/row:bg-status-needs-you/9"
-                  : "group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent",
+                "group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent",
                 "data-[status=active]:bg-foreground/8",
                 selected && "bg-ring/10 shadow-[inset_0_0_0_1px_var(--ring)]",
                 handle && "pointer-coarse:pr-11",

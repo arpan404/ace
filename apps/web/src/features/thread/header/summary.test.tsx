@@ -3,6 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { summaryWait } from "./summary-model.ts";
 import { summaryPlacement } from "./summary.tsx";
 
 beforeEach(() => localStorage.clear());
@@ -92,7 +93,7 @@ test("the card floats in the gutter beside a wide column, insets narrower text, 
   expect(summaryPlacement(560)).toBe("inline");
 });
 
-test("a thread held at a usage limit shows the same waiting tone on its row's pill and its summary's dot, never needs-you amber", async () => {
+test("a thread held at a usage limit shows the same waiting tone on its row's status and its summary's dot, never needs-you amber", async () => {
   const app = harness();
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
   await app.open("/t/thread-limit-flags");
@@ -115,4 +116,10 @@ test("a thread held at a usage limit shows the same waiting tone on its row's pi
 
   expect(pill?.dataset.tone).toBe("waiting");
   expect(dot?.dataset.tone).toBe(pill?.dataset.tone);
+});
+
+test("the summary says one thing waits, never a row of them: approvals on the person before a usage limit", () => {
+  expect(summaryWait(2, true)).toEqual({ kind: "needs-you", label: "2 waiting on you" });
+  expect(summaryWait(0, true)).toEqual({ kind: "limited", label: "Limited · usage limit reached" });
+  expect(summaryWait(0, false)).toBeUndefined();
 });

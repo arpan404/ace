@@ -1,8 +1,8 @@
 import { useSidebarThread, useThread, useThreadMeta } from "@ace/client-react";
 import { CardsIcon, GitDiffIcon, TerminalWindowIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
 import { DiffStat } from "@/components/diff-stat.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -20,6 +20,7 @@ import {
   sameMarks,
   subagentSummary,
   subagentsOf,
+  summaryWait,
   type SubagentMark,
 } from "./summary-model.ts";
 import { SummarySources } from "./summary-sources.tsx";
@@ -155,7 +156,10 @@ function Subagents(props: { threadId: string }) {
   );
 }
 
-/** ace's extras, only when present: approvals waiting, a usage limit, a Deck run, background work. */
+/**
+ * ace's extras, only when present: the one thing that waits (approvals, else a usage limit), a
+ * Deck run, background work.
+ */
 function Extras(props: { threadId: string }) {
   const id = props.threadId;
   const workspace = useWorkspaceActions(id);
@@ -165,21 +169,18 @@ function Extras(props: { threadId: string }) {
   const taskKeys = useTaskKeys(id);
   const tasks = useThread(id, taskKeys, runningTasks) ?? 0;
   const shell = useThread(id, taskKeys, runningShell);
-  const limited = status?.state === "limited";
-  if (!pending && !limited && !deck && !tasks) return null;
+  const wait = summaryWait(pending, status?.state === "limited");
+  if (!wait && !deck && !tasks) return null;
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1 border-t px-1 pt-1.5 pb-0.5">
-      {pending > 0 && (
-        <Chip>
-          <Dot tone="needs-you" />
-          {pending} waiting on you
-        </Chip>
-      )}
-      {limited && (
-        <Chip>
-          <Dot tone="limited" />
-          Limited · usage limit reached
-        </Chip>
+      {wait && (
+        <span role="status" className="flex h-6 items-center px-1.5">
+          <StatusLabel
+            tone={wait.kind === "limited" ? "waiting" : "needs-you"}
+            label={wait.label}
+            mark={<Dot tone={wait.kind} />}
+          />
+        </span>
       )}
       {deck && (
         <Link
@@ -204,13 +205,5 @@ function Extras(props: { threadId: string }) {
         </button>
       )}
     </div>
-  );
-}
-
-function Chip(props: { children: ReactNode }) {
-  return (
-    <span role="status" className="flex h-6 items-center gap-1.5 px-1.5 text-xs text-foreground">
-      {props.children}
-    </span>
   );
 }

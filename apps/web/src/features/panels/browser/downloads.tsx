@@ -1,7 +1,7 @@
 import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { revealer } from "@/boot/open-external.ts";
 import { formatBytes } from "@/components/format-bytes.ts";
-import { StatusPill } from "@/components/status-pill.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -63,7 +63,7 @@ export function DownloadsButton(props: { downloads: readonly BrowserDownloadView
             >
               <div className="flex min-w-0 items-center gap-2">
                 <p className="min-w-0 flex-1 truncate text-ui">{download.filename}</p>
-                <StatusPill
+                <StatusLabel
                   tone={
                     download.state === "complete"
                       ? "done"
