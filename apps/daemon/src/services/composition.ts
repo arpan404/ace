@@ -1,3 +1,4 @@
+import { startProviderLogin } from "./provider-login.ts";
 import { startProviderStatuses } from "./provider-status.ts";
 import { startProjects } from "./projects.ts";
 import { startCursorAuth } from "./cursor-auth.ts";
@@ -116,6 +117,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["accounts"],
     after: ["engine", "models", "cursorAuth"],
     start: startAccountManagement,
+  },
+  {
+    name: "providerLogin",
+    phase: "listener",
+    requires: ["accounts"],
+    after: ["models", "providerStatuses", "accountManagement", "cursorAuth"],
+    start: startProviderLogin,
   },
   { name: "context", phase: "listener", requires: [], after: [], start: startContext },
   { name: "review", phase: "listener", requires: [], after: [], start: startReview },
