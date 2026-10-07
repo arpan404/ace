@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, ThreadId } from "@ace/protocol";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
+import { requestedBase, requestedBaseKey } from "../worktree-base.ts";
 const exec = promisify(execFile);
 test("fresh worktree branches use deduplicated title slugs instead of random IDs", async () => {
   const frames = scriptFrames();
@@ -51,7 +52,13 @@ test("fresh worktree branches use deduplicated title slugs instead of random IDs
         h.store.recordCommand(command.id, command.deviceId, () =>
           h.engine.handler.handle(command, {
             ...commandContext(h.store),
-            preparedWorkspace: { id, path, branch, project: repo, baseBranch: "main" },
+            preparedWorkspace: {
+              id,
+              path,
+              branch,
+              project: repo,
+              requestedBase: requestedBaseKey(requestedBase({ baseBranch: "main" })),
+            },
           }),
         ),
       ).toMatchObject({ ok: true });

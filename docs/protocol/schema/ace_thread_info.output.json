@@ -455,6 +455,39 @@
               "minimum": 0,
               "type": "integer"
             },
+            "base": {
+              "additionalProperties": false,
+              "properties": {
+                "fetch": {
+                  "enum": [
+                    "fetched",
+                    "unreachable"
+                  ],
+                  "type": "string"
+                },
+                "head": {
+                  "pattern": "^[a-f0-9]{40,64}$",
+                  "type": "string"
+                },
+                "ref": {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "remote": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[\\w.-]+$",
+                  "type": "string",
+                  "x-ace-constraint": "A remote name: letters, digits, `_`, `.`, `-`; no leading `-` or `.`."
+                }
+              },
+              "required": [
+                "ref",
+                "head"
+              ],
+              "type": "object"
+            },
             "baseBranch": {
               "maxLength": 1024,
               "type": "string"

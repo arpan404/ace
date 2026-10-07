@@ -35,6 +35,8 @@ export type GitErrorCode =
   | "conflicts"
   | "hook_failed"
   | "auth_failed"
+  | "remote_unreachable"
+  | "remote_ref_not_found"
   | "git_timeout"
   | "git_cancelled"
   | "git_closed"

@@ -8,6 +8,8 @@ import { ThreadId, type Command } from "@ace/protocol";
 import type { WorkspaceGit } from "./workspace-roots.ts";
 import type { Store } from "./store.ts";
 import type { CommandContext } from "./commands.ts";
+import { requestedBase, requestedBaseKey, type RequestedBase } from "./worktree-base.ts";
+import { resolveWorktreeBase } from "./worktree-base-resolution.ts";
 
 type Prepared = NonNullable<CommandContext["preparedWorkspace"]>;
 export interface CreationWorkspace {
@@ -24,10 +26,12 @@ export class WorkspaceCreations {
   private store: Store;
   private git: WorkspaceGit;
   private directory: string;
-  constructor(store: Store, git: WorkspaceGit, directory: string) {
+  private fetchTimeoutMs: number;
+  constructor(store: Store, git: WorkspaceGit, directory: string, fetchTimeoutMs: number) {
     this.store = store;
     this.git = git;
     this.directory = directory;
+    this.fetchTimeoutMs = fetchTimeoutMs;
     this.journal = new CreationWorkspaceJournal(store);
     this.recovery = this.recover();
     void this.recovery.catch(() => {});
@@ -43,7 +47,7 @@ export class WorkspaceCreations {
     if (this.closing || this.pending.size >= 16) throw new Error("workspace_busy");
     const project = this.store.getWorkspacePath(p.workspaceId);
     if (!project) throw new Error("workspace_not_found");
-    const task = this.create(id, project, p.baseBranch ?? "HEAD");
+    const task = this.create(id, project, requestedBase(p));
     this.pending.set(id, task);
     try {
       return await task;
@@ -52,7 +56,11 @@ export class WorkspaceCreations {
       throw error;
     }
   }
-  private async create(id: ThreadId, root: string, baseBranch: string): Promise<CreationWorkspace> {
+  private async create(
+    id: ThreadId,
+    root: string,
+    requested: RequestedBase,
+  ): Promise<CreationWorkspace> {
     const project = await realpath(root);
     const key = createHash("sha256").update(id).digest("hex");
     const parent = join(this.directory, "worktrees");
@@ -68,7 +76,13 @@ export class WorkspaceCreations {
     } catch (error) {
       if (!(error instanceof GitError && error.code === "invalid_ref")) throw error;
     }
-    const head = await this.git.resolveCommit({ worktree: project, ref: baseBranch });
+    // A remote base is fetched here, before any physical work; only its remote-tracking ref moves.
+    const { head, record } = await resolveWorktreeBase(
+      this.git,
+      project,
+      requested,
+      this.fetchTimeoutMs,
+    );
     const resource: CreationResource = {
       id,
       repo: project,
@@ -97,7 +111,16 @@ export class WorkspaceCreations {
       await this.cleanup(resource);
       throw error;
     }
-    const workspace = { id, path, branch, project, baseBranch };
+    // The new branch starts at the commit, not the base's ref, so it gets no upstream: its
+    // first push sets a same-named one and can never land on the base branch.
+    const workspace: Prepared = {
+      id,
+      path,
+      branch,
+      project,
+      requestedBase: requestedBaseKey(requested),
+      ...(record ? { base: record } : {}),
+    };
     const lease: CreationWorkspace = { workspace, release: () => this.cleanup(resource) };
     if (this.closing) {
       await lease.release();

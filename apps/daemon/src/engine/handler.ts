@@ -10,6 +10,7 @@ import { validateCreation } from "./creation-validation.ts";
 import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
+import { baseBranchLabel, requestedBase, requestedBaseKey } from "../worktree-base.ts";
 import { ExecutionOptions, ThreadId, type Command, type CommandResult } from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
@@ -183,12 +184,13 @@ export function engineHandler(
           }
           const at = now();
           const prepared = context.preparedWorkspace;
+          const baseBranch = baseBranchLabel(p);
           threadId = ThreadId.parse(prepared?.id ?? p.threadId ?? nextId());
           if (prepared) {
             if (
               prepared.id !== p.threadId ||
               prepared.project !== cwd ||
-              prepared.baseBranch !== (p.baseBranch ?? "HEAD") ||
+              prepared.requestedBase !== requestedBaseKey(requestedBase(p)) ||
               p.mode !== "worktree"
             )
               return fail("workspace_preparation_mismatch");
@@ -242,7 +244,8 @@ export function engineHandler(
                 mode: ("mode" in p ? p.mode : undefined) ?? "local",
                 worktree: cwd,
                 ...(prepared ? { branch: prepared.branch } : {}),
-                ...("baseBranch" in p && p.baseBranch ? { baseBranch: p.baseBranch } : {}),
+                ...(baseBranch ? { baseBranch } : {}),
+                ...(prepared?.base ? { base: prepared.base } : {}),
                 ...(machine ? { machine } : {}),
               },
               live: {

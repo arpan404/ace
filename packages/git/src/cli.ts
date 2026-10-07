@@ -27,6 +27,8 @@ interface CallOptions {
   allowFailure?: boolean;
   captureBytes?: number;
   consume?: (chunk: Buffer) => void;
+  /** This call's deadline, instead of the service's `timeoutMs`. */
+  timeoutMs?: number;
 }
 
 export interface Output {
@@ -263,9 +265,10 @@ export class GitCli {
         failure = toGitError(error);
         kill();
       };
+      const deadline = options.timeoutMs ?? this.timeoutMs;
       const cancelDeadline = this.runtime.scheduleTimeout(() => {
-        fail(new GitError("git_timeout", `Git exceeded ${this.timeoutMs}ms`, { args }));
-      }, this.timeoutMs);
+        fail(new GitError("git_timeout", `Git exceeded ${deadline}ms`, { args }));
+      }, deadline);
       const streamFailure = (error: Error) => fail(error);
       child.stdout.on("error", streamFailure);
       child.stderr.on("error", streamFailure);

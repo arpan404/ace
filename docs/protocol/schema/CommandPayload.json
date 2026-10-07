@@ -38,6 +38,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "base": {
+          "$ref": "https://ace.local/protocol/v1/WorktreeBase.json"
+        },
         "baseBranch": {
           "maxLength": 1024,
           "minLength": 1,
@@ -1466,6 +1469,9 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "base": {
+          "$ref": "https://ace.local/protocol/v1/WorktreeBase.json"
         },
         "baseBranch": {
           "maxLength": 1024,

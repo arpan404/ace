@@ -6,6 +6,8 @@ import { GitError, type GitService } from "@ace/git";
 import { repositoryFromRemote } from "@ace/forge";
 import { ThreadId, type ThreadDetails, type Command } from "@ace/protocol";
 import type { Store } from "./store.ts";
+import { recordedBaseRef } from "./worktree-base.ts";
+import { defaultBaseFetchTimeoutMs } from "./worktree-base-resolution.ts";
 export type WorkspaceGit = Pick<GitService, keyof GitService>;
 /** Thin filesystem/Git shell around the provider session's durable root binding. */
 export class WorkspaceRoots {
@@ -23,8 +25,14 @@ export class WorkspaceRoots {
     directory: string,
     now: () => number,
     machine: { host: string; name: string },
+    options: { baseFetchTimeoutMs?: number } = {},
   ) {
-    this.creations = new WorkspaceCreations(store, git, directory);
+    this.creations = new WorkspaceCreations(
+      store,
+      git,
+      directory,
+      options.baseFetchTimeoutMs ?? defaultBaseFetchTimeoutMs,
+    );
     this.store = store;
     this.git = git;
     this.directory = directory;
@@ -54,7 +62,13 @@ export class WorkspaceRoots {
     if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
     const project = this.store.getWorkspacePath(thread.workspaceId);
     if (!project) throw new Error("workspace_not_found");
-    const { path, branch } = await this.createWorktree(id, project, thread.details?.baseBranch);
+    // Late preparation never fetches: it starts from a recorded base's exact commit, else the
+    // recorded `baseBranch` as Git resolves it (a remote one from its last fetched copy).
+    const { path, branch } = await this.createWorktree(
+      id,
+      project,
+      recordedBaseRef(thread.details),
+    );
     if (this.closing) throw new Error("workspace_closed");
     this.store.atomic(() => {
       if (!this.store.completeWorkspacePreparation(id, expectedRoot, path))
@@ -82,7 +96,7 @@ export class WorkspaceRoots {
   private async createWorktree(
     id: ThreadId,
     project: string,
-    baseBranch?: string,
+    baseRef: string,
   ): Promise<{ path: string; branch: string }> {
     const key = createHash("sha256").update(id).digest("hex");
     await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
@@ -95,7 +109,7 @@ export class WorkspaceRoots {
       await this.git.createWorktree({
         repo: project,
         path,
-        baseRef: baseBranch ?? "HEAD",
+        baseRef,
         branch,
       });
     }
@@ -157,7 +171,7 @@ export class WorkspaceRoots {
           repo: project,
           path,
           branch: selection.branch ?? `ace/${key.slice(0, 24)}`,
-          baseRef: selection.branch ?? thread.details?.baseBranch ?? "HEAD",
+          baseRef: selection.branch ?? recordedBaseRef(thread.details),
           reuseBranch: true,
         });
       else if (selection.branch)
@@ -173,8 +187,11 @@ export class WorkspaceRoots {
         allowUncommitted: selection.allowUncommitted,
       });
     const info = await this.git.repositoryInfo(path);
+    // Switching to a named branch replaces the base the worktree was first made from.
+    const { base, ...kept } = thread.details ?? {};
     return {
-      ...thread.details,
+      ...kept,
+      ...(base && !selection.branch ? { base } : {}),
       mode: selection.mode,
       worktree: path,
       branch: info.branch,
