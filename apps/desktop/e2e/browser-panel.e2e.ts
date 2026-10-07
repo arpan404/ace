@@ -358,7 +358,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByText("Recording saved to this thread", { exact: true }).waitFor();
       await p.getByRole("button", { name: "Hand back", exact: true }).click();
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
-      await p.getByRole("button", { name: /^(Take over|Take control)$/ }).click();
+      await p.getByRole("button", { name: "Take over", exact: true }).click();
       await p.keyboard.press("Control+Shift+B");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(false);
       await p.keyboard.press("Control+Shift+B");
@@ -451,7 +451,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       expect(await native.placed()).toBe(true);
 
       const started = performance.now();
-      await p.getByRole("button", { name: /^(Take over|Take control)$/ }).click();
+      await p.getByRole("button", { name: "Take over", exact: true }).click();
       await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("human");
       const takeoverMs = performance.now() - started;
       console.log(`[native-takeover] control changed hands in ${takeoverMs.toFixed(0)} ms`);

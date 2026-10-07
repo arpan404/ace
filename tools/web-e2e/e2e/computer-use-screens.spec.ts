@@ -83,7 +83,7 @@ const screens: Record<string, Setup> = {
     await panel(page)
       .getByRole("button", { name: /^(Take over privately|Make private)$/ })
       .click();
-    await expect(panel(page).getByText("agents can't see, read or record")).toBeVisible();
+    await expect(panel(page).getByText("Private", { exact: true })).toBeVisible();
   },
   "devices-delegated": async (page) => {
     await openTool(page, "/t/thread-install-page", "Devices");

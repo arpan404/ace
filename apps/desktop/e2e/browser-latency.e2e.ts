@@ -130,7 +130,7 @@ async function measure(backend: "auto" | "headless") {
     const fps = painted / 2;
 
     const started = Date.now();
-    await p.getByRole("button", { name: /^(Take over|Take control)$/ }).click();
+    await p.getByRole("button", { name: "Take over", exact: true }).click();
     await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("human");
     const takeover = Date.now() - started;
     return {
