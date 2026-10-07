@@ -29,7 +29,13 @@ it("rejects registration beyond the tool limit while admitted tools remain calla
     "Tool capacity reached",
   );
   const { client } = await h.connect();
-  expect((await client.listTools()).tools.map((entry) => entry.name)).toEqual(["ace_first"]);
+  expect((await client.listTools()).tools.map((entry) => entry.name)).toEqual([
+    "ace_status",
+    "ace_first",
+  ]);
+  expect(await client.callTool({ name: "ace_status", arguments: {} })).toMatchObject({
+    structuredContent: { threadId: "thread", agentId: "root" },
+  });
   expect(
     await client.callTool({ name: "ace_first", arguments: { value: "accepted" } }),
   ).toMatchObject({

@@ -1,5 +1,5 @@
 import { McpStatus } from "@ace/protocol";
-import { registerStatus, type StatusReader, aceInstructions } from "./status.ts";
+import { createStatusRegistry, type StatusReader, aceInstructions } from "./status.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { nodeScheduler } from "./registry.ts";
@@ -15,7 +15,7 @@ export interface McpServerOptions {
   maxBodyBytes?: number;
 }
 export async function startMcpServer(options: McpServerOptions) {
-  registerStatus(options.registry, options.status);
+  const status = createStatusRegistry(options.registry, options.status);
   const credentials =
     options.credentials ??
     new CredentialRegistry(() => randomBytes(32).toString("hex"), 1024, {
@@ -23,7 +23,7 @@ export async function startMcpServer(options: McpServerOptions) {
       maxAgeMs: 60 * 60 * 1000,
     });
   let runtime: Promise<Awaited<ReturnType<typeof createHandler>>> | undefined;
-  const load = () => (runtime ??= createHandler(options, credentials));
+  const load = () => (runtime ??= createHandler(options, credentials, status));
   let active = 0;
   let closing = false;
   const http = createServer(
@@ -109,7 +109,11 @@ function bearer(header: IncomingMessage["headers"]["authorization"]): string {
   return header?.startsWith("Bearer ") ? header.slice(7) : "";
 }
 
-async function createHandler(options: McpServerOptions, credentials: CredentialRegistry) {
+async function createHandler(
+  options: McpServerOptions,
+  credentials: CredentialRegistry,
+  status: ToolRegistry,
+) {
   const { McpServer, createMcpHandler } = await import("@modelcontextprotocol/server");
   const { localhostHostValidation, localhostOriginValidation, toNodeHandler } =
     await import("@modelcontextprotocol/node");
@@ -125,7 +129,7 @@ async function createHandler(options: McpServerOptions, credentials: CredentialR
       // our prepared schema by name instead of registering/scanning every tool per call.
       class RegistryServer extends McpServer {
         override toolInputSchemaJson(name: string) {
-          return options.registry.inputSchema(name, caller);
+          return (name === "ace_status" ? status : options.registry).inputSchema(name, caller);
         }
       }
       const product = new RegistryServer(
@@ -146,12 +150,7 @@ async function createHandler(options: McpServerOptions, credentials: CredentialR
       }));
       server.setRequestHandler("resources/read", async (request, context) => {
         if (request.params.uri !== "ace://status") throw new Error("Unknown resource");
-        const result = await options.registry.call(
-          "ace_status",
-          {},
-          principal,
-          context.mcpReq.signal,
-        );
+        const result = await status.call("ace_status", {}, principal, context.mcpReq.signal);
         if (result.isError || !result.structuredContent) throw new Error("Status unavailable");
         return {
           contents: [
@@ -164,10 +163,10 @@ async function createHandler(options: McpServerOptions, credentials: CredentialR
         };
       });
       server.setRequestHandler("tools/list", async () => {
-        const status = await options.registry.call("ace_status", {}, principal, principal.signal);
-        const groups = McpStatus.safeParse(status.structuredContent);
+        const result = await status.call("ace_status", {}, principal, principal.signal);
+        const groups = McpStatus.safeParse(result.structuredContent);
         return {
-          tools: options.registry.list(principal).map((tool) => {
+          tools: [...status.list(principal), ...options.registry.list(principal)].map((tool) => {
             const group = options.registry.capability(tool.name);
             const disabled = groups.success
               ? groups.data.groups.find((entry) => entry.name === group && !entry.enabled)
@@ -193,7 +192,8 @@ async function createHandler(options: McpServerOptions, credentials: CredentialR
         const controller = new AbortController();
         pending.set(id, controller);
         try {
-          return await options.registry.call(
+          const registry = request.params.name === "ace_status" ? status : options.registry;
+          return await registry.call(
             request.params.name,
             request.params.arguments ?? {},
             principal,

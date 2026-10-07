@@ -68,4 +68,4 @@ export type { ModelImageRuntime } from "./model-image-runtime.ts";
 
 export { privateMcpConfig, readPrivateMcpConfig } from "./private-config.ts";
 
-export { registerStatus, type StatusReader } from "./status.ts";
+export type { StatusReader } from "./status.ts";

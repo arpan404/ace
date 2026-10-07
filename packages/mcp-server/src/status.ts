@@ -1,6 +1,6 @@
 import { McpCapability, type McpAttribution, type McpStatus } from "@ace/protocol";
 import { statusToolCatalog } from "./catalog.ts";
-import type { ToolRegistry } from "./registry.ts";
+import { ToolRegistry, nodeScheduler } from "./registry.ts";
 
 export type StatusReader = (caller: McpAttribution) => {
   permissionMode: McpStatus["permissionMode"];
@@ -10,11 +10,13 @@ export type StatusReader = (caller: McpAttribution) => {
 export const aceInstructions =
   "ace is the local coding environment coordinating your thread and agent tree through the person's installed provider CLIs. Its tools are prefixed ace_; screen_ and device_ aliases and delegate_task are also ace tools. Groups include thread and agents, notifications, browser, screen/computer use, devices, projects, automations, files, preview, terminal and forge. Some groups may be disabled by the person or unavailable on this connection. Read ace://status or call ace_status to see current availability and permission mode. A disabled group does not mean ace MCP is absent. Ask the person to enable disabled features; tools cannot grant themselves access.";
 
-export function registerStatus(
+export function createStatusRegistry(
   registry: ToolRegistry,
   read: StatusReader = () => ({ permissionMode: null }),
 ) {
-  registry.register({
+  // Discovery is mandatory server metadata, independent of the backend tool admission limit.
+  const status = new ToolRegistry({ scheduler: nodeScheduler, maxTools: 1 });
+  status.register({
     ...statusToolCatalog[0],
     async run(_, { caller, capabilities, signal }): Promise<McpStatus> {
       signal.throwIfAborted();
@@ -49,4 +51,5 @@ export function registerStatus(
       };
     },
   });
+  return status;
 }
