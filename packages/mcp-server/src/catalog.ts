@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  McpStatus,
   Agent,
   Thread,
   McpNoticeInput,
@@ -84,6 +85,19 @@ export const builtinToolCatalog = [
     input: McpSpawnInput,
     output: accepted,
     capability: "agents",
+    timeoutMs: 10_000,
+  },
+] as const;
+
+export const statusToolCatalog = [
+  {
+    name: "ace_status",
+    riskClass: "read-only",
+    description:
+      "Describe ace, this connection, enabled and disabled tool groups, and the effective permission mode. Also available as ace://status.",
+    input: z.strictObject({}),
+    output: McpStatus,
+    capability: null,
     timeoutMs: 10_000,
   },
 ] as const;

@@ -19,9 +19,10 @@ export async function ownedBrowserPids(home: string): Promise<number[]> {
 /** After an abrupt parent exit, observe child process exit through the OS.
  * Each ps completion is an I/O boundary, with no timer or sleep synchronization.
  * A zombie has already exited; OS reaping is outside the daemon's ownership. */
-export async function waitForBrowserExit(pids: number[]): Promise<void> {
+export async function waitForBrowserExit(pids: number[], signal?: AbortSignal): Promise<void> {
   let live = pids;
   while (live.length) {
+    signal?.throwIfAborted();
     const output = await new Promise<string>((resolve, reject) => {
       execFile("ps", ["-p", live.join(","), "-o", "pid=,state="], (error, stdout) => {
         if (!error || error.code === 1) resolve(stdout);

@@ -20,6 +20,8 @@ import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
+  shownTab,
+  useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
   type TabViewProps,
@@ -257,7 +259,10 @@ function LiveTerminal(
   const ui = useTabUi(terminalUi, tab.key);
   const exitCode = useExitCode(terminals, info.id);
   const exited = exitCode !== null || info.exited;
-  const [autoFocus] = useState(() => terminals.takeFocusRequest(info.id));
+  const [focusRequested] = useState(() => terminals.takeFocusRequest(info.id));
+  // Startup may finish while this dock is exiting or the person has switched tabs.
+  const dock = useScopeWorkspace(scope)[props.dock];
+  const autoFocus = focusRequested && dock.open && shownTab(dock)?.key === tab.key;
   const title = tab.title ?? info.name;
   const openFind = () => setTabUi(terminalUi, tab.key, { find: true });
   const closeFind = () => {

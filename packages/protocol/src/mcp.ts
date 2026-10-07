@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentId, ThreadId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
+import { PermissionMode } from "./permissions.ts";
 
 export const McpCapability = z.enum([
   "browser",
@@ -68,3 +69,20 @@ export const McpProviderResult = providerRequest.extend({
   type: z.literal("mcp.result"),
   result: z.unknown(),
 });
+
+/** Cheap discovery for the authenticated caller, without session secrets or provider data. */
+export const McpStatus = z.strictObject({
+  threadId: ThreadId,
+  agentId: AgentId,
+  permissionMode: PermissionMode.nullable(),
+  groups: z
+    .array(
+      z.strictObject({
+        name: z.enum(["thread", ...McpCapability.options, "files"]),
+        enabled: z.boolean(),
+        reason: z.string().max(512).optional(),
+      }),
+    )
+    .max(McpCapability.options.length + 2),
+});
+export type McpStatus = z.infer<typeof McpStatus>;
