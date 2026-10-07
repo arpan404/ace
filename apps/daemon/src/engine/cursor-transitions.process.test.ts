@@ -186,33 +186,114 @@ test("same-account SDK model changes retain native checkpoint history through cl
   ]);
 });
 
-test("provider switches into or out of SDK require fresh context instead of reclaiming a checkpoint", async () => {
-  for (const direction of ["into", "out"] as const) {
-    const h = setup({ cursorBackend: "cursor-sdk", configure: false });
-    const id = direction === "out" ? await cursor(h) : await h.create();
-    const provider = direction === "out" ? "codex" : "cursor";
-    const original = h.store.getThread(id);
-    const native = h.inputs.at(-1)?.nativeId;
-    expect(h.command({ type: "thread.switch", threadId: id, selection: { provider } }).ok).toBe(
-      true,
-    );
-    await h.engine.flush();
-    expect(h.store.getThread(id)?.switch).toMatchObject({
-      state: "failed",
-      error: expect.stringContaining("source checkpoint is preserved"),
-    });
-    expect(h.store.getThread(id)?.provider).toBe(original?.provider);
-    expect(
-      h.command({
-        type: "thread.send",
-        threadId: id,
-        delivery: "queue",
-        input: [{ type: "text", text: "source continuation" }],
-      }).ok,
-    ).toBe(true);
-    await h.engine.flush();
-    expect(h.inputs.at(-1)?.nativeId).toBe(native);
-  }
+test("switching into Cursor SDK starts fresh with portable context and resumes only the new checkpoint", async () => {
+  const h = setup({ cursorBackend: "cursor-sdk", configure: false });
+  const id = await h.create();
+  const sourceNative = h.inputs.at(-1)?.nativeId;
+  if (!sourceNative) throw new Error("Missing source native session");
+  expect(
+    h.command({ type: "thread.switch", threadId: id, selection: { provider: "cursor" } }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  expect(h.store.getThread(id)).toMatchObject({
+    provider: "cursor",
+    backend: "cursor-sdk",
+    switch: { state: "applied", lossy: true, recommendation: "delegate_task" },
+  });
+  expect(
+    h.command({
+      type: "thread.send",
+      threadId: id,
+      delivery: "queue",
+      input: [{ type: "text", text: "fresh SDK continuation" }],
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  const session = h.sessions.at(-1);
+  if (!session) throw new Error("Missing fresh SDK session");
+  const native = session.nativeId;
+  expect(native).not.toBe(sourceNative);
+  expect(session.context.resume).toBeUndefined();
+  expect(session.context.fork).toBeUndefined();
+  const text = h.inputs.at(-1)?.text ?? "";
+  const manifest = PortableHandoff.parse(
+    JSON.parse(text.slice(0, text.indexOf("\nfresh SDK continuation"))),
+  );
+  expect(manifest.origin).toEqual({ provider: "codex" });
+  expect(manifest.sourceThreadId).toBe(id);
+  expect(manifest.excerpts.some((entry) => entry.text.includes("source history"))).toBe(true);
+  expect(Buffer.byteLength(JSON.stringify(manifest))).toBeLessThanOrEqual(16384);
+  expect(h.histories.get(sourceNative)?.map((entry) => entry.text)).toEqual(["source history"]);
+  await h.restart();
+  expect(
+    h.command({
+      type: "thread.send",
+      threadId: id,
+      delivery: "queue",
+      input: [{ type: "text", text: "SDK after restart" }],
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  expect(h.sessions.at(-1)?.context.resume).toMatchObject({
+    backend: "cursor-sdk",
+    nativeSessionId: native,
+  });
+  expect(h.inputs.at(-1)).toMatchObject({ provider: "cursor", nativeId: native });
+  expect(h.histories.get(sourceNative)?.map((entry) => entry.text)).toEqual(["source history"]);
+});
+
+test("switching out of Cursor SDK preserves its checkpoint and requires a fresh portable destination thread", async () => {
+  const h = setup({ cursorBackend: "cursor-sdk", configure: false });
+  const source = await cursor(h);
+  const native = h.inputs.at(-1)?.nativeId;
+  if (!native) throw new Error("Missing source SDK session");
+  expect(
+    h.command({ type: "thread.switch", threadId: source, selection: { provider: "codex" } }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  expect(h.store.getThread(source)).toMatchObject({
+    provider: "cursor",
+    backend: "cursor-sdk",
+    switch: { state: "failed", error: expect.stringContaining("source checkpoint is preserved") },
+  });
+  const before = new Set(h.store.listThreads().map((thread) => thread.id));
+  expect(
+    h.command({
+      type: "thread.create",
+      provider: "codex",
+      workspaceId: h.workspace,
+      handoffFrom: source,
+      input: [{ type: "text", text: "fresh Codex continuation" }],
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  const recipient = h.store.listThreads().find((thread) => !before.has(thread.id));
+  expect(recipient).toMatchObject({ provider: "codex", handoff: { sourceThreadId: source } });
+  expect(h.inputs.at(-1)?.nativeId).not.toBe(native);
+  expect(h.sessions.at(-1)?.context.resume).toBeUndefined();
+  expect(h.sessions.at(-1)?.context.fork).toBeUndefined();
+  const text = h.inputs.at(-1)?.text ?? "";
+  const manifest = PortableHandoff.parse(
+    JSON.parse(text.slice(0, text.indexOf("\nfresh Codex continuation"))),
+  );
+  expect(manifest.origin).toEqual({ provider: "cursor", backend: "cursor-sdk" });
+  expect(manifest.excerpts.some((entry) => entry.text.includes("source context"))).toBe(true);
+  expect(h.histories.get(native)?.map((entry) => entry.text)).toEqual(["source context"]);
+  await h.restart();
+  expect(
+    h.command({
+      type: "thread.send",
+      threadId: source,
+      delivery: "queue",
+      input: [{ type: "text", text: "source continuation" }],
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  expect(h.sessions.at(-1)?.context.resume).toMatchObject({
+    backend: "cursor-sdk",
+    nativeSessionId: native,
+  });
+  expect(h.inputs.at(-1)).toMatchObject({ provider: "cursor", nativeId: native });
 });
 
 test("SDK handoffFrom creates a fresh agent and grants frozen source history without copying native stores", async () => {

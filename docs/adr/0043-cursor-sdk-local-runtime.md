@@ -172,6 +172,16 @@ threads reject execution commands and cannot reopen a provider process on
 restart. Their interrupted work is still reconciled by the ordinary engine
 recovery rules rather than being claimed as completed.
 
+A cross-provider `thread.switch` into Cursor uses the ordinary bounded portable
+handoff. It clears the source native identity before opening a fresh SDK agent;
+subsequent restarts resume only that new SDK identity. This is not native
+checkpoint conversion. Switching out of an existing SDK thread or changing its
+account remains refused: keep its pinned checkpoint and use `thread.create` with
+`handoffFrom` (or a portable fork) for a fresh destination thread. The safety
+contract in both directions is fresh portable context without reusing or copying
+the source native checkpoint, rather than a blanket rejection of entering Cursor.
+Used CLI threads remain read-only and must use their new-thread continuation.
+
 `createCursorLoginDriver(instance, accountDriver).start(signal)` in
 `@ace/adapter-cursor` emits an async stream of safe progress. Its states match the
 existing SDK browser auth wire: starting, browser, complete, failed, cancelled.

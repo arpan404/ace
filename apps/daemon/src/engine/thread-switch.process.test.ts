@@ -137,6 +137,8 @@ test("cross-provider switches mark loss and deliver portable provenance to the n
   expect(h.store.getThread(id)?.continuation).toBeUndefined();
   expect(h.inputs.at(-1)?.provider).toBe("cursor");
   expect(h.inputs.at(-1)?.nativeId).not.toBe(original);
+  expect(h.sessions.at(-1)?.context.resume).toBeUndefined();
+  expect(h.sessions.at(-1)?.context.fork).toBeUndefined();
   expect(h.inputs.at(-1)?.text).toContain('"sourceThreadId":"' + id + '"');
   expect(h.inputs.at(-1)?.text).toContain("source history");
   expect(h.store.getThread(id)?.switch).toMatchObject({
