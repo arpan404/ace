@@ -50,6 +50,7 @@ Semantic rule: The parsed model with defaults filled and unknown fields stripped
 | legacy | no | boolean |  |
 | deprecated | yes | boolean |  |
 | isNew | no | boolean |  |
+| free | no | boolean |  |
 | raw | yes | object | {"properties":{"json":{"type":"string","maxLength":2048,"x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."},"truncated":{"type":"boolean"}},"required":["json","truncated"]} |
 
 Example:
@@ -73,7 +74,7 @@ Example:
   "providerEnabled": true,
   "raw": {
     "json": "example",
-    "truncated": false
+    "truncated": true
   },
   "reasoningEfforts": [],
   "serviceTiers": [],
@@ -98,10 +99,9 @@ Example:
 ```json
 {
   "actionId": "provider.sign_in",
-  "code": "not_configured",
+  "code": "unreachable",
   "hint": "example",
-  "message": "example",
-  "severity": "warning"
+  "message": "example"
 }
 ```
 
@@ -230,6 +230,7 @@ Example:
     "detail": "example",
     "displayName": "example",
     "favourite": true,
+    "free": true,
     "group": "current",
     "hidden": false,
     "id": "example",
@@ -241,7 +242,7 @@ Example:
     "provider": "codex",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "reasoningEfforts": [],
     "serviceTiers": [],
@@ -250,11 +251,7 @@ Example:
   },
   "ok": true,
   "reason": "example",
-  "stale": true,
-  "tier": {
-    "id": "example",
-    "name": "example"
-  }
+  "stale": true
 }
 ```
 
@@ -359,6 +356,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| requiresAuth | no | boolean |  |
 | service | no | ["opencode_go","opencode_zen"] |  |
 | kind | yes | ["local","subscription","api_key","account","other"] |  |
 | id | yes | string | {"minLength":1,"maxLength":256} |
@@ -369,8 +367,9 @@ Example:
 ```json
 {
   "id": "example",
-  "kind": "local",
-  "label": "example"
+  "kind": "other",
+  "label": "example",
+  "service": "opencode_zen"
 }
 ```
 
@@ -389,12 +388,14 @@ Example:
 
 ```json
 {
+  "lastRefreshedAt": 5,
   "source": {
     "id": "example",
-    "kind": "other",
-    "label": "example"
+    "kind": "local",
+    "label": "example",
+    "requiresAuth": false
   },
-  "status": "fresh"
+  "status": "stale"
 }
 ```
 
@@ -412,9 +413,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "installationId": "example"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -468,6 +466,7 @@ Example:
       "deprecated": false,
       "displayName": "example",
       "favourite": false,
+      "free": true,
       "hidden": false,
       "id": "example",
       "inputModalities": [],
@@ -481,7 +480,7 @@ Example:
       "providerEnabled": false,
       "raw": {
         "json": "example",
-        "truncated": true
+        "truncated": false
       },
       "reasoningEfforts": [],
       "resolvedModelId": "example",
@@ -491,7 +490,7 @@ Example:
     },
     "ok": true,
     "reason": "example",
-    "stale": false
+    "stale": true
   },
   "type": "models.result"
 }
@@ -513,6 +512,7 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "parameters": {}
 }
 ```
