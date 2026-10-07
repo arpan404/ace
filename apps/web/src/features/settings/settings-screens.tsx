@@ -5,7 +5,7 @@ import { AppearanceSettings } from "./appearance-page.tsx";
 import { GeneralSettings } from "./general-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
-import { Link, Navigate } from "@tanstack/react-router";
+import { Navigate } from "@tanstack/react-router";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { RemoteDevices } from "./remote-page.tsx";
@@ -35,20 +35,16 @@ export function AppearanceSettingsScreen() {
 const ProviderSettings = lazy(() =>
   import("./providers-page.tsx").then((module) => ({ default: module.ProviderSettings })),
 );
+/** A provider's own page, likewise. */
+const ProviderDetail = lazy(() =>
+  import("./provider-detail.tsx").then((module) => ({ default: module.ProviderDetail })),
+);
 
 export function ProviderSettingsScreen() {
   return (
     <SettingsBody
       page="Providers"
-      lede={
-        <>
-          ace uses the CLIs installed on this machine and their own logins. Quota and scheduling
-          live in{" "}
-          <Link to="/more/accounts" className="font-medium text-foreground hover:underline">
-            Usage &amp; accounts ›
-          </Link>
-        </>
-      }
+      lede="The coding agents on this computer. ace runs each one with its own sign-in."
     >
       <Suspense
         fallback={<ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-7" />}
@@ -56,6 +52,21 @@ export function ProviderSettingsScreen() {
         <ProviderSettings />
       </Suspense>
     </SettingsBody>
+  );
+}
+
+/** `/settings/providers/$provider`: one provider's page (`acp:<name>` for an ACP agent). */
+export function ProviderDetailScreen(props: { id: string }) {
+  return (
+    <Suspense
+      fallback={
+        <SettingsBody page="Providers">
+          <ListSkeleton label="provider" shape="row" rows={4} className="mt-7" />
+        </SettingsBody>
+      }
+    >
+      <ProviderDetail id={props.id} />
+    </Suspense>
   );
 }
 

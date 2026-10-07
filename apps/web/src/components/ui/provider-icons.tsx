@@ -69,8 +69,10 @@ export interface ProviderIconProps {
   acpAgentId?: string | undefined;
   /** A model id or name; its family's mark (Claude, OpenAI, Gemini…) wins when one is known. */
   model?: string | undefined;
-  /** 12 dense rows · 14 menus and chips · 16 headings · 20 settings and empty states. */
-  size?: 12 | 14 | 16 | 20;
+  /** A particular mark, over the provider's and the model's: a service OpenCode reaches. */
+  brand?: Brand | undefined;
+  /** 12 dense rows · 14 menus and chips · 16 headings · 20 settings · 24 a provider's page. */
+  size?: 12 | 14 | 16 | 20 | 24;
   /** `color` (the default) uses the brand's colours; `mono` draws in the surrounding text colour. */
   variant?: "mono" | "color";
   /** Overrides the name read to assistive tech. */

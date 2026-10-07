@@ -60,9 +60,6 @@
   "apps/web/src/features/accounts/scheduling-policy.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/accounts/usage-section.tsx": {
-    "radius": 1
-  },
   "apps/web/src/features/activity/escalation-card.tsx": {
     "text-size": 1
   },
@@ -127,9 +124,6 @@
     "radius": 1
   },
   "apps/web/src/features/settings/add-acp-agent.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/settings/providers-page.tsx": {
     "text-size": 1
   },
   "apps/web/src/features/shell/screen.tsx": {

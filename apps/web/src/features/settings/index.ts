@@ -6,6 +6,7 @@ export {
   GeneralSettingsScreen,
   KeyboardSettingsScreen,
   NotificationSettingsScreen,
+  ProviderDetailScreen,
   ProviderSettingsScreen,
   RemoteSettingsScreen,
   SettingsIndexScreen,

@@ -69,11 +69,9 @@ test("a daemon setting is stored by the daemon and read back by a new session", 
 
 test("Providers lists the CLIs the daemon discovered", async ({ page }) => {
   await connect(page, "/settings/providers");
-  const providers = page.getByRole("region", { name: "Providers" });
-  await expect(providers.getByText("Claude Code")).toBeVisible();
-  await expect(
-    providers.getByText("Not installed · ace looks for claude on your PATH"),
-  ).toBeVisible();
+  // The test machine has no provider CLI: each waits under Not installed.
+  const missing = page.getByRole("region", { name: "Not installed" });
+  await expect(missing.getByRole("link", { name: "Claude Code" })).toBeVisible();
 });
 
 test("the composer offers the daemon's slash commands and the project's files", async ({

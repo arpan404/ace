@@ -5,6 +5,16 @@
  */
 export async function openExternal(url: string, scope: object = globalThis): Promise<void> {
   if (!/^https?:\/\//i.test(url)) throw new Error("Only web addresses open outside ace.");
+  const open = systemOpener(scope);
+  if (open) {
+    await open(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/** The desktop bridge's `shell.openExternal`, when there is one. */
+function systemOpener(scope: object): ((url: string) => Promise<unknown>) | undefined {
   const ace: unknown = Reflect.get(scope, "ace");
   const shell =
     typeof ace === "object" && ace !== null && "shell" in ace ? (ace.shell as unknown) : undefined;
@@ -12,11 +22,16 @@ export async function openExternal(url: string, scope: object = globalThis): Pro
     typeof shell === "object" && shell !== null && "openExternal" in shell
       ? shell.openExternal
       : undefined;
-  if (typeof open === "function") {
-    await Promise.resolve(Reflect.apply(open, shell, [url]));
-    return;
-  }
-  window.open(url, "_blank", "noopener,noreferrer");
+  if (typeof open !== "function") return undefined;
+  return (url) => Promise.resolve(Reflect.apply(open, shell, [url]));
+}
+
+/**
+ * Whether a page opens in the system browser without a click of its own (the desktop app); a
+ * browser tab would block it as a pop-up.
+ */
+export function opensWithoutClick(scope: object = globalThis): boolean {
+  return systemOpener(scope) !== undefined;
 }
 
 /** The desktop app's "show in Finder" for a path on this computer; undefined in a browser. */
