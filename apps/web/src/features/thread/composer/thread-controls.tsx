@@ -232,6 +232,7 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
     switching: switchWaits,
     offline: online ? undefined : offlineNote,
     modelKey: target?.key,
+    instance: target?.accountId || undefined,
     efforts: effort.efforts,
     // Without a known default, the provider's own default is a stop of its own.
     defaultStop: shown?.defaultEffort === undefined,
@@ -266,9 +267,9 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
           onEffort: (next) => change({ effort: next }),
           onFast: (on) => change({ serviceTier: on ? speed.tier : speed.off }),
           onReset: () => change({ effort: undefined, serviceTier: undefined }),
-          onModel: (key) => {
+          onModel: (key, instance) => {
             const from = moving.chosen ?? current;
-            const choice = choiceForModel(choices, key, from?.accountId);
+            const choice = choiceForModel(choices, key, instance ?? from?.accountId);
             if (!choice || choice.id === from?.id) return true;
             const provider = moving.chosen?.provider ?? selection?.provider ?? meta?.provider;
             if (meta && choice.provider !== provider) {

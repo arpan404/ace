@@ -1,6 +1,5 @@
 import type { ClientApi } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
-import type { ProviderKind } from "@ace/protocol";
 import {
   use,
   useCallback,
@@ -165,10 +164,6 @@ export const settingsQueries = {
   providers: (backend: SettingsBackend) => ({
     queryKey: ["settings", "providers"] as const,
     queryFn: () => backend.providers(),
-  }),
-  models: (backend: SettingsBackend, provider: ProviderKind) => ({
-    queryKey: ["settings", "models", provider] as const,
-    queryFn: () => backend.models(provider),
   }),
   machines: (backend: SettingsBackend) => ({
     queryKey: ["settings", "machines"] as const,

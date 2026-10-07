@@ -22,7 +22,7 @@ async function open() {
   app.play(replayCursor()).runThrough("finding");
   await app.open(`/t/${threadId}`);
   await screen.findByRole("feed", { name: "Transcript" });
-  await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ });
+  await screen.findByRole("button", { name: /^Model: Opus 5\.5, personal/ });
   return app;
 }
 const thread = (app: ReturnType<typeof harness>) => {
@@ -77,7 +77,7 @@ test("an approval mode the daemon refuses goes back to the one in effect, with a
 test("offline, the model popover still changes effort and the account, which go once the daemon is back", async () => {
   const app = await open();
   await offline(app);
-  const popover = await openModelControl(/^Model: Opus 4\.1, personal/);
+  const popover = await openModelControl(/^Model: Opus 5\.5, personal/);
   expect(within(popover).getByText("Offline: changes apply when the daemon is back")).toBeTruthy();
   within(popover).getByRole("slider", { name: "Effort" }).focus();
   await userEvent.keyboard("{End}");
@@ -85,9 +85,9 @@ test("offline, the model popover still changes effort and the account, which go 
   await closeModelControl();
 
   // The chip names the new account at once and says the switch is waiting.
-  const chip = await screen.findByRole("button", { name: "Model: Opus 4.1, work, High effort" });
+  const chip = await screen.findByRole("button", { name: "Model: Opus 5.5, work, High effort" });
   expect(chip.getAttribute("aria-description")).toBe(
-    "Switches from Opus 4.1 on personal · Will apply when reconnected",
+    "Switches from Opus 5.5 on personal · Will apply when reconnected",
   );
   expect(thread(app)?.switch).toBeUndefined();
 
@@ -102,28 +102,28 @@ test("offline, the model popover still changes effort and the account, which go 
   await waitFor(() =>
     expect(
       screen
-        .getByRole("button", { name: "Model: Opus 4.1, work, High effort" })
+        .getByRole("button", { name: "Model: Opus 5.5, work, High effort" })
         .getAttribute("aria-description"),
-    ).toBe("Switches from Opus 4.1 on personal · Applies at the agent's next turn"),
+    ).toBe("Switches from Opus 5.5 on personal · Applies at the agent's next turn"),
   );
 });
 
 test("a model switch shows the model it leaves until the agent's next turn", async () => {
   await open();
-  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 4\.1/);
+  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5\.5/);
   const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
 
   const chip = await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ });
-  expect(chip.textContent).toContain("Opus 4.1 →GPT-5 Codex");
-  expect(chip.getAttribute("aria-description")).toMatch(/^Switches from Opus 4\.1 on personal · /);
+  expect(chip.textContent).toContain("Opus 5.5 →GPT-5 Codex");
+  expect(chip.getAttribute("aria-description")).toMatch(/^Switches from Opus 5\.5 on personal · /);
 });
 
 test("a model switch the daemon refuses goes back to the model in effect, with a toast", async () => {
   const app = await open();
   app.daemon.refuseCommands("provider_unavailable", "thread.switch");
   await userEvent.click(
-    within(await openModelControl(/^Model: Opus 4\.1, personal/)).getByRole("button", {
+    within(await openModelControl(/^Model: Opus 5\.5, personal/)).getByRole("button", {
       name: "Account work",
     }),
   );
@@ -131,7 +131,7 @@ test("a model switch the daemon refuses goes back to the model in effect, with a
   expect(await screen.findByText("Couldn't switch the model")).toBeTruthy();
   expect(screen.getByText("That provider isn't installed or signed in.")).toBeTruthy();
   await closeModelControl();
-  const chip = screen.getByRole("button", { name: /^Model: Opus 4\.1, personal/ });
+  const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5, personal/ });
   expect(chip.getAttribute("aria-description")).toBeNull();
   expect(thread(app)?.switch).toBeUndefined();
 });

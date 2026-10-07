@@ -7,7 +7,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { titleWhenClipped } from "@/lib/clipped-title.ts";
 import { cn } from "@/lib/cn.ts";
 import type { AccountRow, ModelControlActions, ModelControlView } from "./control-view.ts";
-import { ModelPickerPanel } from "./model-picker-panel.tsx";
+import { ModelPickerPanel } from "@/features/model-picker/index.ts";
 
 const iconButton =
   "grid size-8 place-items-center rounded-full text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-pressed:bg-accent aria-pressed:text-foreground data-disabled:opacity-40";
@@ -44,10 +44,12 @@ export function ModelPopover(props: {
           models={view.models}
           providers={view.providers}
           current={view.modelKey}
+          currentInstance={view.instance}
           currentProvider={view.provider}
           catalog={view.catalog}
-          onPick={(key) => {
-            if (key !== view.modelKey && !actions.onModel(key)) props.onClose();
+          onPick={(key, instance) => {
+            const same = key === view.modelKey && (!instance || instance === view.instance);
+            if (!same && !actions.onModel(key, instance)) props.onClose();
             else setPane("effort");
           }}
         />

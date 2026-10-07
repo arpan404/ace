@@ -41,7 +41,7 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
 
   await userEvent.click(await screen.findByRole("button", { name: /^Project:/ }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "relay" }));
-  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 4.1/);
+  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
   await closeModelControl();
   expect(
     await screen.findByRole("button", { name: "Model: GPT-5 Codex, personal, Medium effort" }),
@@ -62,72 +62,75 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   expect(within(nav).getByRole("link", { name: /Log every restart/ })).toBeTruthy();
 });
 
-/** Cursor also lists Codex's `gpt-5`, as Codex, Pi and Cursor all list `gpt-5.5` in practice. */
-function cursorSharesGpt5(made: ReturnType<typeof harness>) {
+/** Cursor also lists Codex's `gpt-6`, as Codex, Pi and Cursor all list `gpt-5.5` in practice. */
+function cursorSharesGpt6(made: ReturnType<typeof harness>) {
   const { services } = made.daemon;
-  const codexGpt5 = services.models.find(
-    (m) => m.provider === "codex" && m.nativeModelId === "gpt-5",
+  const codexGpt6 = services.models.find(
+    (m) => m.provider === "codex" && m.nativeModelId === "gpt-6",
   );
-  if (!codexGpt5) throw new Error("fixture lists Codex GPT-5");
-  services.models.push({ ...codexGpt5, provider: "cursor", instance: "cursor" });
+  if (!codexGpt6) throw new Error("fixture lists Codex GPT-6");
+  services.models.push({ ...codexGpt6, provider: "cursor", instance: "cursor", isDefault: false });
 }
 const savedModel = (storage: ReturnType<typeof memoryKeyValue>) =>
   Choices.parse(JSON.parse(storage.getItem("ace.home.newThread") ?? "{}")).model;
 
 test("a model id two providers share starts the thread on the provider it was picked under", async () => {
   const made = app();
-  cursorSharesGpt5(made);
+  cursorSharesGpt6(made);
   await made.open("/new?project=relay");
 
-  await chooseModel("GPT-5", "Cursor", /^Model: Opus 4.1/);
+  await chooseModel("GPT-6", "Cursor", /^Model: Opus 5.5/);
   const picker = await openModelPicker(
     await screen.findByRole("dialog", { name: "Model and effort" }),
   );
-  await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "GPT-5");
-  expect(within(picker).getByRole("option", { name: "GPT-5, Codex" }).ariaSelected).toBe("false");
-  expect(within(picker).getByRole("option", { name: "GPT-5, Cursor" }).ariaSelected).toBe("true");
+  await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "GPT-6");
+  expect(within(picker).getByRole("option", { name: "GPT-6, Codex" }).ariaSelected).toBe("false");
+  expect(within(picker).getByRole("option", { name: "GPT-6, Cursor" }).ariaSelected).toBe("true");
   await closeModelControl();
 
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
   const created = await started(made);
   expect(created).toMatchObject({ provider: "cursor" });
-  expect(created?.live?.model).toBe("gpt-5");
+  expect(created?.live?.model).toBe("gpt-6");
 });
 
 test("a model remembered as a bare id stays picked on the starting provider and is saved by key", async () => {
   const storage = memoryKeyValue();
-  storage.setItem("ace.home.newThread", JSON.stringify({ model: "gpt-5" }));
+  storage.setItem("ace.home.newThread", JSON.stringify({ model: "gpt-6" }));
   const made = app({ storage });
-  cursorSharesGpt5(made);
+  cursorSharesGpt6(made);
   made.daemon.services.settings.seed({ "providers.default": "codex" });
   await made.open("/new?project=relay");
 
   expect(
-    await screen.findByRole("button", { name: "Model: GPT-5, personal, Medium effort" }),
+    await screen.findByRole("button", { name: "Model: GPT-6, personal, Medium effort" }),
   ).toBeTruthy();
-  await waitFor(() => expect(savedModel(storage)).toBe("codex\u0000gpt-5"));
+  await waitFor(() => expect(savedModel(storage)).toBe("codex\u0000gpt-6"));
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
   const created = await started(made);
   expect(created).toMatchObject({ provider: "codex" });
-  expect(created?.live?.model).toBe("gpt-5");
-  expect(savedModel(storage)).toBe("codex\u0000gpt-5");
+  expect(created?.live?.model).toBe("gpt-6");
+  expect(savedModel(storage)).toBe("codex\u0000gpt-6");
 });
 
 test("a bare id remembered for a model the starting provider doesn't list is not claimed by another provider", async () => {
   const storage = memoryKeyValue();
-  storage.setItem("ace.home.newThread", JSON.stringify({ model: "gpt-5" }));
+  storage.setItem("ace.home.newThread", JSON.stringify({ model: "gpt-6" }));
   const made = app({ storage });
-  cursorSharesGpt5(made);
-  // Claude Code starts; only Codex and Cursor list gpt-5.
+  cursorSharesGpt6(made);
+  // Claude Code starts; only Codex and Cursor list gpt-6.
   await made.open("/new?project=relay");
 
-  expect(await screen.findByRole("button", { name: /^Model: Opus 4\.1/ })).toBeTruthy();
-  expect(savedModel(storage)).toBe("gpt-5");
+  expect(await screen.findByRole("button", { name: /^Model: Opus 5\.5/ })).toBeTruthy();
+  expect(savedModel(storage)).toBe("gpt-6");
 });
 
-/** Personal keeps the built-in default (Opus 4.1); work's synced default is Sonnet 4.5. */
+/**
+ * Personal keeps the built-in default (Opus 5.5); work's synced default is Sonnet 4.5, a legacy
+ * model the person chose in Settings, which still starts as that account's default.
+ */
 function workDefaultsToSonnet(made: ReturnType<typeof harness>) {
   made.daemon.services.settings.seed({
     "providers.configuration": [
@@ -141,7 +144,7 @@ test("picking the work account launches the work account's own default, not the 
   workDefaultsToSonnet(made);
   await made.open("/new?project=relay");
 
-  const popover = await openModelControl(/^Model: Opus 4\.1, personal/);
+  const popover = await openModelControl(/^Model: Opus 5\.5, personal/);
   await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));
   await closeModelControl();
   expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, work/ })).toBeTruthy();
@@ -206,7 +209,7 @@ test("Shift+Enter writes a new line instead of sending", async () => {
 test("the last model, account and work mode are remembered for the next thread", async () => {
   const storage = memoryKeyValue();
   await app({ storage }).open("/new?project=ace");
-  await chooseModel("Sonnet 4.5", "Claude Code", /^Model: Opus 4\.1/);
+  await chooseModel("Sonnet 5.5", "Claude Code", /^Model: Opus 5\.5/);
   await userEvent.click(await screen.findByRole("button", { name: "Account work" }));
   await closeModelControl();
   await userEvent.click(screen.getByRole("button", { name: "Where the work happens: Worktree" }));
@@ -220,7 +223,7 @@ test("the last model, account and work mode are remembered for the next thread",
   const made = app({ storage });
   await made.open("/new");
   expect(
-    await screen.findByRole("button", { name: "Model: Sonnet 4.5, work, provider default effort" }),
+    await screen.findByRole("button", { name: "Model: Sonnet 5.5, work, provider default effort" }),
   ).toBeTruthy();
   expect(screen.getByRole("button", { name: "Where the work happens: Local" })).toBeTruthy();
 
@@ -228,7 +231,7 @@ test("the last model, account and work mode are remembered for the next thread",
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
   const created = await started(made);
   expect(created).toMatchObject({ provider: "claude", details: { mode: "local" } });
-  expect(created?.live).toMatchObject({ model: "claude-sonnet-4-5", account: "claude-work" });
+  expect(created?.live).toMatchObject({ model: "claude-sonnet-5-5", account: "claude-work" });
 });
 
 test("⌘N and the sidebar's New thread start in the project Home is narrowed to, before the last one used", async () => {
@@ -265,7 +268,7 @@ test("a worktree thread starts from the chosen branch, on the chosen account and
   const made = app();
   await made.open("/new?project=relay");
   // Model and effort share one popover: picking a model comes back to its effort.
-  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 4.1/);
+  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
   const popover = await screen.findByRole("dialog", { name: "Model and effort" });
   within(popover).getByRole("slider", { name: "Effort" }).focus();
   await userEvent.keyboard("{End}");
@@ -339,12 +342,12 @@ test("approvals chosen for a new thread are the ones it starts with", async () =
 
 test("a default of Ask first falls back visibly on Cursor, which can't pause for approval", async () => {
   const made = app();
-  cursorSharesGpt5(made);
+  cursorSharesGpt6(made);
   made.daemon.services.settings.seed({ "permissions.defaultMode": "ask" });
   await made.open("/new?project=relay");
   expect(await screen.findByRole("button", { name: "Approvals: Ask first" })).toBeTruthy();
 
-  await chooseModel("GPT-5", "Cursor", /^Model: Opus 4.1/);
+  await chooseModel("GPT-6", "Cursor", /^Model: Opus 5.5/);
   await closeModelControl();
   const chip = await screen.findByRole("button", { name: "Approvals: Read only" });
   expect(chip.getAttribute("aria-description")).toBe(
@@ -385,7 +388,7 @@ test("the speed toggle starts the thread on the model's faster tier", async () =
   const made = app();
   await made.open("/new?project=relay");
   // Opus has no faster tier: the toggle is there, off, and says why.
-  const claude = await openModelControl(/^Model: Opus 4.1/);
+  const claude = await openModelControl(/^Model: Opus 5.5/);
   const unavailable = within(claude).getByRole("button", { name: "Fast mode" });
   expect(unavailable.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(unavailable);
@@ -408,7 +411,7 @@ test("the speed toggle starts the thread on the model's faster tier", async () =
 test("reset puts effort and speed back to the model's defaults", async () => {
   const made = app();
   await made.open("/new?project=relay");
-  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 4.1/);
+  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
   const popover = await screen.findByRole("dialog", { name: "Model and effort" });
   const reset = within(popover).getByRole("button", { name: "Reset effort and speed" });
   expect(reset.getAttribute("aria-disabled")).toBe("true");

@@ -3,6 +3,7 @@ import { modelName } from "./model-label.ts";
 import {
   modelControlName,
   nextOptions,
+  pickerList,
   pickerModelsFromChoices,
   reconcileNextOptions,
   speedControl,
@@ -17,21 +18,36 @@ const choice = (patch: Partial<ModelChoice>): ModelChoice => {
 
 const limit = (resetsAt: number | undefined) => `resets ${resetsAt ?? "?"}`;
 
-test("a model is unavailable only when every account serving it is at its limit", () => {
-  const open = pickerModelsFromChoices(
-    [choice({ id: "a", exhausted: true, resetsAt: 9 }), choice({ id: "b", exhausted: false })],
-    limit,
-  );
-  expect(open).toMatchObject([{ label: "GPT-5", unavailable: undefined }]);
-
-  const blocked = pickerModelsFromChoices(
+test("each account's row says when it is at its limit; a search lists the model once, open while any account can take it", () => {
+  const rows = pickerModelsFromChoices(
     [
-      choice({ id: "a", exhausted: true, resetsAt: 9 }),
-      choice({ id: "b", exhausted: true, resetsAt: 4 }),
+      choice({ id: "a", accountId: "a", exhausted: true, resetsAt: 9 }),
+      choice({ id: "b", accountId: "b", exhausted: false }),
     ],
     limit,
   );
-  expect(blocked).toMatchObject([{ unavailable: "resets 4" }]);
+  expect(rows).toMatchObject([
+    { instance: "a", unavailable: "resets 9" },
+    { instance: "b", unavailable: undefined },
+  ]);
+  expect(pickerList(rows, { query: "gpt", favorites: [] }).rows).toMatchObject([
+    { label: "GPT-5", instance: "b", unavailable: undefined },
+  ]);
+  // Even when the account in use is the one at its limit.
+  expect(pickerList(rows, { query: "gpt", favorites: [], instance: "a" }).rows).toMatchObject([
+    { instance: "b", unavailable: undefined },
+  ]);
+
+  const blocked = pickerModelsFromChoices(
+    [
+      choice({ id: "a", accountId: "a", exhausted: true, resetsAt: 9 }),
+      choice({ id: "b", accountId: "b", exhausted: true, resetsAt: 4 }),
+    ],
+    limit,
+  );
+  const listed = pickerList(blocked, { query: "gpt", favorites: [] }).rows;
+  expect(listed).toHaveLength(1);
+  expect(listed[0]?.unavailable).toBeDefined();
 });
 
 test("speed can change on a running thread only where the provider takes a service tier", () => {

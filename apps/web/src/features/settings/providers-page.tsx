@@ -1,14 +1,14 @@
-import type { ProviderKind } from "@ace/protocol";
 import { signInSteps } from "@ace/ui-core";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { providerStatusesKey } from "@/lib/provider-statuses.ts";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import type { ProviderAccount, ProviderInstall } from "./data/backend.ts";
@@ -182,61 +182,17 @@ function ProviderDetail(props: { install: ProviderInstall }) {
           ace uses the CLI's own login and never stores credentials.
         </p>
       </div>
-      <ProviderModels provider={install.kind} />
+      <Suspense fallback={<Spinner label="Loading models" />}>
+        <DeferredProviderModels.Component provider={install.kind} />
+      </Suspense>
     </div>
   );
 }
 
-const compact = new Intl.NumberFormat("en", { notation: "compact" });
-
-function ProviderModels(props: { provider: ProviderKind }) {
-  const backend = useSettingsBackend();
-  const queryClient = useQueryClient();
-  const query = settingsQueries.models(backend, props.provider);
-  const models = useQuery(query);
-  const refresh = useMutation({
-    mutationFn: () => backend.refreshModels(props.provider),
-    onSuccess: (list) => queryClient.setQueryData(query.queryKey, list),
-  });
-  return (
-    <div>
-      <div className="mb-1.5 flex items-center">
-        <h4 className="text-[12px] font-medium text-subtle-foreground">Models</h4>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="ml-auto h-5 px-1.5"
-          onClick={() => refresh.mutate()}
-          disabled={refresh.isPending}
-        >
-          Refresh models
-        </Button>
-      </div>
-      {models.isPending && <Spinner aria-label="Loading models" />}
-      {models.data?.length === 0 && (
-        <p className="text-sm text-muted-foreground">This CLI reported no models.</p>
-      )}
-      <ul aria-label="Models" className="flex flex-col gap-1">
-        {models.data?.map((model) => (
-          <li key={model.id} className="flex items-baseline gap-2 text-ui">
-            <span>{model.displayName}</span>
-            <span className="truncate font-mono text-[11.5px] text-subtle-foreground">
-              {model.nativeModelId}
-            </span>
-            <span className="ml-auto shrink-0 text-sm text-subtle-foreground">
-              {[
-                model.isDefault ? "Default" : "",
-                model.contextWindow ? `${compact.format(model.contextWindow)} context` : "",
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+/** The models section loads with the provider's details, apart from the Settings pages. */
+const DeferredProviderModels = deferredComponent(() =>
+  import("./provider-models.tsx").then((module) => module.ProviderModels),
+);
 
 /** An ACP agent added by command: take it off the list. */
 function RemoveAgent(props: { name: string }) {

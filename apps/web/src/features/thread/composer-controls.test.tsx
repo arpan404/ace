@@ -8,8 +8,12 @@ import { closeModelControl, openModelControl } from "@/test/model-control.ts";
 
 beforeEach(() => localStorage.clear());
 
-async function open(scenario: "idle" | "busy") {
+async function open(
+  scenario: "idle" | "busy",
+  setup: (app: ReturnType<typeof harness>) => void = () => {},
+) {
   const app = harness();
+  setup(app);
   if (scenario === "idle") app.play(longHistory(2)).runUntilBlocked();
   else app.play(replayCursor()).runThrough("finding");
   await app.open(scenario === "idle" ? "/t/thread-router" : "/t/thread-replay-cursor");
@@ -187,9 +191,9 @@ test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
 test("the model chip opens effort and speed for the thread's model", async () => {
   await open("busy");
   // The daemon hasn't reported this thread's effort: it runs at the provider's default.
-  const popover = await openModelControl("Model: Opus 4.1, personal, provider default effort");
+  const popover = await openModelControl("Model: Opus 5.5, personal, provider default effort");
   expect(within(popover).getByText("Default effort")).toBeTruthy();
-  expect(within(popover).getByRole("button", { name: "Change model: Opus 4.1" })).toBeTruthy();
+  expect(within(popover).getByRole("button", { name: "Change model: Opus 5.5" })).toBeTruthy();
   // Opus has no default ace knows of: the provider's own is the slider's first stop, and each
   // stop is named.
   const slider = within(popover).getByRole("slider", { name: "Effort" });
@@ -205,14 +209,14 @@ test("the model chip opens effort and speed for the thread's model", async () =>
 
 test("effort from the slider goes with the next message and applies to its turn", async () => {
   const { app, message } = await open("busy");
-  const popover = await openModelControl(/^Model: Opus 4\.1/);
+  const popover = await openModelControl(/^Model: Opus 5\.5/);
   within(popover).getByRole("slider", { name: "Effort" }).focus();
   await userEvent.keyboard("{End}");
   expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("High");
   await closeModelControl();
   // Nothing changes on the daemon until the message goes.
   expect(
-    await screen.findByRole("button", { name: "Model: Opus 4.1, personal, High effort" }),
+    await screen.findByRole("button", { name: "Model: Opus 5.5, personal, High effort" }),
   ).toBeTruthy();
   expect(thread(app, "thread-replay-cursor")?.switch).toBeUndefined();
 
@@ -231,7 +235,7 @@ test("effort from the slider goes with the next message and applies to its turn"
 
 test("reset drops the effort picked for the next message, so it can steer again", async () => {
   const { message } = await open("busy");
-  const popover = await openModelControl(/^Model: Opus 4\.1/);
+  const popover = await openModelControl(/^Model: Opus 5\.5/);
   const reset = within(popover).getByRole("button", { name: "Reset effort and speed" });
   expect(reset.getAttribute("aria-disabled")).toBe("true");
   within(popover).getByRole("slider", { name: "Effort" }).focus();
@@ -241,7 +245,7 @@ test("reset drops the effort picked for the next message, so it can steer again"
   expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Default");
   await closeModelControl();
   expect(
-    screen.getByRole("button", { name: "Model: Opus 4.1, personal, provider default effort" }),
+    screen.getByRole("button", { name: "Model: Opus 5.5, personal, provider default effort" }),
   ).toBeTruthy();
 
   // A message carrying a new effort always waits for the next turn; without one, ⌘↵ steers.
@@ -253,8 +257,9 @@ test("reset drops the effort picked for the next message, so it can steer again"
 
 test("a model without effort levels says so instead of offering a slider", async () => {
   await open("idle");
-  const popover = await openModelControl(/^Model: Sonnet 4.5 \(OpenCode\)/);
-  expect(within(popover).getByText("Sonnet 4.5 (OpenCode) has no effort levels")).toBeTruthy();
+  // OpenCode's default model on this thread lists no effort levels.
+  const popover = await openModelControl(/^Model: Muse Spark/);
+  expect(within(popover).getByText(/^Muse Spark .* has no effort levels$/)).toBeTruthy();
   expect(within(popover).queryByRole("slider")).toBeNull();
 });
 test("while the agent works, a draft offers Queue and never turns into Stop", async () => {
@@ -267,17 +272,19 @@ test("while the agent works, a draft offers Queue and never turns into Stop", as
 
 test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
   const { app } = await open("busy");
-  await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ });
+  await screen.findByRole("button", { name: /^Model: Opus 5\.5, personal/ });
   act(() => app.client.networkOnline(false));
   await screen.findByText(/^Offline ·/);
-  const chip = screen.getByRole("button", { name: /^Model: Opus 4\.1/ });
+  const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5/ });
   await userEvent.click(chip);
   expect(await screen.findByText("Offline: changes apply when the daemon is back")).toBeTruthy();
 });
 
 test("a switch queued to a provider with no catalog models keeps showing it across a reconnect", async () => {
-  const { app } = await open("busy");
-  await screen.findByRole("button", { name: /^Model: Opus 4\.1, personal/ });
+  const { app } = await open("busy", ({ daemon }) => {
+    daemon.services.models = daemon.services.models.filter((model) => model.provider !== "pi");
+  });
+  await screen.findByRole("button", { name: /^Model: Opus 5\.5, personal/ });
   // Another device moves the thread to Pi, which lists no models in the catalog.
   app.daemon.command({
     id: CommandId.parse("switch-to-pi"),

@@ -16,8 +16,9 @@ import { Input, Textarea } from "@/components/ui/input.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
+import { ModelField } from "@/features/model-picker/index.ts";
 import { useModelChoices } from "@/features/models/index.ts";
-import { choiceLine, modelLabel, providerNames } from "@ace/ui-core";
+import { defaultModelChoice, modelLabel, pickerModel, providerNames } from "@ace/ui-core";
 import { AutomationForm } from "./automation-values.ts";
 import { missedRunLabels } from "./labels.ts";
 import { Row, invalidProps, visible } from "./form-row.tsx";
@@ -40,9 +41,6 @@ const missed = (["run_once", "skip"] as const).map((value) => ({
   value,
   label: missedRunLabels[value],
 }));
-/** The Model select's "no model": the agent picks its own default. */
-const agentDefault = ":default";
-
 /**
  * Create or edit an automation. Validated with the same Zod schema on every change; errors
  * show once a field has been touched or a save was attempted, and a failed save moves focus
@@ -410,38 +408,44 @@ function AgentSelect(props: {
 }
 
 /**
- * The agent's models from the catalog, by name ("Claude Code · work · Sonnet 4.5"), after
- * "Agent's default". A saved model the catalog doesn't list keeps a readable entry.
+ * The agent's models from the catalog, by name, in the same picker as the composer's: its
+ * source groups and Legacy models. Left alone it follows the agent's default model, shown by
+ * name; a saved model the catalog doesn't list keeps a readable name.
  */
 function ModelSelect(props: { provider: ProviderKind; value: string; onChange(id: string): void }) {
   const choices = useModelChoices();
+  // An automation names a model, not an account: each model once.
   const seen = new Set<string>();
-  const own = choices
-    .filter((choice) => choice.provider === props.provider)
-    .filter((choice) => {
-      if (seen.has(choice.modelId)) return false;
-      seen.add(choice.modelId);
-      return true;
-    })
-    .map((choice) => ({ value: choice.modelId, label: choiceLine(choice) }));
-  const selected =
-    choices.find((choice) => choice.provider === props.provider && choice.id === props.value)
-      ?.modelId ?? props.value;
-  const known = !selected || own.some((option) => option.value === selected);
-  const options = [
-    { value: agentDefault, label: "Agent's default" },
-    ...own,
-    ...(known
-      ? []
-      : [{ value: props.value, label: modelLabel(props.value.split(":").at(-1) ?? "") }]),
-  ];
+  const own = choices.filter((choice) => {
+    if (choice.provider !== props.provider || seen.has(choice.key)) return false;
+    seen.add(choice.key);
+    return true;
+  });
+  // Older definitions name a picker row ("account:model"), of any account.
+  const chosen = props.value
+    ? choices.find(
+        (choice) =>
+          choice.provider === props.provider &&
+          (choice.id === props.value || choice.modelId === props.value),
+      )
+    : defaultModelChoice(own, props.provider);
+  const value =
+    chosen?.model ??
+    (props.value ? modelLabel(props.value.split(":").at(-1) ?? "") : "Loading models…");
   return (
-    <Select
+    <ModelField
       label="Model"
-      value={selected || agentDefault}
-      options={options}
-      onValueChange={(value) => props.onChange(value === agentDefault ? "" : value)}
-      className="w-full min-w-0"
+      provider={props.provider}
+      // It runs later: an account at its limit now doesn't rule a model out.
+      models={own.map((choice) => pickerModel(choice, choice.model, undefined))}
+      current={chosen?.key}
+      value={value}
+      note={!props.value && chosen ? "Default" : undefined}
+      className="w-full"
+      onPick={(key) => {
+        const picked = own.find((choice) => choice.key === key);
+        if (picked) props.onChange(picked.modelId);
+      }}
     />
   );
 }

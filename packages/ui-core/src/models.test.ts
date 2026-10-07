@@ -7,7 +7,6 @@ import {
   choiceSelection,
   currentModelChoice,
   defaultModelChoice,
-  distinctModelOptions,
   modelChoices,
   modelKey,
   newThreadOptions,
@@ -108,7 +107,7 @@ test("a signed-out account offers nothing and an exhausted one can't be the defa
   expect(defaultModelChoice(choices, "codex")?.accountId).toBe("codex-personal");
 });
 
-test("New thread keeps each account's own rows, lists each model once and defaults to an account with headroom", () => {
+test("New thread keeps each account's own rows and defaults to an account with headroom", () => {
   const options = newThreadOptions(
     [model("claude", "claude-work", "opus", true), model("claude", "claude-personal", "opus")],
     [
@@ -127,7 +126,6 @@ test("New thread keeps each account's own rows, lists each model once and defaul
     ["claude-work", "opus", true],
     ["claude-personal", "opus", false],
   ]);
-  expect(distinctModelOptions(options.models).map((m) => m.id)).toEqual(["opus"]);
   expect(options.accounts.map((a) => [a.label, a.usage, a.isDefault])).toEqual([
     ["work", "100% of 5-hour used", false],
     ["personal", "38% of 5-hour used", true],

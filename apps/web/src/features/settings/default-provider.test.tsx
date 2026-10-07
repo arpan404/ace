@@ -52,6 +52,7 @@ test("a CLI whose ace accounts are all signed out is offered as not signed in", 
     "Codex",
     "OpenCode",
     "Cursor",
+    "Pi (sign-in unknown)",
     "Gemini CLI",
   ]);
 });
@@ -72,6 +73,7 @@ test("a CLI discovery didn't find isn't offered, but the stored choice of it sta
     "Codex",
     "OpenCode",
     "Cursor",
+    "Pi (sign-in unknown)",
     "Gemini CLI",
   ]);
 });

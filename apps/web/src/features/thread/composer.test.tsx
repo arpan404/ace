@@ -121,13 +121,13 @@ test("attached files upload before sending and can be removed", async () => {
 
 test("the account row moves the thread to another account and blocks one at its limit", async () => {
   await open("busy");
-  const popover = await openModelControl(/^Model: Opus 4\.1, personal/);
+  const popover = await openModelControl(/^Model: Opus 5\.5, personal/);
   const accounts = within(popover).getByRole("group", { name: "Account" });
   expect(within(accounts).getByRole("button", { name: "Account personal" }).ariaPressed).toBe(
     "true",
   );
   await userEvent.click(within(accounts).getByRole("button", { name: "Account work" }));
-  expect(await screen.findByRole("button", { name: /^Model: Opus 4\.1, work/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Model: Opus 5\.5, work/ })).toBeTruthy();
   await closeModelControl();
 
   // GPT-5 Codex on the team account is at its limit: only personal can take it.
@@ -173,7 +173,7 @@ test("a phone-width composer shows approvals by its icon alone, the mode kept in
   expect(approvals.textContent).toBe("");
   // The model chip keeps its name; only its effort goes.
   const model = screen.getByRole("button", { name: /^Model: / });
-  expect(model.textContent).toContain("Opus 4.1");
+  expect(model.textContent).toContain("Opus 5.5");
   expect(model.textContent).not.toContain("·");
 });
 
