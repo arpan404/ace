@@ -1,0 +1,69 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "groups": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "enum": [
+              "thread",
+              "browser",
+              "preview",
+              "terminal",
+              "notify",
+              "agents",
+              "thread_control",
+              "automations",
+              "projects",
+              "forge",
+              "screen",
+              "devices",
+              "files"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 512,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "maxItems": 13,
+      "type": "array"
+    },
+    "permissionMode": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "agentId",
+    "permissionMode",
+    "groups"
+  ],
+  "type": "object"
+}

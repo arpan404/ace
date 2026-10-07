@@ -24,10 +24,5 @@
       "Enter code: ACEF-2048",
       "Press Enter to continue."
     ]
-  },
-  "cursor": {
-    "version": "2026.09.26-dd393fe",
-    "help": "Usage: agent login",
-    "lines": ["Open https://cursor.com/loginDeepControl", "Press Enter to continue."]
   }
 }

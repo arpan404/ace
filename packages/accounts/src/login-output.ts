@@ -28,7 +28,7 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
             ] as const);
   if (!allowed.some(([host, path]) => url.hostname === host && path.test(url.pathname))) return;
   const fields = new Set([
-    ...(provider === "cursor" ? ["challenge", "uuid", "mode", "redirect"] : []),
+    ...(provider === "cursor" ? ["challenge", "uuid", "mode", "redirect", "redirectTarget"] : []),
     "client_id",
     "redirect_uri",
     "response_type",
@@ -43,6 +43,7 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
   ]);
   for (const [key, value] of url.searchParams) {
     if (!fields.has(key) || /(?:sk-|ghp_|gho_|eyJ)[A-Za-z0-9_-]{12,}/.test(value)) return;
+    if (key === "redirectTarget" && value !== "sdk") return;
     if (key === "redirect_uri") {
       let redirect: URL;
       try {

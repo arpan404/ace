@@ -14,7 +14,7 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
 
-test.each(["claude", "codex", "opencode", "cursor", "cursor-sdk"] as const)(
+test.each(["claude", "codex", "opencode", "cursor-sdk"] as const)(
   "daemon uses installed %s discovery before accepting a workspace",
   async (provider) => {
     const sdk = provider === "cursor-sdk";

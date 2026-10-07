@@ -5,12 +5,7 @@ import { createCodexTranslator } from "@ace/adapter-codex";
 import { CursorTranslator } from "@ace/adapter-cursor";
 import { OpenCodeTranslator } from "@ace/adapter-opencode";
 import { createPiTranslator } from "@ace/adapter-pi";
-import {
-  createAcpTranslator,
-  antigravityQuirks,
-  cursorQuirks,
-  genericQuirks,
-} from "@ace/adapter-acp";
+import { createAcpTranslator, antigravityQuirks, genericQuirks } from "@ace/adapter-acp";
 
 type Input = Pick<Frame, "data" | "channel" | "dir">;
 const recv = (data: unknown, channel = "stdio"): Input => ({ data, channel, dir: "recv" });
@@ -149,7 +144,7 @@ export const protocolNoiseCases: {
       }),
     ],
   },
-  ...[genericQuirks, cursorQuirks, antigravityQuirks].map((quirks) => ({
+  ...[genericQuirks, antigravityQuirks].map((quirks) => ({
     name: `ACP ${quirks.provider}`,
     provider: quirks.provider,
     create: (init: Parameters<ProviderAdapter["createTranslator"]>[0]) =>

@@ -84,6 +84,13 @@ export function recoverEngine(
         );
     }
     for (const intent of repo.pending.headers()) {
+      if (repo.store.getThread(intent.threadId)?.continuation) {
+        fail(
+          intent,
+          "This Cursor CLI thread is read-only. Continue in a new thread with its saved history.",
+        );
+        continue;
+      }
       if (intent.status === "running" || intent.awaiting) {
         if (
           ["thread.send", "thread.create", "thread.fork"].includes(intent.kind) &&

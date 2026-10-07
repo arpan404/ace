@@ -200,30 +200,23 @@ test("filtering by project counts that project and shows a chip that clears it",
   expect(await header.findByText("6 need you")).toBeTruthy();
 });
 
-const requests = ["Allow a force push", "Install @fontsource", "How should the sheet"];
+const requests = ["Allow a force push", "How should the sheet", "Install @fontsource"];
 const order = (titles: string[]) =>
   titles.filter((title) => requests.some((request) => title.includes(request)));
 
 test("what needs you is listed oldest first, the same in the sidebar and the cards", async () => {
   const { feed } = await openActivity();
-  const cards = (await main().findAllByRole("article")).map((card) =>
-    card.getAttribute("aria-label"),
-  );
-  await waitFor(() => expect(cards.length).toBeGreaterThan(2));
-  const rows = feed
-    .getAllByRole("button")
-    .map((row) => row.textContent ?? "")
-    .filter((text) => text.includes("Needs you"));
-  expect(order(rows).map((row) => row.slice(0, 12))).toEqual(
-    order(cards.map((card) => card ?? "")).map((card) => card.slice(0, 12)),
-  );
-  // Oldest first: each card has waited at least as long as the one below it.
-  const minutes = (await main().findAllByRole("article")).map((card) => {
-    const age = within(card).getByText(/^(now|\d+[mhdw])$/).textContent ?? "";
-    const unit = { m: 1, h: 60, d: 1440, w: 10080 }[age.slice(-1)] ?? 0;
-    return (Number.parseInt(age, 10) || 0) * unit;
+  // Sidebar, each thread's cards and the waiting-since reporters arrive separately.
+  // Read both columns again until they show all requests in the fixture's time order.
+  await waitFor(() => {
+    const cards = main().getAllByRole("article");
+    expect(cards).toHaveLength(6);
+    const titles = cards.map((card) => card.getAttribute("aria-label") ?? "");
+    const rows = feed.getAllByRole("button").map((row) => row.textContent ?? "");
+    const expected = requests.map((request) => request.slice(0, 12));
+    expect(order(titles).map((title) => title.slice(0, 12))).toEqual(expected);
+    expect(order(rows).map((row) => row.slice(0, 12))).toEqual(expected);
   });
-  expect(minutes).toEqual(minutes.toSorted((a, b) => b - a));
   // The rest of the feed sits under day headings.
   expect(feed.getByRole("heading", { level: 3, name: "Today" })).toBeTruthy();
 });

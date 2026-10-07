@@ -111,11 +111,11 @@ export class ThreadTransitions {
     const backend = this.repo.backend(actor.id);
     const entry = this.registry.get(selection.provider, crossProvider ? undefined : backend);
     const capabilities = entry.capabilities;
-    // SDK stores are pinned to the thread and account. The CLI portability driver
-    // cannot copy them, and clearing native identity would reclaim old checkpoints.
+    // Existing SDK stores are pinned to the thread and account. Entering the SDK
+    // uses a fresh session; leaving it or changing accounts must preserve its checkpoint.
     if (
-      (crossAccount || crossProvider) &&
-      (backend === "cursor-sdk" || entry.adapter.backend === "cursor-sdk")
+      ((crossAccount || crossProvider) && backend === "cursor-sdk") ||
+      (crossAccount && entry.adapter.backend === "cursor-sdk")
     )
       throw new Error(
         "Cursor SDK runtime/account changes require a fresh portable fork or thread.create with handoffFrom; the source checkpoint is preserved",
@@ -228,6 +228,7 @@ export class ThreadTransitions {
             {
               type: "thread.updated",
               provider: selection.provider,
+              ...(crossProvider && entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
               execution: selection,
               switch: {
                 selection,

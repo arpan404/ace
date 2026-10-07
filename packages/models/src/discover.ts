@@ -8,7 +8,6 @@ import {
 } from "@ace/provider-kit/process";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { z } from "zod";
-import { cursorSessionOptions, isMissingMethod } from "./cursor.ts";
 import { discoverListedModels } from "./list-discovery.ts";
 import { discoverOpenCodeCatalog } from "./opencode-discovery.ts";
 import { CodexPage } from "./native-schemas.ts";
@@ -29,7 +28,7 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
   const cursorSlots = options.cursorSlots ?? new CursorHostSlots(2);
   return async (instance, signal, diagnostic): ReturnType<DiscoverModels> => {
     signal.throwIfAborted();
-    if (instance.backend === "cursor-sdk") {
+    if (instance.provider === "cursor") {
       const { createCursorAccountDriver } = await import("@ace/adapter-cursor/auth");
       if (!instance.homeDir) throw new Error("Cursor SDK catalog needs its selected instance home");
       const driver = createCursorAccountDriver({
@@ -90,9 +89,6 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
     switch (instance.provider) {
       case "codex":
         args.push("app-server");
-        break;
-      case "cursor":
-        args.push("acp");
         break;
       case "antigravity":
         break;
@@ -162,16 +158,6 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         { cwd: instance.cwd, mcpServers: [] },
         { signal },
       );
-      if (instance.provider === "cursor") {
-        let listing: unknown;
-        try {
-          listing = await rpc.request("cursor/list_available_models", {}, { signal });
-        } catch (error) {
-          if (!isMissingMethod(error)) throw error;
-        }
-        if (listing !== undefined)
-          return normalizeAcp(cursorSessionOptions(session, listing), instance);
-      }
       return normalizeAcp(session, instance);
     }
     try {

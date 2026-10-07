@@ -30,10 +30,9 @@ test("first run recommends sign-in for installed CLIs and starting work once one
   });
 });
 
-test("expired, exhausted and unknown-auth installations stay out of the ready checklist", () => {
+test("expired and exhausted installations stay out of the ready checklist", () => {
   for (const observation of [
     { ...row, auth: "logged_in" as const, error: "Authentication expired" },
-    { ...row, auth: "unknown" as const },
     { ...row, auth: "logged_in" as const, readiness: "needs_attention" as const },
   ]) {
     expect(providerReadiness(observation).readiness).toBe("needs_attention");
@@ -45,19 +44,64 @@ test("expired, exhausted and unknown-auth installations stay out of the ready ch
   });
 });
 
-test("Cursor SDK readiness uses its own login while an absent SDK leaves the CLI available", () => {
-  const cli: ProviderStatus = { ...row, provider: "cursor", auth: "logged_in" };
-  expect(
-    onboardingChecklist([cli, { ...cli, runtime: "cursor-sdk", auth: "logged_out" }]),
-  ).toMatchObject({
-    ready: [],
-    next: { action: "sign_in", provider: "cursor" },
-    providers: [{ runtime: "cursor-sdk" }],
+test("a CLI that doesn't report its sign-in is usable, not a problem", () => {
+  const unreported = { ...row, auth: "unknown" as const };
+  expect(providerReadiness(unreported)).toMatchObject({ readiness: "signed_in", auth: "unknown" });
+  expect(onboardingChecklist([unreported])).toMatchObject({
+    ready: ["codex"],
+    next: { action: "start_thread" },
   });
-  expect(
-    onboardingChecklist([cli, { ...cli, runtime: "cursor-sdk", installed: false }]),
-  ).toMatchObject({ ready: ["cursor"], providers: [{ runtime: "cli" }] });
-  expect(
-    onboardingChecklist([{ ...cli, runtime: "cursor-sdk", auth: "logged_out" }, cli]),
-  ).toMatchObject({ ready: [], providers: [{ runtime: "cursor-sdk" }] });
 });
+
+test("Cursor setup recommends SDK sign-in and never falls back to a legacy CLI", () => {
+  const sdk: ProviderStatus = {
+    ...row,
+    provider: "cursor",
+    runtime: "cursor-sdk",
+    state: "not_configured",
+  };
+  const cli: ProviderStatus = { ...sdk, runtime: "cli", auth: "logged_in" };
+  for (const rows of [
+    [cli, sdk],
+    [sdk, cli],
+  ])
+    expect(onboardingChecklist(rows)).toMatchObject({
+      ready: [],
+      next: { action: "sign_in", provider: "cursor" },
+      providers: [
+        {
+          runtime: "cursor-sdk",
+          readiness: "installed_signed_out",
+          loginHint: "Sign in to Cursor",
+        },
+      ],
+    });
+  expect(onboardingChecklist([{ ...sdk, installed: false }, cli])).toMatchObject({
+    ready: [],
+    providers: [{ runtime: "cursor-sdk", readiness: "not_configured" }],
+  });
+  expect(onboardingChecklist([{ ...sdk, state: undefined, auth: "logged_in" }])).toMatchObject({
+    ready: ["cursor"],
+  });
+});
+
+test.each(["opencode", "pi"] as const)(
+  "%s readiness follows connected upstreams without inventing entitlement",
+  (provider) => {
+    expect(
+      providerReadiness({
+        ...row,
+        provider,
+        auth: "unknown",
+        authEvidence: "credentials_configured",
+      }),
+    ).toMatchObject({
+      readiness: "signed_in",
+      auth: "unknown",
+      authEvidence: "credentials_configured",
+    });
+    expect(providerReadiness({ ...row, provider, auth: "logged_out" }).readiness).toBe(
+      "installed_signed_out",
+    );
+  },
+);

@@ -1,3 +1,6 @@
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
+import { cursorInstanceHome } from "@ace/adapter-cursor/instance";
+import { daemonCursorInstance } from "./cursor-instance.ts";
 import { logError, logFields } from "@ace/diagnostics";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { cursorSdkCatalogInstance, registerCursorSdkCatalog } from "./cursor-activation.ts";
@@ -12,9 +15,33 @@ import type { ServiceContext } from "./types.ts";
 export async function startModels(context: ServiceContext): Promise<void> {
   const { config, options, resources, services } = context;
 
+  const instances = [];
+  for (const row of options.modelInstances ?? []) {
+    if (row.provider !== "cursor" || row.backend === "cursor-sdk") {
+      instances.push(row);
+      continue;
+    }
+    const id = cursorInstanceId(row.id) ?? row.id;
+    const instance =
+      row.id === "cursor-cli-default"
+        ? await daemonCursorInstance(context)
+        : (services.accountRegistry?.get(id)?.instance ?? {
+            id,
+            homeDir: cursorInstanceHome(config.dataDir, id),
+          });
+    instances.push({
+      id: instance.id,
+      label: row.label,
+      provider: "cursor" as const,
+      backend: "cursor-sdk" as const,
+      homeDir: instance.homeDir,
+      cwd: row.cwd,
+      loginRevision: row.loginRevision,
+    });
+  }
   const models = openDaemonModels(
     config.dataDir,
-    options.modelInstances ?? [],
+    instances,
     {
       ...options.modelDiscovery,
       cursorSlots: cursorHosts(context),
@@ -32,7 +59,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
         if (selected.homeDir !== instance.homeDir || selected.provider !== "cursor")
           throw new Error("SDK catalog instance does not match accounts");
         if (services.cursorAccounts?.isFenced(selected.id))
-          throw new Error("SDK catalog is fenced during an account authentication change");
+          throw Object.assign(new Error("Sign in to Cursor"), { code: "not_configured" });
         return instanceEnv(
           selected,
           { ...(options.engine?.cursor?.env ?? process.env), ...instance.env },
@@ -44,9 +71,11 @@ export async function startModels(context: ServiceContext): Promise<void> {
     (provider, instance, error, source, diagnostic) =>
       context.log.log(
         diagnostic?.level ?? "warn",
-        error.code === "no_models"
-          ? "Connected source has no chat models enabled"
-          : "Model discovery failed",
+        error.code === "not_configured"
+          ? "Provider sign-in is required"
+          : error.code === "no_models"
+            ? "Connected source has no chat models enabled"
+            : "Model discovery failed",
         logFields([
           ["provider", provider],
           ["instance", instance],

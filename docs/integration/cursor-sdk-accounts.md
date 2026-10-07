@@ -40,9 +40,13 @@ inheritance.
 `cursor.auth.select` stores the default SDK account in accounts SQLite. New
 `thread.create` commands pin that account at acceptance, with an optional explicit
 `instanceId`. Changing the default never changes an existing thread's account or
-checkpoint home. See [browser auth protocol](cursor-sdk-auth.md). The separately
-owned UI can use this backend without receiving a provider key.
+checkpoint home. See [browser auth protocol](cursor-sdk-auth.md). The in-app sign-in UI uses this backend without receiving a provider key.
 
 Runtime guards and multi-instance assembly tests need run at merge. There is no
 native ACP-to-SDK checkpoint conversion or cross-account SDK checkpoint copying;
 use the shared bounded context handoff, preserving source provenance and loss.
+
+Cursor now has one provider and one SDK-owned browser sign-in. The CLI implicit
+account is retired; no CLI/app credentials are imported or copied. See the
+[ADR 0043 amendment](../adr/0043-cursor-sdk-local-runtime.md) for migration and the
+in-app progress driver.

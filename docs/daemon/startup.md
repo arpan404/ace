@@ -47,8 +47,8 @@ and activation, not the size-dependent lifetime of indexing or backfill.
 ## Model discovery
 
 Without `ACE_MODEL_INSTANCES`, the model service admits installed Codex, Claude,
-OpenCode, Pi and Cursor CLIs using background executable-path checks. A selected
-Cursor SDK account supplies its own catalog instead of a second Cursor CLI
+OpenCode and Pi CLIs using background executable-path checks. Cursor supplies
+only the selected SDK account catalog, with no Cursor CLI
 catalog. Setting `ACE_MODEL_INSTANCES` explicitly overrides CLI defaults;
 `[]` disables them.
 

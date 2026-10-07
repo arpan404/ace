@@ -7,10 +7,11 @@ Default CLI sign-in inherits the daemon's launch environment and normal home. A
 registered managed `instance` selects that profile explicitly. Host-registered
 non-managed profiles cannot be changed through this API.
 
-Cursor uses the existing official SDK auth service when the supported SDK is installed.
-It uses the selected SDK instance's default credential store, as does execution under
-ADR 0043. SDK sign-in is separate from `agent` and editor sign-in. Without the SDK,
-Cursor uses the installed `agent` CLI's normal profile. The UI must show this distinction.
+Cursor is one SDK-backed provider under ADR 0043. Sign-in uses
+`createCursorLoginDriver(instance, accountDriver).start(signal)` from
+`@ace/adapter-cursor`, through the accounts-owned SDK driver and its registered
+credential store. There is no Cursor CLI discovery, implicit CLI account or native
+CLI login fallback. Legacy `cursor-cli-default` requests map to the SDK default.
 
 ## UI contract
 
@@ -75,8 +76,7 @@ Terminal states clear the browser challenge. Timeout results have a one-minute g
 period for their terminal action. At most 32 sessions are retained for ten
 minutes, with one active job per provider/profile. Cancellation and expiry await process
 group cleanup. Failed cleanup keeps the profile busy and exposes a `verifying` cleanup
-message until a cancellation retry can drain it. The existing SDK service has its own
-shorter five-minute challenge deadline.
+message until a cancellation retry can drain it. The SDK host bounds its browser operation to five minutes.
 
 ## Native terminal fallback
 
@@ -113,10 +113,10 @@ available through this native-provider service.
 | Claude Code | `claude auth login`, `--claudeai` when advertised; `claude auth logout`                       | Paste authorization code, key input or unsupported setup                                                                   |
 | OpenCode    | Upstream choices; Copilot via advertised `--provider` and `--method`; GitHub.com confirmation | Go, Zen, OpenAI, Anthropic, other upstreams, Enterprise domain and logout use `opencode auth login/logout` in the terminal |
 | Pi          | Upstream choices and native `/login` or `/logout` instructions                                | Pi's interactive editor has no reviewed standalone safe login command                                                      |
-| Cursor      | Existing fenced SDK browser auth, otherwise `agent login/logout`                              | Unsupported CLI version/output; SDK errors stay SDK errors                                                                 |
+| Cursor      | Accounts-owned SDK browser stream and SDK logout                                              | SDK availability/auth errors stay SDK errors; no CLI fallback                                                              |
 
 Patterns are gated to the reviewed CLI version families: Codex 0/1, Claude 2, OpenCode
-1/2, and Cursor's 2026 dated CLI releases. Version/help probes are metadata-only. We
+1/2. Cursor uses the pinned SDK runtime. Version/help probes are metadata-only. We
 have not tested real OAuth sessions or subscription entitlement. Unknown CLI output
 is private; parsing has an 8 KiB pending-line bound and a 256 KiB total-output bound.
 A CLI with a changed transcript may need the terminal fallback even in those families.
@@ -138,11 +138,12 @@ device in `onboarding.sqlite`; it does not dismiss setup for another device.
 
 Readiness is `not_installed`, `installed_signed_out`, `signed_in`, `needs_attention`
 or `not_configured`. Rows retain CLI version, a non-secret account label when exposed,
-installation instructions and an install command when appropriate. Probe errors,
-unknown auth and known exhausted accounts need attention. OpenCode's configured
-connections do not prove subscription entitlement, so they remain attention-needed
-until the CLI exposes an authoritative status. Cursor SDK readiness takes precedence
-when installed. `updateAvailable` is optional and omitted: no package-registry network
+installation instructions and an install command when appropriate. Probe errors and
+known exhausted accounts need attention. Unreported CLI auth remains usable. Connected
+upstreams make OpenCode and Pi usable while `auth` continues to report whether the CLI
+confirmed sign-in; this does not assert subscription entitlement. Cursor readiness
+comes only from the SDK. Its installed `state: not_configured` row maps to
+`installed_signed_out` with the "Sign in to Cursor" action. `updateAvailable` is optional and omitted: no package-registry network
 request was added solely to compare versions.
 
 A completed login bumps the account login revision, replaces that model catalog's

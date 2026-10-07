@@ -1,3 +1,4 @@
+import { cursorInstanceId, cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
 import { mkdir, open, chmod, lstat } from "node:fs/promises";
@@ -103,6 +104,9 @@ export class AccountRegistry {
     this.clearSelection = db.prepare("DELETE FROM account_selection WHERE backend=?");
     this.deleteSelections = db.prepare("DELETE FROM account_selection WHERE instance_id=?");
     this.deleteAccount = db.prepare("DELETE FROM accounts WHERE id=?");
+    // Retire metadata before home canonicalization. Never inspect the old CLI home.
+    db.exec(`DELETE FROM account_selection WHERE instance_id='cursor-cli-default';
+      DELETE FROM accounts WHERE id='cursor-cli-default' AND json_extract(instance,'$.implicit')=1;`);
     this.updateQuota = db.prepare("UPDATE accounts SET quota=? WHERE id=?");
     this.select = db.prepare("SELECT instance, quota FROM accounts WHERE id = ?");
     this.all = db.prepare("SELECT instance, quota FROM accounts ORDER BY id LIMIT 257");
@@ -147,16 +151,16 @@ export class AccountRegistry {
     this.updateQuota.run(JSON.stringify({ ...account.quota, cursorSdkAuth: status }), id);
   }
   selectedCursorSdk(): string | undefined {
-    const value = this.selection.get("cursor-sdk");
-    return value ? AccountId.parse(value.instance_id) : undefined;
+    return this.selectedProvider("cursor");
   }
   selectCursorSdk(id: string | undefined): void {
     if (id === undefined) {
       this.clearSelection.run("cursor-sdk");
+      this.clearSelection.run("provider:cursor");
       return;
     }
     if (this.get(id)?.instance.provider !== "cursor") throw new Error("Unknown Cursor instance");
-    this.setSelection.run("cursor-sdk", AccountId.parse(id));
+    this.selectProvider("cursor", AccountId.parse(id));
   }
   list() {
     if (this.validating) throw new Error("Account homes are still being validated");
@@ -311,12 +315,17 @@ export class AccountRegistry {
     }
   }
   selectedProvider(provider: string): string | undefined {
-    const value = this.selection.get(`provider:${provider}`);
-    return value ? AccountInstanceId.parse(value.instance_id) : undefined;
+    const value =
+      this.selection.get(`provider:${provider}`) ??
+      (provider === "cursor" ? this.selection.get("cursor-sdk") : undefined);
+    const id = value ? AccountInstanceId.parse(value.instance_id) : undefined;
+    return provider === "cursor" ? cursorInstanceId(id) : id;
   }
   selectProvider(provider: string, id: string): void {
+    id = provider === "cursor" ? (cursorInstanceId(id) ?? id) : id;
     if (this.get(id)?.instance.provider !== provider) throw new Error("Provider mismatch");
     this.setSelection.run(`provider:${provider}`, id);
+    if (provider === "cursor") this.clearSelection.run("cursor-sdk");
   }
   rename(id: string, label: string): void {
     const account = this.get(id);
@@ -347,7 +356,9 @@ export class AccountRegistry {
           ...summarize(account, now),
           isDefault:
             (this.selectedProvider(account.instance.provider) ??
-              `${account.instance.provider}-cli-default`) === id,
+              (account.instance.provider === "cursor"
+                ? (this.selectedCursorSdk() ?? cursorDefaultInstanceId)
+                : `${account.instance.provider}-cli-default`)) === id,
         }
       : undefined;
   }
@@ -362,7 +373,9 @@ export class AccountRegistry {
       Object.assign(summarize(account, now), {
         isDefault:
           (selected.get(`provider:${account.instance.provider}`) ??
-            `${account.instance.provider}-cli-default`) === account.instance.id,
+            (account.instance.provider === "cursor"
+              ? (this.selectedCursorSdk() ?? cursorDefaultInstanceId)
+              : `${account.instance.provider}-cli-default`)) === account.instance.id,
       }),
     );
   }

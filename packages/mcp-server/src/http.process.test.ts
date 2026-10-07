@@ -29,7 +29,7 @@ it("serves current discovery and structured tools through a real MCP client", as
   const { client } = await h.connect();
   expect(client.getServerVersion()).toMatchObject({ name: "ace" });
   const listed = await client.listTools();
-  expect(listed.tools).toMatchObject([
+  expect(listed.tools.filter((tool) => tool.name === "ace_echo")).toMatchObject([
     {
       name: "ace_echo",
       inputSchema: { type: "object", additionalProperties: false },
@@ -75,7 +75,10 @@ it("negotiates the legacy handshake with the monolithic SDK client", async () =>
   transport.onclose = () => wire.onclose?.();
   await client.connect(wire);
   expect(client.getServerVersion()?.name).toBe("ace");
-  expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_echo"]);
+  expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+    "ace_status",
+    "ace_echo",
+  ]);
   expect(await client.callTool({ name: "ace_echo", arguments: { value: "legacy" } })).toMatchObject(
     { structuredContent: { value: "legacy" } },
   );
@@ -97,7 +100,7 @@ it("filters unauthorized tools and rejects direct capability bypasses", async ()
     },
   });
   const denied = await h.connect();
-  expect((await denied.client.listTools()).tools).toEqual([]);
+  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
   expect(
     await denied.client.callTool({ name: "ace_echo", arguments: { value: "denied" } }),
   ).toMatchObject({ isError: true });
@@ -271,7 +274,7 @@ it("routes a browser workstream adapter through schema checks, attribution and c
     },
   );
   const denied = await h.connect();
-  expect((await denied.client.listTools()).tools).toEqual([]);
+  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
   expect(
     await denied.client.callTool({
       name: "ace_browser_open",

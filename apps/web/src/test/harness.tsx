@@ -12,9 +12,18 @@ import { fakeMachinePool, type FakeMachines } from "@/boot/fake-machines.ts";
 type ClientStorage = ReturnType<typeof memoryStorage>;
 import { DaemonConnectionContext } from "@/boot/connection.tsx";
 import { fakeConnection } from "@/boot/fake.ts";
+import { threadWorkspace } from "@/features/panels/index.ts";
 import { preloadProjectDialogs } from "@/features/projects/index.ts";
 import { preloadDeferred } from "@/features/thread/index.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
+
+// Load deferred test UI before test deadlines begin. Under merge load, transforming
+// these modules inside the first open() can time out and race cleanup with mounting.
+await Promise.all([preloadDeferred(), preloadProjectDialogs()]);
+// Workspace metadata and the individual tab bodies load separately in production.
+// Start behavioural tests after both are ready, including Devices and Preview.
+await threadWorkspace.load();
+await Promise.all(threadWorkspace.kinds().map((kind) => kind.load()));
 
 const running: { close(): Promise<void> }[] = [];
 afterEach(async () => {
@@ -118,7 +127,7 @@ export function harness(
     play: (scenario: Scenario) => new ScenarioPlayer(daemon, scenario),
     async open(path: string) {
       // The browser warms these while idle after first paint; tests start with them warm.
-      await Promise.all([client.start(), preloadDeferred(), preloadProjectDialogs()]);
+      await client.start();
       fake = others.length
         ? await fakeMachinePool(others, (other) => fakeClient(other))
         : undefined;

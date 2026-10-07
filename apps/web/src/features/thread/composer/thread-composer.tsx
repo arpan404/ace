@@ -17,6 +17,7 @@ import { ContextBar } from "./context-bar.tsx";
 import { ContextMeter } from "./context-meter.tsx";
 import {
   ControlsPending,
+  DeferredCursorContinuation,
   DeferredPlanChip,
   DeferredQueueArea,
   DeferredThreadControls,
@@ -175,6 +176,13 @@ export function ThreadComposer({
     model: selection?.model ? modelLabel(selection.model) : undefined,
     modalities: catalog && selectionInputs(catalog, selection),
   };
+
+  if (meta?.continuation)
+    return (
+      <Suspense fallback={<p className="px-4 pb-4 text-ui">This Cursor thread is read-only.</p>}>
+        <DeferredCursorContinuation.Component thread={meta} />
+      </Suspense>
+    );
 
   return (
     // A pinned summary beside the text insets the composer with it (`--summary-inset`), so their

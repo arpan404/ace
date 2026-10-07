@@ -178,19 +178,7 @@ and unredacted diagnostics never leave these boundaries. Existing picker and
 Settings rows render these hints.
 
 Provider status probes notify catalog invalidation when a CLI version changes.
-Version notifications apply only to their runtime, so Cursor CLI versions do
-not invalidate SDK catalogs. An explicit refresh waits for a replacement
-discovery when the same account's runtime version changes during its flight.
-OpenCode/Pi connection metadata is reconciled every minute. An unchanged
-non-secret fingerprint leaves the catalog alone; connect/disconnect or changed
-availability triggers discovery. Settings changes affect only changed provider
-configurations. Login revisions revoke the old account immediately, rather
-than displaying a different person's cached choices. Other invalidations retain
-the last good catalog. Unavailable CLIs and unknown auth probes retain the last
-good account cache; only confirmed auth changes advance the login revision.
-Late results cannot replace a newer generation. Replacing a login outside ace
-without changing CLI-exposed connection flags or model availability cannot be
-detected from those flags alone; explicit refresh always discovers again.
+Cursor has one SDK catalog; retired CLI account IDs map to the SDK default.
 
 The internal `ModelCatalog.invalidate` API remains an account-revocation
 boundary: it immediately removes choices and drains obsolete writes before
@@ -213,3 +201,7 @@ hint. Settings and the picker show it as information without a failure icon. It 
 per transition, and does not schedule failure-backoff retries. Explicit Refresh,
 connection or login changes, settings changes and maximum age still revalidate
 the catalog. Explicit metadata or fallback failures retain failure semantics.
+
+An instance-level `not_configured` result has informational severity and the
+`provider.sign_in` action. It clears old models, does not accumulate failure
+backoff, and is rechecked on explicit refresh, login change or cache max age.

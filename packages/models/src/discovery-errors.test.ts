@@ -27,7 +27,12 @@ test.each([
   expect(JSON.stringify(detail)).not.toMatch(/private|secret|token/);
   if (code === "auth_expired" || code === "not_configured")
     expect(detail.hint).toContain("Sign in to Cursor");
-  if (code === "not_configured") expect(detail.hint).toContain("Settings → Providers");
+  if (code === "not_configured")
+    expect(detail).toMatchObject({
+      hint: "Sign in to Cursor",
+      severity: "info",
+      actionId: "provider.sign_in",
+    });
 });
 
 test.each([401, 403, 500, 502, 503])(

@@ -4,6 +4,7 @@
   "properties": {
     "backend": {
       "enum": [
+        "cli",
         "acp",
         "cursor-sdk"
       ],

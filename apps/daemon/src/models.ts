@@ -1,3 +1,4 @@
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import {
@@ -57,7 +58,6 @@ export async function registerDefaultModelInstances(
     { provider: "claude", executable: "claude" },
     { provider: "opencode", executable: "opencode" },
     { provider: "pi", executable: "pi" },
-    { provider: "cursor", executable: "agent" },
   ] as const;
   const installed = await Promise.all(
     candidates
@@ -93,7 +93,12 @@ export function registerConfiguredModelInstances(
 ): void {
   for (const config of preferences) {
     if (config.instance || !config.binaryPath || catalog.hasProvider(config.provider)) continue;
-    if (config.provider === "acp" || config.provider === "antigravity") continue;
+    if (
+      config.provider === "acp" ||
+      config.provider === "antigravity" ||
+      config.provider === "cursor"
+    )
+      continue;
     catalog.registerInstance({
       id: `${config.provider}-cli-default`,
       label: "Default",
@@ -147,20 +152,27 @@ export async function handleModelRequest(
       return {
         type: "models.result",
         requestId: request.requestId,
-        result: catalog.list(request.options),
+        result: catalog.list({
+          ...request.options,
+          instance: cursorInstanceId(request.options.instance),
+        }),
       };
     case "models.resolve":
       return {
         type: "models.result",
         requestId: request.requestId,
-        result: catalog.resolve(request.roleSpec),
+        result: catalog.resolve({
+          ...request.roleSpec,
+          instance: cursorInstanceId(request.roleSpec.instance),
+        }),
       };
     case "models.refresh":
-      await catalog.refresh(request.filter);
+      const filter = { ...request.filter, instance: cursorInstanceId(request.filter.instance) };
+      await catalog.refresh(filter);
       return {
         type: "models.result",
         requestId: request.requestId,
-        result: catalog.list(request.filter),
+        result: catalog.list(filter),
       };
   }
 }

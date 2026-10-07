@@ -162,8 +162,8 @@ export class CursorAuthService {
         if (request.type === "cursor.auth.select") {
           if (auth.status !== "logged-in") return error("auth_failed");
           await this.options.rebindInstance(instance.id);
-          await this.options.authChanged?.(instance, auth);
           this.options.registry.selectCursorSdk(instance.id);
+          await this.options.authChanged?.(instance, auth);
         }
         if (request.type === "cursor.auth.logout") await this.options.authChanged?.(instance, auth);
         if (

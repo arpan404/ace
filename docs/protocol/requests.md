@@ -703,7 +703,7 @@ Example:
 | type | yes | `"permissions.capabilities"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
-| backend | no | ["acp","cursor-sdk"] |  |
+| backend | no | ["cli","acp","cursor-sdk"] |  |
 
 Example:
 

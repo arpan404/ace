@@ -1,3 +1,4 @@
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import {
   AcpIdentity,
   ThreadId,
@@ -66,13 +67,20 @@ export function acceptTransition(
         // Forking into another account needs migration; request a switch on the fork instead.
         if (
           selection.provider === inherited.provider &&
-          selection.instanceId !== inherited.instanceId
+          (selection.provider === "cursor"
+            ? cursorInstanceId(selection.instanceId)
+            : selection.instanceId) !==
+            (inherited.provider === "cursor"
+              ? cursorInstanceId(inherited.instanceId)
+              : inherited.instanceId)
         )
           return fail("fork_account_mismatch_use_switch");
         const entry = registry.get(selection.provider);
         const capabilities = entry.capabilities;
-        const instanceId =
+        const selectedId =
           selection.instanceId ?? selectInstance?.(selection.provider, entry.adapter.backend);
+        const instanceId =
+          selection.provider === "cursor" ? cursorInstanceId(selectedId) : selectedId;
         if (instanceId) selection = { ...selection, instanceId };
         if (Object.keys(selection.options).length && !capabilities.sessionOptions)
           return fail("provider_options_unsupported");
@@ -93,6 +101,7 @@ export function acceptTransition(
         const native =
           selection.provider === source?.selection.provider &&
           capabilities.fork &&
+          !thread.continuation &&
           sourceNativeId &&
           nativePoint
             ? { nativeSessionId: sourceNativeId, point: nativePoint }

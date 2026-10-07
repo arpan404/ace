@@ -187,36 +187,6 @@ test("Codex missing preferred Sol selects the next Sol over a different GPT fami
   expect(chosen(catalog)).toBe("gpt-6-sol");
 });
 
-test("Cursor selects a concrete flagship while preserving Auto as an explicit choice", async () => {
-  const payload = {
-    models: {
-      currentModelId: "gpt-6.1-sol",
-      availableModels: [
-        { modelId: "default", name: "Default (recommended)" },
-        { modelId: "auto", name: "Auto" },
-        { modelId: "gpt-6.1-sol", name: "gpt-6.1-sol" },
-        { modelId: "text-embedding-3-large", name: "Embedding" },
-      ],
-    },
-  };
-  const { catalog } = await catalogFor("cursor", payload);
-  expect(
-    catalog
-      .list()
-      .models.map((row) => row.id)
-      .toSorted(),
-  ).toEqual(["auto", "gpt-6.1-sol"]);
-  expect(chosen(catalog)).toBe("gpt-6.1-sol");
-  expect(chosen(catalog, "cursor", "auto")).toBe("auto");
-  const fallback = await catalogFor("cursor", {
-    models: {
-      ...payload.models,
-      availableModels: payload.models.availableModels.filter((row) => row.modelId !== "auto"),
-    },
-  });
-  expect(chosen(fallback.catalog)).toBe("gpt-6.1-sol");
-});
-
 test("OpenCode ranks the newest connected flagship independently of the CLI selection", async () => {
   const data = [
     openCode("opencode-go", "muse-spark-1.3-contributor"),

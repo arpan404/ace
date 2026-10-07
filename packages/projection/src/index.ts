@@ -141,7 +141,10 @@ export function updateThread(thread: Thread, event: Event): void {
   if (payload.type === "thread.updated") {
     if (payload.workspaceId !== undefined) thread.workspaceId = payload.workspaceId;
     if (payload.permission !== undefined) thread.permission = structuredCopy(payload.permission);
-    if (payload.backend !== undefined) thread.backend = payload.backend;
+    if (payload.backend !== undefined) {
+      thread.backend = payload.backend;
+      if (payload.backend === "cursor-sdk") delete thread.continuation;
+    }
     if (payload.capabilities !== undefined)
       thread.capabilities = structuredCopy(payload.capabilities);
     if (payload.provider !== undefined) thread.provider = payload.provider;

@@ -71,10 +71,10 @@ export class FakeServices {
       ["claude", "codex", "opencode", "cursor", "pi", "antigravity"] as const
     ).map((provider) => ({
       provider,
-      runtime: "cli",
+      runtime: provider === "cursor" ? "cursor-sdk" : "cli",
       installed: this.installed.has(provider),
       auth: "unknown",
-      loginHint: "Use the CLI login command",
+      loginHint: provider === "cursor" ? "Sign in to Cursor" : "Use the CLI login command",
       checkedAt: now,
       stale: false,
       refreshing: false,

@@ -14,10 +14,10 @@ export async function registerImplicitAccounts(
     codex: env.CODEX_HOME ?? join(user, ".codex"),
     claude: env.CLAUDE_CONFIG_DIR ?? join(user, ".claude"),
     opencode: join(env.XDG_DATA_HOME ?? join(user, ".local", "share"), "opencode"),
-    cursor: env.CURSOR_CONFIG_DIR ?? join(user, ".cursor"),
     pi: env.PI_CODING_AGENT_DIR ?? join(user, ".pi", "agent"),
   };
   for (const provider of NativeAccountProvider.options) {
+    if (provider === "cursor") continue;
     const id = `${provider}-cli-default`;
     const existing = registry.get(id);
     if (existing && !existing.instance.implicit)

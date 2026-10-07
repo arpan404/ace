@@ -457,7 +457,20 @@ export class Store {
     return this.decodeThread(row);
   }
   private decodeThread(row: Record<string, SQLOutputValue>): Thread {
+    const metadata =
+      row.provider_metadata == null
+        ? {}
+        : Thread.pick({ backend: true }).parse(JSON.parse(String(row.provider_metadata)));
     return Thread.parse({
+      ...(row.provider === "cursor" && metadata.backend !== "cursor-sdk"
+        ? {
+            continuation: {
+              state: "read_only",
+              reason: "cursor_cli_retired",
+              actionId: "thread.continue_new",
+            },
+          }
+        : {}),
       ...(row.client == null ? {} : ThreadClientFields.parse(JSON.parse(String(row.client)))),
       ...(row.transitions == null
         ? {}
