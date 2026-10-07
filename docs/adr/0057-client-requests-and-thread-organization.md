@@ -38,3 +38,7 @@ delete, and refuses isolated/inherited nonlocal execution roots. It never transf
 branches or worktrees. Idle managed sessions close through the existing workspace fence;
 the new cwd, cleared resume id, events and receipt commit atomically. The next session
 receives a history handoff. See [thread moves](../daemon/thread-move.md).
+
+Clients offer it as Move to project… in every thread menu, the selection bar and ⌘K. Like the
+other organize actions it shows the thread in its new project at once, offers Undo (a move
+back), and puts it back with the daemon's reason when refused.

@@ -6,6 +6,7 @@ import {
   CheckIcon,
   EnvelopeSimpleIcon,
   EnvelopeSimpleOpenIcon,
+  FolderSimpleIcon,
   GitForkIcon,
   LinkIcon,
   MoonIcon,
@@ -26,6 +27,7 @@ import {
   MenuSub,
   MenuSubTrigger,
 } from "@/components/ui/menu.tsx";
+import { useThreadMover } from "./mover.ts";
 import { SnoozeItems } from "./snooze-items.tsx";
 import { useThreadActions, type ThreadActions } from "./use-thread-actions.ts";
 
@@ -48,10 +50,10 @@ export interface ThreadAction {
 }
 
 /**
- * Every action on one thread, in menu order: start another, rename, fork, link; read and pin;
- * settle; archive with Undo (or, archived, restore) and permanent delete. Snooze, a submenu of
- * times, is the menus' own. `onLeave` runs once the thread is gone from the list (archived or
- * deleted).
+ * Every action on one thread, in menu order: start another, rename, fork, link; read, pin and
+ * move to another project; settle; archive with Undo (or, archived, restore) and permanent
+ * delete. Snooze, a submenu of times, is the menus' own. `onLeave` runs once the thread is gone
+ * from the list (archived or deleted).
  */
 export function threadActions(
   entry: ThreadListEntry,
@@ -60,6 +62,8 @@ export function threadActions(
   handlers: {
     onRename(): void;
     fork: { point: ForkPoint | undefined; onFork(point: ForkPoint): void };
+    /** Ask which project it moves to. */
+    onMove(): void;
     onLeave?(): void;
   },
 ): ThreadAction[] {
@@ -109,6 +113,13 @@ export function threadActions(
       shortcut: "pinThread",
       section: "read",
       run: () => actions.setPinned(entry, !flags.pinned),
+    },
+    {
+      id: "move",
+      label: "Move to project…",
+      icon: FolderSimpleIcon,
+      section: "read",
+      run: handlers.onMove,
     },
   ];
   if (flags.settled)
@@ -189,9 +200,11 @@ export function ThreadActionItems(props: {
 }) {
   const { entry, flags } = props;
   const actions = useThreadActions();
+  const mover = useThreadMover();
   const list = threadActions(entry, flags, actions, {
     onRename: props.onRename,
     fork: props.fork,
+    onMove: () => mover.open({ entries: [entry] }),
     ...(props.onLeave ? { onLeave: props.onLeave } : {}),
   });
   const item = (action: ThreadAction) => {
