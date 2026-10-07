@@ -1,18 +1,6 @@
 import { ThreadId } from "@ace/protocol";
 import { it, expect } from "vitest";
-import { cursorAdapter, antigravityAdapter, createAcpAdapter } from "./index.ts";
-it("enables Cursor controls only for a discovered version with recorded support", () => {
-  const cli = { installed: true, auth: "unknown" as const, loginHint: "agent login" };
-  expect(cursorAdapter.capabilities(cli).subagentTranscripts).toBe(false);
-  expect(cursorAdapter.capabilities({ ...cli, version: "2026.09.26-dd393fe" })).toMatchObject({
-    subagentTranscripts: true,
-    interruptCascades: true,
-    resume: true,
-    steer: false,
-    backgroundVisibility: "none",
-  });
-  expect(cursorAdapter.capabilities({ ...cli, version: "2025.01.01-older" }).resume).toBe(false);
-});
+import { antigravityAdapter, createAcpAdapter } from "./index.ts";
 it("limits Antigravity controls to known server versions", () => {
   const cli = { installed: true, auth: "unknown" as const, loginHint: "server configuration" };
   expect(antigravityAdapter.capabilities(cli).resume).toBe(false);

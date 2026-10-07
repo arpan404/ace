@@ -104,10 +104,14 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
             version: "1.0.35",
             auth: "logged_out",
             authDetail: "none",
+            state: "not_configured",
+            actionId: "provider.sign_in",
+            loginHint: "Sign in to Cursor",
           }),
         ]),
       },
     });
+    expect(registry.summary("sdk-selected", 1000)?.quota.auth).toBe("logged_out");
     await writeFile(join(f.home, "sdk-safe-status"), "logged-in");
     client.send({ type: "providers.request", requestId: "in", operation: "refresh" });
     expect(await client.next()).toMatchObject({
@@ -122,6 +126,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
         ]),
       },
     });
+    expect(registry.summary("sdk-selected", 1000)?.quota.auth).toBe("logged_in");
     expect((await readFile(join(f.home, "sdk-calls"), "utf8")).trim().split("\n")).toEqual([
       `status:${join(selectedHome, "user")}`,
       `status:${join(selectedHome, "user")}`,

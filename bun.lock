@@ -693,6 +693,7 @@
       "name": "@ace/settings",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "jsonc-parser": "^3.3.1",
         "zod": "^4.6.5",
       },

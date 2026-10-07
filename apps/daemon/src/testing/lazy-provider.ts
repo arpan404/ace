@@ -15,6 +15,7 @@ export type LazyProvider =
 
 /** Real process handshakes at synthetic CLI/SDK boundaries; no provider is invoked. */
 export async function discoveredProvider(provider: LazyProvider, home: string) {
+  const cursor = provider === "cursor" || provider === "cursor-sdk";
   const cli = join(home, "provider");
   const fixture = new URL(
     provider === "claude" ? "./claude-controls.ts" : "./browser-mcp-cli.ts",
@@ -55,7 +56,7 @@ export async function discoveredProvider(provider: LazyProvider, home: string) {
     return { registry, env };
   }
   const host = join(home, "host.mjs");
-  if (provider === "cursor-sdk")
+  if (cursor)
     await writeFile(
       host,
       `
@@ -77,7 +78,7 @@ for await (const line of createInterface({input:process.stdin})) {
       claude: provider === "claude" ? installed : absent,
       codex: provider === "codex" ? installed : absent,
       opencode: provider === "opencode" ? installed : absent,
-      cursor: provider === "cursor" ? installed : absent,
+      cursor: absent,
     }),
     undefined,
     async () => {},
@@ -97,13 +98,13 @@ for await (const line of createInterface({input:process.stdin})) {
       },
     },
     async () => ({
-      installed: provider === "cursor-sdk",
-      supported: provider === "cursor-sdk",
+      installed: cursor,
+      supported: cursor,
       version: "1.0.35",
     }),
   );
   return {
     registry,
-    env: provider === "cursor-sdk" ? { ...env, HOME: join(instance.homeDir, "user") } : env,
+    env: cursor ? { ...env, HOME: join(instance.homeDir, "user") } : env,
   };
 }

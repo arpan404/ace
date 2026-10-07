@@ -1,3 +1,4 @@
+import { extensionQuirks } from "./testing/extension-quirks.ts";
 import { fileURLToPath } from "node:url";
 import { it, expect } from "vitest";
 import { apply, createThreadState } from "@ace/core";
@@ -6,12 +7,11 @@ import type { Frame } from "@ace/engine-api";
 import {
   openAcpSession,
   createAcpTranslator,
-  cursorQuirks,
   antigravityQuirks,
   createTranslatorIdentity,
 } from "./index.ts";
 import { object } from "./data.ts";
-async function setup(quirks = cursorQuirks) {
+async function setup(quirks = extensionQuirks) {
   const threadId = ThreadId.parse("shell-queue");
   const state = createThreadState({
     threadId,

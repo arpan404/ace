@@ -343,3 +343,63 @@ test("background catalog changes reach every authenticated read client and their
     },
   });
 });
+
+test("legacy Cursor catalog requests list and resolve the sole SDK instance", async () => {
+  const { f, catalog } = await setup();
+  catalog.registerInstance({
+    id: "cursor-sdk-default",
+    provider: "cursor",
+    backend: "cursor-sdk",
+    homeDir: f.home,
+    cwd: f.home,
+    loginRevision: "sdk",
+  });
+  await catalog.updateFromSession(
+    {
+      id: "cursor-sdk-default",
+      provider: "cursor",
+      backend: "cursor-sdk",
+      homeDir: f.home,
+      cwd: f.home,
+      loginRevision: "sdk",
+    },
+    {
+      models: {
+        currentModelId: "composer-2.5",
+        availableModels: [{ modelId: "composer-2.5", name: "Composer" }],
+      },
+    },
+  );
+  const client = await f.connect();
+  await nextReply(client);
+  client.send({
+    type: "models.list",
+    requestId: "legacy-list",
+    options: { provider: "cursor", instance: "cursor-cli-default", offset: 0, limit: 100 },
+  });
+  expect(await nextReply(client)).toMatchObject({
+    type: "models.result",
+    result: {
+      models: [
+        { provider: "cursor", instance: "cursor-sdk-default", nativeModelId: "composer-2.5" },
+      ],
+      instances: [{ instance: "cursor-sdk-default" }],
+    },
+  });
+  client.send({
+    type: "models.resolve",
+    requestId: "legacy-resolve",
+    roleSpec: {
+      role: "worker",
+      provider: "cursor",
+      instance: "cursor-cli-default",
+      selection: "default",
+      preferenceOrder: [],
+      imageInput: false,
+    },
+  });
+  expect(await nextReply(client)).toMatchObject({
+    type: "models.result",
+    result: { ok: true, model: { nativeModelId: "composer-2.5", instance: "cursor-sdk-default" } },
+  });
+});

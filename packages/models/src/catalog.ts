@@ -40,6 +40,7 @@ type State = {
   errorDetail?: ModelInstanceStatus["errorDetail"];
   dirty?: boolean;
   noModelSources?: Set<string>;
+  unconfiguredAt?: number;
   probe?: { abort: AbortController; done: Promise<void> };
   retryAt: number;
   backoff: DiscoveryBackoff;
@@ -213,6 +214,25 @@ export class ModelCatalog implements ModelCatalogApi {
       ...state.config,
       ...(sources?.length === 1 && sources[0] ? { source: sources[0].id } : {}),
     });
+    if (state.errorDetail.code === "not_configured") {
+      const first = state.unconfiguredAt === undefined;
+      state.unconfiguredAt = this.#options.now();
+      state.dirty = false;
+      delete state.error;
+      delete state.entry;
+      state.backoff.reset();
+      state.retryAt = 0;
+      if (first)
+        this.#options.onError?.(
+          state.config.provider,
+          state.config.id,
+          state.errorDetail,
+          undefined,
+          { level: "info", durationMs: Math.max(0, this.#options.now() - startedAt) },
+        );
+      return;
+    }
+    delete state.unconfiguredAt;
     state.backoff.retain(new Set(sources?.length ? sources.map((source) => source.id) : [""]));
     if (sources?.length) {
       for (const source of sources)
@@ -509,6 +529,7 @@ export class ModelCatalog implements ModelCatalogApi {
           state.dirty = false;
           delete state.error;
           delete state.errorDetail;
+          delete state.unconfiguredAt;
           this.#changed(state);
         }
       });
@@ -580,6 +601,8 @@ export class ModelCatalog implements ModelCatalogApi {
     return [...this.#states.values()].filter(matches);
   }
   #stale(state: State): boolean {
+    if (state.unconfiguredAt !== undefined && !state.dirty)
+      return this.#options.now() - state.unconfiguredAt >= (this.#options.ttlMs ?? 21_600_000);
     return (
       state.dirty === true ||
       state.error !== undefined ||
@@ -883,6 +906,7 @@ export class ModelCatalog implements ModelCatalogApi {
           state.dirty = false;
           delete state.error;
           delete state.errorDetail;
+          delete state.unconfiguredAt;
           const failing = new Set(
             entry.sources?.filter(sourceFailed).map((source) => source.source.id),
           );
@@ -893,7 +917,8 @@ export class ModelCatalog implements ModelCatalogApi {
               this.#reportFailure(state, source.error, startedAt, diagnostic, source.source);
           const noModels = new Set<string>();
           for (const source of entry.sources ?? []) {
-            if (source.error?.code !== "no_models") continue;
+            if (source.error?.code !== "no_models" && source.error?.code !== "not_configured")
+              continue;
             noModels.add(source.source.id);
             if (!state.noModelSources?.has(source.source.id))
               this.#options.onError?.(
@@ -922,6 +947,7 @@ export class ModelCatalog implements ModelCatalogApi {
             startedAt,
             diagnostic,
           );
+          if (state.unconfiguredAt !== undefined) await this.#deletions.remove(state.config.id);
           if (
             state.entry &&
             this.#states.get(state.config.id) === state &&

@@ -1,9 +1,25 @@
 import { z } from "zod";
 import { expect, test } from "vitest";
-import { readFile, writeFile, readdir, lstat, rm, symlink } from "node:fs/promises";
+import {
+  readFile,
+  writeFile,
+  readdir,
+  lstat,
+  rm,
+  symlink,
+  mkdtemp,
+  mkdir,
+  realpath,
+} from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { once } from "node:events";
 import { openRegistry } from "@ace/accounts";
-import type { ClientMessage } from "@ace/protocol";
+import { DeviceId, type ClientMessage } from "@ace/protocol";
+import { startDaemon, readConfig, AdapterRegistry } from "@ace/daemon";
+import { CursorTranslator, cursorCapabilities } from "@ace/adapter-cursor";
+import { Client } from "./socket-test-support.ts";
+import { cursorSdkDiscovery } from "./testing/cursor-sdk-discovery.ts";
 import { harness, poll } from "./account-management-test-support.ts";
 
 test("socket account lifecycle isolates login, refreshes models, persists defaults and unregisters without deleting homes", async () => {
@@ -123,7 +139,6 @@ test.each([
   ["codex", ["login"], "CODEX_HOME"],
   ["claude", ["auth", "login"], "CLAUDE_CONFIG_DIR"],
   ["opencode", ["auth", "login"], "XDG_DATA_HOME"],
-  ["cursor", ["login"], "CURSOR_CONFIG_DIR"],
   ["pi", [], "PI_CODING_AGENT_DIR"],
 ] as const)(
   "%s auth terminals run only the selected CLI with private environment and explicit home deletion",
@@ -143,7 +158,6 @@ test.each([
       expect(record.env.HOME).toBe(join(home, "user"));
       expect(record.env.TMPDIR).toBe(home);
       expect(record.env.OPENAI_API_KEY).toBeNull();
-      if (provider === "cursor") expect(record.env.AGENT_CLI_CREDENTIAL_STORE).toBe("file");
       // Completion and refresh finish before account changes are admitted again.
       await poll(async () => {
         const result = await f.request(f.owner, {
@@ -159,7 +173,7 @@ test.each([
         .split("\n")
         .map((line) => z.object({ provider: z.string() }).parse(JSON.parse(line)));
       expect(new Set(invocations.map((invocation) => invocation.provider))).toEqual(
-        new Set([provider === "cursor" ? "agent" : provider]),
+        new Set([provider]),
       );
 
       expect(
@@ -177,6 +191,179 @@ test.each([
     }
   },
 );
+
+test("Cursor SDK browser sign-in uses its private environment and deletes homes only when requested", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-cursor-managed-")));
+  const dataDir = join(root, "daemon");
+  const normalHome = join(root, "normal-home");
+  await mkdir(normalHome);
+  await writeFile(join(normalHome, "untouched"), "editor home sentinel");
+  const entry = join(root, "auth-sdk.mjs");
+  await writeFile(
+    entry,
+    `
+import {createInterface} from 'node:readline';
+import {mkdirSync,writeFileSync,existsSync,watch} from 'node:fs';
+import {join,dirname} from 'node:path';
+const home = process.env.HOME;
+const marker = join(home,'fixture-signed-in');
+const output = value => console.log(JSON.stringify(value));
+createInterface({input:process.stdin}).on('line', requestLine => {
+  const request = JSON.parse(requestLine);
+  if(request.method === 'login') {
+    mkdirSync(home,{recursive:true});
+    writeFileSync(join(dirname(home),'fixture-sdk-launch.json'), JSON.stringify({
+      args:process.argv.slice(2),
+      env:Object.fromEntries(['HOME','TMPDIR','OPENAI_API_KEY','CURSOR_CONFIG_DIR','AGENT_CLI_CREDENTIAL_STORE'].map(key=>[key,process.env[key] ?? null]))
+    }));
+    const authorized = watch(home, () => {
+      if(!existsSync(join(home,'fixture-authorized'))) return;
+      authorized.close();
+      writeFileSync(marker,'SDK sign-in sentinel');
+      output({id:request.id,result:{status:'logged-in',source:'sdk-store'}});
+    });
+    output({method:'login-url',params:{url:'https://cursor.com/login?challenge=fixture-sdk'}});
+  } else if(request.method === 'status') {
+    output({id:request.id,result:existsSync(marker) ? {status:'logged-in',source:'sdk-store'} : {status:'logged-out',source:'none'}});
+  } else if(request.method === 'models') output({id:request.id,result:[]});
+  else output({id:request.id,result:{disposed:true}});
+});`,
+  );
+  const registry = new AdapterRegistry();
+  registry.register(
+    {
+      provider: "cursor",
+      backend: "cursor-sdk",
+      capabilities: () => cursorCapabilities,
+      createTranslator: (init) => new CursorTranslator(init),
+      async openSession() {
+        throw new Error("This fixture only signs in");
+      },
+    },
+    { installed: true, auth: "unknown", loginHint: "offline" },
+  );
+  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
+  let client: Client | undefined;
+  try {
+    const env = { HOME: normalHome, PATH: root, OPENAI_API_KEY: "ambient-fixture-value" };
+    daemon = await startDaemon({
+      config: readConfig({ ACE_HOME: dataDir, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }, root),
+      modelInstances: [],
+      accounts: { env },
+      engine: { registry, cursor: { entry, env, discovery: cursorSdkDiscovery } },
+    });
+    const socket = new Client(daemon.url);
+    client = socket;
+    await once(socket.socket, "open");
+    socket.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse("sdk-auth-test"),
+      token: await readFile(daemon.tokenPath, "utf8"),
+    });
+    await socket.next();
+    const request = async (message: ClientMessage) => {
+      socket.send(message);
+      for (;;) {
+        const reply = await socket.next();
+        if ("requestId" in message && "requestId" in reply && message.requestId === reply.requestId)
+          return reply;
+      }
+    };
+    const added = await request({
+      type: "accounts.add",
+      requestId: "add",
+      provider: "cursor",
+      label: "Work",
+    });
+    if (added.type !== "accounts.changed" || !added.account) throw new Error(JSON.stringify(added));
+    const account = added.account;
+    const home = join(dataDir, "account-homes", account.id);
+    const login = await request({
+      type: "cursor.auth.start",
+      requestId: "login",
+      instanceId: account.id,
+    });
+    if (login.type !== "cursor.auth.login") throw new Error(JSON.stringify(login));
+    const pollLogin = () =>
+      request({ type: "cursor.auth.poll", requestId: "poll", loginId: login.loginId });
+    let progress = await pollLogin();
+    while (progress.type === "cursor.auth.login" && progress.state === "starting")
+      progress = await pollLogin();
+    expect(progress).toMatchObject({
+      state: "browser",
+      url: "https://cursor.com/login?challenge=fixture-sdk",
+    });
+    const launch: unknown = JSON.parse(
+      await readFile(join(home, "fixture-sdk-launch.json"), "utf8"),
+    );
+    const record = z
+      .object({ args: z.array(z.string()), env: z.record(z.string(), z.string().nullable()) })
+      .parse(launch);
+    expect(record.env).toMatchObject({
+      HOME: join(home, "user"),
+      TMPDIR: home,
+      OPENAI_API_KEY: null,
+      CURSOR_CONFIG_DIR: null,
+      AGENT_CLI_CREDENTIAL_STORE: null,
+    });
+    expect(record.args).not.toContain("login");
+    await writeFile(join(home, "user", "fixture-authorized"), "browser approved");
+    do {
+      progress = await pollLogin();
+    } while (
+      progress.type === "cursor.auth.login" &&
+      (progress.state === "starting" || progress.state === "browser")
+    );
+    expect(progress).toMatchObject({
+      state: "complete",
+      auth: { status: "logged-in", source: "sdk-store" },
+    });
+    expect(
+      await request({ type: "accounts.status", requestId: "status", instanceId: account.id }),
+    ).toMatchObject({ account: { quota: { auth: "logged_in" } } });
+    const retained = await request({
+      type: "accounts.add",
+      requestId: "retained",
+      provider: "cursor",
+      label: "Retained",
+    });
+    if (retained.type !== "accounts.changed" || !retained.account)
+      throw new Error("Missing retained account");
+    const retainedHome = join(dataDir, "account-homes", retained.account.id);
+    expect(
+      await request({
+        type: "accounts.remove",
+        requestId: "unregister",
+        instanceId: retained.account.id,
+        deleteHome: false,
+      }),
+    ).toMatchObject({ type: "accounts.changed", account: null });
+    expect((await lstat(retainedHome)).isDirectory()).toBe(true);
+    expect(
+      await request({
+        type: "accounts.remove",
+        requestId: "delete",
+        instanceId: account.id,
+        deleteHome: true,
+      }),
+    ).toMatchObject({ type: "accounts.changed", account: null });
+    await expect(lstat(home)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await lstat(retainedHome)).isDirectory()).toBe(true);
+    expect(await readdir(normalHome)).toEqual(["untouched"]);
+    expect(JSON.stringify(daemon.store.readEvents({ afterSeq: 0, limit: 10000 }))).not.toContain(
+      "fixture-sdk",
+    );
+    expect((await readFile(join(dataDir, "accounts.sqlite"))).toString()).not.toContain(
+      "ambient-fixture-value",
+    );
+  } finally {
+    await client?.close();
+    await daemon?.close();
+    await registry.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("normal CLI accounts are immutable and a replaced managed home cannot delete an outside directory", async () => {
   const f = await harness();

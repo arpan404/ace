@@ -145,3 +145,5 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
     },
   };
 }
+
+export { createCursorLoginDriver, type CursorLoginProgress } from "./login.ts";

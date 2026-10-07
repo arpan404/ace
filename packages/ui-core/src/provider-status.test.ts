@@ -101,3 +101,40 @@ test("with no ready provider, an installed but signed-out one starts so the comp
     startingProvider({ chosen: "claude", lastUsed: "claude", providers: statuses({}) }),
   ).toBeUndefined();
 });
+
+test("Cursor appears once with SDK setup action and the retired CLI account is hidden", () => {
+  const listed = providerStatuses(
+    new Set(["cursor"]),
+    [account("cursor-cli-default", "cursor"), account("cursor-sdk-default", "cursor", false)],
+    [
+      {
+        provider: "cursor",
+        runtime: "cli",
+        stale: false,
+        refreshing: false,
+        installed: true,
+        auth: "logged_in",
+        loginHint: "legacy",
+      },
+      {
+        provider: "cursor",
+        runtime: "cursor-sdk",
+        stale: false,
+        refreshing: false,
+        installed: true,
+        auth: "logged_out",
+        loginHint: "Sign in to Cursor",
+        state: "not_configured",
+        actionId: "provider.sign_in",
+      },
+    ],
+  ).filter((row) => row.provider === "cursor");
+  expect(listed).toHaveLength(1);
+  expect(listed[0]).toMatchObject({
+    name: "Cursor",
+    state: "signed_out",
+    binary: "@cursor/sdk",
+    actionId: "provider.sign_in",
+  });
+  expect(listed[0]?.accounts.map((row) => row.id)).toEqual(["cursor-sdk-default"]);
+});

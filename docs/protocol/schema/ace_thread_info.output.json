@@ -375,6 +375,29 @@
           ],
           "type": "object"
         },
+        "continuation": {
+          "additionalProperties": false,
+          "properties": {
+            "actionId": {
+              "const": "thread.continue_new",
+              "type": "string"
+            },
+            "reason": {
+              "const": "cursor_cli_retired",
+              "type": "string"
+            },
+            "state": {
+              "const": "read_only",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "reason",
+            "actionId"
+          ],
+          "type": "object"
+        },
         "createdAt": {
           "maximum": 9007199254740991,
           "minimum": 0,

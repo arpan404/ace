@@ -1,3 +1,4 @@
+import { cursorSdkEnvironment } from "@ace/adapter-cursor/instance";
 import { opendir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { discoverProvider, discoverPi, type DiscoveryOptions } from "@ace/provider-kit/discovery";
@@ -92,22 +93,16 @@ export function instanceEnv(
     });
   }
   for (const key of authOverrides) env[key] = undefined;
-  // Cursor has a separate documented configuration override; keep it on the same home.
-  if (parsed.provider === "cursor") {
-    env["CURSOR_CONFIG_DIR"] = parsed.homeDir;
-    // The CLI's default macOS keychain is global. Its native file store follows
-    // HOME/XDG_CONFIG_HOME instead of CURSOR_DATA_DIR; the CLI owns auth entry.
-    env["AGENT_CLI_CREDENTIAL_STORE"] = "file";
-    env["HOME"] = join(parsed.homeDir, "user");
-    env["USERPROFILE"] = join(parsed.homeDir, "user");
-    env["APPDATA"] = join(parsed.homeDir, "appdata");
-    env["XDG_CONFIG_HOME"] = join(parsed.homeDir, "config");
-  }
   if (parsed.provider === "cursor" && backend === "cursor-sdk")
     env["CURSOR_API_KEY"] = base["CURSOR_API_KEY"];
-  return { ...env, ...parsed.env };
+  const selected = { ...env, ...parsed.env };
+  return parsed.provider === "cursor" && backend === "cursor-sdk"
+    ? cursorSdkEnvironment({ id: parsed.id, homeDir: parsed.homeDir }, selected)
+    : selected;
 }
 export async function loginStatus(instance: ProviderInstance, options: DiscoveryOptions = {}) {
+  if (instance.provider === "cursor")
+    throw new Error("Cursor status requires the SDK account driver");
   if (instance.provider === "acp")
     return {
       installed: false,
@@ -121,14 +116,6 @@ export async function loginStatus(instance: ProviderInstance, options: Discovery
     ...options,
     env: instanceEnv(instance, options.env ?? process.env),
   });
-  // This credential-store selector is hidden, so do not trust unknown releases
-  // to isolate auth merely because they accept data/config directory variables.
-  if (instance.provider === "cursor" && result.version !== "2026.09.26-dd393fe")
-    return {
-      ...result,
-      auth: "unknown" as const,
-      error: "Cursor account isolation is not verified for this CLI version",
-    };
   return result;
 }
 export function loginArgs(
@@ -142,7 +129,8 @@ export function loginArgs(
   }
   if (provider === "pi") return [];
   if (provider === "claude") return ["auth", "login", mode === "api" ? "--console" : "--claudeai"];
-  return provider === "cursor" ? ["login"] : ["auth", "login"];
+  if (provider === "cursor") throw new Error("Sign in to Cursor through the SDK browser flow");
+  return ["auth", "login"];
 }
 
 /** Conventional homes only; no auth files, no recursion, capped inventory. */
@@ -152,16 +140,10 @@ export async function discoverHomes(userHome: string): Promise<ProviderInstance[
   for await (const entry of directory) {
     if (results.length >= 256) break;
     if (!entry.isDirectory()) continue;
-    const match = /^\.(codex|claude|cursor|opencode)(?:[-_][\w.-]+)?$/.exec(entry.name);
+    const match = /^\.(codex|claude|opencode)(?:[-_][\w.-]+)?$/.exec(entry.name);
     if (!match) continue;
     const provider = match[1];
-    if (
-      provider !== "codex" &&
-      provider !== "claude" &&
-      provider !== "cursor" &&
-      provider !== "opencode"
-    )
-      continue;
+    if (provider !== "codex" && provider !== "claude" && provider !== "opencode") continue;
     const home = join(userHome, entry.name);
     if (
       entry.name.length > 128 ||

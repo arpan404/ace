@@ -70,7 +70,8 @@ export async function migrateSession(
       if (request.provider === "cursor")
         return {
           status: "unsupported",
-          reason: "Cursor ACP store portability and resume/fork are not a supported contract",
+          reason:
+            "Cursor SDK checkpoints cannot migrate accounts; continue through a portable context handoff",
         };
       const id = NativeSessionId.parse(request.nativeSessionId);
       const sourceHome = await realpath(from.homeDir);

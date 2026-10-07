@@ -68,6 +68,7 @@ createInterface({input:process.stdin}).on('line', line => {
           listen: "local",
           logLevel: "silent",
         },
+        modelInstances: [],
         engine: {
           registry,
           threadId: () => "default-thread",
@@ -97,7 +98,6 @@ createInterface({input:process.stdin}).on('line', line => {
       ).toMatchObject({
         accounts: expect.arrayContaining([
           expect.objectContaining({ id: "cursor-sdk-default", implicit: false }),
-          expect.objectContaining({ id: "cursor-cli-default", implicit: true }),
         ]),
       });
       expect(
@@ -140,6 +140,7 @@ createInterface({input:process.stdin}).on('line', line => {
         payload: {
           type: "thread.create",
           provider: "cursor",
+          permissionMode: "full-access",
           workspaceId,
           input: [{ type: "text", text: "offline boundary" }],
         },

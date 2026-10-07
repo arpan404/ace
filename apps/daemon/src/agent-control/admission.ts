@@ -1,3 +1,5 @@
+import { delegationRequest } from "./cursor-request.ts";
+import { cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { AgentControlError, controlAdmissionError } from "./failure.ts";
 import { delegationModel } from "./models.ts";
 import { callerThread } from "./authorization.ts";
@@ -7,7 +9,7 @@ import { AccountProvider } from "@ace/protocol/accounts";
 import {
   Command,
   AcpIdentity,
-  DelegationRequest,
+  type DelegationRequest,
   ThreadId,
   type McpAttribution,
   type WorkspaceId,
@@ -42,7 +44,7 @@ export class DelegationAdmission {
     if (!this.deps.engine.providerAvailability(input.provider).installed)
       throw new AgentControlError(
         "provider_unavailable",
-        `No installed CLI adapter for ${input.provider}`,
+        `No installed provider adapter for ${input.provider}`,
       );
 
     if (
@@ -70,7 +72,7 @@ export class DelegationAdmission {
     resultDelivery?: "owner",
     configuredModel?: string,
   ): DelegationReservation {
-    const input = DelegationRequest.parse(value);
+    const input = delegationRequest(value);
     return this.deps.store.atomic(() => {
       this.validate(caller, input);
       const existing = this.journal.reservation(caller.threadId, input.requestId);
@@ -129,7 +131,9 @@ export class DelegationAdmission {
         this.deps.models,
         input,
         callerThread(this.deps.store, caller),
-        selected?.id ?? input.instanceId ?? `${input.provider}-cli-default`,
+        selected?.id ??
+          input.instanceId ??
+          (input.provider === "cursor" ? cursorDefaultInstanceId : `${input.provider}-cli-default`),
         configuredModel,
       );
       const reservation: DelegationReservation = {
@@ -160,7 +164,7 @@ export class DelegationAdmission {
   ) {
     if (
       record.parentAgentId !== caller.agentId ||
-      JSON.stringify(record.request) !== JSON.stringify(input)
+      JSON.stringify(delegationRequest(record.request)) !== JSON.stringify(delegationRequest(input))
     )
       throw new Error("Request identity conflict");
   }

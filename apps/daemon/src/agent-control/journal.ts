@@ -1,3 +1,5 @@
+import { delegationRequest } from "./cursor-request.ts";
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { AgentControlError } from "./failure.ts";
 import { counterPolicy, accountSample, Counts } from "@ace/usage";
 import type { StatementSync } from "node:sqlite";
@@ -107,7 +109,8 @@ export class DelegationJournal {
     return statement;
   }
   private decode(value: unknown) {
-    return DelegationRecord.parse(JSON.parse(z.string().parse(value)));
+    const record = DelegationRecord.parse(JSON.parse(z.string().parse(value)));
+    return { ...record, request: delegationRequest(record.request) };
   }
   get(child: string): DelegationRecord | undefined {
     const row = this.sql("SELECT record FROM delegated_threads WHERE child_id=?").get(child);
@@ -153,18 +156,26 @@ export class DelegationJournal {
     if (row.receipts + row.reservations >= this.capacity)
       throw new AgentControlError("delegation_limit", "Delegation journal capacity");
   }
+  private decodeReservation(value: unknown) {
+    const reservation = DelegationReservation.parse(JSON.parse(z.string().parse(value)));
+    return {
+      ...reservation,
+      record: { ...reservation.record, request: delegationRequest(reservation.record.request) },
+      ...(reservation.record.request.provider === "cursor" && reservation.accountId
+        ? { accountId: cursorInstanceId(reservation.accountId) }
+        : {}),
+    };
+  }
   reservation(parent: ThreadId, request: string) {
     const row = this.sql(
       "SELECT reservation FROM delegation_reservations WHERE parent_id=? AND request_id=?",
     ).get(parent, request);
-    return row
-      ? DelegationReservation.parse(JSON.parse(z.string().parse(row.reservation)))
-      : undefined;
+    return row ? this.decodeReservation(row.reservation) : undefined;
   }
   reservations() {
     return this.sql("SELECT reservation FROM delegation_reservations ORDER BY child_id LIMIT 4")
       .all()
-      .map((row) => DelegationReservation.parse(JSON.parse(z.string().parse(row.reservation))));
+      .map((row) => this.decodeReservation(row.reservation));
   }
   reserve(reservation: DelegationReservation) {
     this.assertCapacity();

@@ -73,6 +73,13 @@ export const Thread = z.object({
   titleSource: z.enum(["provisional", "provider", "person", "agent"]).optional(),
   provider: ProviderKind,
   backend: z.enum(["acp", "cursor-sdk"]).optional(),
+  continuation: z
+    .object({
+      state: z.literal("read_only"),
+      reason: z.literal("cursor_cli_retired"),
+      actionId: z.literal("thread.continue_new"),
+    })
+    .optional(),
   capabilities: Capabilities.optional(),
   permission: PermissionState.optional(),
   handoff: z

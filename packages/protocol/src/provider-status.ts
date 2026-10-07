@@ -14,6 +14,8 @@ export const ProviderStatus = z.object({
   authDetail: z.string().max(1024).optional(),
   authEvidence: z.literal("credentials_configured").optional(),
   loginHint: z.string().max(1024),
+  actionId: z.literal("provider.sign_in").optional(),
+  state: z.literal("not_configured").optional(),
   error: z.string().max(1024).optional(),
   checkedAt: z.number().nonnegative().optional(),
   stale: z.boolean(),

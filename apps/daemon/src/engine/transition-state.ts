@@ -1,3 +1,4 @@
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { NativeSessionId } from "@ace/protocol";
 import { z } from "zod";
 import { HandoffAccess } from "../handoff-access.ts";
@@ -111,15 +112,13 @@ export class TransitionState {
     const same = previous.provider === requested.provider;
     const model =
       requested.model ?? (same ? previous.model : this.latest(id, requested.provider)?.model);
+    const selectedId = requested.instanceId ?? (same ? previous.instanceId : undefined);
+    const instanceId = requested.provider === "cursor" ? cursorInstanceId(selectedId) : selectedId;
     const remembered = this.options(id, requested.provider, model ?? "");
     return ExecutionSelection.parse({
       provider: requested.provider,
       ...(model === undefined ? {} : { model }),
-      ...(requested.instanceId
-        ? { instanceId: requested.instanceId }
-        : same && previous.instanceId
-          ? { instanceId: previous.instanceId }
-          : {}),
+      ...(instanceId ? { instanceId } : {}),
       options:
         requested.options ??
         remembered ??

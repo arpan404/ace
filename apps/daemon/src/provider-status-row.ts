@@ -21,6 +21,11 @@ export function providerStatusRow(
     stale: false,
     refreshing: false,
   };
+  if (result.installed && result.auth === "logged_out") {
+    result.state = "not_configured";
+    result.actionId = "provider.sign_in";
+    if (result.provider === "cursor") result.loginHint = "Sign in to Cursor";
+  }
   let invalid = false;
   const path = shape.path.safeParse(observation?.path);
   if (path.success && path.data !== undefined) result.path = path.data;

@@ -12,7 +12,14 @@ export function createPermissionsSession(context: SocketContext): SocketService 
       try {
         const engine = context.options.engine;
         if (!engine) throw new Error("Permission metadata unavailable");
-        const permissions = engine.capabilities(message.provider, message.backend).permissions;
+        const permissions = engine.capabilities(
+          message.provider,
+          message.provider === "cursor"
+            ? "cursor-sdk"
+            : message.backend === "cli"
+              ? undefined
+              : message.backend,
+        ).permissions;
         context.send({
           type: "permissions.capabilities.result",
           requestId: message.requestId,

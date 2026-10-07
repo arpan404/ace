@@ -2,8 +2,7 @@ import type { LaunchPlan } from "@ace/agent-registry";
 import { randomUUID } from "node:crypto";
 import { createTranslatorIdentity, type TranslatorIdentity } from "./identity.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
-import { discoverProvider, findExecutable } from "@ace/provider-kit/discovery";
-import { cursorQuirks } from "./quirks/cursor.ts";
+import { findExecutable } from "@ace/provider-kit/discovery";
 import { antigravityQuirks } from "./quirks/antigravity.ts";
 import { genericQuirks } from "./quirks/generic.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
@@ -59,29 +58,15 @@ export function createAcpAdapter(
       }
       const command = ctx.executable ?? options.command ?? quirks.command;
       if (!command) throw new Error("A generic ACP adapter requires a user-installed command");
-      let path: string | undefined;
-      let version: string | undefined;
-      if (quirks.provider === "cursor") {
-        const cli = await discoverProvider("cursor", {
-          overrides: { cursor: command },
-          env,
-          signal: ctx.signal,
-        });
-        path = cli.path;
-        version = cli.version;
-      } else {
-        path = await findExecutable(command, { ...process.env, ...env });
-      }
+      const path = await findExecutable(command, { ...process.env, ...env });
       if (!path) throw new Error(`Installed ACP CLI not found: ${command}`);
       return openAcpSession(ctx, quirks, {
         command: path,
         args: options.args ?? quirks.args,
         env,
-        ...(version ? { version } : {}),
       });
     },
   };
 }
-export const cursorAdapter = createAcpAdapter(cursorQuirks);
 export const antigravityAdapter = createAcpAdapter(antigravityQuirks);
-export const adapter = cursorAdapter;
+export const adapter = createAcpAdapter();

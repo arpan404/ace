@@ -486,3 +486,32 @@ test("OpenCode's exact pwd input cannot auto-approve an outside working director
     await h.close();
   }
 });
+
+test("old Cursor permission backend values resolve to SDK metadata without opening a provider", async () => {
+  const frames = scriptFrames();
+  const permissions = createCursorAdapter().capabilities({
+    installed: true,
+    auth: "unknown",
+    loginHint: "unused",
+  });
+  const h = await harness([], frames, { provider: "cursor", capabilities: permissions });
+  try {
+    const client = await h.connect("legacy");
+    for (const backend of ["cli", "acp", "cursor-sdk"] as const) {
+      client.send({
+        type: "permissions.capabilities",
+        requestId: backend,
+        provider: "cursor",
+        backend,
+      });
+      expect(await client.next()).toMatchObject({
+        type: "permissions.capabilities.result",
+        ok: true,
+        permissions: { toolGate: false, nativeAutoReview: false },
+      });
+    }
+    expect(h.contexts).toHaveLength(0);
+  } finally {
+    await h.close();
+  }
+});

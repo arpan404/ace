@@ -5,18 +5,11 @@ import { probeOutput } from "../process.ts";
 import {
   parseClaudeAuth,
   parseCodexAuth,
-  parseCursorAuth,
   parseOpenCodeAuth,
   parseVersion,
   type AuthStatus,
 } from "./parsers.ts";
-export {
-  parseClaudeAuth,
-  parseCodexAuth,
-  parseCursorAuth,
-  parseOpenCodeAuth,
-  parseVersion,
-} from "./parsers.ts";
+export { parseClaudeAuth, parseCodexAuth, parseOpenCodeAuth, parseVersion } from "./parsers.ts";
 export type { AuthStatus } from "./parsers.ts";
 
 const ProviderSchema = z.enum(["claude", "codex", "opencode", "cursor"]);
@@ -50,14 +43,8 @@ const specs = {
     parse: parseOpenCodeAuth,
     loginHint: "opencode auth login",
   },
-  cursor: {
-    command: "agent",
-    authArgs: ["status"],
-    parse: parseCursorAuth,
-    loginHint: "agent login",
-  },
 } satisfies Record<
-  Provider,
+  Exclude<Provider, "cursor">,
   { command: string; authArgs: string[]; parse: (text: string) => AuthStatus; loginHint: string }
 >;
 
@@ -65,6 +52,7 @@ const specs = {
 export function defaultProviderExecutable(provider: Provider | "pi" | "antigravity"): string {
   if (provider === "pi") return "pi";
   if (provider === "antigravity") return "agy";
+  if (provider === "cursor") return "";
   return specs[provider].command;
 }
 
@@ -82,6 +70,8 @@ export async function discoverProvider(
 ): Promise<DiscoveryResult> {
   options.signal?.throwIfAborted();
   const provider = ProviderSchema.parse(input);
+  if (provider === "cursor")
+    return { installed: false, auth: "unknown", loginHint: "Sign in to Cursor" };
   const env = { ...process.env, ...options.env };
   const spec = specs[provider];
   const result: DiscoveryResult = {
@@ -137,7 +127,7 @@ export async function discoverProviders(
     discoverProvider("claude", options),
     discoverProvider("codex", options),
     discoverProvider("opencode", options),
-    discoverProvider("cursor", options),
+    Promise.resolve({ installed: false, auth: "unknown" as const, loginHint: "Sign in to Cursor" }),
   ]);
   return { claude, codex, opencode, cursor };
 }

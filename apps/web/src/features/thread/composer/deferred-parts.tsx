@@ -57,3 +57,7 @@ export function preloadComposerParts(): Promise<unknown> {
 export function ControlsPending() {
   return <span aria-hidden className="h-(--composer-control) w-40 shrink" />;
 }
+
+export const DeferredCursorContinuation = deferredComponent(() =>
+  import("./cursor-continuation.tsx").then((module) => module.CursorContinuation),
+);

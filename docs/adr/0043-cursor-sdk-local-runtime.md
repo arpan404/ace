@@ -123,3 +123,76 @@ authorize fixture recording or subscription spending.
 The implementation is clean room. t3code's public user documentation is an
 approach reference only; ace's code comes from its own contract and primary
 Cursor sources. Cursor Cloud and a hosted ace service are outside this decision.
+
+## Amendment: one Cursor provider and sign-in
+
+Accepted 2026-10-07 for the owner's single-provider request. This supersedes the
+Cursor ACP fallback and continuation decision above. Generic registry ACP agents
+remain supported; Cursor itself runs only through the SDK.
+
+The installed dependency was inspected again after `bun install`, without
+accessing any user credential files. `@cursor/sdk` is pinned to 1.0.35. Its
+published `dist/esm/index.js` contains the modules
+`src/agent/auth/credential-store.ts`, `login-flow.ts`, `stored-credentials.ts`
+and the public browser login implementation. `dist/esm/auth/login.d.ts` describes
+that public interface. The source and [official authentication reference](https://cursor.com/docs/sdk/typescript#cursorauth)
+establish the following behavior:
+
+- The resolver reads an explicit key, then `CURSOR_API_KEY`, then the SDK's own
+  default store. It does not read the CLI/app credential store or macOS keychain.
+- Browser login creates a challenge with `redirectTarget=sdk`, polls the provider,
+  mints an expiring API key and persists it through `FileCredentialStore`.
+  It is not an API-key-only setup. Browser authentication can reuse a user's
+  existing website session, but that is not CLI credential reuse.
+- The default store is `~/.cursor/sdk/auth.json`, resolved from the SDK host's
+  home. ace sets that home to `<instance.homeDir>/user` before import, so the
+  owner's editor directory is never read or changed. The SDK owns this file.
+- Login's key-bearing result is discarded inside the host. Only an ephemeral
+  challenge URL and sanitized status reach ace. User-provided keys may remain in
+  the launch environment and go directly to the SDK, as ADR 0002 allows.
+
+Every provider list now has one product, Cursor. Its existing SDK default identity
+is retained to preserve SDK logins and checkpoints. The implicit
+`cursor-cli-default` row and its selection are retired before filesystem
+canonicalization. Old client selections of that account map to
+`cursor-sdk-default`. SDK auth selection and generic account defaults now share
+one selection owner; persisted SDK selections are still read. Cursor executable overrides are removed from settings;
+other preferences and JSONC comments survive. Automations already persist a
+provider kind without a backend. Cursor jobs and delegations therefore select
+the SDK through the same engine and account boundary as new human threads.
+Legacy ACP and CLI permission-preview values still parse and resolve to Cursor's
+SDK capabilities.
+
+Unused CLI threads with no native session, transcript or outstanding intent move
+to the SDK. Used CLI threads keep their saved history and native ACP identity,
+open read-only, and offer "Continue in a new thread". That action uses the existing
+bounded portable-context handoff and scoped history tools. It creates a fresh SDK
+session; there is no verified ACP-to-SDK native resume conversion. Read-only
+threads reject execution commands and cannot reopen a provider process on
+restart. Their interrupted work is still reconciled by the ordinary engine
+recovery rules rather than being claimed as completed.
+
+A cross-provider `thread.switch` into Cursor uses the ordinary bounded portable
+handoff. It clears the source native identity before opening a fresh SDK agent;
+subsequent restarts resume only that new SDK identity. This is not native
+checkpoint conversion. Switching out of an existing SDK thread or changing its
+account remains refused: keep its pinned checkpoint and use `thread.create` with
+`handoffFrom` (or a portable fork) for a fresh destination thread. The safety
+contract in both directions is fresh portable context without reusing or copying
+the source native checkpoint, rather than a blanket rejection of entering Cursor.
+Used CLI threads remain read-only and must use their new-thread continuation.
+
+`createCursorLoginDriver(instance, accountDriver).start(signal)` in
+`@ace/adapter-cursor` emits an async stream of safe progress. Its states match the
+existing SDK browser auth wire: starting, browser, complete, failed, cancelled.
+There is no user code for this SDK version. Cancellation and consumer closure
+abort and drain the isolated host operation. Challenges have no persistence or
+replay path. The parallel in-app sign-in work can bind this small interface to
+its flow without introducing another Cursor backend or credential store.
+
+Installed providers with `not_configured` model discovery publish information,
+not a failure retry schedule. They provide `actionId: provider.sign_in`, and
+Cursor's hint is "Sign in to Cursor". Explicit refresh, changed login identity,
+installation/configuration change and maximum cache age cause rechecks. Provider
+status also exposes `state: not_configured` and the sign-in action for an
+installed, logged-out provider. Other discovery failures retain their backoff.

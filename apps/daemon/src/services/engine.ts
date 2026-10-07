@@ -77,7 +77,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         .some(({ instance }) => instance.provider === "cursor" && !instance.implicit)
     )
       await accountRegistry.register(
-        createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor SDK" }),
+        createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor" }),
       );
   };
   const bindProvider = (source: ProviderAdapter) => {

@@ -39,6 +39,20 @@ export function engineHandler(
     handle(command: Command, context): CommandResult {
       const payload = command.payload;
       if (
+        "threadId" in payload &&
+        payload.threadId &&
+        repo.store.getThread(ThreadId.parse(payload.threadId))?.continuation &&
+        !["thread.archive", "thread.fork"].includes(payload.type)
+      )
+        return {
+          commandId: command.id,
+          ok: false,
+          error: "cursor_cli_retired",
+          title: "This Cursor thread is read-only",
+          detail: "Continue in a new thread to carry its history to Cursor.",
+        };
+
+      if (
         providerEnabled &&
         providerCommandDisabled(payload, {
           thread(id) {

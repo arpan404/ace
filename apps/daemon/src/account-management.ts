@@ -1,3 +1,4 @@
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { fileURLToPath } from "node:url";
 import {
   AccountManagementRequest,
@@ -83,6 +84,7 @@ export class AccountManagement {
         this.options.signal?.throwIfAborted();
         await assertManagedHome(this.options.dataDir, instance);
         const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
+        if (instance.provider === "cursor" && !sdk) continue;
         const env = instanceEnv(
           instance,
           sdk?.env ?? this.options.env,
@@ -140,10 +142,14 @@ export class AccountManagement {
       return changed(id);
     }
     if (request.type === "accounts.setDefault") {
-      if (this.account(request.instanceId).provider !== request.provider)
+      const instanceId =
+        (request.provider === "cursor"
+          ? cursorInstanceId(request.instanceId)
+          : request.instanceId) ?? request.instanceId;
+      if (this.account(instanceId).provider !== request.provider)
         throw new Error("Provider mismatch");
-      registry.selectProvider(request.provider, request.instanceId);
-      return changed(request.instanceId);
+      registry.selectProvider(request.provider, instanceId);
+      return changed(instanceId);
     }
     const instance = this.editable(request.instanceId);
     if (instance.provider === "cursor" && this.options.cursor?.()?.busy(instance.id))
@@ -217,6 +223,7 @@ export class AccountManagement {
     const { instance, action } = entry;
     await assertManagedHome(this.options.dataDir, instance);
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
+    if (instance.provider === "cursor" && !sdk) throw new Error("Cursor SDK is unavailable");
     entry.sdk = !!sdk;
     const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);
     const status = sdk
@@ -238,7 +245,7 @@ export class AccountManagement {
           instance.homeDir,
           action,
         ]
-      : instance.provider === "codex" || instance.provider === "cursor"
+      : instance.provider === "codex"
         ? [action]
         : instance.provider === "claude" || instance.provider === "opencode"
           ? ["auth", action]
@@ -311,6 +318,7 @@ export class AccountManagement {
     if (instance.provider === "acp") return;
     const { registry, models, now } = this.options;
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
+    if (instance.provider === "cursor" && !sdk) return;
     const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);
     const status = sdk
       ? { auth: await sdk.status(instance), path: "" }

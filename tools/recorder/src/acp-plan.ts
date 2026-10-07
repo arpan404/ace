@@ -1,25 +1,6 @@
 /** Definitions only. Nothing in this module starts a CLI or grants recording approval. */
 export const ACP_RECORDING_PLAN = [
   {
-    agent: "cursor",
-    model: "composer-2.5",
-    versions: "installed and owner-selected upgrade",
-    scenarios: [
-      "tool-read",
-      "approval-edit",
-      "question",
-      "plan-review",
-      "subagent",
-      "subagent-background",
-      "background-shell",
-      "interrupt",
-      "registry-identity",
-      "mcp-injection",
-      "restart",
-      "selectors",
-    ],
-  },
-  {
     agent: "antigravity-acp",
     versions: "reviewed installed server; separate terms/auth resolution",
     scenarios: ["tool-read", "approval-edit", "hidden-child", "surviving-shell", "interrupt"],
@@ -148,6 +129,5 @@ export const ACP_RECORDING_PLAN = [
   },
 ] as const;
 export const OWNER_RECORDING_MODELS = {
-  cursor: "composer-2.5",
   opencode: "opencode-go/muse-spark-1.3-contributor",
 } as const;

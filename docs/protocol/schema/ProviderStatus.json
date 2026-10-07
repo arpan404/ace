@@ -7,6 +7,10 @@
       "minLength": 1,
       "type": "string"
     },
+    "actionId": {
+      "const": "provider.sign_in",
+      "type": "string"
+    },
     "auth": {
       "enum": [
         "logged_in",
@@ -64,6 +68,10 @@
     },
     "stale": {
       "type": "boolean"
+    },
+    "state": {
+      "const": "not_configured",
+      "type": "string"
     },
     "version": {
       "maxLength": 256,

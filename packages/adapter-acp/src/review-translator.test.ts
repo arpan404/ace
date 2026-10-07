@@ -1,12 +1,9 @@
+import { extensionQuirks } from "./testing/extension-quirks.ts";
+const extensionAdapter = createAcpAdapter(extensionQuirks);
 import { it, expect } from "vitest";
 import { apply, createThreadState, type Fact } from "@ace/core";
 import { ThreadId } from "@ace/protocol";
-import {
-  cursorAdapter,
-  createAcpAdapter,
-  cursorQuirks,
-  createTranslatorIdentity,
-} from "./index.ts";
+import { createAcpAdapter, createTranslatorIdentity } from "./index.ts";
 import { harness, required, spawn, chunk, end } from "./test-helper.ts";
 it("resume creates new items and runs while preserving earlier history", () => {
   const threadId = ThreadId.parse("preserved");
@@ -15,7 +12,7 @@ it("resume creates new items and runs while preserving earlier history", () => {
   let seq = 0;
   const ctx = { now: 0, ids: { next: () => `id-${++ids}` } };
   let generation = 0;
-  const adapter = createAcpAdapter(cursorQuirks, {
+  const adapter = createAcpAdapter(extensionQuirks, {
     identity: () => createTranslatorIdentity(`generation-${++generation}`),
   });
   function cycle(text: string) {
@@ -129,7 +126,7 @@ it("publishes unresponsive rather than working for a disconnected child", () => 
   ).toBe("unresponsive");
 });
 it("retains complete child envelopes including unknown params and outer fields", () => {
-  const translator = cursorAdapter.createTranslator({
+  const translator = extensionAdapter.createTranslator({
     threadId: ThreadId.parse("raw"),
     rootKey: "root",
   });
@@ -161,7 +158,7 @@ it("retains complete child envelopes including unknown params and outer fields",
   );
 });
 it("emits a bounded raw change for each tool refresh while retaining its initial input", () => {
-  const translator = cursorAdapter.createTranslator({
+  const translator = extensionAdapter.createTranslator({
     threadId: ThreadId.parse("bounded"),
     rootKey: "root",
   });
