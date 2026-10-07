@@ -9,10 +9,11 @@ import {
   WrenchIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { reviewedInteraction, type StepIcon, type StepText } from "@ace/ui-core";
+import { isMeasurementCall, reviewedInteraction, type StepIcon, type StepText } from "@ace/ui-core";
 import { Suspense, useId, useState } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { DeferredReviewNote } from "./deferred-review.ts";
 import { StepDetail } from "./step-detail.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
@@ -54,7 +55,7 @@ export function WorkLogSteps(props: {
 
 /**
  * One row of the work log. Expands to its output, diff or reasoning. ace's review of a step
- * sits right under that step.
+ * sits right under that step; a smoothness measurement opens to its card.
  */
 export function ToolStep(props: { threadId: string; itemId: string }) {
   const data = useStepDisplay(props.threadId, props.itemId);
@@ -67,7 +68,14 @@ export function ToolStep(props: { threadId: string; itemId: string }) {
         </Suspense>
       </li>
     );
-  return <StepLine threadId={props.threadId} data={data} />;
+  const line = <StepLine threadId={props.threadId} data={data} />;
+  if (data && item?.type === "tool_call" && isMeasurementCall(item.call))
+    return (
+      <Suspense fallback={line}>
+        <DeferredMeasurementStep.Component data={data} plain={line} />
+      </Suspense>
+    );
+  return line;
 }
 
 function StepLine(props: { threadId: string; data: ReturnType<typeof useStepDisplay> }) {

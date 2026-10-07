@@ -169,6 +169,8 @@ function browserLabel(action: string, args: unknown): ToolLabel {
       return label("web", "Typed", "Typing", "Type", oneLine(stringArgument(args, ["text"]), 48));
     case "scroll":
       return label("web", "Scrolled the page", "Scrolling the page", "Scroll the page");
+    case "measure_interaction":
+      return label("web", ...measuring);
     default:
       return label(
         "web",
@@ -180,6 +182,12 @@ function browserLabel(action: string, args: unknown): ToolLabel {
   }
 }
 
+const measuring: [string, string, string] = [
+  "Measured smoothness",
+  "Measuring smoothness",
+  "Measure smoothness",
+];
+
 const screenTools: Record<string, [string, string, string]> = {
   screenshot: ["Took a screenshot", "Taking a screenshot", "Take a screenshot"],
   click: ["Clicked on the screen", "Clicking on the screen", "Click on the screen"],
@@ -189,6 +197,7 @@ const screenTools: Record<string, [string, string, string]> = {
   ui_tree: ["Read the screen", "Reading the screen", "Read the screen"],
   ui_find: ["Searched the screen", "Searching the screen", "Search the screen"],
   ui_act: ["Used an app on screen", "Using an app on screen", "Use an app on screen"],
+  measure_interaction: measuring,
 };
 
 /** ace's own tools (ace_*), named for what they do with their key argument (A4). */

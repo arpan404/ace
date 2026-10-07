@@ -22,6 +22,11 @@ export type { MultiDayThreadOptions, SyntheticThreadEvent } from "./scenarios/mu
 export { multiDayDemo } from "./scenarios/multi-day-demo.ts";
 export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";
+export {
+  measurementCall,
+  smoothnessCases,
+  smoothnessMeasurements,
+} from "./scenarios/smoothness.ts";
 export { homeList } from "./scenarios/home-list.ts";
 export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
