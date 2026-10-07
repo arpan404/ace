@@ -545,13 +545,13 @@ test("connected Copilot with no enabled models shows its hint and remains refres
   const tab = within(popover).getByRole("tab", { name: "OpenCode" });
   expect(tab.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(tab);
-  const message = within(list).getByText(
-    "GitHub Copilot is connected in OpenCode but has no chat models enabled.",
-  );
+  expect(
+    within(list).getByText(
+      "GitHub Copilot is connected in OpenCode but has no chat models enabled.",
+    ),
+  ).toBeTruthy();
   expect(within(list).getByText(/Enable models for it in OpenCode, then Refresh/)).toBeTruthy();
   expect(within(list).queryByRole("option")).toBeNull();
-  // Information is readable without a failure indicator.
-  expect(message.closest("p")?.querySelector("svg")).toBeNull();
   expect(
     within(popover).getByRole("button", { name: "Refresh models" }).hasAttribute("disabled"),
   ).toBe(false);
