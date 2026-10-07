@@ -69,10 +69,12 @@ An instance is stale if any source failed. Healthy sources in that same instance
 remain fresh. A partial refresh advances the instance timestamp but retains each
 failed source's previous timestamp and models. An error on the instance applies
 to all its sources. Show source errors even when the failing connection has no
-model rows. Known error categories use fixed human messages and hints. Unknown
-failures retain a bounded, redacted explanation from error message/detail fields.
-Raw objects, response bodies, stacks, headers, and credentials are never serialized. The daemon logs those
-same structured categories with provider, instance, and optional source ID.
+model rows. All client-visible errors use fixed human messages and hints, including
+unknown failures. Provider messages, stderr, response bodies, stacks, headers, and
+credentials never enter catalog errors or client pushes. Cached source errors are
+rebuilt from their classified code before use. The daemon logs the same structured
+categories with provider, instance, and optional source ID. Only local logs may
+include a redacted free-text reason for an unclassified failure, capped at 200 characters.
 
 All authenticated main sockets with read scope receive:
 
@@ -167,9 +169,9 @@ GitHub Copilot auth failures instruct the user to reconnect through
 `opencode auth login`. Classification runs before the startup wrapper discards
 nested HTTP/client causes, including identity, spec, and SSE admission failures.
 Unrelated null fields do not discard usable status/code fields. Generic outer
-wrappers cannot hide specific nested categories. Unknown failures retain a
-redacted message/detail, capped at 256 characters in the picker and discovery log,
-so the next failure supplies a reason instead of another empty generic message.
+wrappers cannot hide specific nested categories. Unknown failures use the fixed
+`discovery_failed` message and hint in the picker. A bounded, redacted reason may
+be passed separately to the local logger, never stored with catalog state or errors.
 Cursor host startup failures retain a scrubbed first stderr explanation and exit
 status when no RPC reply arrives. Raw response objects, stacks, credential fields,
 and unredacted diagnostics never leave these boundaries. Existing picker and

@@ -69,17 +69,17 @@ test.each([
   expect(discoveryError(error).code).toBe("auth_expired");
 });
 
-test("unknown discovery failures retain a bounded redacted reason in the picker and logs", () => {
+test("unknown discovery failures expose only a fixed message and corrective hint", () => {
   const error = new Error(
     "Metadata bootstrap failed: Bearer private-bearer; configured key private-env-key",
   );
   const detail = discoveryError(error, "discovery_failed", {
     provider: "cursor",
     backend: "cursor-sdk",
-    env: { CURSOR_API_KEY: "private-env-key" },
   });
   expect(detail.code).toBe("discovery_failed");
-  expect(detail.message).toContain("Metadata bootstrap failed");
+  expect(detail.message).toBe("Model discovery failed.");
+  expect(detail.hint).toContain("Check sign-in");
   expect(detail.message).not.toContain("private");
-  expect(detail.message.length).toBeLessThanOrEqual(256);
+  expect(JSON.stringify(detail)).not.toContain("Metadata bootstrap failed");
 });
