@@ -59,7 +59,7 @@ export function DailyBars(props: {
             >
               <span
                 style={{ height: `${Math.max(2, (value / max) * 100)}%` }}
-                className="block w-full rounded-t-[4px] bg-foreground/55 transition-colors duration-(--dur-1) group-hover:bg-foreground group-focus-visible:bg-foreground"
+                className="block w-full rounded-t-xs bg-foreground/55 transition-colors duration-(--dur-1) group-hover:bg-foreground group-focus-visible:bg-foreground"
               />
             </li>
           );
