@@ -11,7 +11,8 @@
     "./step-labels": "./src/tool-labels.ts",
     "./command-rank": "./src/command-rank.ts",
     "./counts": "./src/counts.ts",
-    "./computer-use": "./src/computer-use.ts"
+    "./computer-use": "./src/computer-use.ts",
+    "./interaction-measurement": "./src/interaction-measurement.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
