@@ -102,7 +102,10 @@ export function providerStatuses(
       name: providerNames[kind],
       binary,
       version: row?.version ?? own.find((account) => account.version)?.version,
-      state: providerState(row ? row.installed : installed.has(kind), own, row?.auth),
+      state:
+        kind === "opencode" && row?.installed && row.enabled !== false && row.modelsAvailable
+          ? "ready"
+          : providerState(row ? row.installed : installed.has(kind), own, row?.auth),
       actionId: row?.actionId,
       accounts: own,
     };

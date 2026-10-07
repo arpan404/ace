@@ -28,7 +28,7 @@ export interface PickerGroup {
   /** Stable across reads: the instance and the source group. */
   id: string;
   provider: ProviderKind;
-  /** "OpenCode Go", "Local", "Work"; undefined when the provider lists one group (no header). */
+  /** "OpenCode Go", "Local", "Work"; Zen keeps its header even as the sole group. */
   label: string | undefined;
   /** Current models, in `sortKey` order. */
   current: PickerModel[];
@@ -80,7 +80,7 @@ const bySortKey = (a: PickerModel, b: PickerModel) =>
 /**
  * One provider's groups. A group with neither models nor an error is left out; one with an
  * error but no models still shows, so a failing source is never silent. Headers only when the
- * provider has more than one group.
+ * provider has more than one group, or the sole group is OpenCode Zen.
  */
 export function pickerGroups(
   models: readonly PickerModel[],
@@ -166,7 +166,7 @@ export function pickerGroups(
   return listed.map((entry) => ({
     id: entry.id,
     provider,
-    label: listed.length > 1 ? entry.label || undefined : undefined,
+    label: listed.length > 1 || entry.rank === 2 ? entry.label || undefined : undefined,
     current: entry.current.toSorted(bySortKey),
     legacy: entry.legacy.toSorted(bySortKey),
     refreshing: entry.refreshing,

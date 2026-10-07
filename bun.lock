@@ -711,6 +711,7 @@
       "dependencies": {
         "@ace/accounts": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/models": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/screen": "workspace:*",
         "zod": "^4.6.5",

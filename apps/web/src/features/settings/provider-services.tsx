@@ -47,7 +47,9 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
                   text={
                     error
                       ? error.message
-                      : ["Connected", serviceKind(source.kind)].filter(Boolean).join(" · ")
+                      : source.requiresAuth === false
+                        ? "Free models available"
+                        : ["Connected", serviceKind(source.kind)].filter(Boolean).join(" · ")
                   }
                 />
               </span>
@@ -59,7 +61,7 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
               >
                 Reconnect
               </SignInButton>
-            ) : (
+            ) : source.requiresAuth !== false ? (
               <SignInButton
                 variant="ghost"
                 label={`Disconnect ${source.label}`}
@@ -72,7 +74,7 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
               >
                 Disconnect
               </SignInButton>
-            )}
+            ) : null}
           </li>
         ))}
         {signIn && (
@@ -86,7 +88,9 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
               <span className="grid size-8 place-items-center rounded-sm bg-secondary">
                 <PlusIcon aria-hidden size={14} />
               </span>
-              <span className="font-medium">Connect a service</span>
+              <span className="font-medium">
+                {props.provider === "opencode" ? "Sign in for more models" : "Connect a service"}
+              </span>
             </button>
           </li>
         )}

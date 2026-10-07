@@ -57,6 +57,7 @@ export function ModelRow(props: {
     .join(" · ");
   const name = [
     model.label,
+    model.free ? "Free" : undefined,
     detail,
     marker?.toLowerCase(),
     subtitle || providerNames[model.provider],
@@ -104,6 +105,7 @@ export function ModelRow(props: {
                 NEW
               </span>
             )}
+            {model.free && <span className="shrink-0 text-xs text-subtle-foreground">Free</span>}
           </span>
           {subtitle && (
             <span className="flex min-w-0 items-center gap-1 text-xs text-subtle-foreground">
