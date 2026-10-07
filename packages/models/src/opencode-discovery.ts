@@ -23,7 +23,6 @@ export async function discoverOpenCodeCatalog(
   diagnostic?.({ stage: "connections" });
   const connected = await connectedOpenCodeProviders(instance, signal, spawn);
   diagnostic?.({ sources: [...connected.values()] });
-  if (!connected.size) return { models: [], sources: [] };
   const { discoverOpenCodeModels } = await import("@ace/adapter-opencode");
   diagnostic?.({ stage: "metadata" });
   const payload = metadata

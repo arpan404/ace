@@ -18,6 +18,7 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
   };
   attention?(row: Status): boolean;
   checked?(rows: readonly Status[]): void;
+  modelsAvailable?(provider: Status["provider"]): boolean;
   cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
 }
 export interface ProviderStatusRuntime {
@@ -57,15 +58,18 @@ export class ProviderStatuses {
   }
   list(): Status[] {
     const now = this.runtime.now();
-    return this.rows.map((row) =>
-      providerReadiness({
-        ...row,
+    return this.rows.map((row) => {
+      const available = row.provider === "opencode" && this.options.modelsAvailable?.(row.provider);
+      const { state, actionId, ...observation } = row;
+      return providerReadiness({
+        ...observation,
+        ...(available ? { modelsAvailable: true } : { state, actionId }),
         ...(this.options.attention?.(row) ? { readiness: "needs_attention" as const } : {}),
         enabled: this.options.configuration?.(row.provider).enabled !== false,
         stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
         refreshing: Boolean(this.flight),
-      }),
-    );
+      });
+    });
   }
   readiness(): Status[] {
     return onboardingChecklist(this.list()).providers;

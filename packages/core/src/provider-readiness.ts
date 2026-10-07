@@ -34,7 +34,7 @@ export function providerReadiness(row: ProviderStatus): ProviderStatus {
           // counts as signed in, and clients say from `auth` that the CLI didn't confirm it.
           row.readiness === "needs_attention" || row.installed === null || row.error
           ? "needs_attention"
-          : row.auth === "logged_out"
+          : row.auth === "logged_out" && !(row.provider === "opencode" && row.modelsAvailable)
             ? "installed_signed_out"
             : "signed_in";
   if (row.enabled !== false && row.installed === true && row.state === "not_configured")

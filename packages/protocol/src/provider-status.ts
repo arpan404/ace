@@ -25,6 +25,8 @@ export const ProviderStatus = z.object({
   accountLabel: z.string().min(1).max(256).optional(),
   authDetail: z.string().max(1024).optional(),
   authEvidence: z.literal("credentials_configured").optional(),
+  /** OpenCode has usable discovered models, including credential-free ones. */
+  modelsAvailable: z.boolean().optional(),
   loginHint: z.string().max(1024),
   actionId: z.literal("provider.sign_in").optional(),
   state: z.literal("not_configured").optional(),
