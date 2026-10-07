@@ -29,6 +29,12 @@ const refusals: Record<string, string> = {
   message_too_large: "The message is too large.",
   thread_transition_in_progress: "The thread is switching providers; try again in a moment.",
   workspace_change_in_progress: "The thread is moving to another checkout; try again in a moment.",
+  workspace_preparing: "Its checkout is still being prepared; try again in a moment.",
+  thread_move_requires_local_workspace:
+    "It works in its own worktree. Switch it to the local checkout first.",
+  workspace_not_found: "That project is gone.",
+  workspace_changed: "That project just changed; try again.",
+  thread_move_failed: "The daemon couldn't move it. Try again.",
   queue_capacity_exceeded: "The queue is full. Send or remove a queued message first.",
   queue_limit: "The queue is full. Send or remove a queued message first.",
   stale_interrupt: "That turn had already ended.",

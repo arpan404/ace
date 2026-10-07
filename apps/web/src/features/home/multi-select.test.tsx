@@ -148,6 +148,7 @@ test("⌘K offers the picked threads' actions first, and asks before deleting th
     .map((option) => option.textContent ?? "");
   expect(names).toEqual([
     "Pin 2 selected threads",
+    "Move 2 selected threads to another project…",
     "Archive 2 selected threads…",
     "Delete 2 selected threads…",
     "Clear the selection",

@@ -2,6 +2,7 @@ import { useSidebarStore } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import {
   ArchiveIcon,
+  FolderSimpleIcon,
   PushPinIcon,
   PushPinSlashIcon,
   TrashIcon,
@@ -25,15 +26,16 @@ import {
   useHomeSelectionState,
   useOrganizeOverlay,
   useThreadActions,
+  useThreadMover,
   type BulkConfirm,
   type HomeSelection,
 } from "@/features/organize/index.ts";
 
 /*
  * Bulk actions on the picked Home threads: the bar under the list, the context menu of a picked
- * row and the palette all offer Pin or Unpin, Archive and Delete. Archive and Delete ask first;
- * Archive then offers one Undo for all, while Delete is permanent at once (no Undo). Loaded once
- * something is picked.
+ * row and the palette all offer Pin or Unpin, Move to project, Archive and Delete. Move asks
+ * which project; Archive and Delete ask first. Move and Archive then offer one Undo for all,
+ * while Delete is permanent at once (no Undo). Loaded once something is picked.
  */
 
 /** The picked threads as this window shows them (with organize actions not yet confirmed). */
@@ -58,6 +60,7 @@ function bulkActions(
   entries: readonly ThreadListEntry[],
   selection: HomeSelection,
   actions: ReturnType<typeof useThreadActions>,
+  mover: ReturnType<typeof useThreadMover>,
 ) {
   const unpin = allPinned(entries);
   return [
@@ -70,6 +73,13 @@ function bulkActions(
         actions.setPinnedMany(entries, !unpin);
         selection.clear();
       },
+    },
+    {
+      id: "move",
+      label: `Move ${count(entries.length)} to project…`,
+      icon: FolderSimpleIcon,
+      danger: false,
+      run: () => mover.open({ entries, onMoved: () => selection.clear() }),
     },
     {
       id: "archive",
@@ -92,6 +102,7 @@ function bulkActions(
 export function BulkBar() {
   const selection = useHomeSelection();
   const actions = useThreadActions();
+  const mover = useThreadMover();
   const entries = usePicked();
   if (!entries.length) return null;
   return (
@@ -104,7 +115,7 @@ export function BulkBar() {
         <span className="mr-auto font-medium whitespace-nowrap tabular-nums" aria-live="polite">
           {entries.length} selected
         </span>
-        {bulkActions(entries, selection, actions).map((action) => (
+        {bulkActions(entries, selection, actions, mover).map((action) => (
           <IconButton
             key={action.id}
             icon={action.icon}
@@ -129,8 +140,9 @@ export function BulkBar() {
 export function BulkMenuItems() {
   const selection = useHomeSelection();
   const actions = useThreadActions();
+  const mover = useThreadMover();
   const entries = usePicked();
-  const list = bulkActions(entries, selection, actions);
+  const list = bulkActions(entries, selection, actions, mover);
   return (
     <>
       <MenuGroup>
