@@ -99,9 +99,10 @@ export function startProviderStatuses(context: ServiceContext): void {
           if (!sdk.installed) return installation;
           if (!sdk.supported)
             return { ...installation, error: "Cursor SDK version or runtime unsupported" };
-          const selected = context.services.accountRegistry?.selectedCursorSdk();
-          const account = selected ? context.services.accountRegistry?.get(selected) : undefined;
-          const instance = account?.instance ?? (await daemonCursorInstance(context));
+          const fallback = await daemonCursorInstance(context);
+          const selected = context.services.accountRegistry?.selectedCursorSdk() ?? fallback.id;
+          const account = context.services.accountRegistry?.get(selected);
+          const instance = account?.instance ?? fallback;
           try {
             if (account) await context.services.accountRegistry?.validateHome(account.instance);
             const status =

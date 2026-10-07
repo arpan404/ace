@@ -160,6 +160,23 @@ else {console.log('Open https://auth.openai.com/codex/device\\nEnter code: ABCD-
 test("provider account actions add and start isolated sign-in, label, select, reauthenticate and logout before removing", async () => {
   const f = await harness();
   try {
+    expect(
+      await f.request({
+        type: "provider.accounts.list",
+        requestId: "cursor-default",
+        provider: "cursor",
+      }),
+    ).toMatchObject({
+      result: {
+        accounts: [
+          expect.objectContaining({
+            id: "cursor-sdk-default",
+            isDefault: true,
+            authMethod: "unknown",
+          }),
+        ],
+      },
+    });
     const added = await f.request({
       type: "provider.accounts.add",
       requestId: "add",

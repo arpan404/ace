@@ -1,5 +1,5 @@
 import { prepareProviderLogin } from "./provider-login-prepare.ts";
-import { ProviderLoginSessions } from "@ace/accounts";
+import { ProviderLoginSessions, createInstance } from "@ace/accounts";
 import { ProviderLoginRequest, OnboardingRequest } from "@ace/protocol";
 import { createPosixBackendFactory, TerminalManager } from "@ace/terminal";
 import { daemonCursorInstance } from "./cursor-instance.ts";
@@ -25,6 +25,10 @@ export async function startProviderLogin(context: ServiceContext): Promise<void>
     },
   });
   const cursorDefault = await daemonCursorInstance(context);
+  if (services.accountRegistry && !services.accountRegistry.get(cursorDefault.id))
+    await services.accountRegistry.register(
+      createInstance({ ...cursorDefault, provider: "cursor", label: "Cursor" }),
+    );
   const sessions = new ProviderLoginSessions({
     instanceKey(provider, instance) {
       return provider === "cursor"
