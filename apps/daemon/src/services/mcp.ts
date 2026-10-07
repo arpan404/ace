@@ -52,6 +52,26 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         return { intentId: record.childId };
       }),
     observations,
+    (caller) => ({
+      permissionMode:
+        services.engine?.permissionMode(caller.threadId) ??
+        store.getThread(caller.threadId)?.permission?.effective ??
+        null,
+      disabled: {
+        ...(!services.screen?.isEnabled()
+          ? {
+              screen:
+                "Computer use is disabled. Ask the person to enable it in Settings → Computer use.",
+            }
+          : {}),
+        ...(!services.devices?.isEnabled()
+          ? {
+              devices:
+                "Devices are disabled. Ask the person to enable devices in the thread's Devices panel.",
+            }
+          : {}),
+      },
+    }),
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;

@@ -1,3 +1,5 @@
+import { McpStatus } from "@ace/protocol";
+import { registerStatus, type StatusReader, aceInstructions } from "./status.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { nodeScheduler } from "./registry.ts";
@@ -6,12 +8,14 @@ import type { ToolRegistry } from "./registry.ts";
 
 export interface McpServerOptions {
   registry: ToolRegistry;
+  status?: StatusReader;
   credentials?: CredentialRegistry;
   port?: number;
   maxRequests?: number;
   maxBodyBytes?: number;
 }
 export async function startMcpServer(options: McpServerOptions) {
+  registerStatus(options.registry, options.status);
   const credentials =
     options.credentials ??
     new CredentialRegistry(() => randomBytes(32).toString("hex"), 1024, {
@@ -126,12 +130,54 @@ async function createHandler(options: McpServerOptions, credentials: CredentialR
       }
       const product = new RegistryServer(
         { name: "ace", version: "0.1.0" },
-        { capabilities: { tools: {} } },
+        { instructions: aceInstructions, capabilities: { tools: {}, resources: {} } },
       );
       const server = product.server;
-      server.setRequestHandler("tools/list", async () => ({
-        tools: options.registry.list(principal),
+      server.setRequestHandler("resources/list", async () => ({
+        resources: [
+          {
+            uri: "ace://status",
+            name: "ace status",
+            description:
+              "Current connection, tool availability and permission mode. Also call ace_status.",
+            mimeType: "application/json",
+          },
+        ],
       }));
+      server.setRequestHandler("resources/read", async (request, context) => {
+        if (request.params.uri !== "ace://status") throw new Error("Unknown resource");
+        const result = await options.registry.call(
+          "ace_status",
+          {},
+          principal,
+          context.mcpReq.signal,
+        );
+        if (result.isError || !result.structuredContent) throw new Error("Status unavailable");
+        return {
+          contents: [
+            {
+              uri: "ace://status",
+              mimeType: "application/json",
+              text: JSON.stringify(result.structuredContent),
+            },
+          ],
+        };
+      });
+      server.setRequestHandler("tools/list", async () => {
+        const status = await options.registry.call("ace_status", {}, principal, principal.signal);
+        const groups = McpStatus.safeParse(status.structuredContent);
+        return {
+          tools: options.registry.list(principal).map((tool) => {
+            const group = options.registry.capability(tool.name);
+            const disabled = groups.success
+              ? groups.data.groups.find((entry) => entry.name === group && !entry.enabled)
+              : undefined;
+            return disabled
+              ? Object.assign({}, tool, { description: `${tool.description} ${disabled.reason}` })
+              : tool;
+          }),
+        };
+      });
       server.setRequestHandler("tools/call", async (request, context) => {
         let pending = calls.get(principal);
         if (!pending) {

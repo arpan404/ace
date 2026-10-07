@@ -50,7 +50,7 @@ export { runStdioBridge, type BridgeOptions } from "./stdio-bridge.ts";
 export { acpStdioInjection, appendAcpMcp } from "./injection.ts";
 
 export type { ContentToolDefinition } from "./content-tools.ts";
-export { builtinToolCatalog, handoffToolCatalog } from "./catalog.ts";
+export { builtinToolCatalog, handoffToolCatalog, statusToolCatalog } from "./catalog.ts";
 
 export {
   agentControlToolkit,
@@ -67,3 +67,5 @@ export { PublicToolError, PublicToolCode } from "./public-error.ts";
 export type { ModelImageRuntime } from "./model-image-runtime.ts";
 
 export { privateMcpConfig, readPrivateMcpConfig } from "./private-config.ts";
+
+export { registerStatus, type StatusReader } from "./status.ts";

@@ -1470,3 +1470,43 @@ Example:
   "nextOffset": 0
 }
 ```
+
+## ace_status
+
+Describe ace, this connection, enabled and disabled tool groups, and the effective permission mode. Also available as ace://status.
+
+Required capability: none beyond session authentication. Timeout: 10000 ms.
+
+## ace_status.input
+
+[JSON Schema](schema/ace_status.input.json), input validation.
+
+Type: object. See JSON Schema for constraints.
+
+Example:
+
+```json
+{}
+```
+
+## ace_status.output
+
+[JSON Schema](schema/ace_status.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | string | {"minLength":1} |
+| agentId | yes | string | {"minLength":1} |
+| permissionMode | yes | union | {"anyOf":[{"type":"string","enum":["read-only","ask","auto-review","full-access"]},{"type":"null"}]} |
+| groups | yes | array | {"maxItems":13,"items":{"type":"object","properties":{"name":{"type":"string","enum":["thread","browser","preview","terminal","notify","agents","thread_control","automations","projects","forge","screen","devices","files"]},"enabled":{"type":"boolean"},"reason":{"type":"string","maxLength":512}},"required":["name","enabled"],"additionalProperties":false}} |
+
+Example:
+
+```json
+{
+  "agentId": "example",
+  "groups": [],
+  "permissionMode": null,
+  "threadId": "example"
+}
+```

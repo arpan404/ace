@@ -2,6 +2,7 @@ import { McpProviderSessions } from "./mcp-provider-sessions.ts";
 import { randomUUID } from "node:crypto";
 import { ItemId, type McpScope } from "@ace/protocol";
 import {
+  type StatusReader,
   ToolRegistry,
   nodeScheduler,
   registerBuiltins,
@@ -17,6 +18,7 @@ export async function startDaemonMcp(
   toolkits: readonly Toolkit[] = [],
   spawn?: McpIntentPort["spawn"],
   observations?: { observeCall: CallObserver; lease(sessionId: string): () => void },
+  status?: StatusReader,
 ) {
   const registry = new ToolRegistry({
     scheduler: nodeScheduler,
@@ -76,7 +78,14 @@ export async function startDaemonMcp(
     },
   );
   for (const toolkit of toolkits) toolkit.register(registry);
-  const server = await startMcpServer({ registry });
+  const server = await startMcpServer({
+    registry,
+    status:
+      status ??
+      ((caller) => ({
+        permissionMode: store.getThread(caller.threadId)?.permission?.effective ?? null,
+      })),
+  });
   return {
     url: server.url,
     action: (name: string, input: unknown) => registry.action(name, input),
