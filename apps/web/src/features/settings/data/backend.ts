@@ -49,6 +49,7 @@ export interface ProviderInstall {
   name: string;
   binary: string;
   state: ProviderState;
+  actionId?: "provider.sign_in";
   /** The CLI version an account reported; undefined when none did. */
   version: string | undefined;
   via?: string;

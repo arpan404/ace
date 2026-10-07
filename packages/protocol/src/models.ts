@@ -35,6 +35,8 @@ export const ModelDiscoveryError = z.object({
   ]),
   message: z.string().min(1).max(256),
   hint: z.string().min(1).max(256),
+  actionId: z.literal("provider.sign_in").optional(),
+  severity: z.enum(["info", "warning"]).optional(),
 });
 export type ModelDiscoveryError = z.infer<typeof ModelDiscoveryError>;
 export const ModelSourceStatus = z.object({

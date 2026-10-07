@@ -10,7 +10,7 @@ export const nativeProviders: readonly { kind: Exclude<ProviderKind, "acp">; bin
   { kind: "claude", binary: "claude" },
   { kind: "codex", binary: "codex" },
   { kind: "opencode", binary: "opencode" },
-  { kind: "cursor", binary: "cursor-agent" },
+  { kind: "cursor", binary: "@cursor/sdk" },
   { kind: "antigravity", binary: "antigravity" },
   { kind: "pi", binary: "pi" },
 ];
@@ -29,7 +29,6 @@ const signIns: Partial<Record<ProviderKind, SignIn>> = {
   claude: { run: "claude", prompt: "/login" },
   codex: { run: "codex login" },
   opencode: { run: "opencode auth login" },
-  cursor: { run: "agent login" },
   // Pi signs in from its interactive prompt (docs/research/providers/pi.md, ADR 0050).
   pi: { run: "pi", prompt: "/login" },
 };
@@ -55,6 +54,7 @@ export interface ProviderStatus {
   /** The CLI version an account reported; undefined when none did. */
   version: string | undefined;
   state: ProviderState;
+  actionId?: "provider.sign_in" | undefined;
   /** The person's ace accounts on this provider; empty when the CLI runs on its own login. */
   accounts: readonly AccountView[];
 }
@@ -91,7 +91,9 @@ export function providerStatuses(
   discovery: readonly DiscoveryStatus[] = [],
 ): ProviderStatus[] {
   const native = nativeProviders.map(({ kind, binary }): ProviderStatus => {
-    const own = accounts.filter((account) => account.provider === kind);
+    const own = accounts.filter(
+      (account) => account.provider === kind && account.id !== "cursor-cli-default",
+    );
     const row =
       discovery.find((entry) => entry.provider === kind && entry.runtime === "cursor-sdk") ??
       discovery.find((entry) => entry.provider === kind);
@@ -101,6 +103,7 @@ export function providerStatuses(
       binary,
       version: row?.version ?? own.find((account) => account.version)?.version,
       state: providerState(row ? row.installed : installed.has(kind), own, row?.auth),
+      actionId: row?.actionId,
       accounts: own,
     };
   });

@@ -1,4 +1,4 @@
-import { instanceEnv } from "@ace/accounts";
+import { instanceEnv, cursorSdkLoginDriver } from "@ace/accounts";
 import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { ProviderStatuses } from "../provider-status.ts";
@@ -9,12 +9,12 @@ import type { SocketContext, SocketService } from "./socket.ts";
 
 export function startProviderStatuses(context: ServiceContext): void {
   const cursor = context.options.engine?.cursor;
-  const driver = createCursorAccountDriver({
+  const driverOptions = {
     ...cursor,
     limits: { ...cursor?.limits, timeoutMs: 4000 },
     slots: cursorHosts(context),
     launchEnv: cursor?.env ?? process.env,
-    environment(identity) {
+    environment(identity: { id: string; homeDir: string }) {
       const selected = context.services.accountRegistry?.get(identity.id)?.instance;
       if (!selected) return cursor?.env ?? process.env;
       if (selected.provider !== "cursor" || selected.homeDir !== identity.homeDir)
@@ -24,7 +24,11 @@ export function startProviderStatuses(context: ServiceContext): void {
     stopInstance: async () => {
       throw new Error("Discovery cannot change authentication");
     },
-  });
+  };
+  const driver = createCursorAccountDriver(driverOptions);
+  const accountDriver = context.services.accountRegistry
+    ? cursorSdkLoginDriver(context.services.accountRegistry, { ...driverOptions, now: context.now })
+    : undefined;
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
@@ -45,7 +49,7 @@ export function startProviderStatuses(context: ServiceContext): void {
             ...(sdk.module ? { path: sdk.module } : {}),
             ...(sdk.version ? { version: sdk.version } : {}),
             auth: "unknown" as const,
-            loginHint: "Cursor SDK sign-in is separate from agent login",
+            loginHint: "Sign in to Cursor",
           };
           if (!sdk.installed) return installation;
           if (!sdk.supported)
@@ -54,13 +58,22 @@ export function startProviderStatuses(context: ServiceContext): void {
           const account = selected ? context.services.accountRegistry?.get(selected) : undefined;
           const instance = account?.instance ?? (await daemonCursorInstance(context));
           try {
-            if (context.services.cursorAccounts?.isFenced(instance.id))
-              throw new Error("SDK auth change in progress");
             if (account) await context.services.accountRegistry?.validateHome(account.instance);
-            const status = await driver.status(
-              { id: instance.id, homeDir: instance.homeDir },
-              signal,
-            );
+            const status =
+              account && accountDriver
+                ? await accountDriver.status(account.instance, signal)
+                : await driver.status({ id: instance.id, homeDir: instance.homeDir }, signal);
+            const revision = context.services.accountRegistry?.get(instance.id)?.instance
+              .loginRevision;
+            if (
+              account &&
+              revision &&
+              revision !== account.instance.loginRevision &&
+              context.services.models?.hasInstance(instance.id)
+            )
+              void context.services.models
+                .loginChanged(instance.id, revision)
+                .catch(() => context.log.log("warn", "Cursor model login-change refresh failed"));
             return {
               ...installation,
               auth: status.status === "logged-in" ? "logged_in" : "logged_out",
