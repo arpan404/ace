@@ -1,3 +1,5 @@
+import { configuredModels } from "@ace/models/preferences";
+import { modelDisplayName } from "@ace/models/display-name";
 import { CatalogModel, Device, type ProviderKind, type SettingsValues } from "@ace/protocol";
 
 /**
@@ -61,12 +63,26 @@ function model(
     fast?: boolean;
     isNew?: boolean;
     deprecated?: boolean;
+    source?: CatalogModel["source"];
   } = {},
 ): CatalogModel {
   return CatalogModel.parse({
     // Catalog ids repeat on every account that serves the model, as the daemon's do.
     id,
-    displayName,
+    ...modelDisplayName(id, displayName),
+    ...(extra.source
+      ? { source: extra.source, nativeProviderId: extra.source.id }
+      : {
+          source: {
+            kind: "account",
+            id: instance,
+            label: instance.endsWith("personal")
+              ? "Personal"
+              : /work|team/.test(instance)
+                ? "Work"
+                : "Default",
+          },
+        }),
     provider,
     instance,
     // ACP rows carry the source identity a thread starts with.
@@ -162,6 +178,15 @@ export function settingsFixture(now: number): SettingsFixture {
         ],
       },
       {
+        kind: "pi",
+        name: "Pi",
+        binary: "pi",
+        version: "0.85.1",
+        accounts: [
+          { id: "pi", label: "Default", plan: "", auth: "logged_in", availability: "available" },
+        ],
+      },
+      {
         kind: "cursor",
         name: "Cursor",
         binary: "cursor-agent",
@@ -247,64 +272,103 @@ export function settingsFixture(now: number): SettingsFixture {
 
 /** The models discovery found on this machine's signed-in accounts (`models.list`). */
 export function modelCatalog(): CatalogModel[] {
-  return [
-    model("claude", "claude-personal", "claude-opus-4-1", "Opus 4.1", {
-      isDefault: true,
-      contextWindow: 200_000,
-      efforts: ["low", "medium", "high"],
-    }),
-    model("claude", "claude-personal", "claude-sonnet-4-5", "Sonnet 4.5", {
-      contextWindow: 1_000_000,
-      efforts: ["low", "medium", "high"],
-      isNew: true,
-    }),
-    model("claude", "claude-personal", "claude-haiku-4-5", "Haiku 4.5", {
-      contextWindow: 200_000,
-    }),
-    model("claude", "claude-personal", "claude-opus-4", "Opus 4", {
-      contextWindow: 200_000,
-      efforts: ["low", "medium", "high"],
-      deprecated: true,
-    }),
-    model("claude", "claude-work", "claude-opus-4-1", "Opus 4.1", {
-      isDefault: true,
-      contextWindow: 200_000,
-      efforts: ["low", "medium", "high"],
-    }),
-    model("claude", "claude-work", "claude-sonnet-4-5", "Sonnet 4.5", {
-      contextWindow: 1_000_000,
-      efforts: ["low", "medium", "high"],
-      isNew: true,
-    }),
-    model("codex", "codex-personal", "gpt-5-codex", "GPT-5 Codex", {
-      isDefault: true,
-      contextWindow: 400_000,
-      efforts: ["minimal", "low", "medium", "high"],
-      defaultEffort: "medium",
-      fast: true,
-    }),
-    model("codex", "codex-personal", "gpt-5", "GPT-5", {
-      contextWindow: 400_000,
-      efforts: ["minimal", "low", "medium", "high"],
-      defaultEffort: "medium",
-      fast: true,
-    }),
-    model("codex", "codex-team", "gpt-5-codex", "GPT-5 Codex", {
-      isDefault: true,
-      contextWindow: 400_000,
-      efforts: ["minimal", "low", "medium", "high"],
-      defaultEffort: "medium",
-      fast: true,
-    }),
-    model("opencode", "opencode", "anthropic/claude-sonnet-4-5", "Sonnet 4.5 (OpenCode)", {
-      isDefault: true,
-    }),
-    model("cursor", "cursor", "auto", "Auto", { isDefault: true }),
+  const rows: CatalogModel[] = [];
+  for (const instance of ["claude-personal", "claude-work"]) {
+    for (const id of [
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "claude-haiku-4-5-20251001",
+      "claude-opus-5",
+      "claude-opus-4-8",
+      "claude-opus-4-6",
+      "claude-sonnet-4-5",
+      "claude-opus-4-1",
+      "claude-opus-4",
+    ]) {
+      rows.push(
+        model("claude", instance, id, modelDisplayName(id).displayName, {
+          contextWindow: 200_000,
+          efforts: ["low", "medium", "high"],
+        }),
+      );
+    }
+  }
+  for (const instance of ["codex-personal", "codex-team"]) {
+    for (const id of [
+      "gpt-6",
+      "gpt-6.1-sol",
+      "gpt-6-luna",
+      "gpt-5.6-sol",
+      "gpt-6-sol",
+      "gpt-5.5",
+      "gpt-5-codex",
+      "gpt-5",
+    ]) {
+      rows.push(
+        model("codex", instance, id, modelDisplayName(id).displayName, {
+          contextWindow: 400_000,
+          efforts: ["minimal", "low", "medium", "high"],
+          defaultEffort: "medium",
+          fast: true,
+        }),
+      );
+    }
+  }
+  const sources: NonNullable<CatalogModel["source"]>[] = [
+    { kind: "local", id: "ollama", label: "Ollama" },
+    { kind: "local", id: "lmstudio", label: "LM Studio" },
+    { kind: "subscription", id: "opencode-go", label: "OpenCode Go", service: "opencode_go" },
+    { kind: "api_key", id: "opencode", label: "OpenCode Zen", service: "opencode_zen" },
+    { kind: "api_key", id: "anthropic", label: "Anthropic" },
+    { kind: "api_key", id: "openai", label: "OpenAI" },
+    { kind: "api_key", id: "openrouter", label: "OpenRouter" },
+  ];
+  for (const source of sources) {
+    const ids =
+      source.kind === "local"
+        ? ["qwen3-235b-a22b", "qwen2-72b"]
+        : source.id === "opencode-go"
+          ? ["muse-spark-1.3-contributor", "muse-spark-1.2-contributor"]
+          : source.id === "openai"
+            ? ["gpt-6.1-sol", "gpt-5.6-sol"]
+            : ["claude-opus-5-5", "claude-opus-4-8", "claude-sonnet-4-5"];
+    for (const id of ids)
+      rows.push(
+        model("opencode", "opencode", `${source.id}/${id}`, modelDisplayName(id).displayName, {
+          source,
+        }),
+      );
+  }
+  for (const source of [
+    { kind: "subscription", id: "github-copilot", label: "GitHub Copilot" },
+    { kind: "other", id: "anthropic", label: "Anthropic" },
+  ] satisfies NonNullable<CatalogModel["source"]>[]) {
+    for (const id of ["claude-opus-5-5", "claude-opus-4-8", "claude-haiku-4-5"])
+      rows.push(
+        model("pi", "pi", `${source.id}/${id}`, modelDisplayName(id).displayName, { source }),
+      );
+  }
+  for (const id of ["auto", "composer-2.5", "composer-2", "claude-opus-5-5", "claude-opus-4-8"])
+    rows.push(model("cursor", "cursor", id, modelDisplayName(id).displayName));
+  rows.push(
     model("acp", "gemini-google", "gemini-2.5-pro", "Gemini 2.5 Pro", {
       isDefault: true,
       contextWindow: 1_000_000,
     }),
-  ];
+  );
+  const groups = new Map<string, CatalogModel[]>();
+  for (const row of rows) {
+    const key = row.instance;
+    const group = groups.get(key) ?? [];
+    group.push(row);
+    groups.set(key, group);
+  }
+  return [...groups.values()].flatMap((group) => {
+    const first = group[0];
+    return first
+      ? configuredModels(group, first.provider, first.instance, { provider: first.provider })
+      : [];
+  });
 }
 
 /** What the daemon's settings file holds on the global layer. */
