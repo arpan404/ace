@@ -22,6 +22,7 @@ export function accountSummary(account: FakeAccount, now: number): AccountSummar
       : {}),
     installationVersion: account.cliVersion,
     label: account.label,
+    authMethod: "browser",
     availability: account.availability,
     quota: {
       auth: account.availability === "logged_out" ? "logged_out" : "logged_in",
@@ -45,6 +46,7 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
     provider: id,
     installationVersion: version,
     label: "Default (your CLI login)",
+    authMethod: "unknown",
     implicit: true,
     isDefault: true,
     availability: "available",
@@ -57,6 +59,18 @@ export function accountSummaries(now: number): AccountSummary[] {
   const registered = accountList(now);
   return [
     ...registered.map((account) => accountSummary(account, now)),
+    ...(["opencode", "cursor", "pi"] as const).flatMap((provider) =>
+      [1, 2].map((number): AccountSummary => ({
+        id: `${provider}-extra-${number}`,
+        provider,
+        label: number === 1 ? "Work" : "Personal",
+        authMethod: number === 1 ? "api_key" : "browser",
+        implicit: false,
+        isDefault: false,
+        availability: "available",
+        quota: { auth: "logged_in", observedAt: now, windows: {}, blockers: {}, usage: {} },
+      })),
+    ),
     ...NativeAccountProvider.options
       .filter((provider) => provider !== "opencode" && provider !== "cursor")
       .map((provider) => ({

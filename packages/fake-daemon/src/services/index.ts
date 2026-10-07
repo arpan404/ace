@@ -1,3 +1,5 @@
+import { fakeProviderAccounts } from "./provider-accounts.ts";
+import { fakeApiKeySupport } from "../provider-auth-support.ts";
 import { onboardingChecklist } from "@ace/core";
 import { FakeProviderLogin, fakeReadiness } from "../provider-login.ts";
 import { configuredModels, providerConfiguration } from "@ace/models/preferences";
@@ -89,6 +91,8 @@ export class FakeServices {
       runtime: provider === "cursor" ? "cursor-sdk" : "cli",
       installed: this.installed.has(provider),
       auth: loggedIn.has(provider) ? "logged_in" : provider === "codex" ? "logged_out" : "unknown",
+      apiKey: fakeApiKeySupport(provider),
+      authMethod: loggedIn.has(provider) ? "browser" : "unknown",
       accountLabel: loggedIn.has(provider) ? "ada@example.com" : undefined,
       loginHint: provider === "cursor" ? "Sign in to Cursor" : "Use the CLI login command",
       checkedAt: now,
@@ -100,7 +104,20 @@ export class FakeServices {
     this.providerLogin = new FakeProviderLogin(
       host.clock,
       () => this.providerRows(),
-      (provider, signedIn) => {
+      (provider, signedIn, instance, method) => {
+        const selected = this.accounts.find(
+          (row) => row.provider === provider && (instance ? row.id === instance : row.implicit),
+        );
+        if (selected) {
+          selected.quota.auth = signedIn ? "logged_in" : "logged_out";
+          selected.availability = signedIn ? "available" : "logged_out";
+          selected.authMethod = signedIn
+            ? method === "api_key"
+              ? "api_key"
+              : "browser"
+            : "unknown";
+          selected.loginRevision = String(Number(selected.loginRevision ?? "0") + 1);
+        }
         this.providerStatuses = fakeReadiness(
           this.providerStatuses.map((row) =>
             row.provider === provider
@@ -144,6 +161,20 @@ export class FakeServices {
   }
   /** Answers one service message. False when it isn't a service this fake serves. */
   handle(message: ClientMessage, push: Push, device = "fake-device"): boolean {
+    if (
+      fakeProviderAccounts(message, {
+        accounts: () => this.accounts,
+        replace: (accounts) => {
+          this.accounts = accounts;
+        },
+        id: () => `account-fake-${++this.accountCounter}`,
+        now: this.host.clock,
+        login: this.providerLogin,
+        owner: device,
+        push,
+      })
+    )
+      return true;
     if (this.providerLogin.handle(message, device, push)) return true;
     if (message.type === "models.refresh") {
       const instances = this.modelResult({
