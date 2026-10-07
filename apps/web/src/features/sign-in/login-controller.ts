@@ -14,6 +14,8 @@ export interface SignInTarget {
   instance?: string | undefined;
   /** The upstream to pick when the CLI asks (an OpenCode or Pi source such as "opencode-go"). */
   choice?: string | undefined;
+  /** That upstream's name ("OpenAI"), for the dialog's title: Connect OpenAI, Disconnect OpenAI. */
+  service?: string | undefined;
   action?: "login" | "logout" | undefined;
 }
 
@@ -60,6 +62,7 @@ export class LoginController {
   /** Snapshots that raced the start reply, by session. */
   private early = new Map<string, ProviderLoginProgress>();
   private chose = false;
+  private openedPage = false;
   private stops: (() => void)[] = [];
   private disposed = false;
 
@@ -102,6 +105,13 @@ export class LoginController {
   /** Answer the CLI's fixed prompt with Enter. */
   continue(): void {
     this.input({ value: "enter" });
+  }
+
+  /** True only the first time: a sign-in opens its page by itself at most once. */
+  claimPageOpen(): boolean {
+    if (this.openedPage) return false;
+    this.openedPage = true;
+    return true;
   }
 
   cancel(): void {

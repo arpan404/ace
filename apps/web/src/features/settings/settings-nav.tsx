@@ -12,13 +12,19 @@ import { settingsPages, type SettingsPath } from "./settings-pages.ts";
 /** Pages that live under another page in the nav (the Theme editor sits under Appearance). */
 const parents: Record<string, SettingsPath> = { "/settings/theme-editor": "/settings/appearance" };
 
+/** The nav entry a page belongs to: itself, its parent, or the page it's a sub-page of. */
+function navPage(pathname: string): string {
+  if (pathname.startsWith("/settings/providers/")) return "/settings/providers";
+  return parents[pathname] ?? pathname;
+}
+
 const rowClass =
   "group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-ring-inset";
 
 /** Settings' pages as links; the current one is marked. Also the phone's Settings page. */
 export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
   const pathname = useLocation({ select: (location) => location.pathname });
-  const current = parents[pathname] ?? pathname;
+  const current = navPage(pathname);
   const listKeys = useViewListKeys<HTMLUListElement>();
   const pages = props.pages
     ? settingsPages.filter((page) => props.pages?.includes(page.to))

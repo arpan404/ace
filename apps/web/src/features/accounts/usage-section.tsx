@@ -1,4 +1,4 @@
-import type { UsageRow, UsageTotals } from "@ace/protocol";
+import type { UsageTotals } from "@ace/protocol";
 import { useMemo, useState, type ReactNode } from "react";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -25,6 +25,7 @@ import {
   useAccountUsage,
 } from "./usage-source.ts";
 import { useAccountViews } from "./accounts-source.ts";
+import { DailyBars } from "./daily-bars.tsx";
 import { Headroom } from "./headroom.tsx";
 
 type Range = "7" | "14" | "30";
@@ -63,13 +64,6 @@ const providerLabel = (id: string | null | undefined) => {
   const parsed = ProviderKind.safeParse(id);
   return parsed.success ? providerNames[parsed.data] : (id ?? "Other");
 };
-
-const dayLabel = new Intl.DateTimeFormat(undefined, {
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-  timeZone: "UTC",
-});
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
@@ -276,49 +270,5 @@ function Stat(props: { label: string; value: string | undefined; note?: string |
         <dd className="mt-1 text-xs text-subtle-foreground">{props.note}</dd>
       )}
     </div>
-  );
-}
-
-/** One ink bar per day; hovering or focusing a bar names its day and value. */
-function DailyBars(props: { rows: readonly UsageRow[] }) {
-  const [active, setActive] = useState<number>();
-  const values = props.rows.map((row) => tokens(row.totals));
-  const max = Math.max(1, ...values);
-  const shown = active === undefined ? undefined : props.rows[active];
-  return (
-    <figure className="mt-4 rounded-lg px-4 pt-3 pb-4 shadow-[inset_0_0_0_1px_var(--border)]">
-      <figcaption className="flex h-5 items-baseline justify-between text-xs text-subtle-foreground">
-        <span>Tokens per day</span>
-        {shown && (
-          <span aria-live="polite" className="text-foreground tabular-nums">
-            {dayLabel.format(Date.parse(shown.dimensions.day ?? ""))} ·{" "}
-            {formatTokens(tokens(shown.totals))}
-          </span>
-        )}
-      </figcaption>
-      <ol aria-label="Tokens per day" className="mt-2 flex h-36 items-end gap-0.5">
-        {props.rows.map((row, index) => {
-          const day = row.dimensions.day ?? "";
-          const value = values[index] ?? 0;
-          return (
-            <li
-              key={day}
-              tabIndex={0}
-              aria-label={`${dayLabel.format(Date.parse(day))}: ${formatTokens(value)} tokens`}
-              onMouseEnter={() => setActive(index)}
-              onMouseLeave={() => setActive(undefined)}
-              onFocus={() => setActive(index)}
-              onBlur={() => setActive(undefined)}
-              className="group flex h-full min-w-0 flex-1 items-end outline-none"
-            >
-              <span
-                style={{ height: `${Math.max(2, (value / max) * 100)}%` }}
-                className="block w-full rounded-t-[4px] bg-foreground/55 transition-colors duration-(--dur-1) group-hover:bg-foreground group-focus-visible:bg-foreground"
-              />
-            </li>
-          );
-        })}
-      </ol>
-    </figure>
   );
 }

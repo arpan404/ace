@@ -7,3 +7,5 @@ export { describeMove, useMoveThreads } from "./account-threads-source.ts";
 /** Reset times with the time left, and a quota window as a labelled bar. */
 export { formatResetCountdown } from "./format.ts";
 export { WindowBar } from "./window-bar.tsx";
+/** One provider's recent usage and API-price estimate, for its Settings page. */
+export { ProviderUsage } from "./provider-usage.tsx";
