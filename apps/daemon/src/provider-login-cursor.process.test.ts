@@ -52,12 +52,12 @@ test.each(["complete", "failed", "cancel", "unsafe_url"])(
       schedule: () => () => {},
       prepare: async (_target, action) => cursorLoginDriver(instance, account, action),
     });
-    const browser = Promise.withResolvers<void>();
+    const browser = Promise.withResolvers<ProviderLoginProgress>();
     const done = Promise.withResolvers<ProviderLoginProgress>();
     const events: ProviderLoginProgress[] = [];
     sessions.listen((_owner, progress) => {
       events.push(progress);
-      if (progress.state === "awaiting_browser") browser.resolve();
+      if (progress.state === "awaiting_browser") browser.resolve(progress);
       if (["succeeded", "failed", "cancelled"].includes(progress.state)) done.resolve(progress);
     });
     try {
@@ -67,7 +67,16 @@ test.each(["complete", "failed", "cancel", "unsafe_url"])(
         provider: "cursor",
       });
       if (mode !== "unsafe_url") {
-        await browser.promise;
+        const challenge = await Promise.race([
+          browser.promise,
+          done.promise.then((progress) => {
+            throw new Error(`Cursor login ended before its browser challenge: ${progress.state}`);
+          }),
+        ]);
+        expect(challenge).toMatchObject({
+          state: "awaiting_browser",
+          url: "https://cursor.com/loginDeepControl?challenge=public-challenge&redirectTarget=sdk",
+        });
         expect(await readFile(active, "utf8")).toBe("SDK login is running");
         if (mode === "complete" || mode === "failed") finish.resolve();
         else

@@ -15,9 +15,10 @@ export function cursorLoginDriver(
         signal.throwIfAborted();
         return { success: true };
       }
-      const login = createCursorLoginDriver(instance, {
-        login: (_identity, joined, url) => account.login(instance, joined, url),
-      });
+      const login = createCursorLoginDriver(
+        { id: instance.id, homeDir: instance.homeDir },
+        { login: (_identity, joined, url) => account.login(instance, joined, url) },
+      );
       for await (const progress of login.start(signal)) {
         if (progress.state === "complete") return { success: true };
         if (progress.state === "failed" || progress.state === "cancelled")
