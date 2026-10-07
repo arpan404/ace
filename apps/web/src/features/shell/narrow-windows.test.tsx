@@ -210,8 +210,14 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   await userEvent.keyboard("{Meta>}j{/Meta}");
   const bottom = await screen.findByRole("region", { name: "Bottom panel" });
   expect(within(bottom).queryByRole("button", { name: /Maximize/ })).toBeNull();
+  await waitFor(() => expect(bottom.contains(document.activeElement)).toBe(true));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Bottom panel" })).toBeNull());
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      within(screen.getByRole("banner")).getByRole("button", { name: "More actions" }),
+    ),
+  );
 });
 
 test("below 1100px the sidebar steps aside for the right panel, the rail stays, and both come back", async () => {
