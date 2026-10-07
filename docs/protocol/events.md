@@ -171,6 +171,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"thread.updated"` |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | backend | no | ["acp","cursor-sdk"] |  |
 | capabilities | no | [Capabilities.json](schema/Capabilities.json) |  |
 | permission | no | [PermissionState.json](schema/PermissionState.json) |  |
@@ -189,43 +190,38 @@ Example:
 
 ```json
 {
-  "acpSupport": {
-    "capabilities": {
-      "imageInput": false,
-      "planMode": false,
-      "resume": true
-    },
-    "coverage": "source_profile",
-    "mcp": "http",
-    "modeSelection": true,
-    "modelSelection": true,
-    "raw": {
-      "json": "example",
-      "truncated": true
-    },
-    "subagentSessions": true,
-    "visibility": "limited"
+  "capabilities": {
+    "backgroundTaskControl": false,
+    "backgroundVisibility": "partial",
+    "childControls": "read-only",
+    "fork": true,
+    "forkSubagents": true,
+    "imageInput": false,
+    "interruptCascades": true,
+    "planMode": true,
+    "resume": true,
+    "rewindFiles": true,
+    "steer": true,
+    "steeringMode": "interrupt-restart",
+    "subagentTranscripts": true,
+    "tokenUsage": false
   },
-  "execution": {
-    "instanceId": "example",
-    "provider": "cursor"
+  "lineage": {
+    "lossy": false,
+    "mode": "portable",
+    "parentAgentId": "example",
+    "parentThreadId": "example",
+    "point": {
+      "runId": "example",
+      "type": "turn"
+    }
   },
   "permission": {
     "effective": "auto-review",
     "override": null,
     "pending": true
   },
-  "provider": "acp",
-  "switch": {
-    "at": 5,
-    "lossy": true,
-    "recommendation": "delegate_task",
-    "selection": {
-      "options": {},
-      "provider": "codex"
-    },
-    "state": "failed"
-  },
+  "titleSource": "provisional",
   "type": "thread.updated"
 }
 ```
@@ -242,21 +238,24 @@ Example:
 ```json
 {
   "agent": {
-    "background": true,
-    "createdAt": 9,
+    "childThreadId": "example",
+    "createdAt": 1,
     "cwd": "example",
-    "fidelity": "summary",
+    "fidelity": "full",
     "id": "example",
-    "name": "example",
+    "model": "example",
     "native": {
       "installationId": "example",
-      "provider": "pi"
+      "nativeId": "example",
+      "provider": "acp"
     },
     "origin": "ace",
-    "parentId": null,
+    "parentId": "example",
+    "spawnedBy": "example",
     "status": {
-      "lastSignalAt": 2,
-      "state": "unresponsive"
+      "activity": "thinking",
+      "itemId": "example",
+      "state": "working"
     },
     "threadId": "example"
   },
@@ -278,10 +277,7 @@ Example:
 {
   "agentId": "example",
   "status": {
-    "activity": "responding",
-    "detail": "example",
-    "itemId": "example",
-    "state": "working"
+    "state": "idle"
   },
   "type": "agent.status"
 }
@@ -313,8 +309,9 @@ Example:
 {
   "agentId": "example",
   "background": true,
-  "origin": "provider_subagent",
-  "role": "example",
+  "cwd": "example",
+  "fidelity": "placeholder",
+  "spawnedBy": "example",
   "type": "agent.updated"
 }
 ```
@@ -332,9 +329,9 @@ Example:
 ```json
 {
   "checkpoints": {
-    "after": "example",
+    "before": "example",
     "error": "example",
-    "state": "ready"
+    "state": "unavailable"
   },
   "runId": "example",
   "type": "run.client.updated"
@@ -374,20 +371,19 @@ Example:
 {
   "run": {
     "agentId": "example",
-    "executionSource": {
-      "nativeSessionId": "example",
-      "selection": {
-        "model": "example",
-        "options": {},
-        "provider": "claude"
-      }
+    "endedAt": 8,
+    "error": {
+      "code": "example",
+      "kind": "unknown",
+      "message": "example",
+      "title": "example"
     },
     "id": "example",
-    "nativeId": "example",
-    "startedAt": 4,
+    "ordinal": 7,
+    "startedAt": 2,
     "state": "interrupted",
     "threadId": "example",
-    "trigger": "goal"
+    "trigger": "user"
   },
   "type": "run.started"
 }
@@ -409,15 +405,6 @@ Example:
 ```json
 {
   "endedAt": 3,
-  "error": {
-    "details": {
-      "code": "example",
-      "provider": "codex"
-    },
-    "kind": "auth",
-    "message": "example",
-    "title": "example"
-  },
   "runId": "example",
   "state": "completed",
   "type": "run.ended"

@@ -20,11 +20,23 @@ export function bootPerf(): { client: ClientApi; threadId: string } {
   });
   // With `?markdown=1`, the markdown service's updates (tools/web-perf/src/markdown-stream.ts);
   // other runs collect none, so their heap budgets measure the app alone.
-  const stats = { events: 0, ...(markdown ? { markdown: [] as unknown[] } : {}) };
+  const stats = { events: 0, at: 0, ...(markdown ? { markdown: [] as unknown[] } : {}) };
   worker.addEventListener("message", (event: MessageEvent<unknown>) => {
     const data = event.data;
     if (typeof data === "object" && data !== null && "t" in data && data.t === "perf")
-      if ("events" in data && typeof data.events === "number") stats.events = data.events;
+      if (
+        "events" in data &&
+        typeof data.events === "number" &&
+        "at" in data &&
+        typeof data.at === "number" &&
+        Number.isFinite(data.events) &&
+        Number.isFinite(data.at) &&
+        data.events >= 0 &&
+        data.at >= 0
+      ) {
+        stats.events = data.events;
+        stats.at = data.at;
+      }
   });
   // Read by tools/web-perf.
   Object.assign(globalThis, { acePerf: stats });

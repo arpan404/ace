@@ -4,10 +4,9 @@ import type { ProviderAdapter, SessionContext, ProviderSession } from "@ace/engi
 import type { AceMcpConnection } from "@ace/mcp-server";
 import { cursorCapabilitiesForSandbox } from "./policy.ts";
 import { cursorSdkEnvironment, CursorInstance, defaultCursorInstance } from "./instance.ts";
-import { openCursorSession } from "./session.ts";
 import { discoverCursorSdk, type HostOptions } from "./host.ts";
 import { CursorTranslator } from "./translator.ts";
-import { readCursorSnapshot } from "./history.ts";
+import type { readCursorSnapshot } from "./history.ts";
 import { CursorHostSlots } from "./slots.ts";
 import { Limits } from "./contracts.ts";
 
@@ -86,6 +85,7 @@ export function createCursorAdapter(
         if (context.resume) {
           // Canonical ace history already owns content. Validate a bounded snapshot
           // without appending positional SDK messages as new live transcript entries.
+          const { readCursorSnapshot } = await import("./history.ts");
           recoverySnapshot = await readCursorSnapshot(
             { ...hostOptions, slots, env, instanceId: selected.id },
             {
@@ -96,6 +96,7 @@ export function createCursorAdapter(
             context.signal,
           );
         }
+        const { openCursorSession } = await import("./session.ts");
         const opened = await openCursorSession(
           {
             ...context,

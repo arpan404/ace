@@ -249,6 +249,58 @@ try {
   },
 );
 
+test.each([
+  [
+    "tgz",
+    "H4sIAPSExWoC/+3NMQrCQBQE0K09RY7wCcacZxMWDUgKswG9vSGNhbUi+F4zwzSTz2Wu6bNi00fsGe8Z0Xavvu+nvjumJtIXrEvNt+0y/aflMddLqdPYlHsZ15qHazkkAAAAAAAAAAAAft0TWUWJbgAoAAA=",
+  ],
+  [
+    "zip",
+    "UEsDBBQAAAAAAAKURl15p1flFQAAABUAAAAFAAAAYWdlbnRzeW50aGV0aWMgZXhlY3V0YWJsZQpQSwECFAMUAAAAAAAClEZdeadX5RUAAAAVAAAABQAAAAAAAAAAAAAAgAEAAAAAYWdlbnRQSwUGAAAAAAEAAQAzAAAAOAAAAAAA",
+  ],
+])(
+  "the standalone registry installs an approved %s archive on first use without a checkout",
+  { timeout: 60_000 },
+  async (extension, encoded) => {
+    const root = await mkdtemp(join(tmpdir(), "ace-lazy-archive-bundle-"));
+    roots.push(root);
+    const resolveDaemon = createRequire(createRequire(import.meta.url).resolve("@ace/daemon"));
+    const registry = resolveDaemon.resolve("@ace/agent-registry");
+    const entry = join(root, "fixture.ts");
+    // Tiny archives created for this test; installing only hashes the fake executable.
+    await writeFile(
+      entry,
+      `
+import {AgentCatalog,AgentRegistry,fileCache,fileInventoryStorage,digest} from ${JSON.stringify(registry)};
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+const root=process.cwd(), bytes=Buffer.from(${JSON.stringify(encoded)},'base64');
+let id=0;
+const agent={id:'sample',name:'Sample',version:'1.0.0',description:'Synthetic',license_url:'https://example.org/license',distribution:{binary:{'linux-x86_64':{archive:'https://example.org/agent.${extension}',cmd:'agent',args:[],env:{},sha256:digest(bytes)}}}};
+const catalog=await AgentCatalog.open({cache:fileCache(join(root,'snapshot.json'),()=>String(++id)),now:()=>1000,target:'linux-x86_64',fetch:async()=>new Response(JSON.stringify({version:'1.0.0',agents:[agent]}))});
+const service=await AgentRegistry.open({catalog,root:join(root,'installations'),target:'linux-x86_64',env:{HOME:root,PATH:''},storage:fileInventoryStorage(join(root,'inventory.json'),()=>String(++id)),runtime:{fetch:async()=>new Response(bytes)}});
+try {
+ await catalog.refresh();
+ const preview=await service.handle({type:'registry.install-plan',requestId:'plan',acpAgentId:'official:sample',runtime:'binary'});
+ if(!preview.result.ok||!('plan' in preview.result)) throw new Error('No installation plan');
+ const reply=await service.handle({type:'registry.install-intent',requestId:'install',intentId:'approved',digest:preview.result.plan.digest});
+ if(!reply.result.ok||!('installation' in reply.result)) throw new Error(JSON.stringify(reply.result));
+ const plan=await service.resolve(reply.result.installation);
+ console.log(JSON.stringify({content:await readFile(plan.command,'utf8')}));
+} catch(error) {console.error(error instanceof Error?error.message:'Registry fixture failed');process.exitCode=1;} finally {await service.close();}
+`,
+    );
+    await bundleDaemon(resolve(import.meta.dirname, "../../.."), root, "", undefined, entry);
+    await rm(entry);
+    const result = await promisify(execFile)(process.execPath, [join(root, "ace.mjs")], {
+      cwd: root,
+      env: { HOME: root, PATH: "" },
+      maxBuffer: 65536,
+    });
+    expect(JSON.parse(result.stdout)).toEqual({ content: "synthetic executable\n" });
+  },
+);
+
 test(
   "the packaged MCP listener serves its first tool call and persists its effect without a checkout",
   { timeout: 60_000 },

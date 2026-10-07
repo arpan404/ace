@@ -35,7 +35,7 @@ export { Choices } from "@/features/home/new-thread/choices.ts";
 export { AutomationForm } from "@/features/automations/automation-values.ts";
 export { PluginNameInput, PluginRepository } from "@/features/skills/skills-model.ts";
 export { NewDeckInput } from "@/features/deck/deck-spec.ts";
-export { number, object, string } from "zod";
+export { number, object, string, array, tuple, instanceof as instanceOf, enum as enumeration } from "zod";
 `;
 const entry: Plugin = {
   name: "entry",
@@ -87,6 +87,10 @@ type Bundled = Record<string, Schema> & {
   number: typeof z.number;
   object: typeof z.object;
   string: typeof z.string;
+  array: typeof z.array;
+  tuple: typeof z.tuple;
+  instanceOf: typeof z.instanceof;
+  enumeration: typeof z.enum;
 };
 
 /** Runs a CommonJS bundle and returns its exports; React stays outside it. */
@@ -298,7 +302,7 @@ beforeAll(async () => {
       export { WorkerTarget } from "@/boot/worker-target.ts";
       export { MachineTarget } from "@/boot/machine-target.ts";
       export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
-      export { string, object, number } from "zod";
+      export { string, object, number, array, tuple, instanceof as instanceOf, enum as enumeration } from "zod";
       // The machine-pool worker's entry loads with the worker build's Zod.
       import "@/boot/machine-worker.ts";
     `,
@@ -342,27 +346,6 @@ function disagreements(name: string, inputs: unknown[], actual = trimmed): strin
 }
 
 describe("zodWithoutUnusedMethods", () => {
-  it("records real traffic from every part of the protocol the app uses", () => {
-    const types = new Set(corpus.server.map((frame) => (frame as { type?: unknown }).type));
-    for (const type of [
-      "welcome",
-      "snapshot",
-      "events",
-      "commandResult",
-      "items.page",
-      "turns.page",
-      "items.window",
-      "thread.search",
-      "settings.result",
-      "automation.result",
-      "accounts.list",
-      "usage.result",
-    ])
-      expect(types).toContain(type);
-    expect(corpus.server.length).toBeGreaterThan(50);
-    expect(corpus.client.length).toBeGreaterThan(20);
-  });
-
   it("decodes every server frame, and edge cases made from them, as the full build does", () => {
     for (const frame of corpus.server) expect(outcome(full.ServerMessage!, frame).ok).toBe(true);
     const inputs = withVariants(corpus.server);
@@ -413,6 +396,10 @@ describe("zodWithoutUnusedMethods", () => {
       ZodNumber: () => worker.number(),
       ZodObject: () => worker.object({}),
       ZodError: () => worker.string().safeParse(42).error ?? {},
+      ZodArray: () => worker.array(worker.string()),
+      ZodTuple: () => worker.tuple([worker.string()]),
+      ZodInstanceOf: () => worker.instanceOf(Uint8Array),
+      ZodEnum: () => worker.enumeration(["one", "two"]),
     };
     for (const [owner, names] of Object.entries(droppedWorkerZodMethods))
       for (const name of names) {

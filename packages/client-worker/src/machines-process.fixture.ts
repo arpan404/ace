@@ -1,3 +1,4 @@
+import { inject } from "vitest";
 /** Pool test boundary: real workers, bounded observation and injected persistence. */
 import { Worker } from "node:worker_threads";
 import { ClientError, type Selection } from "@ace/client";
@@ -10,6 +11,12 @@ import {
 import { HostId, ThreadId, WorkspaceId } from "@ace/protocol";
 import { z } from "zod";
 import { MachinePool, type MachineWorker } from "./machines.ts";
+
+declare module "vitest" {
+  export interface ProvidedContext {
+    machineWorker: string;
+  }
+}
 
 export const cleanup: (() => Promise<unknown>)[] = [];
 export const scheduler = {
@@ -101,7 +108,7 @@ export function poolWorld(options: { threadCount?: number; outboxRoot?: string }
     spawn(entry: MachineEntry, token: string): MachineWorker {
       const gate = new SharedArrayBuffer(4);
       gates.set(entry.hostId, new Int32Array(gate));
-      const worker = new Worker(new URL("./machines-worker.fixture.ts", import.meta.url), {
+      const worker = new Worker(inject("machineWorker"), {
         workerData: {
           hostId: entry.hostId,
           name: entry.displayName,

@@ -1,5 +1,5 @@
-import { CursorHostSlots } from "@ace/adapter-cursor";
-import { discoverClaudeModels } from "@ace/adapter-claude";
+import { CursorHostSlots } from "@ace/adapter-cursor/slots";
+import { discoverClaudeModels } from "@ace/adapter-claude/models";
 import {
   spawnSupervised,
   type SpawnOptions,
@@ -29,7 +29,7 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
   return async (instance: ModelInstance, signal: AbortSignal): Promise<CatalogModel[]> => {
     signal.throwIfAborted();
     if (instance.backend === "cursor-sdk") {
-      const { createCursorAccountDriver } = await import("@ace/adapter-cursor");
+      const { createCursorAccountDriver } = await import("@ace/adapter-cursor/auth");
       if (!instance.homeDir) throw new Error("Cursor SDK catalog needs its selected instance home");
       const driver = createCursorAccountDriver({
         launchEnv: { ...options.cursorEnv, ...instance.env },

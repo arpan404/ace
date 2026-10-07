@@ -16,7 +16,7 @@ import {
 } from "@ace/core";
 import type { PermissionSettings } from "./permissions.ts";
 import { z } from "zod";
-import { changeEngineWorkspace } from "./workspace-change.ts";
+import { changeEngineWorkspace, type WorkspaceChangeReservation } from "./workspace-change.ts";
 import { CommandId, ProviderKind, ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
@@ -646,10 +646,11 @@ export class Engine {
     id: ThreadId,
     commandId: string,
     effect: () => Promise<import("@ace/protocol").ThreadDetails>,
-    reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean } = {
+    reservation: WorkspaceChangeReservation = {
       roots: [this.repo.session(id).cwd],
       hasOwnedWork: () => false,
     },
+    commit: () => void = () => {},
   ): Promise<void> {
     if (this.closing || this.workspaceChanges.has(id))
       throw new Error("workspace_change_in_progress");
@@ -667,6 +668,7 @@ export class Engine {
       effect,
       (owner) => this.wake(owner),
       { ...reservation, roots: [...reservation.roots, this.repo.session(id).cwd] },
+      commit,
     ).finally(() => this.workspaceChanges.delete(id));
     this.workspaceChanges.set(id, change);
     return change;

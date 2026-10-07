@@ -1,3 +1,4 @@
+import { threadMoveError, threadMoveEvents } from "@ace/projection";
 import { automaticTarget } from "@ace/accounts/availability";
 import { providerCommandDisabled, supportsPermissionMode } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
@@ -867,6 +868,19 @@ export class FakeDaemon implements Host {
           : undefined;
     if (Object.keys(options ?? {}).some(isPermissionOption))
       return { commandId, ok: false, error: "provider_permission_options_forbidden" };
+    if (payload.type === "thread.move") {
+      const host = this.threads.get(payload.threadId);
+      if (!host) return { commandId, ok: false, error: "thread_not_found" };
+      const error = threadMoveError(host.view.thread);
+      if (error) return { commandId, ok: false, error };
+      if (host.queued.length || this.servicesWire.workspace.terminals.hasOwnedWork(host.id))
+        return { commandId, ok: false, error: "thread_busy" };
+      const project = this.servicesWire.workspace.projects.get(payload.workspaceId);
+      if (!project) return { commandId, ok: false, error: "workspace_not_found" };
+      if (host.view.thread.workspaceId !== project.id)
+        this.append(host, threadMoveEvents(host.view.thread, project), this.options.clock());
+      return { commandId, ok: true, threadId: ThreadId.parse(host.id) };
+    }
     const service = this.servicesWire.command(payload, commandId);
     if (service) return { commandId, ...service };
     if (

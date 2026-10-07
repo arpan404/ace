@@ -235,3 +235,46 @@ async function peerThread(h: Awaited<ReturnType<typeof harness>>) {
   await h.engine.flush();
   return result.threadId;
 }
+
+test("a binding-only change preserves a peer's live tree and execution root", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  try {
+    const first = await h.create();
+    const peer = await peerThread(h);
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: peer,
+        input: [{ type: "text", text: "Keep working" }],
+      }),
+    ).toMatchObject({ ok: true });
+    await h.engine.flush();
+    expect(h.store.getThread(peer)?.status.state).not.toBe("done");
+    const original = h.store.executionWorkspace(peer).path;
+    const destination = join(h.home, "binding-destination");
+    await mkdir(destination);
+    await h.engine.changeWorkspace(
+      first,
+      "binding",
+      async () => ({ mode: "local", worktree: destination }),
+      {
+        roots: [original, destination],
+        hasOwnedWork: () => false,
+        threads: [first],
+      },
+    );
+    expect(h.store.executionWorkspace(first).path).toBe(destination);
+    expect(h.store.executionWorkspace(peer).path).toBe(original);
+    expect(h.store.getThread(peer)?.status.state).not.toBe("done");
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: peer,
+        input: [{ type: "text", text: "Next input" }],
+      }),
+    ).toMatchObject({ ok: true });
+  } finally {
+    await h.close();
+  }
+});

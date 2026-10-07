@@ -12,7 +12,7 @@ import {
 
 const launch = () => chromium.launch({ executablePath: inject("chromiumExecutable") });
 
-test("streamed rate counts only deliveries inside the elapsed measurement window", async () => {
+test("streamed rate pairs completed batch counters with their delivery timestamps", async () => {
   const browser = await launch();
   try {
     const page = await browser.newPage();
@@ -20,21 +20,22 @@ test("streamed rate counts only deliveries inside the elapsed measurement window
     await page.evaluate(observe);
     // Inject the clock and cumulative deliveries so scheduling cannot change the verdict.
     await page.evaluate(() => {
-      Object.assign(globalThis, { acePerf: { events: 700 }, aceSampleTime: 1_000 });
+      Object.assign(globalThis, { acePerf: { events: 700, at: 992 }, aceSampleTime: 1_000 });
       performance.now = () => Reflect.get(globalThis, "aceSampleTime");
     });
     const start = await resetRecord(page);
     await page.evaluate(() => {
-      Reflect.get(globalThis, "acePerf").events = 10_800;
-      Reflect.set(globalThis, "aceSampleTime", 3_000);
+      Object.assign(Reflect.get(globalThis, "acePerf"), { events: 10_800, at: 2_992 });
+      Reflect.set(globalThis, "aceSampleTime", 3_008);
     });
     const sample = await readRecord(page, start);
     // Later deliveries and time must not change the already captured window.
     await page.evaluate(() => {
-      Reflect.get(globalThis, "acePerf").events = 20_800;
+      Object.assign(Reflect.get(globalThis, "acePerf"), { events: 20_800, at: 6_992 });
       Reflect.set(globalThis, "aceSampleTime", 7_000);
     });
-    expect(sample.seconds).toBe(2);
+    expect(sample.seconds).toBe(2.008);
+    expect(sample.streamedSeconds).toBe(2);
     expect(streamedRate(sample)).toBe(5_050);
     const next = await resetRecord(page);
     await page.evaluate(() => Reflect.set(globalThis, "aceSampleTime", 8_000));

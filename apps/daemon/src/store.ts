@@ -554,8 +554,9 @@ export class Store {
           );
         if (event.payload.type !== "item.delta")
           this.statement(
-            "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ?, provider_metadata = ? WHERE id = ?",
+            "UPDATE threads SET workspace_id = ?, title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ?, provider_metadata = ? WHERE id = ?",
           ).run(
+            thread.workspaceId,
             thread.title,
             JSON.stringify(thread.status),
             thread.updatedAt,
