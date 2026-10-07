@@ -237,7 +237,8 @@ export function setTabPinned(
 /**
  * Replace one tab with another resource in its place (the new-tab launcher becoming the tool
  * picked from it). A resource already open in this dock shows where it is; one open in the
- * other dock moves here. Nothing opens twice.
+ * other dock moves here. Nothing opens twice. Replacing a resource keeps its dock's visibility,
+ * so a terminal finishing startup cannot reopen a dock the person just hid.
  */
 export function replaceTab(
   workspace: ScopeWorkspace,
@@ -247,7 +248,8 @@ export function replaceTab(
   const found = findTab(workspace, key);
   if (!found) return workspace;
   const nextKey = tabKey(request.kind, request.id);
-  if (nextKey === key) return activateTab(workspace, key);
+  if (nextKey === key)
+    return setDockOpen(activateTab(workspace, key), found.dock, workspace[found.dock].open);
   const existing = findTab(workspace, nextKey);
   // Already open in this dock: show it where it is; the launcher's job is done.
   if (existing?.dock === found.dock) {
@@ -255,7 +257,11 @@ export function replaceTab(
       request.data === undefined
         ? workspace
         : updateTab(workspace, nextKey, { data: request.data });
-    return activateTab(closeTab(shown, key), nextKey);
+    return setDockOpen(
+      activateTab(closeTab(shown, key), nextKey),
+      found.dock,
+      workspace[found.dock].open,
+    );
   }
   let next = removeAt(workspace, found.dock, found.index);
   let tab: WorkspaceTab;
@@ -275,7 +281,7 @@ export function replaceTab(
   return withDock(next, found.dock, {
     tabs: insert(next[found.dock].tabs, tab, found.index),
     active: nextKey,
-    open: true,
+    open: workspace[found.dock].open,
   });
 }
 

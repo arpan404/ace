@@ -1,0 +1,77 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_status.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agentId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "groups": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "enum": [
+              "thread",
+              "browser",
+              "preview",
+              "terminal",
+              "notify",
+              "agents",
+              "thread_control",
+              "automations",
+              "projects",
+              "forge",
+              "screen",
+              "devices",
+              "files"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 512,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "maxItems": 13,
+      "type": "array"
+    },
+    "permissionMode": {
+      "anyOf": [
+        {
+          "enum": [
+            "read-only",
+            "ask",
+            "auto-review",
+            "full-access"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadId": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "threadId",
+    "agentId",
+    "permissionMode",
+    "groups"
+  ],
+  "type": "object"
+}

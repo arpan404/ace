@@ -28,6 +28,7 @@ class Client {
       const value: unknown = binary
         ? z.instanceof(Buffer).parse(data)
         : ServerMessage.parse(JSON.parse(data.toString()));
+      if (!binary && ServerMessage.parse(value).type === "models.changed") return;
       const waiting = this.waiters.shift();
       if (waiting) waiting(value);
       else this.queue.push(value);
@@ -49,7 +50,7 @@ class Client {
   async close() {
     if (this.socket.readyState === WebSocket.CLOSED) return;
     const ended = once(this.socket, "close");
-    this.socket.close();
+    this.socket.terminate();
     await ended;
   }
 }
@@ -247,25 +248,27 @@ it("hosts authenticated encrypted file transfers from normal daemon startup and 
     requestId: "r",
     operation: { op: "download", path: "binary", offset: 0 },
   });
-  const ready = z.object({ channel: z.number() }).parse(await client.receive());
+  const ready = z.object({ channel: z.number() }).parse(await relayFileReply(client));
   await client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
-  expect(
-    decodeFileFrame(Buffer.from(z.instanceof(Uint8Array).parse(await client.receiveFrame()))).bytes,
-  ).toEqual(Buffer.from([0, 255, 19]));
-  expect(await client.receive()).toMatchObject({ type: "files.end" });
+  expect(decodeFileFrame(Buffer.from(await relayFileFrame(client))).bytes).toEqual(
+    Buffer.from([0, 255, 19]),
+  );
+  expect(await relayFileReply(client)).toMatchObject({ type: "files.end" });
   await client.send({
     type: "files.request",
     requestId: "r",
     operation: { op: "create", path: "denied", expected: null, text: "bad" },
   });
-  expect(FilesServerMessage.parse(await client.receive())).toMatchObject({ code: "FORBIDDEN" });
+  expect(FilesServerMessage.parse(await relayFileReply(client))).toMatchObject({
+    code: "FORBIDDEN",
+  });
   f.daemon.store.devices.revoke(paired.device.id, 2);
   await client.send({
     type: "files.request",
     requestId: "r",
     operation: { op: "stat", path: "binary" },
   });
-  expect(await client.receive()).toMatchObject({ code: "FORBIDDEN" });
+  expect(await relayFileReply(client)).toMatchObject({ code: "FORBIDDEN" });
   const admin = await connectClientViaRelay({
     relayUrl: relay.url,
     hostId,
@@ -415,5 +418,23 @@ async function fileReply(client: Client): Promise<import("@ace/protocol").FilesS
   for (;;) {
     const reply = FilesServerMessage.parse(await client.next());
     if (reply.type !== "files.changed") return reply;
+  }
+}
+
+async function relayFileReply(client: Awaited<ReturnType<typeof connectClientViaRelay>>) {
+  for (;;) {
+    const reply = await client.receive();
+    const parsed = ServerMessage.parse(reply);
+    if (parsed.type !== "models.changed" && parsed.type !== "files.changed") return reply;
+  }
+}
+
+async function relayFileFrame(client: Awaited<ReturnType<typeof connectClientViaRelay>>) {
+  for (;;) {
+    const frame = await client.receiveFrame();
+    if (frame instanceof Uint8Array) return frame;
+    const parsed = ServerMessage.parse(frame);
+    if (parsed.type !== "models.changed" && parsed.type !== "files.changed")
+      throw new Error("Expected a binary file frame");
   }
 }

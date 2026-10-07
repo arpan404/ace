@@ -9,6 +9,7 @@ import type { Principal } from "./credentials.ts";
 
 export interface ToolContext {
   readonly caller: McpAttribution;
+  readonly capabilities: readonly McpCapability[];
   readonly signal: AbortSignal;
 }
 export type CallObserver = (
@@ -194,6 +195,14 @@ export class ToolRegistry {
     const tool = name.startsWith("mcp__ace__") ? name.slice("mcp__ace__".length) : name;
     return this.entries.get(tool)?.action(input);
   }
+  capability(name: string): McpCapability | null | undefined {
+    return this.entries.get(name)?.capability;
+  }
+  capabilities(): ReadonlySet<McpCapability> {
+    return new Set(
+      [...this.entries.values()].flatMap((entry) => (entry.capability ? [entry.capability] : [])),
+    );
+  }
   list(principal: Principal): Tool[] {
     if (principal.signal.aborted) return [];
     const tools: Tool[] = [];
@@ -235,7 +244,11 @@ export class ToolRegistry {
       });
     });
     const { sessionId, threadId, agentId } = principal.scope;
-    const context = { caller: { sessionId, threadId, agentId }, signal };
+    const context = {
+      caller: { sessionId, threadId, agentId },
+      capabilities: principal.scope.capabilities,
+      signal,
+    };
     const executing = Promise.resolve()
       .then(async () => {
         const observe = this.observeCall?.(name, input, context);

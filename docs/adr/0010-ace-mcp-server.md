@@ -98,6 +98,12 @@ while waiting for a writer, without introducing a stat/open race.
 There is no replay buffer or permanent MCP transport session map. A non-gating
 benchmark measures credential lookup and dispatch throughput and peak RSS.
 
+The server's mandatory `ace_status` discovery tool uses a separate registry capped
+at one tool and 64 active reads. `maxTools` continues to bound the caller's backend
+registry, including registered toolkit built-ins; starting the HTTP server does
+not consume or increase that capacity. Status resources and tool descriptions use
+the same scoped reader. The existing HTTP request limit bounds both registries.
+
 ## Testing
 
 Use real loopback HTTP with official MCP clients for current discovery and the
