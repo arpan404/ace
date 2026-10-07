@@ -85,6 +85,63 @@ test("settings may make a pinned legacy model the concrete default", () => {
     model: { id: "gpt-5.6-sol", defaultSource: "user", tier: "legacy" },
   });
 });
+
+test.each(["1.3", "1.10"])(
+  "Muse Spark %s Contributor becomes current and default while 1.2 stays selectable",
+  (version) => {
+    const newer = `opencode-go/muse-spark-${version}-contributor`;
+    const older = "opencode-go/muse-spark-1.2-contributor";
+    const view = configuredModels(
+      rows([older, newer], "opencode").map((row) =>
+        Object.assign({}, row, {
+          nativeProviderId: "opencode-go",
+          isDefault: row.id === older,
+        }),
+      ),
+      "opencode",
+      "account",
+      { provider: "opencode" },
+    );
+    expect(view.map((row) => ({ id: row.id, tier: row.tier, isDefault: row.isDefault }))).toEqual([
+      { id: newer, tier: "current", isDefault: true },
+      { id: older, tier: "legacy", isDefault: false },
+    ]);
+    expect(resolveModel({ role: "thread" }, view, () => false)).toMatchObject({
+      ok: true,
+      model: { id: newer },
+    });
+    expect(resolveModel({ role: "thread", model: older }, view, () => false)).toMatchObject({
+      ok: true,
+      model: { id: older, tier: "legacy" },
+    });
+  },
+);
+
+test("Muse Spark qualifiers keep independent current versions", () => {
+  const view = configuredModels(
+    rows(
+      [
+        "muse-spark-1.3-contributor",
+        "muse-spark-1.2-mini",
+        "muse-spark-1.1-mini",
+        "muse-spark-1.2-preview",
+      ],
+      "opencode",
+    ),
+    "opencode",
+    "account",
+    { provider: "opencode" },
+  );
+  expect(view.filter((row) => row.tier === "current").map((row) => row.id)).toEqual([
+    "muse-spark-1.3-contributor",
+    "muse-spark-1.2-mini",
+    "muse-spark-1.2-preview",
+  ]);
+  expect(view.find((row) => row.id === "muse-spark-1.1-mini")).toMatchObject({
+    tier: "legacy",
+    isDefault: false,
+  });
+});
 test("provider deprecation beats lifecycle exceptions and known exceptions can retire a unique tier", () => {
   const view = configuredModels(rows(["gpt-5-codex-mini"]), "codex", "account", {
     provider: "codex",
