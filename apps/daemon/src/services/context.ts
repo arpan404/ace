@@ -18,8 +18,15 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
       const thread = store.getThread(ThreadId.parse(threadId));
       return thread !== undefined && thread.deletedAt === undefined;
     },
-    retained: (thread, hash) =>
-      services.engine?.retainsAttachment(ThreadId.parse(thread), hash) ?? false,
+    retained: (thread, hash) => {
+      const owner = store.getThread(ThreadId.parse(thread));
+      return (
+        owner !== undefined &&
+        owner.deletedAt === undefined &&
+        (store.measurements.retains(thread, hash) ||
+          (services.engine?.retainsAttachment(ThreadId.parse(thread), hash) ?? false))
+      );
+    },
     authorize: (_device, thread) => {
       const entity = store.getThread(ThreadId.parse(thread));
       return entity !== undefined && entity.deletedAt === undefined;

@@ -606,21 +606,37 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "blocking": true,
-    "closedAt": 8,
-    "createdAt": 9,
-    "expirationReason": "provider_disconnected",
+    "blocking": false,
+    "closedAt": 2,
+    "createdAt": 1,
     "id": "example",
+    "raw": [],
     "request": {
-      "description": "example",
-      "kind": "elicitation",
-      "message": "example",
-      "nativeId": "example",
-      "server": "example"
+      "kind": "plan_review",
+      "markdown": "example",
+      "planPath": "example"
     },
-    "resolvedBy": "example",
-    "state": "expired",
-    "threadId": "example"
+    "resolution": {
+      "decision": "reject",
+      "kind": "plan_review"
+    },
+    "review": {
+      "decision": "escalate",
+      "interactionId": "example",
+      "mode": "auto-review",
+      "reason": "example",
+      "reviewer": "ace-risk-policy",
+      "target": {
+        "access": "write",
+        "cwd": "example",
+        "description": "example",
+        "input": null,
+        "tool": "example"
+      }
+    },
+    "state": "resolved",
+    "threadId": "example",
+    "toolCallId": "example"
   },
   "type": "interaction.opened"
 }
@@ -643,10 +659,10 @@ Example:
 
 ```json
 {
-  "closedAt": 4,
+  "closedAt": 5,
+  "expirationReason": "provider_disconnected",
   "interactionId": "example",
-  "resolvedBy": "example",
-  "state": "cancelled",
+  "state": "resolved",
   "type": "interaction.closed"
 }
 ```
@@ -664,16 +680,13 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "childAgentId": "example",
-    "endedAt": 9,
+    "ambient": true,
     "id": "example",
-    "kind": "monitor",
-    "outputPath": "example",
-    "startedAt": 0,
-    "status": "completed",
-    "stoppable": true,
-    "title": "example",
-    "toolCallId": "example"
+    "kind": "other",
+    "startedAt": 5,
+    "status": "running",
+    "stoppable": false,
+    "title": "example"
   },
   "type": "background_task.started"
 }
@@ -692,7 +705,7 @@ Example:
 
 ```json
 {
-  "status": "failed",
+  "status": "stopped",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -713,9 +726,9 @@ Example:
 ```json
 {
   "paused": true,
-  "reason": "manual",
-  "resumeAt": 5,
-  "revision": 9,
+  "reason": "uncertain",
+  "resumeAt": null,
+  "revision": 7,
   "type": "queue.updated"
 }
 ```
@@ -733,8 +746,8 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 9,
-    "source": "unknown",
+    "epoch": 6,
+    "source": "catalog",
     "usedTokens": null,
     "windowTokens": null
   },
@@ -758,9 +771,8 @@ Example:
 ```json
 {
   "agentId": "example",
-  "model": "example",
   "type": "context.sampled",
-  "usedTokens": 6
+  "usedTokens": 5
 }
 ```
 
@@ -793,13 +805,12 @@ Example:
 
 ```json
 {
+  "accountId": "example",
   "agentId": "example",
-  "billingMode": "unknown",
-  "cacheWrite1hTokens": 3,
-  "contextSessionId": "example",
-  "contextTokens": 6,
-  "inputTokens": 9,
-  "outputTokens": 6,
+  "cacheWriteTokens": 7,
+  "costUsd": 5,
+  "inputTokens": 3,
+  "outputTokens": 4,
   "type": "usage.updated"
 }
 ```
@@ -820,6 +831,7 @@ Example:
     "id": "example",
     "op": "example",
     "path": "example",
+    "trashId": "example",
     "version": "example"
   },
   "type": "workspace.files_changed",

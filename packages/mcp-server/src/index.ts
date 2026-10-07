@@ -5,6 +5,7 @@ export {
   nodeScheduler,
   type Scheduler,
   type ToolContext,
+  type CallObserver,
   type ToolDefinition,
 } from "./registry.ts";
 export { startMcpServer, type McpServerOptions } from "./http.ts";

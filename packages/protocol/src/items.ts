@@ -1,3 +1,4 @@
+import { StepMeasurement } from "./interaction-measurement.ts";
 import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { DelegationOutcome } from "./agent-control.ts";
@@ -119,7 +120,11 @@ export const AgentItem = z.discriminatedUnion("type", [
     summary: z.boolean().default(false),
     raw: z.array(RawPayload).default([]),
   }),
-  ItemBase.extend({ type: z.literal("tool_call"), call: ToolCall }),
+  ItemBase.extend({
+    type: z.literal("tool_call"),
+    call: ToolCall,
+    measurement: StepMeasurement.optional(),
+  }),
   ItemBase.extend({
     type: z.literal("notice"),
     level: z.enum(["info", "warning", "error"]),
@@ -131,6 +136,8 @@ export const AgentItem = z.discriminatedUnion("type", [
     details: ProviderErrorDetails.optional(),
     /** Native history output linked to its canonical call. */
     toolCallId: ItemId.optional(),
+    /** Uncorrelated daemon measurement, retained rather than discarded. */
+    measurement: StepMeasurement.optional(),
     text: z.string(),
     source: TextSource.optional(),
     raw: z.array(RawPayload).default([]),

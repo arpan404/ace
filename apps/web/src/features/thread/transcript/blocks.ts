@@ -294,6 +294,10 @@ export function buildBlocks(source: BlockSource): Block[] {
           group("work", id);
           break;
         case "notice": {
+          if (item.measurement) {
+            group("work", id);
+            break;
+          }
           // Output or a review of a step joins that step's log, right after the step.
           const reviewed = reviewedInteraction(item);
           const callId = item.toolCallId ?? (reviewed && source.reviewedCall?.(reviewed));

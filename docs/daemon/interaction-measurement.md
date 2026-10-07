@@ -3,7 +3,8 @@
 Agents can call `screen_measure_interaction` for an approved macOS window session
 or `ace_browser_measure_interaction` for a thread's browser tab. Both return a
 compact JSON text part and, when requested, one JPEG filmstrip image part.
-The measurement is transient. No video or trace is written to disk.
+The daemon retains the structured result on the calling transcript step and stores
+the JPEG filmstrip as a thread-owned attachment. No video or trace is written to disk.
 
 ```json
 {
@@ -107,3 +108,33 @@ explicit skip and never opens a permission prompt. Non-gating overhead scripts
 are `packages/screen/bench/interaction.ts` and
 `packages/browser/bench/measurement.ts`. The native benchmark requires the same
 explicit opt-in and uses only the worktree's fixture app.
+
+## Transcript evidence
+
+`tool_call.measurement` is daemon-owned `StepMeasurement` data. Its metrics match
+`InteractionMeasurement`, while `filmstrip` is attachment metadata with a SHA-256
+content id instead of base64 bytes. Clients read it with `attachment.read` or the
+existing authenticated attachment HTTP path, on the connection owning the thread.
+The smoothness card prefers this field and retains provider-payload reading for
+older steps. Both screen and browser MCP tools use the same capture boundary.
+
+MCP request ids are independent of provider tool ids. At call admission the daemon
+binds a unique matching active canonical step using the live lease's thread,
+creation sequence, tool name and canonicalized arguments. The binding keeps that
+step's id through subsequent provider updates. Subagent steps share their root's
+lease and remain owned by their canonical agent.
+
+When call frames arrive after execution, the daemon considers matching steps
+created since admission within a five-second delivery window. Multiple matches
+remain uncorrelated. Ending the lease or starting another call with the same
+arguments closes the older pending correlation. An uncorrelated result remains a
+standalone `notice` with `code: "interaction_measurement"` and typed `measurement`;
+a later unique match moves the evidence onto the step and deletes the fallback.
+No result is dropped because the provider omitted a frame or retained only the call.
+
+The indexed SQLite evidence survives restarts and restores the field when a
+provider replaces its step payload. Attachment ownership prevents client release
+while a live thread references the filmstrip. Thread deletion releases that
+ownership through the existing attachment cleanup and crash reconciliation paths.
+Native measurement replies allow 128 KiB to accommodate a 64 KiB JPEG's base64
+expansion; ordinary helper replies retain their 64 KiB limit.

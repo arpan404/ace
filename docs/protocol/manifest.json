@@ -5,36 +5,36 @@
       "sha256": "e00c22cba7d23cc595db036f61e738239b3c7fc5bfd7317f3e2abe909e09cc45"
     },
     "automations.md": {
-      "bytes": 9416,
-      "sha256": "54806e01fd45ac10cbdb776d9a3dfd0507d3338ee539f610cf4f07be648f4aaf"
+      "bytes": 9169,
+      "sha256": "a9e58fa61090d075aede2955e22fe42819728a337c150a3a06317f99f0719157"
     },
     "commands.md": {
       "bytes": 37231,
       "sha256": "429baebeed49938fbdc9ba352b4e5a27bc76f47179a97278c957e5d477ddff99"
     },
     "conductor.md": {
-      "bytes": 26801,
-      "sha256": "b71ba3fd58094fe19ed9c0673fdd7f54a876717e73eb8bf8f28d6a4ffde7566a"
+      "bytes": 26761,
+      "sha256": "4c68a9bf7d7cf7cee6a72d2b2d0eb585c8fd482f81de266ac41f8f904cba2f72"
     },
     "events.md": {
-      "bytes": 20849,
-      "sha256": "f9728708f434932680e53331b78412d2bcd41b4b2a2f6ee3c21cf7a73e4d5251"
+      "bytes": 21082,
+      "sha256": "d0f02c1d61717eb8c64b453770d696ac45f805b8cfa1d32810256b0bafea6151"
     },
     "forge.md": {
-      "bytes": 16027,
-      "sha256": "0624884a00273f076528ac5cc14ce3826c9af91ee3696ecffa637e46f253a417"
+      "bytes": 16072,
+      "sha256": "8c33d440d7c561e6542e7d7553c7925b340524c4ea6a9ec6d3368ec99882de4a"
     },
     "mcp.md": {
-      "bytes": 82514,
-      "sha256": "873dafb32c663c95db51b777e19a92ba97f1716cb6783ba2834ead042f30535d"
+      "bytes": 102542,
+      "sha256": "dc2ee703c95fbb320f46c228a0608e4effbfd725a2fcaf452ba23db26b1fbc6e"
     },
     "models.md": {
-      "bytes": 15146,
-      "sha256": "39fbb9e37d8ba11462daaf5e1ad8feb89dca25d8082ef6d0878622ea8ad5772f"
+      "bytes": 14476,
+      "sha256": "6e311b13ae8f4440b6c57df58379c39588eb666fdfca4feb5b4c724312eb5137"
     },
     "orchestration.md": {
-      "bytes": 27464,
-      "sha256": "27f448b3e5946ac6b7486c981751db0fad8bbcc36f82739e35a8affeb7f94efe"
+      "bytes": 27656,
+      "sha256": "1546e0dcbef6484c11a4342f3fcf8ed42d9cdb163d04bc294fe605fca8a75df4"
     },
     "push.md": {
       "bytes": 66520,
@@ -157,8 +157,8 @@
       "sha256": "b614252adf65943d846846250cd5ec4c18e4b826af9ef1ab724f584fb2e7b96a"
     },
     "schema/AgentItem.json": {
-      "bytes": 11998,
-      "sha256": "296bb125da2ccb6b287ed63d35ffb3568adb2db6f076eaa489a3c8d5be0826cf"
+      "bytes": 12212,
+      "sha256": "ec1f655bfeffaea9223116c22702c37605169ca9b0c1c8813f80342eb4a9ffba"
     },
     "schema/AgentLaunchOptions.json": {
       "bytes": 538,
@@ -937,8 +937,8 @@
       "sha256": "5103449866d61ab00c55871c7c70676b0723bef5ea43500c013d155c337a0556"
     },
     "schema/Item.json": {
-      "bytes": 13571,
-      "sha256": "3f63766ea49169581d2ddc7917321b4151a317fe68e631f92cdd93919ecabc93"
+      "bytes": 13785,
+      "sha256": "291dec1cf9940b67a7232e9a517f68f77193abf5d413ce776a994331ece23718"
     },
     "schema/ItemId.json": {
       "bytes": 156,
@@ -2036,6 +2036,10 @@
       "bytes": 526,
       "sha256": "89e3d8265f6c932cdec0f480808eed5efc1b4d4fd6c7d627ee689dea98a96a79"
     },
+    "schema/StepMeasurement.json": {
+      "bytes": 2581,
+      "sha256": "6b5d0b629c3b11adc123370961fbb5d6e758854edf8635d975b1cf1cb9fa6826"
+    },
     "schema/SubscriptionScope.json": {
       "bytes": 654,
       "sha256": "786437475fbbb3319a93b27233a8cdf51451c97af9164aab37f8206fb6f98aa8"
@@ -2421,8 +2425,8 @@
       "sha256": "59f40bf437c0bfc8bc6b87a7746fa8632de1926e6e924b2cd3c643ddb47e4eec"
     },
     "schema/ace_read_handoff.output.json": {
-      "bytes": 87341,
-      "sha256": "e0cf6bbc258f3a20920f95ab402bf8a97771dd799138ff072f78c6834c587c12"
+      "bytes": 160681,
+      "sha256": "7ce8bc425b8fedd67f33e9e3547f7c4d96f164c48355e618cb3bebd38b66d363"
     },
     "schema/ace_read_handoff_chunk.input.json": {
       "bytes": 206,
@@ -2585,10 +2589,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 533217,
-      "sha256": "450946f0d41b6f86f47654784896c8f69ddf2ebc38115a3c8d4a63fe13e6f709"
+      "bytes": 535311,
+      "sha256": "5e7d28234ebf0de0dd32b0a619b8e63bff20b4fd09eb49763edf9b4d2b46e147"
     }
   },
-  "input": "901f597cbc2d07e7ef7a688082409f12a800bfb18b79a58e2979a546b69c27d2",
+  "input": "7b625a8c02f83290d5fb6eac076c3a1d46ddf8c530028191ebe5046f05f3ea1f",
   "version": 1
 }

@@ -69,10 +69,14 @@ export function ToolStep(props: { threadId: string; itemId: string }) {
       </li>
     );
   const line = <StepLine threadId={props.threadId} data={data} />;
-  if (data && item?.type === "tool_call" && isMeasurementCall(item.call))
+  if (
+    data &&
+    ((item?.type === "tool_call" && (item.measurement || isMeasurementCall(item.call))) ||
+      (item?.type === "notice" && item.measurement))
+  )
     return (
       <Suspense fallback={line}>
-        <DeferredMeasurementStep.Component data={data} plain={line} />
+        <DeferredMeasurementStep.Component threadId={props.threadId} data={data} plain={line} />
       </Suspense>
     );
   return line;

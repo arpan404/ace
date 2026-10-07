@@ -1,3 +1,4 @@
+import { measurementObserver } from "../measurement-mcp.ts";
 import { agentControlCall } from "./agent-control-failure.ts";
 import { agentControlToolkit } from "@ace/mcp-server";
 import { devicesToolkit } from "@ace/devices";
@@ -9,6 +10,13 @@ import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
 
+  const observations = measurementObserver({
+    store,
+    now: context.now,
+    id: context.id,
+    context: () => services.context,
+  });
+  resources.own(observations.close);
   const mcp = await startDaemonMcp(
     store,
     [
@@ -43,6 +51,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         const record = services.agentControl.delegations.delegate(intent, request, model);
         return { intentId: record.childId };
       }),
+    observations,
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;

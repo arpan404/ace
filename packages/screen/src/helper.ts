@@ -44,6 +44,7 @@ export class Helper {
       resolve: (data: unknown) => void;
       reject: (error: Error) => void;
       cancel: () => void;
+      replyLimit: number;
     }
   >();
   private readonly recent: unknown[] = [];
@@ -63,11 +64,13 @@ export class Helper {
     this.options = options;
     proc.stdout.on("line", (line: string) => {
       try {
-        if (Buffer.byteLength(line) > 64 * 1024) throw new Error("Helper reply exceeds limit");
+        if (Buffer.byteLength(line) > 128 * 1024) throw new Error("Helper reply exceeds limit");
         const reply = ScreenHelperReply.parse(JSON.parse(line));
+        const pending = this.pending.get(reply.id);
+        if (Buffer.byteLength(line) > (pending?.replyLimit ?? 64 * 1024))
+          throw new Error("Helper reply exceeds limit");
         this.recent.push(reply);
         if (this.recent.length > 16) this.recent.shift();
-        const pending = this.pending.get(reply.id);
         if (!pending) return;
         this.pending.delete(reply.id);
         pending.cancel();
@@ -175,7 +178,7 @@ export class Helper {
         ],
         env: options.env ?? {},
         name: "screen-helper",
-        maxLineBytes: 64 * 1024,
+        maxLineBytes: 128 * 1024,
         onOutputLimit: (error) => helper?.fail(error),
       });
       helper = new Helper(
@@ -333,7 +336,13 @@ export class Helper {
                 ? 130_000
                 : 10_000),
       );
-      this.pending.set(request.id, { resolve, reject, cancel });
+      // A 64 KiB JPEG filmstrip expands to 87 KiB in the JSON reply.
+      this.pending.set(request.id, {
+        resolve,
+        reject,
+        cancel,
+        replyLimit: request.op === "measure_interaction" ? 128 * 1024 : 64 * 1024,
+      });
       this.proc.stdin.write(line, (error) => {
         if (error) this.fail(error);
       });
