@@ -52,7 +52,7 @@ export function startProviderStatuses(context: ServiceContext): void {
             return { ...installation, error: "Cursor SDK version or runtime unsupported" };
           const selected = context.services.accountRegistry?.selectedCursorSdk();
           const account = selected ? context.services.accountRegistry?.get(selected) : undefined;
-          const instance = account?.instance ?? daemonCursorInstance(context);
+          const instance = account?.instance ?? (await daemonCursorInstance(context));
           try {
             if (context.services.cursorAccounts?.isFenced(instance.id))
               throw new Error("SDK auth change in progress");

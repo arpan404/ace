@@ -92,7 +92,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
   const sdkInstance =
     (account && services.accountRegistry?.get(account)) ||
     (options.modelInstances === undefined && (sdk?.installed || privateSdkConfigured))
-      ? cursorSdkCatalogInstance(context)
+      ? await cursorSdkCatalogInstance(context)
       : undefined;
   if (sdkInstance) registerCursorSdkCatalog(context, sdkInstance);
   if (options.modelInstances === undefined) {

@@ -32,3 +32,5 @@ export { loginAcpAccount, AcpLoginPlan, type AcpLoginResolver } from "./acp-logi
 export { cursorDaemonDriver, type CursorCliAuth } from "./cursor-cli-auth.ts";
 
 export { assertManagedHome } from "./managed-home.ts";
+
+export { canonicalHome } from "./paths.ts";
