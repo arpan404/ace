@@ -62,6 +62,10 @@ struct Request: Decodable {
     let input: Input?
     let enabled: Bool?
     let capture: Bool?
+    let observeMs: Int?
+    let maxWindowMs: Int?
+    let filmstrip: Bool?
+    let measurementAction: Input?
     var maxDepth: Int?
     var maxNodes: Int?
     let query: UIQuery?
@@ -81,15 +85,19 @@ struct Request: Decodable {
     let bundleId: String?
     let range: TextRange?
     struct TextRange: Decodable { let location: Int; let length: Int }
-    enum CodingKeys: String, CodingKey { case settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name, mode, secureInputAllowed, humanDeviceInput, bundleId, range }
+    enum CodingKeys: String, CodingKey { case observeMs, maxWindowMs, filmstrip, settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name, mode, secureInputAllowed, humanDeviceInput, bundleId, range }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version); id = try c.decode(String.self, forKey: .id); op = try c.decode(String.self, forKey: .op)
         sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId); target = try c.decodeIfPresent(Target.self, forKey: .target)
         allowlist = try c.decodeIfPresent([String].self, forKey: .allowlist); fps = try c.decodeIfPresent(Int.self, forKey: .fps)
         settings = try c.decodeIfPresent(StreamSettings.self, forKey: .settings)
-        action = op == "ui.act" ? nil : try c.decodeIfPresent(Action.self, forKey: .action)
+        action = ["ui.act", "measure_interaction"].contains(op) ? nil : try c.decodeIfPresent(Action.self, forKey: .action)
         semanticAction = op == "ui.act" ? try c.decodeIfPresent(String.self, forKey: .action) : nil
+        measurementAction = op == "measure_interaction" ? try c.decodeIfPresent(Input.self, forKey: .action) : nil
+        observeMs = try c.decodeIfPresent(Int.self, forKey: .observeMs)
+        maxWindowMs = try c.decodeIfPresent(Int.self, forKey: .maxWindowMs)
+        filmstrip = try c.decodeIfPresent(Bool.self, forKey: .filmstrip)
         input = try c.decodeIfPresent(Input.self, forKey: .input); enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled)
         capture = try c.decodeIfPresent(Bool.self, forKey: .capture); maxDepth = try c.decodeIfPresent(Int.self, forKey: .maxDepth)
         maxNodes = try c.decodeIfPresent(Int.self, forKey: .maxNodes); query = try c.decodeIfPresent(UIQuery.self, forKey: .query)

@@ -99,6 +99,7 @@ extension Capture {
                 throw HelperError("Human focus changed during Simulator keyboard input", code: "foreground_required")
             }
             try deliverInput(event, mode: mode, pid: pid, permission: runtime.inputAllowed) { event, destination in
+                self.measurementInputMark?()
                 switch destination {
                 case .foreground: event.location = location; event.post(tap: .cghidEventTap)
                 case let .process(targetPid): event.postToPid(targetPid)
@@ -125,7 +126,7 @@ extension Capture {
         case "click":
             guard action.button == "left" || action.button == "right" else { throw HelperError("Invalid mouse button") }
             let right = action.button == "right"
-            if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction]) { return }
+            if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction], beforeDispatch: measurementInputMark) { return }
             for type: NSEvent.EventType in right ? [.rightMouseDown, .rightMouseUp] : [.leftMouseDown, .leftMouseUp] {
                 try post(try pointer(type))
             }
@@ -144,6 +145,7 @@ extension Capture {
             let typing = ValidatedTextInput(destination: destination, replaceSelection: { element, value in
                 // Simulator's macOS AX destination is not the UIKit text field.
                 if bundle == "com.apple.iphonesimulator" { return false }
+                self.measurementInputMark?()
                 return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, value as CFString) == .success
             }, postCharacter: { character in
                 let units = Array(String(character).utf16)
@@ -203,7 +205,7 @@ extension Capture {
             guard let dx = action.deltaX, let dy = action.deltaY, abs(Int(dx)) <= 1000, abs(Int(dy)) <= 1000 else { throw HelperError("Invalid scroll", code: "bounds") }
             if dx != 0 || dy != 0 {
                 let name = abs(Int(dx)) > abs(Int(dy)) ? (dx > 0 ? "AXScrollRightByPage" : "AXScrollLeftByPage") : (dy > 0 ? "AXScrollUpByPage" : "AXScrollDownByPage")
-                if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [name]) { return }
+                if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [name], beforeDispatch: measurementInputMark) { return }
             }
             let event = try pointer(.leftMouseDown)
             event.type = .scrollWheel

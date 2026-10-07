@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -202,5 +203,28 @@ describe("embedded backend against the daemon relay", () => {
     const { lost, page } = await start();
     page.emit("Inspector.detached", { reason: "Render process gone" });
     await eventually(() => expect(lost).toEqual(["Desktop browser view closed"]));
+  });
+});
+
+it("large trace batches cross the real desktop socket without losing target frame events", async () => {
+  const { session, page, lost } = await setup();
+  const events = Array.from({ length: 30 }, (_, index) => ({
+    name: "DrawFrame",
+    ts: index,
+    payload: "x".repeat(70_000),
+  }));
+  const received: unknown[] = [];
+  const arrived = Promise.withResolvers<void>();
+  session.cdp.on("Tracing.dataCollected", (raw) => {
+    const batch = z.object({ value: z.array(z.unknown()) }).parse(raw);
+    received.push(...batch.value);
+    if (received.length === events.length) arrived.resolve();
+  });
+  page.emit("Tracing.dataCollected", { value: events });
+  await arrived.promise;
+  expect(received).toEqual(events);
+  expect(lost).toEqual([]);
+  expect(await session.cdp.send("Page.captureScreenshot", { format: "png" })).toEqual({
+    data: "AA==",
   });
 });

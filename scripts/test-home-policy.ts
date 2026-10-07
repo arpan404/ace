@@ -51,6 +51,8 @@ export function isolatedTestEnvironment(
     ACE_HISTORY_INSTANCES: "[]",
     ACE_MODEL_INSTANCES: "[]",
     ACE_TEST_REAL_HOME: realHome,
+    // This flag opts into only the dedicated native fixture, never a user app or home.
+    ...(ambient.ACE_SCREEN_INTEGRATION === "1" ? { ACE_SCREEN_INTEGRATION: "1" } : {}),
     // Browser binaries are installed once per machine; tests drive them read-only.
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
   };

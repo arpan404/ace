@@ -312,10 +312,12 @@
     "packages/browser": {
       "name": "@ace/browser",
       "dependencies": {
+        "@ace/interaction": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/redaction": "workspace:*",
         "playwright-core": "1.61.1",
+        "sharp": "0.34.5",
         "yauzl": "3.2.0",
         "zod": "^4.6.5",
       },
@@ -522,6 +524,12 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/interaction": {
+      "name": "@ace/interaction",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+      },
+    },
     "packages/mcp-server": {
       "name": "@ace/mcp-server",
       "dependencies": {
@@ -642,6 +650,7 @@
     "packages/screen": {
       "name": "@ace/screen",
       "dependencies": {
+        "@ace/interaction": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
@@ -877,6 +886,8 @@
     "@ace/handoff": ["@ace/handoff@workspace:packages/handoff"],
 
     "@ace/history-import": ["@ace/history-import@workspace:packages/history-import"],
+
+    "@ace/interaction": ["@ace/interaction@workspace:packages/interaction"],
 
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
 

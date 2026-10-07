@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionFilmstrip.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "data": {
+      "maxLength": 1048576,
+      "type": "string"
+    },
+    "mimeType": {
+      "const": "image/jpeg",
+      "type": "string"
+    },
+    "type": {
+      "const": "image",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "mimeType",
+    "data"
+  ],
+  "type": "object"
+}

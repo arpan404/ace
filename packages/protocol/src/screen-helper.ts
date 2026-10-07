@@ -18,6 +18,8 @@ import {
   ScreenUITreeOptions,
 } from "./screen-v2.ts";
 
+import { ScreenMeasurementOptions } from "./interaction-measurement.ts";
+
 const HelperEnvelope = z.object({
   version: z.union([z.literal(1), z.literal(2)]),
   id: ScreenId,
@@ -29,6 +31,12 @@ const HelperEnvelope = z.object({
 export const ScreenHelperRequest = z.discriminatedUnion("op", [
   HelperEnvelope.extend({ op: z.literal("hello") }),
   HelperEnvelope.extend({ op: z.literal("metrics") }),
+  HelperEnvelope.extend({
+    op: z.literal("measure_interaction"),
+    ...ScreenMeasurementOptions.omit({ repeat: true }).shape,
+    // Daemon remaining repeat budget includes native input preparation.
+    maxWindowMs: z.number().int().min(1).max(10_000).optional(),
+  }),
   HelperEnvelope.extend({
     op: z.literal("open.app"),
     bundleId: ScreenBundle,

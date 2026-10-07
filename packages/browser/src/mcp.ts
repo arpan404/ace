@@ -1,9 +1,20 @@
 import { z } from "zod";
-import { BrowserCommand } from "@ace/protocol";
+import {
+  BrowserCommand,
+  BrowserMeasurementOptions,
+  InteractionMeasurement,
+  BrowserDialog,
+} from "@ace/protocol";
 import type { ApprovalTarget } from "@ace/protocol";
+import { validateMeasurementBudget } from "@ace/interaction";
 import type { BrowserToolkit } from "@ace/mcp-server";
 import type { BrowserService } from "./service.ts";
 const actions = {
+  measure_interaction: {
+    riskClass: "external-effect",
+    description:
+      "Measure frame timing while observing or performing one existing browser input action.\nLatency measures input to the next visual update; settle requires 250 ms of stillness.\nHitches are update gaps above 1.5 display intervals during animation.\nHitch time per second: below 5 ms is smooth, 5–10 minor, above 10 janky.\nLow confidence means few frames, host load or capture overhead; read notes.\nRepeat returns median/worst metrics; one timestamped filmstrip illustrates the run.",
+  },
   navigate: {
     riskClass: "external-effect",
     description: "Navigate the approved browser to a URL.",
@@ -139,6 +150,17 @@ export function browserToolkit(
           timeoutMs: Math.min(300_000, startupReserveMs + 100_000),
           async run(args, { caller, signal }) {
             signal.throwIfAborted();
+            if (action === "measure_interaction") {
+              // Registry reconstructs the command object schema, so apply the total-time refinement here.
+              validateMeasurementBudget(
+                BrowserMeasurementOptions.parse({
+                  interaction: args["interaction"],
+                  observeMs: args["observeMs"],
+                  repeat: args["repeat"],
+                  filmstrip: args["filmstrip"],
+                }),
+              );
+            }
             if (action === "screenshot") {
               const bytes = await service.screenshot(
                 caller.threadId,
@@ -165,6 +187,19 @@ export function browserToolkit(
               signal,
             );
             signal.throwIfAborted();
+            if (action === "measure_interaction") {
+              const pending = z.object({ pending_dialog: BrowserDialog }).safeParse(result);
+              if (pending.success)
+                return { content: [{ type: "text", text: JSON.stringify(pending.data) }] };
+              const measurement = InteractionMeasurement.parse(result);
+              const { filmstrip, ...metrics } = measurement;
+              return {
+                content: [
+                  { type: "text", text: JSON.stringify(metrics) },
+                  ...(filmstrip ? [filmstrip] : []),
+                ],
+              };
+            }
             return { content: [{ type: "text", text: JSON.stringify(result ?? null) }] };
           },
         });

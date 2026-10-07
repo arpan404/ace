@@ -14,7 +14,7 @@ if [ "$release" = 1 ]; then
     exit 1
   fi
 fi
-sources='Responsibility.swift Protocol.swift Pipeline.swift PointerRelease.swift VideoEncoder.swift FrameChanges.swift Metrics.swift AXAttributes.swift Accessibility.swift JPEGEncoder.swift FrameWriter.swift CaptureRecovery.swift Capture.swift BackgroundSafety.swift ClipboardPaste.swift TextInput.swift InputDelivery.swift ObservationWait.swift WindowFocus.swift TargetedAXInput.swift Input.swift InputV2.swift Main.swift'
+sources='Responsibility.swift Protocol.swift Pipeline.swift PointerRelease.swift VideoEncoder.swift FrameChanges.swift MeasurementFrames.swift MeasurementStop.swift MeasurementFilmstrip.swift InteractionMeasurement.swift Metrics.swift AXAttributes.swift Accessibility.swift JPEGEncoder.swift FrameWriter.swift CaptureRecovery.swift Capture.swift BackgroundSafety.swift ClipboardPaste.swift TextInput.swift InputDelivery.swift ObservationWait.swift WindowFocus.swift TargetedAXInput.swift Input.swift InputV2.swift Main.swift'
 # Cache before compiler, keychain or signing work. Builds are explicit, never a daemon action.
 source_hash=$(cat $sources Info.plist build.sh | shasum -a 256 | cut -d ' ' -f 1)
 app=build/AceScreenHelper.app

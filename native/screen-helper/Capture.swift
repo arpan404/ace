@@ -122,6 +122,7 @@ struct ShareableContent {
     private(set) var frame = CGRect.zero
     private(set) var width = 0
     private(set) var height = 0
+    var measurementInputMark: (() -> Void)?
     var synthesizedInput = false
     var mode = "background"
     var secureInputAllowed = false
