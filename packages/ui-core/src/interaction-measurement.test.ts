@@ -88,3 +88,29 @@ test("nothing reads from other text, a malformed result or a payload kept only a
     }),
   ).toBe(undefined);
 });
+
+test("typed daemon evidence wins over provider payloads and carries an authenticated attachment reference", () => {
+  const filmstrip = {
+    sha256: "a".repeat(64),
+    bytes: 60000,
+    mimeType: "image/jpeg",
+    name: "filmstrip.jpg",
+  };
+  const result = readMeasurement(
+    { raw: [{ type: "mcpToolCall", data: JSON.stringify(measurement) }] },
+    { ...measurement, verdict: "janky", filmstrip },
+  );
+  expect(result?.measurement.verdict).toBe("janky");
+  expect(result?.filmstripAttachment).toEqual(filmstrip);
+  expect(result?.filmstrip).toBeUndefined();
+});
+test("typed evidence remains readable with only a provider blob reference or a standalone annotation", () => {
+  const { filmstrip: _inline, ...typed } = measurement;
+  expect(
+    readMeasurement(
+      { raw: [{ type: "mcpToolCall", blobRef: "oversize", size: 90000, preview: "" }] },
+      typed,
+    )?.measurement,
+  ).toEqual(measurement);
+  expect(readMeasurement(undefined, typed)?.measurement).toEqual(measurement);
+});

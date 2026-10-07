@@ -1,5 +1,5 @@
 import type { AgentError, Fact, Key, ToolCallDraft } from "@ace/core";
-import type { ProviderKind, RunTrigger, ToolStatus, StepMeasurement } from "@ace/protocol";
+import type { ProviderKind, RunTrigger, ToolStatus } from "@ace/protocol";
 
 /** Small builders for adapter facts, so scripts read like transcripts. */
 export function rootAgent(provider: ProviderKind, cwd = "/Users/dev/acme"): Fact {
@@ -94,29 +94,4 @@ export function toolDone(agent: Key, item: Key, status: ToolStatus = "succeeded"
 }
 export function output(agent: Key, item: Key, append: string): Fact {
   return { type: "item.delta", agent, item, field: "output", append };
-}
-
-/** Seed daemon-owned evidence independently of provider raw payloads. */
-export function measurementCall(agent: Key, item: Key, measurement: StepMeasurement): Fact {
-  const name =
-    measurement.source === "screen-frames"
-      ? "screen_measure_interaction"
-      : "ace_browser_measure_interaction";
-  return {
-    type: "item.upsert",
-    agent,
-    item,
-    draft: {
-      type: "tool_call",
-      complete: true,
-      measurement,
-      call: {
-        kind: "mcp",
-        title: "Measured smoothness",
-        status: "succeeded",
-        detail: { kind: "mcp", server: "ace", tool: name },
-        raw: [],
-      },
-    },
-  };
 }
