@@ -187,3 +187,20 @@ test("threads deleted in bulk never come back: not after the toast, not after a 
   expect(listed(app, "thread-docs-index")).toBeUndefined();
   expect(listed(app, "thread-readme")).toBeUndefined();
 }, 20_000);
+
+test("a bulk delete removes the idle thread and offers Stop and delete for the running one", async () => {
+  const app = await openWithIdle();
+  await pick(/^Tidy the README/, "{Meta>}");
+  await pick(/^Dedupe thread events/, "{Meta>}");
+  await userEvent.click(within(bar()).getByRole("button", { name: "Delete 2 threads…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Delete 2 threads?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Delete 2 threads" }));
+  await screen.findByText("Deleted 1 thread");
+  expect(await screen.findByText(/^Couldn't delete · Dedupe thread events/)).toBeTruthy();
+  expect(onDaemon(app, "thread-readme")).toBe(false);
+  await waitFor(() => expect(card(/^Dedupe thread events/)).toBeTruthy());
+  expect(onDaemon(app, "thread-dedupe")).toBe(true);
+  await userEvent.click(screen.getByRole("button", { name: "Stop and delete" }));
+  await waitFor(() => expect(gone(/^Dedupe thread events/)).toBe(true));
+  await waitFor(() => expect(onDaemon(app, "thread-dedupe")).toBe(false));
+}, 15_000);
