@@ -1,5 +1,13 @@
 import type { Fact, Key } from "@ace/core";
 import { obj, str, list } from "./native.ts";
+import { z } from "zod";
+const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const usageCounts = z.object({
+  input: count,
+  output: count,
+  cacheRead: count.default(0),
+  cacheWrite: count.default(0),
+});
 export type MessageOutcome = "completed" | "failed" | "interrupted";
 const raw = (data: unknown) => [{ type: str(obj(data).type) || "message_end", data }];
 /** Each admitted envelope is retained once; subsequent items retain only their native block. */
@@ -45,13 +53,25 @@ export function messageFacts(input: {
     });
     const u = obj(m.usage),
       cost = obj(u.cost);
-    if (typeof u.input === "number" && typeof u.output === "number")
+    const counts = usageCounts.safeParse(u).data;
+    const model =
+      typeof m.provider === "string" && typeof m.model === "string"
+        ? `${m.provider}/${m.model}`
+        : undefined;
+    if (counts && Number.isSafeInteger(counts.input + counts.cacheRead + counts.cacheWrite))
       facts.push({
         type: "usage",
         agent,
-        inputTokens: u.input,
-        outputTokens: u.output,
-        ...(typeof u.cacheRead === "number" ? { cachedInputTokens: u.cacheRead } : {}),
+        inputTokens: counts.input + counts.cacheRead + counts.cacheWrite,
+        outputTokens: counts.output,
+        cachedInputTokens: counts.cacheRead,
+        cacheWriteTokens: counts.cacheWrite,
+        counterMode: "incremental",
+        ...(typeof m.timestamp === "number" && Number.isSafeInteger(m.timestamp)
+          ? { counterKey: `pi:message:${m.timestamp}` }
+          : {}),
+        ...(model ? { model } : {}),
+        ...(m.provider === "openrouter" ? { billingMode: "api" } : {}),
         ...(typeof cost.total === "number" ? { costUsd: cost.total } : {}),
       });
     const reason = str(m.stopReason);

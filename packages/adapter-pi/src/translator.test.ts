@@ -233,3 +233,40 @@ test("extension notifications and failed commands remain readable while routine 
   h.recv(settled);
   expect(h.state.status.state).toBe("done");
 });
+
+test("Pi API upstream usage prices inclusive cache tokens under the qualified model", () => {
+  const h = replay();
+  const facts = h.translator.translate(
+    {
+      seq: 1,
+      t: 1,
+      dir: "recv",
+      channel: "stdio",
+      data: {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [],
+          provider: "openrouter",
+          model: "anthropic/claude-sonnet-4.6",
+          timestamp: 1791378000000,
+          usage: { input: 10, output: 30, cacheRead: 100, cacheWrite: 20, cost: { total: 0.04 } },
+          stopReason: "stop",
+        },
+      },
+    },
+    1,
+  );
+  expect(facts.filter((fact) => fact.type === "usage")).toMatchObject([
+    {
+      inputTokens: 130,
+      outputTokens: 30,
+      cachedInputTokens: 100,
+      cacheWriteTokens: 20,
+      model: "openrouter/anthropic/claude-sonnet-4.6",
+      billingMode: "api",
+      counterMode: "incremental",
+      costUsd: 0.04,
+    },
+  ]);
+});

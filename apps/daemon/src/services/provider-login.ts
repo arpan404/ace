@@ -214,7 +214,12 @@ export async function startProviderLogin(context: ServiceContext): Promise<void>
             const before = registry.get(instanceId)?.instance.loginRevision;
             registry.ingest(instanceId, {
               provider: instance.provider,
-              payload: new ProviderPayload(JSON.stringify({ auth: after.auth })),
+              payload: new ProviderPayload(
+                JSON.stringify({
+                  auth: after.auth,
+                  ...("authDetail" in after ? { authDetail: after.authDetail } : {}),
+                }),
+              ),
               observedAt: now(),
               timeZone: "UTC",
             });

@@ -1,7 +1,11 @@
 import { cursorSdkEnvironment } from "@ace/adapter-cursor/instance";
 import { opendir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { discoverProvider, discoverPi, type DiscoveryOptions } from "@ace/provider-kit/discovery";
+import {
+  discoverProvider,
+  discoverPiStatus,
+  type DiscoveryOptions,
+} from "@ace/provider-kit/discovery";
 import { ProviderInstance, type NativeAccountProvider } from "@ace/protocol/accounts";
 import type { z } from "zod";
 
@@ -111,7 +115,7 @@ export async function loginStatus(instance: ProviderInstance, options: Discovery
       error: "ACP login status is unverified",
     };
   const result = await (
-    instance.provider === "pi" ? discoverPi : discoverProvider.bind(null, instance.provider)
+    instance.provider === "pi" ? discoverPiStatus : discoverProvider.bind(null, instance.provider)
   )({
     ...options,
     env: instanceEnv(instance, options.env ?? process.env),

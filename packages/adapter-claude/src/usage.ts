@@ -62,6 +62,13 @@ export function childUsage(state: ClaudeState, agent: Key, id: string, message: 
     total[key] = Math.min(Number.MAX_SAFE_INTEGER, totals[key] + next[key] - previous[key]);
   }
   messages.set(id, next);
+  if (next.reasoningTokens !== undefined || totals.reasoningTokens !== undefined) {
+    next.reasoningTokens = Math.max(next.reasoningTokens ?? 0, previous.reasoningTokens ?? 0);
+    total.reasoningTokens = Math.min(
+      Number.MAX_SAFE_INTEGER,
+      (totals.reasoningTokens ?? 0) + next.reasoningTokens - (previous.reasoningTokens ?? 0),
+    );
+  }
   state.childUsage.set(agent, { messages, total });
   state.emit({
     type: "usage",

@@ -10,7 +10,11 @@ export function object(value: unknown): Record<string, unknown> {
 export const number = z.number().finite().nonnegative();
 const resetValue = z.union([number, z.string().max(128)]).nullish();
 const codexLabel = z.string().min(1).max(100);
-const codexWindow = z.object({ usedPercent: number, resetsAt: number.nullish() });
+const codexWindow = z.object({
+  usedPercent: number,
+  resetsAt: number.nullish(),
+  windowDurationMins: number.positive().optional(),
+});
 const claudeWindow = z.object({
   status: z.enum(["allowed", "allowed_warning", "rejected"]).optional(),
   utilization: number.optional(),
@@ -32,7 +36,12 @@ export function decodeWindows(provider: string, body: Record<string, unknown>) {
   let inspected = 0;
   let overflow = false;
   let complete = true;
-  const put = (name: string, usedPercent: number, resetsAt: number | null) => {
+  const put = (
+    name: string,
+    usedPercent: number,
+    resetsAt: number | null,
+    details: Partial<QuotaWindow> = {},
+  ) => {
     if (
       !name.length ||
       name.length > 128 ||
@@ -48,7 +57,13 @@ export function decodeWindows(provider: string, body: Record<string, unknown>) {
       }
       count++;
     }
-    windows[name] = { usedPercent: Math.min(100, usedPercent), resetsAt };
+    windows[name] = {
+      usedPercent: Math.min(100, usedPercent),
+      resetsAt,
+      remainingPercent: Math.max(0, 100 - usedPercent),
+      source: "cli",
+      ...details,
+    };
   };
   // At most 32 entries are decoded, plus one lookahead; malformed entries consume budget too.
   const each = (value: unknown, visit: (name: string, value: unknown) => void) => {
@@ -90,7 +105,14 @@ export function decodeWindows(provider: string, body: Record<string, unknown>) {
           complete = false;
           continue;
         }
-        put(`${label}:${name}`, window.usedPercent, reset(window.resetsAt));
+        put(
+          `${label}:${name}`,
+          window.usedPercent,
+          reset(window.resetsAt),
+          window.windowDurationMins === undefined
+            ? {}
+            : { windowDurationMins: window.windowDurationMins },
+        );
       }
       if (!present) complete = false;
     };
@@ -124,6 +146,9 @@ export function decodeWindows(provider: string, body: Record<string, unknown>) {
                   ? 80
                   : 0,
             reset(event.resetsAt),
+            event.utilization === undefined
+              ? { source: "status_estimate", remainingPercent: undefined }
+              : {},
           );
       }
     }

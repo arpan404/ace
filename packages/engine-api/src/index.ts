@@ -37,6 +37,8 @@ export type Frame = {
   data: unknown;
   /** Immutable decoded value admitted from bounded encoded bytes; data must be payload.data. */
   payload?: ProviderPayload;
+  /** Account shell captures safe attribution when it admits the frame, before deferred folding. */
+  usageAccount?: { id: string; billingMode: "api" | "subscription" | "unknown" } | undefined;
 };
 
 export interface ProviderAdapter {
