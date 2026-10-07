@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openTurns } from "../thread-header.ts";
 
 /**
  * Long-thread journeys against the fake daemon's five-day migration (24 turns of 70 progress
@@ -56,7 +57,7 @@ test("the timeline jumps across days and Jump to live comes back", async ({ page
   await card.getByRole("button", { name: "Dismiss" }).click();
   await expect(feed.getByText(ask(3))).toHaveCount(0);
 
-  await page.keyboard.press(`Shift+${mod}+o`);
+  await page.keyboard.press(`Alt+${mod}+g`);
   const turns = page.getByRole("listbox", { name: "Turns of this thread" });
   await expect(turns).toBeFocused();
   // The list knows how many turns there are once the index answers.
@@ -91,8 +92,8 @@ test("the timeline jumps across days and Jump to live comes back", async ({ page
 test("scrolling down a jumped window reads on to the live end without a gap", async ({ page }) => {
   const { feed, card } = await openThread(page);
   await card.getByRole("button", { name: "Dismiss" }).click();
-  await page.getByRole("button", { name: "Turns" }).click();
-  await expect(page.getByRole("option", { name: /^Turn 24: / })).toBeVisible();
+  const turns = await openTurns(page);
+  await expect(turns.getByRole("option", { name: /^Turn 24: / })).toBeVisible();
   await page.keyboard.press("End");
   for (let n = 0; n < 3; n++) await page.keyboard.press("ArrowUp");
   await page.keyboard.press("Enter");

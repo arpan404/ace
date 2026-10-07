@@ -44,7 +44,7 @@ test("walkthrough of a long thread", async ({ page }) => {
   await beat(1_000);
 
   // The turns of five days, and a jump to the first week's checkpoint.
-  await page.keyboard.press(`Shift+${mod}+o`);
+  await page.keyboard.press(`Alt+${mod}+g`);
   await page.getByRole("option", { name: /^Turn 24: / }).waitFor();
   await beat(900);
   for (let step = 0; step < 10; step++) {
