@@ -38,7 +38,13 @@ export function createTerminalSession({
       const op = message.operation;
       if (op.op === "unsubscribe" && authStreams.has(op.subscriptionId)) {
         const terminalId = authStreams.get(op.subscriptionId);
-        if (!authorize("accounts")) {
+        if (
+          !authorize(
+            terminalId
+              ? (options.accountManagement?.terminalScope(terminalId) ?? "accounts")
+              : "accounts",
+          )
+        ) {
           send({
             type: "terminal.result",
             requestId: message.requestId,
@@ -72,7 +78,8 @@ export function createTerminalSession({
             ok,
             ...(error ? { error } : {}),
           });
-        if (!authorize("accounts")) {
+        const authScope = auth.terminalScope(op.terminalId);
+        if (!authorize(authScope)) {
           reply(false, "forbidden");
           return true;
         }
@@ -85,7 +92,7 @@ export function createTerminalSession({
             reply(true);
             await auth.subscribe(op.terminalId, sessionId, (event) => {
               if (event.type === "exit") authStreams.delete(op.subscriptionId);
-              if (connected() && authorize("accounts"))
+              if (connected() && authorize(authScope))
                 send({ type: "terminal.output", subscriptionId: op.subscriptionId, event });
               else void auth.stop(op.terminalId, sessionId).catch(() => {});
             });

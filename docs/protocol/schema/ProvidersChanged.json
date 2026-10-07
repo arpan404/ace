@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProvidersChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "providers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProviderStatus.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "type": {
+      "const": "providers.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "providers"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderLoginInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "confirm": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "confirm"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "const": "enter",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "choice": {
+          "pattern": "^[a-z0-9_-]{1,64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "choice"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -133,6 +133,12 @@ export function loginArgs(
   return ["auth", "login"];
 }
 
+export function logoutArgs(provider: Provider): string[] {
+  if (provider === "pi") return [];
+  if (provider === "cursor") throw new Error("Sign out of Cursor through the SDK auth flow");
+  return provider === "codex" ? ["logout"] : ["auth", "logout"];
+}
+
 /** Conventional homes only; no auth files, no recursion, capped inventory. */
 export async function discoverHomes(userHome: string): Promise<ProviderInstance[]> {
   const results: ProviderInstance[] = [];

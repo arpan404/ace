@@ -32,6 +32,14 @@ export function startProviderStatuses(context: ServiceContext): void {
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
+      attention(row) {
+        const registry = context.services.accountRegistry;
+        const selected =
+          row.runtime === "cursor-sdk"
+            ? (registry?.selectedCursorSdk() ?? cursor?.instance?.id ?? "cursor-sdk-default")
+            : `${row.provider}-cli-default`;
+        return registry?.summary(selected, context.now())?.availability === "exhausted";
+      },
       checked(rows) {
         context.options.providerStatus?.checked?.(rows);
         for (const row of rows)
@@ -98,7 +106,18 @@ export function startProviderStatuses(context: ServiceContext): void {
 }
 export function createProviderStatusesSession(context: SocketContext): SocketService {
   let pending = 0;
+  let stop: (() => void) | undefined;
   return {
+    authenticated(channel) {
+      if (channel !== undefined || stop || !context.authorize("read")) return;
+      stop = context.options.providerStatuses?.listen((providers) => {
+        if (context.connected() && context.authorize("read"))
+          context.send({ type: "providers.changed", providers });
+      });
+    },
+    close() {
+      stop?.();
+    },
     async handle(message) {
       if (message.type !== "providers.request") return false;
       const reply = (result: import("@ace/protocol").ProvidersResult["result"]) =>
@@ -112,7 +131,13 @@ export function createProviderStatusesSession(context: SocketContext): SocketSer
         try {
           if (message.operation === "refresh") await context.options.providerStatuses.refresh();
           if (context.connected() && context.authorize("read"))
-            reply({ ok: true, providers: context.options.providerStatuses.list() });
+            reply({
+              ok: true,
+              providers:
+                message.operation === "readiness"
+                  ? context.options.providerStatuses.readiness()
+                  : context.options.providerStatuses.list(),
+            });
         } finally {
           pending--;
         }

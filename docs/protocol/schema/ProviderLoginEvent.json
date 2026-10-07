@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderLoginEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "progress": {
+      "$ref": "https://ace.local/protocol/v1/ProviderLoginProgress.json"
+    },
+    "type": {
+      "const": "provider.login.progress",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "progress"
+  ],
+  "type": "object"
+}

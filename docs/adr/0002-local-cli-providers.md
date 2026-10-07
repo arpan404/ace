@@ -46,3 +46,16 @@ For Cursor, the inspected implementation is `@cursor/sdk` 1.0.35,
 `Cursor.auth.login`, `FileCredentialStore`, `resolveDefaultApiKey` and
 `Cursor.auth.logout`. The [SDK audit](../research/providers/cursor-sdk.md#authentication-and-process-ownership)
 cites the published code and [official authentication docs](https://cursor.com/docs/sdk/typescript#cursorauth).
+
+## Amendment: supervised native CLI sign-in
+
+Accepted by the owner's one-click CLI sign-in request. ace may supervise the installed
+CLI's own login/logout process and relay only reviewed verification URLs, device codes
+and non-secret fixed prompts over an ephemeral, operate-scoped session. The CLI owns
+credential entry and persistence. Default native login uses the daemon's launch
+environment and the CLI's normal profile. ace implements no OAuth protocol, token
+exchange, credential store or API-key entry field. Output is bounded and never logged
+or stored. Unsafe or unreviewed input flows return CLI terminal instructions. The
+existing live auth terminal carries the native CLI interaction without history or replay.
+The SDK amendment and ADR 0043 continue to govern Cursor SDK's separate local store.
+See [the protocol and UI contract](../daemon/provider-login.md).

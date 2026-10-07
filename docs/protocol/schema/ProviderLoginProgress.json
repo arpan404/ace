@@ -1,0 +1,139 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderLoginProgress.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "login",
+        "logout"
+      ],
+      "type": "string"
+    },
+    "choices": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z0-9_-]{1,64}$",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 128,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "type": "object"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "expiresAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "hint": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "instance": {
+      "$ref": "https://ace.local/protocol/v1/AccountId.json"
+    },
+    "manual": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "open_terminal",
+          "type": "string"
+        },
+        "command": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "instruction": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "terminalId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "command",
+        "instruction"
+      ],
+      "type": "object"
+    },
+    "message": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "prompt": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "session": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "starting",
+        "awaiting_browser",
+        "awaiting_code_entry",
+        "awaiting_input",
+        "verifying",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "url": {
+      "allOf": [
+        {
+          "format": "ace-whatwg-url",
+          "type": "string",
+          "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+          "x-ace-url-maxLength": 8192
+        },
+        {
+          "pattern": "^(?!.*\\s)https:\\/\\/\\S+$",
+          "type": "string"
+        }
+      ]
+    },
+    "userCode": {
+      "pattern": "^[A-Z0-9]{4,5}-[A-Z0-9]{4,5}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session",
+    "provider",
+    "action",
+    "state",
+    "expiresAt",
+    "sequence"
+  ],
+  "type": "object"
+}

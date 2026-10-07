@@ -1,3 +1,4 @@
+import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
@@ -69,6 +70,7 @@ export const socketServiceFactories = [
   createMcpSession,
   createModelsSession,
   createProviderStatusesSession,
+  createProviderLoginSession,
   createAgentRegistrySession,
   createReviewSession,
   createThreadTransitionsSession,

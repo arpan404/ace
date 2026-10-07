@@ -1,3 +1,5 @@
+import { onboardingChecklist } from "@ace/core";
+import { FakeProviderLogin, fakeReadiness } from "../provider-login.ts";
 import { configuredModels, providerConfiguration } from "@ace/models/preferences";
 import { ProviderConfigurations, ProviderKind } from "@ace/protocol";
 import { AccountManagementRequest } from "@ace/protocol/accounts";
@@ -33,10 +35,11 @@ export interface ServiceHost {
  * public fields to stage what the daemon reports next.
  */
 export class FakeServices {
+  readonly providerLogin: FakeProviderLogin;
   accounts: AccountSummary[];
   readonly authTerminals = new Map<
     string,
-    { instanceId: string; action: "login" | "logout"; owner: Push }
+    { instanceId: string; action: "login" | "logout"; owner: Push; scope?: "operate" }
   >();
   private accountCounter = 0;
   models: CatalogModel[];
@@ -71,11 +74,45 @@ export class FakeServices {
       runtime: provider === "cursor" ? "cursor-sdk" : "cli",
       installed: this.installed.has(provider),
       auth: "unknown",
-      loginHint: "Use the CLI login command",
+      loginHint: provider === "cursor" ? "Sign in to Cursor" : "Use the CLI login command",
       checkedAt: now,
       stale: false,
       refreshing: false,
     }));
+    this.providerLogin = new FakeProviderLogin(
+      host.clock,
+      () => this.providerRows(),
+      (provider, signedIn) => {
+        this.providerStatuses = fakeReadiness(
+          this.providerStatuses.map((row) =>
+            row.provider === provider
+              ? { ...row, auth: signedIn ? "logged_in" : "logged_out" }
+              : row,
+          ),
+        );
+        host.broadcast?.({
+          type: "providers.changed",
+          providers: onboardingChecklist(this.providerRows()).providers,
+        });
+        host.broadcast?.({ type: "models.changed", filter: { provider } });
+      },
+      (progress, push) => {
+        const instanceId =
+          progress.instance ??
+          this.accounts.find(
+            (account) => account.provider === progress.provider && account.implicit,
+          )?.id;
+        if (!instanceId) throw new Error("Instance unavailable");
+        const terminalId = `provider-auth-${++this.accountCounter}`;
+        this.authTerminals.set(terminalId, {
+          instanceId,
+          action: progress.action,
+          owner: push,
+          scope: "operate",
+        });
+        return terminalId;
+      },
+    );
     this.commands = commandCatalog();
     this.usage = new FakeUsage(now);
     this.activityReads = new FakeActivityReads(
@@ -88,7 +125,8 @@ export class FakeServices {
     );
   }
   /** Answers one service message. False when it isn't a service this fake serves. */
-  handle(message: ClientMessage, push: Push): boolean {
+  handle(message: ClientMessage, push: Push, device = "fake-device"): boolean {
+    if (this.providerLogin.handle(message, device, push)) return true;
     if (message.type === "models.refresh") {
       const instances = this.modelResult({
         ...message.filter,
@@ -128,11 +166,35 @@ export class FakeServices {
       );
     }
     this.authTerminals.delete(id);
+    this.providerStatuses = fakeReadiness(
+      this.providerStatuses.map((row) =>
+        row.provider === account.provider
+          ? { ...row, auth: flow.action === "login" ? "logged_in" : "logged_out" }
+          : row,
+      ),
+    );
+    this.host.broadcast?.({
+      type: "providers.changed",
+      providers: onboardingChecklist(this.providerRows()).providers,
+    });
+    this.host.broadcast?.({ type: "models.changed", filter: { provider: account.provider } });
   }
   release(push: Push): void {
+    this.providerLogin.release(push);
     for (const [id, flow] of this.authTerminals)
       if (flow.owner === push) this.authTerminals.delete(id);
     this.settings.release(push);
+  }
+  private providerRows(): import("@ace/protocol").ProviderStatus[] {
+    const configurations = ProviderConfigurations.parse(
+      this.settings.get("providers.configuration"),
+    );
+    return fakeReadiness(
+      this.providerStatuses.map((row) => ({
+        ...row,
+        enabled: providerConfiguration(configurations, row.provider).enabled !== false,
+      })),
+    );
   }
   private modelResult(
     options: import("@ace/protocol").ModelListOptions,
@@ -145,6 +207,9 @@ export class FakeServices {
         (options.instance && options.instance !== model.instance)
       )
         continue;
+      const cursorNeedsLogin =
+        model.provider === "cursor" &&
+        this.providerStatuses.find((row) => row.provider === "cursor")?.auth !== "logged_in";
       const refreshedAt =
         this.refreshedModels.get(model.instance) ?? Math.max(0, this.host.clock() - 60_000);
       instances.set(model.instance, {
@@ -153,11 +218,11 @@ export class FakeServices {
         enabled: model.providerEnabled !== false,
         status: this.refreshingModels.has(model.instance)
           ? "refreshing"
-          : model.provider === "cursor" || model.provider === "opencode"
+          : cursorNeedsLogin || model.provider === "opencode"
             ? "stale"
             : "fresh",
-        stale: model.provider === "cursor" || model.provider === "opencode",
-        ...(model.provider === "cursor"
+        stale: cursorNeedsLogin || model.provider === "opencode",
+        ...(cursorNeedsLogin
           ? {
               error: "discovery_failed",
               errorDetail: {
@@ -180,7 +245,7 @@ export class FakeServices {
                   source,
                   status: this.refreshingModels.has(model.instance)
                     ? "refreshing"
-                    : model.provider === "cursor" || source.id === "openrouter"
+                    : cursorNeedsLogin || source.id === "openrouter"
                       ? "stale"
                       : "fresh",
                   lastRefreshedAt: refreshedAt ?? Math.max(0, this.host.clock() - 60_000),
@@ -192,7 +257,7 @@ export class FakeServices {
                           hint: "Check your network and refresh models.",
                         },
                       }
-                    : model.provider === "cursor"
+                    : cursorNeedsLogin
                       ? {
                           error: {
                             code: "auth_expired",
@@ -395,14 +460,10 @@ export class FakeServices {
           requestId: message.requestId,
           result: {
             ok: true,
-            providers: this.providerStatuses.map((row) => ({
-              ...row,
-              enabled:
-                providerConfiguration(
-                  ProviderConfigurations.parse(this.settings.get("providers.configuration")),
-                  row.provider,
-                ).enabled !== false,
-            })),
+            providers:
+              message.operation === "readiness"
+                ? onboardingChecklist(this.providerRows()).providers
+                : this.providerRows(),
           },
         };
       case "models.list":

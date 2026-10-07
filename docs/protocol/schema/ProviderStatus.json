@@ -38,6 +38,14 @@
       "maxLength": 1024,
       "type": "string"
     },
+    "installCommand": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "installHint": {
+      "maxLength": 1024,
+      "type": "string"
+    },
     "installed": {
       "type": [
         "boolean",
@@ -56,6 +64,16 @@
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
+    "readiness": {
+      "enum": [
+        "not_installed",
+        "installed_signed_out",
+        "signed_in",
+        "needs_attention",
+        "not_configured"
+      ],
+      "type": "string"
+    },
     "refreshing": {
       "type": "boolean"
     },
@@ -72,6 +90,9 @@
     "state": {
       "const": "not_configured",
       "type": "string"
+    },
+    "updateAvailable": {
+      "type": "boolean"
     },
     "version": {
       "maxLength": 256,

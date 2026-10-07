@@ -1,3 +1,4 @@
+import { providerReadiness, onboardingChecklist } from "@ace/core";
 import { providerStatusRow } from "./provider-status-row.ts";
 import { type ProviderStatus as Status } from "@ace/protocol";
 import {
@@ -15,6 +16,7 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
     enabled?: boolean | undefined;
     binaryPath?: string | undefined;
   };
+  attention?(row: Status): boolean;
   checked?(rows: readonly Status[]): void;
   cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
 }
@@ -34,6 +36,14 @@ export class ProviderStatuses {
     stale: true,
     refreshing: false,
   }));
+  private listeners = new Set<(rows: Status[]) => void>();
+  listen(listener: (rows: Status[]) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  publish(): void {
+    for (const listener of this.listeners) listener(this.readiness());
+  }
   private options: ProviderStatusOptions;
   private runtime: ProviderStatusRuntime;
   private controller = new AbortController();
@@ -47,12 +57,18 @@ export class ProviderStatuses {
   }
   list(): Status[] {
     const now = this.runtime.now();
-    return this.rows.map((row) => ({
-      ...row,
-      enabled: this.options.configuration?.(row.provider).enabled !== false,
-      stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
-      refreshing: Boolean(this.flight),
-    }));
+    return this.rows.map((row) =>
+      providerReadiness({
+        ...row,
+        ...(this.options.attention?.(row) ? { readiness: "needs_attention" as const } : {}),
+        enabled: this.options.configuration?.(row.provider).enabled !== false,
+        stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
+        refreshing: Boolean(this.flight),
+      }),
+    );
+  }
+  readiness(): Status[] {
+    return onboardingChecklist(this.list()).providers;
   }
   refresh(): Promise<void> {
     if (this.flight) return this.flight;
@@ -132,5 +148,6 @@ export class ProviderStatuses {
     this.controller.abort();
     this.cancelTimer?.();
     await this.flight;
+    this.listeners.clear();
   }
 }

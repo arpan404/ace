@@ -30,3 +30,5 @@ export {
 export { factRaw } from "./fact-raw.ts";
 
 export { inspectionCommand } from "./permission-commands.ts";
+
+export { providerReadiness, onboardingChecklist } from "./provider-readiness.ts";

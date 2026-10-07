@@ -54,6 +54,10 @@ export function startAccountManagement(context: ServiceContext): void {
     signal: context.signal,
     discovery: options.accounts?.discovery,
     terminal: options.accounts?.terminal,
+    authChanged: async () => {
+      await services.providerStatuses?.refresh();
+      services.providerStatuses?.publish();
+    },
     models: () => services.models,
     cursor() {
       const binding = services.cursorAccounts;

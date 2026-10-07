@@ -16,6 +16,7 @@ import {
   assertManagedHome,
   instanceEnv,
   loginStatus,
+  logoutArgs,
   type AccountRegistry,
   type AccountService,
 } from "@ace/accounts";
@@ -25,6 +26,7 @@ import { createManagedHome, deleteManagedHome, registerImplicitAccounts } from "
 import type { ModelCatalog } from "@ace/models";
 
 interface AuthTerminal {
+  cancelTimer?: () => void;
   starting?: boolean;
   startup?: Promise<void>;
   controller: AbortController;
@@ -32,6 +34,7 @@ interface AuthTerminal {
   owner: string;
   instance: ProviderInstance;
   action: "login" | "logout";
+  scope?: "operate";
   release(): void;
   terminal?: LiveTerminal;
   done?: Promise<void>;
@@ -53,6 +56,7 @@ export interface AccountManagementOptions {
         busy(id: string): boolean;
       }
     | undefined;
+  authChanged?(): Promise<void>;
   signal?: AbortSignal | undefined;
   discovery?: DiscoveryOptions | undefined;
   terminal?: TerminalManagerOptions | undefined;
@@ -199,6 +203,37 @@ export class AccountManagement {
       release();
     }
   }
+  /** The provider-login fallback may use the normal CLI profile under operate authority. */
+  openProviderTerminal(owner: string, instanceId: string, action: "login" | "logout"): string {
+    if (this.closed || this.terminals.size >= 8) throw new Error("Auth terminal unavailable");
+    const instance = this.account(instanceId);
+    if (
+      instance.provider === "acp" ||
+      instance.provider === "cursor" ||
+      (!instance.implicit && !instance.managed)
+    )
+      throw new Error("Unsupported auth terminal");
+    const release = this.options.accounts.reserveAccountChange(instance.id);
+    const terminalId = this.options.id();
+    this.terminals.set(terminalId, {
+      owner,
+      instance,
+      action,
+      scope: "operate",
+      controller: new AbortController(),
+      release,
+    });
+    const timer = setTimeout(() => {
+      void this.stop(terminalId, owner).catch(() => {});
+    }, 600_000);
+    timer.unref();
+    const entry = this.terminals.get(terminalId);
+    if (entry) entry.cancelTimer = () => clearTimeout(timer);
+    return terminalId;
+  }
+  terminalScope(id: string): "accounts" | "operate" {
+    return this.terminals.get(id)?.scope ?? "accounts";
+  }
   owns(id: string, owner: string): boolean {
     return this.terminals.get(id)?.owner === owner;
   }
@@ -221,7 +256,7 @@ export class AccountManagement {
       : entry.controller.signal;
     signal.throwIfAborted();
     const { instance, action } = entry;
-    await assertManagedHome(this.options.dataDir, instance);
+    if (!instance.implicit) await assertManagedHome(this.options.dataDir, instance);
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
     if (instance.provider === "cursor" && !sdk) throw new Error("Cursor SDK is unavailable");
     entry.sdk = !!sdk;
@@ -234,9 +269,9 @@ export class AccountManagement {
           signal,
         });
     if (sdk) await sdk.fence(instance.id);
-    await assertManagedHome(this.options.dataDir, instance);
+    if (!instance.implicit) await assertManagedHome(this.options.dataDir, instance);
     signal.throwIfAborted();
-    if (!status.path || (instance.provider === "cursor" && status.error))
+    if (!status.path || (instance.provider === "cursor" && !instance.implicit && status.error))
       throw new Error("Provider unavailable or isolation unverified");
     const args = sdk
       ? [
@@ -245,16 +280,18 @@ export class AccountManagement {
           instance.homeDir,
           action,
         ]
-      : instance.provider === "codex"
-        ? [action]
-        : instance.provider === "claude" || instance.provider === "opencode"
-          ? ["auth", action]
-          : [];
+      : action === "logout" && instance.provider !== "acp"
+        ? logoutArgs(instance.provider)
+        : instance.provider === "codex"
+          ? [action]
+          : instance.provider === "claude" || instance.provider === "opencode"
+            ? ["auth", action]
+            : [];
     const terminal = this.manager.openLiveTerminal(
       {
         shell: status.path,
         args,
-        cwd: instance.homeDir,
+        cwd: instance.implicit ? this.options.dataDir : instance.homeDir,
         env,
         name: `${instance.provider} ${action}`,
         cols: 80,
@@ -272,7 +309,9 @@ export class AccountManagement {
           this.options.registry.loginChanged(instance.id);
           if (sdk) await sdk.rebind(instance.id);
           await this.refresh(instance);
+          await this.options.authChanged?.();
         } finally {
+          entry.cancelTimer?.();
           entry.release();
           this.terminals.delete(id);
         }
@@ -295,6 +334,7 @@ export class AccountManagement {
   async stop(id: string, owner: string): Promise<void> {
     const entry = this.terminals.get(id);
     if (!entry || entry.owner !== owner) return;
+    entry.cancelTimer?.();
     entry.controller.abort(new Error("Auth terminal cancelled"));
     // Discovery/fencing owns resources until its promise settles, even on cancellation.
     await entry.startup?.catch(() => {});
@@ -314,7 +354,7 @@ export class AccountManagement {
     );
   }
   private async refresh(instance: ProviderInstance): Promise<void> {
-    await assertManagedHome(this.options.dataDir, instance);
+    if (!instance.implicit) await assertManagedHome(this.options.dataDir, instance);
     if (instance.provider === "acp") return;
     const { registry, models, now } = this.options;
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
@@ -362,11 +402,11 @@ export class AccountManagement {
         provider: instance.provider,
         ...(sdk ? { backend: "cursor-sdk", homeDir: instance.homeDir } : {}),
         executable,
-        cwd: instance.homeDir,
+        cwd: instance.implicit ? this.options.dataDir : instance.homeDir,
         env: Object.fromEntries(Object.entries(env).map(([key, value]) => [key, value ?? ""])),
         loginRevision: this.options.registry.get(instance.id)?.instance.loginRevision ?? "0",
       },
-      () => assertManagedHome(this.options.dataDir, instance),
+      instance.implicit ? undefined : () => assertManagedHome(this.options.dataDir, instance),
     );
   }
 

@@ -168,3 +168,14 @@ test discoverers must release owned I/O before awaiting removal. Session opening
 failure preserves undelivered input in a paused queue with a visible error, as in
 ADR 0053. These admission changes preserve ADR 0002: no new credential inspection
 or provider authentication runs on the implicit home.
+
+### Amendment: normal-profile sign-in from first-run setup
+
+The owner's one-click sign-in request permits the new `provider.login.*` and
+`provider.logout` service to authenticate the implicit native CLI account under
+`operate` authority. It preserves the normal launch environment and home, so the
+terminal CLI uses the resulting login. Explicit managed profiles remain supported.
+These requests do not change the existing `accounts.*` authority or allow renaming,
+removing or migrating implicit accounts. SDK identity, fencing and isolated default
+stores remain governed by ADR 0043. Browser challenges are device-owned and ephemeral;
+only a per-device onboarding dismissal flag is persisted by first-run setup.
