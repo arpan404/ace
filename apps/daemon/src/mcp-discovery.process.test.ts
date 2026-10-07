@@ -116,12 +116,49 @@ it("agents discover ace through initialize, resources and status even when compu
     expect(JSON.stringify(disabled)).not.toContain(home);
     await screen.enable(true);
     expect((await status()).groups).toContainEqual({ name: "screen", enabled: true });
+    const enabledTools = z
+      .array(z.object({ name: z.string(), description: z.string() }))
+      .parse((await request("tools/list")).tools);
+    expect(
+      enabledTools.find((tool) => tool.name === "screen_request_app")?.description,
+    ).not.toContain("Computer use is disabled");
     await screen.enable(false);
     expect((await status()).groups).toContainEqual({
       name: "screen",
       enabled: false,
       reason: expect.stringContaining("Settings → Computer use"),
     });
+    // Current providers use per-request metadata, without the legacy handshake.
+    const current = await fetch(daemon.mcp.url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${lease.bearer}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "ace_status",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: ++id,
+        method: "tools/call",
+        params: {
+          name: "ace_status",
+          arguments: {},
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { name: "current-test", version: "1" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    expect(current.status).toBe(200);
+    expect(
+      z.object({ result: z.object({ structuredContent: McpStatus }) }).parse(await current.json())
+        .result.structuredContent,
+    ).toEqual(disabled);
     const revoked = await fetch(daemon.mcp.url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
