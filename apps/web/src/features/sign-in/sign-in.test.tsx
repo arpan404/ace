@@ -17,6 +17,13 @@ function stage(app: Harness, provider: ProviderKind, row: Partial<ProviderStatus
   Object.assign(found, row);
 }
 
+/** No upstream of OpenCode or Pi lists models: nothing is connected through it. */
+function disconnect(app: Harness, provider: ProviderKind) {
+  app.daemon.services.models = app.daemon.services.models.filter(
+    (model) => model.provider !== provider,
+  );
+}
+
 /** The fake numbers sessions as they start: the first sign-in on a daemon is fake-login-1. */
 const session = (n: number) => `fake-login-${n}`;
 
@@ -44,12 +51,13 @@ test("a device sign-in shows its code and link, and finishing in the browser sig
   expect(within(providers).getByText("Signed in as grace@example.com")).toBeTruthy();
   // Signed in, it asks for nothing: no loud button, its actions in a quiet menu.
   expect(within(providers).queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
-  expect(within(providers).getByRole("button", { name: "More for Codex" })).toBeTruthy();
+  expect(within(providers).getByRole("button", { name: "Manage Codex" })).toBeTruthy();
 }, 30_000);
 
 test("the CLI's own choices are buttons; a choice then Enter leads to its device code", async () => {
   const app = harness();
   stage(app, "opencode", { auth: "logged_out" });
+  disconnect(app, "opencode");
   const providers = await providersPage(app);
   await userEvent.click(
     await within(providers).findByRole("button", { name: "Sign in to OpenCode" }),
@@ -113,6 +121,7 @@ test("a failed sign-in says why, and Try again starts over", async () => {
 test("a sign-in that needs a key typed runs the CLI in an ace terminal, then reads signed in", async () => {
   const app = harness();
   stage(app, "opencode", { auth: "logged_out" });
+  disconnect(app, "opencode");
   const providers = await providersPage(app);
   await userEvent.click(
     await within(providers).findByRole("button", { name: "Sign in to OpenCode" }),
@@ -145,7 +154,7 @@ test("Sign out runs the CLI's logout and the provider reads signed out", async (
   const app = harness();
   stage(app, "codex", { auth: "logged_in", accountLabel: "grace@example.com" });
   const providers = await providersPage(app);
-  await userEvent.click(await within(providers).findByRole("button", { name: "More for Codex" }));
+  await userEvent.click(await within(providers).findByRole("button", { name: "Manage Codex" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign out of Codex" });
   expect(await within(dialog).findByText("Signed out of Codex")).toBeTruthy();
@@ -169,7 +178,7 @@ test("each of OpenCode's upstreams signs in on its own: its choice is made for t
   // A failing upstream says Reconnect; one that works keeps Sign in again in a quiet menu.
   expect(within(upstreams).getByRole("button", { name: "Reconnect OpenRouter" })).toBeTruthy();
   expect(within(upstreams).queryByRole("button", { name: "Reconnect OpenAI" })).toBeNull();
-  await userEvent.click(within(upstreams).getByRole("button", { name: "More for OpenAI" }));
+  await userEvent.click(within(upstreams).getByRole("button", { name: "Manage OpenAI" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
 
   const dialog = await screen.findByRole("dialog", { name: "Sign in to OpenCode" });
@@ -181,19 +190,43 @@ test("each of OpenCode's upstreams signs in on its own: its choice is made for t
 }, 30_000);
 
 test("Settings asks only where something's wrong: Sign in when signed out, Reconnect when it needs attention", async () => {
-  // The fake's machine: Claude Code and Codex signed in, OpenCode signed out, Pi not reporting
-  // its sign-in but listing models, Cursor's sign-in expired.
+  // The fake's machine: Claude Code signed in, Codex's CLI login signed out, OpenCode and Pi
+  // connected through their upstreams, Cursor's sign-in expired.
   const providers = await providersPage(harness());
-  await within(providers).findByRole("button", { name: "Sign in to OpenCode" });
+  await within(providers).findByRole("button", { name: "Sign in to Codex" });
   expect(await within(providers).findByRole("button", { name: "Reconnect Cursor" })).toBeTruthy();
   expect(within(providers).getByText("Needs attention · Cursor sign-in has expired.")).toBeTruthy();
-  for (const name of ["Claude Code", "Codex", "Pi"]) {
+  expect(await within(providers).findByText("4 providers connected")).toBeTruthy();
+  for (const name of ["Claude Code", "OpenCode", "Pi"]) {
     expect(within(providers).queryByRole("button", { name: `Sign in to ${name}` })).toBeNull();
     expect(within(providers).queryByRole("button", { name: `Reconnect ${name}` })).toBeNull();
-    expect(within(providers).getByRole("button", { name: `More for ${name}` })).toBeTruthy();
   }
+  // One quiet control per row: its Manage menu.
+  expect(within(providers).queryByRole("button", { name: "Manage" })).toBeNull();
+  await userEvent.click(within(providers).getByRole("button", { name: "Manage OpenCode" }));
+  expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual([
+    "Show details",
+    "Connect another provider",
+    "Sign out",
+  ]);
   // Not reporting a sign-in isn't a problem.
   expect(within(providers).getAllByText(/Needs attention/)).toHaveLength(1);
+}, 30_000);
+
+test("OpenCode with no upstream connected reads not signed in, and says so only once", async () => {
+  const app = harness();
+  disconnect(app, "opencode");
+  const providers = await providersPage(app);
+  expect(
+    await within(providers).findByRole("button", { name: "Sign in to OpenCode" }),
+  ).toBeTruthy();
+  expect(within(providers).getByText("Not signed in · No provider connected")).toBeTruthy();
+  // Its ace account's "signed in" would contradict that: the meta line leaves it out.
+  expect(within(providers).getByText("opencode 1.4")).toBeTruthy();
+  // Its Sign in connects a provider: the CLI's choices.
+  await userEvent.click(within(providers).getByRole("button", { name: "Sign in to OpenCode" }));
+  const dialog = await screen.findByRole("dialog", { name: "Sign in to OpenCode" });
+  expect(await within(dialog).findByRole("button", { name: "OpenCode Go" })).toBeTruthy();
 }, 30_000);
 
 test("a sign-in finished on another connection updates Settings live", async () => {

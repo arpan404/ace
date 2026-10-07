@@ -16,7 +16,7 @@ import {
   useProviderReadiness,
   type ProviderReadiness,
 } from "@/lib/provider-readiness.ts";
-import { ReadinessActions } from "@/features/sign-in/index.ts";
+import { ManageMenu, ReadinessActions } from "@/features/sign-in/index.ts";
 import { useCatalogSignals } from "@/lib/provider-signals.ts";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import { UpstreamSources } from "./upstream-sources.tsx";
@@ -27,7 +27,7 @@ import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
  * "claude 2.1.4 · 2 accounts · 1 at limit", "codex · its own login", "Not installed",
  * "via ACP · 1 account".
  */
-export function describeInstall(install: ProviderInstall): string {
+export function describeInstall(install: ProviderInstall, ready?: boolean): string {
   if (install.via && install.accounts.length === 0)
     return `${install.via} · runs ${install.binary}`;
   if (install.state === "not_installed")
@@ -35,12 +35,15 @@ export function describeInstall(install: ProviderInstall): string {
   const unknown = install.accounts.filter((account) => account.auth === "unknown");
   const atLimit = install.accounts.filter((account) => account.availability === "exhausted");
   const parts = [install.via ?? [install.binary, install.version].filter(Boolean).join(" ")];
-  // No ace account: the daemon runs the CLI on the person's own login.
+  // No ace account: the daemon runs the CLI on the person's own login. Where readiness (`ready`)
+  // says otherwise, the accounts' word is left out rather than contradict it.
   if (install.state === "unknown") parts.push("sign-in unknown");
-  else if (install.state === "signed_out") parts.push("signed out");
-  else if (install.accounts.length === 0 || (install.accounts.length === 1 && !install.via))
-    parts.push("signed in");
-  else parts.push(`${install.accounts.length} account${install.accounts.length === 1 ? "" : "s"}`);
+  else if (install.state === "signed_out") {
+    if (ready !== true) parts.push("signed out");
+  } else if (install.accounts.length === 0 || (install.accounts.length === 1 && !install.via)) {
+    if (ready !== false) parts.push("signed in");
+  } else
+    parts.push(`${install.accounts.length} account${install.accounts.length === 1 ? "" : "s"}`);
   if (unknown.length && install.state !== "unknown")
     parts.push(`${unknown.length} sign-in unknown`);
   if (atLimit.length) parts.push(`${atLimit.length} at limit`);
@@ -128,6 +131,8 @@ function ProviderRow(props: {
   const [open, setOpen] = useState(false);
   const installed = install.state !== "not_installed";
   const view = readiness && readinessView(readiness, props.catalog);
+  // Accounts and models, from the row's one Manage menu.
+  const details = { label: open ? "Hide details" : "Show details", onSelect: () => setOpen(!open) };
   return (
     <>
       <SettingRow
@@ -145,7 +150,7 @@ function ProviderRow(props: {
         }
         description={
           <>
-            <span>{describeInstall(install)}</span>
+            <span>{describeInstall(install, view?.ready)}</span>
             {readiness && view && (
               <ReadinessLine
                 row={readiness}
@@ -157,19 +162,15 @@ function ProviderRow(props: {
         }
       >
         {install.added && <RemoveAgent name={install.name} />}
-        {readiness && view && (
-          <ReadinessActions provider={readiness.provider} name={install.name} view={view} />
-        )}
-        {installed && (
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-expanded={open}
-            aria-label={`Manage ${install.name}`}
-            onClick={() => setOpen(!open)}
-          >
-            Manage
-          </Button>
+        {readiness && view ? (
+          <ReadinessActions
+            provider={readiness.provider}
+            name={install.name}
+            view={view}
+            extra={installed ? [details] : []}
+          />
+        ) : (
+          installed && <ManageMenu label={`Manage ${install.name}`} items={[details]} />
         )}
       </SettingRow>
       {installed && readiness && (install.kind === "opencode" || install.kind === "pi") && (
@@ -199,6 +200,9 @@ function ReadinessLine(props: {
     ) : view.detail ? (
       <span className="block">{view.detail}</span>
     ) : null;
+  // OpenCode and Pi: how many upstreams are connected, or that none is.
+  if (view.upstreams)
+    return <span className="block">{[view.label, view.detail].filter(Boolean).join(" · ")}</span>;
   const unreported =
     row.auth === "unknown" && (view.state === "ready" || view.state === "unconfirmed");
   if (unreported)

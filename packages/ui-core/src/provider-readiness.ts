@@ -1,4 +1,4 @@
-import type { ModelInstanceStatus, ProviderKind, ProviderStatus } from "@ace/protocol";
+import type { ModelInstanceStatus, ModelSource, ProviderKind, ProviderStatus } from "@ace/protocol";
 import { providerNames } from "./providers.ts";
 
 /*
@@ -6,8 +6,12 @@ import { providerNames } from "./providers.ts";
  * the person can do about it. Settings, first-run setup and the sign-in dialog all say it the
  * same way. A CLI that doesn't report its sign-in is neither ready nor a problem until its
  * models say which; "Needs attention" is kept for real problems (an expired sign-in, a limit,
- * a failed probe). Pure.
+ * a failed probe). A CLI that reaches models through upstream providers (OpenCode, Pi) is as
+ * ready as its upstreams: ready while one is connected, signed out while none is. Pure.
  */
+
+/** CLIs that sign in per upstream provider: their own sign-in means connecting one. */
+const viaUpstreams: ReadonlySet<ProviderKind> = new Set(["opencode", "pi"]);
 
 /** Something the person can do: sign in, sign in again, or sign out. */
 export type ReadinessAction = "sign_in" | "reconnect" | "sign_out";
@@ -34,6 +38,8 @@ export interface ReadinessView {
   primary?: "sign_in" | "reconnect" | undefined;
   /** Quieter actions, for an overflow menu. */
   more: readonly ReadinessAction[];
+  /** Signing in connects an upstream provider (OpenCode, Pi): the CLI's choices list them. */
+  upstreams?: boolean | undefined;
 }
 
 /** What the model catalog says about a provider: whether it lists models, and an auth error. */
@@ -41,18 +47,39 @@ export interface CatalogSignal {
   models: boolean;
   /** The catalog's own words for an expired or refused sign-in. */
   problem?: string | undefined;
+  /** Upstream providers (not local runtimes) with models and no error: OpenCode Go, OpenAI… */
+  connected: number;
 }
 
 /** A provider's catalog signal, from the catalog's models and per-account statuses. */
 export function catalogSignal(
-  models: readonly { provider: ProviderKind }[],
+  models: readonly { provider: ProviderKind; source?: ModelSource | undefined }[],
   instances: readonly ModelInstanceStatus[],
   provider: ProviderKind,
 ): CatalogSignal {
-  const problem = instances.find(
-    (status) => status.provider === provider && status.errorDetail?.code === "auth_expired",
-  )?.errorDetail?.message;
-  return { models: models.some((model) => model.provider === provider), problem };
+  const own = instances.filter((status) => status.provider === provider);
+  const problem = own.find((status) => status.errorDetail?.code === "auth_expired")?.errorDetail
+    ?.message;
+  const failing = new Set(
+    own.flatMap((status) =>
+      (status.sources ?? []).flatMap((entry) => (entry.error ? [entry.source.id] : [])),
+    ),
+  );
+  const connected = new Set<string>();
+  for (const model of models)
+    if (
+      model.provider === provider &&
+      model.source &&
+      model.source.kind !== "local" &&
+      model.source.kind !== "account" &&
+      !failing.has(model.source.id)
+    )
+      connected.add(model.source.id);
+  return {
+    models: models.some((model) => model.provider === provider),
+    problem,
+    connected: connected.size,
+  };
 }
 
 /** A real problem (an expired sign-in, a limit, a failed probe): Reconnect fixes it. */
@@ -81,6 +108,32 @@ export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): Rea
       : row.auth === "logged_out"
         ? "installed_signed_out"
         : "signed_in");
+  if (
+    viaUpstreams.has(row.provider) &&
+    catalog &&
+    row.installed === true &&
+    !row.error &&
+    (readiness === "signed_in" ||
+      readiness === "installed_signed_out" ||
+      readiness === "needs_attention")
+  )
+    return catalog.connected
+      ? {
+          state: "ready",
+          ready: true,
+          label: `${catalog.connected} provider${catalog.connected === 1 ? "" : "s"} connected`,
+          more: ["reconnect", "sign_out"],
+          upstreams: true,
+        }
+      : {
+          state: "signed_out",
+          ready: false,
+          label: "Not signed in",
+          detail: "No provider connected",
+          primary: "sign_in",
+          more: [],
+          upstreams: true,
+        };
   switch (readiness) {
     case "not_installed":
       return {

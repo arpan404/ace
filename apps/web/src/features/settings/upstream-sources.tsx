@@ -1,11 +1,11 @@
 import type { ModelSourceStatus, ProviderKind } from "@ace/protocol";
 import { useModelInstances } from "@/lib/model-catalog.ts";
-import { SignInButton, SignInMenu, useSignIn } from "@/features/sign-in/index.ts";
+import { ManageMenu, SignInButton, useSignIn } from "@/features/sign-in/index.ts";
 
 /**
  * The upstreams OpenCode or Pi reaches models through (OpenCode Go and Zen, GitHub Copilot, the
  * person's API-key providers), as the model catalog last found them, each with its own sign-in:
- * Reconnect on a failing one, and Sign in again in a quiet menu on one that works.
+ * Reconnect on a failing one, and Sign in again in its Manage menu on one that works.
  * Local runtimes need none. "Connect another" starts the CLI's sign-in and lists its choices.
  */
 export function UpstreamSources(props: { provider: ProviderKind; name: string }) {
@@ -43,8 +43,8 @@ export function UpstreamSources(props: { provider: ProviderKind; name: string })
                   Reconnect
                 </SignInButton>
               ) : (
-                <SignInMenu
-                  label={`More for ${source.label}`}
+                <ManageMenu
+                  label={`Manage ${source.label}`}
                   items={[
                     {
                       label: "Sign in again",

@@ -33,17 +33,23 @@ export function SignInButton(
   );
 }
 
+/** A "Manage" menu entry: a sign-in to open, or something of the caller's (Show details). */
+export type ManageItem =
+  | { label: string; target: SignInTarget }
+  | { label: string; onSelect(): void };
+
 /**
- * Quiet sign-in actions behind a "…" button (Sign in again, Sign out), for something that works:
- * nothing about it asks for attention.
+ * The one quiet control for something that works: a "…" button ("Manage Codex") whose menu
+ * holds Sign in again, Sign out and the caller's own entries. Nothing in it asks for attention.
  */
-export function SignInMenu(props: {
-  /** "More for Codex": the button's accessible name. */
+export function ManageMenu(props: {
+  /** "Manage Codex": the button's accessible name. */
   label: string;
-  items: readonly { label: string; target: SignInTarget }[];
+  items: readonly ManageItem[];
 }) {
   const signIn = useSignIn();
-  if (!signIn || !props.items.length) return null;
+  const items = props.items.filter((item) => "onSelect" in item || signIn);
+  if (!items.length) return null;
   return (
     <Menu>
       <MenuTrigger
@@ -57,8 +63,11 @@ export function SignInMenu(props: {
         }
       />
       <MenuContent align="end">
-        {props.items.map((item) => (
-          <MenuItem key={item.label} onClick={() => signIn(item.target)}>
+        {items.map((item) => (
+          <MenuItem
+            key={item.label}
+            onClick={() => ("onSelect" in item ? item.onSelect() : signIn?.(item.target))}
+          >
             {item.label}
           </MenuItem>
         ))}
@@ -69,8 +78,9 @@ export function SignInMenu(props: {
 
 /**
  * What a provider's readiness (`readinessView`) offers: one prominent button only when it's
- * needed (Sign in while signed out, Reconnect while it needs attention), and the quieter
- * actions (Sign in again, Sign out) in a "…" menu.
+ * needed (Sign in while signed out, Reconnect while it needs attention), and everything else
+ * (Sign in again or Connect another provider, Sign out, the caller's `extra` entries) in one
+ * "Manage" menu.
  */
 export function ReadinessActions(props: {
   provider: SignInTarget["provider"];
@@ -78,15 +88,21 @@ export function ReadinessActions(props: {
   view: ReadinessView;
   /** The page's one suggested step: its button is the primary one. */
   emphasis?: "primary" | "secondary" | undefined;
+  /** Entries of the caller's, first in the menu (Show details). */
+  extra?: readonly ManageItem[] | undefined;
 }) {
   const { provider, name, view } = props;
-  const items = view.more
-    .filter((action) => action !== view.primary)
-    .map((action) =>
-      action === "sign_out"
-        ? { label: "Sign out", target: { provider, action: "logout" as const } }
-        : { label: action === "reconnect" ? "Sign in again" : "Sign in", target: { provider } },
-    );
+  const signInWords = view.upstreams ? "Connect another provider" : "Sign in again";
+  const items: ManageItem[] = [
+    ...(props.extra ?? []),
+    ...view.more
+      .filter((action) => action !== view.primary)
+      .map((action) =>
+        action === "sign_out"
+          ? { label: "Sign out", target: { provider, action: "logout" as const } }
+          : { label: signInWords, target: { provider } },
+      ),
+  ];
   return (
     <>
       {view.primary && (
@@ -98,7 +114,7 @@ export function ReadinessActions(props: {
           {view.primary === "sign_in" ? "Sign in" : "Reconnect"}
         </SignInButton>
       )}
-      <SignInMenu label={`More for ${name}`} items={items} />
+      <ManageMenu label={`Manage ${name}`} items={items} />
     </>
   );
 }

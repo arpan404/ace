@@ -19,6 +19,10 @@ function firstRun() {
   const app = harness({ onboarding: "pending" });
   for (const provider of ["claude", "codex", "opencode", "cursor", "pi"] as const)
     stage(app, provider, { auth: "logged_out" });
+  // OpenCode and Pi have no upstream connected yet.
+  app.daemon.services.models = app.daemon.services.models.filter(
+    (model) => model.provider !== "opencode" && model.provider !== "pi",
+  );
   return app;
 }
 
@@ -91,9 +95,9 @@ test("Skip for now goes on to adding a project, and Home doesn't send this devic
   expect(screen.queryByRole("list", { name: "Providers on this computer" })).toBeNull();
 }, 30_000);
 
-test("a CLI that doesn't report its sign-in counts as ready once it lists models; only a card needing action stands out", async () => {
-  // The fake's machine: Claude Code and Codex signed in, Pi not reporting its sign-in but
-  // listing models, OpenCode signed out, Cursor's sign-in expired.
+test("a CLI that doesn't report its sign-in counts as ready once its upstreams list models; only a card needing action stands out", async () => {
+  // The fake's machine: Claude Code signed in, OpenCode and Pi connected through their
+  // upstreams (Pi doesn't report a sign-in), Codex's CLI login signed out, Cursor expired.
   const app = harness({ onboarding: "pending" });
   await app.open("/");
   const cards = await screen.findByRole(
@@ -106,16 +110,17 @@ test("a CLI that doesn't report its sign-in counts as ready once it lists models
   await waitFor(async () =>
     expect((await progress()).getAttribute("aria-valuetext")).toBe("3 of 5 ready"),
   );
-  for (const name of ["Claude Code", "Codex", "Pi"]) {
+  for (const name of ["Claude Code", "OpenCode", "Pi"]) {
     const card = within(cards).getByRole("listitem", { name });
     expect(within(card).getByRole("img", { name: "Ready" })).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();
   }
+  // Pi doesn't report a sign-in; its connected upstreams say it works.
   expect(
-    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("Ready"),
+    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("2 providers connected"),
   ).toBeTruthy();
-  const opencode = within(cards).getByRole("listitem", { name: "OpenCode" });
-  expect(within(opencode).getByRole("button", { name: "Sign in to OpenCode" })).toBeTruthy();
+  const codex = within(cards).getByRole("listitem", { name: "Codex" });
+  expect(within(codex).getByRole("button", { name: "Sign in to Codex" })).toBeTruthy();
   const cursor = within(cards).getByRole("listitem", { name: "Cursor" });
   expect(within(cursor).getByRole("button", { name: "Reconnect Cursor" })).toBeTruthy();
   // Something is ready: starting a thread is the next step, so no card is highlighted.
