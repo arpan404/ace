@@ -7,7 +7,7 @@ import type { Frame, ProviderSession } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { openAcpSession } from "./index.ts";
 import { createAcpAdapter } from "./index.ts";
-import { cursorQuirks } from "./quirks/cursor.ts";
+import { extensionQuirks } from "./testing/extension-quirks.ts";
 import { antigravityQuirks } from "./quirks/antigravity.ts";
 import { genericQuirks } from "./quirks/generic.ts";
 import { interactionKey } from "./interactions.ts";
@@ -21,7 +21,7 @@ afterEach(async () => {
   for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true });
 });
 async function setup(
-  quirks = cursorQuirks,
+  quirks = extensionQuirks,
   resume = false,
   runtime?: SessionRuntime,
   env: Record<string, string> = {},
@@ -264,7 +264,7 @@ it("encodes Antigravity answers as permission option IDs", async () => {
   }
 });
 it("loads an existing native session and applies model selection before input", async () => {
-  const h = await setup(cursorQuirks, true);
+  const h = await setup(extensionQuirks, true);
   try {
     expect(h.session.nativeSessionId).toBe("native-root");
     await h.session.send(input("ok"), "queue");
@@ -398,7 +398,7 @@ it("rejects ACP v2 before creating a native session", async () => {
         onFrame: (frame) => frames.push(frame),
         onExit() {},
       },
-      cursorQuirks,
+      extensionQuirks,
       { command: process.execPath, args: [fake, "--protocol-v2"] },
       {
         now: () => 0,
@@ -422,7 +422,7 @@ it("rejects ACP v2 before creating a native session", async () => {
 it("rejects queued input at cancellation grace when a child never confirms termination", async () => {
   let clock = 1000;
   let scheduled: { delay: number; run(): void } | undefined;
-  const h = await setup(cursorQuirks, false, {
+  const h = await setup(extensionQuirks, false, {
     spawn: spawnSupervised,
     now: () => clock,
     schedule(delay, run) {
@@ -475,7 +475,7 @@ it("binds the root before queued input when session creation and root traffic sh
       onFrame: (frame) => frames.push(frame),
       onExit() {},
     },
-    cursorQuirks,
+    extensionQuirks,
     { command: process.execPath, args: [fake, "--new-replay"] },
   );
   try {
@@ -515,7 +515,7 @@ it("negotiated ACP image prompts carry native MIME and base64 instead of file re
 it("ACP open failures preserve structured causes and redact launch credentials", async () => {
   const secret = "private-acp-launch-secret";
   const failed = setup(
-    cursorQuirks,
+    extensionQuirks,
     false,
     {
       now: () => 0,

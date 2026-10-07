@@ -3,9 +3,9 @@ import type { Fact } from "@ace/core";
 import { ThreadId, Item, Agent, Interaction, BackgroundTask, Run } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
 import { createAcpTranslator } from "./index.ts";
-import { cursorQuirks } from "./quirks/cursor.ts";
+import { extensionQuirks } from "./testing/extension-quirks.ts";
 import type { AcpQuirks } from "./quirks/types.ts";
-export function harness(quirks: AcpQuirks = cursorQuirks) {
+export function harness(quirks: AcpQuirks = extensionQuirks) {
   const threadId = ThreadId.parse("fixture-thread");
   const translator = createAcpTranslator(
     { threadId, rootKey: "root", identity: { generation: "test", cursor: 0 } },

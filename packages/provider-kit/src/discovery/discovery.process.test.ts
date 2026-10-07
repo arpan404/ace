@@ -56,7 +56,7 @@ describe("provider discovery", () => {
       claude: { installed: false, auth: "unknown", loginHint: "claude, then /login" },
       codex: { installed: false, auth: "unknown", loginHint: "codex login" },
       opencode: { installed: false, auth: "unknown", loginHint: "opencode auth login" },
-      cursor: { installed: false, auth: "unknown", loginHint: "agent login" },
+      cursor: { installed: false, auth: "unknown", loginHint: "Sign in to Cursor" },
     });
   });
   it("resolves CLI executables from PATH", async () => {
@@ -227,8 +227,8 @@ describe("provider discovery", () => {
       );
       await nodeBinary(
         root,
-        "agent",
-        `const socket=require('node:net').createConnection(${endpoint},()=>socket.end('release'));console.log(process.argv[2]==='--version'?'2026.09.26-dd393fe':'Logged in as private@example.test');`,
+        "claude",
+        `const socket=require('node:net').createConnection(${endpoint},()=>socket.end('release'));console.log(process.argv[2]==='--version'?'1.2.3':'{"loggedIn":false}');`,
       );
       const result = await discoverProviders({ env: { PATH: root }, timeoutMs: 10_000 });
       expect(result.codex).toMatchObject({
@@ -238,8 +238,8 @@ describe("provider discovery", () => {
         authDetail: "ChatGPT",
       });
       expect(result.codex.error).toBeUndefined();
-      expect(result.cursor).toMatchObject({ version: "2026.09.26-dd393fe", auth: "logged_in" });
-      expect(result.cursor.error).toBeUndefined();
+      expect(result.claude).toMatchObject({ version: "1.2.3", auth: "logged_out" });
+      expect(result.claude.error).toBeUndefined();
     } finally {
       for (const socket of waiting) socket.destroy();
       await new Promise<void>((resolve, reject) =>

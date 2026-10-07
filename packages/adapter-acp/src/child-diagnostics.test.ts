@@ -1,13 +1,7 @@
 import { expect, test } from "vitest";
 import { replayFixture } from "@ace/adapter-testkit";
 import type { Frame } from "@ace/engine-api";
-import {
-  antigravityQuirks,
-  createAcpTranslator,
-  cursorQuirks,
-  genericQuirks,
-  type AcpQuirks,
-} from "./index.ts";
+import { antigravityQuirks, createAcpTranslator, genericQuirks, type AcpQuirks } from "./index.ts";
 
 function replayChild(quirks: AcpQuirks, states: readonly string[]) {
   const childFrames = states.map((state) => ({
@@ -65,7 +59,7 @@ function replayChild(quirks: AcpQuirks, states: readonly string[]) {
   };
 }
 
-for (const quirks of [genericQuirks, cursorQuirks, antigravityQuirks]) {
+for (const quirks of [genericQuirks, antigravityQuirks]) {
   // Mutation: restore explicit association text or drop child facts/raw.
   // Not executed (tests run at merge).
   test(`${quirks.provider} repeated child snapshots retain association and completion without transcript notices`, () => {

@@ -64,6 +64,8 @@ export class Sessions {
     this.dependencies = dependencies;
   }
   async open(actor: ThreadActor): Promise<void> {
+    if (this.dependencies.repo.store.getThread(actor.id)?.continuation)
+      throw new Error("Cursor CLI threads are read-only; continue in a new thread");
     await this.dependencies.repo.store.writable();
     const stateBefore = this.dependencies.repo.requireState(actor.id);
     if (actor.session && this.turnPermissions.get(actor.id) === actor.generation) return;
@@ -318,9 +320,7 @@ export class Sessions {
         this.dependencies.repo.nativeSession(
           actor.id,
           session.nativeSessionId,
-          session.backend ??
-            adapter.backend ??
-            (state.config.provider === "cursor" ? "acp" : undefined),
+          session.backend ?? adapter.backend,
           session.instanceId,
         );
         delete transition.fork;

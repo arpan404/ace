@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { PortableHandoff, McpScope, HandoffPage } from "@ace/protocol";
+import { PortableHandoff, McpScope, HandoffPage, ThreadId } from "@ace/protocol";
 import { ToolRegistry } from "@ace/mcp-server";
 import { handoffToolkit } from "../services/handoff-tools.ts";
 import { transitionHarness } from "./transition-test-support.ts";
@@ -108,44 +108,48 @@ test("SDK account switches refuse CLI checkpoint migration and retain the source
   ]);
 });
 
-test("old ACP Cursor resume and model changes keep ACP after the default changes to SDK", async () => {
-  const h = setup({ configure: false });
+test("used Cursor CLI threads are read-only after restart and continue through a portable SDK handoff", async () => {
+  const h = setup({ cursorBackend: "cursor-sdk", configure: false });
   const source = await cursor(h);
   const native = h.sessions.at(-1)?.nativeId;
-  const acp = h.registry.get("cursor", "acp").adapter;
-  h.registry.register(
-    { ...acp, backend: "cursor-sdk" },
-    { installed: true, auth: "logged_in", loginHint: "synthetic" },
+  h.store.appendEvents(source, [{ type: "thread.updated", backend: "acp" }]);
+  h.store.atomic((db) =>
+    db
+      .prepare(
+        "UPDATE engine_sessions SET backend='acp',instance_id='cursor-cli-default' WHERE thread_id=?",
+      )
+      .run(source),
   );
   await h.restart();
-  expect(
-    h.command({
-      type: "thread.switch",
-      threadId: source,
-      selection: { provider: "cursor", model: "old-acp-model" },
-    }).ok,
-  ).toBe(true);
-  await h.engine.flush();
+  expect(h.store.getThread(source)?.continuation).toMatchObject({
+    state: "read_only",
+    actionId: "thread.continue_new",
+  });
   expect(
     h.command({
       type: "thread.send",
       threadId: source,
+      input: [{ type: "text", text: "old continuation" }],
       delivery: "queue",
-      input: [{ type: "text", text: "ACP continuation" }],
+    }),
+  ).toMatchObject({ ok: false, error: "cursor_cli_retired" });
+  expect(
+    h.command({
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "cursor",
+      handoffFrom: source,
+      accountId: "cursor-cli-default",
+      input: [{ type: "text", text: "continue here" }],
     }).ok,
   ).toBe(true);
   await h.engine.flush();
-  expect(h.sessions.at(-1)?.context.resume).toMatchObject({
-    backend: "acp",
-    nativeSessionId: native,
-  });
-  expect(h.inputs.at(-1)).toMatchObject({ nativeId: native, model: "old-acp-model" });
-  expect(h.store.getThread(source)?.backend).toBe("acp");
-  const fork = await h.fork(source);
-  expect(h.store.getThread(fork)?.backend).toBe("cursor-sdk");
-  expect(h.sessions.at(-1)?.context.resume).toBeUndefined();
-  expect(h.sessions.at(-1)?.context.fork).toBeUndefined();
+  const recipient = h.store.listThreads().find((thread) => thread.id !== source);
+  expect(recipient).toMatchObject({ backend: "cursor-sdk", handoff: { sourceThreadId: source } });
+  expect(h.inputs.at(-1)?.text).toContain("source context");
   expect(h.inputs.at(-1)?.nativeId).not.toBe(native);
+  expect(h.sessions.at(-1)?.context.resume).toBeUndefined();
+  expect(h.sessions.at(-1)?.context.instanceId).toBe("cursor-sdk-default");
 });
 
 test("same-account SDK model changes retain native checkpoint history through close and resume", async () => {
@@ -268,4 +272,41 @@ test("SDK handoffFrom creates a fresh agent and grants frozen source history wit
   const page = HandoffPage.parse(response.structuredContent);
   expect(JSON.stringify(page.items)).toContain("source history");
   expect(JSON.stringify(page.items)).not.toContain("later secret");
+});
+
+test("unused Cursor CLI threads migrate to SDK and accept their first message after restart", async () => {
+  const h = setup({ configure: false });
+  const result = h.command({
+    type: "thread.prepare",
+    provider: "cursor",
+    workspaceId: h.workspace,
+    accountId: "cursor-cli-default",
+    threadId: ThreadId.parse("unused-cursor"),
+    title: "Unused",
+  });
+  if (!result.ok || !result.threadId) throw new Error("Preparation failed");
+  const id = result.threadId;
+  h.store.appendEvents(id, [{ type: "thread.updated", backend: "acp" }]);
+  h.store.atomic((db) =>
+    db
+      .prepare(
+        "UPDATE engine_sessions SET backend='acp',instance_id='cursor-cli-default' WHERE thread_id=?",
+      )
+      .run(id),
+  );
+  await h.restart();
+  expect(h.store.getThread(id)).toMatchObject({ backend: "cursor-sdk" });
+  expect(h.store.getThread(id)?.continuation).toBeUndefined();
+  expect(
+    h.command({
+      type: "thread.send",
+      threadId: id,
+      delivery: "queue",
+      input: [{ type: "text", text: "first SDK message" }],
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  expect(h.inputs.at(-1)?.text).toBe("first SDK message");
+  expect(h.sessions.at(-1)?.context).toMatchObject({ instanceId: "cursor-sdk-default" });
+  expect(h.sessions.at(-1)?.context.resume).toBeUndefined();
 });

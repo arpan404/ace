@@ -1,3 +1,4 @@
+import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
 import { SessionMetadata } from "./session-metadata.ts";
 import { syntheticInput, admitInput, removeInput } from "./transcript-inputs.ts";
 import { cancelPending } from "./stop-intents.ts";
@@ -73,6 +74,7 @@ export class EngineRepository {
     this.metadata = new SessionMetadata(this);
     this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
+    migrateEmptyCursorThreads(store);
     this.attachments = new AttachmentCorrelations(store);
     indexTitleInputs(store);
     store.atomic((db) =>

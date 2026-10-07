@@ -9,22 +9,14 @@ import { createClaudeAdapter } from "@ace/adapter-claude";
 import { createCodexAdapter } from "@ace/adapter-codex";
 import { createPiAdapter } from "@ace/adapter-pi";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
-import { createAcpAdapter, antigravityQuirks, cursorQuirks, genericQuirks } from "@ace/adapter-acp";
+import { createAcpAdapter, antigravityQuirks, genericQuirks } from "@ace/adapter-acp";
 import { detectChromium } from "@ace/browser";
 import { providerFeatures } from "./testing/provider-features.ts";
 import { Agent, AgentId, ThreadId } from "@ace/protocol";
 import { createDevThread } from "./index.ts";
 import { bindMcpSession } from "./services/mcp-session.ts";
 
-for (const provider of [
-  "claude",
-  "codex",
-  "opencode",
-  "cursor",
-  "antigravity",
-  "acp",
-  "pi",
-] as const)
+for (const provider of ["claude", "codex", "opencode", "antigravity", "acp", "pi"] as const)
   it(`${provider} receives scoped ace tools through its native session configuration without a prompt`, async (test) => {
     const chromium = await detectChromium();
     if (!chromium) {
@@ -71,7 +63,7 @@ for (const provider of [
     );
     await features.approve(thread.id);
     const discovery = {
-      overrides: { codex: binary, claude: binary, opencode: binary, cursor: binary },
+      overrides: { codex: binary, claude: binary, opencode: binary },
     };
     const adapter: ProviderAdapter & { close?(): Promise<void> } =
       provider === "claude"
@@ -96,14 +88,10 @@ for (const provider of [
               })
             : provider === "opencode"
               ? createOpenCodeAdapter({ discovery })
-              : createAcpAdapter(
-                  provider === "cursor"
-                    ? cursorQuirks
-                    : provider === "antigravity"
-                      ? antigravityQuirks
-                      : genericQuirks,
-                  { command: binary, args: [] },
-                );
+              : createAcpAdapter(provider === "antigravity" ? antigravityQuirks : genericQuirks, {
+                  command: binary,
+                  args: [],
+                });
     const observed = Promise.withResolvers<string>();
     const frames: Frame[] = [];
     let session;

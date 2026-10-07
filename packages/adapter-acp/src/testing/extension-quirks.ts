@@ -1,9 +1,9 @@
 import { object, string } from "../data.ts";
-import { baseCapabilities, type AcpQuirks } from "./types.ts";
-export const cursorQuirks: AcpQuirks = {
-  provider: "cursor",
-  command: "agent",
-  args: ["acp"],
+import { baseCapabilities, type AcpQuirks } from "../quirks/types.ts";
+export const extensionQuirks: AcpQuirks = {
+  provider: "acp",
+  command: "",
+  args: [],
   experimental: false,
   clientMeta: { subagents: {}, parameterizedModelPicker: true },
   toolKind(update) {
@@ -22,17 +22,15 @@ export const cursorQuirks: AcpQuirks = {
       ? { kind: "provider", message: text.slice(9) }
       : undefined;
   },
-  capabilities(version) {
-    const supported =
-      /^\d{4}\.\d{2}\.\d{2}-/.test(version ?? "") && (version ?? "") >= "2026.09.26-";
+  capabilities() {
     return {
       ...baseCapabilities,
       backgroundVisibility: "none",
-      resume: supported,
-      interruptCascades: supported,
-      subagentTranscripts: supported,
-      planMode: supported,
-      imageInput: supported,
+      resume: true,
+      interruptCascades: true,
+      subagentTranscripts: true,
+      planMode: true,
+      imageInput: true,
     };
   },
 };

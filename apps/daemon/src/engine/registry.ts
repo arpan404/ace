@@ -11,6 +11,10 @@ export class AdapterRegistry {
   private entries = new Map<ProviderKind, Entry>();
   private backends = new Map<string, Entry>();
   register(adapter: ProviderAdapter & { close?(): Promise<void> }, cli: DiscoveryResult): void {
+    if (adapter.provider === "cursor" && adapter.backend === "acp")
+      throw new Error("Cursor requires the SDK runtime");
+    if (adapter.provider === "cursor" && adapter.backend === undefined)
+      adapter = { ...adapter, backend: "cursor-sdk" };
     const entry = {
       adapter,
       source: adapter,
@@ -18,25 +22,12 @@ export class AdapterRegistry {
       discovery: { ...cli },
     };
     this.entries.set(adapter.provider, entry);
-    const backend = adapter.backend ?? (adapter.provider === "cursor" ? "acp" : undefined);
+    const backend = adapter.backend ?? undefined;
     if (backend) this.backends.set(`${adapter.provider}:${backend}`, entry);
   }
-  /** Keep an old backend available without selecting it for new threads. */
-  registerFallback(
-    adapter: ProviderAdapter & { close?(): Promise<void> },
-    cli: DiscoveryResult,
-    backend: ProviderBackend,
-  ): void {
-    const entry = {
-      adapter,
-      source: adapter,
-      capabilities: adapter.capabilities(cli),
-      discovery: { ...cli },
-    };
-    this.backends.set(`${adapter.provider}:${backend}`, entry);
-    if (!this.entries.has(adapter.provider)) this.entries.set(adapter.provider, entry);
-  }
   get(provider: ProviderKind, backend?: ProviderBackend): Entry {
+    if (provider === "cursor" && this.entries.get(provider)?.adapter.backend === "cursor-sdk")
+      backend = "cursor-sdk";
     const entry = backend
       ? this.backends.get(`${provider}:${backend}`)
       : this.entries.get(provider);

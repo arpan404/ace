@@ -7,7 +7,7 @@ export const PermissionCapabilitiesRequest = z.object({
   type: z.literal("permissions.capabilities"),
   requestId: z.string().min(1).max(128),
   provider: ProviderKind,
-  backend: z.enum(["acp", "cursor-sdk"]).optional(),
+  backend: z.enum(["cli", "acp", "cursor-sdk"]).optional(),
 });
 export const PermissionCapabilitiesResult = z.object({
   type: z.literal("permissions.capabilities.result"),

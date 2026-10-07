@@ -26,19 +26,19 @@ export async function startCursorAuth(context: ServiceContext): Promise<void> {
       stopInstance: (instanceId) => binding.stopInstance(instanceId),
     }),
     rebindInstance: (instanceId) => binding.rebindInstance(instanceId),
-    async authChanged(instance, status) {
+    async authChanged(instance) {
       const models = services.models;
       if (!models) return;
       await models.removeInstance(instance.id);
-      if (status.status === "logged-in")
-        models.registerInstance({
-          id: instance.id,
-          provider: "cursor",
-          backend: "cursor-sdk",
-          homeDir: instance.homeDir,
-          cwd: instance.homeDir,
-          loginRevision: id(),
-        });
+      models.registerInstance({
+        id: instance.id,
+        provider: "cursor",
+        backend: "cursor-sdk",
+        homeDir: instance.homeDir,
+        cwd: instance.homeDir,
+        loginRevision: id(),
+      });
+      void services.providerStatuses?.refresh();
     },
     createInstance: async (instanceId, label) =>
       createInstance({

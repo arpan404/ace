@@ -1,3 +1,4 @@
+import { cursorConfiguration } from "./cursor-configuration.ts";
 import { guardSecrets, MAX_CLIENT_BYTES, MAX_DOCUMENT_BYTES, SettingsError } from "./validation.ts";
 import { parseDocument, type ScalarRange } from "./jsonc.ts";
 export { MAX_DOCUMENT_BYTES, MAX_CLIENT_BYTES, SettingsError } from "./validation.ts";
@@ -25,7 +26,11 @@ export function validateValue<K extends SettingsKey>(key: K, value: unknown): Se
   const result = SettingsValues.shape[key].safeParse(value);
   if (!result.success) throw new SettingsError("validation", `Invalid value for ${key}`);
   // The selected schema validates the indexed key; TypeScript loses that correlation.
-  return result.data as SettingsValues[K];
+  return (
+    key === "providers.configuration"
+      ? cursorConfiguration(SettingsValues.shape["providers.configuration"].parse(result.data))
+      : result.data
+  ) as SettingsValues[K];
 }
 export function edit(text: string, path: string[], value: unknown): string {
   const indentation = /\n([\t ]+)"/.exec(text)?.[1] ?? "  ";
@@ -87,6 +92,15 @@ export function decode(text: string): DecodedDocument {
     const policy = result.data.settings["approvals.policy"];
     text = edit(text, ["settings", "permissions.defaultMode"], legacyPermissionMode(policy));
     return { ...decode(text), migrated: true };
+  }
+  const configuration = result.data.settings["providers.configuration"];
+  if (configuration) {
+    const next = cursorConfiguration(configuration);
+    if (JSON.stringify(next) !== JSON.stringify(configuration))
+      return {
+        ...decode(edit(text, ["settings", "providers.configuration"], next)),
+        migrated: true,
+      };
   }
   // Unknown data stays in validated source text, never in the hot resolution cache.
   const document = { version: 2 as const, settings: knownValues.parse(result.data.settings) };

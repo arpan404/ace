@@ -117,25 +117,5 @@ describe.skipIf(process.env["ACE_LIVE_CLI"] !== "1")(
       await proc.stop({ graceMs: 5000 });
       console.info("Live Codex: initialize + initialized; stopped");
     });
-    it("Cursor ACP initializes without creating a session", async (ctx) => {
-      if (!discovery.cursor.installed) ctx.skip();
-      const proc = launch("cursor", ["acp"]);
-      const rpc = new JsonRpcPeer(proc);
-      const result = await rpc.request(
-        "initialize",
-        {
-          protocolVersion: 1,
-          clientCapabilities: {
-            fs: { readTextFile: false, writeTextFile: false },
-            terminal: false,
-          },
-          clientInfo: { name: "ace-provider-kit-smoke", version: "0.0.0" },
-        },
-        { timeoutMs: 30_000 },
-      );
-      expect(result).toMatchObject({ protocolVersion: 1 });
-      await proc.stop({ graceMs: 5000 });
-      console.info("Live Cursor: initialize; stopped");
-    });
   },
 );

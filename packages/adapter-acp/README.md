@@ -1,19 +1,23 @@
 # @ace/adapter-acp
 
-ACP v1 translation and supervised sessions, with Cursor and experimental Antigravity quirks. Written from ace's provider research, recorded frames, and the primary ACP schema. No ACP SDK validates vendor methods.
+ACP v1 translation and supervised sessions, with generic ACP and experimental Antigravity quirks. Cursor uses `@ace/adapter-cursor` exclusively (ADR 0043). Written from ace's provider research, recorded frames, and the primary ACP schema. No ACP SDK validates vendor methods.
 
 ## API
 
 ```ts
-import { cursorAdapter, antigravityAdapter, createAcpAdapter } from "@ace/adapter-acp";
+import { antigravityAdapter, createAcpAdapter } from "@ace/adapter-acp";
 
-const translator = cursorAdapter.createTranslator({ threadId, rootKey: "root" });
+const adapter = createAcpAdapter(undefined, { command: "/path/to/user-agent" });
+const translator = adapter.createTranslator({ threadId, rootKey: "root" });
 const facts = translator.translate(frame, frame.t);
-const session = await cursorAdapter.openSession(context);
+const session = await adapter.openSession(context);
 await session.send([{ type: "text", text: "User input" }], "queue");
 ```
 
-`cursorAdapter` and `antigravityAdapter` implement ADR 0007's `ProviderAdapter`. `createAcpAdapter` accepts optional quirks and a user-installed command, arguments, and environment overrides. Generic ACP requires an explicit command. Cursor resolves `agent` through provider-kit discovery and launches `agent acp`. Antigravity resolves `agy_acp_server` through provider-kit's executable discovery. ace supplies no CLI, credentials, authentication flow, filesystem-write capability, or terminal capability.
+`antigravityAdapter` implements ADR 0007's `ProviderAdapter`. `createAcpAdapter`
+accepts optional quirks and a user-installed command, arguments and environment
+overrides. Generic ACP requires an explicit command. Antigravity resolves
+`agy_acp_server` through provider-kit. ace supplies no CLI or credentials.
 
 `createAcpTranslator` takes `{ threadId, rootKey, identity }` plus an optional quirk module. `createTranslatorIdentity(generation, cursor)` supplies its injected allocator state. The caller can persist generation and cursor together; a fresh translator lifetime must use a fresh generation or continue the saved cursor. `createAcpAdapter` accepts an `identity()` factory for deterministic replay or persisted allocation; its I/O factory defaults to a fresh UUID per translator. Child association keys remain stable across generations. `openAcpSession` is the low-level process boundary for an already resolved executable. Its optional runtime injects the process spawner, monotonic clock and cancellable timer scheduler. `nativeAgentKey(threadId, sessionId)` supplies the child keys accepted by `interrupt`; omitted targets or `root` address the root. Interaction keys are `request:<id type>:<rpc id>` and match the translator's facts.
 
@@ -36,9 +40,11 @@ Partial input changes update a collector by top-level field, without copying its
 
 ## Capabilities and limits
 
-Cursor controls are enabled for discovered date versions at or after `2026.09.26`, the recorded version. Unrecognized and older versions get conservative controls. Antigravity controls are enabled for recognized server `1.2.x` and later `1.x` versions. Its implementation is experimental and has synthetic tests only.
-
-Cursor always reports `backgroundVisibility: "none"`: ACP gives no reliable indication that a completed shell is still running. The background-shell fixture reaches core `done` at 16262 ms while its shell is unobservable. This must be qualified by clients using the capability. The interrupt fixture stays `waiting` on `background_task`, with an interrupted root and an uncertain unknown shell task. The added core `background.ended.uncertain` flag preserves that distinction without changing existing unknown-task semantics for other adapters. No terminal-directory side channel is implemented without recordings that establish its contract.
+Antigravity controls are enabled for recognized server `1.2.x` and later `1.x`
+versions. Its implementation is experimental and has synthetic tests only.
+The generic translator retains vendor extension decoding for imported history
+and generic ACP servers. No Cursor CLI adapter, executable discovery, or Cursor
+CLI recording remains. Synthetic extension tests cover those shared decoders.
 
 Generic ACP has conservative capabilities. Antigravity has partial background visibility and placeholder subagents. Neither provider supports native steering, fork, individual task control, usage reporting or file rewind here. Existing sessions use `session/load`; historical root traffic is bound before replay begins. Generic servers must support ACP v1 initialize and new/load. Versions that only speak v2 are rejected during initialization.
 
@@ -46,19 +52,10 @@ Child disconnects emit canonical `agent.disconnected` facts and produce `unrespo
 
 ## Verification
 
-The repository owner requires tests to run only at merge. Do not execute tests, `bun run check`, benchmarks, live probes or mutations during development. Use formatting, lint, size and type checks only. The commands below describe merge-time verification; final-head runtime behavior **needs run at merge**.
-
-All eight Cursor recordings have `.expect.json` files and replay through `@ace/adapter-testkit`. Checkpoint notes explain the hidden-shell and core-precedence qualifications. The timeline CLI was run for every recording with the package's named `adapter` export.
-
-```sh
-bun run test packages/adapter-acp/src
-bun run --filter @ace/adapter-testkit timeline /absolute/path/to/fixture.jsonl \
-  --adapter /absolute/path/to/packages/adapter-acp/src/index.ts \
-  --expect /absolute/path/to/scenario.expect.json
-bun run check
-```
-
-The offline session tests use a real local fake JSON-RPC child process. No provider receives a prompt. `ACE_LIVE_CLI=1 bun run test packages/adapter-acp/src/live.test.ts` opts into initialize-only probes of installed Cursor and Antigravity binaries. The probes never call session/new, session/load or session/prompt. They were not run for this work.
+Offline session tests use a real local fake JSON-RPC child process. No provider
+receives a prompt. Run each changed test file separately with the repository's
+Vitest unit or process project. The optional live Antigravity test performs only
+initialization and was not run for this change.
 
 Offline performance measurements and reproducible commands are in [PERFORMANCE.md](./PERFORMANCE.md). Mutation results, including the four review survivors, are in [MUTATION-VERIFICATION.md](./MUTATION-VERIFICATION.md).
 

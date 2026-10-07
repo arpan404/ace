@@ -97,6 +97,8 @@ export interface ThreadInit {
   workspaceId: string;
   title: string;
   provider: ProviderKind;
+  backend?: Thread["backend"];
+  continuation?: Thread["continuation"];
   details?: Thread["details"];
   live?: Thread["live"];
   lineage?: Thread["lineage"];
@@ -318,6 +320,12 @@ export class FakeDaemon implements Host {
       workspaceId: WorkspaceId.parse(init.workspaceId),
       title: init.title,
       provider: init.provider,
+      ...(init.backend
+        ? { backend: init.backend }
+        : init.provider === "cursor"
+          ? { backend: "cursor-sdk" as const }
+          : {}),
+      ...(init.continuation ? { continuation: init.continuation } : {}),
       capabilities: {
         ...structuredClone(fakePermissionCapabilities),
         permissions: fakeProviderPermissions(init.provider),

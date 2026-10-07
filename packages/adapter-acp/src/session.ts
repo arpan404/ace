@@ -390,10 +390,7 @@ class AcpSession implements ProviderSession {
   }
   handleRequest(request: ServerRequest): unknown | Promise<unknown> {
     const params = object(request.params);
-    if (
-      ["cursor/task", "cursor/update_todos", "cursor/generate_image"].includes(request.method) &&
-      this.quirks.provider === "cursor"
-    )
+    if (["cursor/task", "cursor/update_todos", "cursor/generate_image"].includes(request.method))
       return {};
     if (!interactionRequest(request.method, params, this.quirks.provider === "antigravity"))
       throw new MethodNotFound();

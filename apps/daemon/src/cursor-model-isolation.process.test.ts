@@ -13,6 +13,7 @@ afterEach(() => vi.unstubAllEnvs());
 test.each([
   "default",
   "default-alias",
+  "default-legacy-model-instance",
   "configured",
   "selected",
   "configured-missing-sdk",
@@ -115,6 +116,19 @@ createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line)
               : {}),
           },
         },
+        ...(selection === "default-legacy-model-instance"
+          ? {
+              modelInstances: [
+                {
+                  id: "cursor-cli-default",
+                  provider: "cursor" as const,
+                  executable: join(root, "agent"),
+                  cwd: root,
+                  loginRevision: "old-cli",
+                },
+              ],
+            }
+          : {}),
         modelDiscovery: {
           spawn(options) {
             return spawnSupervised({ ...options, command: process.execPath, args: [entry] });
@@ -131,7 +145,6 @@ createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line)
         });
         expect(accounts).toMatchObject({
           accounts: expect.arrayContaining([
-            expect.objectContaining({ provider: "cursor", implicit: true }),
             expect.objectContaining({ id: "cursor-sdk-default", implicit: false }),
           ]),
         });

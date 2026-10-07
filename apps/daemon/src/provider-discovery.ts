@@ -8,7 +8,7 @@ export function configuredDiscovery(
 ): typeof discoverProviders {
   return async (options = {}) => {
     if (injected) return injected(options);
-    const probe = async (provider: "claude" | "codex" | "opencode" | "cursor") => {
+    const probe = async (provider: "claude" | "codex" | "opencode") => {
       const config = context.services.providerConfigurations?.for(provider);
       if (config?.enabled === false)
         return {
@@ -24,12 +24,16 @@ export function configuredDiscovery(
           : {}),
       });
     };
-    const [claude, codex, opencode, cursor] = await Promise.all([
+    const [claude, codex, opencode] = await Promise.all([
       probe("claude"),
       probe("codex"),
       probe("opencode"),
-      probe("cursor"),
     ]);
-    return { claude, codex, opencode, cursor };
+    return {
+      claude,
+      codex,
+      opencode,
+      cursor: { installed: false, auth: "unknown", loginHint: "Sign in to Cursor" },
+    };
   };
 }
