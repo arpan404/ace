@@ -127,6 +127,8 @@ export type CatalogOptions = {
       retryInMs?: number;
       /** Local log only. Never included in catalog state, storage, or client responses. */
       reason?: string;
+      /** A skipped metadata row, not a failed refresh. Local logging only. */
+      modelIndex?: number;
     },
   ) => void;
 };
@@ -831,6 +833,21 @@ export class ModelCatalog implements ModelCatalogApi {
             abort.signal,
             (metadata) => {
               diagnostic = { ...diagnostic, ...metadata };
+              for (const entry of metadata.rejectedModels?.slice(0, 512) ?? []) {
+                this.#options.onError?.(
+                  state.config.provider,
+                  state.config.id,
+                  discoveryError(undefined, "parse_failure"),
+                  undefined,
+                  {
+                    level: "warn",
+                    durationMs: Math.max(0, this.#options.now() - startedAt),
+                    ...(diagnostic.cliVersion ? { cliVersion: diagnostic.cliVersion } : {}),
+                    modelIndex: entry.index,
+                    reason: entry.reason.slice(0, 200),
+                  },
+                );
+              }
             },
           );
           const cleanup = discovery.then(

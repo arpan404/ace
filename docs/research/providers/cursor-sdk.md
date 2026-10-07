@@ -324,3 +324,43 @@ Accounts references are pinned to PR #25 head
 - **A-login**: [packages/accounts/src/login.ts](https://github.com/arpan404/ace/blob/a30aa2c85849b92ee471f0ccc6147f0b3a6f6492/packages/accounts/src/login.ts), `addAccount`, current CLI login driver.
 
 No tests, benchmark, fixture recorder, provider login or model turn ran. Verification for this docs-only change is formatting and source review.
+
+### Model-list decoding audit, 2026-10-07
+
+Inspected the installed dependency at
+`packages/adapter-cursor/node_modules/@cursor/sdk`, version 1.0.35. No SDK calls,
+service requests or credential-file reads were used for this audit.
+
+`options.d.ts` declares the complete model-list structure:
+
+| Structure                  | Fields                                                                                                                                                |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ModelListItem`            | Required `id`, `displayName` strings. Optional `description` string, `aliases` string array, `parameters` definition array, `variants` variant array. |
+| `ModelParameterDefinition` | Required `id` string and `values` array. Optional `displayName` string. Each value has required `value` string and optional `displayName` string.     |
+| `ModelParameterValue`      | Required `id` and `value` strings. Used in variant `params`.                                                                                          |
+| `ModelVariant`             | Required `params` value array and `displayName` string. Optional `description` string and `isDefault` boolean.                                        |
+
+These interfaces declare no model-list enums, nullability or string-length
+restrictions. New fields have no published validation contract. `agent.d.ts`
+aliases `SDKModel` to `ModelListItem`; its comment mentioning a nested `model`
+field does not match that type or the implementation.
+
+The published ESM implementation in `448.js`, `listCloudModels`, calls the SDK
+cloud API client's `listModels` and returns its `items` property. The public
+result is therefore an array, not an `items` envelope. `index.js` implements that
+client as a GET to `/v1/models`, returning parsed response JSON without validating
+model entries. Before the GET, header preparation awaits
+`ensureGhostModeHeaderForApiKey`, which exchanges the SDK-owned key and requests
+user privacy mode. That setup is cached only inside the host process. There is
+no model-list retry loop or fixed ten-second timeout; auth status is a local SDK
+store operation. The public request options expose only `apiKey`, so ace cannot
+set a request deadline through that API without changing the SDK boundary.
+
+The regression fixture is synthetic. It covers every declared field, omitted
+optional fields, empty parameter strings, nullable optional metadata, future
+nested fields and one malformed identity. It proves ace's prior whole-array
+schema rejects SDK-valid empty strings and discards healthy siblings. It does
+not establish which field the owner's unseen response contained, nor measure
+the owner's network latency. The fix preserves native selection values, uses
+existing successful catalog caching and removes shutdown grace for disposable
+metadata hosts. SDK privacy behavior stays under SDK ownership.
