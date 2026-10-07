@@ -204,6 +204,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     for (const key of [
       "screen",
       "accounts",
+      "accountManagement",
       "cursorAuth",
       "providerActivation",
       "commands",
