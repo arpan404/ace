@@ -2,7 +2,7 @@ import { DiscoveryBackoff } from "./discovery-backoff.ts";
 import { connectionRevision } from "./discovery-revision.ts";
 import { discoveryError } from "./discovery-errors.ts";
 import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
-import { refreshedSources } from "./catalog-sources.ts";
+import { refreshedSources, sourceFailed } from "./catalog-sources.ts";
 import { cleanCatalog } from "./catalog-cleanup.ts";
 import { createCleanModelView, providerConfiguration } from "./preferences.ts";
 import { freezeCatalogModel } from "./freeze.ts";
@@ -39,6 +39,7 @@ type State = {
   error?: ModelInstanceStatus["error"];
   errorDetail?: ModelInstanceStatus["errorDetail"];
   dirty?: boolean;
+  noModelSources?: Set<string>;
   probe?: { abort: AbortController; done: Promise<void> };
   retryAt: number;
   backoff: DiscoveryBackoff;
@@ -121,7 +122,7 @@ export type CatalogOptions = {
       cliVersion?: string;
       sourceLabel?: string;
       stage?: DiscoveryDiagnostics["stage"];
-      level?: "warn" | "debug";
+      level?: "warn" | "debug" | "info";
       retryInMs?: number;
       /** Local log only. Never included in catalog state, storage, or client responses. */
       reason?: string;
@@ -582,7 +583,7 @@ export class ModelCatalog implements ModelCatalogApi {
     return (
       state.dirty === true ||
       state.error !== undefined ||
-      state.entry?.sources?.some((source) => source.error) === true ||
+      state.entry?.sources?.some(sourceFailed) === true ||
       !state.entry ||
       this.#options.now() - state.entry.refreshedAt >= (this.#options.ttlMs ?? 21_600_000)
     );
@@ -614,7 +615,7 @@ export class ModelCatalog implements ModelCatalogApi {
               !state.entry ||
               this.#options.now() - (source.lastRefreshedAt ?? state.entry.refreshedAt) >=
                 (this.#options.ttlMs ?? 21_600_000) ||
-              source.error
+              sourceFailed(source)
             ? "stale"
             : "fresh",
         ...(state.errorDetail || source.error
@@ -883,13 +884,33 @@ export class ModelCatalog implements ModelCatalogApi {
           delete state.error;
           delete state.errorDetail;
           const failing = new Set(
-            entry.sources?.filter((source) => source.error).map((source) => source.source.id),
+            entry.sources?.filter(sourceFailed).map((source) => source.source.id),
           );
           state.backoff.retain(failing);
           state.connectionFingerprint = entry.connectionRevision;
           for (const source of entry.sources ?? [])
-            if (source.error)
+            if (source.error && sourceFailed(source))
               this.#reportFailure(state, source.error, startedAt, diagnostic, source.source);
+          const noModels = new Set<string>();
+          for (const source of entry.sources ?? []) {
+            if (source.error?.code !== "no_models") continue;
+            noModels.add(source.source.id);
+            if (!state.noModelSources?.has(source.source.id))
+              this.#options.onError?.(
+                state.config.provider,
+                state.config.id,
+                source.error,
+                source.source.id,
+                {
+                  level: "info",
+                  durationMs: Math.max(0, this.#options.now() - startedAt),
+                  sourceLabel: source.source.label,
+                  ...(diagnostic.cliVersion ? { cliVersion: diagnostic.cliVersion } : {}),
+                  ...(diagnostic.stage ? { stage: diagnostic.stage } : {}),
+                },
+              );
+          }
+          state.noModelSources = noModels;
           state.retryAt = state.backoff.retryAt();
         } catch (error) {
           if (abort.signal.aborted && !timedOut) return;

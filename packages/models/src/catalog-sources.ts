@@ -1,15 +1,17 @@
 import type { CatalogModel, ModelSourceStatus } from "@ace/protocol";
 import type { CacheEntry } from "./types.ts";
 
+export function sourceFailed(source: ModelSourceStatus): boolean {
+  return source.error !== undefined && source.error.code !== "no_models";
+}
+
 export function refreshedSources(
   models: readonly CatalogModel[],
   sources: readonly ModelSourceStatus[] | undefined,
   previous: CacheEntry | undefined,
   now: number,
 ) {
-  const failed = new Set(
-    sources?.filter((source) => source.error).map((source) => source.source.id),
-  );
+  const failed = new Set(sources?.filter(sourceFailed).map((source) => source.source.id));
   const retained =
     previous?.models.filter((model) =>
       failed.has(model.source?.id ?? model.nativeProviderId ?? model.instance),
@@ -26,7 +28,7 @@ export function refreshedSources(
     // oxlint-disable-next-line oxc/no-map-spread -- Clone immutable cached values for this view.
     sources: statuses.map((status) => ({
       ...status,
-      lastRefreshedAt: status.error
+      lastRefreshedAt: sourceFailed(status)
         ? (status.lastRefreshedAt ??
           previous?.sources?.find((old) => old.source.id === status.source.id)?.lastRefreshedAt ??
           previous?.refreshedAt)

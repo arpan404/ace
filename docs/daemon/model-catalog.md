@@ -205,3 +205,11 @@ coalescing, deadlines and cancellation. No discovery sends provider prompts.
 The fake daemon includes all five native providers, both Claude/Codex accounts,
 current and legacy choices, local/Go/Zen/API-key OpenCode sources with a failing
 OpenRouter connection, Copilot/Anthropic Pi groups, and stale Cursor sign-in.
+
+A connected OpenCode source with no enabled chat models, after its ID-only
+fallback also reports no choices, has a fresh `no_models` advisory in the
+existing source `error` field. This additive code carries a fixed message and
+hint. Settings and the picker show it as information without a failure icon. It removes previously enabled choices for that source, logs once at info
+per transition, and does not schedule failure-backoff retries. Explicit Refresh,
+connection or login changes, settings changes and maximum age still revalidate
+the catalog. Explicit metadata or fallback failures retain failure semantics.

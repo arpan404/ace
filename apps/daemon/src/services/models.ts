@@ -44,7 +44,9 @@ export async function startModels(context: ServiceContext): Promise<void> {
     (provider, instance, error, source, diagnostic) =>
       context.log.log(
         diagnostic?.level ?? "warn",
-        "Model discovery failed",
+        error.code === "no_models"
+          ? "Connected source has no chat models enabled"
+          : "Model discovery failed",
         logFields([
           ["provider", provider],
           ["instance", instance],

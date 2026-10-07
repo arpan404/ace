@@ -2,8 +2,14 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { spawnSupervised } from "@ace/provider-kit/process";
 import { discoverOpenCodeModels } from "@ace/adapter-opencode";
-import { ModelCatalog, createModelDiscovery, openModelStorage } from "./index.ts";
+import {
+  ModelCatalog,
+  createModelDiscovery,
+  createModelRevisionProbe,
+  openModelStorage,
+} from "./index.ts";
 import { Clock, fakeCli, instance, workspace } from "./testing/support.ts";
 
 const native = (providerID: string, modelID: string) => ({
@@ -46,6 +52,7 @@ async function setup(
   const work = await workspace();
   const clock = new Clock();
   let fault = "";
+  let listings = 0;
   const config = {
     ...instance("opencode"),
     cwd: work.path,
@@ -63,6 +70,12 @@ async function setup(
       ...extraEnv,
     },
   };
+  let connections = config.env.FAKE_CONNECTIONS;
+  const spawn: typeof spawnSupervised = (options) =>
+    spawnSupervised({
+      ...options,
+      env: { ...options.env, FAKE_CONNECTIONS: connections },
+    });
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
     const json = (payload: unknown, status = 200) =>
@@ -90,6 +103,7 @@ async function setup(
       return;
     }
     if (path === "/api/model") {
+      listings++;
       if (fault === "instance" || fault === "instance-unknown") {
         json(
           { message: "synthetic-private-token upstream failure" },
@@ -134,6 +148,8 @@ async function setup(
     code: string;
     reason: string | undefined;
     stage: string | undefined;
+    level?: string | undefined;
+    retryInMs?: number | undefined;
   }[] = [];
   const path = join(work.path, "models.sqlite");
   const catalog = new ModelCatalog({
@@ -141,7 +157,9 @@ async function setup(
     storage: openModelStorage(path),
     now: () => clock.now,
     deadline: clock.deadline,
+    revisionProbe: createModelRevisionProbe(spawn),
     discover: createModelDiscovery({
+      spawn,
       opencode: (_instance, signal) =>
         discoverOpenCodeModels(
           {
@@ -161,6 +179,9 @@ async function setup(
         code: error.code,
         reason: diagnostic?.reason,
         stage: diagnostic?.stage,
+        ...(diagnostic?.level === "info"
+          ? { level: diagnostic.level, retryInMs: diagnostic.retryInMs }
+          : {}),
       }),
   });
   onTestFinished(async () => {
@@ -175,6 +196,18 @@ async function setup(
     catalog,
     notices,
     path,
+    clock,
+    listings: () => listings,
+    reconnect: () => {
+      connections = JSON.stringify([
+        { id: "opencode-go", connections: [{ type: "credential" }] },
+        {
+          id: "github-copilot",
+          name: "Copilot reconnected",
+          connections: [{ type: "credential" }],
+        },
+      ]);
+    },
     fail: (value: string) => {
       fault = value;
       clock.now++;
@@ -253,14 +286,15 @@ test("OpenCode reports an instance metadata failure once and retains both source
   expect(JSON.stringify(h.notices)).not.toContain("synthetic-private-token");
 });
 
-test("OpenCode explains missing source metadata without failing a healthy source", async ({
+test("OpenCode reports no enabled Copilot models once at info without retrying or retaining disabled choices", async ({
   onTestFinished,
 }) => {
   const h = await setup(onTestFinished);
   await h.catalog.refresh();
   h.fail("missing");
   await h.catalog.refresh();
-  expect(h.catalog.list().models).toHaveLength(2);
+  expect(h.catalog.list().models.map((model) => model.id)).toEqual(["opencode-go/go-current"]);
+  expect(h.catalog.list().instances[0]).toMatchObject({ stale: false, status: "fresh" });
   expect(h.catalog.list().instances[0]?.sources).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -269,15 +303,55 @@ test("OpenCode explains missing source metadata without failing a healthy source
       }),
       expect.objectContaining({
         source: expect.objectContaining({ id: "github-copilot" }),
-        status: "stale",
+        status: "fresh",
+        error: {
+          code: "no_models",
+          message: "GitHub Copilot is connected in OpenCode but has no chat models enabled.",
+          hint: "Enable models for it in OpenCode, then Refresh.",
+        },
       }),
     ]),
   );
   expect(h.notices).toHaveLength(1);
   expect(h.notices[0]).toMatchObject({
     source: "github-copilot",
-    reason: expect.stringContaining("no enabled chat model metadata"),
+    code: "no_models",
+    level: "info",
+    retryInMs: undefined,
   });
+  const listings = h.listings();
+  h.clock.now += 60_000;
+  h.catalog.revalidate();
+  expect(h.catalog.list().instances[0]).toMatchObject({ refreshing: false, stale: false });
+  await h.catalog.reconcileConnections();
+  expect(h.listings()).toBe(listings);
+  await h.catalog.refresh();
+  expect(h.listings()).toBeGreaterThan(listings);
+  expect(h.notices).toHaveLength(1);
+  const refreshed = Promise.withResolvers<void>();
+  const stop = h.catalog.listen(() => {
+    if (h.catalog.list().instances[0]?.refreshing === false) refreshed.resolve();
+  });
+  h.clock.now += 21_600_000;
+  h.catalog.revalidate();
+  await refreshed.promise;
+  stop();
+  expect(h.listings()).toBeGreaterThan(listings + 1);
+  const beforeConnectionChange = h.listings();
+  h.reconnect();
+  await h.catalog.reconcileConnections();
+  expect(h.listings()).toBeGreaterThan(beforeConnectionChange);
+  expect(h.notices).toHaveLength(1);
+  h.fail("");
+  await h.catalog.loginChanged("opencode", "new-login");
+  expect(h.catalog.list().models.map((model) => model.id)).toEqual([
+    "github-copilot/copilot-good",
+    "opencode-go/go-current",
+  ]);
+  expect(
+    h.catalog.list().instances[0]?.sources?.find((source) => source.source.id === "github-copilot")
+      ?.error,
+  ).toBeUndefined();
 });
 
 test("OpenCode logs a sanitized unknown HTTP reason once with the failing endpoint", async ({
