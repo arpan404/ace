@@ -11,15 +11,26 @@ import { createPiTranslator } from "@ace/adapter-pi";
 import { OpenCodeTranslator } from "@ace/adapter-opencode";
 import { CursorTranslator } from "@ace/adapter-cursor";
 import { createAcpTranslator, genericQuirks } from "@ace/adapter-acp";
+import { browserToolkit } from "@ace/browser";
+import { startDaemonMcp } from "./mcp.ts";
+import { measurementObserver } from "./measurement-mcp.ts";
 import { ScreenManager } from "@ace/screen";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { McpScope, type ProviderKind } from "@ace/protocol";
 import { startDaemon, readConfig, createDevThread } from "./index.ts";
 import { measurementFrames } from "./testing/measurement-frames.ts";
 
+async function noExtraMcp() {}
+
 async function fixture(
   provider: ProviderKind,
-  options: { late?: boolean; omit?: boolean; large?: boolean; duplicate?: boolean } = {},
+  options: {
+    late?: boolean;
+    omit?: boolean;
+    large?: boolean;
+    duplicate?: boolean;
+    browser?: boolean;
+  } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "ace-measure-step-"));
   const original = await readFile(new URL("./testing/measurement-filmstrip.jpg", import.meta.url));
@@ -43,7 +54,12 @@ async function fixture(
     config: readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
   });
-  const thread = createDevThread(daemon.store, daemon.store.createWorkspace(root, "Measurements"));
+  const thread = createDevThread(
+    daemon.store,
+    daemon.store.createWorkspace(root, "Measurements"),
+    "Measurement",
+    provider,
+  );
   const state = createThreadState({ threadId: thread.id, config: { provider, silenceMs: 90_000 } });
   const ids = { next: (kind: string) => `${kind}-${++next}` };
   const feedFact = (fact: Fact) =>
@@ -89,29 +105,75 @@ async function fixture(
     async foreground() {},
     audit() {},
   });
+  let mcp = daemon.mcp;
+  let closeMcp = noExtraMcp;
+  if (options.browser) {
+    // The browser I/O port is fake; its production toolkit and MCP transport execute normally.
+    const observations = measurementObserver({
+      store: daemon.store,
+      now: Date.now,
+      id: () => `browser-evidence-${++next}`,
+      context: () => daemon.context,
+    });
+    mcp = await startDaemonMcp(
+      daemon.store,
+      [
+        browserToolkit({
+          async execute() {
+            return {
+              source: "browser-trace",
+              target: { kind: "browser-tab", threadId: thread.id },
+              refreshHz: 60,
+              windowMs: 2000,
+              frames: 100,
+              hitches: [],
+              verdict: "smooth",
+              confidence: "high",
+              notes: [],
+              filmstrip: { type: "image", mimeType: "image/jpeg", data: bytes.toString("base64") },
+            };
+          },
+          async screenshot() {
+            return bytes;
+          },
+        }),
+      ],
+      undefined,
+      observations,
+    );
+    closeMcp = async () => {
+      await mcp.close();
+      observations.close();
+    };
+  }
   const lifetime = new AbortController();
-  const lease = daemon.mcp.openSession(
+  const lease = mcp.openSession(
     McpScope.parse({
       sessionId: "offline",
       threadId: thread.id,
       agentId,
-      capabilities: ["screen"],
+      capabilities: options.browser ? ["browser"] : ["screen"],
     }),
     lifetime.signal,
   );
-  const args = { sessionId: session.sessionId, observeMs: 2000 };
-  const frames = measurementFrames(provider, args);
+  const tool = options.browser ? "ace_browser_measure_interaction" : "screen_measure_interaction";
+  const args = options.browser
+    ? { observeMs: 2000 }
+    : { sessionId: session.sessionId, observeMs: 2000 };
+  const frames = measurementFrames(provider, args, tool);
   if (options.duplicate)
     frames.before.push(
-      ...measurementFrames(provider, args).before.slice(-1).map((frame) =>
-        Object.assign({}, frame, {
-          data: JSON.parse(
-            JSON.stringify(frame.data)
-              .replaceAll('"measure"', '"other"')
-              .replaceAll('"id":"message"', '"id":"other-message"'),
-          ),
-        }),
-      ),
+      ...measurementFrames(provider, args)
+        .before.slice(-1)
+        .map((frame) =>
+          Object.assign({}, frame, {
+            data: JSON.parse(
+              JSON.stringify(frame.data)
+                .replaceAll('"measure"', '"other"')
+                .replaceAll('"id":"message"', '"id":"other-message"'),
+            ),
+          }),
+        ),
     );
   const cli = spawnRawSupervised({
     command: process.execPath,
@@ -122,9 +184,9 @@ async function fixture(
   });
   cli.stdin.write(
     JSON.stringify({
-      url: daemon.mcp.url,
+      url: mcp.url,
       bearer: lease.bearer,
-      tool: "screen_measure_interaction",
+      tool,
       args,
       ...frames,
       late: options.late ?? false,
@@ -160,14 +222,24 @@ async function fixture(
     expect(await cli.exited).toMatchObject({ code: 0 });
     expect(result, JSON.stringify(result)).not.toMatchObject({ isError: true });
     return {
-      get daemon() { return daemon; },
-      async restart() { lease.end(); await daemon.close(); daemon = await startDaemon({ config: readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }) }); },
+      get daemon() {
+        return daemon;
+      },
+      async restart() {
+        lease.end();
+        await closeMcp();
+        await daemon.close();
+        daemon = await startDaemon({
+          config: readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+        });
+      },
       thread,
       bytes,
       result,
       root,
       async close() {
         lease.end();
+        await closeMcp();
         await daemon.close();
         await rm(root, { recursive: true, force: true });
       },
@@ -175,6 +247,7 @@ async function fixture(
   } catch (error) {
     await cli.stop();
     lease.end();
+    await closeMcp();
     await daemon.close();
     await rm(root, { recursive: true, force: true });
     throw error;
@@ -218,7 +291,6 @@ for (const provider of ["codex", "claude", "opencode", "cursor", "pi", "acp"] as
       f.daemon.store.appendEvents(f.thread.id, [
         { type: "thread.client.updated", changes: { deletedAt: Date.now() } },
       ]);
-      await f.daemon.context.uploads.releaseThread(f.thread.id);
       await f.daemon.context.uploads.collect();
       await expect(readFile(retained.path)).rejects.toThrow();
       expect((await fetch(url, { headers: { Authorization: `Bearer ${token}` } })).status).not.toBe(
@@ -262,15 +334,59 @@ it.each([{ omit: true }, { duplicate: true }])(
 it("daemon evidence and attachment ownership survive restart and later provider upserts without raw results", async () => {
   const f = await fixture("claude");
   try {
-    const original = Object.values(f.daemon.store.snapshotThread(f.thread.id).items).find((entry) => entry.type === "tool_call" && entry.measurement);
-    if (original?.type !== "tool_call" || !original.measurement?.filmstrip) throw new Error("No measurement");
+    const original = Object.values(f.daemon.store.snapshotThread(f.thread.id).items).find(
+      (entry) => entry.type === "tool_call" && entry.measurement,
+    );
+    if (original?.type !== "tool_call" || !original.measurement?.filmstrip)
+      throw new Error("No measurement");
     await f.restart();
     const { measurement: _daemonEvidence, ...native } = original;
-    f.daemon.store.appendEvents(f.thread.id, [{ type: "item.updated", item: { ...native, call: { ...native.call, title: "Provider updated the step", raw: [] } } }]);
-    expect(f.daemon.store.snapshotThread(f.thread.id).items[original.id]).toMatchObject({ measurement: original.measurement, call: { title: "Provider updated the step", raw: [] } });
+    f.daemon.store.appendEvents(f.thread.id, [
+      {
+        type: "item.updated",
+        item: { ...native, call: { ...native.call, title: "Provider updated the step", raw: [] } },
+      },
+    ]);
+    expect(f.daemon.store.snapshotThread(f.thread.id).items[original.id]).toMatchObject({
+      measurement: original.measurement,
+      call: { title: "Provider updated the step", raw: [] },
+    });
     const token = (await readFile(f.daemon.tokenPath, "utf8")).trim();
-    const response = await fetch(`${f.daemon.url.replace(/^ws/, "http")}/v1/attachments/${f.thread.id}/${original.measurement.filmstrip.sha256}/original`, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(
+      `${f.daemon.url.replace(/^ws/, "http")}/v1/attachments/${f.thread.id}/${original.measurement.filmstrip.sha256}/original`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
     expect(response.status).toBe(200);
     expect(Buffer.from(await response.arrayBuffer())).toEqual(f.bytes);
-  } finally { await f.close(); }
+  } finally {
+    await f.close();
+  }
+});
+
+it("browser MCP uses the same daemon evidence and attachment path with a large filmstrip", async () => {
+  const f = await fixture("claude", { browser: true, large: true });
+  try {
+    const item = Object.values(f.daemon.store.snapshotThread(f.thread.id).items).find(
+      (entry) => entry.type === "tool_call" && entry.measurement,
+    );
+    if (item?.type !== "tool_call" || !item.measurement?.filmstrip)
+      throw new Error("No browser evidence");
+    expect(item.call.detail).toMatchObject({
+      kind: "mcp",
+      tool: "ace_browser_measure_interaction",
+    });
+    expect(item.measurement).toMatchObject({
+      source: "browser-trace",
+      target: { threadId: f.thread.id },
+      verdict: "smooth",
+    });
+    const attachment = await f.daemon.context.uploads.attachment(
+      "local",
+      f.thread.id,
+      item.measurement.filmstrip.sha256,
+    );
+    expect(await readFile(attachment.path)).toEqual(f.bytes);
+  } finally {
+    await f.close();
+  }
 });
