@@ -272,6 +272,39 @@ export class BrowserBackend {
     const link = this.link;
     if (!link || this.sessions.get(session.id) !== session) return;
     if (method === "Page.screencastFrame") return this.frame(session, params);
+    if (method === "Tracing.dataCollected") {
+      const batch = z.object({ value: z.array(z.unknown()) }).safeParse(params);
+      if (!batch.success) return;
+      let value: unknown[] = [],
+        bytes = 0,
+        truncated = false;
+      const flush = () => {
+        if (!value.length && !truncated) return;
+        this.send({
+          type: "browser.backend.event",
+          backendId: link.backendId,
+          sessionId: session.id,
+          method,
+          params: { value, ...(truncated ? { aceTruncated: true } : {}) },
+        });
+        value = [];
+        bytes = 0;
+        truncated = false;
+      };
+      for (const event of batch.data.value) {
+        const text = JSON.stringify(event);
+        const size = text === undefined ? 0 : Buffer.byteLength(text);
+        if (size > 256 * 1024) {
+          truncated = true;
+          continue;
+        }
+        if (bytes + size > 256 * 1024 || value.length >= 1000) flush();
+        value.push(event);
+        bytes += size;
+      }
+      flush();
+      return;
+    }
     this.send({
       type: "browser.backend.event",
       backendId: link.backendId,

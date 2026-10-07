@@ -221,3 +221,19 @@ and recorded frames. Shared takeover retains agent observation access.
 pixel latency in an isolated Chromium context. It prints encoded dimensions, mean JPEG
 bytes, delivered fps, median latency and starting host load. It excludes the daemon's
 command and viewer WebSocket routing. Run timing comparisons on an otherwise idle host.
+
+`ace_browser_measure_interaction` observes the current tab or dispatches an optional
+`interaction` using the existing click/type/press/scroll/drag command shape. The
+recording window defaults to 2 seconds, is capped at 10 seconds, and `repeat` is
+1–5 with at most 20 seconds recorded in total. Observation uses read access;
+input and explicit tab selection retain existing controller and approval fences.
+
+Frame updates come from renderer-scoped CDP compositor trace events, with refresh
+cadence inferred from BeginFrame events. An isolated-world trace marker correlates
+input dispatch with the trace's monotonic clock. Results include long tasks on that
+renderer's main thread and the largest CLS session within the recording window.
+Long tasks can include contention from other tabs sharing that renderer.
+The optional JPEG filmstrip retains sixteen candidates from the existing live
+capture and returns one grid of up to eight timestamped images. It does not drive
+frame timing. Tracing and live capture overhead inside Chromium are excluded from
+the reported host processing percentage. Headless refresh cadence can be virtual.

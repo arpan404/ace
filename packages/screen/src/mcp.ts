@@ -7,6 +7,7 @@ import { agentOwner } from "./agent-binding.ts";
 import { computerUseTools, computerUseSchemas, computerUseHandler } from "./tools.ts";
 
 const risks = {
+  screen_measure_interaction: "external-effect",
   screen_ui_tree: "read-only",
   screen_ui_find: "read-only",
   screen_screenshot: "read-only",
@@ -36,9 +37,11 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
           capability: "screen",
           timeoutMs: name.startsWith("screen_request_")
             ? 65_000
-            : name === "screen_screenshot"
-              ? 30_000
-              : 15_000,
+            : name === "screen_measure_interaction"
+              ? 90_000
+              : name === "screen_screenshot"
+                ? 30_000
+                : 15_000,
           async run(args, { caller, signal }) {
             try {
               signal.throwIfAborted();
@@ -62,7 +65,12 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                 return { content: [{ type: "text", text: JSON.stringify(state) }] };
               }
               const selected = z.object({ sessionId: ScreenId.optional() }).parse(args);
-              const sessionId = manager.agentSession(caller, selected.sessionId);
+              const observing =
+                name === "screen_measure_interaction" &&
+                computerUseSchemas.screen_measure_interaction.parse(args).action === undefined;
+              const sessionId = observing
+                ? manager.measurementSession(caller, selected.sessionId)
+                : manager.agentSession(caller, selected.sessionId);
               if (name === "screen_request_foreground") {
                 const { reason } = computerUseSchemas.screen_request_foreground.parse(args);
                 const state = await manager.mode(sessionId, "foreground", signal, reason);
@@ -78,7 +86,8 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                 signal,
               )(name, actionArgs);
               signal.throwIfAborted();
-              manager.agentSession(caller, sessionId);
+              if (observing) manager.measurementSession(caller, sessionId);
+              else manager.agentSession(caller, sessionId);
               return result;
             } catch (error) {
               if (error instanceof TargetBusyError)

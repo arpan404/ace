@@ -1,4 +1,5 @@
 import {
+  ScreenMeasurementOptions,
   ScreenAction,
   ScreenId,
   ScreenBundle,
@@ -24,6 +25,7 @@ const Scroll = z.union([
 ]);
 const SessionSelection = { sessionId: ScreenId.optional() };
 export const computerUseSchemas = {
+  screen_measure_interaction: ScreenMeasurementOptions.extend(SessionSelection).strict(),
   screen_ui_tree: ScreenUITreeOptions.extend(SessionSelection).strict(),
   screen_ui_find: ScreenUIFindOptions.extend(SessionSelection).strict(),
   screen_ui_act: ScreenUIActOptions.extend(SessionSelection).strict(),
@@ -44,6 +46,14 @@ export const computerUseSchemas = {
   }),
 };
 export const computerUseTools = [
+  {
+    name: "screen_measure_interaction",
+    description:
+      "Measure an approved macOS window with optional background input, or observe only.\nReturns latency, settle time, active FPS, dropped intervals and a timestamped filmstrip.\nHitch ratio in ms/s: <5 smooth, 5–10 minor hitches, >10 janky.\nIdle time is excluded; few updates, high host load or capture overhead reduce confidence.\nRepeat 1–5 times; at most 10 seconds per run and 20 seconds total. Repeats perform the action again.",
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_measure_interaction);
+    },
+  },
   {
     name: "screen_request_app",
     description:
@@ -161,6 +171,16 @@ export function computerUseHandler(
     const { sessionId: selected, ...payload } = raw;
     if (selected !== undefined && selected !== sessionId)
       throw new Error("Controller ownership required");
+    if (name === "screen_measure_interaction") {
+      const result = await manager.measureInteraction(sessionId, payload, owner, signal);
+      const { filmstrip, ...metrics } = result;
+      return {
+        content: [
+          { type: "text", text: JSON.stringify(metrics) },
+          ...(filmstrip ? [filmstrip] : []),
+        ],
+      };
+    }
     const mode = manager.state(sessionId).mode;
     const observe = () =>
       manager.state(sessionId).capabilities?.uiTree

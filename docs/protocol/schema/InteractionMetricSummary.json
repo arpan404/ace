@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionMetricSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "median": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "worst": {
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "median",
+    "worst"
+  ],
+  "type": "object"
+}

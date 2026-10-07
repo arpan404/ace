@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionVerdict.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "smooth",
+    "minor_hitches",
+    "janky",
+    "no_change",
+    "inconclusive"
+  ],
+  "type": "string"
+}

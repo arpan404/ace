@@ -23,6 +23,18 @@ export function describeAceAction(
   riskClass: ApprovalTarget["riskClass"],
   input: unknown,
 ): ApprovalTarget {
+  // Measurement reads are safe to approve as view operations; a nested input is an effect.
+  if (
+    (tool === "screen_measure_interaction" || tool === "ace_browser_measure_interaction") &&
+    input &&
+    typeof input === "object"
+  ) {
+    const field = tool === "screen_measure_interaction" ? "action" : "interaction";
+    const selectsTab =
+      tool === "ace_browser_measure_interaction" && Reflect.get(input, "tabId") !== undefined;
+    riskClass =
+      Reflect.get(input, field) === undefined && !selectsTab ? "read-only" : "external-effect";
+  }
   const scope =
     input && typeof input === "object"
       ? Object.entries(input).filter(([key]) =>
@@ -38,6 +50,9 @@ export function describeAceAction(
             "url",
             "ref",
             "action",
+            "interaction",
+            "sessionId",
+            "tabId",
             "key",
           ].includes(key),
         )

@@ -94,6 +94,69 @@
     },
     {
       "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/ScreenMeasurementAction.json"
+        },
+        "filmstrip": {
+          "default": true,
+          "type": "boolean"
+        },
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "maxWindowMs": {
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "observeMs": {
+          "default": 2000,
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "measure_interaction",
+          "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "allowlist": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"

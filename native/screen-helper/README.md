@@ -21,3 +21,65 @@ V2 accepts `--endpoint unix:/absolute/path`; v1's `--socket /absolute/path` also
 Mac-only `capture {enabled}` leases pixel capture independently of target selection; its acknowledgement includes the sequence floor for fresh screenshots. Semantic reads/actions need no capture lease. Releasing the last lease stops and removes the SCStream output and releases its stream/buffers; the approved configuration and encoder remain reusable in the idle host. Core Image initializes only on the first encoded frame. Window streams use the selected window filter, GPU sizing, damage metadata and requested minimum frame interval. Empty damage and idle samples skip JPEG encoding. Initial snapshots on an explicit capture lease are allowed. No polling or command process is used per action.
 
 The owner's current rule permits static checks only. Runtime assertions, CPU/RSS measurements and all mutation cases **need run at merge**; do not execute the tests or benchmarks during feature work.
+
+## Interaction timing
+
+`measure_interaction` takes a live approved window session, optional `action` in
+v2 `Input` format, `observeMs` from 1 through 10000, and `filmstrip`. Observation
+needs Screen Recording; input keeps the existing Accessibility, target, secure
+text and background focus checks. The separate desktop-independent window
+stream uses the matched display's maximum refresh rate and queue depth 3, with
+GPU sizing capped at 960 by 640. ProMotion's variable cadence and deliberate
+low-rate animations can make display-interval gaps ambiguous.
+
+Content update times come from `CMSampleBufferGetPresentationTimeStamp`.
+Injection marks come from `CMClockGetTime(CMClockGetHostTimeClock())` immediately
+before the first AX or process-event dispatch, so both are host monotonic time.
+The baseline precedes dispatch; `updatesMs` excludes it. The TS analyzer owns
+settling, hitch and confidence decisions. The helper returns observed timing,
+load average, core count, and callback processing time as `captureOverheadPct`.
+This overhead measures sampling and thumbnail work; it does not measure SCK's
+GPU or WindowServer cost. Callback arrival times never replace presentation times.
+
+The difference grid samples 96 by 64 RGB pixels with a noise threshold. Tiny
+changes between samples may be missed. Point latency prefers a nearby region,
+then falls back to the whole window with a note. Timing evidence caps at 2400
+updates; only the baseline and up to 16 downsampled keyframe candidates are held.
+Filmstrip timestamps are relative to input dispatch, or observation start without input.
+The filmstrip is a timestamped two-column JPEG, with yellow damage outlines and
+hitch markers, capped at 24 KiB to fit the helper's existing 64 KiB stdout limit.
+Nothing is saved to disk by the native measurement path.
+
+Fixture flags `--smoothness-smooth`, `--smoothness-stall` and
+`--smoothness-latency` begin their behavior through the existing Click test
+button. They animate at the display maximum, insert one 120 ms stall around
++400 ms, or delay the visual response by 180 ms. A non-gating busy-window cost
+benchmark uses only that fixture and requires existing permissions:
+
+```sh
+sh native/screen-helper/build.sh
+sh native/screen-helper/build-test-window.sh
+ACE_SCREEN_INTEGRATION=1 bun run packages/screen/bench/interaction.ts
+swift test --package-path native/screen-helper --filter MeasurementFramesTests
+```
+
+The benchmark skips without opt-in or grants. A missing capture baseline returns
+an explicit error mentioning locked or unavailable capture rather than claiming
+that the UI was smooth.
+
+The measurement-only fixture stays in the background and exposes only its
+pattern and AX button, avoiding activation and text-editor windows. Its display
+link follows the window's display; a sequence-coded pattern preserves visible
+changes when more than one fixture tick is coalesced.
+
+The internal `maxWindowMs` allowance bounds each run to the remaining repeat
+recording budget; omitted allowances default to ten seconds. If AX preparation
+consumes the allowance, the helper rejects before dispatching input.
+At capture origin plus that allowance, an independent watchdog requests SCK stop
+outside the main actor, even while an AX call is pending. Evidence past that
+cutoff is discarded and deadline clipping is reported as incomplete. Normal
+cleanup awaits the same stop acknowledgement. A thrown stop failure terminates
+the helper, so the daemon confirms process cleanup before clearing capture.
+A stop that never acknowledges relies on the existing daemon command timeout
+and supervised process cleanup, at most 15 to 25 seconds for measurement commands.
+The watchdog cannot prove SCK has stopped until acknowledgement or process cleanup.

@@ -5,6 +5,7 @@ import {
   BrowserDialog,
   BrowserEvaluateGrant,
 } from "./browser-features.ts";
+import { BrowserInteractionAction, BrowserMeasurementOptions } from "./interaction-measurement.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 
 const short = z.string().min(1).max(256);
@@ -20,6 +21,7 @@ export const BrowserOpen = z.object({
 });
 export type BrowserOpen = z.infer<typeof BrowserOpen>;
 const commandBase = z.object({ tabId: short.optional() });
+const [click, type, press, scroll, drag] = BrowserInteractionAction.options;
 export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({ action: z.literal("navigation_history") }),
   commandBase.extend({
@@ -32,10 +34,15 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     forward: z.boolean().default(true),
   }),
   commandBase.extend({ action: z.literal("navigate"), url: z.string().max(8192), timeout }),
-  commandBase.extend({ action: z.literal("click"), ref: short }),
-  commandBase.extend({ action: z.literal("type"), ref: short, text: z.string().max(65_536) }),
-  commandBase.extend({ action: z.literal("press"), key: short, ref: short.optional() }),
-  commandBase.extend({ action: z.literal("scroll"), x: coordinate, y: coordinate }),
+  commandBase.extend(click.shape),
+  commandBase.extend(type.shape),
+  commandBase.extend(press.shape),
+  commandBase.extend(scroll.shape),
+  commandBase.extend(drag.shape),
+  commandBase.extend({
+    action: z.literal("measure_interaction"),
+    ...BrowserMeasurementOptions.shape,
+  }),
   commandBase.extend({ action: z.literal("snapshot") }),
   commandBase.extend({ action: z.literal("screenshot") }),
   commandBase.extend({
@@ -100,7 +107,6 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     promptText: z.string().max(4096).optional(),
   }),
   commandBase.extend({ action: z.literal("hover"), ref: short }),
-  commandBase.extend({ action: z.literal("drag"), ref: short, toRef: short }),
   commandBase.extend({
     action: z.literal("select"),
     ref: short,

@@ -294,3 +294,5 @@ for 100, 500 and 10000 nodes and an oversized 65537-character text node. It reco
 100 samples per case, p50/p95 wait latency, bounded-limit results and RSS. It has
 not been executed under the owner rule. Measured latency and memory need run at
 merge; the numerical limits above are implementation budgets, not benchmark results.
+
+See [interaction smoothness measurements](interaction-measurement.md) for bounded screen/browser timing tools, repeat summaries and filmstrip interpretation.

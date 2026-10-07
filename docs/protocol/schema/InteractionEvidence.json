@@ -1,0 +1,104 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionEvidence.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ScreenInput.json"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/BrowserInteractionAction.json"
+        }
+      ]
+    },
+    "actionAtMs": {
+      "maximum": 10000,
+      "minimum": 0,
+      "type": "number"
+    },
+    "captureOverheadPct": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "cores": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "filmstrip": {
+      "$ref": "https://ace.local/protocol/v1/InteractionFilmstrip.json"
+    },
+    "hostLoad": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "latencyMs": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "layoutShift": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "longTasks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/InteractionGap.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "notes": {
+      "default": [],
+      "items": {
+        "maxLength": 512,
+        "type": "string"
+      },
+      "maxItems": 24,
+      "type": "array"
+    },
+    "refreshAssumed": {
+      "type": "boolean"
+    },
+    "refreshHz": {
+      "exclusiveMinimum": 0,
+      "maximum": 240,
+      "type": "number"
+    },
+    "source": {
+      "enum": [
+        "screen-frames",
+        "browser-trace"
+      ],
+      "type": "string"
+    },
+    "target": {
+      "$ref": "https://ace.local/protocol/v1/InteractionTarget.json"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "updatesMs": {
+      "items": {
+        "maximum": 10000,
+        "minimum": 0,
+        "type": "number"
+      },
+      "maxItems": 2400,
+      "type": "array"
+    },
+    "windowMs": {
+      "maximum": 10000,
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "source",
+    "target",
+    "refreshHz",
+    "windowMs",
+    "updatesMs"
+  ],
+  "type": "object"
+}

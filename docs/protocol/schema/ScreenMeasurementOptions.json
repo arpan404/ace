@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenMeasurementOptions.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "$ref": "https://ace.local/protocol/v1/ScreenMeasurementAction.json"
+    },
+    "filmstrip": {
+      "default": true,
+      "type": "boolean"
+    },
+    "observeMs": {
+      "default": 2000,
+      "maximum": 10000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "repeat": {
+      "default": 1,
+      "maximum": 5,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

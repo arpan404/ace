@@ -25,6 +25,7 @@ const inputActions = new Set([
   "record_stop",
 ]);
 export function mutatesBrowser(command: BrowserCommand): boolean {
+  if (command.action === "measure_interaction") return command.interaction !== undefined;
   return (
     inputActions.has(command.action) && !(command.action === "tabs" && command.operation === "list")
   );

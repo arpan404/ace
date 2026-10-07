@@ -12,6 +12,7 @@ import { waitForBrowser } from "./wait.ts";
 import { BrowserOriginError, browserOrigin } from "./policy.ts";
 import { NavigationTask } from "./navigation.ts";
 import { evaluatePage, evaluateReadOnly } from "./evaluation.ts";
+import { measureBrowserInteraction } from "./measurement.ts";
 import { uploadPaths } from "./uploads.ts";
 import { dragRefs } from "./drag.ts";
 import type { SnapshotRefs } from "./refs.ts";
@@ -20,6 +21,7 @@ import type { NavigationPolicies } from "./policy-waits.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
 interface CommandContext {
   options: SessionOptions;
+  beforeInput?: (() => void) | undefined;
   refs: SnapshotRefs;
   logs: SessionLogs;
   policies: NavigationPolicies;
@@ -42,6 +44,7 @@ interface CommandContext {
     actor: Actor,
     signal: AbortSignal | undefined,
     generation: number,
+    beforeInput?: () => void,
   ): Promise<unknown>;
   beginRecording(check: () => void): Promise<void>;
   finishRecording(): Promise<BrowserArtifact>;
@@ -56,6 +59,25 @@ export async function executeBrowserCommand(
   const { backend: page, dir, id, evaluatePolicy, threadId } = context.options;
   const cdp = page.cdp;
   switch (command.action) {
+    case "measure_interaction":
+      return measureBrowserInteraction(
+        {
+          interaction: command.interaction,
+          observeMs: command.observeMs,
+          repeat: command.repeat,
+          filmstrip: command.filmstrip,
+        },
+        {
+          threadId,
+          backend: page,
+          clock: context.options.navigationClock,
+          id,
+          read: context.read,
+          input: (interaction, measurementSignal, beforeInput) =>
+            context.run(interaction, actor, measurementSignal, generation, beforeInput),
+        },
+        signal,
+      );
     case "navigation_history":
       return pageHistory(cdp);
     case "history":
@@ -217,6 +239,7 @@ export async function executeBrowserCommand(
     case "drag": {
       const from = context.refDispatch(command.ref, actor, signal, generation),
         to = context.refDispatch(command.toRef, actor, signal, generation);
+      const document = context.refs.documentGuard();
       const start = await context.refs.bounds(command.ref, from.prepare),
         end = await context.refs.bounds(command.toRef, to.prepare);
       await dragRefs(
@@ -227,6 +250,11 @@ export async function executeBrowserCommand(
           from.send();
           to.send();
         },
+        () => {
+          context.check(actor, undefined, generation);
+          document();
+        },
+        context.beforeInput,
       );
       return { ok: true };
     }
@@ -256,6 +284,7 @@ export async function executeBrowserCommand(
       const rect = await context.refs.bounds(command.ref, dispatch.prepare);
       dispatch.send();
       if (rect.width <= 0 || rect.height <= 0) throw new BrowserActionError("not_visible");
+      context.beforeInput?.();
       await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
       return { ok: true };
     }
@@ -263,6 +292,7 @@ export async function executeBrowserCommand(
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
       await context.refs.select(command.ref, dispatch.prepare);
       dispatch.send();
+      context.beforeInput?.();
       await page.insertText(command.text);
       return { ok: true };
     }
@@ -275,11 +305,13 @@ export async function executeBrowserCommand(
           };
       if (command.ref) await context.refs.focus(command.ref, dispatch.prepare);
       dispatch.send();
+      context.beforeInput?.();
       await page.press(command.key);
       return { ok: true };
     }
     case "scroll":
       context.check(actor, signal, generation);
+      context.beforeInput?.();
       await page.wheel(command.x, command.y);
       return { ok: true };
     case "wait_for":

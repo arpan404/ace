@@ -1,3 +1,6 @@
+import { ScreenMeasurementOptions } from "@ace/protocol";
+import { validateMeasurementBudget } from "@ace/interaction";
+import { measureSession } from "./measurement.ts";
 import { humanDeviceInput } from "./device-input-policy.ts";
 import { SessionObservations } from "./session-observations.ts";
 import { TargetBusyError } from "./target-busy.ts";
@@ -14,7 +17,7 @@ import { captureModelImage } from "./model-capture.ts";
 import { legacyModelAction } from "./model-coordinates.ts";
 import { dispatchLegacyAction } from "./legacy-input.ts";
 import { ScreenAgentScope } from "@ace/protocol";
-import { agentOwner } from "./agent-binding.ts";
+import { agentOwner, agentScope } from "./agent-binding.ts";
 import {
   ScreenAction,
   ScreenInventory,
@@ -560,6 +563,62 @@ export class ScreenManager {
         }),
       action.kind,
     );
+  }
+  /** Observation needs an approved target, not an input controller or Accessibility grant. */
+  measurementSession(caller: ScreenAgentScope, requestedId?: string): string {
+    const sessions = [...this.sessions.values()].filter((session) => {
+      if (
+        session.state.lifecycle !== "live" ||
+        (requestedId !== undefined && session.state.sessionId !== requestedId)
+      )
+        return false;
+      try {
+        this.authorize(session.state.target, caller);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (sessions.length !== 1) throw new Error("Select one approved live session with sessionId");
+    const session = sessions[0];
+    if (!session) throw new Error("Approved window required");
+    return session.state.sessionId;
+  }
+  async measureInteraction(id: string, raw: unknown, owner: string, signal: AbortSignal) {
+    const options = ScreenMeasurementOptions.parse(raw);
+    validateMeasurementBudget(options);
+    const session = this.live(id);
+    const scope = agentScope(owner) ?? session.approvalScope;
+    const validate = () => {
+      signal.throwIfAborted();
+      this.authorize(session.state.target, scope);
+      if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");
+    };
+    if (options.action)
+      return this.execute(
+        id,
+        "agent",
+        owner,
+        (current, check) =>
+          measureSession(current, options, () => {
+            validate();
+            check();
+          }),
+        "measure_interaction",
+      );
+    validate();
+    if (session.queuedActions >= 16) throw new Error("Observation queue limit");
+    session.queuedActions++;
+    const task = session.actionTail
+      .then(() => this.host.execute(validate, () => measureSession(session, options, validate)))
+      .finally(() => {
+        session.queuedActions--;
+      });
+    session.actionTail = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
   }
   private async execute<T>(
     id: string,
