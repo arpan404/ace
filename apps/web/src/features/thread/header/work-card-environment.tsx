@@ -1,4 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
+import { baseRecordText } from "@ace/ui-core";
 import type { ThreadStatus } from "@ace/protocol";
 import {
   ArrowsSplitIcon,
@@ -7,7 +8,6 @@ import {
   CopyIcon,
   DotsThreeIcon,
   FolderOpenIcon,
-  FolderSimpleIcon,
   GitForkIcon,
   LaptopIcon,
   TerminalWindowIcon,
@@ -80,12 +80,22 @@ function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
           description: error instanceof Error ? error.message : undefined,
         }),
     );
+  // The same facts, in the same words, as the composer's environment card.
+  const worktree = checkout?.mode === "worktree";
   const facts: [string, string | undefined][] = [
-    ["Runs in", checkout?.mode === "worktree" ? "Its own worktree" : "The project's checkout"],
-    ["Folder", path],
+    ["Runs in", checkout ? (worktree ? "Its own worktree" : "Local checkout") : undefined],
     ["Branch", checkout ? (checkout.branch ?? "detached HEAD") : undefined],
+    [
+      "Started from",
+      worktree
+        ? details?.base
+          ? baseRecordText(details.base).text
+          : checkout?.baseBranch
+        : undefined,
+    ],
     ["Commit", checkout?.head?.slice(0, 7)],
-    ["Machine", details?.machine?.name],
+    ["Path", path],
+    ["Machine", details?.machine ? details.machine.name || details.machine.host : undefined],
   ];
   return (
     <>
@@ -102,7 +112,10 @@ function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
                     key={label}
                     title={value}
                     className={
-                      label === "Folder" || label === "Branch" || label === "Commit"
+                      label === "Path" ||
+                      label === "Branch" ||
+                      label === "Commit" ||
+                      label === "Started from"
                         ? "truncate font-mono text-foreground"
                         : "truncate text-foreground"
                     }
@@ -211,8 +224,9 @@ export function ProjectRow(props: { thread: ThreadRef; onClose(): void }) {
   const details = meta?.details;
   const worktree = (checkout?.mode ?? details?.mode) === "worktree";
   const place = worktree ? "Worktree" : "Local";
-  const machine = details?.machine?.name;
-  const Glyph = worktree ? FolderSimpleIcon : LaptopIcon;
+  const machine = details?.machine ? details.machine.name || details.machine.host : undefined;
+  // The composer's environment pill draws the same place with the same glyph.
+  const Glyph = worktree ? GitForkIcon : LaptopIcon;
   return (
     <>
       <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
@@ -236,7 +250,7 @@ export function ProjectRow(props: { thread: ThreadRef; onClose(): void }) {
         trigger={
           <button
             type="button"
-            aria-label={`Environment: ${place}${machine ? ` on ${machine}` : ""}`}
+            aria-label={`Where this thread runs: ${place}${machine ? ` on ${machine}` : ""}`}
             className="focus-ring-inset flex h-8 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-ui text-foreground transition-colors duration-(--dur-1) hover:bg-accent aria-expanded:bg-accent"
           >
             <Glyph aria-hidden size={16} className={rowIcon} />

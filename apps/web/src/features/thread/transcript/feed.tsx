@@ -229,11 +229,6 @@ export function Feed(props: FeedProps) {
     !detached && rootWorking && activity?.elapsedFrom !== undefined && bottom?.kind === "work"
       ? bottom.key
       : undefined;
-  const inline = useMemo(
-    () =>
-      new Set(blocks.flatMap((block) => (block.kind === "question" ? [block.interactionId] : []))),
-    [blocks],
-  );
 
   const viewport = useRef<HTMLDivElement>(null);
   const feed = useRef<HTMLDivElement>(null);
@@ -574,10 +569,8 @@ export function Feed(props: FeedProps) {
               </Suspense>
             ) : (
               <LiveFooter
-                threadId={threadId}
                 // A usage-limit pause is a transcript block, not a live line.
                 activity={liveBlock || activity?.tone === "paused" ? undefined : activity}
-                inline={inline}
               />
             )}
             {!detached && (

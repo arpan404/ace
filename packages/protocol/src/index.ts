@@ -58,6 +58,7 @@ export * from "./thread-client.ts";
 export * from "./plugins.ts";
 
 export * from "./workspace-actions.ts";
+export * from "./worktree-base.ts";
 
 export * from "./forge.ts";
 export * from "./terminal-client.ts";

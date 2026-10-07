@@ -38,7 +38,7 @@ async function mount() {
   return { app, plan };
 }
 
-test("a todo list shows as 'Plan 1/3' and opens to every item with its status", async () => {
+test("a todo list shows as 1/3 in the composer and opens to every item with its status", async () => {
   const { plan } = await mount();
   expect(screen.queryByRole("button", { name: /^Plan/ })).toBeNull();
   plan([
@@ -48,7 +48,7 @@ test("a todo list shows as 'Plan 1/3' and opens to every item with its status", 
   ]);
 
   const chip = await screen.findByRole("button", { name: "Plan 1/3: 1 of 3 done" });
-  expect(chip.textContent).toBe("Plan 1/3");
+  expect(chip.textContent).toBe("1/3");
   await userEvent.click(chip);
   const list = await screen.findByRole("list", { name: "Plan" });
   expect(

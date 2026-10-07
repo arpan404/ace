@@ -16,6 +16,7 @@ import { activateCursorProvider } from "./cursor-activation.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
+import { WorktreeBaseError } from "../worktree-base-resolution.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startEngine(context: ServiceContext): Promise<void> {
@@ -397,13 +398,15 @@ export function createEngineSession(context: SocketContext): SocketService {
             }),
           );
           send({ type: "commandResult", ...result });
-        } catch {
+        } catch (error) {
           if (context.connected())
             send({
               type: "commandResult",
               commandId: command.id,
               ok: false,
-              error: "workspace_unavailable",
+              ...(error instanceof WorktreeBaseError
+                ? { error: error.code, code: error.code, title: error.title, detail: error.message }
+                : { error: "workspace_unavailable" }),
             });
         } finally {
           // Release the slot before announcing cleanup completion at the Git boundary.

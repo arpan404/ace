@@ -28,6 +28,7 @@ import { ContentPart, MessageOrigin } from "./items.ts";
 import { ProviderKind } from "./provider.ts";
 
 import { ReviewCommands } from "./review.ts";
+import { WorktreeBase } from "./worktree-base.ts";
 import {
   OrchestrationCreateCommand,
   OrchestrationCancelCommand,
@@ -82,6 +83,8 @@ export const CommandPayload = z.discriminatedUnion("type", [
     account: z.string().min(1).max(256).optional(),
     mode: z.enum(["local", "worktree"]).optional(),
     baseBranch: z.string().min(1).max(1024).optional(),
+    /** Where a worktree starts, local or on a remote; wins over `baseBranch`. */
+    base: WorktreeBase.optional(),
     options: ThreadCreateOptions.optional(),
     title: z.string().optional(),
     input: z.array(ContentPart).min(1),

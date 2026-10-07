@@ -582,7 +582,7 @@ test("the card says where the thread runs, and its menu lists the folder, branch
   await openThread("checkout");
   const card = await openCard();
   await userEvent.click(
-    within(card).getByRole("button", { name: "Environment: Worktree on This Mac" }),
+    within(card).getByRole("button", { name: "Where this thread runs: Worktree on This Mac" }),
   );
   const menu = await screen.findByRole("menu");
   const listed = Object.fromEntries(
@@ -591,8 +591,9 @@ test("the card says where the thread runs, and its menu lists the folder, branch
       term.nextElementSibling?.textContent,
     ]),
   );
+  // The same words as the composer's environment card.
   expect(listed).toMatchObject({ "Runs in": "Its own worktree", Machine: "This Mac" });
-  expect(listed.Folder).toMatch(/^\//);
+  expect(listed.Path).toMatch(/^\//);
   expect(listed.Branch).toBeTruthy();
   // Agents work in it: it can't move under them, and the menu says why.
   const move = within(menu).getByRole("menuitem", { name: /Move to a worktree/ });
@@ -613,12 +614,14 @@ test("from the card, an idle thread switches branch and moves into a worktree of
   expect((await within(card).findByText("develop")).textContent).toBe("develop");
 
   await userEvent.click(
-    within(card).getByRole("button", { name: "Environment: Local on This Mac" }),
+    within(card).getByRole("button", { name: "Where this thread runs: Local on This Mac" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to a worktree/ }));
   expect(await screen.findByText("Moved to a worktree")).toBeTruthy();
   expect(
-    await within(card).findByRole("button", { name: "Environment: Worktree on This Mac" }),
+    await within(card).findByRole("button", {
+      name: "Where this thread runs: Worktree on This Mac",
+    }),
   ).toBeTruthy();
 });
 

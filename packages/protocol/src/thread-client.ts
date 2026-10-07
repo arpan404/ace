@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 import { ThreadId, Timestamp } from "./ids.ts";
 import { ForgeRepository } from "./forge.ts";
+import { WorktreeBaseRecord } from "./worktree-base.ts";
 
 export const TurnOptions = ExecutionOptions;
 export type TurnOptions = z.infer<typeof TurnOptions>;
@@ -53,6 +54,8 @@ export const ThreadDetails = z.object({
   ahead: z.number().int().nonnegative().optional(),
   behind: z.number().int().nonnegative().optional(),
   baseBranch: z.string().max(1024).optional(),
+  /** The base the worktree was made from, with whether a remote base was fetched first. */
+  base: WorktreeBaseRecord.optional(),
   /** The forge repository behind the checkout's origin remote, for `forge.pr.create`. */
   repository: ForgeRepository.optional(),
   linkedPr: z

@@ -41,7 +41,8 @@ export function checkoutOf(
   return {
     mode: details.mode ?? "local",
     branch: details.branch ?? null,
-    baseBranch: details.baseBranch ?? "main",
+    // The branch a PR merges into: a remote base names its branch on the forge, not `origin/…`.
+    baseBranch: details.base?.ref ?? details.baseBranch ?? "main",
     head: details.head ?? null,
     changed: details.diff?.files ?? 0,
     additions: details.diff?.additions ?? 0,

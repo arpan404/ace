@@ -42,6 +42,8 @@ function metaText(meta: AnsweredMeta): string {
  * chosen wait behind "Show all N options".
  */
 export function AnsweredQuestionCard(props: {
+  /** The card's frame; a bordered card of its own by default. */
+  className?: string | undefined;
   asker: string;
   questions: readonly Question[];
   resolution: InteractionResolution | undefined;
@@ -55,7 +57,7 @@ export function AnsweredQuestionCard(props: {
   return (
     <article
       aria-label={`Question: ${title ?? ""}`}
-      className="rounded-lg px-4 py-3 shadow-[inset_0_0_0_1px_var(--border)]"
+      className={props.className ?? "rounded-lg px-4 py-3 shadow-[inset_0_0_0_1px_var(--border)]"}
     >
       <p className="text-xs text-subtle-foreground">{props.asker} asked</p>
       <div className="mt-1.5 flex flex-col gap-3">

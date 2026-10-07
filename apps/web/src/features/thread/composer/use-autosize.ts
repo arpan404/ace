@@ -18,10 +18,8 @@ export function useAutosize(
     if (!el || width <= 0) return;
     el.style.height = "auto";
     // An empty input is one line, however long its placeholder.
-    const lines = text
-      ? Math.max(1, Math.round((el.scrollHeight - 2 * inputPadding) / inputLine))
-      : 1;
-    const room = Math.max(1, Math.floor((innerHeight * 0.4 - 2 * inputPadding) / inputLine));
-    el.style.height = `${Math.min(lines, room) * inputLine + 2 * inputPadding}px`;
+    const lines = text ? Math.max(1, Math.round((el.scrollHeight - inputPadding) / inputLine)) : 1;
+    const room = Math.max(1, Math.floor((innerHeight * 0.4 - inputPadding) / inputLine));
+    el.style.height = `${Math.min(lines, room) * inputLine + inputPadding}px`;
   }, [ref, text, width]);
 }

@@ -141,20 +141,53 @@ test("the account row moves the thread to another account and blocks one at its 
   expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, personal/ })).toBeTruthy();
 });
 
-test("the context bar shows where the thread runs and follows its branch past a commit", async () => {
+test("the environment pill shows where the thread runs and follows its branch past a commit", async () => {
   await open("busy");
-  const branch = await screen.findByLabelText("Branch: fix/replay-cursor");
-  expect(screen.getByText("Local")).toBeTruthy();
-  expect(branch.textContent).not.toContain("↑");
+  const pill = await screen.findByRole("button", {
+    name: "Environment: Local · fix/replay-cursor",
+  });
+  await userEvent.click(pill);
+  const card = await screen.findByRole("region", { name: "Where this thread runs" });
+  expect(within(card).getByText("Local checkout")).toBeTruthy();
+  expect(within(card).getByText("fix/replay-cursor")).toBeTruthy();
+  expect(within(card).queryByText(/ahead/)).toBeNull();
+
   // Commit… from the work card's branch row.
   await userEvent.click(screen.getByRole("button", { name: "Work card" }));
   await userEvent.click(await screen.findByRole("button", { name: "Git actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Commit…/ }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
+  expect(await within(card).findByText(/1 ahead/)).toBeTruthy();
+
+  // Escape puts the card away and the caret back in the message.
+  const close = within(card).getByRole("button", { name: "Close" });
+  // Once the commit dialog has handed focus back.
+  await waitFor(() => {
+    close.focus();
+    expect(document.activeElement).toBe(close);
+  });
+  await userEvent.keyboard("{Escape}");
   await waitFor(() =>
-    expect(screen.getByLabelText("Branch: fix/replay-cursor").textContent).toContain("1↑"),
+    expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull(),
   );
+  expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));
+});
+
+test("the composer carries no context or usage meter, whatever the provider reports", async () => {
+  const { app } = await open("busy");
+  app.daemon.apply("thread-replay-cursor", [
+    {
+      type: "context.sample",
+      agent: "root",
+      usedTokens: 168_000,
+      windowTokens: 200_000,
+      model: "claude-opus-4-6",
+    },
+  ]);
+  await screen.findByRole("button", { name: /^Model: / });
+  expect(screen.queryByRole("meter")).toBeNull();
+  expect(screen.queryByText(/tokens in context|% used|\d+%$/)).toBeNull();
 });
 
 test("a composer squeezed by an open panel keeps its hint to one short line", async () => {

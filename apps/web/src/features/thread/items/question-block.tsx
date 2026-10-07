@@ -1,16 +1,17 @@
 import { Suspense } from "react";
-import { DeferredInteractionCard } from "../interactions/deferred-card.ts";
+import { DeferredQuestionRecord } from "../interactions/deferred-card.ts";
 
-const InteractionCard = DeferredInteractionCard.Component;
+const QuestionRecord = DeferredQuestionRecord.Component;
 
 /**
- * A question where the agent asked it (IR-1): the card to answer while it is open, then the
- * question with its answer, read-only. Never a user bubble, never folded into a work log.
+ * A question where the agent asked it (IR-1): one line saying it is being asked (the card to
+ * answer it is on the composer), then the question with its answer. Never a user bubble, never
+ * folded into a work log.
  */
 export function QuestionBlock(props: { threadId: string; interactionId: string }) {
   return (
     <Suspense fallback={null}>
-      <InteractionCard threadId={props.threadId} interactionId={props.interactionId} />
+      <QuestionRecord threadId={props.threadId} interactionId={props.interactionId} />
     </Suspense>
   );
 }

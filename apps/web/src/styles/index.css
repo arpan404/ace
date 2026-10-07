@@ -217,6 +217,14 @@
       0 0 0 0.5px var(--glass-edge),
       var(--glass-shadow);
   }
+  /* A card attached behind the composer's top edge: one step back from the composer's glass. */
+  .glass-behind {
+    background: color-mix(in oklab, var(--glass-bg) 80%, var(--background));
+    box-shadow:
+      var(--glass-highlight),
+      0 0 0 0.5px var(--glass-edge),
+      0 -12px 32px -20px rgb(0 0 0 / 0.5);
+  }
   /* Rail, second sidebar and reading column blur the wallpaper behind them. */
   .vibrancy {
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);

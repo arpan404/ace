@@ -2,7 +2,7 @@ import { useClient, useIntent, useInteractions, useThreadMeta } from "@ace/clien
 import type { ThreadStatus } from "@ace/protocol";
 import { RunId, ThreadId } from "@ace/protocol";
 import { modelLabel, providerNames, selectionInputs, type AttachmentReader } from "@ace/ui-core";
-import { Suspense, useEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useEffect, useId, useRef, useState, type Ref } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 // The catalog alone: the models feature is also loaded lazily, so importing its index would bring
 // its pickers into this route.
@@ -13,16 +13,16 @@ import { useToastClearance } from "@/lib/toast-clearance.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { Composer, type ComposerHandle, type Draft } from "./composer.tsx";
-import { ContextBar } from "./context-bar.tsx";
-import { ContextMeter } from "./context-meter.tsx";
 import {
   ControlsPending,
   DeferredCursorContinuation,
+  DeferredModelControl,
+  DeferredPermissionControl,
   DeferredPlanChip,
   DeferredQueueArea,
-  DeferredThreadControls,
 } from "./deferred-parts.tsx";
-import { DeferredAccountMeter, DeferredLimitWarning } from "./deferred-usage.ts";
+import { DeferredRequestStack, DeferredThreadEnvironment } from "./deferred-cards.ts";
+import { ThreadEnvironmentPill } from "./environment-pill.tsx";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
 
@@ -52,9 +52,10 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * bubble at once and goes through the client's outbox under its own command id. While the agent
  * works a message follows up the way the daemon's `threads.followUpBehavior` says (queue by
  * default), and ⌘↵ / Ctrl+↵ does the opposite where the provider can steer. Queued messages
- * wait as pills above it, with the reason when the queue is held. Its footer shows how actions
- * are approved and what the thread runs on, both changeable from the next turn. The unsent
- * draft is kept per thread.
+ * wait as pills above it, with the reason when the queue is held. Its footer shows where the
+ * thread runs (opening that as a card), how actions are approved and the model, the last two
+ * changeable from the next turn. The agent's open requests sit on it as a deck of attached
+ * cards, answered there. The unsent draft is kept per thread.
  */
 export function ThreadComposer({
   composer,
@@ -151,6 +152,11 @@ export function ThreadComposer({
   // something: then its first option takes focus (UX audit CMP-2).
   const open = useInteractions(props.thread.id);
   const asking = !!open?.length;
+  // The environment card, while the person has it open on this thread.
+  const [shown, setShown] = useState<string>();
+  const environment = shown === props.thread.id;
+  const environmentId = useId();
+  const toMessage = () => box.current?.querySelector("textarea")?.focus();
   const [focusOnOpen] = useState(wideEnoughToFocus);
   const asked = useRef(false);
   useEffect(() => {
@@ -195,9 +201,7 @@ export function ThreadComposer({
     >
       <div className={`relative ${readingColumn}`}>
         <Suspense fallback={null}>
-          <DeferredPlanChip.Component threadId={props.thread.id} />
           <DeferredQueueArea.Component threadId={props.thread.id} status={props.status} />
-          <DeferredLimitWarning.Component threadId={props.thread.id} status={props.status} />
         </Suspense>
         <Composer
           ref={composer}
@@ -218,21 +222,48 @@ export function ThreadComposer({
           typeToFocus
           reader={reader}
           sendsWhileUploading
-          controls={
-            <Suspense fallback={<ControlsPending />}>
-              <DeferredThreadControls.Component thread={props.thread} busy={busy} next={next} />
-            </Suspense>
-          }
-          status={
-            <>
+          attached={
+            environment ? (
               <Suspense fallback={null}>
-                <DeferredAccountMeter.Component threadId={props.thread.id} />
+                <DeferredThreadEnvironment.Component
+                  thread={props.thread}
+                  id={environmentId}
+                  onClose={() => {
+                    setShown(undefined);
+                    toMessage();
+                  }}
+                />
               </Suspense>
-              <ContextMeter threadId={props.thread.id} />
+            ) : open?.length ? (
+              <Suspense fallback={null}>
+                <DeferredRequestStack.Component
+                  threadId={props.thread.id}
+                  ids={open}
+                  onLeave={toMessage}
+                />
+              </Suspense>
+            ) : undefined
+          }
+          controls={
+            <>
+              <ThreadEnvironmentPill
+                thread={props.thread}
+                open={environment}
+                controls={environmentId}
+                onToggle={() => setShown(environment ? undefined : props.thread.id)}
+              />
+              <Suspense fallback={<ControlsPending />}>
+                <DeferredPermissionControl.Component thread={props.thread} />
+              </Suspense>
             </>
           }
+          trailing={
+            <Suspense fallback={<ControlsPending />}>
+              <DeferredPlanChip.Component threadId={props.thread.id} />
+              <DeferredModelControl.Component thread={props.thread} busy={busy} next={next} />
+            </Suspense>
+          }
         />
-        <ContextBar thread={props.thread} />
       </div>
     </div>
   );

@@ -163,17 +163,6 @@ test("a rate-limited thread shows the hold banner, not a working spinner", async
   expect(document.querySelector('[role="status"] [data-slot="spinner"]')).toBeNull();
 });
 
-test("the composer shows how full the agent's context is", async () => {
-  const { app } = await openBusy();
-  expect(screen.queryByRole("meter", { name: "Context used" })).toBeNull();
-  app.daemon.apply(threadId, [
-    { type: "context.sample", agent: "root", usedTokens: 168_000, windowTokens: 200_000 },
-  ]);
-  const meter = await screen.findByRole("meter", { name: "Context used" });
-  expect(meter.getAttribute("aria-valuenow")).toBe("84");
-  expect(meter.getAttribute("aria-valuetext")).toBe("168,000 of 200,000 tokens in context");
-});
-
 test("a queued ask appears after the previous reply when its execution turn starts", async () => {
   const { facts } = await import("@ace/fake-daemon");
   const { act } = await import("@testing-library/react");

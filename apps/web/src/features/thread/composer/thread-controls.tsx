@@ -297,13 +297,3 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
     </>
   );
 }
-
-/** The thread composer's footer controls: the model (with effort and speed), then approvals. */
-export function ThreadControls(props: { thread: ThreadRef; busy: boolean; next: NextTurn }) {
-  return (
-    <>
-      <ThreadModelControl thread={props.thread} busy={props.busy} next={props.next} />
-      <ThreadPermissionControl thread={props.thread} />
-    </>
-  );
-}

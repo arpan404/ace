@@ -75,6 +75,7 @@ import {
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
 import { forkPointError, switchEvents } from "./transitions.ts";
+import { fakeWorktreeBase } from "./worktree-base.ts";
 
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
@@ -137,6 +138,7 @@ export class FakeDaemon implements Host {
   private faults = new Map<string, "fail" | "hold" | { code: string }>();
   private refusals = new Map<string, string>();
   private refusing = false;
+  private remoteReachable = true;
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
   readonly review: FakeReviewDesk;
   /** Accounts, usage, models, settings, search and slash commands, over the wire. */
@@ -595,6 +597,10 @@ export class FakeDaemon implements Host {
   refuseConnections(refuse: boolean): void {
     this.refusing = refuse;
     if (refuse) this.disconnectAll();
+  }
+  /** While off, remote worktree bases can't be fetched: listed ones use their cached copy. */
+  setRemoteReachable(reachable: boolean): void {
+    this.remoteReachable = reachable;
   }
   /** The scripts a workspace's package.json declares, replacing the catalog's. */
   setScripts(workspaceId: string, names: readonly string[]): void {
@@ -1119,6 +1125,8 @@ export class FakeDaemon implements Host {
       case "thread.prepare": {
         if (this.threads.has(payload.threadId))
           return { commandId, ok: false, error: "thread_exists" };
+        const base = fakeWorktreeBase(payload, payload.threadId, this.remoteReachable);
+        if (!base.ok) return { commandId, ok: false, error: base.error };
         this.createThread({
           id: payload.threadId,
           workspaceId: payload.workspaceId,
@@ -1131,8 +1139,7 @@ export class FakeDaemon implements Host {
               payload.mode === "worktree"
                 ? `/fake/worktrees/${payload.threadId}`
                 : `/fake/${payload.workspaceId}`,
-            branch: payload.baseBranch ?? "main",
-            ...(payload.baseBranch ? { baseBranch: payload.baseBranch } : {}),
+            ...base.fields,
           },
         });
         return { commandId, ok: true, threadId: payload.threadId };
@@ -1141,6 +1148,8 @@ export class FakeDaemon implements Host {
         // Never reaches a provider: the new thread reads the request and keeps "working".
         const id = payload.threadId ?? `thread-${commandId}`;
         if (this.threads.has(id)) return { commandId, ok: true, threadId: ThreadId.parse(id) };
+        const base = fakeWorktreeBase(payload, id, this.remoteReachable);
+        if (!base.ok) return { commandId, ok: false, error: base.error };
         if (payload.context?.draftId)
           this.servicesWire.context.validateDraft(
             command.deviceId,
@@ -1163,8 +1172,7 @@ export class FakeDaemon implements Host {
               payload.mode === "worktree"
                 ? `/fake/worktrees/${id}`
                 : `/fake/${payload.workspaceId}`,
-            branch: payload.baseBranch ?? "main",
-            ...(payload.baseBranch ? { baseBranch: payload.baseBranch } : {}),
+            ...base.fields,
             machine: { host: this.hostId, name: this.displayName },
             diff: { files: 0, additions: 0, deletions: 0 },
           },

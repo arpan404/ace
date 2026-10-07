@@ -145,7 +145,7 @@ function QuestionField(props: {
           <label
             key={option.id}
             className={cn(
-              "flex cursor-pointer items-center gap-2.5 rounded-[10px] bg-muted px-3 py-[9px] text-ui transition-colors duration-(--dur-1) hover:bg-accent",
+              "flex cursor-pointer items-start gap-2.5 rounded-[10px] bg-muted px-3 py-[9px] text-ui transition-colors duration-(--dur-1) hover:bg-accent",
               checked && "shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_55%,transparent)]",
             )}
           >
@@ -155,27 +155,23 @@ function QuestionField(props: {
               checked={checked}
               disabled={props.disabled}
               onChange={() => props.onToggle(option.id)}
-              className="accent-(--ring)"
+              className="mt-0.5 accent-(--ring)"
             />
-            <span>{option.label}</span>
+            {/* The option's words, its description under them so a narrow card never wraps
+                them into columns. */}
+            <span className="min-w-0 flex-1">
+              <span className="block">{option.label}</span>
+              {option.description && (
+                <span className="block text-sm text-subtle-foreground">{option.description}</span>
+              )}
+            </span>
+            {option.recommended && (
+              <small className="shrink-0 text-xs text-subtle-foreground">recommended</small>
+            )}
             {index < 9 && (
-              <kbd
-                aria-hidden
-                className={cn(
-                  "order-last pl-2 font-sans text-[11px] text-subtle-foreground",
-                  !option.recommended && "ml-auto",
-                )}
-              >
+              <kbd aria-hidden className="shrink-0 font-sans text-xs text-subtle-foreground">
                 {index + 1}
               </kbd>
-            )}
-            {option.description && (
-              <span className="text-subtle-foreground">· {option.description}</span>
-            )}
-            {option.recommended && (
-              <small className="ml-auto shrink-0 text-[12px] text-subtle-foreground">
-                recommended
-              </small>
             )}
           </label>
         );

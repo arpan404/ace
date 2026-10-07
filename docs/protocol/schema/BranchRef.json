@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/BranchRef.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ahead": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "behind": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "name": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "remote": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[\\w.-]+$",
+      "type": "string",
+      "x-ace-constraint": "A remote name: letters, digits, `_`, `.`, `-`; no leading `-` or `.`."
+    },
+    "upstream": {
+      "maxLength": 1200,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}

@@ -35,6 +35,8 @@ export interface WorkspaceRuntimeOptions {
   ): Promise<void>;
   forgeRunner?: (cwd: string) => CommandRunner;
   gitService?: WorkspaceGit;
+  /** How long a remote worktree base's fetch may take; 15 s by default. */
+  baseFetchTimeoutMs?: number;
   terminal?: TerminalManagerOptions;
   editorPath?: string;
   editorApplications?: readonly string[];
@@ -67,7 +69,14 @@ export class WorkspaceRuntime {
     this.options = options;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
-    this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine);
+    this.roots = new WorkspaceRoots(
+      store,
+      this.git,
+      directory,
+      now,
+      this.machine,
+      options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {},
+    );
     this.forge = new WorkspaceForge(
       store,
       this.git,
@@ -177,7 +186,16 @@ export class WorkspaceRuntime {
     if (op.op === "branches.list") {
       const root = this.store.getWorkspacePath(op.workspaceId);
       if (!root) throw new Error("workspace_not_found");
-      return wrap({ kind: "branches", ...(await this.git.branches(root)) });
+      const [listed, refs] = await Promise.all([
+        this.git.branches(root),
+        this.git.branchRefs(root),
+      ]);
+      return wrap({
+        kind: "branches",
+        ...listed,
+        refs: refs.refs,
+        defaultBranch: refs.defaultBranch,
+      });
     }
     if (op.op === "scripts.list")
       return wrap({ kind: "scripts", scripts: await listScripts(this.root(op.threadId)) });

@@ -7,6 +7,7 @@ import {
   type Command,
   type CommandResult,
   type WorkspaceId,
+  type WorktreeBaseRecord,
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
@@ -20,7 +21,10 @@ export type CommandContext = Pick<
     path: string;
     branch: string;
     project: string;
-    baseBranch: string;
+    /** `requestedBaseKey` of the payload the worktree was prepared for. */
+    requestedBase: string;
+    /** The branch base it started from, when the payload named one. */
+    base?: WorktreeBaseRecord;
   };
 };
 export function commandContext(store: Store): CommandContext {

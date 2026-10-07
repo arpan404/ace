@@ -1,6 +1,7 @@
 import { PermissionMode } from "./permissions.ts";
 import { DeckOwnership } from "./deck-ownership.ts";
 import { z } from "zod";
+import { WorktreeBase } from "./worktree-base.ts";
 import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { InteractionResolution } from "./interactions.ts";
@@ -187,6 +188,8 @@ export const ThreadPrepareCommand = z.object({
   handoffFrom: ThreadId.optional(),
   mode: z.enum(["local", "worktree"]).optional(),
   baseBranch: z.string().min(1).max(1024).optional(),
+  /** Where a worktree starts, local or on a remote; wins over `baseBranch`. */
+  base: WorktreeBase.optional(),
   threadId: ThreadId,
   workspaceId: WorkspaceId,
   title: z.string().min(1).max(256),
