@@ -15,6 +15,7 @@ import { Route as AutomationsRouteImport } from "./routes/automations"
 import { Route as DeckRouteImport } from "./routes/deck"
 import { Route as MoreRouteImport } from "./routes/more"
 import { Route as SettingsRouteImport } from "./routes/settings"
+import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
@@ -72,6 +73,11 @@ const MoreRoute = MoreRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: "/settings",
   path: "/settings",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupRoute = SetupRouteImport.update({
+  id: "/setup",
+  path: "/setup",
   getParentRoute: () => rootRouteImport,
 } as any)
 const SkillsRoute = SkillsRouteImport.update({
@@ -229,6 +235,7 @@ export interface FileRoutesByFullPath {
   "/deck": typeof DeckRouteWithChildren
   "/more": typeof MoreRouteWithChildren
   "/settings": typeof SettingsRouteWithChildren
+  "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
@@ -259,6 +266,7 @@ export interface FileRoutesByFullPath {
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRoutesByTo {
+  "/setup": typeof SetupRoute
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
@@ -296,6 +304,7 @@ export interface FileRoutesById {
   "/deck": typeof DeckRouteWithChildren
   "/more": typeof MoreRouteWithChildren
   "/settings": typeof SettingsRouteWithChildren
+  "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/_home/archived": typeof HomeArchivedRoute
   "/_home/new": typeof HomeNewRoute
@@ -335,6 +344,7 @@ export interface FileRouteTypes {
     | "/deck"
     | "/more"
     | "/settings"
+    | "/setup"
     | "/skills"
     | "/archived"
     | "/new"
@@ -365,6 +375,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/"
   fileRoutesByTo: FileRoutesByTo
   to:
+    | "/setup"
     | "/archived"
     | "/new"
     | "/automations/new"
@@ -401,6 +412,7 @@ export interface FileRouteTypes {
     | "/deck"
     | "/more"
     | "/settings"
+    | "/setup"
     | "/skills"
     | "/_home/archived"
     | "/_home/new"
@@ -439,6 +451,7 @@ export interface RootRouteChildren {
   DeckRoute: typeof DeckRouteWithChildren
   MoreRoute: typeof MoreRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
+  SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
 }
 
@@ -484,6 +497,13 @@ declare module "@tanstack/react-router" {
       path: "/settings"
       fullPath: "/settings"
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/setup": {
+      id: "/setup"
+      path: "/setup"
+      fullPath: "/setup"
+      preLoaderRoute: typeof SetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/skills": {
@@ -818,6 +838,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeckRoute: DeckRouteWithChildren,
   MoreRoute: MoreRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
+  SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,
 }
 export const routeTree = rootRouteImport

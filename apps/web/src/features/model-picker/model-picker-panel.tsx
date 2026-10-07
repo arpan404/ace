@@ -257,7 +257,12 @@ export function ModelPickerPanel(props: {
       >
         <GroupHeader group={group} />
         {group.problems.map((problem, index) => (
-          <GroupProblem key={problem.message} problem={problem} id={problemIds[index] ?? ""} />
+          <GroupProblem
+            key={problem.message}
+            problem={problem}
+            id={problemIds[index] ?? ""}
+            provider={group.provider}
+          />
         ))}
         {group.current.map((model) => row({ kind: "model", model, group }, at(model), false))}
         {legacyRow && row(legacyRow, toggleAt, false, section)}

@@ -5,7 +5,8 @@ import {
   type DaemonConnection,
 } from "@/boot/connection.tsx";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
-import { ConnectCard, CopyCommand } from "./connect-card.tsx";
+import { CopyCommand } from "@/components/copy-command.tsx";
+import { ConnectCard } from "./connect-card.tsx";
 import { DaemonForm } from "./daemon-form.tsx";
 import { HandoffScreen } from "./handoff-screen.tsx";
 

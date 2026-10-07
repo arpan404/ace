@@ -38,6 +38,11 @@ export class FakeProviderLogin {
     this.changed = changed;
     this.openTerminal = openTerminal;
   }
+  /** Stage a device's setup as done (or not), as `onboarding.dismiss` from it would. */
+  dismiss(device: string, dismissed = true): void {
+    if (dismissed) this.dismissed.add(device);
+    else this.dismissed.delete(device);
+  }
   release(push: (message: ServerMessage) => void): void {
     this.subscribers.delete(push);
     for (const job of this.jobs.values())

@@ -32,6 +32,11 @@ export interface TerminalSource {
   attach(id: string, fromOffset: number, listener: (event: TerminalEvent) => void): () => void;
   write(id: string, data: string): void;
   resize(id: string, cols: number, rows: number): void;
+  /**
+   * A terminal outside any thread that this client was handed (a provider's sign-in terminal,
+   * `provider.login.terminal`): its requests name no thread.
+   */
+  adopt?(id: string): void;
   /** End the shell. `threadId` is needed for a terminal this client hasn't listed yet. */
   close(id: string, threadId?: string): Promise<void>;
 }

@@ -158,6 +158,10 @@ export class TerminalSessions {
           terminal.name === name && !terminal.exited && this.exitCode(terminal.id) === null,
       );
   }
+  /** Show a terminal that belongs to no thread (`TerminalSource.adopt`). */
+  adopt(id: string): void {
+    this.source.adopt?.(id);
+  }
   /** Focus a terminal when its view first mounts (a person just opened it). */
   requestFocus(id: string): void {
     this.focusWanted.add(id);

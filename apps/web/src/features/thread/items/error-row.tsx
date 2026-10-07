@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useSignIn } from "@/features/sign-in/index.ts";
 
 const linkButton = buttonVariants({ variant: "secondary", size: "sm" });
 
@@ -49,6 +50,8 @@ export function ErrorRow(props: {
   className?: string | undefined;
 }) {
   const view = "text" in props.error ? describeProviderError(props.error) : props.error;
+  const signIn = useSignIn();
+  const signInTo = view.provider;
   const [open, setOpen] = useState(false);
   const details = useId();
   const [row, setRow] = useState<HTMLDivElement | null>(null);
@@ -72,11 +75,16 @@ export function ErrorRow(props: {
               Change model
             </Button>
           )}
-          {view.action === "sign_in" && (
-            <Link to="/settings/providers" className={linkButton}>
-              Sign in
-            </Link>
-          )}
+          {view.action === "sign_in" &&
+            (signIn && signInTo ? (
+              <Button size="sm" variant="secondary" onClick={() => signIn({ provider: signInTo })}>
+                Sign in
+              </Button>
+            ) : (
+              <Link to="/settings/providers" className={linkButton}>
+                Sign in
+              </Link>
+            ))}
           {view.action === "switch_account" && (
             <Link to="/more/accounts" className={linkButton}>
               Use another account

@@ -8,8 +8,8 @@ import { NotificationSettings } from "./notifications-page.tsx";
 import { Link, Navigate } from "@tanstack/react-router";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { ProviderSettings } from "./providers-page.tsx";
 import { RemoteDevices } from "./remote-page.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { SettingsPageLinks } from "./settings-nav.tsx";
 
@@ -31,6 +31,11 @@ export function AppearanceSettingsScreen() {
   );
 }
 
+/** The Providers page loads on its own, with sign-in and readiness, apart from the others. */
+const ProviderSettings = lazy(() =>
+  import("./providers-page.tsx").then((module) => ({ default: module.ProviderSettings })),
+);
+
 export function ProviderSettingsScreen() {
   return (
     <SettingsBody
@@ -45,7 +50,11 @@ export function ProviderSettingsScreen() {
         </>
       }
     >
-      <ProviderSettings />
+      <Suspense
+        fallback={<ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-7" />}
+      >
+        <ProviderSettings />
+      </Suspense>
     </SettingsBody>
   );
 }

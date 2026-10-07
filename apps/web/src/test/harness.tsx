@@ -77,6 +77,11 @@ export function harness(
      * This daemon is then "This Mac".
      */
     machines?: readonly { hostId: string; name: string }[];
+    /**
+     * "pending": this device hasn't been through provider setup, so an empty Home opens it (the
+     * first run). By default setup is done, as it is on every device after its first launch.
+     */
+    onboarding?: "pending";
   } = {},
 ) {
   let now = 1_000;
@@ -96,6 +101,7 @@ export function harness(
     ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
     ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
   });
+  if (options.onboarding !== "pending") daemon.services.providerLogin.dismiss("test-device");
   const client = options.throughWorker
     ? workerClient(daemon)
     : fakeClient(daemon, daemon.token, options.outbox);

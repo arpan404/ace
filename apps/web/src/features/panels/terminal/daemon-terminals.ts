@@ -70,6 +70,8 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
   const read = new Set<string>();
   const threadOf = new Map<string, string>();
   const streams = new Map<string, Stream>();
+  /** Terminals outside any thread that this client was handed (a provider's sign-in). */
+  const standalone = new Set<string>();
   let version = 0;
   let link: TerminalSource["link"] = client.state === "ready" ? "connected" : "disconnected";
   let subscriptions = 0;
@@ -134,14 +136,20 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
       // Offline: the stream ended with the connection and resumes from its offset on attach.
     }
   };
+  /** The thread a request about the terminal names; none for a standalone terminal. */
+  const scopeOf = (terminalId: string) => {
+    const threadId = threadOf.get(terminalId);
+    if (threadId) return { threadId: ThreadId.parse(threadId) };
+    return standalone.has(terminalId) ? {} : undefined;
+  };
   const subscribe = (stream: Stream, fromOffset: number): string => {
     const subscriptionId = `${prefix}-${++subscriptions}`;
-    const threadId = threadOf.get(stream.terminalId);
+    const scope = scopeOf(stream.terminalId);
     streams.set(subscriptionId, stream);
-    if (!threadId) return subscriptionId;
+    if (!scope) return subscriptionId;
     request({
       op: "subscribe",
-      threadId: ThreadId.parse(threadId),
+      ...scope,
       terminalId: stream.terminalId,
       subscriptionId,
       fromOffset,
@@ -235,23 +243,26 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
         void request({ op: "unsubscribe", subscriptionId: current }).catch(() => {});
       };
     },
+    adopt(id) {
+      standalone.add(id);
+    },
     write(id, data) {
-      const threadId = threadOf.get(id);
-      if (!threadId || link !== "connected") return;
+      const scope = scopeOf(id);
+      if (!scope || link !== "connected") return;
       for (let at = 0; at < data.length; at += writeChunk)
         void request({
           op: "write",
-          threadId: ThreadId.parse(threadId),
+          ...scope,
           terminalId: id,
           data: data.slice(at, at + writeChunk),
         }).catch(() => {});
     },
     resize(id, cols, rows) {
-      const threadId = threadOf.get(id);
-      if (!threadId || link !== "connected") return;
+      const scope = scopeOf(id);
+      if (!scope || link !== "connected") return;
       void request({
         op: "resize",
-        threadId: ThreadId.parse(threadId),
+        ...scope,
         terminalId: id,
         cols: Math.min(500, Math.max(1, cols)),
         rows: Math.min(500, Math.max(1, rows)),
@@ -259,6 +270,10 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     },
     async close(id, known) {
       const threadId = known ?? threadOf.get(id);
+      if (!threadId && standalone.delete(id)) {
+        if (link === "connected") await request({ op: "close", terminalId: id });
+        return;
+      }
       if (!threadId || link !== "connected") throw new Error("terminal_offline");
       await request({ op: "close", threadId: ThreadId.parse(threadId), terminalId: id });
       threadOf.delete(id);

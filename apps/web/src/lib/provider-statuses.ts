@@ -12,6 +12,7 @@ import {
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useExplicitDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useProvidersWatch } from "@/lib/provider-readiness.ts";
 
 /** Read runtime discovery rather than inferring authentication from installed adapters. */
 export async function readProviderStatuses(
@@ -32,8 +33,12 @@ export async function readProviderStatuses(
 
 export const providerStatusesKey = ["providers", "statuses"] as const;
 
-/** The providers as the daemon describes them, for pickers; undefined until they've arrived. */
+/**
+ * The providers as the daemon describes them, for pickers; undefined until they've arrived.
+ * A sign-in finished anywhere (`providers.changed`) reads them again.
+ */
 export function useProviderStatuses() {
+  useProvidersWatch();
   return useDaemonQuery({ queryKey: providerStatusesKey, read: readProviderStatuses });
 }
 

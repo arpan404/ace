@@ -1,16 +1,24 @@
-import { signInSteps } from "@ace/ui-core";
+import { readinessView, signInSteps, type ReadinessView } from "@ace/ui-core";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
+import { CopyCommand } from "@/components/copy-command.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { providerStatusesKey } from "@/lib/provider-statuses.ts";
+import {
+  onboardingKey,
+  useProviderReadiness,
+  type ProviderReadiness,
+} from "@/lib/provider-readiness.ts";
+import { ReadinessButton } from "@/features/sign-in/index.ts";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
+import { UpstreamSources } from "./upstream-sources.tsx";
 import type { ProviderAccount, ProviderInstall } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 
@@ -42,6 +50,8 @@ export function describeInstall(install: ProviderInstall): string {
 export function ProviderSettings() {
   const backend = useSettingsBackend();
   const providers = useQuery(settingsQueries.providers(backend));
+  // Each CLI's own login (signed in as whom, or what it needs), live as sign-ins finish.
+  const readiness = useProviderReadiness();
   if (providers.isPending)
     return <ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-7" />;
   if (providers.isError)
@@ -51,9 +61,28 @@ export function ProviderSettings() {
       </p>
     );
   return (
-    <SettingSection label="Providers" card actions={<RediscoverButton />}>
+    <SettingSection
+      label="Providers"
+      card
+      actions={
+        <>
+          <Link to="/setup" className={buttonVariants({ size: "sm", variant: "ghost" })}>
+            Set up providers
+          </Link>
+          <RediscoverButton />
+        </>
+      }
+    >
       {providers.data.map((install) => (
-        <ProviderRow key={`${install.kind}:${install.name}`} install={install} />
+        <ProviderRow
+          key={`${install.kind}:${install.name}`}
+          install={install}
+          readiness={
+            install.kind === "acp"
+              ? undefined
+              : readiness.data?.find((row) => row.provider === install.kind)
+          }
+        />
       ))}
       <SettingRow title="Any ACP agent" description="Add a command and ace will drive it." inline>
         <AddAcpAgent />
@@ -69,7 +98,9 @@ export function RediscoverButton() {
     mutationFn: () => backend.rediscover(),
     onSuccess: (list) => {
       queryClient.setQueryData(settingsQueries.providers(backend).queryKey, list);
-      void queryClient.invalidateQueries({ queryKey: providerStatusesKey });
+      // Readiness and the pickers' statuses (both under "providers"), and setup's checklist.
+      void queryClient.invalidateQueries({ queryKey: ["providers"] });
+      void queryClient.invalidateQueries({ queryKey: onboardingKey });
     },
   });
   return (
@@ -85,10 +116,14 @@ export function RediscoverButton() {
   );
 }
 
-function ProviderRow(props: { install: ProviderInstall }) {
-  const { install } = props;
+function ProviderRow(props: {
+  install: ProviderInstall;
+  readiness: ProviderReadiness | undefined;
+}) {
+  const { install, readiness } = props;
   const [open, setOpen] = useState(false);
   const installed = install.state !== "not_installed";
+  const view = readiness && readinessView(readiness);
   return (
     <>
       <SettingRow
@@ -104,9 +139,21 @@ function ProviderRow(props: { install: ProviderInstall }) {
             {install.name}
           </span>
         }
-        description={describeInstall(install)}
+        description={
+          <>
+            <span>{describeInstall(install)}</span>
+            {readiness && view && <ReadinessLine row={readiness} view={view} />}
+          </>
+        }
       >
         {install.added && <RemoveAgent name={install.name} />}
+        {readiness && (
+          <ReadinessButton
+            provider={readiness.provider}
+            name={install.name}
+            action={view?.action}
+          />
+        )}
         {installed && (
           <Button
             size="sm"
@@ -119,9 +166,30 @@ function ProviderRow(props: { install: ProviderInstall }) {
           </Button>
         )}
       </SettingRow>
+      {installed && readiness && (install.kind === "opencode" || install.kind === "pi") && (
+        <UpstreamSources provider={install.kind} name={install.name} />
+      )}
       {open && <ProviderDetail install={install} />}
     </>
   );
+}
+
+/**
+ * What the CLI's own login says, where it adds to the accounts line: who is signed in, what
+ * needs attention, or the command that installs it.
+ */
+function ReadinessLine(props: { row: ProviderReadiness; view: ReadinessView }) {
+  const { row, view } = props;
+  if (view.action === "install")
+    return row.installCommand ? (
+      <span className="mt-1 block">
+        Install with <CopyCommand command={row.installCommand} />
+      </span>
+    ) : view.detail ? (
+      <span className="block">{view.detail}</span>
+    ) : null;
+  if (view.ready && !row.accountLabel) return null;
+  return <span className="block">{[view.label, view.detail].filter(Boolean).join(" · ")}</span>;
 }
 
 function accountState(account: ProviderAccount): string {

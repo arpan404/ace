@@ -24,10 +24,16 @@ const addProject =
   };
 
 const screens: Record<string, Setup> = {
-  // A daemon with no threads and no projects.
+  // A daemon with no threads and no projects: provider setup first, then the first project.
+  setup: async (page) => {
+    await page.addInitScript(() => Object.assign(globalThis, { aceFakeWorld: "empty" }));
+    await page.goto("/");
+    await expect(page.getByRole("list", { name: "Providers on this computer" })).toBeVisible();
+  },
   empty: async (page) => {
     await page.addInitScript(() => Object.assign(globalThis, { aceFakeWorld: "empty" }));
     await page.goto("/");
+    await page.getByRole("button", { name: "Skip for now" }).click();
     await expect(page.getByRole("heading", { name: "Add your first project" })).toBeVisible();
   },
   open: addProject("Open folder", async (page) => {

@@ -176,7 +176,9 @@ test("a failed turn reads its failure once: the provider's notice and the turn's
   );
   const rows = await within(feed).findAllByRole("group", { name: /^Not signed in to Claude Code/ });
   expect(rows).toHaveLength(1);
-  expect(within(rows[0]!).getByRole("link", { name: "Sign in" })).toBeTruthy();
+  // Sign in starts Claude Code's own sign-in right here.
+  await userEvent.click(within(rows[0]!).getByRole("button", { name: "Sign in" }));
+  expect(await screen.findByRole("dialog", { name: "Sign in to Claude Code" })).toBeTruthy();
 });
 
 test("a turn that failed without a notice still says so once, with Retry", async () => {

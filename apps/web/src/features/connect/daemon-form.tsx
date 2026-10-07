@@ -16,7 +16,7 @@ import {
 } from "@/boot/connection-settings.ts";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { cn } from "@/lib/cn.ts";
-import { CopyCommand } from "./connect-card.tsx";
+import { CopyCommand } from "@/components/copy-command.tsx";
 
 const FormValues = z.object({ url: DaemonUrl, token: DaemonToken, remember: z.boolean() });
 

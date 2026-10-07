@@ -17,6 +17,10 @@ export interface ModelProblem {
   severity?: "info";
   message: string;
   hint: string;
+  /** The daemon's category, which says whether signing in fixes it. */
+  code?: ModelDiscoveryError["code"] | undefined;
+  /** The source the problem is about (an OpenCode or Pi upstream such as "opencode-go"). */
+  source?: string | undefined;
 }
 
 export interface PickerGroup {
@@ -111,12 +115,17 @@ export function pickerGroups(
   }
   const report = (
     into: PickerGroup,
-    problem: (ModelProblem & { code?: ModelDiscoveryError["code"] }) | undefined,
+    problem: ModelProblem | undefined,
+    source?: ModelSource | undefined,
   ) => {
     if (problem && !into.problems.some((known) => known.message === problem.message))
       into.problems.push({
         message: problem.message,
         hint: problem.hint,
+        ...(problem.code ? { code: problem.code } : {}),
+        ...(source && source.kind !== "local" && source.kind !== "account"
+          ? { source: source.id }
+          : {}),
         ...(problem.code === "no_models" ? { severity: "info" as const } : {}),
       });
   };
@@ -128,7 +137,7 @@ export function pickerGroups(
       if (!listed && !entry.error) continue;
       const into = group(status.instance, entry.source);
       into.refreshing ||= entry.status === "refreshing";
-      report(into, entry.error);
+      report(into, entry.error, entry.source);
     }
     const whole = status.errorDetail ?? (status.error ? unexplained : undefined);
     const refreshing = status.status === "refreshing" || status.refreshing;
