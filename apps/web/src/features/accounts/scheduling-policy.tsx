@@ -1,6 +1,9 @@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { settingKeys, useSetting, type LimitPolicy } from "@/features/settings/index.ts";
+import type { SettingsValues } from "@ace/protocol";
+import { useDaemonSetting } from "@/lib/daemon-setting.ts";
+
+type LimitPolicy = SettingsValues["threads.limitPolicy"];
 
 const choices: readonly { value: LimitPolicy; title: string; description: string }[] = [
   {
@@ -28,7 +31,8 @@ const choices: readonly { value: LimitPolicy; title: string; description: string
 
 /** "When an account runs out": the daemon's `threads.limitPolicy`, applied to limited threads. */
 export function SchedulingPolicySection() {
-  const [policy, setPolicy] = useSetting(settingKeys.limitPolicy);
+  const [stored, setPolicy] = useDaemonSetting("threads.limitPolicy");
+  const policy = stored ?? "manual";
   const toast = useToast();
   return (
     <section aria-labelledby="policy-title" className="mt-10">

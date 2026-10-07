@@ -26,20 +26,33 @@ export type ReadinessState =
   | "not_installed"
   | "off";
 
+/** The colour a status is drawn in: ready (green), needs the person (amber), a problem (red). */
+export type ReadinessTone = "ready" | "action" | "problem" | "idle";
+
 export interface ReadinessView {
   state: ReadinessState;
   /** Usable for a new thread now. */
   ready: boolean;
-  /** "Signed in as ada@example.com", "Ready", "Not signed in", "Needs attention". */
+  /** The status in a word or two: "Ready", "Sign in needed", "Needs attention", "Not installed". */
   label: string;
-  /** Quiet secondary text: why it needs attention, how to install it, or what's unreported. */
+  /**
+   * The one line a list shows: "Signed in as ada@example.com", "4 services connected", "Ready",
+   * "Sign in needed", "Needs attention".
+   */
+  summary: string;
+  /** Why it needs attention or how to get it, in the daemon's safe words; for its own page. */
   detail?: string | undefined;
+  tone: ReadinessTone;
   /** The one prominent action: Sign in while signed out, Reconnect while it needs attention. */
   primary?: "sign_in" | "reconnect" | undefined;
-  /** Quieter actions, for an overflow menu. */
+  /** Quieter actions, for the provider's own page. */
   more: readonly ReadinessAction[];
-  /** Signing in connects an upstream provider (OpenCode, Pi): the CLI's choices list them. */
+  /** Signing in connects a service (OpenCode, Pi): the CLI's choices list them. */
   upstreams?: boolean | undefined;
+  /** Who the CLI says is signed in, when it says. */
+  account?: string | undefined;
+  /** The CLI doesn't report its sign-in; ace goes by whether it lists models. */
+  unreported?: boolean | undefined;
 }
 
 /** What the model catalog says about a provider: whether it lists models, and an auth error. */
@@ -87,17 +100,42 @@ const attention = (detail: string | undefined): ReadinessView => ({
   state: "attention",
   ready: false,
   label: "Needs attention",
+  summary: "Needs attention",
   detail,
+  tone: "problem",
   primary: "reconnect",
   more: ["sign_out"],
 });
 
-const unreported = "Sign-in not reported by this CLI";
+const signedOut = (detail?: string, upstreams?: boolean): ReadinessView => ({
+  state: "signed_out",
+  ready: false,
+  label: "Sign in needed",
+  summary: "Sign in needed",
+  detail,
+  tone: "action",
+  primary: "sign_in",
+  more: [],
+  ...(upstreams ? { upstreams } : {}),
+});
+
+const quiet = (state: ReadinessState, label: string, detail?: string): ReadinessView => ({
+  state,
+  ready: false,
+  label,
+  summary: label,
+  detail,
+  tone: "idle",
+  more: [],
+});
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /**
- * How one readiness row reads and what it offers. `catalog` (once the model catalog has loaded)
+ * How one provider reads and what it offers. `catalog` (once the model catalog has loaded)
  * decides whether a CLI that doesn't report its sign-in is ready, and turns a catalog auth
- * error into "Needs attention".
+ * error into "Needs attention". Until it has loaded, such a CLI reads "Checking…" rather than
+ * flicker from unconfirmed to ready.
  */
 export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): ReadinessView {
   const name = providerNames[row.provider];
@@ -121,82 +159,55 @@ export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): Rea
       ? {
           state: "ready",
           ready: true,
-          label: `${catalog.connected} provider${catalog.connected === 1 ? "" : "s"} connected`,
+          label: "Ready",
+          summary: `${plural(catalog.connected, "service")} connected`,
+          tone: "ready",
           more: ["reconnect", "sign_out"],
           upstreams: true,
+          ...(row.auth === "unknown" ? { unreported: true } : {}),
         }
-      : {
-          state: "signed_out",
-          ready: false,
-          label: "Not signed in",
-          detail: "No provider connected",
-          primary: "sign_in",
-          more: [],
-          upstreams: true,
-        };
+      : signedOut(`Connect a service to ${name}, such as GitHub Copilot or OpenAI.`, true);
   switch (readiness) {
     case "not_installed":
-      return {
-        state: "not_installed",
-        ready: false,
-        label: "Not installed",
-        detail: row.installHint,
-        more: [],
-      };
+      return quiet("not_installed", "Not installed", row.installHint);
     case "not_configured":
       return row.enabled === false
-        ? { state: "off", ready: false, label: "Turned off", more: [] }
-        : {
-            state: "signed_out",
-            ready: false,
-            label: `Sign in to ${name} to use it`,
-            primary: "sign_in",
-            more: [],
-          };
+        ? quiet("off", "Turned off")
+        : signedOut(`Sign in to ${name} to use it.`);
     case "installed_signed_out":
-      return {
-        state: "signed_out",
-        ready: false,
-        label: "Not signed in",
-        primary: "sign_in",
-        more: [],
-      };
+      return signedOut();
     case "needs_attention":
-      if (row.installed === null)
-        return { state: "checking", ready: false, label: "Checking…", more: [] };
-      if (row.auth === "logged_out")
-        return {
-          state: "signed_out",
-          ready: false,
-          label: "Not signed in",
-          detail: row.authDetail ?? row.error,
-          primary: "sign_in",
-          more: [],
-        };
+      if (row.installed === null) return quiet("checking", "Checking…");
+      if (row.auth === "logged_out") return signedOut(row.authDetail ?? row.error);
       return attention(row.authDetail ?? row.error);
-    case "signed_in":
+    case "signed_in": {
       if (catalog?.problem) return attention(catalog.problem);
-      if (row.auth === "unknown")
-        return catalog?.models
-          ? {
-              state: "ready",
-              ready: true,
-              label: "Ready",
-              detail: unreported,
-              more: ["reconnect", "sign_out"],
-            }
-          : {
-              state: "unconfirmed",
-              ready: false,
-              label: unreported,
-              detail: catalog ? "It lists no models yet." : undefined,
-              more: ["reconnect", "sign_out"],
-            };
-      return {
+      const ready = (summary: string, extra: Partial<ReadinessView> = {}): ReadinessView => ({
         state: "ready",
         ready: true,
-        label: row.accountLabel ? `Signed in as ${row.accountLabel}` : "Signed in",
+        label: "Ready",
+        summary,
+        tone: "ready",
         more: ["reconnect", "sign_out"],
-      };
+        ...extra,
+      });
+      if (row.auth === "unknown") {
+        if (!catalog) return { ...quiet("checking", "Checking…"), unreported: true };
+        return catalog.models
+          ? ready("Ready", { unreported: true })
+          : {
+              ...quiet(
+                "unconfirmed",
+                "Installed",
+                `${name} doesn't report who is signed in, and it lists no models yet.`,
+              ),
+              more: ["reconnect", "sign_out"],
+              unreported: true,
+            };
+      }
+      return row.accountLabel
+        ? ready(`Signed in as ${row.accountLabel}`, { account: row.accountLabel })
+        : ready("Signed in");
+    }
   }
 }

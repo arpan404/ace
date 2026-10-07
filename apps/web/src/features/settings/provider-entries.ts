@@ -1,0 +1,70 @@
+import { readinessView, type ReadinessTone, type ReadinessView } from "@ace/ui-core";
+import { useQuery } from "@tanstack/react-query";
+import { useProviderReadiness, type ProviderReadiness } from "@/lib/provider-readiness.ts";
+import { useCatalogSignals } from "@/lib/provider-signals.ts";
+import type { ProviderInstall } from "./data/backend.ts";
+import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
+
+/**
+ * One provider as the Providers pages show it: what discovery found (with ace's accounts on it),
+ * its CLI's own readiness, and that readiness in words. ACP agents have no readiness row.
+ */
+export interface ProviderEntry {
+  /** The provider's page: its kind, or `acp:<name>` for an ACP agent. */
+  id: string;
+  install: ProviderInstall;
+  row: ProviderReadiness | undefined;
+  view: ReadinessView | undefined;
+}
+
+export const providerPageId = (install: ProviderInstall): string =>
+  install.kind === "acp" ? `acp:${install.name}` : install.kind;
+
+/** Not on this computer: listed apart, with how to get it. */
+export function isMissing(entry: ProviderEntry): boolean {
+  return entry.view
+    ? entry.view.state === "not_installed"
+    : entry.install.state === "not_installed";
+}
+
+/** Every provider, live: discovery, readiness and the model catalog's say on each. */
+export function useProviderEntries() {
+  const backend = useSettingsBackend();
+  const providers = useQuery(settingsQueries.providers(backend));
+  const readiness = useProviderReadiness();
+  const signals = useCatalogSignals();
+  const entries = providers.data?.map((install): ProviderEntry => {
+    const row =
+      install.kind === "acp"
+        ? undefined
+        : readiness.data?.find((entry) => entry.provider === install.kind);
+    return {
+      id: providerPageId(install),
+      install,
+      row,
+      view: row && readinessView(row, signals(install.kind)),
+    };
+  });
+  return { entries, query: providers };
+}
+
+/**
+ * The status line of a provider: its readiness in words, or for an ACP agent (which has none)
+ * how ace reaches it; with why it needs attention, when it does.
+ */
+export function entryStatus(entry: ProviderEntry): {
+  tone: ReadinessTone;
+  text: string;
+  problem?: string | undefined;
+} {
+  const { install, view } = entry;
+  if (view)
+    return {
+      tone: view.tone,
+      text: view.summary,
+      problem: view.tone === "problem" ? view.detail : undefined,
+    };
+  if (install.added) return { tone: "idle", text: "Added by command" };
+  if (install.state === "not_installed") return { tone: "idle", text: "Not installed" };
+  return { tone: "ready", text: "Runs through ACP" };
+}

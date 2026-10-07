@@ -1,16 +1,17 @@
 import { providerNames, type ReadinessView } from "@ace/ui-core";
-import { CheckCircleIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@phosphor-icons/react";
+import { useState } from "react";
 import { CopyCommand } from "@/components/copy-command.tsx";
-import { Icon } from "@/components/icon.tsx";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ProviderReadiness } from "@/lib/provider-readiness.ts";
-import { ReadinessActions } from "@/features/sign-in/index.ts";
+import { ReadinessAction } from "@/features/sign-in/index.ts";
 
 /**
- * One provider on the setup page: ready with a check, or the one thing that makes it ready
- * (sign in, reconnect, or the command that installs it). `next` marks the one card that needs
- * action and is setup's suggested step: it is highlighted and its button is the primary one.
+ * One agent on the setup page: its mark, its name and status, and either a green check (ready)
+ * or the one thing that makes it ready. `next` marks setup's suggested step: ringed, and its
+ * button is the primary one.
  */
 export function ProviderCard(props: {
   row: ProviderReadiness;
@@ -19,30 +20,28 @@ export function ProviderCard(props: {
 }) {
   const { row, view, next } = props;
   const name = providerNames[row.provider];
-  const install = view.state === "not_installed";
   return (
     <li
       aria-label={name}
       data-next={next ? "" : undefined}
       className={cn(
-        "flex flex-col gap-2 rounded-card border bg-card px-4 py-3.5",
+        "fx-rise-in flex flex-col justify-between gap-6 rounded-lg border bg-card p-4 transition-shadow duration-(--dur-2)",
         next && "shadow-[0_0_0_2px_var(--ring)]",
       )}
     >
-      <div className="flex items-center gap-3">
-        <ProviderIcon provider={row.provider} size={20} decorative />
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium">{name}</p>
-          <p className="truncate text-sm text-muted-foreground">
-            {[view.label, view.ready || install ? undefined : row.version]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        </div>
+      <div className="flex items-start justify-between gap-2">
+        <ProviderTile provider={row.provider} />
         {view.ready ? (
-          <Icon icon={CheckCircleIcon} size={20} label="Ready" className="text-status-done" />
+          <span
+            role="img"
+            aria-label="Ready"
+            data-tone="done"
+            className="fx-pop grid size-7 place-items-center rounded-full bg-(--tone)/12 text-(--tone)"
+          >
+            <CheckIcon aria-hidden size={14} weight="bold" />
+          </span>
         ) : (
-          <ReadinessActions
+          <ReadinessAction
             provider={row.provider}
             name={name}
             view={view}
@@ -50,8 +49,44 @@ export function ProviderCard(props: {
           />
         )}
       </div>
-      {!view.ready && view.detail && <p className="text-sm text-muted-foreground">{view.detail}</p>}
-      {install && row.installCommand && <CopyCommand command={row.installCommand} />}
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="truncate text-base font-medium">{name}</p>
+        <span className="text-sm text-muted-foreground">
+          <StatusLine tone={view.tone} text={view.summary} />
+        </span>
+      </div>
+    </li>
+  );
+}
+
+/** An agent that isn't installed: one quiet row, its install command a click away. */
+export function MissingRow(props: { row: ProviderReadiness; view: ReadinessView }) {
+  const { row, view } = props;
+  const name = providerNames[row.provider];
+  const [open, setOpen] = useState(false);
+  return (
+    <li aria-label={name} className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <ProviderTile provider={row.provider} size="sm" muted />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">{name}</p>
+          <p className="text-sm text-muted-foreground">Not installed</p>
+        </div>
+        <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
+          How to install
+        </Button>
+      </div>
+      {open && (
+        <div className="fx-rise-in pl-11 text-sm text-muted-foreground">
+          {row.installCommand ? (
+            <p className="flex flex-wrap items-center gap-1.5">
+              Run <CopyCommand command={row.installCommand} /> in a terminal, then check again.
+            </p>
+          ) : (
+            <p>{view.detail ?? `Install ${name} with its own installer, then check again.`}</p>
+          )}
+        </div>
+      )}
     </li>
   );
 }

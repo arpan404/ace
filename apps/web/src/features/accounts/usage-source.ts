@@ -83,6 +83,36 @@ export function useAccountUsage(range: UsageRange, enabled: boolean) {
   });
 }
 
+/**
+ * One provider's usage over the range: tokens per day (`usage.series`) and per account
+ * (`usage.summary`), both with what the tokens would cost at API prices.
+ */
+export function useProviderUsage(range: UsageRange, provider: string) {
+  const query = (groupBy: UsageDimension[]) =>
+    UsageQuery.parse({
+      from: range.from,
+      to: range.to,
+      groupBy,
+      filters: { provider: [provider] },
+      equivalentApiCost: true,
+      limit: 100,
+    });
+  const daily = useDaemonQuery({
+    queryKey: [...key(range, "day"), provider],
+    enabled: range.ready,
+    read: async (client, signal): Promise<UsageResult> =>
+      (await client.request({ type: "usage.series", query: query(["day"]) }, { signal })).result,
+  });
+  const accounts = useDaemonQuery({
+    queryKey: [...key(range, "account"), provider],
+    enabled: range.ready,
+    read: async (client, signal): Promise<UsageResult> =>
+      (await client.request({ type: "usage.summary", query: query(["account"]) }, { signal }))
+        .result,
+  });
+  return { daily, accounts };
+}
+
 /** Threads whose session totals are read, busiest first, how many at once, and a page's rows. */
 const threadLimit = 50;
 const readsAtOnce = 8;

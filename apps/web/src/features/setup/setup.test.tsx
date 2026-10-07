@@ -71,7 +71,7 @@ test("a first launch opens setup; a sign-in fills progress live, and Start a thr
     expect((await progress()).getAttribute("aria-valuetext")).toBe("1 of 5 ready"),
   );
   expect(within(claude).getByRole("img", { name: "Ready" })).toBeTruthy();
-  expect(screen.getByRole("heading", { level: 2, name: "You're ready" })).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 2, name: "You're ready to go" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Start a thread" }));
   expect(await screen.findByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
   expect(await dismissedOnDaemon(app)).toBe(true);
@@ -117,7 +117,7 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   }
   // Pi doesn't report a sign-in; its connected upstreams say it works.
   expect(
-    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("2 providers connected"),
+    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("2 services connected"),
   ).toBeTruthy();
   const codex = within(cards).getByRole("listitem", { name: "Codex" });
   expect(within(codex).getByRole("button", { name: "Sign in to Codex" })).toBeTruthy();
@@ -132,14 +132,16 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   expect(screen.getByRole("button", { name: "Start a thread" })).toBeTruthy();
 }, 30_000);
 
-test("after setup, Settings → Set up providers opens it again", async () => {
-  const app = harness();
-  stage(app, "codex", { auth: "logged_in", accountLabel: "ada@example.com" });
-  await app.open("/settings/providers");
-  const providers = await screen.findByRole("region", { name: "Providers" }, { timeout: 10_000 });
-  await userEvent.click(within(providers).getByRole("link", { name: "Set up providers" }));
-  const cards = await screen.findByRole("list", { name: "Providers on this computer" });
-  const codex = within(cards).getByRole("listitem", { name: "Codex" });
-  expect(within(codex).getByText("Signed in as ada@example.com")).toBeTruthy();
-  expect(within(codex).getByRole("img", { name: "Ready" })).toBeTruthy();
+test("an agent that isn't installed waits apart, its install command a click away", async () => {
+  const app = harness({ onboarding: "pending" });
+  app.daemon.services.installed.delete("codex");
+  stage(app, "codex", { installed: false });
+  await app.open("/setup");
+  const missing = await screen.findByRole("region", { name: "Not installed" }, { timeout: 10_000 });
+  const codex = within(missing).getByRole("listitem", { name: "Codex" });
+  expect(within(codex).queryByText("npm install -g @openai/codex")).toBeNull();
+  await userEvent.click(within(codex).getByRole("button", { name: "How to install" }));
+  expect(within(codex).getByText("npm install -g @openai/codex")).toBeTruthy();
+  // Installed ones count toward setup; this one doesn't.
+  expect((await progress()).getAttribute("aria-valuetext")).toMatch(/ of 4 ready$/);
 }, 30_000);

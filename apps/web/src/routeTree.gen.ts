@@ -37,7 +37,6 @@ import { Route as SettingsComputerUseRouteImport } from "./routes/settings.compu
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
 import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
-import { Route as SettingsProvidersRouteImport } from "./routes/settings.providers"
 import { Route as SettingsRemoteRouteImport } from "./routes/settings.remote"
 import { Route as SettingsThemeEditorRouteImport } from "./routes/settings.theme-editor"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
@@ -45,6 +44,8 @@ import { Route as SkillsSkillIdRouteImport } from "./routes/skills.$skillId"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
+import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.providers.index"
+import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
 
 const HomeRoute = HomeRouteImport.update({
   id: "/_home",
@@ -185,11 +186,6 @@ const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
   path: "/notifications",
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsProvidersRoute = SettingsProvidersRouteImport.update({
-  id: "/providers",
-  path: "/providers",
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsRemoteRoute = SettingsRemoteRouteImport.update({
   id: "/remote",
   path: "/remote",
@@ -227,6 +223,17 @@ const AutomationsAutomationIdEditRoute =
     path: "/$automationId/edit",
     getParentRoute: () => AutomationsRoute,
   } as any)
+const SettingsProvidersIndexRoute = SettingsProvidersIndexRouteImport.update({
+  id: "/providers/",
+  path: "/providers/",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsProvidersProviderRoute =
+  SettingsProvidersProviderRouteImport.update({
+    id: "/providers/$provider",
+    path: "/providers/$provider",
+    getParentRoute: () => SettingsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof HomeIndexRoute
@@ -251,7 +258,6 @@ export interface FileRoutesByFullPath {
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
-  "/settings/providers": typeof SettingsProvidersRoute
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/theme-editor": typeof SettingsThemeEditorRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -263,7 +269,9 @@ export interface FileRoutesByFullPath {
   "/skills/": typeof SkillsIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
+  "/settings/providers/": typeof SettingsProvidersIndexRoute
 }
 export interface FileRoutesByTo {
   "/setup": typeof SetupRoute
@@ -281,7 +289,6 @@ export interface FileRoutesByTo {
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
-  "/settings/providers": typeof SettingsProvidersRoute
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/theme-editor": typeof SettingsThemeEditorRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -294,7 +301,9 @@ export interface FileRoutesByTo {
   "/skills": typeof SkillsIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
+  "/settings/providers": typeof SettingsProvidersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -320,7 +329,6 @@ export interface FileRoutesById {
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
-  "/settings/providers": typeof SettingsProvidersRoute
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/theme-editor": typeof SettingsThemeEditorRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -333,7 +341,9 @@ export interface FileRoutesById {
   "/skills/": typeof SkillsIndexRoute
   "/_home/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
+  "/settings/providers/": typeof SettingsProvidersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -360,7 +370,6 @@ export interface FileRouteTypes {
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
-    | "/settings/providers"
     | "/settings/remote"
     | "/settings/theme-editor"
     | "/skills/$skillId"
@@ -372,7 +381,9 @@ export interface FileRouteTypes {
     | "/skills/"
     | "/t/$threadId"
     | "/automations/$automationId/edit"
+    | "/settings/providers/$provider"
     | "/automations/$automationId/"
+    | "/settings/providers/"
   fileRoutesByTo: FileRoutesByTo
   to:
     | "/setup"
@@ -390,7 +401,6 @@ export interface FileRouteTypes {
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
-    | "/settings/providers"
     | "/settings/remote"
     | "/settings/theme-editor"
     | "/skills/$skillId"
@@ -403,7 +413,9 @@ export interface FileRouteTypes {
     | "/skills"
     | "/t/$threadId"
     | "/automations/$automationId/edit"
+    | "/settings/providers/$provider"
     | "/automations/$automationId"
+    | "/settings/providers"
   id:
     | "__root__"
     | "/_home"
@@ -428,7 +440,6 @@ export interface FileRouteTypes {
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
-    | "/settings/providers"
     | "/settings/remote"
     | "/settings/theme-editor"
     | "/skills/$skillId"
@@ -441,7 +452,9 @@ export interface FileRouteTypes {
     | "/skills/"
     | "/_home/t/$threadId"
     | "/automations/$automationId/edit"
+    | "/settings/providers/$provider"
     | "/automations/$automationId/"
+    | "/settings/providers/"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -653,13 +666,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsNotificationsRouteImport
       parentRoute: typeof SettingsRoute
     }
-    "/settings/providers": {
-      id: "/settings/providers"
-      path: "/providers"
-      fullPath: "/settings/providers"
-      preLoaderRoute: typeof SettingsProvidersRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     "/settings/remote": {
       id: "/settings/remote"
       path: "/remote"
@@ -708,6 +714,20 @@ declare module "@tanstack/react-router" {
       fullPath: "/automations/$automationId/edit"
       preLoaderRoute: typeof AutomationsAutomationIdEditRouteImport
       parentRoute: typeof AutomationsRoute
+    }
+    "/settings/providers/": {
+      id: "/settings/providers/"
+      path: "/providers"
+      fullPath: "/settings/providers/"
+      preLoaderRoute: typeof SettingsProvidersIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/providers/$provider": {
+      id: "/settings/providers/$provider"
+      path: "/providers/$provider"
+      fullPath: "/settings/providers/$provider"
+      preLoaderRoute: typeof SettingsProvidersProviderRouteImport
+      parentRoute: typeof SettingsRoute
     }
   }
 }
@@ -795,10 +815,11 @@ interface SettingsRouteChildren {
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
-  SettingsProvidersRoute: typeof SettingsProvidersRoute
   SettingsRemoteRoute: typeof SettingsRemoteRoute
   SettingsThemeEditorRoute: typeof SettingsThemeEditorRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
+  SettingsProvidersProviderRoute: typeof SettingsProvidersProviderRoute
+  SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -808,10 +829,11 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeyboardRoute: SettingsKeyboardRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
-  SettingsProvidersRoute: SettingsProvidersRoute,
   SettingsRemoteRoute: SettingsRemoteRoute,
   SettingsThemeEditorRoute: SettingsThemeEditorRoute,
   SettingsIndexRoute: SettingsIndexRoute,
+  SettingsProvidersProviderRoute: SettingsProvidersProviderRoute,
+  SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

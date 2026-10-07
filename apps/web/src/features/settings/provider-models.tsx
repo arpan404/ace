@@ -26,52 +26,69 @@ import {
 const compact = new Intl.NumberFormat("en", { notation: "compact" });
 
 /**
- * A provider's models in Settings: its default model (ace's choice until the person picks one,
- * which then reads as theirs), Refresh models, and each source's models by name, the older ones
- * folded under Legacy models, with any discovery error beside the source it concerns. Kept
- * current by the catalog's `models.changed` pushes.
+ * A provider's models on its page: its default model (ace's choice until the person picks one,
+ * which then reads as theirs), how many it offers, and on request each source's models by name,
+ * the older ones folded under Legacy models, with any discovery error beside the source it
+ * concerns. Kept current by the catalog's `models.changed` pushes.
  */
 export function ProviderModels(props: { provider: ProviderKind }) {
   const catalog = useModelCatalog();
   const state = useModelCatalogState();
   const instances = useModelInstances();
   const refresh = useRefreshModels();
+  const [open, setOpen] = useState(false);
   const rows = (catalog ?? []).filter((model) => model.provider === props.provider);
   const context = new Map(rows.map((model) => [modelKey(model.provider, model.id), model]));
   const models = newThreadOptions(rows, [], []).models.map((option) =>
     pickerModel(option, option.label, option.account),
   );
   const groups = pickerGroups(models, instances, props.provider);
+  const count = new Set(models.map((model) => model.key)).size;
+  const problems = groups.some((group) => group.problems.length > 0);
   return (
-    <div>
-      <div className="mb-1.5 flex items-center gap-1">
-        <h4 className="text-xs font-medium text-subtle-foreground">Models</h4>
+    <div className="divide-y">
+      <DefaultModel provider={props.provider} models={models} />
+      <div className="flex min-h-12 items-center gap-2 px-4 py-2">
+        <span className="min-w-0 flex-1 text-muted-foreground">
+          {catalog === undefined
+            ? "Loading models…"
+            : count
+              ? `${count} model${count === 1 ? "" : "s"} available`
+              : "This CLI reported no models."}
+        </span>
         {state === "refreshing" && <Spinner label="Refreshing models" />}
         <Button
           size="sm"
           variant="ghost"
-          className="ml-auto h-5 px-1.5"
           onClick={() => refresh.refresh(props.provider)}
           disabled={refresh.pending || refresh.reason !== undefined}
           title={refresh.reason}
         >
-          Refresh models
+          Refresh
         </Button>
+        {groups.length > 0 && (
+          <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? "Hide models" : problems ? "Show models and problems" : "Show models"}
+            <CaretRightIcon
+              aria-hidden
+              size={10}
+              weight="bold"
+              className={cn("transition-transform duration-(--dur-1)", open && "rotate-90")}
+            />
+          </Button>
+        )}
       </div>
-      <DefaultModel provider={props.provider} models={models} />
-      {catalog === undefined && <Spinner label="Loading models" />}
-      {catalog && !groups.length && (
-        <p className="text-sm text-muted-foreground">This CLI reported no models.</p>
+      {open && (
+        <ul aria-label="Models" className="fx-rise-in flex flex-col gap-3 px-4 py-3">
+          {groups.map((group) => (
+            <ModelGroup
+              key={group.id}
+              group={group}
+              contextOf={(model) => context.get(model.key)?.contextWindow}
+            />
+          ))}
+        </ul>
       )}
-      <ul aria-label="Models" className="flex flex-col gap-2">
-        {groups.map((group) => (
-          <ModelGroup
-            key={group.id}
-            group={group}
-            contextOf={(model) => context.get(model.key)?.contextWindow}
-          />
-        ))}
-      </ul>
     </div>
   );
 }
@@ -192,8 +209,8 @@ function DefaultModel(props: { provider: ProviderKind; models: readonly PickerMo
     }
   };
   return (
-    <div className="mb-2 flex items-center gap-2 text-ui">
-      <span className="shrink-0 text-muted-foreground">Default model</span>
+    <div className="flex min-h-12 items-center gap-2 px-4 py-2 text-ui">
+      <span className="min-w-0 flex-1">Default model</span>
       <ModelField
         label="Default model"
         provider={props.provider}
