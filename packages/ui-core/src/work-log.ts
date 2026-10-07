@@ -3,6 +3,7 @@ import { quickStat } from "./file-changes.ts";
 import { displayCommand, stepPath, type PathContext } from "./step-display.ts";
 import type { StepLabels } from "./tool-labels.ts";
 import { formatElapsed } from "./time.ts";
+import { planCount, planProgress, planTodos } from "./plan.ts";
 
 export type StepIcon = "read" | "search" | "shell" | "edit" | "web" | "tool" | "think" | "note";
 
@@ -168,8 +169,15 @@ function callText(call: ToolCall, context: StepContext): CallText {
       };
     }
     case "todo":
-    case "plan":
-      return { icon: "note", verb: "Updated the plan" };
+    case "plan": {
+      // One quiet line, "Updated the plan … 3 of 6"; the list itself is the composer's tab.
+      const progress = planProgress(planTodos(detail));
+      return {
+        icon: "note",
+        verb: "Updated the plan",
+        note: progress.total ? planCount(progress) : undefined,
+      };
+    }
     case "ask_user":
       return { icon: "note", verb: "Asked a question" };
     case "agent.message":

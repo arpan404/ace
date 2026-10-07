@@ -51,19 +51,17 @@ function dropFolder(name: string) {
 test("/new?folder= adds the folder and opens New thread in it", async () => {
   const made = host();
   await made.open(`/new?folder=${encodeURIComponent(`${home}/code/weather`)}`);
-  await screen.findByRole("heading", { name: "What should we work on in weather?" });
+  await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);
 });
 
 test("opening a folder that is already a project selects it rather than adding another", async () => {
   const made = host();
   await made.open(`/new?folder=${encodeURIComponent(`${home}/code/weather`)}`);
-  await screen.findByRole("heading", { name: "What should we work on in weather?" });
+  await screen.findByRole("button", { name: "Project: weather" });
   await made.open(`/new?folder=${encodeURIComponent(`${home}/code/weather/`)}`);
   await waitFor(() =>
-    expect(
-      screen.getAllByRole("heading", { name: "What should we work on in weather?" }),
-    ).toHaveLength(2),
+    expect(screen.getAllByRole("button", { name: "Project: weather" })).toHaveLength(2),
   );
   expect(registered(made)).toEqual([`${home}/code/weather`]);
 });
@@ -90,12 +88,12 @@ test("in the desktop app a folder dropped on the window becomes a project", asyn
   await screen.findByRole("heading", { level: 1, name: "New thread" });
   dropFolder("web");
 
-  await screen.findByRole("heading", { name: "What should we work on in web?" });
+  await screen.findByRole("button", { name: "Project: web" });
   // A subfolder of a repository offers the repository too, added only if chosen.
   expect(await screen.findByText("It's inside the mono repository.")).toBeTruthy();
   expect(registered(made)).toEqual([`${home}/code/mono/packages/web`]);
   await userEvent.click(screen.getByRole("button", { name: "Use mono" }));
-  await screen.findByRole("heading", { name: "What should we work on in mono?" });
+  await screen.findByRole("button", { name: "Project: mono" });
 });
 
 test("in a browser a dropped folder opens Add project, since the page can't know its path", async () => {
@@ -113,6 +111,6 @@ test("the desktop app's folder picker adds the chosen folder", async () => {
   await made.open("/new");
   await userEvent.click(await screen.findByRole("button", { name: "Open a folder" }));
   await userEvent.click(await screen.findByRole("button", { name: "Choose a folder…" }));
-  await screen.findByRole("heading", { name: "What should we work on in weather?" });
+  await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);
 });

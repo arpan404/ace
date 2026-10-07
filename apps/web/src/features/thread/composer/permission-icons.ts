@@ -1,16 +1,18 @@
-import type { PermissionMode } from "@ace/protocol";
+import type { PermissionRisk } from "@ace/ui-core";
 import {
-  EyeIcon,
-  HandPalmIcon,
   ShieldCheckIcon,
+  ShieldIcon,
   ShieldWarningIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 
-/** One glyph per approval mode, shared by the composer's chip and its menu. */
-export const permissionIcons: Record<PermissionMode, PhosphorIcon> = {
-  "read-only": EyeIcon,
-  ask: HandPalmIcon,
-  "auto-review": ShieldCheckIcon,
-  "full-access": ShieldWarningIcon,
+/**
+ * One glyph per risk, shared by the composer's approvals icon and its menu, so a provider's
+ * native modes draw without a table of their own: a plain shield for the strict ones, a checked
+ * shield for reviewed ones, a warning shield (in the attention colour) when nothing is gated.
+ */
+export const riskIcons: Record<PermissionRisk, PhosphorIcon> = {
+  low: ShieldIcon,
+  medium: ShieldCheckIcon,
+  high: ShieldWarningIcon,
 };

@@ -72,7 +72,7 @@ test("the first run offers the three ways in, and a searched folder opens with E
   await userEvent.keyboard("{Enter}");
 
   // A project with no threads yet opens at New thread.
-  await screen.findByRole("heading", { name: "What should we work on in weather?" });
+  await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);
 });
 
@@ -148,7 +148,7 @@ test("typing a path browses it: Tab completes, / goes in, Backspace and ⌘↑ g
   await option("mono");
   await userEvent.click(search);
   await userEvent.keyboard("{Enter}");
-  await screen.findByRole("heading", { name: "What should we work on in mono?" });
+  await screen.findByRole("button", { name: "Project: mono" });
   expect(registered(made)).toEqual([`${home}/code/mono`]);
 });
 
@@ -215,7 +215,7 @@ test("a folder inside a repository offers the repository, added only when chosen
   // Offered, not added.
   expect(registered(made)).toEqual([]);
   await userEvent.click(within(offer).getByRole("button", { name: "Add mono" }));
-  await screen.findByRole("heading", { name: "What should we work on in mono?" });
+  await screen.findByRole("button", { name: "Project: mono" });
   expect(registered(made)).toEqual([`${home}/code/mono`]);
 });
 
@@ -235,7 +235,7 @@ test("Enter opens a project with threads at its threads; ⌘Enter starts a new t
   await box();
   await option("weather");
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  await screen.findByRole("heading", { name: "What should we work on in weather?" });
+  await screen.findByRole("button", { name: "Project: weather" });
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
 
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
@@ -243,7 +243,7 @@ test("Enter opens a project with threads at its threads; ⌘Enter starts a new t
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByRole("heading", { level: 1, name: "Fix the forecast" })).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
-  expect(screen.queryByRole("heading", { name: "What should we work on in weather?" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Project: weather" })).toBeNull();
 });
 
 test("⌘1–⌘3 switch tabs, and so do ← and → from an empty box", async () => {
@@ -283,7 +283,7 @@ test("a new project's name is checked as you type, and it can start as a Git rep
   await userEvent.type(screen.getByRole("textbox", { name: "Initial branch" }), "trunk");
   await userEvent.click(screen.getByRole("button", { name: "Create project" }));
 
-  await screen.findByRole("heading", { name: "What should we work on in forecast?" });
+  await screen.findByRole("button", { name: "Project: forecast" });
   const inspected = await made.client.projects.inspect(`${home}/forecast`);
   expect(inspected.result).toMatchObject({
     kind: "inspection",
@@ -307,7 +307,7 @@ test("New project goes where the location search points, and ⌘Enter creates it
   await screen.findByText("Creates ~/code/notes");
   await userEvent.click(screen.getByRole("switch", { name: "Initialise a Git repository" }));
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  await screen.findByRole("heading", { name: "What should we work on in notes?" });
+  await screen.findByRole("button", { name: "Project: notes" });
   expect(registered(made)).toEqual([`${home}/code/notes`]);
 });
 
@@ -339,7 +339,7 @@ test("with home outside projects.roots, browsing opens the first root and adds f
   await option("site");
   await userEvent.keyboard("{ArrowDown}{Enter}");
 
-  await screen.findByRole("heading", { name: "What should we work on in site?" });
+  await screen.findByRole("button", { name: "Project: site" });
   expect(registered(made)).toEqual(["/srv/www/site"]);
 });
 

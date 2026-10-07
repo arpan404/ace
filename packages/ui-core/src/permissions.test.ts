@@ -5,7 +5,8 @@ import {
   permissionChoices,
   permissionCoverage,
   permissionCoverageNote,
-  permissionChipText,
+  permissionModeOf,
+  permissionOptions,
   permissionPendingNote,
   threadPermissionSummary,
 } from "./permissions.ts";
@@ -123,15 +124,11 @@ test("a chosen mode waiting for the next turn shows beside the one in effect unt
   );
   // The chip shows the mode the agent runs under now, and the one replacing it.
   expect(waiting).toMatchObject({ mode: "auto-review", next: "full-access", inherited: false });
-  expect(waiting && permissionChipText(waiting.mode, waiting.next)).toBe(
-    "Auto-review → Full access",
-  );
   const applied = threadPermissionSummary(
     { override: "full-access", effective: "full-access", pending: false },
     codexLike,
   );
   expect(applied).toMatchObject({ mode: "full-access", next: undefined });
-  expect(applied && permissionChipText(applied.mode, applied.next)).toBe("Full access");
 });
 
 test("a change made here shows at once, before the daemon reports it", () => {
@@ -161,13 +158,12 @@ test("going back to the default waits for the default's mode, when that differs"
   ).toBe(undefined);
 });
 
-test("the default mode is named on the chip, not left to its icon", () => {
+test("the default mode is named, not left to its icon", () => {
   const summary = threadPermissionSummary(
     { override: null, effective: "auto-review", pending: false },
     codexLike,
   );
   expect(summary).toMatchObject({ mode: "auto-review", inherited: true, label: "Auto-review" });
-  expect(summary && permissionChipText(summary.mode, summary.next)).toBe("Auto-review");
   expect(threadPermissionSummary(undefined, codexLike)).toBeUndefined();
 });
 
@@ -183,4 +179,28 @@ test("coverage is said once: what the mode in effect gates, or that the provider
   expect(permissionCoverageNote(codexLike, "Codex", "auto-review")).toBe(
     "Auto-review: Protected reads not gated",
   );
+});
+
+test("the composer's generic list carries each supported mode with how much it risks", () => {
+  const options = permissionOptions(codexLike, "Codex");
+  expect(options.map((option) => [option.id, option.risk])).toEqual([
+    ["read-only", "low"],
+    ["ask", "low"],
+    ["auto-review", "medium"],
+    ["full-access", "high"],
+  ]);
+  // Ask stays listed, disabled with why, for a provider that can't pause for approval.
+  expect(options.find((option) => option.id === "ask")?.unavailable).toBe(
+    "Codex can't pause for your approval",
+  );
+  expect(options.find((option) => option.id === "full-access")).toMatchObject({
+    label: "Full access",
+    description: "Edits, runs and fetches without asking",
+  });
+  expect(permissionOptions(undefined)).toEqual([]);
+});
+
+test("an option id maps back to ace's mode, and an unknown one to none", () => {
+  expect(permissionModeOf("full-access")).toBe("full-access");
+  expect(permissionModeOf("bypassPermissions")).toBeUndefined();
 });

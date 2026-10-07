@@ -1,63 +1,50 @@
-import type { PermissionCapabilities, PermissionMode, ProviderKind } from "@ace/protocol";
-import {
-  permissionChipText,
-  permissionCoverage,
-  permissionLabel,
-  permissionNeedsAttention,
-} from "@ace/ui-core";
-import { ClockIcon, ShieldCheckIcon, WarningIcon } from "@phosphor-icons/react";
+import type { PermissionOption } from "@ace/ui-core";
 import { Suspense } from "react";
+import { Dot } from "@/components/ui/dot.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useComposerCompact } from "./composer-compact.ts";
-import { chipControl } from "./composer-styles.ts";
+import { iconControl } from "./composer-styles.ts";
 import { DeferredPermissionMenu, MenuPending } from "./deferred-menus.tsx";
-import { permissionIcons } from "./permission-icons.ts";
+import { riskIcons } from "./permission-icons.ts";
+import type { PermissionMenuView } from "./permission-view.ts";
+
+export type { PermissionMenuView } from "./permission-view.ts";
 
 /** "Applies at the agent's next turn" read on after the mode's name: "applies at…". */
 const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 /**
- * How the agent's actions get approved: a quiet button in the composer's footer with the mode's
- * icon and name, the default (Auto-review) included. It shows the mode in effect; while a change
- * waits for the agent's next turn it shows both, "Auto-review → Full access", with a small
- * clock, and the tooltip says when the change applies. The provider's real coverage is in the
- * tooltip and menu. Full access is the one mode drawn in the attention colour. A
- * narrow composer shows the mode's icon alone; its name stays in the tooltip and accessible name.
- * When the mode asked for (a chosen or default Ask) can't run on this provider, `fallback` says
- * so: a small warning on the chip, in its tooltip and at the top of the menu.
+ * How the agent's actions get approved, as one icon in the composer: a shield whose glyph
+ * follows the mode's risk, drawn in the attention colour when nothing is gated. Its name and
+ * what it gates are in the tooltip and the accessible name; the menu lists the provider's modes
+ * (any `{id, label, description, risk}` list, ace's or a provider's own). While a change waits
+ * for the agent's next turn a small mark sits on the icon and the tooltip says when it applies;
+ * a mode that couldn't be honoured as asked (`fallback`) puts a warning mark there.
  */
 export function PermissionPicker(props: {
   /** The mode in effect. */
-  mode: PermissionMode | undefined;
-  capabilities: PermissionCapabilities | undefined;
-  /** Whose modes these are, for the menu's note on what they gate. */
-  provider?: ProviderKind | undefined;
-  loading: boolean;
-  /** Why the mode can't be chosen here, e.g. the daemon couldn't report the provider's modes. */
-  unavailable?: string | undefined;
-  /** The mode chosen to replace `mode`, not in effect yet. */
-  next?: PermissionMode | undefined;
+  current: PermissionOption | undefined;
+  /** The mode chosen to replace it, not in effect yet. */
+  next?: PermissionOption | undefined;
   /** When `next` applies: "Applies at the agent's next turn", "Will apply when reconnected". */
   note?: string | undefined;
-  /** The mode comes from the default; the menu offers to go back to it. */
+  /** What the mode in effect gates, for the tooltip: "Protected reads not gated". */
+  detail?: string | undefined;
+  /** The mode comes from the default. */
   inherited?: boolean | undefined;
-  /** A thread's default, offered as "Use the default" when it has its own mode. */
-  defaultMode?: PermissionMode | undefined;
-  /** Why the mode shown isn't the one asked for: "Cursor can't pause for your approval…". */
-  fallback?: string | undefined;
-  onChange(mode: PermissionMode | null): void;
+  menu: PermissionMenuView;
+  onChange(id: string | null): void;
 }) {
-  const { mode, next } = props;
-  const compact = useComposerCompact();
-  const label = mode ? permissionLabel(mode) : props.loading ? "Approvals…" : "Approvals";
-  const Glyph = mode ? permissionIcons[mode] : ShieldCheckIcon;
-  const attention = !!mode && permissionNeedsAttention(mode);
-  const waits = next && props.note ? `${permissionLabel(next)} ${lower(props.note)}` : undefined;
+  const { current, next, menu } = props;
+  const label = current?.label ?? (menu.loading ? "Approvals…" : "Approvals");
+  const Glyph = riskIcons[current?.risk ?? "medium"];
+  const attention = current?.risk === "high";
+  const waits = next && props.note ? `${next.label} ${lower(props.note)}` : undefined;
   const tip = [
-    mode ? `${label} · ${permissionCoverage(props.capabilities, mode)}` : label,
-    props.fallback,
+    current ? `Approvals: ${label}` : label,
+    props.detail,
+    menu.fallback,
     waits,
     props.inherited ? "default" : undefined,
   ]
@@ -65,38 +52,30 @@ export function PermissionPicker(props: {
     .join(" · ");
   return (
     <Menu>
-      <Tip label={props.unavailable ?? tip} side="top">
+      <Tip label={menu.unavailable ?? tip} side="top">
         <MenuTrigger
           aria-label={`Approvals: ${label}${waits ? `, ${waits}` : ""}`}
-          aria-description={props.fallback}
-          // Full access reads in the attention colour, word and glyph: a quiet, constant warning.
+          aria-description={menu.fallback}
+          // Nothing gated reads in the attention colour: a quiet, constant warning.
           className={cn(
-            chipControl,
+            iconControl,
+            "relative",
             attention &&
               "text-status-needs-you hover:text-status-needs-you aria-expanded:text-status-needs-you",
           )}
         >
-          <Glyph aria-hidden size={16} className="shrink-0" />
-          {mode && !compact && <span className="truncate">{permissionChipText(mode, next)}</span>}
-          {next && <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />}
-          {props.fallback && (
-            <WarningIcon aria-hidden size={12} className="shrink-0 text-status-needs-you" />
+          <Glyph aria-hidden size={16} weight={attention ? "fill" : "regular"} />
+          {(next || menu.fallback) && (
+            <Dot
+              tone={menu.fallback ? "needs-you" : "working"}
+              className="absolute top-1.5 right-1.5"
+            />
           )}
         </MenuTrigger>
       </Tip>
-      <MenuContent side="top" align="start" className="w-[320px]">
+      <MenuContent side="top" align="start" className="w-80 max-w-[calc(100vw-2rem)]">
         <Suspense fallback={<MenuPending />}>
-          <DeferredPermissionMenu.Component
-            mode={next ?? mode}
-            capabilities={props.capabilities}
-            provider={props.provider}
-            loading={props.loading}
-            unavailable={props.unavailable}
-            inherited={props.inherited}
-            defaultMode={props.defaultMode}
-            fallback={props.fallback}
-            onChange={props.onChange}
-          />
+          <DeferredPermissionMenu.Component view={menu} onChange={props.onChange} />
         </Suspense>
       </MenuContent>
     </Menu>

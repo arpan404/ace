@@ -16,6 +16,7 @@ import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import { AddButton } from "./add-button.tsx";
+import type { ComposerAnswer } from "./answer-slot.ts";
 import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./attachments.tsx";
 import { ComposerCompact } from "./composer-compact.ts";
 import { accept, insertAt, mentionsIn, triggerAt, type Draft, type Trigger } from "./draft.ts";
@@ -81,18 +82,21 @@ export function Composer({
   stopping?: boolean | undefined;
   /** Edit on a failed message brought back the effort and speed it was sent with. */
   onReturnedOptions?: ((options: ReturnedDraft["options"]) => void) | undefined;
-  /**
-   * Footer controls after +, e.g. where the thread runs and its approvals; they read
-   * `useComposerCompact()`.
-   */
+  /** Footer controls after +: the approvals icon. They read `useComposerCompact()`. */
   controls?: ReactNode;
   /** Right of the footer, before the primary action: the model. */
   trailing?: ReactNode;
   /**
-   * A card attached to the composer (an agent's question, where the thread runs): drawn above
-   * it, narrower and tucked behind its top edge.
+   * The tab attached to the composer (where it runs, what the agents are doing, their plan, an
+   * agent's question): drawn above it, narrower and tucked behind its top edge. It reads
+   * `useComposerCompact()` too.
    */
   attached?: ReactNode;
+  /**
+   * An answer picked on the question card above: while the message is empty, the primary
+   * action sends it ("Submit") and Enter does too.
+   */
+  answer?: ComposerAnswer | undefined;
   /**
    * Provider/model information for the surrounding composer controls. Attachments always
    * have a daemon file-path fallback, including when native media input is unavailable.
@@ -101,6 +105,8 @@ export function Composer({
   /** Send may go while files upload: the message waits as its bubble until they're done. */
   sendsWhileUploading?: boolean | undefined;
   placeholder?: string | undefined;
+  /** The placeholder on a narrow composer, where `placeholder` would be cut short. */
+  shortPlaceholder?: string | undefined;
   autoFocus?: boolean | undefined;
   /** Printable keys typed on the page (not in a field, menu or dialog) write here. */
   typeToFocus?: boolean | undefined;
@@ -346,21 +352,29 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
+      if (empty && props.answer) return props.answer.submit();
       submit((event.metaKey || event.ctrlKey) && props.canSteer !== false);
     }
   };
-  const mode = props.busy
-    ? empty && props.onStop
-      ? "stop"
-      : props.followUp === "steer"
+  // An empty composer offers what it can do now: send an answer picked above, Stop, or (with
+  // nothing to send) Send, unavailable; a draft goes as a message, queued or steered while the
+  // agent works.
+  const mode = empty
+    ? props.answer
+      ? "answer"
+      : props.busy && props.onStop
+        ? "stop"
+        : "send"
+    : props.busy
+      ? props.followUp === "steer"
         ? "steer"
         : "queue"
-    : "send";
+      : "send";
   const unscoped =
     props.thread.draft && !props.thread.id ? "Waiting for the daemon to open a draft" : undefined;
   const placeholder =
     props.unavailable?.short ??
-    props.placeholder ??
+    (terse ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
     (terse ? "Ask anything" : "Ask anything, @ to mention, / for commands");
   const expanded = suggestions.state === "ready";
 
@@ -393,104 +407,105 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           {notice}
         </p>
       )}
-      {props.attached}
-      <div
-        data-slot="composer"
-        onDragOver={(event) => {
-          if (carriesFiles(event.dataTransfer)) event.preventDefault();
-        }}
-        onDrop={(event) => {
-          if (!carriesFiles(event.dataTransfer)) return;
-          event.preventDefault();
-          intake(event.dataTransfer);
-        }}
-        className={cn(
-          "glass relative z-10 flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
-          // Typing keeps the shell calm: a slightly firmer edge and a faint halo, nothing louder;
-          // the footer's controls carry their own focus-visible rings.
-          "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
-        )}
-      >
-        <AttachmentChips
-          items={chips}
-          onRemove={attachments.remove}
-          onRetry={attachments.retry}
-          threadId={props.thread.draft ? undefined : props.thread.id}
-        />
-        <textarea
-          ref={input}
-          rows={1}
-          value={text}
-          disabled={!!off}
-          aria-describedby={props.unavailable?.describedBy}
-          autoFocus={props.autoFocus}
-          aria-label={props.label ?? "Message"}
-          placeholder={placeholder}
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded={expanded}
-          aria-controls={expanded ? listId : undefined}
-          aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
-          onChange={(event) => {
-            setText(event.target.value);
-            setCaret(event.target.selectionStart);
-          }}
-          onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-          onKeyDown={onKeyDown}
-          onPaste={(event) => {
-            if (!event.clipboardData.files.length) return;
-            event.preventDefault();
-            intake(event.clipboardData);
-          }}
-          className="block min-h-10 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-1.5 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground disabled:cursor-not-allowed"
-        />
-        {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
+      <ComposerCompact value={compact}>
+        {props.attached}
         <div
-          data-slot="composer-footer"
-          onMouseDown={(event) => {
-            if (event.target !== event.currentTarget) return;
-            event.preventDefault();
-            input.current?.focus();
+          data-slot="composer"
+          onDragOver={(event) => {
+            if (carriesFiles(event.dataTransfer)) event.preventDefault();
           }}
-          className="mb-1.5 flex h-11 items-center gap-0.5 px-2"
+          onDrop={(event) => {
+            if (!carriesFiles(event.dataTransfer)) return;
+            event.preventDefault();
+            intake(event.dataTransfer);
+          }}
+          className={cn(
+            "glass relative z-10 flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
+            // Typing keeps the shell calm: a slightly firmer edge and a faint halo, nothing louder;
+            // the footer's controls carry their own focus-visible rings.
+            "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
+          )}
         >
-          <AddButton
-            handle={addMenu}
-            reasons={{
-              files: off ?? unscoped,
-              images: off ?? unscoped,
-              mention: off ?? unscoped,
-              command:
-                off ?? (text.trim() ? "Commands go at the start of an empty message" : undefined),
-            }}
-            focusTarget={input}
-            onFiles={attach}
-            onMention={() => edit(insertAt(text, caret, "@"))}
-            onCommand={() => edit({ text: "/", caret: 1 })}
-            onInsert={(inserted) => edit(insertAt(text, caret, inserted))}
-            thread={props.thread.draft ? undefined : props.thread}
-            unavailable={props.unavailable}
+          <AttachmentChips
+            items={chips}
+            onRemove={attachments.remove}
+            onRetry={attachments.retry}
+            threadId={props.thread.draft ? undefined : props.thread.id}
           />
-          <ComposerCompact value={compact}>
-            {/* Both sides shrink and truncate their labels, so nothing on the row ever paints
-                over another; the left gives up its room first. */}
+          <textarea
+            ref={input}
+            rows={1}
+            value={text}
+            disabled={!!off}
+            aria-describedby={props.unavailable?.describedBy}
+            autoFocus={props.autoFocus}
+            aria-label={props.label ?? "Message"}
+            placeholder={placeholder}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={expanded}
+            aria-controls={expanded ? listId : undefined}
+            aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
+            onChange={(event) => {
+              setText(event.target.value);
+              setCaret(event.target.selectionStart);
+            }}
+            onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+            onKeyDown={onKeyDown}
+            onPaste={(event) => {
+              if (!event.clipboardData.files.length) return;
+              event.preventDefault();
+              intake(event.clipboardData);
+            }}
+            className="block min-h-10 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-1.5 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground disabled:cursor-not-allowed"
+          />
+          {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
+          <div
+            data-slot="composer-footer"
+            onMouseDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              event.preventDefault();
+              input.current?.focus();
+            }}
+            className="mb-1.5 flex h-11 items-center gap-0.5 px-2"
+          >
+            <AddButton
+              handle={addMenu}
+              reasons={{
+                files: off ?? unscoped,
+                images: off ?? unscoped,
+                mention: off ?? unscoped,
+                command:
+                  off ?? (text.trim() ? "Commands go at the start of an empty message" : undefined),
+              }}
+              focusTarget={input}
+              onFiles={attach}
+              onMention={() => edit(insertAt(text, caret, "@"))}
+              onCommand={() => edit({ text: "/", caret: 1 })}
+              onInsert={(inserted) => edit(insertAt(text, caret, inserted))}
+              thread={props.thread.draft ? undefined : props.thread}
+              unavailable={props.unavailable}
+            />
+            {/* The model shrinks and truncates its label, so nothing on the row ever paints over
+              another. */}
             <div className="flex min-w-0 flex-1 items-center gap-0.5">{props.controls}</div>
             {props.trailing && (
               <div className="flex min-w-0 items-center justify-end gap-0.5">{props.trailing}</div>
             )}
-          </ComposerCompact>
-          <PrimaryAction
-            mode={mode}
-            blocked={blocked}
-            off={!!off}
-            canSteer={props.canSteer !== false}
-            stopping={!!props.stopping}
-            describedBy={props.unavailable?.describedBy}
-            onSend={() => submit(false)}
-            onStop={() => props.onStop?.()}
-          />
+            <PrimaryAction
+              mode={mode}
+              blocked={blocked}
+              off={!!off}
+              canSteer={props.canSteer !== false}
+              stopping={!!props.stopping}
+              answer={props.answer?.label}
+              describedBy={props.unavailable?.describedBy}
+              onSend={() => (mode === "answer" ? props.answer?.submit() : submit(false))}
+              onStop={() => props.onStop?.()}
+            />
+          </div>
         </div>
-      </div>
+      </ComposerCompact>
     </div>
   );
 }

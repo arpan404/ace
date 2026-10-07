@@ -27,13 +27,10 @@ test("a new thread opens from the daemon's receipt and its organization survives
   await page.getByRole("link", { name: /^New thread/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: "New thread" })).toBeVisible();
   // The seeded project is the only one, so it is chosen, and named rather than shown by id.
-  await expect(
-    page.getByRole("heading", { level: 2, name: `What should we work on in ${workspaceName}?` }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: `Project: ${workspaceName}` })).toBeVisible();
 
   // The local checkout, so the journey doesn't depend on preparing a worktree.
-  await page.getByRole("button", { name: /^Environment:/ }).click();
-  await page.getByRole("radio", { name: /^Local checkout/ }).click();
+  await page.getByRole("checkbox", { name: "Worktree" }).uncheck();
 
   const ask = "Summarise the README for the journey.";
   const message = page.getByRole("combobox", { name: "Message" });
