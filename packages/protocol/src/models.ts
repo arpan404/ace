@@ -31,6 +31,7 @@ export const ModelDiscoveryError = z.object({
     "timeout",
     "persistence_failed",
     "discovery_failed",
+    "no_models",
   ]),
   message: z.string().min(1).max(256),
   hint: z.string().min(1).max(256),

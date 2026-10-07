@@ -109,7 +109,13 @@ function ModelGroup(props: {
       )}
       {group.problems.map((problem) => (
         <p key={problem.message} className="flex gap-1.5 text-sm text-muted-foreground">
-          <WarningCircleIcon aria-hidden size={14} className="mt-0.5 shrink-0 text-status-failed" />
+          {problem.severity !== "info" && (
+            <WarningCircleIcon
+              aria-hidden
+              size={14}
+              className="mt-0.5 shrink-0 text-status-failed"
+            />
+          )}
           <span>
             <span className="text-foreground">{problem.message}</span> {problem.hint}
           </span>

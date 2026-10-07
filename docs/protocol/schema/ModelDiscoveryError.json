@@ -12,7 +12,8 @@
         "parse_failure",
         "timeout",
         "persistence_failed",
-        "discovery_failed"
+        "discovery_failed",
+        "no_models"
       ],
       "type": "string"
     },

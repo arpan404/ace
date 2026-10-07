@@ -10,7 +10,7 @@ export const DaemonUrl = z.string().check(
   z.url("Enter a ws:// or wss:// address"),
   z.refine((value) => /^wss?:$/.test(new URL(value).protocol), "Use a ws:// or wss:// address"),
 );
-/** The local token (`~/.ace/daemon-token`) or a paired device token: 64 hex characters. */
+/** The local token (`~/.ace-next/daemon-token`) or a paired device token: 64 hex characters. */
 export const DaemonToken = z
   .string()
   .check(z.trim(), z.regex(/^[0-9a-f]{64}$/i, "A daemon token is 64 hexadecimal characters"));

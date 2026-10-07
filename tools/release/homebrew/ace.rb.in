@@ -33,8 +33,8 @@ class Ace < Formula
   def caveats
     <<~EOS
       Run `ace install-artifact #{libexec}` to install the managed user daemon.
-      The managed daemon uses `~/.ace/bin/ace` and its own signed updater.
-      Remove it with `~/.ace/bin/ace service uninstall` before `brew uninstall ace`.
+      The managed daemon uses `~/.ace-next/bin/ace` and its own signed updater.
+      Remove it with `~/.ace-next/bin/ace service uninstall` before `brew uninstall ace`.
       Databases are preserved.
     EOS
   end

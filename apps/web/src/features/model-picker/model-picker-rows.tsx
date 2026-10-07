@@ -195,7 +195,9 @@ export function GroupProblem(props: { problem: ModelProblem; id: string }) {
       role="presentation"
       className="flex gap-1.5 px-2.5 py-1 text-xs leading-4 text-muted-foreground"
     >
-      <WarningCircleIcon aria-hidden size={14} className="mt-px shrink-0 text-status-failed" />
+      {props.problem.severity !== "info" && (
+        <WarningCircleIcon aria-hidden size={14} className="mt-px shrink-0 text-status-failed" />
+      )}
       <span>
         <span className="text-foreground">{props.problem.message}</span> {props.problem.hint}
       </span>

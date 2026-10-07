@@ -12,7 +12,7 @@ export const userDataName = "ace-next";
  * It never depends on the daemon target. Electron's default for an app named "ace" is
  * `<appData>/ace`, which the older ace 0.x app owns, and the app can't tell reliably whether
  * that folder is the 0.x app's, so it never uses it: not for a refused or remote daemon, not
- * beside a fresh `~/.ace`. Pass the result through `checkUserData` before Electron uses it.
+ * beside the daemon’s `~/.ace-next`. Pass the result through `checkUserData` before Electron uses it.
  */
 export function desktopUserData(input: { explicit: string | undefined; appData: string }): string {
   return input.explicit ? resolve(input.explicit) : join(input.appData, userDataName);

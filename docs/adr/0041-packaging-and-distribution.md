@@ -57,3 +57,25 @@ The filesystem shell owns pinned directory descriptors. The supplied root's ance
 Installation and validation share `renderLauncher(root)` from `@ace/service`; only its exact complete program is accepted. Additional shell commands, an early legacy exec, an overwritten artifact, and mismatched homes cannot borrow a valid release manifest. The existing installer now calls that renderer; archive/build policy is unchanged.
 
 The shared API remains `resolveDaemonHome(home: string, requested?: string): string`. `createDaemonHomeResolver(filesystem)` adds an injectable filesystem boundary for controlled substitution tests. The descriptor addon loads only when filesystem operations run; packaged Electron resolves the already shipped addon at `resourcesPath/daemon/descriptor.node`. Its two new descriptor-relative mutation operations require the normal native rebuild before merge-time tests and packaging. No desktop source changes belong to this PR.
+
+## Amendment: rewrite home is always separate
+
+Accepted 2026-10-07 for the home-defaults fix. The default rewrite data directory
+is always `~/.ace-next`, even on a fresh machine or after legacy `~/.ace` has
+been removed. Explicit `ACE_HOME` and the existing development overrides keep
+their behavior. Daemon, desktop and accounts CLI use `@ace/service`'s shared
+resolver. Compatibility, pinned directory and marker checks remain mandatory.
+
+This does not migrate a legacy ace database. At daemon startup, the rewrite's
+accounts registry repairs recognized ace-created `instances/<id>` homes from
+an obsolete data directory and the older `instances/<provider>/<id>` layout.
+The canonical service instance layout is `<dataDir>/instances/<id>`, including
+Cursor SDK default, login, execution and catalog discovery. Managed accounts
+created by account management keep their separate validated `account-homes`
+contract. User CLI homes and explicitly configured unrelated homes are untouched.
+
+Startup completes this repair before publishing the accounts service or starting
+model discovery. Same-filesystem directory moves use atomic rename without
+reading credential contents. Existing destinations, source aliases, denied moves and
+cross-filesystem moves preserve the original directory and use a canonical
+directory instead, with a warning. No directories or user data are deleted.

@@ -54,10 +54,11 @@ export function normalizeOpenCodeReport(
       const rows = normalizeOpenCodeV2({ ...envelope, data: grouped.get(id) ?? [] }, instance);
       if (!rows.length) {
         missingMetadata.push(id);
-        failedSource(
+        sources.push({
           source,
-          new Error("OpenCode returned no enabled chat model metadata for this connected source."),
-        );
+          status: "fresh",
+          error: discoveryError(undefined, "no_models", { ...instance, source: id }),
+        });
       } else {
         models.push(...rows.map((row) => Object.assign({}, row, { source })));
         sources.push({ source, status: "fresh" });

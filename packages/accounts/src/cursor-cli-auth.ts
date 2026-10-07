@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { resolveDaemonHome } from "@ace/service/home";
 import { z } from "zod";
 
 export interface CursorCliAuth {
@@ -78,7 +79,7 @@ const Endpoint = z
       !url.hash,
   );
 export async function daemonCursorAuth(env: NodeJS.ProcessEnv): Promise<CursorCliAuth> {
-  const root = env.ACE_HOME ?? join(homedir(), ".ace");
+  const root = resolveDaemonHome(env.HOME ?? homedir(), env.ACE_HOME);
   const endpoint = Endpoint.parse(await readFile(join(root, "daemon-endpoint"), "utf8"));
   endpoint.protocol = "ws:";
   const token = z

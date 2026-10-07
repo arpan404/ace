@@ -35,7 +35,7 @@ Treat the pairing URL as a credential until redeemed or expired. A code lasts fi
 
 | Setting              | Default                     | Behavior                                                                |
 | -------------------- | --------------------------- | ----------------------------------------------------------------------- |
-| `ACE_HOME`           | `~/.ace`                    | SQLite, local credential, private TLS identity and daemon endpoint file |
+| `ACE_HOME`           | `~/.ace-next`               | SQLite, local credential, private TLS identity and daemon endpoint file |
 | `ACE_PORT`           | `4242`                      | HTTP and WebSocket listener on `127.0.0.1`                              |
 | `ACE_LISTEN`         | `local`                     | `local`, `lan` or `tailscale`                                           |
 | `ACE_REMOTE_PORT`    | local port plus one         | Separate HTTPS/WSS listener; ephemeral when `ACE_PORT=0` or `65535`     |

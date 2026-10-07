@@ -146,7 +146,7 @@ export function dedupeReconnect(id = "thread-dedupe"): Scenario {
       details: checkout({
         workspaceId: "ace",
         branch: "fix/replay-dedupe",
-        path: "/Users/dev/.ace/worktrees/ace-replay-dedupe",
+        path: "/Users/dev/.ace-next/worktrees/ace-replay-dedupe",
         head: "e07b3d",
         ahead: 2,
         pr: { number: 214, state: "open" },

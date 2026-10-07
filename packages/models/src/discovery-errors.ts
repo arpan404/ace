@@ -2,6 +2,10 @@ import type { ModelDiscoveryError } from "@ace/protocol";
 import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 
 const messages: Record<ModelDiscoveryError["code"], [string, string]> = {
+  no_models: [
+    "The connected source has no chat models enabled.",
+    "Enable models for it in OpenCode, then Refresh.",
+  ],
   not_configured: ["Provider is not configured.", "Set up the provider, then refresh models."],
   auth_expired: [
     "Provider sign-in has expired.",
@@ -43,7 +47,11 @@ export function discoveryError(
     backend?: string | undefined;
   },
 ): ModelDiscoveryError {
-  const kind = discoveryFailureCode(error, fallback);
+  const kind =
+    fallback === "no_models" ||
+    (typeof error === "object" && error !== null && "code" in error && error.code === "no_models")
+      ? "no_models"
+      : discoveryFailureCode(error, fallback);
   const [message, hint] = messages[kind];
   const correctiveHint =
     context?.backend === "cursor-sdk" && (kind === "not_configured" || kind === "auth_expired")
@@ -55,5 +63,12 @@ export function discoveryError(
           ? "Reconnect GitHub Copilot in OpenCode (`opencode auth login`), then refresh models."
           : "Reconnect the provider in OpenCode (`opencode auth login`), then refresh models."
         : hint;
-  return Object.freeze({ code: kind, message, hint: correctiveHint });
+  return Object.freeze({
+    code: kind,
+    message:
+      kind === "no_models" && context?.source === "github-copilot"
+        ? "GitHub Copilot is connected in OpenCode but has no chat models enabled."
+        : message,
+    hint: correctiveHint,
+  });
 }

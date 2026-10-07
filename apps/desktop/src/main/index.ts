@@ -62,8 +62,7 @@ if (unsafe) {
   if (!app.requestSingleInstanceLock()) app.quit();
   else
     main(
-      // The daemon home, chosen once by the shared resolver (a legacy 0.x `~/.ace` selects
-      // `~/.ace-next`).
+      // The daemon home, chosen once by the shared resolver (`~/.ace-next` by default).
       desktopTarget({
         env: process.env,
         packaged: app.isPackaged,

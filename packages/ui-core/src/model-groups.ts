@@ -1,4 +1,9 @@
-import type { ModelInstanceStatus, ModelSource, ProviderKind } from "@ace/protocol";
+import type {
+  ModelDiscoveryError,
+  ModelInstanceStatus,
+  ModelSource,
+  ProviderKind,
+} from "@ace/protocol";
 import type { PickerModel } from "./model-picker.ts";
 
 /*
@@ -9,6 +14,7 @@ import type { PickerModel } from "./model-picker.ts";
 
 /** Why a group's list may be out of date, and what to do about it, in the daemon's words. */
 export interface ModelProblem {
+  severity?: "info";
   message: string;
   hint: string;
 }
@@ -103,9 +109,16 @@ export function pickerGroups(
     into.keys.add(model.key);
     (model.legacy ? into.legacy : into.current).push(model);
   }
-  const report = (into: PickerGroup, problem: ModelProblem | undefined) => {
+  const report = (
+    into: PickerGroup,
+    problem: (ModelProblem & { code?: ModelDiscoveryError["code"] }) | undefined,
+  ) => {
     if (problem && !into.problems.some((known) => known.message === problem.message))
-      into.problems.push({ message: problem.message, hint: problem.hint });
+      into.problems.push({
+        message: problem.message,
+        hint: problem.hint,
+        ...(problem.code === "no_models" ? { severity: "info" as const } : {}),
+      });
   };
   for (const status of statuses) {
     if (status.provider !== provider) continue;

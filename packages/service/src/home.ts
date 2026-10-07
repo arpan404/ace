@@ -164,12 +164,10 @@ function selectionLock(parent: PinnedDirectory): number {
 function closeSelection(
   parent: PinnedDirectory,
   lock: number | undefined,
-  primary: PinnedDirectory | undefined,
   isolated: PinnedDirectory | undefined,
 ): void {
   let failure: unknown;
   for (const close of [
-    () => primary?.closeSync(),
     () => isolated?.closeSync(),
     () => {
       if (lock !== undefined) closeSync(lock);
@@ -206,32 +204,17 @@ export function createDaemonHomeResolver(filesystem: HomeFileSystem) {
     const parent = filesystem.open(canonicalHome);
     const root = join(canonicalHome, ".ace"),
       next = join(canonicalHome, ".ace-next");
-    let lock: number | undefined,
-      primary: PinnedDirectory | undefined,
-      isolated: PinnedDirectory | undefined;
+    let lock: number | undefined, isolated: PinnedDirectory | undefined;
     try {
       lock = selectionLock(parent);
       // All inspection and publication are inside one parent lock, with descriptor-relative writes.
-      let primaryLayout: HomeLayout;
-      try {
-        primary = child(parent, ".ace");
-        primaryLayout = primary ? inspect(root, primary) : "empty";
-      } catch {
-        primaryLayout = "incompatible";
-      }
       isolated = child(parent, ".ace-next");
       const marked = marker(isolated, root, parent.stat().uid);
       const isolatedLayout = isolated ? inspect(next, isolated) : "empty";
-      const selected = selectDefaultHome({
-        primary: primaryLayout,
+      selectDefaultHome({
         isolated: isolatedLayout,
         isolatedMarker: marked,
       });
-      if (selected === "primary") {
-        if (!parent.matchesBoundary(canonicalHome) || (primary && !primary.matchesBoundary(root)))
-          throw new Error("Ace home changed during selection");
-        return root;
-      }
       if (!isolated) {
         isolated = parent.mkdir(".ace-next");
         // mkdir and open are separate syscalls. Validate the inode actually opened before any write.
@@ -248,7 +231,7 @@ export function createDaemonHomeResolver(filesystem: HomeFileSystem) {
               owner: parent.stat().uid,
               legacyHome: root,
               reason:
-                "Legacy or incompatible ace data was detected. This home isolates the rewrite; migration requires an explicit owner decision. The old home is untouched.",
+                "This home isolates the rewrite from legacy ace. The old home is untouched; legacy database migration requires an explicit owner decision.",
             }),
             null,
             2,
@@ -258,7 +241,7 @@ export function createDaemonHomeResolver(filesystem: HomeFileSystem) {
         throw new Error("Ace home changed during marker publication; refusing startup");
       return next;
     } finally {
-      closeSelection(parent, lock, primary, isolated);
+      closeSelection(parent, lock, isolated);
     }
   };
 }

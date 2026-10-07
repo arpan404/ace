@@ -1,7 +1,7 @@
 import { CursorAuthService, cursorSdkLoginDriver, createInstance } from "@ace/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { CursorAuthRequest } from "@ace/protocol";
-import { join } from "node:path";
+import { cursorInstanceHome } from "@ace/adapter-cursor/instance";
 import { cursorHosts } from "./cursor-hosts.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -48,7 +48,7 @@ export async function startCursorAuth(context: ServiceContext): Promise<void> {
         homeDir:
           instanceId === defaultInstance.id
             ? defaultInstance.homeDir
-            : join(config.dataDir, "instances", "cursor", instanceId),
+            : cursorInstanceHome(config.dataDir, instanceId),
       }),
     setTimer(callback, delay) {
       const timer = setTimeout(callback, delay);

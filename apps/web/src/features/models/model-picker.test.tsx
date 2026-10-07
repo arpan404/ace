@@ -496,3 +496,63 @@ test("while the daemon rediscovers models the picker shows the last list, then t
   );
   expect(panelHeight(popover)).toBe(refreshingHeight);
 });
+
+test("connected Copilot with no enabled models shows its hint and remains refreshable", async () => {
+  const app = harness();
+  const services = app.daemon.services;
+  const handle = services.handle.bind(services);
+  services.handle = (message, push) =>
+    message.type !== "models.list"
+      ? handle(message, push)
+      : handle(message, (reply) => {
+          if (reply.type !== "models.result" || !("models" in reply.result)) return push(reply);
+          push({
+            ...reply,
+            result: {
+              ...reply.result,
+              models: reply.result.models.filter((model) => model.provider !== "opencode"),
+              instances: reply.result.instances.map((instance) =>
+                instance.provider !== "opencode"
+                  ? instance
+                  : {
+                      ...instance,
+                      stale: false,
+                      status: "fresh",
+                      error: undefined,
+                      errorDetail: undefined,
+                      sources: [
+                        {
+                          source: {
+                            id: "github-copilot",
+                            label: "GitHub Copilot",
+                            kind: "subscription",
+                          },
+                          status: "fresh",
+                          error: {
+                            code: "no_models",
+                            message:
+                              "GitHub Copilot is connected in OpenCode but has no chat models enabled.",
+                            hint: "Enable models for it in OpenCode, then Refresh.",
+                          },
+                        },
+                      ],
+                    },
+              ),
+            },
+          });
+        });
+  const { popover, list } = await openPicker(app);
+  const tab = within(popover).getByRole("tab", { name: "OpenCode" });
+  expect(tab.getAttribute("aria-disabled")).toBeNull();
+  await userEvent.click(tab);
+  expect(
+    within(list).getByText(
+      "GitHub Copilot is connected in OpenCode but has no chat models enabled.",
+    ),
+  ).toBeTruthy();
+  expect(within(list).getByText(/Enable models for it in OpenCode, then Refresh/)).toBeTruthy();
+  expect(within(list).queryByRole("option")).toBeNull();
+  expect(
+    within(popover).getByRole("button", { name: "Refresh models" }).hasAttribute("disabled"),
+  ).toBe(false);
+});
