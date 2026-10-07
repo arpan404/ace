@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { warmup } from "./warmup.ts";
 import { FilesService, attachFilesSocket, chunkFilesChannel } from "@ace/files";
@@ -79,7 +80,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
     sweeping = (async () => {
       await scoped.sweep(owner.signal);
     })()
-      .catch((error: unknown) => log.log("error", "File retention failed", error))
+      .catch((error: unknown) => log.log("error", "File retention failed", logError(error)))
       .finally(() => {
         sweeping = undefined;
       });

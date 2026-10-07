@@ -1,3 +1,4 @@
+import { logError, logFields } from "@ace/diagnostics";
 import { z } from "zod";
 import { matchesGlob } from "node:path";
 import { createWorkspace, type WorkspaceWatcher } from "@ace/workspace";
@@ -27,7 +28,11 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
           if (closed) return;
           const created = await owner.watch({
             onWarning: (message) =>
-              context.log.log("warn", "Automation workspace watcher", { message }),
+              context.log.log(
+                "warn",
+                "Automation workspace watcher",
+                logFields([["message", message]]),
+              ),
             onChange(changes) {
               if (closed) return;
               // The watcher bounds its batch; no copy or queue of outstanding batches is kept here.
@@ -51,13 +56,17 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
                     kind,
                     count: String(count),
                   },
-                }).catch((error) => context.log.log("error", "Automation file trigger", error));
+                }).catch((error) =>
+                  context.log.log("error", "Automation file trigger", logError(error)),
+                );
             },
           });
           if (closed) await created.dispose();
           else watcher = created;
         })
-        .catch((error) => context.log.log("error", "Automation watcher unavailable", error));
+        .catch((error) =>
+          context.log.log("error", "Automation watcher unavailable", logError(error)),
+        );
       pending.add(opening);
       void opening.finally(() => pending.delete(opening));
       return () => {
@@ -65,7 +74,9 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
         closed = true;
         const disposing = opening
           .then(() => watcher?.dispose())
-          .catch((error) => context.log.log("error", "Automation watcher shutdown", error));
+          .catch((error) =>
+            context.log.log("error", "Automation watcher shutdown", logError(error)),
+          );
         pending.add(disposing);
         void disposing.finally(() => {
           pending.delete(disposing);

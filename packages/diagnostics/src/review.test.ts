@@ -154,7 +154,7 @@ it("logger contains throwing array and Error getters and does not enumerate arbi
   const data = logger.recent().map((line) => JSON.parse(line).data);
   expect(data).toEqual([
     ["<ACCESSOR OMITTED>"],
-    { message: "<ACCESSOR OMITTED>", name: "Error" },
+    { message: "Error detail unavailable", name: "Error" },
     "<UNPREPARED OBJECT OMITTED>",
   ]);
   await logger.close();

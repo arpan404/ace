@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { cleanupOwnedWorktree } from "../owned-worktree.ts";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -97,7 +98,9 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
       .filter((reservation) => reservation.record.resultDelivery !== "owner")
       .map((reservation) => cleanup(reservation)),
   );
-  void recovery.catch((error) => log.log("error", "Handoff recovery requires cleanup", error));
+  void recovery.catch((error) =>
+    log.log("error", "Handoff recovery requires cleanup", logError(error)),
+  );
   resources.onShutdown(async () => {
     for (const entry of pending.values()) entry.cancel();
     await Promise.allSettled([...pending.values()].map((entry) => entry.work));

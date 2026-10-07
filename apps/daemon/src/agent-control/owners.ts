@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { AgentPreviews } from "./previews.ts";
 export { AgentPreviews } from "./previews.ts";
 import { createHandoffs } from "./handoffs.ts";
@@ -54,7 +55,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
               return () => clearTimeout(timer);
             })(),
     },
-    onError: (error) => log.log("error", "Agent automation failed", error),
+    onError: (error) => log.log("error", "Agent automation failed", logError(error)),
     executor: {
       async execute(input, signal) {
         await store.writable();
