@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { expect, it } from "vitest";
+import { beforeEach, expect, it } from "vitest";
 import { z } from "zod";
 import { detectChromium } from "@ace/browser";
 import { BrowserState } from "@ace/protocol";
@@ -12,6 +12,10 @@ import { BrowserClient } from "./browser-test-client.ts";
 import { ownedBrowserPids, waitForBrowserExit } from "./browser-test-process.ts";
 
 const executablePath = await detectChromium();
+let cancellation: AbortSignal;
+beforeEach((context) => {
+  cancellation = context.signal;
+});
 async function launch(home: string) {
   if (!executablePath) throw new Error("Missing explicit test Chromium");
   const child = spawn(
@@ -71,9 +75,10 @@ async function launch(home: string) {
 it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
   "connected private ownership survives %s and persistent browser reopening",
   async (signal) => {
-    const home = await mkdtemp(join(tmpdir(), "ace-private-crash-"));
+    const home = await mkdtemp(join(tmpdir(), "ace-private crash-"));
     let first: Awaited<ReturnType<typeof launch>> | undefined,
       restarted: Awaited<ReturnType<typeof launch>> | undefined;
+    let helper: ReturnType<typeof spawn> | undefined;
     try {
       first = await launch(home);
       first.client.send({
@@ -109,12 +114,30 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
           mode: "private",
         }),
       ).toMatchObject({ ok: true, result: { controller: "human", takeoverMode: "private" } });
+      // A detached private-profile helper deterministically survives its browser's
+      // pipe EOF, just like Chromium's network helper did under load. The profile
+      // owner must terminate it on both graceful and abrupt daemon shutdown.
+      const profiles = join(home, "browser", "profiles");
+      const [profile] = await readdir(profiles);
+      if (!profile) throw new Error("Missing private browser profile");
+      helper = spawn(
+        process.execPath,
+        [
+          "-e",
+          "require('node:net').createServer().listen(0, '127.0.0.1', () => process.send('ready'));",
+          "--",
+          `--user-data-dir=${join(profiles, profile)}`,
+        ],
+        { detached: true, stdio: ["ignore", "ignore", "ignore", "ipc"] },
+      );
+      expect((await once(helper, "message", { signal: cancellation }))[0]).toBe("ready");
+      helper.disconnect();
       const pids = await ownedBrowserPids(home);
-      expect(pids.length).toBeGreaterThan(0);
+      expect(pids).toContain(helper.pid);
       // The socket stays connected until process exit: no disconnect callback persists the gate.
       first.child.kill(signal);
       await first.exited;
-      await waitForBrowserExit(pids);
+      await waitForBrowserExit(pids, cancellation);
       restarted = await launch(home);
       const reply = await restarted.client.request(request);
       if (reply.type !== "browser.result" || !reply.ok) throw new Error("reopen failed");
@@ -150,6 +173,7 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
         result: { controller: "agent", takeoverMode: "shared", status: "ready" },
       });
     } finally {
+      await stopHelper(helper);
       await restarted?.close();
       await first?.close();
       await rm(home, { recursive: true, force: true });
@@ -157,3 +181,14 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
   },
   120_000,
 );
+
+async function stopHelper(helper: ReturnType<typeof spawn> | undefined) {
+  if (!helper?.pid || helper.exitCode !== null || helper.signalCode !== null) return;
+  const exited = once(helper, "exit");
+  try {
+    process.kill(-helper.pid, "SIGKILL");
+  } catch (error) {
+    if (!z.object({ code: z.literal("ESRCH") }).safeParse(error).success) throw error;
+  }
+  await exited;
+}
