@@ -222,3 +222,72 @@ produce omission markers and advance the replay cursor, so healthy activity
 keeps flowing. The daemon exposes inclusive estimates through authorized
 `usage.session_totals` reads after catch-up. One-hour cache-write subsets survive
 snapshot storage and its table migration.
+
+## Provider detail contract
+
+Use `usage.summary` with `filters.provider` and `groupBy: ["account", "model"]`
+for account shares and model totals. Add `filters.account` for one account.
+`usage.series` accepts `bucket: "day" | "week" | "month"`, defaulting to day.
+The `day` dimension names the bucket's start, Monday for weeks and the first
+local calendar date for months. Range filters apply before bucketing, so a
+partial week or month contains only requested days. Thread filtering remains
+available for backend consumers; usage belongs in the provider area in the UI.
+
+Provider/account-filtered daemon replies also carry `accounts`, the matching
+current `accounts.list` records. Join historical rows to these records by account
+id. Current windows are observations, not reconstructed subscription quotas.
+`remainingPercent` is 100 minus reported utilization. `windowDurationMins` is
+included only when the CLI supplies it. `source: "cli"` means reported by that
+account's provider CLI; `status_estimate` marks a scheduling threshold derived
+from status alone and has no remaining percentage. `limit_error` marks a CLI
+error with a parsed reset time. Older persisted windows without source metadata
+remain unattributed until refreshed. `quota.observedAt` dates the observations;
+expired windows do not establish the next period's utilization.
+
+`quota.billingMode` comes from safe CLI auth status metadata. OAuth by itself
+does not prove subscription billing. OpenRouter-qualified models use API billing;
+other mixed upstreams remain unknown without explicit status. The account shell
+captures billing and account identity at frame admission, before deferred folding.
+No credential files or key values are inspected. `quota.plan` is present only
+when reported. `availability` and `blockedUntil` use the existing account policy.
+
+Authenticated main sockets with read scope receive `usage.limits_changed { account }`
+after an observed window, blocker, auth, plan or billing change commits. Unchanged
+utilization with a newer observation time does not trigger a push. Re-fetch the
+provider summary on reconnect, and recompute window expiry against the local clock.
+The combined reply retains the 512 KiB budget; `truncated` also covers omitted
+account records.
+
+`tokenSource: "cli"` identifies normalized CLI-reported tokens; the provider dimension
+names the reporting CLI. Use `estimatedUsd`, labeled by `costLabel: "estimate"`, for API consumption.
+Subscription tokens do not create billed dollars. Unknown models have no cost;
+`unpricedTokens` exposes partial coverage. The older optional equivalent API
+comparison remains separate from billed estimates. Replies expose `priceVersion`,
+`priceAsOf` and `priceSources`. Prices are standard token list prices, excluding
+taxes, routing fees, regional modifiers, tool charges and negotiated discounts.
+
+## Updating prices and retaining history
+
+Edit `src/prices.json`, bump `version` and `asOf`, and put the primary source URL
+and verification date on each changed model entry. Keys are exact CLI model ids,
+including upstream-qualified ids. Do not strip unknown prefixes or guess rates.
+Input/output/cache rates are USD per million tokens; input includes cache reads
+and writes, and reasoning is included in output. Local overrides still apply to
+past history and identify their own `overrideVersion`. Use a source/date on local
+rate entries when known. The SQL aggregation and browser-safe `@ace/usage/pricing`
+reference calculator use the same linear formula.
+
+`usage-settings.json` supports `retentionDays` (default 366) for daily rollups and
+`incrementRetentionDays` (default 35) for exact quota observations. Both range from
+1 to 3660. Pruning commits with ingestion and uses the latest nonzero usage event
+time, never a global clock or replay batch size. Replies disclose `retainedFrom`.
+Burn queries whose start predates exact observation retention set `complete: false`
+and suppress exhaustion forecasts. Increasing retention cannot recover pruned
+rows without rebuilding from the retained canonical log.
+
+Cumulative and immutable-sample baselines, agent relationships and inclusive
+session snapshots remain until thread deletion, since removing them would
+recount resumed sessions or lose fork baselines. Disk growth for that metadata
+is proportional to distinct native scopes, not raw frames. The daily and exact
+observation histories have bounded time horizons; SQLite reuses freed pages.
+Queries and worker memory retain their existing row, byte and queue bounds.

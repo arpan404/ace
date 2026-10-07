@@ -28,6 +28,7 @@ export function burnRate(window: QuotaWindow, observed: number, now: number): Us
       : null;
   return {
     windowId: window.id,
+    complete: true,
     unit: window.unit,
     observed,
     overflow,

@@ -98,6 +98,7 @@ import {
   UsageSummary,
   UsageSeries,
   UsageMessage,
+  UsageLimitsChanged,
   UsageSessionTotals,
   UsageSessionTotalsMessage,
 } from "./usage.ts";
@@ -241,6 +242,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HistoryContinueResponse,
   McpProviderResult,
   UsageMessage,
+  UsageLimitsChanged,
   UsageSessionTotalsMessage,
   ...FilesServerMessage.options,
   CommandsListResult,
