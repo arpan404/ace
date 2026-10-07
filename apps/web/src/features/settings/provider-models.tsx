@@ -45,7 +45,7 @@ export function ProviderModels(props: { provider: ProviderKind }) {
   return (
     <div>
       <div className="mb-1.5 flex items-center gap-1">
-        <h4 className="text-[12px] font-medium text-subtle-foreground">Models</h4>
+        <h4 className="text-xs font-medium text-subtle-foreground">Models</h4>
         {state === "refreshing" && <Spinner label="Refreshing models" />}
         <Button
           size="sm"

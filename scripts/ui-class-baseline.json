@@ -99,7 +99,7 @@
   "apps/web/src/features/home/thread-row.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/features/models/model-picker-panel.tsx": {
+  "apps/web/src/features/model-picker/model-picker-panel.tsx": {
     "bare-outline": 1
   },
   "apps/web/src/features/panels/changes/line-comment.tsx": {
@@ -134,7 +134,7 @@
     "text-size": 1
   },
   "apps/web/src/features/settings/providers-page.tsx": {
-    "text-size": 3
+    "text-size": 1
   },
   "apps/web/src/features/shell/screen.tsx": {
     "bare-outline": 1

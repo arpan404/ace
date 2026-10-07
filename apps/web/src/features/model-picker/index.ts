@@ -5,6 +5,7 @@
  * can use it.
  */
 export { ModelPickerPanel } from "./model-picker-panel.tsx";
-/** One provider's model as a form field, opening the same picker. */
-export { ModelField } from "./model-field.tsx";
+/** One provider's model as a form field, opening the same picker; its code loads on render. */
+export { LazyModelField as ModelField } from "./lazy-model-field.tsx";
+export type { ModelFieldProps } from "./model-field.tsx";
 export { useRefreshModels, type RefreshModels } from "./use-refresh-models.ts";
