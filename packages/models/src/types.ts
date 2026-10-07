@@ -48,6 +48,9 @@ export type DiscoveryReport = {
 /** Non-secret metadata learned before discovery completes, including failed attempts. */
 export type DiscoveryDiagnostics = {
   cliVersion?: string;
+  stage?: "version" | "connections" | "metadata" | "model-ids";
+  /** Attempt-local sanitized text. Never part of a catalog row or cache entry. */
+  sourceFailures?: readonly { source: string; reason: string }[];
   sources?: readonly ModelSource[];
 };
 /** Must settle after abort, once all owned I/O resources have been released. */

@@ -3,6 +3,8 @@ import { parseVersion } from "@ace/provider-kit/discovery";
 import { z } from "zod";
 import { CatalogModel } from "@ace/protocol";
 import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process";
+import { discoveryError } from "./discovery-errors.ts";
+import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { normalizeOpenCodeReport } from "./opencode-report.ts";
 import { base } from "./model.ts";
 import type { DiscoveryDiagnostics, DiscoveryReport, ModelInstance } from "./types.ts";
@@ -15,12 +17,15 @@ export async function discoverOpenCodeCatalog(
   metadata?: (instance: ModelInstance, signal: AbortSignal) => Promise<unknown>,
   diagnostic?: (metadata: DiscoveryDiagnostics) => void,
 ): Promise<DiscoveryReport> {
+  diagnostic?.({ stage: "version" });
   const version = await installedVersion(instance, signal, spawn);
   diagnostic?.({ cliVersion: version });
+  diagnostic?.({ stage: "connections" });
   const connected = await connectedOpenCodeProviders(instance, signal, spawn);
   diagnostic?.({ sources: [...connected.values()] });
   if (!connected.size) return { models: [], sources: [] };
   const { discoverOpenCodeModels } = await import("@ace/adapter-opencode");
+  diagnostic?.({ stage: "metadata" });
   const payload = metadata
     ? await metadata(instance, signal)
     : await discoverOpenCodeModels(
@@ -51,8 +56,13 @@ export async function discoverOpenCodeCatalog(
         signal,
       );
   signal.throwIfAborted();
-  const report = normalizeOpenCodeReport(payload, instance, connected);
-  if (report.models.length || !report.missingMetadata.length) return report;
+  let sourceFailures: DiscoveryDiagnostics["sourceFailures"] = [];
+  const report = normalizeOpenCodeReport(payload, instance, connected, (details) => {
+    sourceFailures = details.sourceFailures ?? sourceFailures;
+    diagnostic?.(details);
+  });
+  if (!report.missingMetadata.length) return report;
+  diagnostic?.({ stage: "model-ids" });
   const missingMetadata = new Set(report.missingMetadata);
   const rows: CatalogModel[] = [];
   // Some v2 servers return no model metadata although `models` still lists choices.
@@ -80,7 +90,7 @@ export async function discoverOpenCodeCatalog(
         .regex(/^[^\s/]+\/\S+$/)
         .parse(line.trim());
       if (!missingMetadata.has(id.slice(0, id.indexOf("/"))) || seen.has(id)) return;
-      if (rows.length >= 512) throw new Error("Too many models");
+      if (rows.length >= 512 - report.models.length) throw new Error("Too many models");
       const separator = id.indexOf("/");
       rows.push(
         CatalogModel.parse({
@@ -102,10 +112,32 @@ export async function discoverOpenCodeCatalog(
     if (failure) throw failure;
     if (exit.reason !== "exit" || exit.code !== 0) throw new Error("OpenCode model listing failed");
     return {
-      models: rows,
+      models: [...report.models, ...rows],
       sources: report.sources.map((status) =>
         rows.some((row) => row.source?.id === status.source.id)
           ? { source: status.source, status: "fresh" }
+          : status,
+      ),
+    };
+  } catch (error) {
+    signal.throwIfAborted();
+    const detail = discoveryError(error, "discovery_failed", instance);
+    diagnostic?.({
+      sourceFailures: [
+        ...(sourceFailures ?? []).filter((entry) => !missingMetadata.has(entry.source)),
+        ...(detail.code === "discovery_failed"
+          ? [...missingMetadata].map((source) => ({
+              source,
+              reason: discoveryFailureReason(error, { env: instance.env }),
+            }))
+          : []),
+      ],
+    });
+    return {
+      models: report.models,
+      sources: report.sources.map((status) =>
+        missingMetadata.has(status.source.id)
+          ? { source: status.source, status: "stale", error: detail }
           : status,
       ),
     };

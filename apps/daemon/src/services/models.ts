@@ -51,6 +51,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
           ["source", source ?? null],
           ["sourceLabel", diagnostic?.sourceLabel ?? null],
           ["code", error.code],
+          ["stage", diagnostic?.stage ?? null],
           ["message", error.message],
           ...(error.code === "discovery_failed" && diagnostic?.reason
             ? [["reason", diagnostic.reason] as const]

@@ -269,8 +269,8 @@ test("a timed-out connection probe reports timeout and avoids another probe unti
   expect(notices).toHaveLength(1);
 });
 
-test("a first GitHub Copilot failure shows its reconnect hint even before any catalog was saved", async () => {
-  const { catalog } = await setup(async (_config, _signal, diagnostic) => {
+test("a transport auth failure stays at the instance even when only Copilot is connected", async () => {
+  const { catalog, notices } = await setup(async (_config, _signal, diagnostic) => {
     diagnostic?.({
       sources: [{ id: "github-copilot", label: "GitHub Copilot", kind: "subscription" }],
     });
@@ -280,7 +280,9 @@ test("a first GitHub Copilot failure shows its reconnect hint even before any ca
   const result = catalog.list();
   expect(result.instances[0]?.errorDetail).toMatchObject({
     code: "auth_expired",
-    hint: expect.stringContaining("Reconnect GitHub Copilot in OpenCode (`opencode auth login`)"),
+    hint: expect.stringContaining("Reconnect the provider in OpenCode (`opencode auth login`)"),
   });
+  expect(notices).toHaveLength(1);
+  expect(notices[0]?.source).toBeUndefined();
   expect(JSON.stringify(result)).not.toMatch(/private|Bearer|token/);
 });
