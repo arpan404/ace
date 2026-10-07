@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelSource.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "local",
+        "subscription",
+        "api_key",
+        "account",
+        "other"
+      ],
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "service": {
+      "enum": [
+        "opencode_go",
+        "opencode_zen"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "id",
+    "label"
+  ],
+  "type": "object"
+}

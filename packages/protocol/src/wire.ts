@@ -102,6 +102,7 @@ import {
   ModelsRefreshRequest,
   ModelsResolveRequest,
   ModelsResult,
+  ModelsChanged,
 } from "./models.ts";
 import {
   PresenceUpdate,
@@ -239,6 +240,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...DeviceServerMessage.options,
   ...BrowserServerMessage.options,
   ModelsResult,
+  ModelsChanged,
   NotificationMessage,
   ...CoreServerMessage.options,
 ]);

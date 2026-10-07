@@ -1,3 +1,4 @@
+import { discoveredModels } from "./discovered-models.ts";
 import { CursorHostSlots } from "@ace/adapter-cursor/slots";
 import { discoverClaudeModels } from "@ace/adapter-claude/models";
 import {
@@ -26,7 +27,7 @@ export type DiscoveryOptions = {
 export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverModels {
   const spawn = options.spawn ?? spawnSupervised;
   const cursorSlots = options.cursorSlots ?? new CursorHostSlots(2);
-  return async (instance: ModelInstance, signal: AbortSignal): Promise<CatalogModel[]> => {
+  return async (instance: ModelInstance, signal: AbortSignal): ReturnType<DiscoverModels> => {
     signal.throwIfAborted();
     if (instance.backend === "cursor-sdk") {
       const { createCursorAccountDriver } = await import("@ace/adapter-cursor/auth");
@@ -61,9 +62,24 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         }),
         instance,
       );
-    if (instance.provider === "pi") return discoverListedModels(instance, signal, spawn);
-    if (instance.provider === "opencode")
-      return discoverOpenCodeCatalog(instance, signal, spawn, options.opencode);
+    if (instance.provider === "pi") {
+      const models = await discoverListedModels(instance, signal, spawn);
+      const sources = [
+        ...new Map(
+          models.flatMap((model) =>
+            model.source ? [[model.source.id, model.source] as const] : [],
+          ),
+        ).values(),
+      ];
+      return discoveredModels(
+        models,
+        sources.map((source) => ({ source, status: "fresh" })),
+      );
+    }
+    if (instance.provider === "opencode") {
+      const report = await discoverOpenCodeCatalog(instance, signal, spawn, options.opencode);
+      return discoveredModels([...report.models], report.sources);
+    }
     const args = [...instance.args];
     switch (instance.provider) {
       case "codex":

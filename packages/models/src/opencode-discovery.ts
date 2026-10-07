@@ -3,9 +3,9 @@ import { parseVersion } from "@ace/provider-kit/discovery";
 import { z } from "zod";
 import { CatalogModel } from "@ace/protocol";
 import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process";
-import { normalizeOpenCodeV2 } from "./open-code.ts";
+import { normalizeOpenCodeReport } from "./opencode-report.ts";
 import { base } from "./model.ts";
-import type { ModelInstance } from "./types.ts";
+import type { DiscoveryReport, ModelInstance } from "./types.ts";
 
 /** v2 metadata is owned and location-scoped; the CLI fallback supplies only IDs. */
 export async function discoverOpenCodeCatalog(
@@ -13,10 +13,10 @@ export async function discoverOpenCodeCatalog(
   signal: AbortSignal,
   spawn: (options: SpawnOptions) => SupervisedProcess,
   metadata?: (instance: ModelInstance, signal: AbortSignal) => Promise<unknown>,
-): Promise<CatalogModel[]> {
+): Promise<DiscoveryReport> {
   const version = await installedVersion(instance, signal, spawn);
   const connected = await connectedOpenCodeProviders(instance, signal, spawn);
-  if (!connected.size) return [];
+  if (!connected.size) return { models: [], sources: [] };
   const { discoverOpenCodeModels } = await import("@ace/adapter-opencode");
   const payload = metadata
     ? await metadata(instance, signal)
@@ -48,8 +48,10 @@ export async function discoverOpenCodeCatalog(
         signal,
       );
   signal.throwIfAborted();
-  const rows = normalizeOpenCodeV2(payload, instance, connected);
-  if (rows.length) return rows;
+  const report = normalizeOpenCodeReport(payload, instance, connected);
+  if (report.models.length || !report.missingMetadata.length) return report;
+  const missingMetadata = new Set(report.missingMetadata);
+  const rows: CatalogModel[] = [];
   // Some v2 servers return no model metadata although `models` still lists choices.
   const proc = spawn({
     command: instance.executable,
@@ -74,13 +76,14 @@ export async function discoverOpenCodeCatalog(
         .max(256)
         .regex(/^[^\s/]+\/\S+$/)
         .parse(line.trim());
-      if (!connected.has(id.slice(0, id.indexOf("/"))) || seen.has(id)) return;
+      if (!missingMetadata.has(id.slice(0, id.indexOf("/"))) || seen.has(id)) return;
       if (rows.length >= 512) throw new Error("Too many models");
       const separator = id.indexOf("/");
       rows.push(
         CatalogModel.parse({
           ...base(instance, id, id, { id }),
           nativeProviderId: id.slice(0, separator),
+          source: connected.get(id.slice(0, separator)),
         }),
       );
       seen.add(id);
@@ -95,7 +98,14 @@ export async function discoverOpenCodeCatalog(
     signal.throwIfAborted();
     if (failure) throw failure;
     if (exit.reason !== "exit" || exit.code !== 0) throw new Error("OpenCode model listing failed");
-    return rows;
+    return {
+      models: rows,
+      sources: report.sources.map((status) =>
+        rows.some((row) => row.source?.id === status.source.id)
+          ? { source: status.source, status: "fresh" }
+          : status,
+      ),
+    };
   } finally {
     signal.removeEventListener("abort", abort);
     await proc.stop({ graceMs: 0 });

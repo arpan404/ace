@@ -40,10 +40,24 @@ export async function discoverOpenCodeModels(
       // Older servers may not expose the metadata selector. Catalog policy supplies a fallback.
     }
     return server.redact({ ...validated, ...(configuredDefault ? { configuredDefault } : {}) });
-  } catch {
-    throw new Error(
-      signal.aborted ? "OpenCode model discovery cancelled" : "OpenCode model discovery failed",
-    );
+  } catch (error) {
+    const status = z
+      .object({ status: z.number().optional(), statusCode: z.number().optional() })
+      .safeParse(error);
+    const text = error instanceof Error ? error.message : "";
+    const reason = signal.aborted
+      ? "cancelled"
+      : error instanceof z.ZodError
+        ? "parse failure"
+        : /unsupported|version/i.test(text)
+          ? "unsupported version"
+          : /ECONN|ENOTFOUND|fetch failed|network/i.test(text)
+            ? "unreachable"
+            : "failed";
+    // Preserve a non-secret failure category, never stderr or provider response bodies.
+    throw Object.assign(new Error(`OpenCode model discovery ${reason}`), {
+      status: status.success ? (status.data.status ?? status.data.statusCode) : undefined,
+    });
   } finally {
     signal.removeEventListener("abort", abort);
     await server.close();

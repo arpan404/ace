@@ -16,6 +16,12 @@ Semantic rule: The parsed model with defaults filled and unknown fields stripped
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | displayName | yes | string | {"minLength":1,"maxLength":256} |
+| detail | no | string | {"minLength":1,"maxLength":256} |
+| family | no | string | {"minLength":1,"maxLength":256} |
+| version | no | string | {"minLength":1,"maxLength":256} |
+| tier | no | ["current","legacy"] |  |
+| sortKey | no | string | {"minLength":1,"maxLength":256} |
+| source | no | [ModelSource.json](schema/ModelSource.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
 | installationId | no | string | {"minLength":1,"maxLength":256} |
@@ -51,9 +57,10 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "contextWindow": 9,
-  "defaultTier": "example",
-  "deprecated": false,
+  "aliases": [],
+  "contextWindow": 3,
+  "defaultEffort": "example",
+  "deprecated": true,
   "displayName": "example",
   "group": "legacy",
   "hidden": false,
@@ -61,16 +68,42 @@ Example:
   "inputModalities": [],
   "instance": "example",
   "isDefault": false,
+  "legacy": true,
   "nativeModelId": "example",
-  "nativeProviderId": "example",
-  "provider": "antigravity",
+  "provider": "pi",
+  "providerEnabled": false,
   "raw": {
     "json": "example",
     "truncated": false
   },
   "reasoningEfforts": [],
   "resolvedModelId": "example",
-  "serviceTiers": []
+  "selectorMethod": "session/set_config_option",
+  "serviceTiers": [],
+  "sortKey": "example",
+  "tier": "current",
+  "version": "example",
+  "visibilityReason": "model_hidden"
+}
+```
+
+## ModelDiscoveryError
+
+[JSON Schema](schema/ModelDiscoveryError.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | ["auth_expired","unreachable","cli_too_old","rate_limited","parse_failure","timeout","persistence_failed","discovery_failed"] |  |
+| message | yes | string | {"minLength":1,"maxLength":256} |
+| hint | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "code": "auth_expired",
+  "hint": "example",
+  "message": "example"
 }
 ```
 
@@ -90,8 +123,8 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "provider": "claude"
+  "acpAgentId": "example",
+  "instance": "example"
 }
 ```
 
@@ -109,6 +142,9 @@ Example:
 | refreshedAt | no | number | {"minimum":0} |
 | lastRefreshedAt | no | number | {"minimum":0} |
 | enabled | no | boolean |  |
+| status | no | ["fresh","refreshing","stale"] |  |
+| errorDetail | no | [ModelDiscoveryError.json](schema/ModelDiscoveryError.json) |  |
+| sources | no | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/ModelSourceStatus.json"}} |
 | stale | yes | boolean |  |
 | refreshing | yes | boolean |  |
 | error | no | ["discovery_failed","timeout","persistence_failed"] |  |
@@ -117,13 +153,10 @@ Example:
 
 ```json
 {
-  "enabled": false,
-  "error": "discovery_failed",
   "installationId": "example",
   "instance": "example",
   "instanceId": "example",
-  "lastRefreshedAt": 3,
-  "provider": "acp",
+  "provider": "codex",
   "refreshing": false,
   "stale": false
 }
@@ -147,9 +180,9 @@ Example:
 
 ```json
 {
-  "instance": "example",
   "instanceId": "example",
-  "offset": 2,
+  "limit": 8,
+  "offset": 0,
   "provider": "opencode"
 }
 ```
@@ -193,37 +226,43 @@ Example:
 ```json
 {
   "model": {
-    "aliases": [],
-    "contextWindow": 3,
-    "defaultEffort": "example",
+    "defaultTier": "example",
     "deprecated": true,
+    "detail": "example",
     "displayName": "example",
-    "group": "legacy",
+    "family": "example",
+    "group": "current",
     "hidden": false,
     "id": "example",
     "inputModalities": [],
     "installationId": "example",
     "instance": "example",
-    "isDefault": true,
+    "instanceId": "example",
+    "isDefault": false,
     "nativeModelId": "example",
+    "nativeProviderId": "example",
     "provider": "antigravity",
+    "providerEnabled": false,
     "raw": {
       "json": "example",
-      "truncated": false
+      "truncated": true
     },
     "reasoningEfforts": [],
-    "resolvedModelId": "example",
-    "selectorMethod": "session/set_config_option",
     "serviceTiers": [],
-    "visibilityReason": "provider_hidden"
+    "source": {
+      "id": "example",
+      "kind": "subscription",
+      "label": "example"
+    },
+    "version": "example"
   },
   "ok": true,
   "reason": "example",
-  "stale": false,
+  "stale": true,
   "tier": {
     "id": "example",
     "name": "example",
-    "parameters": {}
+    "speed": "standard"
   }
 }
 ```
@@ -267,10 +306,36 @@ Example:
 
 ```json
 {
+  "acpAgentId": "example",
+  "imageInput": false,
+  "installationId": "example",
   "instance": "example",
+  "instanceId": "example",
+  "model": "example",
   "preferenceOrder": [],
   "role": "example",
-  "selection": "strongest"
+  "tier": "example"
+}
+```
+
+## ModelsChanged
+
+[JSON Schema](schema/ModelsChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"models.changed"` |  |
+| filter | yes | [ModelFilter.json](schema/ModelFilter.json) |  |
+
+Example:
+
+```json
+{
+  "filter": {
+    "instanceId": "example",
+    "provider": "opencode"
+  },
+  "type": "models.changed"
 }
 ```
 
@@ -293,6 +358,52 @@ Example:
 }
 ```
 
+## ModelSource
+
+[JSON Schema](schema/ModelSource.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| service | no | ["opencode_go","opencode_zen"] |  |
+| kind | yes | ["local","subscription","api_key","account","other"] |  |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| label | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "kind": "subscription",
+  "label": "example"
+}
+```
+
+## ModelSourceStatus
+
+[JSON Schema](schema/ModelSourceStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| source | yes | [ModelSource.json](schema/ModelSource.json) |  |
+| status | yes | ["fresh","refreshing","stale"] |  |
+| lastRefreshedAt | no | number | {"minimum":0} |
+| error | no | [ModelDiscoveryError.json](schema/ModelDiscoveryError.json) |  |
+
+Example:
+
+```json
+{
+  "lastRefreshedAt": 9,
+  "source": {
+    "id": "example",
+    "kind": "subscription",
+    "label": "example"
+  },
+  "status": "refreshing"
+}
+```
+
 ## ModelsRefreshRequest
 
 [JSON Schema](schema/ModelsRefreshRequest.json), input validation.
@@ -308,6 +419,7 @@ Example:
 ```json
 {
   "filter": {
+    "installationId": "example",
     "instanceId": "example"
   },
   "requestId": "example",
@@ -331,11 +443,10 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
-    "installationId": "example",
-    "provider": "pi",
+    "acpAgentId": "example",
+    "instance": "example",
+    "instanceId": "example",
     "role": "example",
-    "selection": "strongest",
     "tier": "example"
   },
   "type": "models.resolve"
@@ -359,39 +470,36 @@ Example:
   "requestId": "example",
   "result": {
     "model": {
-      "acpAgentId": "example",
-      "defaultEffort": "example",
+      "aliases": [],
       "deprecated": true,
       "displayName": "example",
-      "group": "current",
+      "family": "example",
       "hidden": true,
       "id": "example",
       "inputModalities": [],
-      "installationId": "example",
       "instance": "example",
-      "instanceId": "example",
-      "isDefault": false,
-      "isNew": true,
+      "isDefault": true,
       "nativeModelId": "example",
-      "nativeProviderId": "example",
-      "provider": "acp",
+      "provider": "codex",
       "raw": {
         "json": "example",
-        "truncated": true
+        "truncated": false
       },
       "reasoningEfforts": [],
-      "selectorMethod": "session/set_model",
-      "serviceTiers": []
+      "resolvedModelId": "example",
+      "selectorMethod": "session/set_config_option",
+      "serviceTiers": [],
+      "source": {
+        "id": "example",
+        "kind": "api_key",
+        "label": "example",
+        "service": "opencode_go"
+      },
+      "tier": "current"
     },
     "ok": true,
     "reason": "example",
-    "stale": false,
-    "tier": {
-      "id": "example",
-      "name": "example",
-      "parameters": {},
-      "speed": "fast"
-    }
+    "stale": false
   },
   "type": "models.result"
 }
@@ -414,6 +522,6 @@ Example:
 {
   "id": "example",
   "name": "example",
-  "speed": "standard"
+  "speed": "fast"
 }
 ```

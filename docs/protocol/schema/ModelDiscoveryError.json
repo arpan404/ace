@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelDiscoveryError.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "enum": [
+        "auth_expired",
+        "unreachable",
+        "cli_too_old",
+        "rate_limited",
+        "parse_failure",
+        "timeout",
+        "persistence_failed",
+        "discovery_failed"
+      ],
+      "type": "string"
+    },
+    "hint": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "hint"
+  ],
+  "type": "object"
+}

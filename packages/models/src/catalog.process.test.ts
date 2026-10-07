@@ -74,7 +74,7 @@ test("persisted models are available before discovery after restart", async () =
   });
   cleanups.push(() => restarted.close());
   expect(restarted.list().models[0]?.id).toBe("coder");
-  expect(restarted.list().instances[0]?.refreshing).toBe(false);
+  expect(restarted.list().instances[0]?.refreshing).toBe(true);
 });
 
 test("concurrent explicit refreshes share one discovery result", async () => {

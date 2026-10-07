@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelSourceStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "$ref": "https://ace.local/protocol/v1/ModelDiscoveryError.json"
+    },
+    "lastRefreshedAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/ModelSource.json"
+    },
+    "status": {
+      "enum": [
+        "fresh",
+        "refreshing",
+        "stale"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "status"
+  ],
+  "type": "object"
+}

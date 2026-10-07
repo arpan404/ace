@@ -30,6 +30,7 @@ export function indexModelPreferences(config: ProviderConfiguration) {
   return {
     enabled: config.enabled !== false,
     hideDeprecated: config.hideDeprecated !== false,
+    hideLegacy: config.hideDeprecated === true,
     showOnlyFavourites: config.showOnlyFavourites === true,
     hiddenModels: new Set(config.hiddenModels),
     shownModels: new Set(config.shownModels),
@@ -58,7 +59,8 @@ function indexedVisibility(
         ? "model_hidden"
         : explicitShow
           ? undefined
-          : (model.deprecated || model.legacy) && config.hideDeprecated
+          : ((model.deprecated && config.hideDeprecated) || (model.legacy && config.hideLegacy)) &&
+              !favourite
             ? "deprecated"
             : model.hidden
               ? "provider_hidden"
@@ -101,6 +103,7 @@ export function createCleanModelView(
   provider: ProviderKind,
   instance: string,
   config: ProviderConfiguration,
+  accountLabel?: string,
 ) {
   const index = indexModelPreferences(config);
   const found = config.customModels?.length
@@ -146,6 +149,9 @@ export function createCleanModelView(
     const { defaultSource: _source, ...rest } = visible;
     const value = freezeCatalogModel({
       ...rest,
+      ...(accountLabel && rest.source?.kind === "account"
+        ? { source: { ...rest.source, label: accountLabel } }
+        : {}),
       isDefault: row.id === selection?.model.id,
       ...(row.id === selection?.model.id ? { defaultSource: selection.source } : {}),
     });

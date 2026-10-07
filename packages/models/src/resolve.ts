@@ -24,7 +24,11 @@ export function resolveModel(
       continue;
     if (spec.model) {
       if (!matchesModel(model, spec.model)) continue;
-    } else if (model.deprecated || model.legacy || model.hidden) continue;
+    } else if (
+      (model.deprecated || model.legacy || model.hidden) &&
+      !(model.isDefault && model.defaultSource === "user")
+    )
+      continue;
     if (spec.imageInput && !model.inputModalities.includes("image")) continue;
     if (spec.effort && !model.reasoningEfforts.includes(spec.effort)) continue;
     if (

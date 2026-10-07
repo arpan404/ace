@@ -27,3 +27,9 @@ export { providerConfiguration, modelVisibility, configuredModels } from "./pref
 export { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
 export { executionModelId } from "./execution-id.ts";
 export { selectionModelFilter } from "./selection-scope.ts";
+
+export { normalizeOpenCodeReport } from "./opencode-report.ts";
+export { parseOpenCodeConnections } from "./opencode-connections.ts";
+export { discoveryError } from "./discovery-errors.ts";
+export type { DiscoveryReport } from "./types.ts";
+export { createModelRevisionProbe } from "./discovery-revision.ts";

@@ -44,7 +44,17 @@
     "deprecated": {
       "type": "boolean"
     },
+    "detail": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "displayName": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "family": {
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
@@ -165,6 +175,26 @@
       },
       "maxItems": 32,
       "type": "array"
+    },
+    "sortKey": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/ModelSource.json"
+    },
+    "tier": {
+      "enum": [
+        "current",
+        "legacy"
+      ],
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
     },
     "visibilityReason": {
       "enum": [

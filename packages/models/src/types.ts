@@ -4,6 +4,7 @@ import {
   AcpIdentity,
   type CatalogModel,
   type ModelFilter,
+  type ModelSourceStatus,
   type ModelInstanceStatus,
   type ModelListOptions,
   type ModelListResult,
@@ -14,6 +15,7 @@ import {
 export const ModelInstance = z
   .object({
     id: z.string().min(1).max(256),
+    label: z.string().min(1).max(256).optional(),
     provider: ProviderKind,
     ...AcpIdentity.partial().shape,
     profileRevision: z.string().max(256).optional(),
@@ -38,17 +40,26 @@ export const ModelInstance = z
   );
 export type ModelInstance = z.infer<typeof ModelInstance>;
 export type InstanceInput = z.input<typeof ModelInstance>;
+export type DiscoveryReport = {
+  models: readonly CatalogModel[];
+  sources: readonly ModelSourceStatus[];
+};
 /** Must settle after abort, once all owned I/O resources have been released. */
 export type DiscoverModels = (
   instance: ModelInstance,
   signal: AbortSignal,
-) => Promise<readonly CatalogModel[]>;
+) => Promise<readonly CatalogModel[] & { sources?: readonly ModelSourceStatus[] }>;
 export type CacheEntry = {
   provider: ModelInstance["provider"];
   instance: string;
   revision: string;
+  loginRevision?: string | undefined;
   refreshedAt: number;
   models: readonly CatalogModel[];
+  schemaVersion?: number;
+  identityRevision?: string | undefined;
+  connectionRevision?: string | undefined;
+  sources?: readonly ModelSourceStatus[] | undefined;
 };
 export interface CatalogStorage {
   load(): CacheEntry[];
@@ -57,6 +68,7 @@ export interface CatalogStorage {
   close(): void | Promise<void>;
 }
 export interface ModelCatalogApi {
+  listen?(listener: (filter: ModelFilter) => void): () => void;
   list(options?: ModelListOptions): ModelListResult;
   resolve(spec: ModelRoleSpec): ModelResolution;
   /** Resolve retained choices without scheduling discovery. Optional for embedded catalogs. */

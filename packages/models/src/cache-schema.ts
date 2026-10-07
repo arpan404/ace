@@ -1,11 +1,19 @@
-import { CatalogModel, ProviderKind } from "@ace/protocol";
+import { CatalogModel, ProviderKind, ModelSourceStatus } from "@ace/protocol";
 import { z } from "zod";
 import { freezeCatalogModel } from "./freeze.ts";
 
 export const CachedEntry = z
   .object({
+    schemaVersion: z
+      .union([z.literal(1), z.literal(2)])
+      .default(2)
+      .transform(() => 2),
+    identityRevision: z.string().max(256).optional(),
+    connectionRevision: z.string().max(256).optional(),
+    sources: z.array(ModelSourceStatus).max(512).optional(),
     provider: ProviderKind,
     instance: z.string().min(1).max(256),
+    loginRevision: z.string().min(1).max(256).optional(),
     revision: z.string().min(1).max(256),
     refreshedAt: z.number().nonnegative(),
     models: z.array(CatalogModel).max(512),
@@ -28,6 +36,12 @@ export const CachedEntry = z
         model.nativeModelId = model.id;
       freezeCatalogModel(model);
     }
+    for (const source of entry.sources ?? []) {
+      Object.freeze(source.source);
+      if (source.error) Object.freeze(source.error);
+      Object.freeze(source);
+    }
+    if (entry.sources) Object.freeze(entry.sources);
     Object.freeze(entry.models);
     return entry;
   });
