@@ -32,6 +32,22 @@ mixed resource/timing failures fail immediately. There is no best-of-many loop o
 Every accepted run must meet the unchanged 200 ms longest-task, 100 ms interaction-p95,
 10% long-task-share, 1,500-node and 4 MB retained-growth limits.
 
+The streaming memory and long-thread DOM budgets count attached nodes in the page document
+in one synchronous traversal, including the document itself, elements, text, comments and
+open shadow trees. Hidden attached nodes count too. Each gate uses the maximum live count
+across its samples and keeps the 1,500-node limit. The traversal runs only when sampling,
+not on each streamed event. It does not enter iframe documents or closed shadow trees.
+
+Both gates also report Chrome's `Memory.getDOMCounters` node count as a diagnostic. That
+counter includes detached nodes and can rise while a transcript churns, even just after
+forced GC under host load. It does not decide the live DOM budget. Heap measurements still
+use forced collection and retain their existing growth limits.
+`dom-budget.test.ts` exercises the shared sampler and gate in isolated Chromium: 700 hidden
+mounted elements pass with 5,000 detached elements retained, mounting 1,000 more elements
+fails, and removing them passes again. Text and open shadow nodes count, and exactly 1,500
+attached nodes pass while 1,501 fail. Run it with
+`bunx vitest run --project unit tools/web-perf/src/dom-budget.test.ts`.
+
 The streaming browser journey also gets one complete repeat for a timing violation. Its
 throughput floor is 5,000 events/s, including a small shortfall such as 4,997.42. The old
 comparison accepted 90% while printing a 5,000 budget. The fixture now supplies 5,050 events/s

@@ -110,13 +110,55 @@ export function streamedRate(sample: { streamedEvents: number; streamedSeconds: 
   return sample.streamedSeconds > 0 ? sample.streamedEvents / sample.streamedSeconds : 0;
 }
 
-/** The page's retained heap in MB after forced collection, and its DOM size. */
-export async function pageMemory(cdp: CDPSession): Promise<{ heapMb: number; nodes: number }> {
+/** Count every attached node in one page task, including text and open shadow trees. */
+const attachedNodes = () => {
+  let nodes = 0;
+  const roots: Node[] = [document];
+  for (let root = roots.pop(); root; root = roots.pop()) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);
+    do {
+      nodes++;
+      const node = walker.currentNode;
+      if (node instanceof Element && node.shadowRoot) roots.push(node.shadowRoot);
+    } while (walker.nextNode());
+  }
+  return nodes;
+};
+
+export interface PageMemory {
+  heapMb: number;
+  nodes: number;
+  chromeNodes: number;
+  listeners: number;
+}
+
+/** Retained heap after collection, live DOM for budgets, Chrome's counter for diagnosis. */
+export async function pageMemory(cdp: CDPSession): Promise<PageMemory> {
   await cdp.send("HeapProfiler.collectGarbage");
   await cdp.send("HeapProfiler.collectGarbage");
   const heap = await cdp.send("Runtime.getHeapUsage");
   const counters = await cdp.send("Memory.getDOMCounters");
-  return { heapMb: heap.usedSize / 1024 / 1024, nodes: counters.nodes };
+  const live = z.object({ result: z.object({ value: z.number().int().nonnegative() }) }).parse(
+    await cdp.send("Runtime.evaluate", {
+      expression: `(${attachedNodes.toString()})()`,
+      returnByValue: true,
+    }),
+  );
+  return {
+    heapMb: heap.usedSize / 1024 / 1024,
+    nodes: live.result.value,
+    chromeNodes: counters.nodes,
+    listeners: counters.jsEventListeners,
+  };
+}
+
+/** Both DOM gates use attached nodes; detached churn only affects the diagnostic. */
+export function reportDOM(
+  sample: Pick<PageMemory, "nodes" | "chromeNodes">,
+  limit: number,
+): boolean {
+  report("Chrome DOM counter (diagnostic, includes detached)", sample.chromeNodes, "-", true);
+  return report("attached DOM nodes", sample.nodes, limit, sample.nodes <= limit);
 }
 
 /** One line of a budget report; returns whether it held. */

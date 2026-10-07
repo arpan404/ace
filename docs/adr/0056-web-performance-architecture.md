@@ -95,7 +95,7 @@ Where WebGL2 exists, PTY terminals use xterm.js (loaded on first show) with its 
 | Longest main-thread task while streaming                                                      | ≤ 200 ms  | none over 50 ms                          |
 | Share of the run in long tasks                                                                | ≤ 10 %    | 0 %                                      |
 | Transcript and composer usable after navigation                                               | ≤ 3 s     | 1.4 s (first contentful paint 0.2 s)     |
-| DOM nodes at any point (streaming, or a 1,000,000-item thread paged back)                     | ≤ 1,500   | 840 peak                                 |
+| Attached DOM nodes at any sample (streaming, or a 1,000,000-item thread paged back)           | ≤ 1,500   | 840 peak                                 |
 | Retained page heap growth while streaming at 5,000 events/s, or paging back through 1 M items | ≤ 4 MB    | 0.8 MB in 5 minutes (was 12.4 in 10)     |
 | Retained client worker heap growth while streaming                                            | ≤ 3 MB    | 0.4 MB                                   |
 | One 40 KB markdown answer streaming: input to next paint, p95 (2026-10-05)                    | ≤ 100 ms  | 40–56 ms                                 |
@@ -105,7 +105,7 @@ Where WebGL2 exists, PTY terminals use xterm.js (loaded on first show) with its 
 | Same: markdown blocks whose DOM node was replaced                                             | ≤ 20      | 9–10 (430–462 before)                    |
 | Long thread (1,000,000 items, 2,000 turns): transcript and composer usable after navigation   | ≤ 3 s     | 0.39 s (measured 2026-10-04)             |
 | Long thread: input to next paint, p95, over jumps, window scrolling, search and Jump to live  | ≤ 100 ms  | 56 ms, no long tasks                     |
-| Long thread: DOM nodes at any sample (a jumped window, search open, the live tail)            | ≤ 1,500   | 1,038 peak                               |
+| Long thread: attached DOM nodes at any sample (a jumped window, search open, the live tail)   | ≤ 1,500   | 1,038 peak                               |
 | Long thread: retained page heap growth from the first round to the sixth                      | ≤ 4 MB    | 2.3 MB                                   |
 
 - Bundle: one production build, weighed per route from the Vite manifest.
