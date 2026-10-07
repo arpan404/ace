@@ -1,3 +1,4 @@
+import { providerPermissionDefaults } from "@ace/provider-kit/permission-modes";
 import {
   SettingsKey,
   SettingsValues,
@@ -50,10 +51,20 @@ export class FakeSettings {
   seed(values: Readonly<Record<string, unknown>>): void {
     for (const [key, value] of Object.entries(values))
       if (SettingsKey.safeParse(key).success) this.global.set(key, value);
-    if (!this.global.has("permissions.defaultMode") && this.global.has("approvals.policy")) {
-      const policy = this.global.get("approvals.policy");
-      this.global.set("permissions.defaultMode", legacyPermissionMode(policy));
-    }
+    const legacy =
+      this.global.get("permissions.defaultMode") ??
+      (this.global.has("approvals.policy")
+        ? legacyPermissionMode(this.global.get("approvals.policy"))
+        : undefined);
+    if (typeof legacy === "string")
+      this.global.set("permissions.providerModes", {
+        ...providerPermissionDefaults(legacy),
+        ...SettingsValues.shape["permissions.providerModes"].parse(
+          this.global.get("permissions.providerModes") ?? {},
+        ),
+      });
+    this.global.delete("permissions.defaultMode");
+    this.global.delete("approvals.policy");
   }
   /** Drop a global value, as a settings file that never held it; the default applies again. */
   unset(key: string): void {
@@ -161,11 +172,24 @@ export class FakeSettings {
           values = new Map();
           this.layers.set(id ?? "", values);
         }
-        values.set(key.data, value.data);
-        if (key.data === "approvals.policy") {
-          values.set("permissions.defaultMode", legacyPermissionMode(value.data));
-          this.notify("permissions.defaultMode");
-        }
+        if (
+          (key.data === "permissions.defaultMode" && typeof value.data === "string") ||
+          key.data === "approvals.policy"
+        ) {
+          const legacy =
+            key.data === "approvals.policy"
+              ? legacyPermissionMode(value.data)
+              : z.string().parse(value.data);
+          values.set("permissions.providerModes", {
+            ...SettingsValues.shape["permissions.providerModes"].parse(
+              values.get("permissions.providerModes") ?? {},
+            ),
+            ...providerPermissionDefaults(legacy),
+          });
+          values.delete("permissions.defaultMode");
+          values.delete("approvals.policy");
+          this.notify("permissions.providerModes");
+        } else values.set(key.data, value.data);
         this.notify(key.data);
         const scope: SettingsScope =
           layer.kind === "thread"

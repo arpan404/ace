@@ -3,7 +3,6 @@ import {
   delegatedDocs,
   delegatedDocsIds,
   facts,
-  permissionAudit,
   workbench,
   type Scenario,
 } from "@ace/fake-daemon";
@@ -125,31 +124,6 @@ test("while a step waits for approval nothing says Working: the line says it wai
       name: /^Run git push .* Waiting for your approval$/,
     }),
   ).toBeTruthy();
-});
-
-test("ace's review of a step joins that step's log instead of splitting the work", async () => {
-  const app = harness();
-  app.play(permissionAudit()).runThrough("escalated");
-  await app.open("/t/thread-release-audit");
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const ask = await within(feed).findByText(/Clean out the old build/);
-  const note = await within(feed).findByText(/ace declined deleting dist/);
-  const between = within(feed)
-    .getAllByRole("button", { name: /^Work(ed|ing) for/ })
-    .filter((log) => follows(ask, log) && follows(log, note));
-  expect(between).toHaveLength(1);
-
-  const log = between[0]!;
-  await userEvent.click(log);
-  // Each decision reads once, as the note on the step it judged (IR-2), inside that log.
-  const steps = within(log.parentElement!).getByRole("list", { name: "Steps" });
-  expect(
-    await within(steps).findByRole("button", { name: "Ran pwd Approved by ace · auto-review" }),
-  ).toBeTruthy();
-  expect(
-    within(steps).getByRole("button", { name: "Run rm -rf dist Denied by ace · auto-review" }),
-  ).toBeTruthy();
-  expect(within(steps).queryByRole("article", { name: /Permission review/ })).toBeNull();
 });
 
 function edit(key: string, path: string, agent = "root") {

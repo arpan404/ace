@@ -14,7 +14,9 @@ export const NewDeckInput = z.object({
     .max(16_384, "Keep the goal under 16,000 characters."),
   workspaceId: z.string().min(1, "Pick a project."),
   worker: ProviderKind,
+  workerPermission: z.string().max(4096).optional(),
   reviewer: ProviderKind,
+  reviewerPermission: z.string().max(4096).optional(),
   planApproval: z.boolean(),
   merge: MergePolicy,
   maxParallel: z.number().int().min(1).max(8),
@@ -41,7 +43,8 @@ export function defaultBudget(maxParallel: number): number {
   return Math.max(50, 4 * maxParallel * 6);
 }
 
-const role = (choice: DeckProviderChoice) => ({
+const role = (choice: DeckProviderChoice, permissionMode?: string) => ({
+  ...(permissionMode ? { permissionMode } : {}),
   provider: choice.provider,
   model: choice.model,
   tier: "normal" as const,
@@ -89,10 +92,10 @@ export function deckSpec(
       merge: input.merge,
       maxFixRounds: input.fixRounds,
       roles: {
-        planner: [role(worker)],
-        worker: [role(worker)],
-        reviewer: [role(reviewer)],
-        integrator: [role(worker)],
+        planner: [role(worker, input.workerPermission)],
+        worker: [role(worker, input.workerPermission)],
+        reviewer: [role(reviewer, input.reviewerPermission)],
+        integrator: [role(worker, input.workerPermission)],
       },
     },
   });

@@ -45,19 +45,19 @@ async function chooseApprovals(from: string, mode: string) {
 test("an approval mode chosen offline shows at once and reaches the daemon once it's back", async () => {
   const app = await open();
   await offline(app);
-  await chooseApprovals("Auto-review", "Full access");
+  await chooseApprovals("Provider default", "Bypass permissions");
 
   const chip = await screen.findByRole("button", {
-    name: "Approvals: Auto-review, Full access will apply when reconnected",
+    name: "Approvals: Provider default, Bypass permissions will apply when reconnected",
   });
-  expect(chip.textContent).toBe("Auto-review → Full access");
+  expect(chip.textContent).toBe("Provider default → Bypass permissions");
   expect(thread(app)?.permission?.override).toBeNull();
 
   await online(app);
-  await waitFor(() => expect(thread(app)?.permission?.override).toBe("full-access"));
+  await waitFor(() => expect(thread(app)?.permission?.override).toBe("bypassPermissions"));
   expect(
     await screen.findByRole("button", {
-      name: "Approvals: Auto-review, Full access applies at the agent's next turn",
+      name: "Approvals: Provider default, Bypass permissions applies at the agent's next turn",
     }),
   ).toBeTruthy();
 });
@@ -65,12 +65,12 @@ test("an approval mode chosen offline shows at once and reaches the daemon once 
 test("an approval mode the daemon refuses goes back to the one in effect, with a toast", async () => {
   const app = await open();
   app.daemon.refuseCommands("forbidden", "thread.permission.set");
-  await chooseApprovals("Auto-review", "Read only");
+  await chooseApprovals("Provider default", "Plan");
 
   expect(await screen.findByText("Couldn't change approvals")).toBeTruthy();
   expect(screen.getByText("This device isn't allowed to do that.")).toBeTruthy();
-  const chip = await screen.findByRole("button", { name: "Approvals: Auto-review" });
-  expect(chip.textContent).toBe("Auto-review");
+  const chip = await screen.findByRole("button", { name: "Approvals: Provider default" });
+  expect(chip.textContent).toBe("Provider default");
   expect(thread(app)?.permission?.override).toBeNull();
 });
 

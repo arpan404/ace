@@ -2,14 +2,8 @@ import { threadMoveError, threadMoveEvents } from "@ace/projection";
 import { automaticTarget } from "@ace/accounts/availability";
 import { providerCommandDisabled, supportsPermissionMode } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
-import { ProviderConfigurations } from "@ace/protocol";
-import {
-  resolvePermissionMode,
-  limitPermissionMode,
-  permissionAuthority,
-  isPermissionOption,
-  permissionResolutionError,
-} from "@ace/core";
+import { SettingsValues, ProviderConfigurations } from "@ace/protocol";
+import { migratePermissionMode } from "@ace/provider-kit/permission-modes";
 import { PermissionMode } from "@ace/protocol";
 import {
   fakeReviewEvents,
@@ -301,22 +295,13 @@ export class FakeDaemon implements Host {
   private at(agoMs: number): number {
     return Math.max(0, this.options.clock() - agoMs);
   }
-  private permissionAuthority(id: string): PermissionMode {
-    return permissionAuthority(id, (key) => {
-      const host = this.threads.get(key);
-      return host
-        ? {
-            effective: host.view.thread.permission?.effective ?? "auto-review",
-            parent: host.permissionParent ?? null,
-          }
-        : undefined;
-    });
+  private permissionAuthority(_id: string): PermissionMode {
+    return "ask";
   }
   createThread(init: ThreadInit, agoMs = 0): void {
     if (this.threads.has(init.id)) throw new Error(`Thread ${init.id} already exists`);
     const now = this.at(agoMs);
     const parentId = init.parentThreadId ?? init.lineage?.parentThreadId;
-    const parent = parentId ? this.permissionAuthority(parentId) : undefined;
     const thread = {
       id: ThreadId.parse(init.id),
       workspaceId: WorkspaceId.parse(init.workspaceId),
@@ -331,25 +316,24 @@ export class FakeDaemon implements Host {
       capabilities: {
         ...structuredClone(fakePermissionCapabilities),
         permissions: fakeProviderPermissions(init.provider),
+        permissionModes: fakeProviderPermissions(init.provider).permissionModes,
         ...init.capabilities,
       },
       ...(init.details ? { details: init.details } : {}),
       ...(init.live ? { live: init.live } : {}),
       ...(init.lineage ? { lineage: init.lineage } : {}),
       permission: {
-        override: init.permissionMode ?? null,
-        effective: resolvePermissionMode({
-          ...(init.permissionMode ? { override: init.permissionMode } : {}),
-          setting:
-            parent ??
-            PermissionMode.parse(
-              this.services.settings.resolve("permissions.defaultMode", {
+        override: migratePermissionMode(init.provider, init.permissionMode),
+        effective: migratePermissionMode(
+          init.provider,
+          init.permissionMode ??
+            SettingsValues.shape["permissions.providerModes"].parse(
+              this.services.settings.resolve("permissions.providerModes", {
                 workspaceId: WorkspaceId.parse(init.workspaceId),
                 threadId: ThreadId.parse(init.id),
               }),
-            ),
-          ...(parent ? { parent } : {}),
-        }),
+            )[init.provider],
+        ),
         pending: false,
       },
       activityAt: now,
@@ -376,20 +360,15 @@ export class FakeDaemon implements Host {
         fact.agent === (host.state.rootKey ?? "root") &&
         ["new", "done", "failed", "limited"].includes(host.state.status.state)
       ) {
-        const parent = host.permissionParent
-          ? this.permissionAuthority(host.permissionParent)
-          : undefined;
-        const mode = resolvePermissionMode({
-          override: host.view.thread.permission?.override ?? null,
-          setting:
-            parent ??
-            PermissionMode.parse(
-              this.services.settings.resolve("permissions.defaultMode", {
+        const mode = migratePermissionMode(
+          host.view.thread.provider,
+          host.view.thread.permission?.override ??
+            SettingsValues.shape["permissions.providerModes"].parse(
+              this.services.settings.resolve("permissions.providerModes", {
                 threadId: ThreadId.parse(host.id),
               }),
-            ),
-          ...(parent ? { parent } : {}),
-        });
+            )[host.view.thread.provider],
+        );
         const permission = {
           override: host.view.thread.permission?.override ?? null,
           effective: mode,
@@ -906,14 +885,6 @@ export class FakeDaemon implements Host {
     )
       return { commandId: command.id, ok: false, error: "permission_mode_unsupported" };
     const commandId = command.id;
-    const options =
-      "selection" in payload && payload.selection
-        ? payload.selection.options
-        : "options" in payload
-          ? payload.options
-          : undefined;
-    if (Object.keys(options ?? {}).some(isPermissionOption))
-      return { commandId, ok: false, error: "provider_permission_options_forbidden" };
     if (payload.type === "thread.move") {
       const host = this.threads.get(payload.threadId);
       if (!host) return { commandId, ok: false, error: "thread_not_found" };
@@ -1064,15 +1035,6 @@ export class FakeDaemon implements Host {
               !["allow_once", "allow_thread", "deny"].includes(payload.resolution.optionId))
           )
             return { commandId, ok: false, error: "invalid_resolution" };
-          const error =
-            browserOriginApproval || screenApproval
-              ? undefined
-              : permissionResolutionError(
-                  host.view.thread.permission?.effective ?? "auto-review",
-                  pending.request,
-                  payload.resolution,
-                );
-          if (error) return { commandId, ok: false, error };
           this.apply(host.id, [
             {
               type: "interaction.closed",
@@ -1090,21 +1052,8 @@ export class FakeDaemon implements Host {
       case "thread.permission.set": {
         const host = this.threads.get(payload.threadId);
         if (!host) return { commandId, ok: false, error: "thread_not_found" };
-        const parent = host.permissionParent
-          ? this.permissionAuthority(host.permissionParent)
-          : undefined;
-        if (
-          payload.permissionMode &&
-          limitPermissionMode(payload.permissionMode, parent) !== payload.permissionMode
-        )
-          return { commandId, ok: false, error: "permission_exceeds_parent" };
-        if (
-          payload.permissionMode &&
-          !supportsPermissionMode(
-            host.view.thread.capabilities?.permissions,
-            payload.permissionMode,
-          )
-        )
+        const native = migratePermissionMode(host.view.thread.provider, payload.permissionMode);
+        if (native && !supportsPermissionMode(host.view.thread.capabilities?.permissions, native))
           return { commandId, ok: false, error: "permission_mode_unsupported" };
         this.append(
           host,
@@ -1112,8 +1061,8 @@ export class FakeDaemon implements Host {
             {
               type: "thread.updated",
               permission: {
-                override: payload.permissionMode,
-                effective: host.view.thread.permission?.effective ?? "auto-review",
+                override: native,
+                effective: host.view.thread.permission?.effective ?? null,
                 pending: true,
               },
             },

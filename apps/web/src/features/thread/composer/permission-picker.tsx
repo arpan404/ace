@@ -30,7 +30,7 @@ const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
  */
 export function PermissionPicker(props: {
   /** The mode in effect. */
-  mode: PermissionMode | undefined;
+  mode: PermissionMode | null | undefined;
   capabilities: PermissionCapabilities | undefined;
   /** Whose modes these are, for the menu's note on what they gate. */
   provider?: ProviderKind | undefined;
@@ -44,17 +44,20 @@ export function PermissionPicker(props: {
   /** The mode comes from the default; the menu offers to go back to it. */
   inherited?: boolean | undefined;
   /** A thread's default, offered as "Use the default" when it has its own mode. */
-  defaultMode?: PermissionMode | undefined;
+  defaultMode?: PermissionMode | null | undefined;
   /** Why the mode shown isn't the one asked for: "Cursor can't pause for your approval…". */
   fallback?: string | undefined;
   onChange(mode: PermissionMode | null): void;
 }) {
   const { mode, next } = props;
   const compact = useComposerCompact();
-  const label = mode ? permissionLabel(mode) : props.loading ? "Approvals…" : "Approvals";
-  const Glyph = mode ? permissionIcons[mode] : ShieldCheckIcon;
-  const attention = !!mode && permissionNeedsAttention(mode);
-  const waits = next && props.note ? `${permissionLabel(next)} ${lower(props.note)}` : undefined;
+  const label = props.loading ? "Approvals…" : permissionLabel(mode, props.capabilities);
+  const Glyph = (mode ? permissionIcons[mode] : undefined) ?? ShieldCheckIcon;
+  const attention = !!mode && permissionNeedsAttention(mode, props.capabilities);
+  const waits =
+    next && props.note
+      ? `${permissionLabel(next, props.capabilities)} ${lower(props.note)}`
+      : undefined;
   const tip = [
     mode ? `${label} · ${permissionCoverage(props.capabilities, mode)}` : label,
     props.fallback,
@@ -77,7 +80,11 @@ export function PermissionPicker(props: {
           )}
         >
           <Glyph aria-hidden size={16} className="shrink-0" />
-          {mode && !compact && <span className="truncate">{permissionChipText(mode, next)}</span>}
+          {!compact && (
+            <span className="truncate">
+              {permissionChipText(mode ?? null, next, props.capabilities)}
+            </span>
+          )}
           {next && <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />}
           {props.fallback && (
             <WarningIcon aria-hidden size={12} className="shrink-0 text-status-needs-you" />

@@ -5,7 +5,7 @@ export { useDraftScope } from "./composer/draft-scope.ts";
 export { rememberAttachments, rememberTitle, startedTitle } from "./composer/send-store.ts";
 /** The composer's footer pieces New thread reuses: the approvals chip and the chip style. */
 export { PermissionPicker } from "./composer/permission-picker.tsx";
-export { usePermissionCapabilities } from "./composer/permission-hooks.ts";
+export { usePermissionCapabilities, usePermissionModes } from "./composer/permission-hooks.ts";
 export { chipControl as composerChip } from "./composer/composer-styles.ts";
 /** Where a thread runs, as the footer's pill, and the card shell attached to the composer. */
 export { EnvironmentPill } from "./composer/environment-pill.tsx";

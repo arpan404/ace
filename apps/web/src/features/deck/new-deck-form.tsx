@@ -1,3 +1,4 @@
+import { NativePermissionSelect } from "@/components/native-permission-select.tsx";
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
 import { CaretDownIcon, FolderPlusIcon } from "@phosphor-icons/react";
@@ -121,6 +122,8 @@ export function NewDeckForm() {
       workspaceId: "",
       worker: "" as ProviderKind | "",
       reviewer: "" as ProviderKind | "",
+      workerPermission: undefined as string | undefined,
+      reviewerPermission: undefined as string | undefined,
       planApproval: true,
       merge: "ask" as MergePolicy,
       maxParallel: 3,
@@ -135,6 +138,8 @@ export function NewDeckForm() {
         workspaceId: z.string(),
         worker: ProviderKind.or(z.literal("")),
         reviewer: ProviderKind.or(z.literal("")),
+        workerPermission: z.string().max(4096).or(z.undefined()),
+        reviewerPermission: z.string().max(4096).or(z.undefined()),
         budget: z
           .string()
           .refine(
@@ -290,6 +295,28 @@ export function NewDeckForm() {
           />
         )}
       </form.Subscribe>
+      {(["worker", "reviewer"] as const).map((role) => (
+        <form.Subscribe key={role} selector={(state) => state.values[role]}>
+          {(provider) => (
+            <form.Field name={role === "worker" ? "workerPermission" : "reviewerPermission"}>
+              {(field) => (
+                <Row
+                  label={`${role === "worker" ? "Worker" : "Reviewer"} permissions`}
+                  labelFor={false}
+                >
+                  {() => (
+                    <NativePermissionSelect
+                      provider={provider || fallback[role]}
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                    />
+                  )}
+                </Row>
+              )}
+            </form.Field>
+          )}
+        </form.Subscribe>
+      ))}
       <form.Field name="planApproval">
         {(field) => (
           <label className="flex items-center gap-4 border-t pt-4">

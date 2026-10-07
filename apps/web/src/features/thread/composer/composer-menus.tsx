@@ -14,6 +14,7 @@ import {
   CommandIcon,
   ImageIcon,
   InfoIcon,
+  ShieldCheckIcon,
   PaperclipIcon,
 } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
@@ -44,18 +45,18 @@ function Note(props: { children: string; pending?: boolean }) {
  * run in it. `fallback` says why the mode shown isn't the one asked for.
  */
 export function PermissionMenu(props: {
-  mode: PermissionMode | undefined;
+  mode: PermissionMode | null | undefined;
   capabilities: PermissionCapabilities | undefined;
   provider?: ProviderKind | undefined;
   loading: boolean;
   unavailable?: string | undefined;
   inherited?: boolean | undefined;
-  defaultMode?: PermissionMode | undefined;
+  defaultMode?: PermissionMode | null | undefined;
   fallback?: string | undefined;
   onChange(mode: PermissionMode | null): void;
 }) {
   if (props.unavailable) return <Note>{props.unavailable}</Note>;
-  if (props.loading) return <Note pending>Checking what the provider can gate…</Note>;
+  if (props.loading) return <Note pending>Loading provider modes…</Note>;
   const provider = props.provider ? providerNames[props.provider] : "This provider";
   const choices = permissionChoices(props.capabilities, provider);
   if (!choices.length)
@@ -84,7 +85,7 @@ export function PermissionMenu(props: {
               className={cn(menuItem, "h-auto items-start py-2")}
             >
               <Icon
-                icon={permissionIcons[choice.mode]}
+                icon={permissionIcons[choice.mode] ?? ShieldCheckIcon}
                 className={cn("mt-px", choice.attention && "text-status-needs-you!")}
               />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5 whitespace-normal">
@@ -108,7 +109,7 @@ export function PermissionMenu(props: {
         <InfoIcon aria-hidden size={14} className="mt-px shrink-0" />
         {permissionCoverageNote(props.capabilities, provider, props.mode)}
       </p>
-      {props.defaultMode && !props.inherited && (
+      {!props.inherited && (
         <>
           <MenuSeparator />
           <MenuItem
@@ -117,7 +118,7 @@ export function PermissionMenu(props: {
             disabled={!!defaultUnavailable}
             onClick={() => props.onChange(null)}
           >
-            Use the default · {permissionLabel(props.defaultMode)}
+            Use the default · {permissionLabel(props.defaultMode, props.capabilities)}
           </MenuItem>
         </>
       )}
