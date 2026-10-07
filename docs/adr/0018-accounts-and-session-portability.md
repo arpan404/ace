@@ -179,3 +179,26 @@ These requests do not change the existing `accounts.*` authority or allow renami
 removing or migrating implicit accounts. SDK identity, fencing and isolated default
 stores remain governed by ADR 0043. Browser challenges are device-owned and ephemeral;
 only a per-device onboarding dismissal flag is persisted by first-run setup.
+
+## Amendment: provider-page accounts and key hand-off
+
+Accepted 2026-10-07. The provider detail page can list, add and immediately sign
+in, rename, select a default, remove and reauthenticate accounts through additive
+`provider.accounts.*` operations. Existing `accounts.*` operations remain valid.
+New mutations require `operate`; the older account-management scope is unchanged.
+List results contain no directory selectors and expose only safe auth metadata,
+readiness, quota and a usage-summary hook. UI auth methods are `browser`, `api_key`
+and `unknown`; operation methods are `login` and `api_key`.
+
+Adding creates a managed isolated home before starting the ephemeral login
+session. A cancelled or failed sign-in leaves a retryable account. Remove requires
+`confirm: true`, preserves the home by default and waits for reviewed native
+logout on Codex, Claude and Cursor. Failed logout retains the account. Home
+removal is limited to validated ace-managed homes. Providers without a reviewed
+unattended logout retain their home. Implicit CLI accounts cannot be removed.
+
+The API-key amendment to [ADR 0002](0002-local-cli-providers.md#amendment-api-keys-handed-to-the-cli)
+supersedes this ADR's prohibition on accepting a credential over the wire. Only
+non-secret auth method and identity metadata enter the account registry. A Cursor
+instance with pasted-key authentication suppresses the ambient `CURSOR_API_KEY`
+override so future launches use the SDK's selected credential store.

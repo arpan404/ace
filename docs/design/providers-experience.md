@@ -120,22 +120,22 @@ One list per provider, the CLI's own sign-in first:
   (`provider.login.start { instance }`). No separate page.
 
 Today this uses `accounts.add/rename/setDefault/remove` (scope `accounts`) and
-`provider.login.start { instance }`. **Waiting: `feat/accounts-inline-api-keys`** replaces them
+`provider.login.start { instance }`. **Backend available in `feat/accounts-inline-api-keys`** replaces them
 with `provider.accounts.list/add/rename/setDefault/remove/reauth`. The UI needs per account:
-`id`, `label`, `isDefault`, `implicit`, `status`, and **`authMethod: "browser" | "api_key"`**,
+`id`, `label`, `isDefault`, `implicit`, `status`, and **`authMethod: "browser" | "api_key" | "unknown"`**,
 which the row shows as "Browser sign-in" or "API key" (never any key material). All calls go
 through one hook (`features/settings/account-actions.ts`), so the swap is local.
 
-### API key sign-in (waiting: `feat/accounts-inline-api-keys`)
+### API key sign-in (backend available in `feat/accounts-inline-api-keys`)
 
 Where the provider supports it, the sign-in dialog's first step becomes a choice of two rows,
 in the same list style as the service choices: "Sign in with browser" and "Use an API key".
 The key step is one secure field (`type="password"`, no autocomplete, paste allowed), a primary
 "Connect", and one line: "ace hands the key to {name}'s own login and doesn't keep it." After
 it, the account reads "API key". The UI needs: a readiness or account capability saying API
-keys are supported for this provider (or upstream), and a login input variant that carries the
-key straight to the CLI. Today the daemon has no such input, so API keys go through the
-terminal fallback and the choice isn't shown.
+keys are supported for this provider (or upstream), and the dedicated `provider.login.apiKey`
+message that carries the key straight to the CLI. The daemon supplies `apiKey.supported` and
+`awaiting_api_key`; the screen can expose the reserved choice when that capability is true.
 
 ### Install, update, remove (install command live; one-click waiting: `feat/provider-cli-install`)
 
@@ -161,3 +161,5 @@ terminal fallback and the choice isn't shown.
   times beyond the windows the CLIs report, and the estimated cost of API-key accounts priced
   as they are billed. The Usage section keeps its layout; the account shares gain a cost column
   marked "estimate" for API-key accounts.
+
+The backend contract is now documented in [provider account operations and API keys](../daemon/provider-login.md#provider-account-operations-and-api-keys). The UI integration can switch the account hook locally. Treat `authMethod: unknown` as unreported, show the key option only when `apiKey.supported` is true, and submit only through the dedicated key message after `awaiting_api_key`. Paired clients use the encrypted `provider_auth` channel.

@@ -1,6 +1,6 @@
 # Accounts
 
-`@ace/accounts` owns local provider instance metadata, quota snapshots, assignment hints, and offline session copies. It never reads, captures or stores a provider credential.
+`@ace/accounts` owns local provider instance metadata, quota snapshots, assignment hints, and offline session copies. It never reads CLI credential files or stores provider credentials. Login sessions can hold a pasted key in memory only for a child-stdin hand-off.
 
 ## CLI
 
@@ -12,7 +12,7 @@ bun run --filter @ace/accounts accounts accounts status codex-work
 bun run --filter @ace/accounts accounts accounts list
 ```
 
-The daemon's `ace` bin delegates `ace accounts ...` to this package; there is one host CLI bin. `ACE_ACCOUNTS_DB` overrides the default `$ACE_HOME/accounts.sqlite` (`ACE_HOME` defaults to `~/.ace-next`), shared with the daemon. Cursor SDK sign-in is separate from CLI/editor login. When the exact supported SDK is installed, Cursor add/status use isolated SDK hosts and safe auth-source metadata; SDK absence retains ACP login. Its one-time browser URL is displayed only in the calling terminal. API authentication inherits the existing launch environment, with no key entry UI. Other providers inherit the terminal and run their CLI login flow. Its injected supervised spawner owns the process group; cancellation escalates from SIGTERM to SIGKILL and waits for the child to be reaped. For a Claude API key, configure the CLI's home directly; `--console` selects its Console login. ace does not accept a key argument.
+The daemon's `ace` bin delegates `ace accounts ...` to this package; there is one host CLI bin. `ACE_ACCOUNTS_DB` overrides the default `$ACE_HOME/accounts.sqlite` (`ACE_HOME` defaults to `~/.ace-next`), shared with the daemon. Cursor SDK sign-in is separate from CLI/editor login. When the exact supported SDK is installed, Cursor add/status use isolated SDK hosts and safe auth-source metadata; SDK absence retains ACP login. Its one-time browser URL is displayed only in the calling terminal. The daemon also supports a dedicated transient API-key hand-off through the SDK-owned credential store; see [provider login](../../docs/daemon/provider-login.md). Other providers inherit the terminal and run their CLI login flow. Its injected supervised spawner owns the process group; cancellation escalates from SIGTERM to SIGKILL and waits for the child to be reaped. For a Claude API key, configure the CLI's home directly; `--console` selects its Console login. ace does not accept a key argument.
 
 ## Engine integration
 
