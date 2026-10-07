@@ -6,7 +6,7 @@ import {
   WarningIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import type { InteractionMeasurement } from "@ace/protocol";
+import type { Attachment, InteractionMeasurement } from "@ace/protocol";
 import {
   confidenceText,
   measuredText,
@@ -43,10 +43,13 @@ const icons: Record<InteractionMeasurement["verdict"], PhosphorIcon> = {
 
 type StepDisplay = NonNullable<ReturnType<typeof useStepDisplay>>;
 
-export function MeasurementStep(props: { data: StepDisplay; plain: ReactNode }) {
+export function MeasurementStep(props: { threadId: string; data: StepDisplay; plain: ReactNode }) {
   const { item, step } = props.data;
   const result = useMemo(
-    () => (item.type === "tool_call" ? readMeasurement(item.call) : undefined),
+    () =>
+      item.type === "tool_call" || item.type === "notice"
+        ? readMeasurement(item.type === "tool_call" ? item.call : undefined, item.measurement)
+        : undefined,
     [item],
   );
   const [open, setOpen] = useState(false);
@@ -81,7 +84,7 @@ export function MeasurementStep(props: { data: StepDisplay; plain: ReactNode }) 
       </button>
       {open && (
         <div id={panel} className="mt-1 mb-2 pl-6">
-          <MeasurementCard result={result} />
+          <MeasurementCard threadId={props.threadId} result={result} />
         </div>
       )}
     </li>
@@ -92,8 +95,8 @@ export function MeasurementStep(props: { data: StepDisplay; plain: ReactNode }) 
  * The verdict, what was done where, the headline numbers (median · worst over repeats) with
  * each run's verdict, the timeline, how sure the tool is, and the filmstrip.
  */
-function MeasurementCard(props: { result: MeasurementResult }) {
-  const { measurement, filmstrip } = props.result;
+function MeasurementCard(props: { threadId: string; result: MeasurementResult }) {
+  const { measurement, filmstrip, filmstripAttachment } = props.result;
   const verdict = verdictText(measurement.verdict);
   const Glyph = icons[measurement.verdict];
   const metrics = measurementMetrics(measurement);
@@ -140,7 +143,9 @@ function MeasurementCard(props: { result: MeasurementResult }) {
       )}
       <MeasurementTimeline measurement={measurement} />
       <Confidence measurement={measurement} />
-      {filmstrip && <Filmstrip url={filmstrip} />}
+      {(filmstripAttachment || filmstrip) && (
+        <Filmstrip threadId={props.threadId} attachment={filmstripAttachment} url={filmstrip} />
+      )}
     </section>
   );
 }
@@ -181,10 +186,32 @@ function Confidence(props: { measurement: InteractionMeasurement }) {
 }
 
 /** The timestamped filmstrip; it opens full size in the image lightbox. */
-function Filmstrip(props: { url: string }) {
+function Filmstrip(props: {
+  threadId: string;
+  attachment?: Attachment | undefined;
+  url?: string | undefined;
+}) {
   const images = useMemo<ShownImage[]>(
-    () => [{ key: "filmstrip", name: "Filmstrip", source: { kind: "url", url: props.url } }],
-    [props.url],
+    () =>
+      props.attachment
+        ? [
+            {
+              key: props.attachment.sha256,
+              name: "Filmstrip",
+              bytes: props.attachment.bytes,
+              source: {
+                kind: "attachment",
+                threadId: props.threadId,
+                sha256: props.attachment.sha256,
+                bytes: props.attachment.bytes,
+                thumbnail: props.attachment.thumbnailAvailable ?? false,
+              },
+            },
+          ]
+        : props.url
+          ? [{ key: "filmstrip", name: "Filmstrip", source: { kind: "url", url: props.url } }]
+          : [],
+    [props.threadId, props.attachment, props.url],
   );
   const { show, lightbox } = useLightbox(images);
   const [image] = images;

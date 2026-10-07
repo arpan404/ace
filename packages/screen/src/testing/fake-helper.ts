@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { createInterface } from "node:readline";
 import { ScreenHelperRequest } from "@ace/protocol";
@@ -505,7 +505,10 @@ function processRequest(request: ScreenHelperRequest) {
             filmstrip: {
               type: "image",
               mimeType: "image/jpeg",
-              data: Buffer.from("fake filmstrip").toString("base64"),
+              data: (process.env.MEASUREMENT_FILMSTRIP_FILE
+                ? readFileSync(process.env.MEASUREMENT_FILMSTRIP_FILE)
+                : Buffer.from("fake filmstrip")
+              ).toString("base64"),
             },
           }
         : {}),

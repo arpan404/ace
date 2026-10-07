@@ -1,0 +1,124 @@
+{
+  "$id": "https://ace.local/protocol/v1/StepMeasurement.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ScreenInput.json"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/BrowserInteractionAction.json"
+        }
+      ]
+    },
+    "captureOverheadPct": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "confidence": {
+      "$ref": "https://ace.local/protocol/v1/InteractionConfidence.json"
+    },
+    "droppedFrames": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "effectiveFps": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "filmstrip": {
+      "$ref": "https://ace.local/protocol/v1/Attachment.json"
+    },
+    "frames": {
+      "maximum": 2400,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hitchRatioMsPerS": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "hitchTimeMs": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "hitches": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/InteractionGap.json"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "hostLoad": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "latencyMs": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "layoutShift": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "longTasks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/InteractionGap.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "notes": {
+      "items": {
+        "maxLength": 512,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "refreshHz": {
+      "exclusiveMinimum": 0,
+      "maximum": 240,
+      "type": "number"
+    },
+    "repeat": {
+      "$ref": "https://ace.local/protocol/v1/InteractionRepeat.json"
+    },
+    "settleMs": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "source": {
+      "enum": [
+        "screen-frames",
+        "browser-trace"
+      ],
+      "type": "string"
+    },
+    "target": {
+      "$ref": "https://ace.local/protocol/v1/InteractionTarget.json"
+    },
+    "verdict": {
+      "$ref": "https://ace.local/protocol/v1/InteractionVerdict.json"
+    },
+    "windowMs": {
+      "maximum": 10000,
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "source",
+    "target",
+    "refreshHz",
+    "windowMs",
+    "frames",
+    "hitches",
+    "verdict",
+    "confidence",
+    "notes"
+  ],
+  "type": "object"
+}
