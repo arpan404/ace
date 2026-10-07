@@ -1,5 +1,5 @@
 import type { Fact, Key } from "@ace/core";
-import type { InteractionMeasurement } from "@ace/protocol";
+import type { InteractionMeasurement, StepMeasurement } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
 import { endTurn, message, rootAgent, turn } from "./facts.ts";
 
@@ -67,6 +67,18 @@ export function measurementCall(
         ],
       },
     },
+  };
+}
+
+/** A modern daemon result, with no reliance on provider payloads. */
+export function typedMeasurementCall(agent: Key, item: Key, measurement: StepMeasurement): Fact {
+  const { filmstrip: _attachment, ...metrics } = measurement;
+  const legacy = measurementCall(agent, item, metrics, { filmstrip: false });
+  if (legacy.type !== "item.upsert" || legacy.draft.type !== "tool_call")
+    throw new Error("Invalid measurement seed");
+  return {
+    ...legacy,
+    draft: { ...legacy.draft, measurement, call: { ...legacy.draft.call, raw: [] } },
   };
 }
 

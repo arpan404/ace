@@ -1,3 +1,4 @@
+import { MeasurementStore } from "./measurement-store.ts";
 import { migrateProjects } from "./project-storage.ts";
 import { LongThreadIndex } from "./long-thread/index.ts";
 import {
@@ -84,6 +85,7 @@ export class Store {
   private readonly stopSearchTimer: () => void;
   private closing: Promise<void> | undefined;
   private readonly payloads: PayloadStore;
+  readonly measurements: MeasurementStore;
   private readonly history: HistoryIndex;
   private readonly status: StatusStore;
   private readonly longThreads: LongThreadIndex;
@@ -128,6 +130,7 @@ export class Store {
         "CREATE INDEX IF NOT EXISTS threads_workspace_live ON threads(workspace_id, archived_at, id)",
       );
       this.payloads.initialize();
+      this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql));
       this.history = new HistoryIndex(
         this.db,
         (sql) => this.statement(sql),
@@ -510,7 +513,7 @@ export class Store {
           id: this.nextId(),
           threadId,
           at,
-          payload: prepared,
+          payload: this.measurements.decorate(threadId, prepared, seq),
         });
         if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
         let thread: Thread;

@@ -24,6 +24,7 @@ export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";
 export {
   measurementCall,
+  typedMeasurementCall,
   smoothnessCases,
   smoothnessMeasurements,
 } from "./scenarios/smoothness.ts";

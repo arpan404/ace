@@ -339,6 +339,9 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "measurement": {
+          "$ref": "https://ace.local/protocol/v1/StepMeasurement.json"
+        },
         "nativeId": {
           "maxLength": 256,
           "type": "string"
@@ -400,6 +403,9 @@
             "error"
           ],
           "type": "string"
+        },
+        "measurement": {
+          "$ref": "https://ace.local/protocol/v1/StepMeasurement.json"
         },
         "nativeId": {
           "maxLength": 256,

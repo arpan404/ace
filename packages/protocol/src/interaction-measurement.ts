@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Attachment } from "./context.ts";
 import { ScreenInput } from "./screen-v2.ts";
 import { ScreenBundle } from "./screen-base.ts";
 import { BrowserInteractionAction } from "./browser-interaction.ts";
@@ -127,3 +128,9 @@ export const InteractionEvidence = InteractionMeasurement.pick({
   notes: z.array(z.string().max(512)).max(24).default([]),
 });
 export type InteractionEvidence = z.infer<typeof InteractionEvidence>;
+
+/** Daemon-owned transcript evidence; image bytes use authenticated thread attachments. */
+export const StepMeasurement = InteractionMeasurement.omit({ filmstrip: true }).extend({
+  filmstrip: Attachment.optional(),
+});
+export type StepMeasurement = z.infer<typeof StepMeasurement>;

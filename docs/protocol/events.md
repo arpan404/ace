@@ -476,6 +476,7 @@ Example:
     "id": "example",
     "interactionId": "example",
     "level": "error",
+    "raw": [],
     "text": "example",
     "title": "example",
     "type": "notice"
@@ -515,32 +516,25 @@ Example:
     "agentId": "example",
     "autoReviewed": true,
     "blocking": false,
-    "closedAt": 6,
-    "createdAt": 2,
+    "closedAt": 3,
+    "createdAt": 5,
+    "expirationReason": "provider_disconnected",
     "id": "example",
     "request": {
+      "description": "example",
       "kind": "elicitation",
       "message": "example",
       "server": "example"
     },
     "review": {
-      "decision": "deny",
+      "decision": "approve",
       "interactionId": "example",
-      "mode": "read-only",
+      "mode": "auto-review",
       "reason": "example",
-      "reviewer": "ace-risk-policy",
-      "target": {
-        "access": "execute",
-        "cwd": "example",
-        "input": null,
-        "paths": [],
-        "riskClass": "external-effect",
-        "tool": "example"
-      }
+      "reviewer": "ace-risk-policy"
     },
     "state": "resolved",
-    "threadId": "example",
-    "toolCallId": "example"
+    "threadId": "example"
   },
   "type": "interaction.opened"
 }
@@ -565,6 +559,12 @@ Example:
 {
   "closedAt": 9,
   "interactionId": "example",
+  "resolution": {
+    "kind": "approval",
+    "message": "example",
+    "optionId": "example"
+  },
+  "resolvedBy": "example",
   "state": "expired",
   "type": "interaction.closed"
 }
@@ -583,12 +583,12 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "ambient": true,
+    "endedAt": 4,
     "id": "example",
-    "kind": "monitor",
-    "outputPath": "example",
-    "startedAt": 7,
-    "status": "failed",
+    "kind": "other",
+    "raw": [],
+    "startedAt": 4,
+    "status": "stopped",
     "stoppable": true,
     "title": "example"
   },
@@ -609,7 +609,7 @@ Example:
 
 ```json
 {
-  "status": "unknown",
+  "status": "stopped",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -631,8 +631,8 @@ Example:
 {
   "paused": false,
   "reason": null,
-  "resumeAt": null,
-  "revision": 5,
+  "resumeAt": 8,
+  "revision": 0,
   "type": "queue.updated"
 }
 ```
@@ -650,11 +650,10 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 4,
-    "model": "example",
-    "source": "provider",
-    "usedTokens": 8,
-    "windowTokens": 9
+    "epoch": 7,
+    "source": "unknown",
+    "usedTokens": null,
+    "windowTokens": null
   },
   "type": "context_meter.updated"
 }
@@ -676,9 +675,10 @@ Example:
 ```json
 {
   "agentId": "example",
+  "sessionId": "example",
   "type": "context.sampled",
   "usedTokens": 4,
-  "windowTokens": 8
+  "windowTokens": 9
 }
 ```
 
@@ -712,10 +712,11 @@ Example:
 ```json
 {
   "agentId": "example",
-  "cachedInputTokens": 8,
+  "contextTokens": 7,
   "inputTokens": 6,
-  "outputTokens": 3,
-  "type": "usage.updated"
+  "outputTokens": 9,
+  "type": "usage.updated",
+  "usageScope": "agent"
 }
 ```
 
@@ -732,10 +733,10 @@ Example:
 ```json
 {
   "change": {
-    "destination": "example",
     "id": "example",
     "op": "example",
     "path": "example",
+    "trashId": "example",
     "version": "example"
   },
   "type": "workspace.files_changed",
