@@ -1,7 +1,8 @@
 import type { ModelDiscoveryError } from "@ace/protocol";
-import { z } from "zod";
+import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 
 const messages: Record<ModelDiscoveryError["code"], [string, string]> = {
+  not_configured: ["Provider is not configured.", "Set up the provider, then refresh models."],
   auth_expired: [
     "Provider sign-in has expired.",
     "Sign in again using the provider CLI, then refresh models.",
@@ -36,34 +37,19 @@ const messages: Record<ModelDiscoveryError["code"], [string, string]> = {
 export function discoveryError(
   error: unknown,
   fallback: ModelDiscoveryError["code"] = "discovery_failed",
+  context?: { provider: string; source?: string; backend?: string | undefined },
 ): ModelDiscoveryError {
-  const diagnostic = z.object({ message: z.string().optional() }).safeParse(error);
-  const text =
-    error instanceof Error
-      ? error.message
-      : diagnostic.success
-        ? (diagnostic.data.message ?? "")
-        : "";
-  const status = z
-    .object({ status: z.number().optional(), statusCode: z.number().optional() })
-    .safeParse(error);
-  const code = status.success ? (status.data.status ?? status.data.statusCode) : undefined;
-  const kind =
-    error instanceof z.ZodError ||
-    error instanceof SyntaxError ||
-    /parse.failure|unreadable.*metadata/i.test(text)
-      ? "parse_failure"
-      : code === 401 ||
-          code === 403 ||
-          /\b(?:401|403|unauthorized|authentication|auth.expired)\b/i.test(text)
-        ? "auth_expired"
-        : code === 429 || /rate.limit|\b429\b/i.test(text)
-          ? "rate_limited"
-          : /unsupported.*version|version.*unsupported|method.*not.*found|cli.*too.old/i.test(text)
-            ? "cli_too_old"
-            : /ECONN|ENOTFOUND|unreachable|fetch failed|network|offline/i.test(text)
-              ? "unreachable"
-              : fallback;
+  const kind = discoveryFailureCode(error, fallback);
   const [message, hint] = messages[kind];
-  return Object.freeze({ code: kind, message, hint });
+  const correctiveHint =
+    context?.backend === "cursor-sdk" && (kind === "not_configured" || kind === "auth_expired")
+      ? kind === "not_configured"
+        ? "Sign in to Cursor. Cursor SDK isn't set up on this Mac. Hide it in Settings → Providers if you don't use it."
+        : "Sign in to Cursor, then refresh models."
+      : context?.provider === "opencode" && kind === "auth_expired"
+        ? context.source === "github-copilot"
+          ? "Reconnect GitHub Copilot in OpenCode (`opencode auth login`), then refresh models."
+          : "Reconnect the provider in OpenCode (`opencode auth login`), then refresh models."
+        : hint;
+  return Object.freeze({ code: kind, message, hint: correctiveHint });
 }

@@ -1,7 +1,7 @@
 import { CursorHost, discoverCursorSdk, type HostOptions } from "./host.ts";
 import { CursorInstance, cursorSdkEnvironment } from "./instance.ts";
 import { CursorHostSlots } from "./slots.ts";
-import { SafeAuth } from "./contracts.ts";
+import { SafeAuth, sdkVersion } from "./contracts.ts";
 
 /** Discovery failure is not a rejected sign-in. Keep provider diagnostics off the auth wire. */
 export class CursorSdkUnavailableError extends Error {
@@ -32,7 +32,11 @@ const reserve = (kind: "login" | "logout") => {
 export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
   const checkAvailability = async () => {
     const installed = await discoverCursorSdk(options.discovery);
-    if (!installed.supported) throw new CursorSdkUnavailableError();
+    if (!installed.supported)
+      throw Object.assign(new CursorSdkUnavailableError(), {
+        code:
+          installed.version && installed.version !== sdkVersion ? "cli_too_old" : "not_configured",
+      });
   };
   const slots = options.slots ?? new CursorHostSlots(2);
   let workers = 0;

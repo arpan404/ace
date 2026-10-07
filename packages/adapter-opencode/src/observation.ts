@@ -1,3 +1,4 @@
+import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import type { Frame } from "@ace/engine-api";
 import type { Runtime } from "./runtime.ts";
 export type Observe = (dir: Frame["dir"], channel: string, data: unknown) => void;
@@ -100,7 +101,20 @@ export function observedFetch(
         frame("recv", "http", { method, path, status: 204 });
         return response;
       }
-      const result = await jsonResponse(response);
+      let result: unknown;
+      try {
+        result = await jsonResponse(response);
+      } catch (error) {
+        if (!response.ok && url.pathname === "/api/model")
+          throw Object.assign(new Error("OpenCode model response failed"), {
+            code: discoveryFailureCode({ status: response.status, cause: error }),
+          });
+        throw error;
+      }
+      if (!response.ok && url.pathname === "/api/model")
+        throw Object.assign(new Error("OpenCode model response failed"), {
+          code: discoveryFailureCode({ status: response.status, error: result }),
+        });
       frame(
         "recv",
         "http",

@@ -1,4 +1,5 @@
 import { OpenCodeServer, type ServerOptions } from "./server.ts";
+import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import { z } from "zod";
 /** Metadata-only, owned lifecycle. No session, prompt, login or credential APIs. */
 export async function discoverOpenCodeModels(
@@ -41,23 +42,9 @@ export async function discoverOpenCodeModels(
     }
     return server.redact({ ...validated, ...(configuredDefault ? { configuredDefault } : {}) });
   } catch (error) {
-    const status = z
-      .object({ status: z.number().optional(), statusCode: z.number().optional() })
-      .safeParse(error);
-    const text = error instanceof Error ? error.message : "";
-    const reason = signal.aborted
-      ? "cancelled"
-      : error instanceof z.ZodError
-        ? "parse failure"
-        : /unsupported|version/i.test(text)
-          ? "unsupported version"
-          : /ECONN|ENOTFOUND|fetch failed|network/i.test(text)
-            ? "unreachable"
-            : "failed";
-    // Preserve a non-secret failure category, never stderr or provider response bodies.
-    throw Object.assign(new Error(`OpenCode model discovery ${reason}`), {
-      status: status.success ? (status.data.status ?? status.data.statusCode) : undefined,
-    });
+    // Inspect status/message/cause locally, then discard all vendor diagnostic text.
+    const code = discoveryFailureCode(error, signal.aborted ? "timeout" : "discovery_failed");
+    throw Object.assign(new Error("OpenCode model discovery failed"), { code });
   } finally {
     signal.removeEventListener("abort", abort);
     await server.close();

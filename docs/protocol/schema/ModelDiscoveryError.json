@@ -4,6 +4,7 @@
   "properties": {
     "code": {
       "enum": [
+        "not_configured",
         "auth_expired",
         "unreachable",
         "cli_too_old",

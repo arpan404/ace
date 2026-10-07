@@ -90,7 +90,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| code | yes | ["auth_expired","unreachable","cli_too_old","rate_limited","parse_failure","timeout","persistence_failed","discovery_failed"] |  |
+| code | yes | ["not_configured","auth_expired","unreachable","cli_too_old","rate_limited","parse_failure","timeout","persistence_failed","discovery_failed"] |  |
 | message | yes | string | {"minLength":1,"maxLength":256} |
 | hint | yes | string | {"minLength":1,"maxLength":256} |
 
@@ -98,7 +98,7 @@ Example:
 
 ```json
 {
-  "code": "parse_failure",
+  "code": "rate_limited",
   "hint": "example",
   "message": "example"
 }

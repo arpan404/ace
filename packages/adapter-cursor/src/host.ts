@@ -1,3 +1,4 @@
+import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { z } from "zod";
 import { fileURLToPath } from "node:url";
@@ -133,10 +134,13 @@ export class CursorHost {
     if (params !== undefined) boundedJson(params, this.limits.maxFrameBytes - 1024);
     return this.rpc
       .request(method, params, timeoutMs === undefined ? {} : { timeoutMs })
-      .catch(async () => {
+      .catch(async (error: unknown) => {
         await this.stop();
-        throw new Error(
-          `${["open", "send", "cancel"].includes(method) && this.errorMessage ? this.errorMessage + " " : ""}Cursor SDK ${method} failed; delivery may be uncertain. Inspect history before resending.`,
+        throw Object.assign(
+          new Error(
+            `${["open", "send", "cancel"].includes(method) && this.errorMessage ? this.errorMessage + " " : ""}Cursor SDK ${method} failed; delivery may be uncertain. Inspect history before resending.`,
+          ),
+          { code: discoveryFailureCode(error) },
         );
       });
   }

@@ -1,3 +1,4 @@
+import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
@@ -135,7 +136,7 @@ export function hostWire(
         id = request.id;
         const result = await dispatch(request.method, request.params);
         await send({ jsonrpc: "2.0", id, result: result ?? null });
-      } catch {
+      } catch (error) {
         // Never pass vendor exception text, stacks, request headers or auth returns.
         if (id !== undefined)
           await send({
@@ -144,6 +145,7 @@ export function hostWire(
             error: {
               code: -32603,
               message: "Cursor SDK operation failed; check safe lifecycle notice",
+              data: { code: discoveryFailureCode(error) },
             },
           });
         else disconnected();

@@ -10,6 +10,7 @@ import { probeCursorSandbox } from "./sandbox-support.ts";
 import { HostRuntime } from "./host-runtime.ts";
 import { snapshotInHost } from "./history.ts";
 import { validateCursorAuthHome } from "./auth-home.ts";
+import { cursorModelsInHost } from "./model-discovery.ts";
 import { cursorAuthInHost } from "./auth-host.ts";
 
 // This entry is launched only by provider-kit with HOME set before any SDK import.
@@ -68,7 +69,19 @@ const wire = hostWire(async (method, params) => {
   if (method === "snapshot") return snapshotInHost(sdk, params);
   if (method === "models") {
     const scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } });
-    const safe: unknown = JSON.parse(scrub(boundedJson(await sdk.Cursor.models.list(), 262144)));
+    const safe: unknown = JSON.parse(
+      scrub(
+        boundedJson(
+          await cursorModelsInHost(
+            sdk,
+            process.env.CURSOR_API_KEY === undefined
+              ? undefined
+              : Boolean(process.env.CURSOR_API_KEY.length),
+          ),
+          262144,
+        ),
+      ),
+    );
     return safe;
   }
   const loaded = sdk;
