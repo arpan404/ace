@@ -63,3 +63,38 @@ test("an OpenCode proxy's non-JSON forbidden response preserves authentication f
     discoverOpenCodeModels(h.options, "/one", new AbortController().signal),
   ).rejects.toMatchObject({ code: "auth_expired" });
 });
+
+test.each(
+  ["/api/info", "/openapi.json", "/api/event"].flatMap((path) =>
+    [401, 403, 503].map((status) => ({ path, status })),
+  ),
+)(
+  "OpenCode startup HTTP $status at $path survives the session-opening wrapper",
+  async ({ path, status }) => {
+    let rejectStartup = false;
+    const h = await setup({
+      runtime: {
+        fetch: async (input, init) => {
+          const url = new URL(
+            typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+          );
+          if (rejectStartup && url.pathname === path)
+            return Response.json(
+              {
+                message: "private startup diagnostic",
+                headers: { authorization: "Bearer private-token" },
+              },
+              { status },
+            );
+          return fetch(input, init);
+        },
+      },
+    });
+    rejectStartup = true;
+    await expect(
+      discoverOpenCodeModels(h.options, "/one", new AbortController().signal),
+    ).rejects.toMatchObject({
+      code: status < 500 ? "auth_expired" : "unreachable",
+    });
+  },
+);

@@ -1,3 +1,4 @@
+import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import type { OpenCode, OpenCodeClient } from "@opencode/client";
 import { z } from "zod";
@@ -161,10 +162,14 @@ export class OpenCodeServer {
         const cli = this.options.runtime?.discover
           ? (await this.runtime.discover(discovery)).opencode
           : await this.runtime.discoverProvider("opencode", discovery);
-        if (!cli.installed || !cli.path) throw new Error("OpenCode is not installed");
+        if (!cli.installed || !cli.path)
+          throw Object.assign(new Error("OpenCode is not installed"), { code: "not_configured" });
         expected = cli.version ?? "";
         if (!version(expected))
-          throw new Error("OpenCode 2.0.22 is required; upgrade v1 or review the new contract");
+          throw Object.assign(
+            new Error("OpenCode 2.0.22 is required; upgrade v1 or review the new contract"),
+            { code: "cli_too_old" },
+          );
         const password = this.runtime.entropy(32);
         this.authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
         this.secrets = [
@@ -228,7 +233,8 @@ export class OpenCodeServer {
           if (this.controller.signal.aborted) abort();
         });
       }
-      if (!version(expected)) throw new Error("OpenCode 2.0.22 is required");
+      if (!version(expected))
+        throw Object.assign(new Error("OpenCode 2.0.22 is required"), { code: "cli_too_old" });
       this.factory = (await import("@opencode/client")).OpenCode;
       this.controller.signal.throwIfAborted();
       this.client = this.scoped("", this.frame, this.controller.signal);
@@ -243,6 +249,7 @@ export class OpenCodeServer {
       const spec = await (await fetch(new URL("/openapi.json", this.base))).json();
       validateSpec(spec);
       let connected: (() => void) | undefined;
+      let failed: ((error: unknown) => void) | undefined;
       const handshake = new Promise<void>((resolve, reject) => {
         const abort = () => reject(new Error("OpenCode SSE handshake cancelled"));
         this.controller.signal.addEventListener("abort", abort, { once: true });
@@ -250,8 +257,15 @@ export class OpenCodeServer {
           this.controller.signal.removeEventListener("abort", abort);
           resolve();
         };
+        failed = (error) => {
+          this.controller.signal.removeEventListener("abort", abort);
+          reject(error);
+        };
       });
-      this.stream = this.consumeEvents(() => connected?.());
+      this.stream = this.consumeEvents(
+        () => connected?.(),
+        (error) => failed?.(error),
+      );
       await handshake;
     } catch (error) {
       const failure = new SessionOpenError(
@@ -263,7 +277,9 @@ export class OpenCodeServer {
       this.deliberate = true;
       this.controller.abort();
       await this.process?.stop({ graceMs: 0 }).catch(() => {});
-      throw failure;
+      // Preserve engine-facing native codes/details, plus a safe discovery category
+      // chosen while the original HTTP/client cause is still available.
+      throw Object.assign(failure, { discoveryCode: discoveryFailureCode(error) });
     } finally {
       cancel();
     }
@@ -276,7 +292,9 @@ export class OpenCodeServer {
       (this.identity && info.pid !== this.identity.pid) ||
       (this.process?.pid !== undefined && info.pid !== this.process.pid)
     )
-      throw new Error("OpenCode process/version identity mismatch");
+      throw Object.assign(new Error("OpenCode process/version identity mismatch"), {
+        code: info.version !== expected ? "cli_too_old" : "unreachable",
+      });
     this.identity = info;
   }
   reconcileNow(): Promise<void> {
@@ -289,7 +307,11 @@ export class OpenCodeServer {
     this.recoveryStarted = started;
     for (const c of this.consumers) c.disconnected(started);
   }
-  private async consumeEvents(connected: () => void): Promise<void> {
+  private async consumeEvents(
+    connected: () => void,
+    failed: (error: unknown) => void,
+  ): Promise<void> {
+    let established = false;
     while (!this.controller.signal.aborted) {
       const connection = new AbortController();
       let cancelSilence: (() => void) | undefined;
@@ -312,6 +334,7 @@ export class OpenCodeServer {
             event = NativeEvent.parse(data),
             watermark = ++this.sequence;
           if (event.type === "server.connected") {
+            established = true;
             connected();
             if (this.recovering) void this.recover();
             continue;
@@ -346,7 +369,11 @@ export class OpenCodeServer {
             }
           } else for (const c of targets) c.receive(data);
         }
-      } catch {
+      } catch (error) {
+        if (!established) {
+          failed(error);
+          return;
+        }
         /* One reconnect owner handles EOF, malformed JSON, overflow and stalls. */
       } finally {
         cancelSilence?.();

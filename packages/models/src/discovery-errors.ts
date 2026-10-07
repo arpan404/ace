@@ -1,5 +1,5 @@
 import type { ModelDiscoveryError } from "@ace/protocol";
-import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
+import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 
 const messages: Record<ModelDiscoveryError["code"], [string, string]> = {
   not_configured: ["Provider is not configured.", "Set up the provider, then refresh models."],
@@ -37,7 +37,12 @@ const messages: Record<ModelDiscoveryError["code"], [string, string]> = {
 export function discoveryError(
   error: unknown,
   fallback: ModelDiscoveryError["code"] = "discovery_failed",
-  context?: { provider: string; source?: string; backend?: string | undefined },
+  context?: {
+    provider: string;
+    source?: string;
+    backend?: string | undefined;
+    env?: NodeJS.ProcessEnv | undefined;
+  },
 ): ModelDiscoveryError {
   const kind = discoveryFailureCode(error, fallback);
   const [message, hint] = messages[kind];
@@ -51,5 +56,12 @@ export function discoveryError(
           ? "Reconnect GitHub Copilot in OpenCode (`opencode auth login`), then refresh models."
           : "Reconnect the provider in OpenCode (`opencode auth login`), then refresh models."
         : hint;
-  return Object.freeze({ code: kind, message, hint: correctiveHint });
+  const explanation =
+    kind === "discovery_failed"
+      ? `Model discovery failed: ${discoveryFailureReason(error, { env: context?.env }).replace(/^Model discovery failed:\s*/, "")}`.slice(
+          0,
+          256,
+        )
+      : message;
+  return Object.freeze({ code: kind, message: explanation, hint: correctiveHint });
 }

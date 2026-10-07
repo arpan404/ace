@@ -1,4 +1,8 @@
-import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
+import {
+  discoveryFailureCode,
+  discoveryFailureReason,
+  type DiscoveryFailureCode,
+} from "@ace/provider-kit/discovery-failure";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { z } from "zod";
 import { fileURLToPath } from "node:url";
@@ -46,6 +50,8 @@ export class CursorHost {
   private stopped: Promise<void> | undefined;
   private limits: CursorLimits;
   private errorMessage: string | undefined;
+  private metadataFailureDetail: string | undefined;
+  private metadataFailureCode: DiscoveryFailureCode | undefined;
   get failureMessage(): string | undefined {
     return this.errorMessage;
   }
@@ -128,6 +134,19 @@ export class CursorHost {
     // Retain only bounded, scrubbed prose. Auth workers never publish this buffer.
     this.process.stderr.on("line", (line: string) => {
       this.errorMessage = safeCursorErrorMessage(line, options.env);
+      const code = discoveryFailureCode({ message: line });
+      if (code !== "discovery_failed") this.metadataFailureCode = code;
+      if (
+        line.trim() &&
+        !/^(?:\s*at\s|node:internal\/|Node\.js\sv)/.test(line) &&
+        (!this.metadataFailureDetail ||
+          code !== "discovery_failed" ||
+          /\b[A-Za-z]*Error[:[]/.test(line))
+      )
+        this.metadataFailureDetail = discoveryFailureReason(
+          { message: line },
+          { env: options.env },
+        );
     });
   }
   request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
@@ -136,11 +155,32 @@ export class CursorHost {
       .request(method, params, timeoutMs === undefined ? {} : { timeoutMs })
       .catch(async (error: unknown) => {
         await this.stop();
+        const exit = await this.process.exited;
+        const code = discoveryFailureCode(
+          error,
+          this.metadataFailureCode ??
+            (exit.reason === "spawn-error" || exit.code === 78
+              ? "not_configured"
+              : "discovery_failed"),
+        );
+        const suppliedReason = discoveryFailureReason(error);
+        const reason =
+          /^(?:process (?:exited|closed)|JSON-RPC closed|closed|EOF|write EPIPE)$/i.test(
+            suppliedReason,
+          )
+            ? `Cursor SDK host ended with code ${exit.code ?? "none"} (${exit.reason}). ${this.metadataFailureDetail ?? suppliedReason}`.slice(
+                0,
+                2048,
+              )
+            : suppliedReason;
         throw Object.assign(
           new Error(
             `${["open", "send", "cancel"].includes(method) && this.errorMessage ? this.errorMessage + " " : ""}Cursor SDK ${method} failed; delivery may be uncertain. Inspect history before resending.`,
           ),
-          { code: discoveryFailureCode(error) },
+          {
+            code,
+            ...(method === "models" && code === "discovery_failed" ? { detail: reason } : {}),
+          },
         );
       });
   }

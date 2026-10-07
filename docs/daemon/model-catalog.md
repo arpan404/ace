@@ -69,8 +69,9 @@ An instance is stale if any source failed. Healthy sources in that same instance
 remain fresh. A partial refresh advances the instance timestamp but retains each
 failed source's previous timestamp and models. An error on the instance applies
 to all its sources. Show source errors even when the failing connection has no
-model rows. Errors contain fixed human messages and hints, never stderr,
-provider response bodies, credentials, or endpoint URLs. The daemon logs those
+model rows. Known error categories use fixed human messages and hints. Unknown
+failures retain a bounded, redacted explanation from error message/detail fields.
+Raw objects, response bodies, stacks, headers, and credentials are never serialized. The daemon logs those
 same structured categories with provider, instance, and optional source ID.
 
 All authenticated main sockets with read scope receive:
@@ -163,8 +164,16 @@ SDK owns credential access; ace does not read credential contents. OpenCode mode
 HTTP status, error codes/messages, and nested client causes choose fixed categories:
 401/403 are `auth_expired`, 429 is `rate_limited`, and network/5xx are `unreachable`.
 GitHub Copilot auth failures instruct the user to reconnect through
-`opencode auth login`. Vendor error text and response bodies never become catalog
-errors or discovery logs. Existing picker and Settings rows render these hints.
+`opencode auth login`. Classification runs before the startup wrapper discards
+nested HTTP/client causes, including identity, spec, and SSE admission failures.
+Unrelated null fields do not discard usable status/code fields. Generic outer
+wrappers cannot hide specific nested categories. Unknown failures retain a
+redacted message/detail, capped at 256 characters in the picker and discovery log,
+so the next failure supplies a reason instead of another empty generic message.
+Cursor host startup failures retain a scrubbed first stderr explanation and exit
+status when no RPC reply arrives. Raw response objects, stacks, credential fields,
+and unredacted diagnostics never leave these boundaries. Existing picker and
+Settings rows render these hints.
 
 Provider status probes notify catalog invalidation when a CLI version changes.
 Version notifications apply only to their runtime, so Cursor CLI versions do

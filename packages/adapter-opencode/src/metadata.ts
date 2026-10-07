@@ -1,5 +1,5 @@
 import { OpenCodeServer, type ServerOptions } from "./server.ts";
-import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
+import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { z } from "zod";
 /** Metadata-only, owned lifecycle. No session, prompt, login or credential APIs. */
 export async function discoverOpenCodeModels(
@@ -42,9 +42,16 @@ export async function discoverOpenCodeModels(
     }
     return server.redact({ ...validated, ...(configuredDefault ? { configuredDefault } : {}) });
   } catch (error) {
-    // Inspect status/message/cause locally, then discard all vendor diagnostic text.
+    // Known categories use fixed messages; unknown diagnostics pass through bounded redaction.
     const code = discoveryFailureCode(error, signal.aborted ? "timeout" : "discovery_failed");
-    throw Object.assign(new Error("OpenCode model discovery failed"), { code });
+    throw Object.assign(new Error("OpenCode model discovery failed"), {
+      code,
+      ...(code === "discovery_failed"
+        ? {
+            detail: server.redact(discoveryFailureReason(error, { env: options.discovery?.env })),
+          }
+        : {}),
+    });
   } finally {
     signal.removeEventListener("abort", abort);
     await server.close();

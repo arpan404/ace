@@ -52,14 +52,24 @@ export function normalizeOpenCodeReport(
         sources.push({
           source,
           status: "stale",
-          error: discoveryError(new Error("No model metadata returned")),
+          error: discoveryError(
+            new Error(
+              "OpenCode returned no enabled chat model metadata for this connected source.",
+            ),
+            "discovery_failed",
+            { ...instance, source: id },
+          ),
         });
       } else {
         models.push(...rows.map((row) => Object.assign({}, row, { source })));
         sources.push({ source, status: "fresh" });
       }
     } catch (error) {
-      sources.push({ source, status: "stale", error: discoveryError(error) });
+      sources.push({
+        source,
+        status: "stale",
+        error: discoveryError(error, "discovery_failed", { ...instance, source: id }),
+      });
     }
   }
   if (models.length > 512) throw new Error("Too many connected models");
