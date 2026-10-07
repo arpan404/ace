@@ -321,13 +321,11 @@ test("a deck that is still stopping its lanes says so and holds its stepper", ()
   expect(stepper.steps.at(-1)).toEqual({ label: "Stopping", state: "current" });
 });
 
-test("an execution error reads as a sentence, and an unknown one keeps its code", () => {
+test("execution failures read as sentences without exposing unknown codes", () => {
   expect(deckErrorText("deck_workspace_not_found")).toBe(
     "The deck's project is no longer on this daemon.",
   );
-  expect(deckErrorText("deck_new_failure")).toBe(
-    "The daemon couldn't run the deck's next step (deck_new_failure).",
-  );
+  expect(deckErrorText("deck_new_failure")).toBe("The daemon couldn't run the deck's next step.");
 });
 
 test("a deck known only from the list is partial until its view arrives", () => {
@@ -497,4 +495,26 @@ test("a merged deck names the Deck branch, and a PR-only deck says its pull requ
   expect(deckMerge(pr).detail).toBe("PR open from deck/relay");
   expect(deckStepper(pr).steps.at(-1)?.label).toBe("PR open");
   expect(deckRunSummary(pr)).toBe("1/1 merged · PR open");
+});
+
+test.each(["deck_ci_pending", "deck_forge_executor_unavailable", "git_quarantined"])(
+  "%s keeps an active run waiting instead of stopped",
+  (code) => {
+    const run = deckFromView(view({ executionError: code }), accounts);
+    expect(run.phase).toBe("waiting");
+    expect(deckGroup(run)).not.toBe("finished");
+    expect(deckErrorText(code)).not.toContain(code);
+  },
+);
+
+test.each([
+  "deck_pr_revision_changed",
+  "deck_branch_identity_changed",
+  "deck_worktree_identity_changed",
+  "deck_run_context_missing",
+  "deck_destructive_gate_requires_provider_approval",
+  "deck_cancelled",
+  "unknown_private_code",
+])("%s is explained without showing an internal code", (code) => {
+  expect(deckErrorText(code)).not.toContain(code);
 });

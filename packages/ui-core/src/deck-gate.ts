@@ -178,21 +178,133 @@ export function raisedBudget(budget: number): number {
   return budget + Math.max(10, Math.ceil(budget / 2));
 }
 
-const executionErrors: Record<string, string> = {
-  deck_workspace_not_found: "The deck's project is no longer on this daemon.",
-  deck_planner_missing: "The deck has no planner model to start with.",
-  deck_root_agent_missing: "The daemon couldn't start the deck's own thread.",
-  deck_root_missing: "The deck lost its own thread.",
-  deck_lane_binding_missing: "The daemon lost track of one of the deck's lanes.",
-  deck_engine_unavailable: "The daemon's agent engine isn't running.",
-  deck_migration_pending: "A lane is still moving to another account.",
-  deck_capacity_wait: "Every account the deck may use is busy. It carries on when one frees up.",
-  conductor_execution_failed: "The daemon couldn't run the deck's next step.",
-};
+const waits = new Map([
+  [
+    "deck_capacity_wait",
+    {
+      title: "Waiting for a free account.",
+      body: "Every account the deck may use is busy. It carries on when one frees up.",
+    },
+  ],
+  [
+    "deck_migration_pending",
+    { title: "Waiting for account migration.", body: "A lane is still moving to another account." },
+  ],
+  [
+    "deck_ci_pending",
+    {
+      title: "Waiting for CI.",
+      body: "The deck's pull request is waiting for its checks to finish.",
+    },
+  ],
+  [
+    "deck_forge_executor_unavailable",
+    {
+      title: "Waiting for the PR service.",
+      body: "The daemon needs its PR service before the deck can carry on.",
+    },
+  ],
+  [
+    "git_quarantined",
+    {
+      title: "Waiting for Git recovery.",
+      body: "Git operations are held while the daemon recovers the repository.",
+    },
+  ],
+]);
 
-/** Why a deck stopped executing, as a sentence; the code stays visible for unknown cases. */
+/** Executor waits retried by the daemon, with the reason named on the run page. */
+export function deckWaitText(code: string): { title: string; body: string } | undefined {
+  return waits.get(code);
+}
+
+const executionErrors = new Map([
+  ["deck_workspace_not_found", "The deck's project is no longer on this daemon."],
+  ["deck_planner_missing", "The deck has no planner model to start with."],
+  ["deck_root_agent_missing", "The daemon couldn't start the deck's own thread."],
+  ["deck_root_missing", "The deck lost its own thread."],
+  ["deck_lane_binding_missing", "The daemon lost track of one of the deck's lanes."],
+  ["deck_engine_unavailable", "The daemon's agent engine isn't running."],
+  [
+    "deck_pr_revision_changed",
+    "The pull request changed since review. Restore the reviewed revision before continuing.",
+  ],
+  [
+    "deck_branch_identity_changed",
+    "The deck's branch changed outside this run. Restore its recorded revision before continuing.",
+  ],
+  [
+    "deck_worktree_identity_changed",
+    "A deck worktree no longer matches its recorded branch and revision.",
+  ],
+  ["deck_run_context_missing", "The daemon couldn't find the run needed for this step."],
+  [
+    "deck_destructive_gate_requires_provider_approval",
+    "This change needs approval on the provider's own thread.",
+  ],
+  ["deck_cancelled", "The deck was cancelled before this step could finish."],
+]);
+
+/** Execution failures are explained in words, including an unknown daemon code. */
 export function deckErrorText(code: string): string {
-  return executionErrors[code] ?? `The daemon couldn't run the deck's next step (${code}).`;
+  return (
+    deckWaitText(code)?.body ??
+    executionErrors.get(code) ??
+    "The daemon couldn't run the deck's next step."
+  );
+}
+
+const commandErrors = new Map([
+  ["stale_gate", "That decision is out of date. The deck has moved on."],
+  ["gate_not_pending", "That decision is out of date. The deck has moved on."],
+  ["conductor_unavailable", "This daemon's Deck service isn't running."],
+  ["conductor_executor_unavailable", "This daemon can't run decks: its conductor has no executor."],
+  ["conductor_command_failed", "The daemon couldn't apply that to the deck."],
+  ["conductor_invalid_spec", "The deck's settings aren't valid. Check its models and limits."],
+  [
+    "conductor_invalid_root_agent",
+    "The daemon couldn't use the deck's root agent identity. Start a new deck.",
+  ],
+  [
+    "conductor_workspace_not_found",
+    "This project is no longer on the daemon. Choose another project.",
+  ],
+  ["conductor_workspace_not_git", "This project needs a Git repository before a deck can start."],
+  [
+    "conductor_provider_unavailable",
+    "A provider selected for this deck isn't installed on the daemon.",
+  ],
+  [
+    "conductor_account_unavailable",
+    "A selected provider has no usable account. Check its login and the deck's accounts.",
+  ],
+  ["budget_must_increase", "Raise the budget above what the deck has now."],
+  ["deadline_must_be_future", "Pick a deadline later than now."],
+  ["merge_not_ready", "That card can't merge yet."],
+  ["plan_missing", "The deck needs a plan before it can be approved."],
+  ["lane_not_live", "That lane has stopped. Refresh the deck before answering."],
+  ["run_not_found", "This deck is no longer on the daemon."],
+  ["run_retention_limit", "This deck has reached its review limit. Start a new deck."],
+  ["input_backpressure", "The deck is handling too many updates. Try again when it catches up."],
+  [
+    "control_backpressure",
+    "The deck is handling too many decisions. Try again when it catches up.",
+  ],
+  ["effect_backpressure", "The deck has too many pending steps. Try again when it catches up."],
+  [
+    "actor_backpressure",
+    "The daemon has too many active decks. Finish one before starting another.",
+  ],
+  ["already_exists", "A deck with that id already exists."],
+  ["not_running", "The deck isn't running."],
+  ["not_paused", "The deck isn't paused."],
+  ["finished", "The deck has already finished."],
+  ["run_limit", "This daemon holds as many decks as it can. Remove an old one first."],
+]);
+
+/** Public conductor refusals shared by every client. Unknown codes use its ordinary fallback. */
+export function deckCommandErrorText(code: string): string | undefined {
+  return commandErrors.get(code);
 }
 
 /** Rejecting what stops the whole deck, as `conductor.cancel` does. */

@@ -41,3 +41,18 @@ Use only installed, logged-in local CLIs through the engine. Account ids are opa
 Test public transitions, scheduler outputs, prompts and progress. Exercise invalid plans, capacity/quota/priority, out-of-order completion, stale generations, gates, fixes, migration/reset, cancellation, merge verification and replay. A deterministic six-workstream simulation includes account migration, two failed reviews before passing, a conflict and an escalation answered by the user. Real temporary SQLite files test atomic commits, reopen, actual approval retries, migration observations before acknowledgement, full-history preservation, saturated receipt/outbox cleanup, cache rollback, legacy upgrade and outbox recovery. Real workspace inode probes test case semantics and composed/decomposed Unicode aliases. Buffered repeated-done tests with withheld acknowledgement guard both deadlines, cold restore and late-artifact escalation. Unicode reports/plans test UTF-8 caps. A restored live retiring lane at final verification tests the root terminal guard, and prompts assert exact quoted reviewer rules. Each review blocker was reproduced with a failing public-API test before its fix. Fake ports represent unavailable executors, not internal decision logic. Apply twenty-two production mutations and record the failing behavioural test for each, including removal of the live-lane terminal guard and reviewer repository rules. Both mutations survived the initial review and now fail assertions. The verifier's NFC-normalization survivor now fails a real-filesystem admission test. A dedicated non-gating probe measures the full-state-reparse mutation; performance has no wall-clock gating assertion. Run the repository check and a non-gating scheduling/status benchmark with throughput and RSS before opening the PR.
 
 Current delivery policy: tests run once at merge. Worker validation is formatting, lint, typechecking and the 1,500-line size check only. Behaviour tests remain part of the implementation; mutation cases are marked “not executed (tests run at merge)”. Existing benchmark and load-comparison artifacts are historical measurements from before this policy changed. Any current execution or performance-verification claim needs run at merge.
+
+## Command receipts and client waits
+
+Wire command ids remain unrestricted by the conductor journal's Key alphabet. Both native
+conductor commands and mirrored root-thread decisions derive `cmd.<sha256>` from the JSON
+pair of authenticated device id and command id. The receipt is stable across retries and
+restarts, including a crash after the conductor transaction and before the daemon's command
+receipt. Internal facts and effect receipts retain the existing Key validation.
+
+Commands return only whitelisted reducer/start refusal codes. Unknown exceptions return
+`conductor_command_failed`; clients explain unknown execution codes without displaying raw
+codes. Capacity, migration, pending CI, unavailable PR service and quarantined Git are waiting
+states with reason-specific copy. Branch/worktree/PR identity changes, missing execution
+context and unsupported destructive approvals remain failures that need intervention.
+Summary-only run views render loading until their full plan, lanes and gates arrive.

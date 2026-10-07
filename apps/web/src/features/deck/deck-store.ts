@@ -1,3 +1,4 @@
+import { deckCommandErrorText } from "@ace/ui-core";
 import { ConductorClient, type ClientApi, type ConductorWatch } from "@ace/client";
 import {
   ConductorCommandPayload,
@@ -42,23 +43,8 @@ export class DeckCommandError extends Error {
   }
 }
 
-const commandErrors: Record<string, string> = {
-  stale_gate: "That decision is out of date. The deck has moved on.",
-  conductor_unavailable: "This daemon's Deck service isn't running.",
-  conductor_executor_unavailable: "This daemon can't run decks: its conductor has no executor.",
-  conductor_command_failed: "The daemon couldn't apply that to the deck.",
-  budget_must_increase: "Raise the budget above what the deck has now.",
-  deadline_must_be_future: "Pick a deadline later than now.",
-  merge_not_ready: "That card can't merge yet.",
-  already_exists: "A deck with that id already exists.",
-  not_running: "The deck isn't running.",
-  not_paused: "The deck isn't paused.",
-  finished: "The deck has already finished.",
-  run_limit: "This daemon holds as many decks as it can. Remove an old one first.",
-};
-
 export function deckErrorMessage(code: string): string {
-  return commandErrors[code] ?? refusalMessage(code);
+  return deckCommandErrorText(code) ?? refusalMessage(code);
 }
 
 const listLimit = 32;

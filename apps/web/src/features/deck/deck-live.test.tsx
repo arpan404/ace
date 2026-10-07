@@ -1,5 +1,5 @@
 import { deckRuns, workbenchServices } from "@ace/fake-daemon";
-import { CommandId, DeviceId } from "@ace/protocol";
+import { CommandId, DeviceId, ServerMessage } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -165,3 +165,61 @@ test("with more moving decks than live watches, the open deck still follows the 
 
   expect(await screen.findByRole("button", { name: "Resume deck" })).toBeTruthy();
 });
+
+test.each([
+  ["deck_ci_pending", "Waiting for CI."],
+  ["deck_migration_pending", "Waiting for account migration."],
+  ["deck_forge_executor_unavailable", "Waiting for the PR service."],
+  ["git_quarantined", "Waiting for Git recovery."],
+])("%s is a calm wait with its own wording", async (code, title) => {
+  const app = await open("/deck/mobile-cold-start");
+  await screen.findByRole("region", { name: escalation });
+  app.daemon.failDeck("mobile-cold-start", code);
+  const status = await screen.findByText(title);
+  expect(status.closest('[role="status"]')).not.toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  expect(screen.queryByText("Stopped")).toBeNull();
+});
+
+test("unknown execution failures never display a raw daemon code", async () => {
+  const app = await open("/deck/mobile-cold-start");
+  await screen.findByRole("region", { name: escalation });
+  app.daemon.failDeck("mobile-cold-start", "deck_unfamiliar_internal_error");
+  expect((await screen.findByRole("alert")).textContent).not.toContain(
+    "deck_unfamiliar_internal_error",
+  );
+});
+
+test.each(["relay-streams", "codex-app-server-048"])(
+  "%s stays loading while only its summary has arrived",
+  async (id) => {
+    const app = harness();
+    app.daemon.seedServices(workbenchServices(Date.now()));
+    const connect = app.daemon.connect.bind(app.daemon);
+    const held: (() => void)[] = [];
+    let holding = true;
+    app.daemon.connect = (wire) =>
+      connect({
+        ...wire,
+        send(text) {
+          const message = ServerMessage.parse(JSON.parse(text));
+          if (holding && message.type === "conductor.result" && message.run?.id === id)
+            held.push(() => wire.send(text));
+          else wire.send(text);
+        },
+      });
+    await app.open(`/deck/${id}`);
+    // The list and accounts have arrived; only the full view is held at the socket edge.
+    await waitFor(() => expect(held.length).toBeGreaterThan(0));
+    await screen.findByRole("navigation", { name: "Decks" });
+    const main = within(screen.getByRole("main"));
+    expect(main.queryByText("Drafting the plan")).toBeNull();
+    expect(main.queryByText("This deck has no cards.")).toBeNull();
+    expect(main.getByLabelText("Loading deck")).toBeTruthy();
+    holding = false;
+    for (const release of held.splice(0)) release();
+    await screen.findByRole("heading", { name: "Cards" });
+    expect(within(screen.getByRole("main")).queryByLabelText("Loading deck")).toBeNull();
+  },
+);

@@ -16,7 +16,7 @@ import {
   type DeckAccounts,
   type DeckThreads,
 } from "./deck-agents.ts";
-import { deckGates, deckTitle } from "./deck-gate.ts";
+import { deckGates, deckTitle, deckWaitText } from "./deck-gate.ts";
 
 /*
  * The Deck model from the daemon's conductor view (`conductor.result` / `conductor.changed`).
@@ -28,15 +28,12 @@ type View = ConductorRunView;
 type ViewLane = View["lanes"][number];
 type Node = View["dag"][number];
 
-/** Executor waits the daemon retries by itself: the deck isn't stopped, it is waiting. */
-const transient = new Set(["deck_capacity_wait", "deck_migration_pending"]);
-
 function phaseOf(
   run: ConductorSummary,
   nodes: readonly Node[],
   error: string | undefined,
 ): DeckPhase {
-  const stuck = error && (transient.has(error) ? "waiting" : "failed");
+  const stuck = error && (deckWaitText(error) ? "waiting" : "failed");
   switch (run.phase) {
     case "planning":
       return stuck || "planning";

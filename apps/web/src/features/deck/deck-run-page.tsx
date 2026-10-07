@@ -32,6 +32,7 @@ import {
   cardStatus,
   deckBrief,
   deckErrorText,
+  deckWaitText,
   deckStepper,
   defaultCard,
   formatAgo,
@@ -71,10 +72,10 @@ export function DeckRunPage(props: {
   onNavigate(next: { tab?: DeckTab; card?: string | undefined }): void;
 }) {
   const { ready, run } = useDeckRun(props.runId);
-  if (!run)
+  if (!run || run.partial)
     return (
       <Screen title="Deck">
-        {ready ? (
+        {ready && !run ? (
           <EmptyState
             icon={CardsIcon}
             heading
@@ -387,7 +388,7 @@ function RunNotice(props: { run: DeckRun; onRetry(): void; onCancel(): void }) {
   const error = run.error ?? "conductor_execution_failed";
   const notice =
     run.phase === "waiting"
-      ? { title: "Waiting for a free account.", body: deckErrorText(error) }
+      ? (deckWaitText(error) ?? { title: "Waiting for the daemon.", body: deckErrorText(error) })
       : run.phase === "failed"
         ? { title: "The deck can't take its next step.", body: deckErrorText(error) }
         : run.phase === "stopping"
