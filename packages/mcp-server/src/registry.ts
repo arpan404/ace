@@ -11,6 +11,12 @@ export interface ToolContext {
   readonly caller: McpAttribution;
   readonly signal: AbortSignal;
 }
+export type CallObserver = (
+  name: string,
+  input: unknown,
+  context: ToolContext,
+) => ((result: CallToolResult) => Promise<void>) | undefined;
+
 export interface ToolDefinition<I extends z.ZodObject, O extends z.ZodObject> {
   name: string;
   riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"];
@@ -52,8 +58,15 @@ export class ToolRegistry {
   private scheduler: Scheduler;
   private maxTools: number;
   private maxCalls: number;
-  constructor(options: { scheduler: Scheduler; maxTools?: number; maxCalls?: number }) {
+  private observeCall: CallObserver | undefined;
+  constructor(options: {
+    scheduler: Scheduler;
+    maxTools?: number;
+    maxCalls?: number;
+    observeCall?: CallObserver;
+  }) {
     this.scheduler = options.scheduler;
+    this.observeCall = options.observeCall;
     this.maxTools = options.maxTools ?? 128;
     this.maxCalls = options.maxCalls ?? 64;
   }
@@ -222,9 +235,18 @@ export class ToolRegistry {
       });
     });
     const { sessionId, threadId, agentId } = principal.scope;
-    const executing = entry
-      .execute(input, { caller: { sessionId, threadId, agentId }, signal })
-      .then((result): CallToolResult => (signal.aborted ? failure(reason) : result))
+    const context = { caller: { sessionId, threadId, agentId }, signal };
+    const executing = Promise.resolve()
+      .then(async () => {
+        const observe = this.observeCall?.(name, input, context);
+        const result = await entry.execute(input, context);
+        return { observe, result };
+      })
+      .then(async ({ observe, result }): Promise<CallToolResult> => {
+        if (signal.aborted) return failure(reason);
+        await observe?.(result);
+        return result;
+      })
       .catch((error: unknown) =>
         error instanceof ResultBudgetExceeded
           ? failure("Tool result too large")

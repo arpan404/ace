@@ -8,6 +8,7 @@ import {
   startMcpServer,
   type Toolkit,
   type McpIntentPort,
+  type CallObserver,
 } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
 
@@ -15,8 +16,12 @@ export async function startDaemonMcp(
   store: Store,
   toolkits: readonly Toolkit[] = [],
   spawn?: McpIntentPort["spawn"],
+  observations?: { observeCall: CallObserver; lease(sessionId: string): () => void },
 ) {
-  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  const registry = new ToolRegistry({
+    scheduler: nodeScheduler,
+    ...(observations ? { observeCall: observations.observeCall } : {}),
+  });
   registerBuiltins(
     registry,
     {
@@ -79,7 +84,18 @@ export async function startDaemonMcp(
     /** Provider adapters own this lease, and end it or abort lifetime on every exit path. */
     openSession(scope: McpScope, lifetime: AbortSignal) {
       if (!store.getMcpAgent(scope.threadId, scope.agentId)) throw new Error("Unknown MCP caller");
-      return server.credentials.issue(scope, lifetime);
+      const lease = server.credentials.issue(scope, lifetime);
+      const stop = observations?.lease(scope.sessionId);
+      let ended = false;
+      const end = () => {
+        if (ended) return;
+        ended = true;
+        lease.principal.signal.removeEventListener("abort", end);
+        stop?.();
+        lease.end();
+      };
+      lease.principal.signal.addEventListener("abort", end, { once: true });
+      return { ...lease, end };
     },
     close: server.close,
   };
