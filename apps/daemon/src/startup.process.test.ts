@@ -255,7 +255,8 @@ it("a stalled engine start leaves the daemon readable and rejects commands witho
       },
     }),
   });
-  expect(await daemon.client.next()).toMatchObject({
+  // Catalog discovery can finish while the engine is stalled and push models.changed first.
+  expect(await daemon.client.nextSkipping("models.changed")).toMatchObject({
     type: "commandResult",
     commandId: "unavailable-engine",
     ok: false,
