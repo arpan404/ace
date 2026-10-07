@@ -1,6 +1,6 @@
 import { isDefaultSelection } from "@ace/models";
 import { ModelSelectionError, type EngineModels } from "./models.ts";
-import { providerCommandDisabled, permissionResolutionError } from "@ace/core";
+import { providerCommandDisabled } from "@ace/core";
 import { provisionalTitle } from "./thread-title.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
@@ -166,6 +166,7 @@ export function engineHandler(
             limits,
             directory,
             selectInstance,
+            models,
           );
           if (!creation.ok) return fail(creation.error);
           let { cwd } = creation;
@@ -350,12 +351,6 @@ export function engineHandler(
                 return fail("already_resolved");
               if (!validResolution(interaction.request, p.resolution))
                 return fail("invalid_resolution");
-              const permissionError = permissionResolutionError(
-                repo.permissions.effective(state.threadId),
-                interaction.request,
-                p.resolution,
-              );
-              if (permissionError) return fail(permissionError);
               threadId = state.threadId;
               resolutionId = interaction.id;
             } else {

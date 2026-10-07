@@ -223,10 +223,21 @@ export class EngineRepository {
     try {
       return this.store.atomic(() => {
         const state = this.requireState(id);
+        const mode = facts.some(
+          (fact) => fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root"),
+        )
+          ? this.permissions.effective(id)
+          : undefined;
         return foldProviderFacts(
           this,
           state,
-          facts,
+          mode === undefined
+            ? facts
+            : facts.map((fact) =>
+                fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")
+                  ? { ...fact, permissionMode: mode }
+                  : fact,
+              ),
           now,
           {
             snapshot: this.snapshots.get(id),

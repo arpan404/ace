@@ -29,8 +29,8 @@ test("queued ace fallback is correlated before its native user input is sent", a
 });
 
 test("ace results reach Codex as untrusted additional context without user input", async () => {
-  const h = await sessionHarness(false, "", undefined, undefined, undefined, "auto-review", {
-    getPermissionMode: async () => "read-only",
+  const h = await sessionHarness(false, "", undefined, undefined, undefined, ":workspace", {
+    getPermissionMode: async () => ":read-only",
   });
   try {
     await h.session.send([{ type: "text", text: "ace child results" }], "queue", "wake", "ace");
@@ -39,9 +39,7 @@ test("ace results reach Codex as untrusted additional context without user input
     );
     expect(obj(request?.data).params).toMatchObject({
       input: [],
-      approvalPolicy: "on-request",
-      approvalsReviewer: "user",
-      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      permissions: ":read-only",
       turnTrigger: "subagent_result",
       additionalContext: { "ace.delegation": { kind: "untrusted", value: "ace child results" } },
     });

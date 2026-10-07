@@ -1,6 +1,4 @@
-import { PermissionMode } from "@ace/protocol";
 import { registerPiContextSamples } from "./context-usage.ts";
-import { registerPiToolGate } from "./tool-approval.ts";
 import { z } from "zod";
 import { readPrivateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
 import { obj, str } from "./native.ts";
@@ -78,7 +76,6 @@ export default async function aceExtension(
   delete env.ACE_PI_SESSION_FILE;
   const secret = session.controlSecret;
   registerPiContextSamples(pi);
-  registerPiToolGate(pi, PermissionMode.parse(env.ACE_PI_PERMISSION_MODE ?? "read-only"));
   pi.registerCommand("ace-rollback", {
     description: "ace conversation navigation",
     async handler(args, ctx) {

@@ -1,3 +1,4 @@
+import { migratePermissionMode } from "@ace/provider-kit/permission-modes";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import { Automation, AutomationRun, AutomationInbox, type AutomationEvent } from "@ace/protocol";
@@ -18,6 +19,7 @@ const Input = z.object({
   title: Automation.shape.title.optional(),
   provider: Automation.shape.provider,
   model: z.string().optional(),
+  permissionMode: Automation.shape.permissionMode,
   workspace: z.string(),
   prompt: z.string().max(65_536),
   worktree: z.boolean(),
@@ -76,7 +78,11 @@ export class AutomationStore {
       Number(this.sql("SELECT COUNT(*) AS n FROM automation_jobs").get()?.n) >= 1000
     )
       throw new Error("Automation limit reached");
-    const body = JSON.stringify(automation);
+    const native =
+      automation.provider === "acp" || automation.provider === "antigravity"
+        ? automation.permissionMode
+        : migratePermissionMode(automation.provider, automation.permissionMode);
+    const body = JSON.stringify({ ...automation, permissionMode: native ?? undefined });
     const snapshot = JSON.stringify(state);
     this.transaction(() => {
       this.sql(

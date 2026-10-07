@@ -16,7 +16,7 @@ import { z } from "zod";
 const TurnPermissionSupport = z.object({ event: z.literal("permission-turn-policy-supported") });
 const AppliedPermission = z.object({
   event: z.literal("permission-mode-applied"),
-  mode: PermissionMode,
+  mode: PermissionMode.nullable(),
 });
 
 const SessionIdentity = z.strictObject({
@@ -72,18 +72,25 @@ export class Sessions {
     // A prepared root is starting before its first turn, not a pinned live policy.
     const ownLive = stateBefore.hasRun && !this.dependencies.repo.quiescent(stateBefore);
     if (actor.session && ownLive) return;
+    const entry = this.dependencies.registry.get(
+      stateBefore.config.provider,
+      this.dependencies.repo.backend(actor.id),
+    );
+    const nativeCapabilities = this.dependencies.models.permissionCapabilities(
+      stateBefore.config.provider,
+      this.dependencies.repo.transitions.get(actor.id).selection?.instanceId ??
+        this.dependencies.repo.session(actor.id).instanceId,
+      entry.capabilities,
+    );
     const mode = ownLive
       ? this.dependencies.repo.permissions.effective(actor.id)
       : await this.dependencies.repo.permissions.resolve(
           actor.id,
           this.dependencies.permissionSettings,
+          nativeCapabilities,
         );
     await this.dependencies.repo.store.writable();
-    const entry = this.dependencies.registry.get(
-      stateBefore.config.provider,
-      this.dependencies.repo.backend(actor.id),
-    );
-    if (!supportsPermissionMode(entry.capabilities.permissions, mode))
+    if (mode && !supportsPermissionMode(nativeCapabilities.permissions, mode))
       throw new Error(
         `permission_mode_unsupported: ${stateBefore.config.provider} cannot honor ${mode}`,
       );
@@ -174,6 +181,7 @@ export class Sessions {
           if (generation !== actor.generation || lifetime.signal.aborted)
             throw new Error("Codex turn policy requested after session closed");
           if (
+            next &&
             !supportsPermissionMode((actor.effectiveCapabilities ?? capabilities).permissions, next)
           )
             throw new Error("permission_mode_unsupported");
@@ -185,7 +193,7 @@ export class Sessions {
       const session = await adapter.openSession({
         ...context,
         outputFlow: actor.outputFlow,
-        permissionMode: mode,
+        ...(mode ? { permissionMode: mode } : {}),
         ...codexContext,
         ...(aceMcp ? { aceMcp } : {}),
         options: transition.selection?.options ?? metadata.options ?? {},
@@ -193,6 +201,10 @@ export class Sessions {
         onCapabilities: (effectiveCapabilities, acpSupport) => {
           if (generation !== actor.generation) return;
           actor.effectiveCapabilities = effectiveCapabilities;
+          this.dependencies.models.permissions(
+            metadata.instanceId ?? `${stateBefore.config.provider}-cli-default`,
+            effectiveCapabilities,
+          );
           actor.enqueue(() =>
             this.dependencies.repo.store.appendEvents(
               actor.id,

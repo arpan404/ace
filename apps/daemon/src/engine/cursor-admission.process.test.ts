@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
+import { cursorMode } from "@ace/provider-kit/permission-modes";
 import { cursorCapabilities } from "@ace/adapter-cursor";
 import { Command, ThreadId, type CommandPayload } from "@ace/protocol";
 import { Store, Engine, AdapterRegistry } from "@ace/daemon";
@@ -18,7 +19,7 @@ it.each([
   ["thread.prepare", "ask"],
   ["thread.prepare", "auto-review"],
 ] as const)(
-  "%s enforces Cursor's Limited %s admission contract and preserves supported input",
+  "%s migrates legacy %s to native Cursor options and preserves input",
   async (type, mode) => {
     const home = await mkdtemp(join(tmpdir(), "cursor-limited-admission-"));
     const store = new Store(join(home, "state.sqlite"));
@@ -70,14 +71,6 @@ it.each([
           ? { type, ...selection, input }
           : { type, ...selection, title: "Limited prepared thread" },
       );
-      if (mode === "ask") {
-        expect(result).toMatchObject({ ok: false, error: "permission_mode_unsupported" });
-        await engine.flush();
-        expect(store.listThreads()).toEqual([]);
-        expect(effective).toBeUndefined();
-        expect(adapter.commands).toEqual([]);
-        return;
-      }
       expect(result).toMatchObject({ ok: true, threadId });
       if (type === "thread.prepare")
         expect(
@@ -89,7 +82,7 @@ it.each([
           }),
         ).toMatchObject({ ok: true });
       await engine.flush();
-      expect(effective).toBe(mode);
+      expect(effective).toBe(cursorMode(true, mode === "auto-review"));
       expect(adapter.commands.filter((entry) => entry.type === "send")).toEqual([
         { type: "send", input, delivery: "queue" },
       ]);
@@ -101,8 +94,7 @@ it.each([
         status: { state: "done" },
         capabilities: {
           permissions: {
-            nativeAutoReview: false,
-            guarantees: [{ mode: "auto-review", level: "tool-selection" }],
+            nativeAutoReview: true,
           },
         },
       });
@@ -258,7 +250,7 @@ it("pins SDK account and backend before worktree preparation and checkpoints bef
     prepared.resolve(preparedPath);
     await checkpointing.promise;
     expect(hostCwd).toBe(preparedPath);
-    expect(permissionMode).toBe("auto-review");
+    expect(permissionMode).toBe(cursorMode(true, true));
     expect(adapter.commands).toEqual([]);
     checkpointed.resolve();
     await engine.flush();

@@ -94,63 +94,53 @@ test.each(["auto-review", "ask", "read-only"] as const)(
   },
 );
 
-test.each(["auto-review", "read-only"] as const)(
-  "delegation in %s receives its scoped execution risk and respects the read-only ceiling",
-  async (mode) => {
-    const frames = scriptFrames();
-    const h = await harness(
-      [
-        {
-          on: "send",
-          frames: [
-            frames.frame(
-              start,
-              ...approval("delegate_task", {
-                requestId: "greeter",
-                task: "Say hello",
-                role: "greeter",
-                provider: "claude",
-              }),
-            ),
-          ],
-        },
-        {
-          on: "resolve",
-          frames: [
-            frames.frame(
-              {
-                type: "item.upsert",
-                agent: "root",
-                item: "call",
-                draft: {
-                  type: "tool_call",
-                  complete: true,
-                  call: { status: mode === "read-only" ? "declined" : "succeeded" },
-                },
-              },
-              end,
-            ),
-          ],
-        },
-      ],
-      frames,
-      { permissionSettings: async () => mode },
-    );
-    try {
-      const id = await h.create();
-      expect(Object.values(h.store.snapshotThread(id).interactions)[0]).toMatchObject({
-        state: "resolved",
-        review: {
-          decision: mode === "read-only" ? "deny" : "approve",
-          target: { tool: "delegate_task", riskClass: "agent-execution", access: "execute" },
-        },
-        resolution: { optionId: mode === "read-only" ? "deny" : "once" },
-      });
-    } finally {
-      await h.close();
-    }
-  },
-);
+test("ace delegation requires its own consent regardless of the provider native mode", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            start,
+            ...approval("delegate_task", {
+              requestId: "greeter",
+              task: "Say hello",
+              role: "greeter",
+              provider: "claude",
+            }),
+          ),
+        ],
+      },
+      { on: "resolve", frames: [frames.frame(end)] },
+    ],
+    frames,
+    { permissionSettings: async () => ":danger-full-access" },
+  );
+  try {
+    const id = await h.create();
+    const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+    if (!interaction) throw new Error("No consent request");
+    expect(interaction).toMatchObject({
+      state: "pending",
+      review: {
+        decision: "escalate",
+        target: { tool: "delegate_task", riskClass: "agent-execution", access: "execute" },
+      },
+    });
+    expect(
+      h.command({
+        type: "interaction.resolve",
+        interactionId: interaction.id,
+        resolution: { kind: "approval", optionId: "once" },
+      }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    expect(h.store.getInteraction(interaction.id)?.state).toBe("resolved");
+  } finally {
+    await h.close();
+  }
+});
 
 test.each([
   { server: "foreign", input: { threadId: "child" } },
@@ -170,10 +160,9 @@ test.each([
     );
     try {
       const id = await h.create();
-      expect(Object.values(h.store.snapshotThread(id).interactions)[0]).toMatchObject({
-        state: "pending",
-        review: { decision: "escalate" },
-      });
+      const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+      expect(interaction?.state).toBe("pending");
+      expect(interaction?.review).toBeUndefined();
     } finally {
       await h.close();
     }

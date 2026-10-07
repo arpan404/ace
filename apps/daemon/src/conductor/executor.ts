@@ -75,6 +75,7 @@ export class NativeConductorExecutor {
         threadId,
         workspaceId: state.spec.workspaceId,
         provider: model.provider,
+        ...(model.permissionMode ? { permissionMode: model.permissionMode } : {}),
         title: `Deck: ${state.spec.goal.slice(0, 200)}`,
         model: model.model,
       });
@@ -129,6 +130,9 @@ export class NativeConductorExecutor {
           task: `Execute Deck lane ${effect.lane.id}`,
           provider: effect.lane.model.provider,
           model: effect.lane.model.model,
+          ...(effect.lane.model.permissionMode
+            ? { permissionMode: effect.lane.model.permissionMode }
+            : {}),
           ...(effect.lane.account === `local.${effect.lane.model.provider}`
             ? {}
             : { accountId: effect.lane.account }),
@@ -269,6 +273,9 @@ export class NativeConductorExecutor {
           selection: {
             provider: effect.lane.model.provider,
             model: effect.lane.model.model,
+            ...(effect.lane.model.permissionMode
+              ? { permissionMode: effect.lane.model.permissionMode }
+              : {}),
             ...(effect.lane.account === `local.${effect.lane.model.provider}`
               ? {}
               : { instanceId: effect.lane.account }),
