@@ -803,7 +803,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.coder.tier"
+    "providers.coder.reasoningEffort"
   ],
   "requestId": "example",
   "scope": {

@@ -24,6 +24,7 @@ export class EmbeddedPageGroup implements ViewPage {
   private sequence = 0;
   private opening = 0;
   private input = false;
+  private agent = true;
   private closed = false;
   private closing: Promise<void> | undefined;
   private listeners = new Set<(method: string, params: unknown) => void>();
@@ -137,6 +138,7 @@ export class EmbeddedPageGroup implements ViewPage {
     for (const [id, tab] of this.tabs) {
       tab.page.place({ ...this.target, visible: this.target.visible && id === this.active });
       tab.page.setNativeInput(this.input && id === this.active);
+      tab.page.setAgentControl(this.agent);
     }
   }
   place(target: typeof this.target) {
@@ -203,6 +205,10 @@ export class EmbeddedPageGroup implements ViewPage {
   }
   setNativeInput(enabled: boolean) {
     this.input = enabled;
+    this.apply();
+  }
+  setAgentControl(agent: boolean) {
+    this.agent = agent;
     this.apply();
   }
   url() {

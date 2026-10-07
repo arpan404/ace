@@ -14,6 +14,8 @@ export class FakePage implements ViewPage {
   private navigationSequence = 0;
 
   async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    // As Electron's debugger does once its WebContents is destroyed.
+    if (this.closed) throw new Error("Browser view closed");
     this.calls.push({ method, params: params ?? {} });
     if (method === "Page.getFrameTree")
       return { frameTree: { frame: { id: "main", url: this.address } } };
@@ -71,7 +73,13 @@ export class FakePage implements ViewPage {
 export function fakeViews() {
   const pages = new Map<string, FakePage>();
   const opened: BrowserOpen[] = [];
+  const purged: { threadId: string; workspaceId: string }[] = [];
+  let purgeError: string | undefined;
   const host: ViewHost = {
+    async purge(request) {
+      if (purgeError) throw new Error(purgeError);
+      purged.push(request);
+    },
     async open(request) {
       const page = new FakePage();
       pages.set(request.sessionId, page);
@@ -84,7 +92,10 @@ export function fakeViews() {
     if (!page || pages.size !== 1) throw new Error(`Expected one view, found ${pages.size}`);
     return page;
   };
-  return { host, pages, opened, only };
+  const failPurge = (message: string) => {
+    purgeError = message;
+  };
+  return { host, pages, opened, purged, failPurge, only };
 }
 
 /** A CDP screencast frame as Chromium sends it. */

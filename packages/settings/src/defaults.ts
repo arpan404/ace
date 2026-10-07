@@ -22,6 +22,7 @@ export const defaults: SettingsValues = {
   "browser.allowedOrigins": [],
   "browser.backend": "auto",
   "browser.backendLoss": "pause",
+  "browser.profile": "persistent",
   "permissions.defaultMode": "auto-review",
   "approvals.policy": "ask",
   "notifications.enabled": true,

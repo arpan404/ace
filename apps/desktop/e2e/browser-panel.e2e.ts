@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { expect, it } from "vitest";
 import { browserSandbox } from "./fixtures/browser-sandbox.ts";
+import { nativePage } from "./fixtures/native-page.ts";
 
 it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
   "native browser follows panel geometry, exposes controls and isolates profiles",
@@ -38,7 +39,10 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
           const view = BrowserWindow.getAllWindows()[0]?.contentView.children.find(
             (v) => "webContents" in v && v.webContents === contents,
           );
-          return view ? { bounds: view.getBounds(), visible: view.getVisible() } : undefined;
+          // A view outside the app window (parked while an agent drives it) is not seen.
+          return view
+            ? { bounds: view.getBounds(), visible: view.getVisible() }
+            : { bounds: { x: 0, y: 0, width: 0, height: 0 }, visible: false };
         }, s.url);
         return { box, native };
       };
@@ -354,7 +358,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByText("Recording saved to this thread", { exact: true }).waitFor();
       await p.getByRole("button", { name: "Hand back", exact: true }).click();
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
-      await p.getByRole("button", { name: "Take control", exact: true }).click();
+      await p.getByRole("button", { name: /^(Take over|Take control)$/ }).click();
       await p.keyboard.press("Control+Shift+B");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(false);
       await p.keyboard.press("Control+Shift+B");
@@ -392,6 +396,94 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       console.error("Browser panel scenario failed", error);
       await s.page.screenshot({ path: "/tmp/ace-panel-ui.png" });
       console.log("[panel-fixture]", await s.page.locator("body").innerText());
+      throw error;
+    } finally {
+      await s.close();
+    }
+  },
+  240000,
+);
+
+it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
+  "the agent drives the same native page the person sees, and taking over is instant",
+  async () => {
+    const s = await browserSandbox();
+    try {
+      const p = s.page;
+      const threadId = s.thread.id;
+      const agent = { kind: "agent" } as const;
+      await p.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 30000 });
+      // The agent's MCP tools open the thread's browser for agent work.
+      const opened = await s.daemon.browser.open({
+        threadId,
+        workspaceId: s.thread.workspaceId,
+        background: true,
+      });
+      expect(opened.backend).toBe("embedded");
+      await s.daemon.browser.execute(threadId, { action: "navigate", url: s.url }, agent);
+      const native = nativePage(s.app, p, s.url);
+      // Nobody shows the page yet: it renders unseen, so the agent's screenshot still arrives.
+      const shot = await s.daemon.browser.screenshot(threadId);
+      expect(shot.byteLength).toBeGreaterThan(1000);
+      const address = p.getByRole("combobox", { name: "Address" });
+      await expect
+        .poll(
+          async () => {
+            if (await address.isVisible()) return true;
+            await p.keyboard.press("Control+Shift+B");
+            return false;
+          },
+          { timeout: 30000, interval: 1000 },
+        )
+        .toBe(true);
+      // The panel shows the agent's own page natively: no screencast in between.
+      await expect.poll(native.placed, { timeout: 30000 }).toBe(true);
+      const page = await native.contentsId();
+      const snapshot = z
+        .object({ nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })) })
+        .parse(await s.daemon.browser.execute(threadId, { action: "snapshot" }, agent));
+      const marker = snapshot.nodes.find((node) => node.name === "Click marker")?.ref;
+      if (!marker) throw new Error("Click marker ref missing");
+      await s.daemon.browser.execute(threadId, { action: "click", ref: marker }, agent);
+      await expect
+        .poll(() => native.read("document.querySelector('#click').textContent"))
+        .toBe("Clicked 1");
+      expect(await native.placed()).toBe(true);
+
+      const started = performance.now();
+      await p.getByRole("button", { name: /^(Take over|Take control)$/ }).click();
+      await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("human");
+      const takeoverMs = performance.now() - started;
+      console.log(`[native-takeover] control changed hands in ${takeoverMs.toFixed(0)} ms`);
+      // The same live page, never reloaded: the agent's click is still on it.
+      expect(await native.contentsId()).toBe(page);
+      expect(await native.read("document.querySelector('#click').textContent")).toBe("Clicked 1");
+      // Leave the button's tooltip, which covers (and so hides) the native view.
+      await p.mouse.move(0, 0);
+      await expect.poll(native.placed).toBe(true);
+      await native.personClicks("#click");
+      await expect
+        .poll(() => native.read("document.querySelector('#click').textContent"))
+        .toBe("Clicked 2");
+      await expect(
+        s.daemon.browser.execute(threadId, { action: "click", ref: marker }, agent),
+      ).rejects.toThrow(/controlled by human/);
+
+      await p.getByRole("button", { name: "Hand back", exact: true }).first().click();
+      await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("agent");
+      const again = z
+        .object({ nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })) })
+        .parse(await s.daemon.browser.execute(threadId, { action: "snapshot" }, agent))
+        .nodes.find((node) => node.name.startsWith("Clicked"))?.ref;
+      if (!again) throw new Error("Clicked marker ref missing");
+      await s.daemon.browser.execute(threadId, { action: "click", ref: again }, agent);
+      await expect
+        .poll(() => native.read("document.querySelector('#click').textContent"))
+        .toBe("Clicked 3");
+      expect(await native.contentsId()).toBe(page);
+    } catch (error) {
+      console.error("Agent native scenario failed", error);
+      await s.page.screenshot({ path: "/tmp/ace-agent-native-ui.png" });
       throw error;
     } finally {
       await s.close();
