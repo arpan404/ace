@@ -355,7 +355,7 @@ test.each(["opencode", "pi"] as const)(
   },
 );
 
-test("a rejected discovery reports the elapsed attempt and metadata learned before failure", async () => {
+test("a rejected OpenCode discovery logs one instance failure with elapsed time and CLI version without secrets", async () => {
   const work = await workspace();
   cleanups.push(work.close);
   let now = 1000;
@@ -368,6 +368,7 @@ test("a rejected discovery reports the elapsed attempt and metadata learned befo
     discover: async (_instance, _signal, diagnostic) => {
       diagnostic?.({
         cliVersion: "2.1.0",
+        stage: "metadata",
         sources: [{ id: "openai", label: "OpenAI", kind: "api_key" }],
       });
       now += 37;
@@ -382,7 +383,7 @@ test("a rejected discovery reports the elapsed attempt and metadata learned befo
     {
       provider: "opencode",
       account: instance("opencode").id,
-      source: "openai",
+      source: undefined,
       error: {
         code: "rate_limited",
         message: "Provider model discovery was rate limited.",
@@ -390,11 +391,12 @@ test("a rejected discovery reports the elapsed attempt and metadata learned befo
       },
       diagnostic: {
         cliVersion: "2.1.0",
-        sourceLabel: "OpenAI",
+        stage: "metadata",
         durationMs: 37,
         level: "warn",
         retryInMs: 30_000,
       },
     },
   ]);
+  expect(JSON.stringify([failures, catalog.list()])).not.toContain("private-provider-error");
 });

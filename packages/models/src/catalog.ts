@@ -202,11 +202,21 @@ export class ModelCatalog implements ModelCatalogApi {
     startedAt: number = this.#options.now(),
     diagnostic: DiscoveryDiagnostics = {},
   ): void {
-    state.errorDetail = discoveryError(error, fallback, state.config);
-    // A rejected discovery attempt belongs to the instance. Only successful reports
-    // with explicit source errors can attribute a failure to a connected provider.
-    state.backoff.retain(new Set([""]));
-    this.#reportFailure(state, state.errorDetail, startedAt, diagnostic, undefined, error);
+    // OpenCode connection identities cannot identify the source of an instance failure.
+    // Other providers retain the source context learned by their discovery owner.
+    const sources =
+      state.config.provider === "opencode"
+        ? undefined
+        : (diagnostic.sources ?? state.entry?.sources?.map((entry) => entry.source));
+    state.errorDetail = discoveryError(error, fallback, {
+      ...state.config,
+      ...(sources?.length === 1 && sources[0] ? { source: sources[0].id } : {}),
+    });
+    state.backoff.retain(new Set(sources?.length ? sources.map((source) => source.id) : [""]));
+    if (sources?.length) {
+      for (const source of sources)
+        this.#reportFailure(state, state.errorDetail, startedAt, diagnostic, source, error);
+    } else this.#reportFailure(state, state.errorDetail, startedAt, diagnostic, undefined, error);
     state.retryAt = state.backoff.retryAt();
   }
   #reportFailure(
