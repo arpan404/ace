@@ -10,6 +10,7 @@ import {
   useOrganizer,
   useOrganizerState,
   useThreadActions,
+  useThreadMover,
 } from "@/features/organize/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -34,6 +35,7 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
   const organizer = useOrganizer();
   const state = useOrganizerState();
   const actions = useThreadActions();
+  const mover = useThreadMover();
   const now = useNow();
   const current = useParams({ strict: false }).threadId;
   const selection = useHomeSelection();
@@ -97,6 +99,12 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
             }),
           },
           {
+            id: "selected-move",
+            label: `Move ${n} to another project…`,
+            icon: "action",
+            run: run(() => mover.open({ entries: chosen, onMoved: () => selection.clear() })),
+          },
+          {
             id: "selected-archive",
             label: `Archive ${n}…`,
             icon: "action",
@@ -150,6 +158,12 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
             run: run(() => actions.setPinned(open, !pinned)),
           },
           {
+            id: "thread-move",
+            label: "Move this thread to another project…",
+            icon: "action",
+            run: run(() => mover.open({ entries: [open] })),
+          },
+          {
             id: "thread-new-on-main",
             label: `New thread on main in ${projectName(open.workspaceId)}`,
             icon: "action",
@@ -184,6 +198,7 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
     navigate,
     organizer,
     actions,
+    mover,
     selection,
     picked,
     projectName,

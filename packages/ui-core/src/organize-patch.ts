@@ -1,11 +1,11 @@
-import type { ThreadListEntry } from "@ace/protocol";
+import type { ThreadListEntry, WorkspaceId } from "@ace/protocol";
 import { activityOf } from "./thread-state.ts";
 
 /*
  * Organize actions applied before the daemon confirms them (UX audit SY-10). Settle, snooze,
- * pin, read, rename, archive and delete each change a few fields of the thread list entry; the
- * client shows that change at once and drops it when the daemon's own entry shows it, or when
- * the daemon refuses the command.
+ * pin, read, rename, move, archive and delete each change a few fields of the thread list
+ * entry; the client shows that change at once and drops it when the daemon's own entry shows
+ * it, or when the daemon refuses the command.
  */
 
 /** What one organize action does to a thread, as the daemon will record it. */
@@ -20,6 +20,8 @@ export interface OrganizePatch {
   snoozedUntil?: number | null;
   archived?: boolean;
   deleted?: boolean;
+  /** The project it moves to (`thread.move`). */
+  workspaceId?: WorkspaceId;
 }
 
 /** `entry` as it will be once the daemon applies `patch` at `at`. */
@@ -59,6 +61,12 @@ export function patchEntry(
   if (patch.archived === true) next.archivedAt = at;
   else if (patch.archived === false) delete next.archivedAt;
   if (patch.deleted) next.deletedAt = at;
+  if (patch.workspaceId !== undefined && patch.workspaceId !== entry.workspaceId) {
+    next.workspaceId = patch.workspaceId;
+    // As the daemon does: the old checkout's branch, PR and diff stay behind; its pin goes along.
+    const machine = entry.details?.machine;
+    next.details = { mode: "local", ...(machine ? { machine } : {}) };
+  }
   return next;
 }
 
@@ -90,6 +98,7 @@ export function reflects(
     (patch.settled === undefined || (entry.settledAt !== undefined) === patch.settled) &&
     (patch.snoozedUntil === undefined || (entry.snoozedUntil ?? null) === patch.snoozedUntil) &&
     (patch.archived === undefined || (entry.archivedAt !== undefined) === patch.archived) &&
-    (patch.deleted === undefined || entry.deletedAt !== undefined)
+    (patch.deleted === undefined || entry.deletedAt !== undefined) &&
+    (patch.workspaceId === undefined || entry.workspaceId === patch.workspaceId)
   );
 }

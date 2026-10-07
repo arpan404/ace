@@ -1,6 +1,6 @@
 import { useClient } from "@ace/client-react";
 import type { CommandPayload } from "@ace/protocol";
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, WorkspaceId } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -43,6 +43,8 @@ export interface ThreadActions {
   archiveMany(entries: readonly ThreadTarget[]): void;
   /** Delete several threads at once, for good: no Undo, so ask first. */
   removeMany(entries: readonly ThreadTarget[]): void;
+  /** Move threads to another project, with one Undo back to where each was. */
+  moveMany(entries: readonly ThreadTarget[], to: { id: string; name: string }): void;
   setUnread(entry: ThreadTarget, unread: boolean): void;
   rename(entry: ThreadTarget, title: string): void;
   archive(entry: ThreadTarget): void;
@@ -67,7 +69,8 @@ type Organize = Extract<
       | "thread.rename"
       | "thread.archive"
       | "thread.unarchive"
-      | "thread.delete";
+      | "thread.delete"
+      | "thread.move";
   }
 >;
 
@@ -89,8 +92,9 @@ interface Action {
  *
  * Delete submits the permanent command immediately, including to the durable outbox when
  * offline. Its persistence must not depend on a toast or the lifetime of this window.
- * Unpinning offers Undo too, back to the place the thread had. Bulk actions offer one Undo
- * for all, except delete. The Home context menu and the thread's ⋯ menu both use these, so
+ * Unpinning offers Undo too, back to the place the thread had. Moving to another project keeps
+ * the pin, as the daemon does, and Undo moves it back. Bulk actions offer one Undo for all,
+ * except delete. The Home context menu and the thread's ⋯ menu both use these, so
  * labels, toasts and Undo match wherever the person acts.
  */
 export function useThreadActions(): ThreadActions {
@@ -221,6 +225,15 @@ export function useThreadActions(): ThreadActions {
         if (removed) toast.add({ title: done(removed) });
       });
     };
+    const move = (entry: ThreadTarget, to: string): Action => {
+      const workspaceId = WorkspaceId.parse(to);
+      return {
+        patch: { workspaceId },
+        payload: { type: "thread.move", threadId: id(entry), workspaceId },
+        verb: "Move",
+        failed: "move the thread",
+      };
+    };
     const rename = (entry: ThreadTarget, title: string): Action => ({
       patch: { title },
       payload: { type: "thread.rename", threadId: id(entry), title },
@@ -266,6 +279,20 @@ export function useThreadActions(): ThreadActions {
           `Archived ${count(entries.length)}`,
         ),
       removeMany: (entries) => removeAll(entries, (deleted) => `Deleted ${count(deleted)}`),
+      moveMany: (entries, to) => {
+        const moving = entries.filter((entry) => entry.workspaceId !== to.id);
+        if (!moving.length) return;
+        void reversibleAll(
+          moving.map((entry) => ({
+            entry,
+            action: move(entry, to.id),
+            undo: move({ ...entry, workspaceId: to.id }, entry.workspaceId),
+          })),
+          moving.length === 1
+            ? `Moved to ${to.name}`
+            : `Moved ${count(moving.length)} to ${to.name}`,
+        );
+      },
       setUnread: (entry, unread) =>
         void act(entry, {
           patch: { unread },

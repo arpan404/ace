@@ -1,3 +1,4 @@
+import { WorkspaceId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { arrange } from "./arrange.ts";
 import { patchedEntry, patchEntry, reflects } from "./organize-patch.ts";
@@ -90,4 +91,20 @@ test("a move among pinned threads shows until the daemon's entry has the new pla
   const before = { ...done(), pinned: true, pinOrder: 4 };
   expect(reflects(before, { pinned: true, pinOrder: 7 }, before)).toBe(false);
   expect(reflects({ ...before, pinOrder: 7 }, { pinned: true, pinOrder: 7 }, before)).toBe(true);
+});
+
+test("moving to another project keeps the pin and leaves the old checkout's branch behind", () => {
+  const relay = WorkspaceId.parse("relay");
+  const before = done({
+    pinned: true,
+    pinOrder: 4,
+    details: { branch: "fix/old", mode: "worktree", machine: { host: "box.local", name: "box" } },
+  });
+  const moved = patchEntry(before, { workspaceId: relay }, now);
+  expect(arrange([moved], { project: "relay" }, now).pinned).toEqual(["t"]);
+  expect(arrange([moved], { project: "ace" }, now).pinned).toEqual([]);
+  expect(moved).toMatchObject({ pinned: true, pinOrder: 4 });
+  expect(moved.details).toEqual({ mode: "local", machine: { host: "box.local", name: "box" } });
+  expect(reflects(before, { workspaceId: relay }, before)).toBe(false);
+  expect(reflects({ ...before, workspaceId: relay }, { workspaceId: relay }, before)).toBe(true);
 });

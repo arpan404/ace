@@ -3,6 +3,7 @@ import { Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts";
 import { MoreMenuItems } from "@/features/more/index.ts";
+import { MoveToProjectHost } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
 import { ComputerUseIndicator } from "@/features/computer-use/index.ts";
@@ -45,6 +46,7 @@ export function AppShell() {
           <Outlet />
         </SidebarFrame>
         <CommandPalette />
+        <MoveToProjectHost />
         <ShellHotkeys />
         <ActivityNotifier />
       </div>
