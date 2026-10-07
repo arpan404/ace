@@ -2,7 +2,7 @@ import { checkIdleImports } from "./idle-imports.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir, loadavg } from "node:os";
+import { cpus, tmpdir, loadavg } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import {
@@ -26,7 +26,9 @@ function phase<T>(name: string, measure: () => Promise<T>): Promise<T> {
 // Serial durable ingest includes fsync and socket delivery. CPU contention and
 // filesystem scheduling are part of that wall clock, so qualify timing on an idle
 // host, as the device gate does. Keep every performance budget unchanged.
-const maximumTimingLoad = 8;
+// Load average counts runnable threads, so scale with cores: a 16-core host idling at 12 is
+// not saturated. Never qualify timing above 90% of cores (and keep the old floor of 8).
+const maximumTimingLoad = Math.max(8, Math.floor(cpus().length * 0.9));
 const overloaded = () => (loadavg()[0] ?? Infinity) >= maximumTimingLoad;
 const directory = await mkdtemp(join(tmpdir(), "ace-perf-gate-"));
 const root = resolve(import.meta.dirname, "../../..");
