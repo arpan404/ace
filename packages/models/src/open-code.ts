@@ -83,9 +83,9 @@ export function normalizeOpenCodeV2(
     const model = base(instance, `${native.providerID}/${native.modelID}`, native.name, native);
     model.nativeProviderId = native.providerID;
     model.contextWindow = native.limit.context;
-    model.inputModalities = Object.entries(native.capabilities.input)
-      .filter(([, enabled]) => enabled)
-      .map(([name]) => name);
+    model.inputModalities = [
+      ...new Set(native.capabilities.input.map((mime) => mime.split("/")[0] ?? mime)),
+    ];
     model.reasoningEfforts = native.variants.map((variant) => variant.id);
     model.isDefault = `${native.providerID}/${native.modelID}` === parsed.configuredDefault;
     model.hidden = !native.enabled;
@@ -107,7 +107,16 @@ const V2Model = z
     limit: z
       .object({ context: z.number().int().positive(), output: z.number().int().positive() })
       .passthrough(),
-    capabilities: z.object({ input: z.record(z.string(), z.boolean()) }).passthrough(),
+    capabilities: z
+      .object({
+        input: z.union([
+          z.array(z.string().min(1).max(256)).max(256),
+          z
+            .record(z.string(), z.boolean())
+            .transform((input) => Object.keys(input).filter((key) => input[key])),
+        ]),
+      })
+      .passthrough(),
     variants: z.array(z.object({ id: z.string().min(1).max(256) }).passthrough()).max(32),
   })
   .passthrough();

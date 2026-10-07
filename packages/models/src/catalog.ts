@@ -120,6 +120,7 @@ export type CatalogOptions = {
       durationMs: number;
       cliVersion?: string;
       sourceLabel?: string;
+      stage?: DiscoveryDiagnostics["stage"];
       level?: "warn" | "debug";
       retryInMs?: number;
       /** Local log only. Never included in catalog state, storage, or client responses. */
@@ -201,7 +202,12 @@ export class ModelCatalog implements ModelCatalogApi {
     startedAt: number = this.#options.now(),
     diagnostic: DiscoveryDiagnostics = {},
   ): void {
-    const sources = diagnostic.sources ?? state.entry?.sources?.map((entry) => entry.source);
+    // OpenCode connection identities cannot identify the source of an instance failure.
+    // Other providers retain the source context learned by their discovery owner.
+    const sources =
+      state.config.provider === "opencode"
+        ? undefined
+        : (diagnostic.sources ?? state.entry?.sources?.map((entry) => entry.source));
     state.errorDetail = discoveryError(error, fallback, {
       ...state.config,
       ...(sources?.length === 1 && sources[0] ? { source: sources[0].id } : {}),
@@ -234,14 +240,21 @@ export class ModelCatalog implements ModelCatalogApi {
       ...(source ? { source: source.id } : {}),
     });
     const reason =
-      detail.code === "discovery_failed" && cause !== undefined
-        ? discoveryFailureReason(cause, { env: state.config.env }).slice(0, 200)
+      detail.code === "discovery_failed" && (cause !== undefined || source)
+        ? discoveryFailureReason(
+            source
+              ? (diagnostic.sourceFailures?.find((failure) => failure.source === source.id)
+                  ?.reason ?? cause)
+              : cause,
+            { env: state.config.env },
+          ).slice(0, 200)
         : undefined;
     this.#options.onError?.(state.config.provider, state.config.id, detail, source?.id, {
       ...schedule,
       durationMs: Math.max(0, this.#options.now() - startedAt),
       ...(cliVersion ? { cliVersion } : {}),
       ...(source ? { sourceLabel: source.label } : {}),
+      ...(diagnostic.stage ? { stage: diagnostic.stage } : {}),
       ...(reason ? { reason } : {}),
     });
   }

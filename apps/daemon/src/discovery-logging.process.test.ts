@@ -24,6 +24,17 @@ test.each(["source", "instance"] as const)(
   async (scope) => {
     const home = await mkdtemp(join(tmpdir(), "ace-discovery-log-"));
     const executable = join(home, "opencode");
+    const connections = [
+      {
+        id: "synthetic-cloud",
+        name: "Synthetic Cloud",
+        connections: [{ type: "auth", authType: "api" }],
+        credentials: "private-auth-status",
+      },
+      ...(scope === "instance"
+        ? [{ id: "healthy-cloud", name: "Healthy Cloud", connections: [{ type: "env" }] }]
+        : []),
+    ];
     await writeFile(
       executable,
       `#!${process.execPath}
@@ -31,7 +42,7 @@ const args = process.argv.slice(2);
 console.error("private-cli-stderr Bearer private-cli-bearer");
 if (args.join(' ') === '--version') console.log('2.1.0');
 else if (args.join(' ') === 'auth list --standalone --format json') {
-  console.log(JSON.stringify([{id:'synthetic-cloud',name:'Synthetic Cloud',connections:[{type:'auth',authType:'api'}],credentials:'private-auth-status'}]));
+  console.log(${JSON.stringify(JSON.stringify(connections))});
 } else { console.error('private-cli-stderr Bearer private-cli-bearer'); process.exit(9); }
 `,
       { mode: 0o700 },
@@ -106,8 +117,9 @@ else if (args.join(' ') === 'auth list --standalone --format json') {
             data: expect.objectContaining({
               provider: "opencode",
               instance: "synthetic-account",
-              source: "synthetic-cloud",
-              sourceLabel: "Synthetic Cloud",
+              source: scope === "source" ? "synthetic-cloud" : null,
+              sourceLabel: scope === "source" ? "Synthetic Cloud" : null,
+              stage: "metadata",
               code: "auth_expired",
               message: "Provider sign-in has expired.",
               cliVersion: "2.1.0",
@@ -196,7 +208,7 @@ createInterface({input:process.stdin}).on('line', line => {
     await models.reconcileConnections();
     const warnings = records.parse(log.recent().map((line) => JSON.parse(line)));
     expect(warnings).toHaveLength(2);
-    for (const warning of warnings)
+    for (const warning of warnings) {
       expect(warning).toMatchObject({
         message: "Model discovery failed",
         data: {
@@ -204,12 +216,16 @@ createInterface({input:process.stdin}).on('line', line => {
           instance: "pi-account",
           source: "openai",
           sourceLabel: "OpenAI",
+          stage: null,
           code: "parse_failure",
           cliVersion: "0.72.0",
           message: "Provider returned unreadable model metadata.",
           durationMs: expect.any(Number),
         },
       });
+      const detail = z.object({ durationMs: z.number().nonnegative() }).parse(warning.data);
+      expect(Number.isFinite(detail.durationMs)).toBe(true);
+    }
     const text = log.recent().join("\n");
     for (const secret of [
       "private-pi-stderr",

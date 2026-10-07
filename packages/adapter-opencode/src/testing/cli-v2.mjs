@@ -333,7 +333,7 @@ const server = createServer(async (req, res) => {
           enabled: true,
           status: "active",
           variants: [{ id: "high", headers: { authorization: "secret" } }],
-          capabilities: { input: { text: true, image: true } },
+          capabilities: { tools: true, input: ["text/plain", "image/png"], output: ["text/plain"] },
           limit: { context: 200000, output: 8192 },
           headers: { authorization: "secret" },
           transportDebug: process.env.OPENCODE_PASSWORD,

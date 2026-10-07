@@ -1,4 +1,5 @@
-import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
+import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
+import { MetadataResponseError } from "./metadata-failure.ts";
 import type { Frame } from "@ace/engine-api";
 import type { Runtime } from "./runtime.ts";
 export type Observe = (dir: Frame["dir"], channel: string, data: unknown) => void;
@@ -109,15 +110,24 @@ export function observedFetch(
         result = await jsonResponse(response);
       } catch (error) {
         if (!response.ok && metadataResponse)
-          throw Object.assign(new Error("OpenCode metadata response failed"), {
-            code: discoveryFailureCode({ status: response.status, cause: error }),
-          });
+          throw new MetadataResponseError(
+            url.pathname,
+            discoveryFailureCode({ status: response.status, cause: error }),
+          );
         throw error;
       }
-      if (!response.ok && metadataResponse)
-        throw Object.assign(new Error("OpenCode metadata response failed"), {
-          code: discoveryFailureCode({ status: response.status, error: result }),
-        });
+      if (!response.ok && metadataResponse) {
+        const code = discoveryFailureCode({ status: response.status, error: result });
+        const detail =
+          code === "discovery_failed"
+            ? sanitize(discoveryFailureReason(result), secrets)
+            : undefined;
+        throw new MetadataResponseError(
+          url.pathname,
+          code,
+          typeof detail === "string" ? detail : undefined,
+        );
+      }
       frame(
         "recv",
         "http",

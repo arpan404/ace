@@ -26,7 +26,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     return;
   }
   const engineOptions = options.engine ?? {};
-  const defaultInstance = daemonCursorInstance(context);
+  const defaultInstance = await daemonCursorInstance(context);
   const cursorOptions = {
     ...engineOptions.cursor,
     instance: defaultInstance,

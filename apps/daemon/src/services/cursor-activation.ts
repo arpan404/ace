@@ -4,7 +4,7 @@ import { startCursorAuth } from "./cursor-auth.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** The SDK catalog follows the selected SDK account, else the daemon-owned SDK home. */
-export function cursorSdkCatalogInstance(context: ServiceContext) {
+export async function cursorSdkCatalogInstance(context: ServiceContext) {
   const registry = context.services.accountRegistry;
   const selected = registry?.selectedCursorSdk();
   return (
@@ -52,8 +52,8 @@ export async function activateCursorProvider(
   )
     return;
   context.signal.throwIfAborted();
-  const instance = cursorSdkCatalogInstance(context);
+  const instance = await cursorSdkCatalogInstance(context);
   if (options.modelInstances === undefined && !services.models?.hasInstance(instance.id))
     registerCursorSdkCatalog(context, instance);
-  startCursorAuth(context);
+  await startCursorAuth(context);
 }

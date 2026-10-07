@@ -1,3 +1,4 @@
+import { metadataFailure } from "./metadata-failure.ts";
 import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import type { OpenCode, OpenCodeClient } from "@opencode/client";
@@ -270,16 +271,16 @@ export class OpenCodeServer {
     } catch (error) {
       const failure = new SessionOpenError(
         "OpenCode startup failed: requires 2.0.22 and matching JSON API contract",
-        error,
+        metadataFailure(error),
         { env: this.options.discovery?.env },
         (value) => this.redact(value),
       );
       this.deliberate = true;
       this.controller.abort();
       await this.process?.stop({ graceMs: 0 }).catch(() => {});
-      // Preserve engine-facing native codes/details, plus a safe discovery category
-      // chosen while the original HTTP/client cause is still available.
-      throw Object.assign(failure, { discoveryCode: discoveryFailureCode(error) });
+      // Preserve our classified HTTP failure through the client Transport wrapper.
+      // Session errors and discovery retain sanitized details and a safe category.
+      throw Object.assign(failure, { discoveryCode: discoveryFailureCode(metadataFailure(error)) });
     } finally {
       cancel();
     }

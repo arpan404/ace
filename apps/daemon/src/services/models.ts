@@ -51,6 +51,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
           ["source", source ?? null],
           ["sourceLabel", diagnostic?.sourceLabel ?? null],
           ["code", error.code],
+          ["stage", diagnostic?.stage ?? null],
           ["message", error.message],
           ...(error.code === "discovery_failed" && diagnostic?.reason
             ? [["reason", diagnostic.reason] as const]
@@ -92,7 +93,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
   const sdkInstance =
     (account && services.accountRegistry?.get(account)) ||
     (options.modelInstances === undefined && (sdk?.installed || privateSdkConfigured))
-      ? cursorSdkCatalogInstance(context)
+      ? await cursorSdkCatalogInstance(context)
       : undefined;
   if (sdkInstance) registerCursorSdkCatalog(context, sdkInstance);
   if (options.modelInstances === undefined) {

@@ -80,6 +80,7 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
 } else if (mode === 'opencode' && process.argv.includes('--version')) {
   console.log('opencode v2.0.22');
 } else if (mode === 'opencode' && process.argv.includes('models')) {
+  if (process.env.FAKE_MODEL_FAILURE === '1') process.exit(7);
   console.log(process.env.FAKE_MODEL_IDS ?? '');
 } else if (mode === 'flood') {
   process.stdout.write('x'.repeat(5 * 1024 * 1024));

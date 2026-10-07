@@ -6,13 +6,13 @@ import { cursorHosts } from "./cursor-hosts.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-export function startCursorAuth(context: ServiceContext): void {
+export async function startCursorAuth(context: ServiceContext): Promise<void> {
   const { services, resources, now, id, config, options } = context;
   if (services.cursorAuth) return;
   const registry = services.accountRegistry;
   const binding = services.cursorAccounts;
   if (!registry || !binding) return;
-  const defaultInstance = daemonCursorInstance(context);
+  const defaultInstance = await daemonCursorInstance(context);
   const auth = new CursorAuthService({
     registry,
     isChangingInstance: (instanceId) => services.accounts?.isChangingAccount(instanceId) ?? false,
