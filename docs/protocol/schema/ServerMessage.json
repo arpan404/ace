@@ -33,6 +33,12 @@
       "$ref": "https://ace.local/protocol/v1/ProviderLoginEvent.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProviderInstallResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ProviderInstallEvent.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/OnboardingResult.json"
     },
     {
