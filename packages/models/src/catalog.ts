@@ -1,3 +1,4 @@
+import { DiscoveryBackoff } from "./discovery-backoff.ts";
 import { connectionRevision } from "./discovery-revision.ts";
 import { discoveryError } from "./discovery-errors.ts";
 import { refreshedSources } from "./catalog-sources.ts";
@@ -39,6 +40,9 @@ type State = {
   dirty?: boolean;
   probe?: { abort: AbortController; done: Promise<void> };
   retryAt: number;
+  backoff: DiscoveryBackoff;
+  connectionFingerprint?: string | undefined;
+  probeRetryAt?: number;
   settingsKey: string;
   invalidating?: Promise<void>;
   flight?: Promise<ModelInstanceStatus>;
@@ -97,6 +101,7 @@ export type CatalogOptions = {
   ttlMs?: number;
   timeoutMs?: number;
   retryMs?: number;
+  random?: () => number;
   concurrency?: number;
   /** Keep the snapshot stable between updates; replace it or call configurationChanged on edits. */
   preferences?: () => ProviderConfigurations;
@@ -110,7 +115,13 @@ export type CatalogOptions = {
     instance: string,
     error: NonNullable<ModelInstanceStatus["errorDetail"]>,
     source?: string,
-    diagnostic?: { durationMs: number; cliVersion?: string; sourceLabel?: string },
+    diagnostic?: {
+      durationMs: number;
+      cliVersion?: string;
+      sourceLabel?: string;
+      level?: "warn" | "debug";
+      retryInMs?: number;
+    },
   ) => void;
 };
 export class ModelCatalog implements ModelCatalogApi {
@@ -187,12 +198,17 @@ export class ModelCatalog implements ModelCatalogApi {
     startedAt: number = this.#options.now(),
     diagnostic: DiscoveryDiagnostics = {},
   ): void {
-    state.errorDetail = discoveryError(error, fallback);
     const sources = diagnostic.sources ?? state.entry?.sources?.map((entry) => entry.source);
+    state.errorDetail = discoveryError(error, fallback, {
+      ...state.config,
+      ...(sources?.length === 1 && sources[0] ? { source: sources[0].id } : {}),
+    });
+    state.backoff.retain(new Set(sources?.length ? sources.map((source) => source.id) : [""]));
     if (sources?.length) {
       for (const source of sources)
         this.#reportFailure(state, state.errorDetail, startedAt, diagnostic, source);
     } else this.#reportFailure(state, state.errorDetail, startedAt, diagnostic);
+    state.retryAt = state.backoff.retryAt();
   }
   #reportFailure(
     state: State,
@@ -201,8 +217,20 @@ export class ModelCatalog implements ModelCatalogApi {
     diagnostic: DiscoveryDiagnostics,
     source?: import("@ace/protocol").ModelSource,
   ): void {
+    const schedule = state.backoff.fail(
+      source?.id ?? "",
+      error.code,
+      this.#options.now(),
+      this.#options.retryMs ?? 30_000,
+      this.#options.random?.() ?? 0.5,
+    );
     const cliVersion = diagnostic.cliVersion ?? state.config.installationVersion;
-    this.#options.onError?.(state.config.provider, state.config.id, error, source?.id, {
+    const detail = discoveryError(error, error.code, {
+      ...state.config,
+      ...(source ? { source: source.id } : {}),
+    });
+    this.#options.onError?.(state.config.provider, state.config.id, detail, source?.id, {
+      ...schedule,
       durationMs: Math.max(0, this.#options.now() - startedAt),
       ...(cliVersion ? { cliVersion } : {}),
       ...(source ? { sourceLabel: source.label } : {}),
@@ -245,6 +273,8 @@ export class ModelCatalog implements ModelCatalogApi {
       state.settingsKey = settingsKey;
       delete state.view;
       state.dirty = true;
+      state.probeRetryAt = 0;
+      state.backoff.reset();
       state.retryAt = 0;
       if (
         this.#configuration(state.config).enabled === false ||
@@ -254,6 +284,8 @@ export class ModelCatalog implements ModelCatalogApi {
       if (state.entry && state.entry.revision !== this.#revision(state.config)) {
         state.abort?.abort();
         state.dirty = true;
+        state.probeRetryAt = 0;
+        state.backoff.reset();
         state.retryAt = 0;
       }
       this.#changed(state);
@@ -280,12 +312,21 @@ export class ModelCatalog implements ModelCatalogApi {
         tasks.push(state.probe.done);
         continue;
       }
-      if (state.flight || this.#probes.size >= 64) continue;
+      if (
+        state.flight ||
+        this.#probes.size >= 64 ||
+        this.#options.now() < (state.probeRetryAt ?? 0)
+      )
+        continue;
       const abort = new AbortController();
       const revision = this.#revision(state.config);
       const startedAt = this.#options.now();
       let diagnostic: DiscoveryDiagnostics = {};
-      const stop = this.#options.deadline(() => abort.abort(), this.#options.timeoutMs ?? 15_000);
+      let timedOut = false;
+      const stop = this.#options.deadline(() => {
+        timedOut = true;
+        abort.abort();
+      }, this.#options.timeoutMs ?? 15_000);
       const done = Promise.resolve().then(async () => {
         try {
           const configuration = this.#configuration(state.config);
@@ -303,15 +344,27 @@ export class ModelCatalog implements ModelCatalogApi {
             revision !== this.#revision(state.config)
           )
             return;
-          if (fingerprint !== state.entry?.connectionRevision || state.error) {
+          const changed =
+            state.connectionFingerprint !== undefined &&
+            fingerprint !== state.connectionFingerprint;
+          state.connectionFingerprint = fingerprint;
+          state.probeRetryAt = 0;
+          if (changed) {
+            state.backoff.reset();
+            state.retryAt = 0;
             state.dirty = true;
-            await this.#refresh(state);
           }
+          if (changed || this.#stale(state)) await this.#refresh(state);
         } catch (error) {
-          if (!this.#closed && this.#states.get(state.config.id) === state) {
-            state.error = "discovery_failed";
-            this.#failed(state, error, "discovery_failed", startedAt, diagnostic);
-            state.retryAt = this.#options.now() + (this.#options.retryMs ?? 30_000);
+          if (
+            (timedOut || !abort.signal.aborted) &&
+            !this.#closed &&
+            this.#states.get(state.config.id) === state &&
+            revision === this.#revision(state.config)
+          ) {
+            state.error = timedOut ? "timeout" : "discovery_failed";
+            this.#failed(state, timedOut ? undefined : error, state.error, startedAt, diagnostic);
+            state.probeRetryAt = state.retryAt;
             this.#changed(state);
           }
         } finally {
@@ -336,6 +389,8 @@ export class ModelCatalog implements ModelCatalogApi {
       if (state.config.installationVersion === version) continue;
       state.config = { ...state.config, installationVersion: version };
       state.dirty = true;
+      state.probeRetryAt = 0;
+      state.backoff.reset();
       state.retryAt = 0;
       state.abort?.abort();
       const refresh = () => {
@@ -382,6 +437,8 @@ export class ModelCatalog implements ModelCatalogApi {
       ...((admit ?? old?.admit) ? { admit: admit ?? old?.admit } : {}),
       ...(compatible ? { entry, dirty: entry?.revision !== this.#revision(config) } : {}),
       retryAt: 0,
+      backoff: new DiscoveryBackoff(),
+      connectionFingerprint: compatible ? entry?.connectionRevision : undefined,
       settingsKey: JSON.stringify(this.#configuration(config)),
     });
     const ids = this.#providers.get(config.provider) ?? new Set<string>();
@@ -538,7 +595,14 @@ export class ModelCatalog implements ModelCatalogApi {
               source.error
             ? "stale"
             : "fresh",
-        ...(state.errorDetail ? { error: state.errorDetail } : {}),
+        ...(state.errorDetail
+          ? {
+              error: discoveryError(state.errorDetail, state.errorDetail.code, {
+                ...state.config,
+                source: source.source.id,
+              }),
+            }
+          : {}),
       })),
       stale: this.#stale(state),
       refreshing: state.flight !== undefined,
@@ -609,6 +673,8 @@ export class ModelCatalog implements ModelCatalogApi {
     for (const state of this.#select(ModelFilter.parse(input))) {
       if (state.config.provider === "acp") continue;
       state.dirty = true;
+      state.probeRetryAt = 0;
+      state.backoff.reset();
       state.retryAt = 0;
       this.#changed(state);
     }
@@ -647,6 +713,9 @@ export class ModelCatalog implements ModelCatalogApi {
     );
   }
   async #refreshCurrent(state: State): Promise<ModelInstanceStatus> {
+    state.probeRetryAt = 0;
+    state.backoff.reset();
+    state.retryAt = 0;
     let revision = this.#revision(state.config);
     let status = await this.#refresh(state);
     // An explicit refresh owns its result through same-account version/settings replacements.
@@ -662,10 +731,10 @@ export class ModelCatalog implements ModelCatalogApi {
     if (state.config.provider === "acp" || this.#configuration(state.config).enabled === false)
       return Promise.resolve(this.#status(state));
     if (state.flight) return state.flight;
+    if (this.#options.now() < state.retryAt) return Promise.resolve(this.#status(state));
     if (this.#flights.size >= 64 || this.#discoveries.size >= 64) {
       state.error = "discovery_failed";
       this.#failed(state, undefined);
-      state.retryAt = this.#options.now() + (this.#options.retryMs ?? 30_000);
       this.#changed(state);
       return Promise.resolve(this.#status(state));
     }
@@ -791,12 +860,15 @@ export class ModelCatalog implements ModelCatalogApi {
           state.dirty = false;
           delete state.error;
           delete state.errorDetail;
+          const failing = new Set(
+            entry.sources?.filter((source) => source.error).map((source) => source.source.id),
+          );
+          state.backoff.retain(failing);
+          state.connectionFingerprint = entry.connectionRevision;
           for (const source of entry.sources ?? [])
             if (source.error)
               this.#reportFailure(state, source.error, startedAt, diagnostic, source.source);
-          state.retryAt = entry.sources?.some((source) => source.error)
-            ? this.#options.now() + (this.#options.retryMs ?? 30_000)
-            : 0;
+          state.retryAt = state.backoff.retryAt();
         } catch (error) {
           if (abort.signal.aborted && !timedOut) return;
           state.error = timedOut ? "timeout" : "discovery_failed";
@@ -832,7 +904,6 @@ export class ModelCatalog implements ModelCatalogApi {
         } finally {
           cancel?.();
           this.#release();
-          if (state.error) state.retryAt = this.#options.now() + (this.#options.retryMs ?? 30_000);
         }
       })
       .then(() => {

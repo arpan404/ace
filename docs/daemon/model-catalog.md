@@ -51,7 +51,7 @@ It adds or populates:
   lastRefreshedAt?: number; // epoch milliseconds; absent before any good refresh
   error?: "discovery_failed" | "timeout" | "persistence_failed"; // compatibility
   errorDetail?: {
-    code: "auth_expired" | "unreachable" | "cli_too_old" | "rate_limited"
+    code: "not_configured" | "auth_expired" | "unreachable" | "cli_too_old" | "rate_limited"
       | "parse_failure" | "timeout" | "persistence_failed" | "discovery_failed";
     message: string;
     hint: string;
@@ -138,8 +138,33 @@ Cache payload schema v2 accepts unversioned/v1 rows, repairs old OpenCode
 execution IDs, and cleans names/classification before serving. The next durable
 replacement writes v2. Startup serves the persisted rows and revalidates in the
 background even if they are younger than the six-hour maximum age. Ordinary
-stale reads trigger one coalesced refresh, with a 30-second retry cooldown after
-failure. Explicit refresh bypasses cooldown.
+stale reads trigger one coalesced refresh. Failed discovery uses a separate
+exponential schedule for each instance/source, starting at 30 seconds and doubling
+to a 30-minute cap, with ±20% jitter and no delay above the cap. Success clears the
+recovered source's failure history. Explicit Refresh models, login/settings/CLI
+version changes, and changed connection fingerprints reset the affected instance's
+schedule. Retry history is in memory, bounded to 512 source entries per instance,
+and is discarded on removal or daemon restart.
+
+Automatic reads, age revalidation, and connection reconciliation all honor the
+schedule. OpenCode's model query covers all connected sources, so it waits until
+every failing source is eligible. Healthy cached choices remain usable meanwhile.
+Connection metadata still polls every minute to detect changes; failures of that
+probe back off too. Warn logs record the first failure, changed reason, and changed
+exponential delay. Unchanged failures at the cap log at debug, including when
+jitter changes the actual delay. The structured `retryInMs` field reports the next
+eligible delay without exposing vendor diagnostics.
+
+Cursor SDK checks `Cursor.auth.status()` inside its isolated host before listing
+models. A missing SDK sign-in or empty environment override produces
+`not_configured`; auth rejections produce `auth_expired`. The instance remains
+visible so its sign-in and Settings → Providers hide hints are discoverable. The
+SDK owns credential access; ace does not read credential contents. OpenCode model
+HTTP status, error codes/messages, and nested client causes choose fixed categories:
+401/403 are `auth_expired`, 429 is `rate_limited`, and network/5xx are `unreachable`.
+GitHub Copilot auth failures instruct the user to reconnect through
+`opencode auth login`. Vendor error text and response bodies never become catalog
+errors or discovery logs. Existing picker and Settings rows render these hints.
 
 Provider status probes notify catalog invalidation when a CLI version changes.
 Version notifications apply only to their runtime, so Cursor CLI versions do

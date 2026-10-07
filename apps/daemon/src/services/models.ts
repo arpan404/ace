@@ -43,7 +43,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
     () => context.services.providerConfigurations?.current() ?? [],
     (provider, instance, error, source, diagnostic) =>
       context.log.log(
-        "warn",
+        diagnostic?.level ?? "warn",
         "Model discovery failed",
         logFields([
           ["provider", provider],
@@ -54,6 +54,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
           ["message", error.message],
           ["cliVersion", diagnostic?.cliVersion ?? null],
           ["durationMs", diagnostic?.durationMs ?? 0],
+          ["retryInMs", diagnostic?.retryInMs ?? null],
         ]),
       ),
   );
