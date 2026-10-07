@@ -10,7 +10,7 @@ export function modelIdentity(id: string): {
   let name = native;
   for (let i = 0; i < 4; i++) {
     const suffix =
-      /[-_](20\d{6}|20\d{2}-\d{2}-\d{2}|latest|preview(?:[-_][a-z0-9]+)*|[a-f0-9]{8,})$/i.exec(
+      /[-_](20\d{6}|20\d{2}-\d{2}-\d{2}|latest|preview(?:[-_][a-z0-9]+)+|[a-f0-9]{8,})$/i.exec(
         name,
       );
     if (!suffix?.[1]) break;
@@ -39,16 +39,18 @@ export function modelIdentity(id: string): {
     const tier = gpt[2]?.toLowerCase();
     return { name, family: `gpt${tier ? `-${tier}` : ""}`, version, ...(detail ? { detail } : {}) };
   }
-  const general = /^([a-z]+)[- ]?(\d+(?:[.-]\d+)?)(.*)$/i.exec(name);
-  const versionedFamily =
-    general?.[1] &&
-    /^(?:composer|gemini|grok|llama|qwen|glm|mistral|codestral|kimi|deepseek|o)$/i.test(general[1]);
+  // Only recognized families get versions; numeric custom selectors stay opaque.
+  // Qualifiers after the version distinguish variants, including a plain "preview".
+  const general =
+    /^(muse[-_ ]spark|composer|gemini|grok|llama|qwen|glm|mistral|codestral|kimi|deepseek|o)[-_ ]?(\d+(?:[.-]\d+)?)(.*)$/i.exec(
+      name,
+    );
   return {
     name,
     ...(detail ? { detail } : {}),
-    ...(versionedFamily && general?.[1] && general[2]
+    ...(general?.[1] && general[2]
       ? {
-          family: `${general[1].toLowerCase()}${general[3]?.toLowerCase() ?? ""}`,
+          family: `${general[1]}${general[3] ?? ""}`.toLowerCase().replace(/[-_ ]+/g, "-"),
           version: general[2].replaceAll("-", "."),
         }
       : {}),

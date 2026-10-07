@@ -137,6 +137,19 @@ test("fake catalog exposes current, legacy, local and paid sources with concrete
     tier: "legacy",
     hidden: false,
   });
+  expect(
+    models.find((model) => model.id === "opencode-go/muse-spark-1.3-contributor"),
+  ).toMatchObject({
+    tier: "current",
+    isDefault: true,
+  });
+  expect(
+    models.find((model) => model.id === "opencode-go/muse-spark-1.2-contributor"),
+  ).toMatchObject({
+    tier: "legacy",
+    isDefault: false,
+    hidden: false,
+  });
 });
 
 test("fake model responses expose the failing connection and stale provider alongside last-good models", () => {
