@@ -138,10 +138,12 @@ device in `onboarding.sqlite`; it does not dismiss setup for another device.
 
 Readiness is `not_installed`, `installed_signed_out`, `signed_in`, `needs_attention`
 or `not_configured`. Rows retain CLI version, a non-secret account label when exposed,
-installation instructions and an install command when appropriate. Probe errors,
-unknown auth and known exhausted accounts need attention. OpenCode's configured
-connections do not prove subscription entitlement, so they remain attention-needed
-until the CLI exposes an authoritative status. Cursor SDK readiness takes precedence
+installation instructions and an install command when appropriate. Probe errors
+and known exhausted accounts need attention. A CLI that doesn't report its sign-in
+(`auth: "unknown"`, including OpenCode's configured connections, which don't prove
+entitlement) counts as `signed_in` and keeps `auth: "unknown"`. Clients say the CLI
+didn't confirm it, and treat it as ready only once it lists models; a catalog auth error
+(`auth_expired`) still needs attention. Cursor SDK readiness takes precedence
 when installed. `updateAvailable` is optional and omitted: no package-registry network
 request was added solely to compare versions.
 

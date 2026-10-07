@@ -1,17 +1,11 @@
-import type { ModelDiscoveryError, ModelSourceStatus, ProviderKind } from "@ace/protocol";
+import type { ModelSourceStatus, ProviderKind } from "@ace/protocol";
 import { useModelInstances } from "@/lib/model-catalog.ts";
-import { SignInButton, useSignIn } from "@/features/sign-in/index.ts";
-
-/** Problems that signing in to the upstream fixes. */
-const signInFixes = new Set<ModelDiscoveryError["code"]>([
-  "not_configured",
-  "auth_expired",
-  "no_models",
-]);
+import { SignInButton, SignInMenu, useSignIn } from "@/features/sign-in/index.ts";
 
 /**
  * The upstreams OpenCode or Pi reaches models through (OpenCode Go and Zen, GitHub Copilot, the
- * person's API-key providers), as the model catalog last found them, each with its own sign-in.
+ * person's API-key providers), as the model catalog last found them, each with its own sign-in:
+ * Reconnect on a failing one, and Sign in again in a quiet menu on one that works.
  * Local runtimes need none. "Connect another" starts the CLI's sign-in and lists its choices.
  */
 export function UpstreamSources(props: { provider: ProviderKind; name: string }) {
@@ -32,27 +26,35 @@ export function UpstreamSources(props: { provider: ProviderKind; name: string })
     <div className="pb-3 pl-10 pr-4">
       {listed.length > 0 && (
         <ul aria-label={`${props.name} providers`} className="flex flex-col">
-          {listed.map(({ source, error }) => {
-            const fix = error && signInFixes.has(error.code);
-            return (
-              <li key={source.id} className="flex min-h-8 items-center gap-2 text-sm">
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="text-foreground">{source.label}</span>
-                  <span className="text-muted-foreground">
-                    {" · "}
-                    {error ? error.message : "Connected"}
-                  </span>
+          {listed.map(({ source, error }) => (
+            <li key={source.id} className="flex min-h-8 items-center gap-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">
+                <span className="text-foreground">{source.label}</span>
+                <span className="text-muted-foreground">
+                  {" · "}
+                  {error ? error.message : "Connected"}
                 </span>
+              </span>
+              {error ? (
                 <SignInButton
-                  variant={fix ? "secondary" : "ghost"}
-                  label={`${fix ? "Sign in to" : "Reconnect"} ${source.label}`}
+                  label={`Reconnect ${source.label}`}
                   target={{ provider: props.provider, choice: source.id }}
                 >
-                  {fix ? "Sign in" : "Reconnect"}
+                  Reconnect
                 </SignInButton>
-              </li>
-            );
-          })}
+              ) : (
+                <SignInMenu
+                  label={`More for ${source.label}`}
+                  items={[
+                    {
+                      label: "Sign in again",
+                      target: { provider: props.provider, choice: source.id },
+                    },
+                  ]}
+                />
+              )}
+            </li>
+          ))}
         </ul>
       )}
       <SignInButton variant="link" target={{ provider: props.provider }}>

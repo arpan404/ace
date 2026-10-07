@@ -91,6 +91,42 @@ test("Skip for now goes on to adding a project, and Home doesn't send this devic
   expect(screen.queryByRole("list", { name: "Providers on this computer" })).toBeNull();
 }, 30_000);
 
+test("a CLI that doesn't report its sign-in counts as ready once it lists models; only a card needing action stands out", async () => {
+  // The fake's machine: Claude Code and Codex signed in, Pi not reporting its sign-in but
+  // listing models, OpenCode signed out, Cursor's sign-in expired.
+  const app = harness({ onboarding: "pending" });
+  await app.open("/");
+  const cards = await screen.findByRole(
+    "list",
+    { name: "Providers on this computer" },
+    {
+      timeout: 10_000,
+    },
+  );
+  await waitFor(async () =>
+    expect((await progress()).getAttribute("aria-valuetext")).toBe("3 of 5 ready"),
+  );
+  for (const name of ["Claude Code", "Codex", "Pi"]) {
+    const card = within(cards).getByRole("listitem", { name });
+    expect(within(card).getByRole("img", { name: "Ready" })).toBeTruthy();
+    expect(within(card).queryByRole("button")).toBeNull();
+  }
+  expect(
+    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("Ready"),
+  ).toBeTruthy();
+  const opencode = within(cards).getByRole("listitem", { name: "OpenCode" });
+  expect(within(opencode).getByRole("button", { name: "Sign in to OpenCode" })).toBeTruthy();
+  const cursor = within(cards).getByRole("listitem", { name: "Cursor" });
+  expect(within(cursor).getByRole("button", { name: "Reconnect Cursor" })).toBeTruthy();
+  // Something is ready: starting a thread is the next step, so no card is highlighted.
+  expect(
+    within(cards)
+      .getAllByRole("listitem")
+      .filter((card) => card.hasAttribute("data-next")),
+  ).toHaveLength(0);
+  expect(screen.getByRole("button", { name: "Start a thread" })).toBeTruthy();
+}, 30_000);
+
 test("after setup, Settings → Set up providers opens it again", async () => {
   const app = harness();
   stage(app, "codex", { auth: "logged_in", accountLabel: "ada@example.com" });

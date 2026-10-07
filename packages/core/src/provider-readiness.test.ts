@@ -30,10 +30,9 @@ test("first run recommends sign-in for installed CLIs and starting work once one
   });
 });
 
-test("expired, exhausted and unknown-auth installations stay out of the ready checklist", () => {
+test("expired and exhausted installations stay out of the ready checklist", () => {
   for (const observation of [
     { ...row, auth: "logged_in" as const, error: "Authentication expired" },
-    { ...row, auth: "unknown" as const },
     { ...row, auth: "logged_in" as const, readiness: "needs_attention" as const },
   ]) {
     expect(providerReadiness(observation).readiness).toBe("needs_attention");
@@ -42,6 +41,15 @@ test("expired, exhausted and unknown-auth installations stay out of the ready ch
   expect(providerReadiness({ ...row, enabled: false }).readiness).toBe("not_configured");
   expect(onboardingChecklist([{ ...row, error: "Authentication expired" }])).toMatchObject({
     next: { action: "sign_in", provider: "codex" },
+  });
+});
+
+test("a CLI that doesn't report its sign-in is usable, not a problem", () => {
+  const unreported = { ...row, auth: "unknown" as const };
+  expect(providerReadiness(unreported)).toMatchObject({ readiness: "signed_in", auth: "unknown" });
+  expect(onboardingChecklist([unreported])).toMatchObject({
+    ready: ["codex"],
+    next: { action: "start_thread" },
   });
 });
 

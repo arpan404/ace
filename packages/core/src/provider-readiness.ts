@@ -30,10 +30,9 @@ export function providerReadiness(row: ProviderStatus): ProviderStatus {
         ? row.runtime === "cursor-sdk"
           ? "not_configured"
           : "not_installed"
-        : row.readiness === "needs_attention" ||
-            row.installed === null ||
-            row.error ||
-            row.auth === "unknown"
+        : // A CLI that doesn't report its sign-in (`auth: "unknown"`) is not a problem: it
+          // counts as signed in, and clients say from `auth` that the CLI didn't confirm it.
+          row.readiness === "needs_attention" || row.installed === null || row.error
           ? "needs_attention"
           : row.auth === "logged_out"
             ? "installed_signed_out"

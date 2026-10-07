@@ -27,7 +27,7 @@ async function providersPage(app: Harness) {
 
 test("a device sign-in shows its code and link, and finishing in the browser signs in everywhere", async () => {
   const app = harness();
-  stage(app, "codex", { auth: "logged_out", accountLabel: "ada@example.com" });
+  stage(app, "codex", { auth: "logged_out", accountLabel: "grace@example.com" });
   const providers = await providersPage(app);
   await userEvent.click(await within(providers).findByRole("button", { name: "Sign in to Codex" }));
 
@@ -38,11 +38,13 @@ test("a device sign-in shows its code and link, and finishing in the browser sig
   expect(within(dialog).getByText("Waiting for you to finish in the browser…")).toBeTruthy();
 
   app.daemon.services.providerLogin.complete(session(1));
-  expect(await within(dialog).findByText("Signed in as ada@example.com")).toBeTruthy();
+  expect(await within(dialog).findByText("Signed in as grace@example.com")).toBeTruthy();
   // The dialog closes by itself, and Settings caught up without a reload.
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4_000 });
-  expect(within(providers).getByRole("button", { name: "Sign out of Codex" })).toBeTruthy();
-  expect(within(providers).getByText("Signed in as ada@example.com")).toBeTruthy();
+  expect(within(providers).getByText("Signed in as grace@example.com")).toBeTruthy();
+  // Signed in, it asks for nothing: no loud button, its actions in a quiet menu.
+  expect(within(providers).queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
+  expect(within(providers).getByRole("button", { name: "More for Codex" })).toBeTruthy();
 }, 30_000);
 
 test("the CLI's own choices are buttons; a choice then Enter leads to its device code", async () => {
@@ -105,7 +107,7 @@ test("a failed sign-in says why, and Try again starts over", async () => {
   await userEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
   expect(await within(dialog).findByRole("link", { name: "Open sign-in page" })).toBeTruthy();
   app.daemon.services.providerLogin.complete(session(2));
-  expect(await within(dialog).findByText("Signed in to Claude Code")).toBeTruthy();
+  expect(await within(dialog).findByText("Signed in as ada@example.com")).toBeTruthy();
 }, 30_000);
 
 test("a sign-in that needs a key typed runs the CLI in an ace terminal, then reads signed in", async () => {
@@ -134,23 +136,22 @@ test("a sign-in that needs a key typed runs the CLI in an ace terminal, then rea
   ).toBeTruthy();
   expect(await within(dialog).findByText("Signed in to OpenCode")).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
-  expect(
-    await within(providers).findByRole("button", { name: "Sign out of OpenCode" }),
-  ).toBeTruthy();
+  await waitFor(() =>
+    expect(within(providers).queryByRole("button", { name: "Sign in to OpenCode" })).toBeNull(),
+  );
 }, 30_000);
 
 test("Sign out runs the CLI's logout and the provider reads signed out", async () => {
   const app = harness();
-  stage(app, "codex", { auth: "logged_in", accountLabel: "ada@example.com" });
+  stage(app, "codex", { auth: "logged_in", accountLabel: "grace@example.com" });
   const providers = await providersPage(app);
-  await userEvent.click(
-    await within(providers).findByRole("button", { name: "Sign out of Codex" }),
-  );
+  await userEvent.click(await within(providers).findByRole("button", { name: "More for Codex" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign out of Codex" });
   expect(await within(dialog).findByText("Signed out of Codex")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4_000 });
   expect(await within(providers).findByRole("button", { name: "Sign in to Codex" })).toBeTruthy();
-  expect(within(providers).getByText("Not signed in")).toBeTruthy();
+  expect(within(providers).queryByText("Signed in as grace@example.com")).toBeNull();
 }, 30_000);
 
 test("each of OpenCode's upstreams signs in on its own: its choice is made for the person", async () => {
@@ -165,7 +166,11 @@ test("each of OpenCode's upstreams signs in on its own: its choice is made for t
   expect(
     within(upstreams).getByText("OpenRouter could not be reached.", { exact: false }),
   ).toBeTruthy();
-  await userEvent.click(within(upstreams).getByRole("button", { name: "Reconnect OpenAI" }));
+  // A failing upstream says Reconnect; one that works keeps Sign in again in a quiet menu.
+  expect(within(upstreams).getByRole("button", { name: "Reconnect OpenRouter" })).toBeTruthy();
+  expect(within(upstreams).queryByRole("button", { name: "Reconnect OpenAI" })).toBeNull();
+  await userEvent.click(within(upstreams).getByRole("button", { name: "More for OpenAI" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
 
   const dialog = await screen.findByRole("dialog", { name: "Sign in to OpenCode" });
   // OpenAI was chosen from the CLI's list without asking again.
@@ -175,9 +180,25 @@ test("each of OpenCode's upstreams signs in on its own: its choice is made for t
   expect(await within(dialog).findByLabelText("Sign-in code")).toBeTruthy();
 }, 30_000);
 
+test("Settings asks only where something's wrong: Sign in when signed out, Reconnect when it needs attention", async () => {
+  // The fake's machine: Claude Code and Codex signed in, OpenCode signed out, Pi not reporting
+  // its sign-in but listing models, Cursor's sign-in expired.
+  const providers = await providersPage(harness());
+  await within(providers).findByRole("button", { name: "Sign in to OpenCode" });
+  expect(await within(providers).findByRole("button", { name: "Reconnect Cursor" })).toBeTruthy();
+  expect(within(providers).getByText("Needs attention · Cursor sign-in has expired.")).toBeTruthy();
+  for (const name of ["Claude Code", "Codex", "Pi"]) {
+    expect(within(providers).queryByRole("button", { name: `Sign in to ${name}` })).toBeNull();
+    expect(within(providers).queryByRole("button", { name: `Reconnect ${name}` })).toBeNull();
+    expect(within(providers).getByRole("button", { name: `More for ${name}` })).toBeTruthy();
+  }
+  // Not reporting a sign-in isn't a problem.
+  expect(within(providers).getAllByText(/Needs attention/)).toHaveLength(1);
+}, 30_000);
+
 test("a sign-in finished on another connection updates Settings live", async () => {
   const app = harness();
-  stage(app, "codex", { auth: "logged_out", accountLabel: "ada@example.com" });
+  stage(app, "codex", { auth: "logged_out", accountLabel: "grace@example.com" });
   const providers = await providersPage(app);
   await within(providers).findByRole("button", { name: "Sign in to Codex" });
 
@@ -188,8 +209,8 @@ test("a sign-in finished on another connection updates Settings live", async () 
   if (!started.result.ok) throw new Error("The fake refused to start");
   app.daemon.services.providerLogin.complete(started.result.progress.session);
 
-  expect(await within(providers).findByText("Signed in as ada@example.com")).toBeTruthy();
-  expect(within(providers).getByRole("button", { name: "Sign out of Codex" })).toBeTruthy();
+  expect(await within(providers).findByText("Signed in as grace@example.com")).toBeTruthy();
+  expect(within(providers).queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
 }, 30_000);
 
 test("the model picker's expired-sign-in row signs in to Cursor, and its models come back", async () => {

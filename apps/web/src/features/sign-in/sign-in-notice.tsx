@@ -14,7 +14,7 @@ export function SignInNotice(props: { provider: ProviderKind | undefined }) {
   const readiness = useProviderReadiness();
   const row = readiness.data?.find((entry) => entry.provider === props.provider);
   const view = row && readinessView(row);
-  if (!signIn || !row || view?.action !== "sign_in") return null;
+  if (!signIn || !row || view?.primary !== "sign_in") return null;
   const name = providerNames[row.provider];
   return (
     <p role="status" className="mt-3 flex items-center gap-2 px-2 text-ui text-muted-foreground">

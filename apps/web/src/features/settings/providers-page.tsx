@@ -1,4 +1,4 @@
-import { readinessView, signInSteps, type ReadinessView } from "@ace/ui-core";
+import { readinessView, signInSteps, type CatalogSignal, type ReadinessView } from "@ace/ui-core";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -16,7 +16,8 @@ import {
   useProviderReadiness,
   type ProviderReadiness,
 } from "@/lib/provider-readiness.ts";
-import { ReadinessButton } from "@/features/sign-in/index.ts";
+import { ReadinessActions } from "@/features/sign-in/index.ts";
+import { useCatalogSignals } from "@/lib/provider-signals.ts";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import { UpstreamSources } from "./upstream-sources.tsx";
 import type { ProviderAccount, ProviderInstall } from "./data/backend.ts";
@@ -52,6 +53,7 @@ export function ProviderSettings() {
   const providers = useQuery(settingsQueries.providers(backend));
   // Each CLI's own login (signed in as whom, or what it needs), live as sign-ins finish.
   const readiness = useProviderReadiness();
+  const signals = useCatalogSignals();
   if (providers.isPending)
     return <ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-7" />;
   if (providers.isError)
@@ -82,6 +84,7 @@ export function ProviderSettings() {
               ? undefined
               : readiness.data?.find((row) => row.provider === install.kind)
           }
+          catalog={signals(install.kind)}
         />
       ))}
       <SettingRow title="Any ACP agent" description="Add a command and ace will drive it." inline>
@@ -119,11 +122,12 @@ export function RediscoverButton() {
 function ProviderRow(props: {
   install: ProviderInstall;
   readiness: ProviderReadiness | undefined;
+  catalog: CatalogSignal | undefined;
 }) {
   const { install, readiness } = props;
   const [open, setOpen] = useState(false);
   const installed = install.state !== "not_installed";
-  const view = readiness && readinessView(readiness);
+  const view = readiness && readinessView(readiness, props.catalog);
   return (
     <>
       <SettingRow
@@ -142,17 +146,19 @@ function ProviderRow(props: {
         description={
           <>
             <span>{describeInstall(install)}</span>
-            {readiness && view && <ReadinessLine row={readiness} view={view} />}
+            {readiness && view && (
+              <ReadinessLine
+                row={readiness}
+                view={view}
+                saysUnknown={install.state === "unknown"}
+              />
+            )}
           </>
         }
       >
         {install.added && <RemoveAgent name={install.name} />}
-        {readiness && (
-          <ReadinessButton
-            provider={readiness.provider}
-            name={install.name}
-            action={view?.action}
-          />
+        {readiness && view && (
+          <ReadinessActions provider={readiness.provider} name={install.name} view={view} />
         )}
         {installed && (
           <Button
@@ -176,11 +182,16 @@ function ProviderRow(props: {
 
 /**
  * What the CLI's own login says, where it adds to the accounts line: who is signed in, what
- * needs attention, or the command that installs it.
+ * needs attention, or the command that installs it. A CLI that doesn't report its sign-in is
+ * said so once, quietly.
  */
-function ReadinessLine(props: { row: ProviderReadiness; view: ReadinessView }) {
+function ReadinessLine(props: {
+  row: ProviderReadiness;
+  view: ReadinessView;
+  saysUnknown: boolean;
+}) {
   const { row, view } = props;
-  if (view.action === "install")
+  if (view.state === "not_installed")
     return row.installCommand ? (
       <span className="mt-1 block">
         Install with <CopyCommand command={row.installCommand} />
@@ -188,7 +199,13 @@ function ReadinessLine(props: { row: ProviderReadiness; view: ReadinessView }) {
     ) : view.detail ? (
       <span className="block">{view.detail}</span>
     ) : null;
-  if (view.ready && !row.accountLabel) return null;
+  const unreported =
+    row.auth === "unknown" && (view.state === "ready" || view.state === "unconfirmed");
+  if (unreported)
+    return props.saysUnknown ? null : (
+      <span className="block text-subtle-foreground">Sign-in not reported by this CLI</span>
+    );
+  if (view.state === "ready" && !row.accountLabel) return null;
   return <span className="block">{[view.label, view.detail].filter(Boolean).join(" · ")}</span>;
 }
 

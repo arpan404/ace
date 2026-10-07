@@ -67,13 +67,21 @@ export class FakeServices {
     // daemon's are; the injected clock may be a counter.
     this.accounts = accountSummaries(Date.now());
     this.models = modelCatalog();
+    // A realistic machine: most CLIs signed in, OpenCode signed out, Pi not reporting its
+    // sign-in but working, and Cursor's sign-in expired (its catalog says so below).
+    const loggedIn = new Set<ProviderKind>(["claude", "codex"]);
     this.providerStatuses = (
       ["claude", "codex", "opencode", "cursor", "pi", "antigravity"] as const
-    ).map((provider) => ({
+    ).map((provider): import("@ace/protocol").ProviderStatus => ({
       provider,
       runtime: "cli",
       installed: this.installed.has(provider),
-      auth: "unknown",
+      auth: loggedIn.has(provider)
+        ? "logged_in"
+        : provider === "opencode"
+          ? "logged_out"
+          : "unknown",
+      accountLabel: loggedIn.has(provider) ? "ada@example.com" : undefined,
       loginHint: "Use the CLI login command",
       checkedAt: now,
       stale: false,

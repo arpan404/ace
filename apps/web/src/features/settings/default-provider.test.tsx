@@ -14,6 +14,8 @@ test("Settings offers an installed Codex CLI with unverified login as sign-in un
   const app = harness();
   const { services } = app.daemon;
   services.accounts = services.accounts.filter((account) => account.provider !== "codex");
+  const codex = services.providerStatuses.find((status) => status.provider === "codex");
+  if (codex) codex.auth = "unknown";
   await app.open("/settings/general");
 
   expect(await offered()).toContain("Codex (sign-in unknown)");
@@ -25,12 +27,13 @@ test("the Providers page verifies the CLI login before showing signed in with no
   const app = harness();
   const { services } = app.daemon;
   services.accounts = services.accounts.filter((account) => account.provider !== "codex");
+  const codex = services.providerStatuses.find((status) => status.provider === "codex");
+  if (!codex) throw new Error("Missing Codex discovery");
+  codex.auth = "unknown";
   await app.open("/settings/providers");
 
   const providers = await screen.findByRole("region", { name: "Providers" });
   expect(within(providers).getByText("codex · sign-in unknown")).toBeTruthy();
-  const codex = services.providerStatuses.find((status) => status.provider === "codex");
-  if (!codex) throw new Error("Missing Codex discovery");
   codex.auth = "logged_in";
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
   expect(await within(providers).findByText("codex · signed in")).toBeTruthy();
@@ -45,6 +48,9 @@ test("a CLI whose ace accounts are all signed out is offered as not signed in", 
       account.availability = "logged_out";
       account.quota.auth = "logged_out";
     }
+  // The CLI's own login doesn't say otherwise.
+  const claude = services.providerStatuses.find((status) => status.provider === "claude");
+  if (claude) claude.auth = "unknown";
   await app.open("/settings/general");
 
   expect(await offered()).toEqual([

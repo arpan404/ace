@@ -1,22 +1,25 @@
-import { providerNames, readinessView } from "@ace/ui-core";
+import { providerNames, type ReadinessView } from "@ace/ui-core";
 import { CheckCircleIcon } from "@phosphor-icons/react";
 import { CopyCommand } from "@/components/copy-command.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ProviderReadiness } from "@/lib/provider-readiness.ts";
-import { ReadinessButton } from "@/features/sign-in/index.ts";
+import { ReadinessActions } from "@/features/sign-in/index.ts";
 
 /**
  * One provider on the setup page: ready with a check, or the one thing that makes it ready
- * (sign in, sign in again, or the command that installs it). `next` marks the step setup
- * suggests first: its action is the page's primary one.
+ * (sign in, reconnect, or the command that installs it). `next` marks the one card that needs
+ * action and is setup's suggested step: it is highlighted and its button is the primary one.
  */
-export function ProviderCard(props: { row: ProviderReadiness; next: boolean }) {
-  const { row, next } = props;
+export function ProviderCard(props: {
+  row: ProviderReadiness;
+  view: ReadinessView;
+  next: boolean;
+}) {
+  const { row, view, next } = props;
   const name = providerNames[row.provider];
-  const view = readinessView(row);
-  const install = view.action === "install";
+  const install = view.state === "not_installed";
   return (
     <li
       aria-label={name}
@@ -39,11 +42,11 @@ export function ProviderCard(props: { row: ProviderReadiness; next: boolean }) {
         {view.ready ? (
           <Icon icon={CheckCircleIcon} size={20} label="Ready" className="text-status-done" />
         ) : (
-          <ReadinessButton
+          <ReadinessActions
             provider={row.provider}
             name={name}
-            action={view.action}
-            variant={next ? "primary" : "secondary"}
+            view={view}
+            emphasis={next ? "primary" : "secondary"}
           />
         )}
       </div>

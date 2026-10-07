@@ -142,6 +142,10 @@ test("unknown CLI authentication stays unknown and Check again reads fresh disco
   const account = app.daemon.services.accounts.find((entry) => entry.provider === "opencode");
   if (!account) throw new Error("Missing OpenCode account");
   account.quota.auth = "unknown";
+  const discovered = app.daemon.services.providerStatuses.find(
+    (entry) => entry.provider === "opencode",
+  );
+  if (discovered) discovered.auth = "unknown";
   await app.open("/settings/providers");
   const providers = await screen.findByRole("region", { name: "Providers" }, { timeout: 10_000 });
   expect(await within(providers).findByText(/opencode.*sign-in unknown/)).toBeTruthy();

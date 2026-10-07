@@ -1,5 +1,5 @@
 import { useClient } from "@ace/client-react";
-import { providerNames } from "@ace/ui-core";
+import { providerNames, readinessView } from "@ace/ui-core";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { dismissOnboarding, refreshProviders, useOnboarding } from "@/lib/provider-readiness.ts";
+import { useCatalogSignals } from "@/lib/provider-signals.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ProviderCard } from "./provider-card.tsx";
 
@@ -21,6 +22,7 @@ export function SetupScreen() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const onboarding = useOnboarding();
+  const signals = useCatalogSignals();
   const [checking, setChecking] = useState(false);
   const leave = (to: "/" | "/new") => {
     void dismissOnboarding(client, queryClient, true);
@@ -37,11 +39,24 @@ export function SetupScreen() {
     setChecking(false);
   };
   const data = onboarding.data;
-  const providers = data?.providers.filter((row) => row.provider !== "acp") ?? [];
-  const installed = providers.filter((row) => row.readiness !== "not_installed");
-  const missing = providers.filter((row) => row.readiness === "not_installed");
-  const ready = data?.ready.length ?? 0;
-  const next = data?.next;
+  // Each provider as Settings says it, with the catalog deciding whether a CLI that doesn't
+  // report its sign-in works: ready when it lists models.
+  const cards = (data?.providers ?? [])
+    .filter((row) => row.provider !== "acp")
+    .map((row) => ({ row, view: readinessView(row, signals(row.provider)) }));
+  const installed = cards.filter((card) => card.view.state !== "not_installed");
+  const missing = cards.filter((card) => card.view.state === "not_installed");
+  const readyNames = installed
+    .filter((card) => card.view.ready)
+    .map((card) => providerNames[card.row.provider]);
+  const ready = readyNames.length;
+  // Only a card that needs action is highlighted: the daemon's suggestion when it does, else
+  // the first that does; none once something is ready (Start a thread is the next step then).
+  const actionable = installed.filter((card) => card.view.primary);
+  const next = ready
+    ? undefined
+    : (actionable.find((card) => card.row.provider === data?.next.provider) ?? actionable[0])?.row
+        .provider;
   return (
     <Screen title="Set up providers">
       <div className="h-full overflow-y-auto px-5 pt-8 pb-16 sm:px-8">
@@ -67,8 +82,8 @@ export function SetupScreen() {
               {ready > 0 && (
                 <div className="flex flex-wrap items-center gap-3 rounded-card bg-ring/10 px-4 py-3">
                   <p className="min-w-0 flex-1">
-                    {data.ready.map((provider) => providerNames[provider]).join(", ")}{" "}
-                    {ready === 1 ? "is" : "are"} signed in. You can add more any time.
+                    {readyNames.join(", ")} {ready === 1 ? "is" : "are"} signed in. You can add more
+                    any time.
                   </p>
                   <Button variant="primary" onClick={() => leave("/new")}>
                     Start a thread
@@ -77,11 +92,12 @@ export function SetupScreen() {
               )}
               {installed.length > 0 && (
                 <ul aria-label="Providers on this computer" className="grid gap-2 sm:grid-cols-2">
-                  {installed.map((row) => (
+                  {installed.map(({ row, view }) => (
                     <ProviderCard
                       key={row.provider}
                       row={row}
-                      next={!ready && next?.provider === row.provider}
+                      view={view}
+                      next={next === row.provider}
                     />
                   ))}
                 </ul>
@@ -92,12 +108,8 @@ export function SetupScreen() {
                     {installed.length ? "Also available" : "Install one to begin"}
                   </h3>
                   <ul className="grid gap-2 sm:grid-cols-2">
-                    {missing.map((row) => (
-                      <ProviderCard
-                        key={row.provider}
-                        row={row}
-                        next={!ready && next?.provider === row.provider}
-                      />
+                    {missing.map(({ row, view }) => (
+                      <ProviderCard key={row.provider} row={row} view={view} next={false} />
                     ))}
                   </ul>
                 </section>

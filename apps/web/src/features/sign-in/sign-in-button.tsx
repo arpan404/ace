@@ -1,6 +1,9 @@
-import type { ReadinessAction } from "@ace/ui-core";
+import type { ReadinessView } from "@ace/ui-core";
+import { DotsThreeIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import type { SignInTarget } from "./login-controller.ts";
 import { preloadSignIn, useSignIn } from "./sign-in-host.tsx";
 
@@ -30,43 +33,72 @@ export function SignInButton(
   );
 }
 
-const words: Record<Exclude<ReadinessAction, "install">, string> = {
-  sign_in: "Sign in",
-  reconnect: "Reconnect",
-  sign_out: "Sign out",
-};
+/**
+ * Quiet sign-in actions behind a "…" button (Sign in again, Sign out), for something that works:
+ * nothing about it asks for attention.
+ */
+export function SignInMenu(props: {
+  /** "More for Codex": the button's accessible name. */
+  label: string;
+  items: readonly { label: string; target: SignInTarget }[];
+}) {
+  const signIn = useSignIn();
+  if (!signIn || !props.items.length) return null;
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <IconButton
+            icon={DotsThreeIcon}
+            label={props.label}
+            size="sm"
+            onPointerEnter={() => void preloadSignIn()}
+          />
+        }
+      />
+      <MenuContent align="end">
+        {props.items.map((item) => (
+          <MenuItem key={item.label} onClick={() => signIn(item.target)}>
+            {item.label}
+          </MenuItem>
+        ))}
+      </MenuContent>
+    </Menu>
+  );
+}
 
 /**
- * The action a provider's readiness offers (`readinessView`): Sign in, Reconnect or Sign out,
- * named for the provider ("Sign in to Codex"). Nothing for install, which is a command to run.
+ * What a provider's readiness (`readinessView`) offers: one prominent button only when it's
+ * needed (Sign in while signed out, Reconnect while it needs attention), and the quieter
+ * actions (Sign in again, Sign out) in a "…" menu.
  */
-export function ReadinessButton(
-  props: ButtonProps & {
-    provider: SignInTarget["provider"];
-    name: string;
-    action: ReadinessAction | undefined;
-  },
-) {
-  const { action, name } = props;
-  if (!action || action === "install") return null;
-  const label =
-    action === "sign_in"
-      ? `Sign in to ${name}`
-      : action === "reconnect"
-        ? `Reconnect ${name}`
-        : `Sign out of ${name}`;
+export function ReadinessActions(props: {
+  provider: SignInTarget["provider"];
+  name: string;
+  view: ReadinessView;
+  /** The page's one suggested step: its button is the primary one. */
+  emphasis?: "primary" | "secondary" | undefined;
+}) {
+  const { provider, name, view } = props;
+  const items = view.more
+    .filter((action) => action !== view.primary)
+    .map((action) =>
+      action === "sign_out"
+        ? { label: "Sign out", target: { provider, action: "logout" as const } }
+        : { label: action === "reconnect" ? "Sign in again" : "Sign in", target: { provider } },
+    );
   return (
-    <SignInButton
-      size={props.size}
-      variant={props.variant ?? (action === "sign_out" ? "ghost" : "secondary")}
-      className={props.className}
-      label={label}
-      target={{
-        provider: props.provider,
-        ...(action === "sign_out" ? { action: "logout" as const } : {}),
-      }}
-    >
-      {words[action]}
-    </SignInButton>
+    <>
+      {view.primary && (
+        <SignInButton
+          variant={props.emphasis ?? "primary"}
+          label={view.primary === "sign_in" ? `Sign in to ${name}` : `Reconnect ${name}`}
+          target={{ provider }}
+        >
+          {view.primary === "sign_in" ? "Sign in" : "Reconnect"}
+        </SignInButton>
+      )}
+      <SignInMenu label={`More for ${name}`} items={items} />
+    </>
   );
 }
