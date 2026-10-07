@@ -388,7 +388,13 @@ test("a rejected discovery reports the elapsed attempt and metadata learned befo
         message: "Provider model discovery was rate limited.",
         hint: "Wait a few minutes, then refresh models.",
       },
-      diagnostic: { cliVersion: "2.1.0", sourceLabel: "OpenAI", durationMs: 37 },
+      diagnostic: {
+        cliVersion: "2.1.0",
+        sourceLabel: "OpenAI",
+        durationMs: 37,
+        level: "warn",
+        retryInMs: 30_000,
+      },
     },
   ]);
 });

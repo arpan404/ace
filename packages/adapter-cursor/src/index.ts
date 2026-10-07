@@ -35,3 +35,5 @@ export { HostRuntime } from "./host-runtime.ts";
 export type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
 
 export { type SandboxAdmission, probeCursorSandbox } from "./sandbox-support.ts";
+
+export { cursorModelsInHost } from "./model-discovery.ts";

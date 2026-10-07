@@ -123,6 +123,7 @@ export function openDaemonModels(
       discover: createModelDiscovery(discoveryOptions),
       revisionProbe: createModelRevisionProbe(discoveryOptions.spawn),
       now: Date.now,
+      random: Math.random,
       deadline(expire, ms) {
         const timer = setTimeout(expire, ms);
         return () => clearTimeout(timer);

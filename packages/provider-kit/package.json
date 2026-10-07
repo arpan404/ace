@@ -22,6 +22,7 @@
     "./sqlite": "./src/sqlite.ts",
     "./open-error": "./src/open-error.ts",
     "./shell-command": "./src/shell-command.ts",
+    "./discovery-failure": "./src/discovery-failure.ts",
     "./cleanup": "./src/cleanup.ts"
   },
   "scripts": {

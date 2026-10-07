@@ -22,6 +22,7 @@ export const ModelSource = z.object({
 export type ModelSource = z.infer<typeof ModelSource>;
 export const ModelDiscoveryError = z.object({
   code: z.enum([
+    "not_configured",
     "auth_expired",
     "unreachable",
     "cli_too_old",

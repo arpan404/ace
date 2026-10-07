@@ -36,7 +36,14 @@ export function normalizeOpenCodeReport(
     try {
       const failed = envelope.errors?.find((error) => error.providerID === id);
       if (failed) {
-        sources.push({ source, status: "stale", error: discoveryError(failed.error) });
+        sources.push({
+          source,
+          status: "stale",
+          error: discoveryError(failed.error, "discovery_failed", {
+            provider: "opencode",
+            source: id,
+          }),
+        });
         continue;
       }
       const rows = normalizeOpenCodeV2({ ...envelope, data: grouped.get(id) ?? [] }, instance);

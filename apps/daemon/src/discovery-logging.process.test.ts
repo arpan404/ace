@@ -112,6 +112,7 @@ else if (args.join(' ') === 'auth list --standalone --format json') {
               message: "Provider sign-in has expired.",
               cliVersion: "2.1.0",
               durationMs: expect.any(Number),
+              retryInMs: expect.any(Number),
             }),
           },
         ]);
