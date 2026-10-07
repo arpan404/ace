@@ -40,7 +40,9 @@ async function shoot(page: Page, name: string, ready: (page: Page) => Promise<vo
       page.getByRole("button", { name: "Account and connection", exact: true }),
     ).toBeAttached();
     await ready(page);
-    await page.waitForTimeout(600);
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
     await page.screenshot({ path: `${shots}/real-${name}-${theme}.png` });
   }
 }
@@ -61,9 +63,9 @@ test("a deck starts on the real daemon, waits on its plan and a worker's questio
   await form.getByRole("button", { name: /Start deck/ }).click();
 
   // The planner works on its own thread, then the plan waits for approval.
-  await expect(page.getByRole("heading", { level: 1, name: /^Add a health note/ })).toBeVisible();
   const planGate = page.getByRole("region", { name: "Deck plan needs your approval" });
   await expect(planGate).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { level: 1, name: /^Add a health note/ })).toBeVisible();
   await expect(page.getByText(/^Started (just now|\d+m ago)/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Health note/ }).first()).toContainText("Planned");
   await shoot(page, "deck-plan-gate", (shown) =>

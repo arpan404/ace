@@ -45,3 +45,25 @@ Add startedAt and updatedAt to run views and gatedAt to needsUser entries, with 
 ## Verification
 
 Write process tests using scripted adapters and real daemon stores, sockets and temporary Git repositories for completion, human gates, subtree cancellation, restart and capacity. Static review checks effect receipts, account fences and terminal guards. The owner authorized execution of the changed conductor process tests in this round. They use a shared injected clock, scripted provider milestones, conductor change pushes and durable queue state; real Git/socket/child-process I/O has explicit safety deadlines. Other tests and mutation cases remain unexecuted until merge. Development checks are typecheck, lint, formatting, file size and generated protocol documentation. No provider CLI prompts or recorder sessions are used.
+
+## Command and start admission amendment
+
+Before writing a native run, probe the source workspace with GitService. A non-Git working
+folder returns `conductor_workspace_not_git` without a run, thread or outbox. Probe failures
+outside that known refusal retain the generic command error. Start admission is asynchronous,
+bounded to sixteen in-flight commands, shares concurrent retries, and drains before storage
+closes. An admitted run or recorded command receipt bypasses transient start checks on replay.
+The conductor model-id schema accepts slash-qualified OpenCode and Pi ids, separately from
+journal, run and account keys. Other command shapes and route names do not change.
+
+The browser-safe `@ace/conductor/commands` entry owns receipt derivation, native root validation,
+public refusal filtering and pure start rules. The fake daemon uses it with its own registered
+project, Git-folder, installation and usable-account facts. It validates internal receipts and
+replays decisions after their gate closes. Existing staged fake runs keep their presentation
+scenarios; this amendment does not replace their scheduling simulation with the native executor.
+
+The regular web e2e command already includes the real-daemon Deck journey. CI now runs that
+command in the Chromium job. The journey uses scripted providers, real daemon sockets, SQLite
+and throwaway Git repositories. Process regressions cover worker ids, root-thread approval,
+refusals, restart receipt replay, non-Git admission and slash-qualified models. No real provider
+prompts or recorder sessions are required.
