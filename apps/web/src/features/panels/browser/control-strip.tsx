@@ -142,14 +142,17 @@ export function ControlPill(props: {
           action ? "pr-0.5" : "pr-2.5",
         )}
       >
-        {marks[state.mark]}
-        {/* Narrow, the pill keeps its mark and button; the status is still announced. */}
+        {/* Below 36rem (the default panel) the pill keeps its mark and button so the tabs get the
+            room; the sentence stays in the mark's tooltip and is still announced. */}
         <Tip label={state.detail}>
-          <span aria-hidden className="min-w-0 truncate @max-[28rem]:hidden">
-            {state.mark === "agent" && (
-              <b className="font-medium text-foreground">{driver ?? "Agent"} </b>
-            )}
-            {state.label}
+          <span className="flex min-w-0 items-center gap-2">
+            {marks[state.mark]}
+            <span aria-hidden className="min-w-0 truncate @max-[36rem]:hidden">
+              {state.mark === "agent" && (
+                <b className="font-medium text-foreground">{driver ?? "Agent"} </b>
+              )}
+              {state.label}
+            </span>
           </span>
         </Tip>
         <span role="status" className="sr-only">

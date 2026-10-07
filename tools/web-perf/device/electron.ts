@@ -163,7 +163,8 @@ try {
     deviceName,
     { timeout: 60000 },
   );
-  await page.getByRole("button", { name: "Take over", exact: true }).click();
+  // A device's control toggle (components/control-toggle.tsx), not the browser's pill.
+  await page.getByRole("button", { name: "Take control", exact: true }).click();
   if (process.env["ACE_PERF_SPACE"] === "1")
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]?.setFullScreen(true),

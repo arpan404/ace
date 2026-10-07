@@ -57,7 +57,8 @@ test("an address from the new tab opens the Browser, Back returns, and a dead po
   await expect(
     panel.getByRole("img", { name: "Live view of https://docs.example.com/guide" }),
   ).toBeVisible();
-  await expect(panel.getByText("You're in control", { exact: true })).toBeVisible();
+  // At this panel width the control pill shows its button; the sentence is in its tooltip.
+  await expect(panel.getByRole("button", { name: "Hand back", exact: true })).toBeVisible();
 
   await address.fill("localhost:4321");
   await address.press("Enter");
