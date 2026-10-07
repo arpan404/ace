@@ -111,7 +111,7 @@ const modeLabels: Record<DiffPrefs["mode"], string> = {
   split: "Split",
 };
 
-/** Auto, Unified or Split; Auto names the layout it picked for the dock's width. */
+/** Auto, Unified or Split; Auto names the layout it picked for the panel's width. */
 function LayoutMenu(props: {
   mode: DiffPrefs["mode"];
   shown: "unified" | "split";

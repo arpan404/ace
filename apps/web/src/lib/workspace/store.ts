@@ -7,30 +7,25 @@ import {
   seedWorkspace,
   sanitize,
   ScopeWorkspaceSchema,
-  type Dock,
   type ScopeWorkspace,
   type WorkspaceTab,
 } from "./model.ts";
 
 /*
- * Where the workspace lives at runtime: each scope's (thread's) docks and tabs, the preferred
- * dock sizes new scopes start at, and which scope's screen is showing. Plain local UI state,
+ * Where the workspace lives at runtime: each scope's (thread's) side panel and tabs, the
+ * preferred panel width new scopes start at, and which scope's screen is showing. Plain local UI state,
  * persisted to the injected storage; never daemon state.
  *
  * Bounded: the most recently changed `capacity` scopes are kept, the rest forgotten (they start
  * again from their definition's initial tabs).
  */
 
-export interface PreferredSizes {
-  right: number;
-  bottom: number;
-}
-export const defaultSizes: PreferredSizes = { right: 520, bottom: 240 };
+/** The side panel's width a scope without one of its own starts at. */
+export const defaultSize = 520;
 
 /** A closed tab, kept so Reopen closed tab can put it back where it was. */
 export interface ClosedTab {
   tab: WorkspaceTab;
-  dock: Dock;
   index: number;
 }
 /** Closed tabs kept per scope. */
@@ -40,14 +35,12 @@ const storageKey = "ace.workspace";
 /** The shell layout's old single panel state (before per-thread workspaces); sizes carry over. */
 const legacyKey = "ace.layout";
 
+// `preferred` keeps its object shape (once `{ right, bottom }`, the bottom panel's now ignored).
 const Persisted = z.object({
-  preferred: z.object({ right: z.number(), bottom: z.number() }),
+  preferred: z.object({ right: z.number() }),
   scopes: z.array(z.tuple([z.string(), ScopeWorkspaceSchema])),
 });
-const Legacy = z.object({
-  right: z.optional(z.object({ size: z.number() })),
-  bottom: z.optional(z.object({ size: z.number() })),
-});
+const Legacy = z.object({ right: z.optional(z.object({ size: z.number() })) });
 
 export class WorkspaceStore {
   private readonly storage: KeyValueStorage | undefined;
@@ -58,7 +51,7 @@ export class WorkspaceStore {
   private readonly seeded = new Set<string>();
   private readonly listeners = new Map<string, Set<() => void>>();
   private readonly globalListeners = new Set<() => void>();
-  private preferredSizes: PreferredSizes;
+  private preferredSize: number;
   private focusedScope: string | undefined;
   /** A change was kept in memory only (a drag still moving); the next persist writes it. */
   private dirty = false;
@@ -74,15 +67,12 @@ export class WorkspaceStore {
     this.capacity = options.capacity ?? 64;
     const stored = readJson(this.storage, storageKey, Persisted, undefined);
     if (stored) {
-      this.preferredSizes = stored.preferred;
+      this.preferredSize = stored.preferred.right;
       for (const [scope, workspace] of stored.scopes.slice(-this.capacity))
         this.scopes.set(scope, sanitize(workspace));
     } else {
       const legacy = readJson(this.storage, legacyKey, Legacy, {});
-      this.preferredSizes = {
-        right: legacy.right?.size ?? defaultSizes.right,
-        bottom: legacy.bottom?.size ?? defaultSizes.bottom,
-      };
+      this.preferredSize = legacy.right?.size ?? defaultSize;
     }
   }
 
@@ -100,7 +90,7 @@ export class WorkspaceStore {
 
   /**
    * Bind a scope to its definition (the screen showing it does, on every render): which kinds
-   * exist, which docks they go to and what a fresh scope starts with. Seeds the scope.
+   * exist and what a fresh scope starts with. Seeds the scope.
    */
   define(scope: string, definition: WorkspaceDefinition): ScopeWorkspace {
     this.definitions.set(scope, definition);
@@ -136,15 +126,15 @@ export class WorkspaceStore {
     this.emit(scope);
   }
 
-  get preferred(): PreferredSizes {
-    return this.preferredSizes;
+  get preferred(): number {
+    return this.preferredSize;
   }
 
-  /** The size scopes without one of their own use; set by the last resize anywhere. */
-  setPreferred(dock: Dock, size: number, persist = true): void {
+  /** The width scopes without one of their own use; set by the last resize anywhere. */
+  setPreferred(size: number, persist = true): void {
     const rounded = Math.round(size);
-    if (this.preferredSizes[dock] !== rounded) {
-      this.preferredSizes = { ...this.preferredSizes, [dock]: rounded };
+    if (this.preferredSize !== rounded) {
+      this.preferredSize = rounded;
       for (const listener of this.globalListeners) listener();
     }
     if (persist) this.save();
@@ -214,7 +204,7 @@ export class WorkspaceStore {
     };
   }
 
-  /** Preferred sizes and the focused scope. */
+  /** The preferred width and the focused scope. */
   subscribeGlobal(listener: () => void): () => void {
     this.globalListeners.add(listener);
     return () => this.globalListeners.delete(listener);
@@ -238,6 +228,6 @@ export class WorkspaceStore {
   private save() {
     this.dirty = false;
     const scopes = [...this.scopes].filter(([scope]) => !this.seeded.has(scope));
-    writeJson(this.storage, storageKey, { preferred: this.preferredSizes, scopes });
+    writeJson(this.storage, storageKey, { preferred: { right: this.preferredSize }, scopes });
   }
 }

@@ -17,7 +17,7 @@ export const sidebarInlineQuery =
 export const overlayPanelsQuery = "(max-width: 56rem)";
 /**
  * Below 1100px an open right panel steps the sidebar aside until it closes, which is what lets
- * the panel dock beside the column there (above `overlayPanelsQuery`).
+ * the side panel beside the column there (above `overlayPanelsQuery`).
  */
 export const crowdedQuery = "(max-width: 68.75rem)";
 

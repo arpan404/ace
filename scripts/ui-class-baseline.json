@@ -141,12 +141,6 @@
   "apps/web/src/features/thread/composer/suggestion-list.tsx": {
     "text-size": 2
   },
-  "apps/web/src/features/thread/header/summary-body.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/thread/header/summary-menu.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/thread/interactions/interaction-card.tsx": {
     "text-size": 1
   },

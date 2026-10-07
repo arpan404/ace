@@ -19,7 +19,6 @@ export const terminalKind = defineTabKind({
   kind: terminalKindId,
   label: "Terminal",
   icon: TerminalWindowIcon,
-  docks: ["bottom", "right"],
   launcher: 20,
   title: (tab) => tab.title ?? "Terminal",
   Skeleton: OutputSkeleton,
@@ -28,7 +27,7 @@ export const terminalKind = defineTabKind({
       default: m.default,
       Actions: m.TerminalActions,
     })),
-  // Your terminal: closing its tab ends its shell. Hiding the dock never does.
+  // Your terminal: closing its tab ends its shell. Hiding the panel never does.
   onClose: (scope, tab) => {
     if (!isPendingTerminal(tab.id)) requestTerminalEnd({ threadId: scope, terminalId: tab.id });
   },
@@ -52,7 +51,7 @@ function endWarning(scope: string, tabs: readonly ClosingTab[]): CloseWarning | 
     <span className="whitespace-nowrap">
       (
       <Kbd
-        shortcut={first.dock === "bottom" ? "bottomPanel" : "rightPanel"}
+        shortcut="rightPanel"
         variant="bare"
         className="h-auto min-w-0 px-0 text-ui text-current"
       />
@@ -85,7 +84,6 @@ export const shellKind = defineTabKind({
   kind: shellKindId,
   label: "Agent shell",
   icon: TerminalIcon,
-  docks: ["bottom", "right"],
   title: (tab) => tab.title ?? "Agent shell",
   Skeleton: OutputSkeleton,
   // The agent's shell keeps running when its tab closes; Stop is in the tab.

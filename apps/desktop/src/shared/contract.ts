@@ -56,6 +56,7 @@ export const AppInfo = z.object({
 export type AppInfo = z.infer<typeof AppInfo>;
 
 export const EditorId = z.enum(["system", "vscode", "cursor", "zed", "xcode", "idea"]);
+export type EditorId = z.infer<typeof EditorId>;
 export const OpenInEditor = z.object({
   path: AbsolutePath,
   line: z.number().int().min(1).optional(),
@@ -64,6 +65,13 @@ export const OpenInEditor = z.object({
 });
 export type OpenInEditor = z.infer<typeof OpenInEditor>;
 export const RevealPath = z.object({ path: AbsolutePath });
+/** An installed editor's icon as the OS draws it: a PNG data URL, or null when there is none. */
+export const EditorIconRequest = z.object({ editor: EditorId });
+export const EditorIconImage = z
+  .string()
+  .startsWith("data:image/png;base64,")
+  .max(2_000_000)
+  .nullable();
 
 export const NotifyRequest = z.object({
   title: z.string().min(1).max(200),

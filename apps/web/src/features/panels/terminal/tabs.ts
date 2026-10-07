@@ -1,6 +1,5 @@
 import {
   findTab,
-  type Dock,
   type OpenTab,
   type ScopeWorkspace,
   type WorkspaceActions,
@@ -30,24 +29,23 @@ export const isPendingTerminal = (id: string): boolean =>
 /** A terminal tab that should pick up a shell no tab shows before opening a new one. */
 export const reusesSpareShell = (id: string): boolean => id === terminalKind;
 
-/** A new terminal, always with a shell of its own, in `dock` (the bottom panel by default). */
-export function newTerminal(workspace: ScopeWorkspace, dock: Dock = "bottom"): OpenTab {
-  const taken = [...workspace.right.tabs, ...workspace.bottom.tabs]
+/** A new terminal, always with a shell of its own. */
+export function newTerminal(workspace: ScopeWorkspace): OpenTab {
+  const taken = workspace.tabs
     .filter((tab) => tab.kind === terminalKind && tab.id.startsWith(pendingPrefix))
     .map((tab) => Number(tab.id.slice(pendingPrefix.length)) || 0);
-  return { kind: terminalKind, id: `${pendingPrefix}${Math.max(0, ...taken) + 1}`, dock };
+  return { kind: terminalKind, id: `${pendingPrefix}${Math.max(0, ...taken) + 1}` };
 }
 
 /**
- * New terminal: a shell of its own. The bottom panel's waiting `terminal` tab becomes it if
+ * New terminal: a shell of its own. The panel's waiting `terminal` tab becomes it if
  * that tab hasn't started a shell yet, so the strip never shows two tabs called Terminal.
  */
 export function openNewTerminal(
   actions: Pick<WorkspaceActions, "open" | "replace">,
   workspace: ScopeWorkspace,
-  dock: Dock = "bottom",
 ): void {
-  const fresh = newTerminal(workspace, dock);
+  const fresh = newTerminal(workspace);
   const waiting = findTab(workspace, terminalKind);
   if (waiting) actions.replace(waiting.tab.key, { ...fresh, pinned: waiting.tab.pinned });
   else actions.open(fresh);
@@ -74,10 +72,10 @@ export function shellLabel(command: string): string {
   return command.trim().split(/\s+/)[0]?.split("/").pop() || command;
 }
 
-/** Ids of the PTYs a scope's tabs show, in either dock. */
+/** Ids of the PTYs a scope's tabs show. */
 export function openTerminalIds(workspace: ScopeWorkspace): Set<string> {
   return new Set(
-    [...workspace.right.tabs, ...workspace.bottom.tabs]
+    workspace.tabs
       .filter((tab) => tab.kind === terminalKind && !isPendingTerminal(tab.id))
       .map((tab) => tab.id),
   );

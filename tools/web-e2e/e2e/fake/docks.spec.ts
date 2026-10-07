@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/** The workspace docks: resource tabs beside and below a thread, kept per thread. */
+/** The side panel: resource tabs beside a thread, kept per thread. */
 
 const sidePanel = (page: Page) => page.getByRole("region", { name: "Thread panel" });
 const tabs = (page: Page) =>
@@ -90,26 +90,26 @@ test("full view gives the side panel the work area and Back to the conversation 
   expect(Math.round((await sidePanel(page).boundingBox())?.width ?? 0)).toBe(Math.round(split));
 });
 
-test("⌘J shows the bottom panel, and a terminal moves to the side panel without losing its shell", async ({
+test("⌘J shows the thread's terminal in the side panel, Ctrl+` hides it from inside the shell, and the shell survives", async ({
   page,
 }) => {
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.keyboard.press("ControlOrMeta+j");
-  const bottom = page.getByRole("region", { name: "Bottom panel" });
-  await expect(bottom.getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
-  await bottom.getByRole("group", { name: "zsh terminal" }).click();
+  await expect(sidePanel(page).getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
+  const terminal = sidePanel(page).getByRole("group", { name: "zsh terminal" });
+  await terminal.click();
   await page.keyboard.type("pwd");
   await page.keyboard.press("Enter");
-  await expect(bottom.getByRole("group", { name: "zsh terminal" })).toContainText("/Users/dev/ace");
+  await expect(terminal).toContainText("/Users/dev/ace");
 
-  await bottom.getByRole("tab", { name: "zsh" }).click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Move to side panel" }).click();
+  // The same toggle, pressed while the terminal shows (and has the keyboard), hides the panel.
+  await page.keyboard.press("Control+Backquote");
+  await expect(sidePanel(page)).toHaveCount(0);
+  // ⌘J again brings back the same shell, with what it printed.
+  await page.keyboard.press("ControlOrMeta+j");
   await expect(sidePanel(page).getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
-  // The same shell, with what it printed.
-  await expect(sidePanel(page).getByRole("group", { name: "zsh terminal" })).toContainText(
-    "/Users/dev/ace",
-  );
-  await expect(bottom.getByRole("tab", { name: "zsh" })).toHaveCount(0);
+  await expect(terminal).toContainText("/Users/dev/ace");
+  await expect(sidePanel(page).getByRole("tab", { name: "zsh" })).toHaveCount(1);
 });
 
 test("with five tabs in the side panel, the showing tab stays whole inside the strip", async ({
@@ -148,29 +148,37 @@ test("with five tabs in the side panel, the showing tab stays whole inside the s
   await inside("Open file");
 });
 
-test("with the side panel open at its default width, Run, Open and Commit stay as icons beside a readable title", async ({
+test("with the side panel open at its default width, the work card and ⋯ stay beside a readable title", async ({
   page,
 }) => {
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.getByRole("button", { name: "Right panel" }).click();
   await expect(sidePanel(page)).toBeVisible();
   const title = page.getByRole("heading", { level: 1 });
-  // Beside a narrow column Run, Open and Commit drop their labels but stay one click away, and
-  // the header keeps a single ⋯.
+  // Beside a narrow column the header keeps its two tools one click away: the work card and a
+  // single ⋯.
   const header = page.getByRole("banner");
-  const commit = header.getByRole("button", { name: "Commit", exact: true });
-  await expect(commit).toBeVisible();
-  // Its icon alone: a square 32px box, no room for the word.
-  expect((await commit.boundingBox())?.width).toBeLessThanOrEqual(32);
+  const card = header.getByRole("button", { name: "Work card" });
+  await expect(card).toBeVisible();
+  // Its icon alone: a square 32px box.
+  expect((await card.boundingBox())?.width).toBeLessThanOrEqual(32);
   await expect(header.getByRole("button", { name: "More actions" })).toHaveCount(1);
   const room = await title.evaluate((element) => ({
     shown: element.clientWidth,
     whole: element.scrollWidth,
   }));
-  // The actions now share the row, so the title keeps a readable 160px rather than 280.
+  // The tools share the row, so the title keeps a readable 160px rather than 280.
   expect(room.shown).toBeGreaterThanOrEqual(Math.min(160, room.whole));
   const box = await title.boundingBox();
   expect(box && Math.round(box.width)).toBeGreaterThanOrEqual(Math.min(160, room.whole));
+  // The card opens over the conversation, not over the panel.
+  await card.click();
+  const workCard = page.getByRole("dialog", { name: "Work card" });
+  await expect(workCard).toBeVisible();
+  const opened = await workCard.boundingBox();
+  const panel = await sidePanel(page).boundingBox();
+  if (!opened || !panel) throw new Error("missing layout");
+  expect(opened.x + opened.width).toBeLessThanOrEqual(panel.x);
 });
 
 test("at the default 520px panel, address suggestions show their detail beside the address", async ({

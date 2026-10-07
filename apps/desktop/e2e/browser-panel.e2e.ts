@@ -137,9 +137,10 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(exact).toBe(true);
       await p.getByRole("button", { name: "Exit full view", exact: true }).click();
       await expect.poll(exact).toBe(true);
-      await p.getByRole("button", { name: "Bottom panel", exact: true }).click();
-      await expect.poll(exact).toBe(true);
-      await p.getByRole("button", { name: "Bottom panel", exact: true }).click();
+      // Hiding the side panel hides the native page with it; showing it lines the page up again.
+      await p.getByRole("button", { name: "Right panel", exact: true }).click();
+      await expect.poll(async () => (await geometry()).native?.visible ?? false).toBe(false);
+      await p.getByRole("button", { name: "Right panel", exact: true }).click();
       await expect.poll(exact).toBe(true);
       const resize = p.getByRole("separator", { name: "Resize thread panel" });
       const grip = await resize.boundingBox();

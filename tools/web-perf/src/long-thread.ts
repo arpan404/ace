@@ -62,8 +62,8 @@ async function measureLongThread(): Promise<void> {
     let warm: number | undefined;
     for (let round = 0; round < limits.rounds; round++) {
       const target = targets[round % targets.length] ?? 1;
-      // The timeline: across days to one turn.
-      await page.getByRole("button", { name: "Turns" }).click();
+      // The timeline: across days to one turn (⌥⌘G; the header's ⋯ menu lists it too).
+      await page.keyboard.press(`Alt+${mod}+g`);
       await page.getByRole("listbox", { name: "Turns of this thread" }).waitFor();
       await selectTurn(page, target);
       const jumpAt = await page.evaluate(() => performance.now());

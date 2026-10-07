@@ -18,7 +18,7 @@ const urlOf = (data: unknown): string | undefined =>
  */
 export function contextPages(workspace: ScopeWorkspace): ContextPage[] {
   const pages = new Map<string, ContextPage>();
-  for (const tab of [...workspace.right.tabs, ...workspace.bottom.tabs]) {
+  for (const tab of workspace.tabs) {
     if (tab.kind === "browser") {
       const url = urlOf(tab.data);
       if (url && /^https?:\/\//i.test(url)) pages.set(url, { url, label: displayAddress(url) });

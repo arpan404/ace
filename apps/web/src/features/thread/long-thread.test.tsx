@@ -34,7 +34,9 @@ const ask = (n: number) => `Migrate checkpoint ${n}, inspect files and report fa
 const answer = (n: number) => new RegExp(`^Checkpoint ${n} completed\\. Migration paths validated`);
 
 async function openTurns(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Turns" }));
+  // Turns lives in the header's ⋯ menu.
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: /^Turns/ }));
   return screen.findByRole("listbox", { name: "Turns of this thread" });
 }
 

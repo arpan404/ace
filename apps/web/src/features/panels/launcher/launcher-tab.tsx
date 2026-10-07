@@ -19,15 +19,12 @@ import {
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
 import {
-  findTab,
   useWorkspaceActions,
   useWorkspaceStore,
   type OpenTab,
-  type TabKind,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { AddressBar } from "../browser/address-bar.tsx";
@@ -49,7 +46,7 @@ const card =
 
 /**
  * The Tools grid is one Tab stop: arrows move by its columns (two, or one below 30rem), Home
- * and End jump, Enter opens. Shift+F10 on a tool opens its ⋯ menu.
+ * and End jump, Enter opens.
  */
 function useToolGrid() {
   const [active, setActive] = useState(0);
@@ -59,11 +56,6 @@ function useToolGrid() {
     ];
     const at = cards.indexOf(event.target as HTMLButtonElement);
     if (at < 0) return;
-    if (event.key === "F10" && event.shiftKey) {
-      event.preventDefault();
-      cards[at]?.parentElement?.querySelector<HTMLElement>("[data-tool-menu]")?.click();
-      return;
-    }
     const [first, second] = cards;
     const columns = first && second && first.offsetTop === second.offsetTop ? 2 : 1;
     const last = cards.length - 1;
@@ -103,16 +95,8 @@ export function LauncherTab(props: TabViewProps) {
         .toSorted((a, b) => (a.launcher ?? 0) - (b.launcher ?? 0)),
     [definition],
   );
-  /** Open a request here: in this tab's place if its kind may sit in this dock, else beside. */
-  const openHere = (request: OpenTab) => {
-    const kind = definition?.kind(request.kind);
-    if (!kind || kind.docks.includes(props.dock)) actions.replace(props.tab.key, request);
-    else {
-      actions.open(request);
-      void actions.close(props.tab.key);
-    }
-  };
-  const other = props.dock === "right" ? "bottom" : "right";
+  /** Open a request in this tab's place. */
+  const openHere = (request: OpenTab) => actions.replace(props.tab.key, request);
   const kindFor = (claim: "fromFile" | "fromUrl") => tools.find((kind) => kind[claim]);
   const openUrl = (url: string) => {
     const kind = kindFor("fromUrl");
@@ -141,7 +125,7 @@ export function LauncherTab(props: TabViewProps) {
                       grid.setActive(index);
                       kind.preload();
                     }}
-                    className={cn(card, kind.docks.includes(other) && "pr-11")}
+                    className={card}
                     onPointerEnter={kind.preload}
                     onClick={() => openHere({ kind: kind.kind })}
                   >
@@ -155,17 +139,6 @@ export function LauncherTab(props: TabViewProps) {
                       keys && <Kbd keys={keymap[keys].keys} />
                     )}
                   </button>
-                  {kind.docks.includes(other) && (
-                    <DockMenu
-                      kind={kind}
-                      dock={other}
-                      onOpen={() => {
-                        const existing = findTab(store.get(props.scope), kind.kind);
-                        if (existing) actions.moveToDock(existing.tab.key, other);
-                        else actions.open({ kind: kind.kind, dock: other });
-                      }}
-                    />
-                  )}
                 </li>
               );
             })}
@@ -270,27 +243,6 @@ function KnownAddresses(props: {
   render(known: readonly UrlSuggestion[]): React.ReactNode;
 }) {
   return props.render(usePreviewSuggestions(props.source, props.threadId));
-}
-
-/** A tool that can also sit in the other dock offers to open there ("Open in bottom panel"). */
-function DockMenu(props: { kind: TabKind; dock: "right" | "bottom"; onOpen(): void }) {
-  const label = props.dock === "bottom" ? "Open in bottom panel" : "Open in side panel";
-  return (
-    <Menu>
-      {/* Off the Tab order (the grid is one stop): Shift+F10 on the tool opens it. */}
-      <MenuTrigger
-        aria-label={`${props.kind.label} options`}
-        tabIndex={-1}
-        data-tool-menu
-        className="focus-ring absolute top-1/2 right-1.5 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
-      >
-        <DotsThreeIcon aria-hidden size={16} weight="bold" />
-      </MenuTrigger>
-      <MenuContent align="end">
-        <MenuItem onClick={props.onOpen}>{label}</MenuItem>
-      </MenuContent>
-    </Menu>
-  );
 }
 
 function usePreviewSuggestions(source: PreviewSource, threadId: string): UrlSuggestion[] {

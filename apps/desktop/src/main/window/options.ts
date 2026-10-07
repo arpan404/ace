@@ -92,7 +92,7 @@ html, body { background: transparent !important; }
  * the start of the sidebar's top row; both drag the window. Every first control starts at
  * x ≥ 80, 12 px clear of them: the rail's first view below them, the sidebar's title after them,
  * the header's first controls after them with the sidebar hidden (the full-view strip, the
- * right dock's `header-nav`, 4 px further in to make up its narrower padding), and on a narrow
+ * side panel's `header-nav`, 4 px further in to make up its narrower padding), and on a narrow
  * window (rail and sidebar in a sheet) the header clears them from the window's edge. Full screen hides the lights, so
  * none of this applies there; the preload marks `<html data-fullscreen>`.
  */
@@ -100,6 +100,6 @@ export const macTitleBarCss = `
 :root:not([data-fullscreen]) [data-slot="rail"] { padding-top: 44px; }
 :root:not([data-fullscreen]) [data-slot="sidebar-top"] { padding-left: 40px; }
 :root:not([data-fullscreen]) [data-sidebar="hidden"] [data-slot="header-nav"] { margin-left: 28px; }
-:root:not([data-fullscreen]) [data-sidebar="hidden"] [data-dock="right"] [data-slot="header-nav"] { margin-left: 32px; }
+:root:not([data-fullscreen]) [data-sidebar="hidden"] [data-panel] [data-slot="header-nav"] { margin-left: 32px; }
 :root:not([data-fullscreen]) [data-sidebar="sheet"] [data-slot="header-nav"] { margin-left: 68px; }
 `;

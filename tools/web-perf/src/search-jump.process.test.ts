@@ -16,7 +16,9 @@ test.each([false, true])(
         const catchUp = page.getByRole("region", { name: "While you were away" });
         await catchUp.getByRole("button", { name: "Dismiss" }).click();
         if (historical) {
-          await page.getByRole("button", { name: "Turns", exact: true }).click();
+          // Turns lives in the header's ⋯ menu.
+          await page.getByRole("banner").getByRole("button", { name: "More actions" }).click();
+          await page.getByRole("menuitem", { name: /^Turns/ }).click();
           await selectTurn(page, 137);
           await page.keyboard.press("Enter");
           await feed.getByText("Migrate checkpoint 137, inspect files").first().waitFor();
@@ -27,7 +29,9 @@ test.each([false, true])(
           await stepTurn(page, `Alt+${mod}+ArrowDown`);
           await stepTurn(page, `Alt+${mod}+ArrowUp`);
         }
-        await page.getByRole("button", { name: "Search this thread", exact: true }).click();
+        // Search this thread lives in the header's ⋯ menu (⌘F also opens it).
+        await page.getByRole("banner").getByRole("button", { name: "More actions" }).click();
+        await page.getByRole("menuitem", { name: /^Search this thread/ }).click();
         const bar = page.getByRole("search", { name: "Search this thread" });
         await bar.getByRole("textbox").fill("checkpoint scan output");
         await bar.getByRole("option").first().waitFor();

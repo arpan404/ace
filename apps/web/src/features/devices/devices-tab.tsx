@@ -64,11 +64,7 @@ export function DevicesTab(props: { threadId: string }) {
   const devices = useDevices(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
   const workspace = useScopeWorkspace(props.threadId);
-  const open = new Set(
-    [...workspace.right.tabs, ...workspace.bottom.tabs]
-      .filter((tab) => tab.kind === "device")
-      .map((tab) => tab.id),
-  );
+  const open = new Set(workspace.tabs.filter((tab) => tab.kind === "device").map((tab) => tab.id));
   const { view } = devices;
   if (!view.connected)
     return view.failure ? (
