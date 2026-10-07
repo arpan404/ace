@@ -27,6 +27,15 @@ export interface ServiceHost {
   thread(threadId: string): { workspaceId: string; provider: ProviderKind } | undefined;
 }
 
+/** Where discovery found each CLI on the fake machine, and its version. */
+const fakeInstall: Partial<Record<ProviderKind, { version: string; path?: string }>> = {
+  claude: { version: "2.1.4", path: "/opt/homebrew/bin/claude" },
+  codex: { version: "0.48.0", path: "/opt/homebrew/bin/codex" },
+  opencode: { version: "1.4.2", path: "/Users/ada/.opencode/bin/opencode" },
+  cursor: { version: "0.9.1" },
+  pi: { version: "0.31.0", path: "/Users/ada/.local/bin/pi" },
+};
+
 /**
  * The daemon's catalog services (accounts, usage, models, settings, search, slash commands) over
  * the fake daemon's catalogs. Context, workspace, terminal, plugin, planning and browser services
@@ -57,6 +66,8 @@ export class FakeServices {
    */
   installed = new Set<ProviderKind>(["claude", "codex", "opencode", "cursor", "pi", "acp"]);
   localCommands = new Set(["fake-acp"]);
+  /** Upstream sources (OpenCode's, Pi's) whose models can't be read: OpenRouter by default. */
+  failingSources = new Set(["openrouter"]);
   private host: ServiceHost;
   private refreshingModels = new Set<string>();
   private refreshedModels = new Map<string, number>();
@@ -84,6 +95,8 @@ export class FakeServices {
       stale: false,
       refreshing: false,
     }));
+    for (const row of this.providerStatuses)
+      if (this.installed.has(row.provider)) Object.assign(row, fakeInstall[row.provider]);
     this.providerLogin = new FakeProviderLogin(
       host.clock,
       () => this.providerRows(),
@@ -250,15 +263,15 @@ export class FakeServices {
                   source,
                   status: this.refreshingModels.has(model.instance)
                     ? "refreshing"
-                    : cursorNeedsLogin || source.id === "openrouter"
+                    : cursorNeedsLogin || this.failingSources.has(source.id)
                       ? "stale"
                       : "fresh",
                   lastRefreshedAt: refreshedAt ?? Math.max(0, this.host.clock() - 60_000),
-                  ...(source.id === "openrouter"
+                  ...(this.failingSources.has(source.id)
                     ? {
                         error: {
                           code: "unreachable",
-                          message: "OpenRouter could not be reached.",
+                          message: `${source.label} could not be reached.`,
                           hint: "Check your network and refresh models.",
                         },
                       }

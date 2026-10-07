@@ -1,6 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { providerNames, readinessView } from "@ace/ui-core";
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, ArrowRightIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -9,10 +9,12 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { dismissOnboarding, refreshProviders, useOnboarding } from "@/lib/provider-readiness.ts";
 import { useCatalogSignals } from "@/lib/provider-signals.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { ProviderCard } from "./provider-card.tsx";
+import { MissingRow, ProviderCard } from "./provider-card.tsx";
+
+const names = new Intl.ListFormat("en", { type: "conjunction" });
 
 /**
- * First-run setup (and Settings → Set up providers): the providers found on the daemon's
+ * First-run setup (`/setup`): the providers found on the daemon's
  * computer, each ready or with the one step that readies it, the suggested next step
  * highlighted, and progress that moves as sign-ins finish anywhere. Done or skipped, it stays
  * dismissed for this device.
@@ -58,40 +60,44 @@ export function SetupScreen() {
     : (actionable.find((card) => card.row.provider === data?.next.provider) ?? actionable[0])?.row
         .provider;
   return (
-    <Screen title="Set up providers">
-      <div className="h-full overflow-y-auto px-5 pt-8 pb-16 sm:px-8">
-        <div className="mx-auto flex w-full max-w-(--column) flex-col gap-6">
-          <div className="flex flex-col gap-1.5">
+    <Screen title="Set up">
+      <div className="h-full overflow-y-auto px-5 pt-10 pb-16 sm:px-8 sm:pt-16">
+        <div className="fx-view-in mx-auto flex w-full max-w-3xl flex-col gap-7">
+          <div className="flex flex-col gap-2">
             <h2 className="text-2xl font-semibold tracking-title text-foreground">
-              {ready ? "You're ready" : "Connect a coding agent"}
+              {ready ? "You're ready to go" : "Welcome to ace"}
             </h2>
-            <p className="text-muted-foreground">
-              ace drives the agent CLIs on this computer with your own accounts. Sign in to one to
-              start; your credentials stay with each CLI.
+            <p className="max-w-[62ch] text-base leading-normal text-muted-foreground">
+              {ready
+                ? `${names.format(readyNames)} ${ready === 1 ? "is" : "are"} ready. Start a thread, or connect more agents first.`
+                : "ace works with the coding agents on this computer, using your own accounts. Sign in to one to start."}
             </p>
           </div>
           {onboarding.isError ? (
             <p role="alert" className="text-muted-foreground">
-              This daemon can't list its providers yet. Check Settings → Providers.
+              This computer can't list its agents yet. Check Settings → Providers.
             </p>
           ) : !data ? (
             <ListSkeleton label="providers" shape="row" rows={4} />
           ) : (
             <>
-              <Progress ready={ready} total={installed.length} />
-              {ready > 0 && (
-                <div className="flex flex-wrap items-center gap-3 rounded-card bg-ring/10 px-4 py-3">
-                  <p className="min-w-0 flex-1">
-                    {readyNames.join(", ")} {ready === 1 ? "is" : "are"} signed in. You can add more
-                    any time.
-                  </p>
-                  <Button variant="primary" onClick={() => leave("/new")}>
-                    Start a thread
-                  </Button>
-                </div>
-              )}
+              <div className="flex items-center gap-3">
+                <Progress ready={ready} total={installed.length} />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={checking}
+                  onClick={() => void checkAgain()}
+                >
+                  <ArrowClockwiseIcon aria-hidden size={13} />
+                  {checking ? "Checking…" : "Check again"}
+                </Button>
+              </div>
               {installed.length > 0 && (
-                <ul aria-label="Providers on this computer" className="grid gap-2 sm:grid-cols-2">
+                <ul
+                  aria-label="Providers on this computer"
+                  className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+                >
                   {installed.map(({ row, view }) => (
                     <ProviderCard
                       key={row.provider}
@@ -105,30 +111,31 @@ export function SetupScreen() {
               {missing.length > 0 && (
                 <section aria-label="Not installed" className="flex flex-col gap-2">
                   <h3 className="text-sm font-medium text-muted-foreground">
-                    {installed.length ? "Also available" : "Install one to begin"}
+                    {installed.length ? "More agents you can use" : "Install one to begin"}
                   </h3>
-                  <ul className="grid gap-2 sm:grid-cols-2">
+                  <ul className="divide-y rounded-card border bg-card">
                     {missing.map(({ row, view }) => (
-                      <ProviderCard key={row.provider} row={row} view={view} next={false} />
+                      <MissingRow key={row.provider} row={row} view={view} />
                     ))}
                   </ul>
                 </section>
               )}
             </>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 border-t pt-5">
             <Button variant="ghost" onClick={() => leave("/")}>
               Skip for now
             </Button>
-            <Button
-              variant="ghost"
-              className="ml-auto"
-              disabled={checking}
-              onClick={() => void checkAgain()}
-            >
-              <ArrowClockwiseIcon aria-hidden size={14} />
-              {checking ? "Checking…" : "Check again"}
-            </Button>
+            {ready ? (
+              <Button variant="primary" size="lg" className="ml-auto" onClick={() => leave("/new")}>
+                Start a thread
+                <ArrowRightIcon aria-hidden size={14} />
+              </Button>
+            ) : (
+              <span className="ml-auto text-sm text-muted-foreground">
+                Sign in to one agent to continue
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -141,7 +148,7 @@ function Progress(props: { ready: number; total: number }) {
   const total = Math.max(props.total, 1);
   const text = `${props.ready} of ${props.total} ready`;
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-1 items-center gap-3">
       <div
         role="progressbar"
         aria-label="Providers ready"
@@ -149,7 +156,7 @@ function Progress(props: { ready: number; total: number }) {
         aria-valuemax={total}
         aria-valuenow={props.ready}
         aria-valuetext={text}
-        className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary"
+        className="h-1 flex-1 overflow-hidden rounded-full bg-foreground/10"
       >
         <div
           className="h-full rounded-full bg-status-done transition-[width] duration-(--dur-3)"

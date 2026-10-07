@@ -1,6 +1,7 @@
 import { providerNames } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useSyncExternalStore } from "react";
+import { ProviderTile } from "@/components/provider-tile.tsx";
 import {
   Dialog,
   DialogBody,
@@ -9,18 +10,30 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { refreshProviders, useProviderReadiness } from "@/lib/provider-readiness.ts";
-import { isFinished, type LoginController } from "./login-controller.ts";
+import { isFinished, type LoginController, type LoginView } from "./login-controller.ts";
 import { LoginBody } from "./login-steps.tsx";
 
-/** How long "Signed in" stays before the dialog closes by itself. */
+/** How long "You're signed in" stays before the dialog closes by itself. */
 const doneMs = 1_600;
 
+/** Waiting on the CLI or on the person elsewhere: the mark breathes meanwhile. */
+function waiting(view: LoginView): boolean {
+  if (view.kind === "requesting") return true;
+  if (view.kind !== "progress") return false;
+  const state = view.progress.state;
+  return (
+    state === "starting" ||
+    state === "verifying" ||
+    state === "awaiting_browser" ||
+    state === "awaiting_code_entry"
+  );
+}
+
 /**
- * Signing in to (or out of) a provider with its own CLI, as the daemon runs it: a link to open
- * and a code to enter on this device, the CLI's own choices as buttons, a terminal for flows
- * that need typing a secret, and what went wrong with a way to try again.
+ * Signing in to (or out of) a provider with its own CLI, as the daemon runs it: one calm column
+ * under the provider's mark, with a code to copy and a page to open, the CLI's own choices, a
+ * terminal for what only the CLI should read, and what went wrong with one way to try again.
  */
 export function SignInDialog(props: {
   login: LoginController;
@@ -32,7 +45,7 @@ export function SignInDialog(props: {
   const view = useSyncExternalStore(login.subscribe, login.getView);
   const readiness = useProviderReadiness();
   const queryClient = useQueryClient();
-  const { provider, action } = login.target;
+  const { provider, action, service, choice } = login.target;
   const name = providerNames[provider];
   const row = readiness.data?.find((entry) => entry.provider === provider);
   const succeeded = view.kind === "progress" && view.progress.state === "succeeded";
@@ -45,6 +58,19 @@ export function SignInDialog(props: {
     return () => clearTimeout(timer);
   }, [succeeded, queryClient]);
   const running = view.kind === "progress" && !isFinished(view.progress);
+  const logout = action === "logout";
+  const title = service
+    ? `${logout ? "Disconnect" : "Connect"} ${service}`
+    : logout
+      ? `Sign out of ${name}`
+      : `Sign in to ${name}`;
+  const description = logout
+    ? service
+      ? `${name} stops using ${service} on the computer running ace.`
+      : `Signs ${name} out on the computer running ace.`
+    : provider === "cursor"
+      ? "Signs in through the Cursor SDK in your browser. ace never sees your password."
+      : `Uses ${name}'s own sign-in. Your credentials stay with ${name}.`;
   return (
     <Dialog
       open={props.open}
@@ -52,17 +78,28 @@ export function SignInDialog(props: {
         if (!open) props.onClose();
       }}
     >
-      <DialogContent size="md" aria-busy={running || view.kind === "requesting" || undefined}>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ProviderIcon provider={provider} size={16} decorative />
-            {action === "logout" ? `Sign out of ${name}` : `Sign in to ${name}`}
-          </DialogTitle>
-          <DialogDescription>
-            {provider === "cursor"
-              ? "Signs in to Cursor in your browser, through the Cursor SDK ace runs. It's separate from the Cursor editor's sign-in; ace never sees your credentials."
-              : `ace runs ${name}'s own sign-in. Your credentials stay with the CLI; ace never sees them.`}
-          </DialogDescription>
+      <DialogContent
+        size="md"
+        className="gap-5 px-6 pt-7 pb-5"
+        aria-busy={running || view.kind === "requesting" || undefined}
+      >
+        <DialogHeader className="items-center gap-1.5 px-6 text-center">
+          <span className="relative mb-2">
+            {waiting(view) && (
+              <span
+                aria-hidden
+                className="fx-ring absolute inset-0 rounded-card bg-status-working/40"
+              />
+            )}
+            <ProviderTile
+              provider={provider}
+              service={service && choice ? { id: choice, label: service } : undefined}
+              size="lg"
+              className="relative"
+            />
+          </span>
+          <DialogTitle className="text-lg font-semibold tracking-title">{title}</DialogTitle>
+          <DialogDescription className="max-w-[44ch] text-balance">{description}</DialogDescription>
         </DialogHeader>
         {/* Each step is read out as it appears: the code, the choices, the outcome. */}
         <DialogBody aria-live="polite">

@@ -119,6 +119,8 @@ export interface ProviderIconInput {
   acpAgentId?: string | undefined;
   /** A model id or name; its family's mark wins over the provider's when one is known. */
   model?: string | undefined;
+  /** A particular mark that wins over both (a service OpenCode reaches: `serviceInfo`). */
+  brand?: Brand | undefined;
 }
 
 /** The mark to draw and the words that name it for assistive tech. */
@@ -129,6 +131,7 @@ export interface ProviderIconChoice {
 
 /** Picks the mark for a provider, ACP agent or model. Unknown agents get the neutral glyph. */
 export function providerIcon(input: ProviderIconInput): ProviderIconChoice {
+  if (input.brand) return { brand: input.brand, label: input.brand };
   const family = input.model ? modelFamily(input.model) : undefined;
   if (family) return family;
   if (input.provider === "acp") {
