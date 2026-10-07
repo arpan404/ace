@@ -133,6 +133,8 @@ test("cross-provider switches mark loss and deliver portable provenance to the n
   await h.engine.flush();
   follow(h, id);
   await h.engine.flush();
+  expect(h.store.getThread(id)).toMatchObject({ provider: "cursor", backend: "cursor-sdk" });
+  expect(h.store.getThread(id)?.continuation).toBeUndefined();
   expect(h.inputs.at(-1)?.provider).toBe("cursor");
   expect(h.inputs.at(-1)?.nativeId).not.toBe(original);
   expect(h.inputs.at(-1)?.text).toContain('"sourceThreadId":"' + id + '"');
@@ -142,6 +144,31 @@ test("cross-provider switches mark loss and deliver portable provenance to the n
     recommendation: "delegate_task",
   });
 });
+test.each([
+  { provider: "codex" as const },
+  { provider: "cursor" as const, instanceId: "account-b" },
+])("SDK checkpoints stay pinned when switching to $provider/$instanceId", async (selection) => {
+  const h = setup();
+  const id = await h.create();
+  expect(
+    h.command({ type: "thread.switch", threadId: id, selection: { provider: "cursor" } }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  follow(h, id);
+  await h.engine.flush();
+  const original = h.inputs.at(-1)?.nativeId;
+  expect(h.command({ type: "thread.switch", threadId: id, selection }).ok).toBe(true);
+  await h.engine.flush();
+  expect(h.store.getThread(id)).toMatchObject({
+    provider: "cursor",
+    backend: "cursor-sdk",
+    switch: { state: "failed", error: expect.stringContaining("source checkpoint is preserved") },
+  });
+  follow(h, id);
+  await h.engine.flush();
+  expect(h.inputs.at(-1)).toMatchObject({ provider: "cursor", nativeId: original });
+});
+
 test("provider and model options are remembered independently when returning to a selection", async () => {
   const h = setup();
   const id = await h.create();
@@ -222,6 +249,8 @@ test("the latest queued switch wins and survives a daemon restart", async () => 
   await h.engine.flush();
   follow(h, id);
   await h.engine.flush();
+  expect(h.store.getThread(id)).toMatchObject({ provider: "cursor", backend: "cursor-sdk" });
+  expect(h.store.getThread(id)?.continuation).toBeUndefined();
   expect(h.inputs.at(-1)?.provider).toBe("cursor");
   expect(h.inputs.at(-1)?.model).toBe("newest");
   expect(h.inputs.at(-2)?.text).toContain("source history");
