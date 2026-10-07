@@ -17,6 +17,10 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
     binaryPath?: string | undefined;
   };
   attention?(row: Status): boolean;
+  versions?(
+    row: Status,
+    signal: AbortSignal,
+  ): Promise<Partial<Pick<Status, "latestVersion" | "versionCheckedAt" | "updateAvailable">>>;
   checked?(rows: readonly Status[]): void;
   cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
 }
@@ -113,7 +117,12 @@ export class ProviderStatuses {
     const work = this.rows.map(async (row): Promise<Status> => {
       try {
         const status = await probe(row);
-        return providerStatusRow(row, status, this.runtime.now());
+        const discovered = providerStatusRow(row, status, this.runtime.now());
+        const versions =
+          discovered.installed && this.options.versions
+            ? await this.options.versions(discovered, this.controller.signal)
+            : {};
+        return { ...discovered, ...versions };
       } catch {
         return {
           provider: row.provider,
@@ -143,6 +152,10 @@ export class ProviderStatuses {
           }, 300_000);
       });
     return this.flight;
+  }
+  async refreshAfterMutation(): Promise<void> {
+    await this.flight;
+    await this.refresh();
   }
   async close(): Promise<void> {
     this.controller.abort();

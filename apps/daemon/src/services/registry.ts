@@ -1,3 +1,4 @@
+import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
@@ -71,6 +72,7 @@ export const socketServiceFactories = [
   createModelsSession,
   createProviderStatusesSession,
   createProviderLoginSession,
+  createProviderInstallsSession,
   createAgentRegistrySession,
   createReviewSession,
   createThreadTransitionsSession,

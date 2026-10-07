@@ -28,6 +28,9 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  rediscoverProviders?: () => Promise<void>;
+  refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;
+  providerInstalls?: import("../provider-install/sessions.ts").ProviderInstalls;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   onboarding?: import("../onboarding.ts").Onboarding;
   providerStatuses?: import("../provider-status.ts").ProviderStatuses;

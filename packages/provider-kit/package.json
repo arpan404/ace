@@ -11,6 +11,7 @@
     "./jsonrpc": "./src/jsonrpc.ts",
     "./sse": "./src/sse.ts",
     "./discovery": "./src/discovery/index.ts",
+    "./installers": "./src/installers/index.ts",
     "./process-bytes": "./src/process-bytes.ts",
     "./testing": "./src/testing/cli.ts",
     "./test-isolation": "./src/test-isolation.ts",
@@ -31,6 +32,7 @@
     "doctor": "node src/doctor.ts"
   },
   "dependencies": {
+    "@ace/protocol": "workspace:*",
     "@ace/redaction": "workspace:*",
     "zod": "^4.6.5"
   },

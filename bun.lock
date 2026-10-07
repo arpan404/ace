@@ -464,6 +464,7 @@
         "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "@ace/screen": "workspace:*",
         "@ace/search": "workspace:*",
         "@ace/settings": "workspace:*",
@@ -632,6 +633,7 @@
     "packages/provider-kit": {
       "name": "@ace/provider-kit",
       "dependencies": {
+        "@ace/protocol": "workspace:*",
         "@ace/redaction": "workspace:*",
         "zod": "^4.6.5",
       },
