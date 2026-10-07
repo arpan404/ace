@@ -1,9 +1,14 @@
 import { useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { ChatsCircleIcon, TreeStructureIcon } from "@phosphor-icons/react";
+import {
+  ChatCircleTextIcon,
+  ChatsCircleIcon,
+  MagnifyingGlassIcon,
+  TreeStructureIcon,
+} from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { threadRowFlags } from "@ace/ui-core";
-import { MenuItem } from "@/components/ui/menu.tsx";
+import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import {
   ThreadActionItems,
   useOrganizerState,
@@ -15,11 +20,14 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useLatestForkPoint } from "../transitions/use-fork-point.ts";
+import { findInThread } from "../long/nav-keys.tsx";
+import { useThreadNav } from "../long/nav.tsx";
 
 /**
- * The ⋯ menu beside the thread title: the same thread actions as the Home row's context menu,
- * with the open thread's shortcuts, plus a side chat and the agent tree. Archiving or deleting
- * steps back to Home. Dialogs belong to the caller, since the menu closes on choosing.
+ * The header's ⋯ menu: the same thread actions as the Home row's context menu, with the open
+ * thread's shortcuts, plus a side chat and the agent tree, then the long-thread tools (search
+ * and turns). Archiving or deleting steps back to Home. Dialogs belong to the caller, since the
+ * menu closes on choosing.
  */
 export function ThreadMenuItems(props: {
   thread: ThreadRef;
@@ -32,6 +40,7 @@ export function ThreadMenuItems(props: {
   const now = useNow();
   const navigate = useNavigate();
   const workspace = useWorkspaceActions(props.thread.id);
+  const nav = useThreadNav();
   if (!meta) return null;
   const flags = threadRowFlags(meta, { baseline, now, settled: meta.settledAt !== undefined });
   return (
@@ -58,6 +67,21 @@ export function ThreadMenuItems(props: {
             onClick={() => workspace.open({ kind: "agents" })}
           >
             Open agent tree
+          </MenuItem>
+          <MenuSeparator />
+          <MenuItem
+            icon={<MagnifyingGlassIcon aria-hidden size={16} />}
+            shortcut="findInThread"
+            onClick={() => findInThread(nav)}
+          >
+            Search this thread
+          </MenuItem>
+          <MenuItem
+            icon={<ChatCircleTextIcon aria-hidden size={16} />}
+            shortcut="turns"
+            onClick={() => nav.setTurnsOpen(!nav.turnsOpen)}
+          >
+            {nav.turnsOpen ? "Hide turns" : "Turns"}
           </MenuItem>
         </>
       }

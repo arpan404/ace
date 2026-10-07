@@ -10,7 +10,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -128,7 +127,6 @@ function placedAt(
     itemId: itemId ?? rowItem(row),
   };
 }
-const viewportStyle = { paddingRight: "var(--summary-inset, 0px)" } as CSSProperties;
 /** A progress note followed straight by another sits close to it; a turn's last answer doesn't. */
 function rowGap(row: Row, next: Row | undefined): string {
   if (row.kind !== "block") return "pb-1";
@@ -478,13 +476,8 @@ export function Feed(props: FeedProps) {
           data-virtual-viewport=""
           // A classic scrollbar reserves the same room on both edges, so the column stays centred
           // on the composer's axis; `useGutter` gives the composer the same inset.
-          // Once scrolled, the top 16px fade, so nothing reads as cut under the header; a pinned
-          // summary beside the text keeps it clear (`--summary-inset`).
-          style={
-            fadeTop
-              ? { ...viewportStyle, maskImage: fadeTop, WebkitMaskImage: fadeTop }
-              : viewportStyle
-          }
+          // Once scrolled, the top 16px fade, so nothing reads as cut under the header.
+          style={fadeTop ? { maskImage: fadeTop, WebkitMaskImage: fadeTop } : undefined}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
           onScroll={(event) => {
             const el = event.currentTarget;

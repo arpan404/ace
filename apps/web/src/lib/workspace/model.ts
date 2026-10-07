@@ -1,22 +1,18 @@
 import * as z from "zod/mini";
 
 /*
- * The workspace model: which resources are open beside a scope's main column (a thread's
- * conversation), in which dock, in what order, which one is showing, and how big each dock is.
+ * The workspace model: which resources are open in the side panel beside a scope's main column
+ * (a thread's conversation), in what order, which one is showing, and how wide the panel is.
  *
- * A tab is one opened resource (a file, a browser page, Changes, a terminal). A dock is a
- * rectangle that shows one tab at a time: `right` beside the column, `bottom` below the column
- * and the right dock. Hiding a dock keeps its tabs; closing a tab removes one resource.
+ * A tab is one opened resource (a file, a browser page, Changes, a terminal). The panel shows
+ * one tab at a time; hiding it keeps its tabs, closing a tab removes one resource.
  *
  * Pure functions over immutable values: every operation returns the same object when nothing
  * changed, so subscribers can compare by identity.
  */
 
-export type Dock = "right" | "bottom";
-export const docks: readonly Dock[] = ["right", "bottom"];
-
 export interface WorkspaceTab {
-  /** `kind` for a singleton, `kind:id` otherwise. Unique across both docks of a scope. */
+  /** `kind` for a singleton, `kind:id` otherwise. Unique within a scope. */
   key: string;
   kind: string;
   id: string;
@@ -28,23 +24,15 @@ export interface WorkspaceTab {
   data?: unknown;
 }
 
-export interface DockState {
+export interface ScopeWorkspace {
   tabs: readonly WorkspaceTab[];
   active: string | undefined;
+  /** The side panel shows. Hiding it keeps its tabs. */
   open: boolean;
-  /** This scope's size; undefined follows the preferred size. */
+  /** This scope's width; undefined follows the preferred width. */
   size: number | undefined;
-}
-
-export interface ScopeWorkspace {
-  right: DockState;
-  bottom: DockState;
-  /** The right dock fills the work area and the main column steps aside. */
+  /** The panel fills the work area and the main column steps aside. */
   expanded: boolean;
-  /** The bottom dock takes all the height it may. */
-  bottomMaximized: boolean;
-  /** The summary card stays open over the main column (pinned) for this scope. */
-  summaryPinned: boolean;
 }
 
 export interface OpenRequest {
@@ -53,64 +41,49 @@ export interface OpenRequest {
   id?: string | undefined;
   title?: string | undefined;
   data?: unknown;
-  dock: Dock;
   pinned?: boolean | undefined;
 }
 
 export const tabKey = (kind: string, id?: string): string =>
   id === undefined || id === kind ? kind : `${kind}:${id}`;
 
-const emptyDock: DockState = { tabs: [], active: undefined, open: false, size: undefined };
 export const emptyWorkspace: ScopeWorkspace = {
-  right: emptyDock,
-  bottom: emptyDock,
+  tabs: [],
+  active: undefined,
+  open: false,
+  size: undefined,
   expanded: false,
-  bottomMaximized: false,
-  summaryPinned: false,
 };
 
-/** A workspace holding these tabs, closed, the first of each dock active. */
+/** A workspace holding these tabs, hidden, the first one active. */
 export function seedWorkspace(requests: readonly OpenRequest[]): ScopeWorkspace {
   let workspace = emptyWorkspace;
   for (const request of requests) workspace = openTab(workspace, request, { reveal: false });
-  for (const dock of docks) {
-    const first = workspace[dock].tabs[0];
-    workspace = withDock(workspace, dock, { active: first?.key });
-  }
-  return workspace;
+  return patch(workspace, { active: workspace.tabs[0]?.key });
 }
 
 export function findTab(
   workspace: ScopeWorkspace,
   key: string,
-): { dock: Dock; tab: WorkspaceTab; index: number } | undefined {
-  for (const dock of docks) {
-    const index = workspace[dock].tabs.findIndex((tab) => tab.key === key);
-    const tab = workspace[dock].tabs[index];
-    if (tab) return { dock, tab, index };
-  }
-  return undefined;
+): { tab: WorkspaceTab; index: number } | undefined {
+  const index = workspace.tabs.findIndex((tab) => tab.key === key);
+  const tab = workspace.tabs[index];
+  return tab ? { tab, index } : undefined;
 }
 
-/** The tab a dock shows: its active tab, or its first when the active one is gone. */
-export function shownTab(state: DockState): WorkspaceTab | undefined {
-  return state.tabs.find((tab) => tab.key === state.active) ?? state.tabs[0];
+/** The tab the panel shows: its active tab, or its first when the active one is gone. */
+export function shownTab(workspace: ScopeWorkspace): WorkspaceTab | undefined {
+  return workspace.tabs.find((tab) => tab.key === workspace.active) ?? workspace.tabs[0];
 }
 
-function withDock(
-  workspace: ScopeWorkspace,
-  dock: Dock,
-  patch: Partial<DockState>,
-): ScopeWorkspace {
-  const current = workspace[dock];
-  const changed = (Object.keys(patch) as (keyof DockState)[]).some(
-    (key) => patch[key] !== current[key],
+function patch(workspace: ScopeWorkspace, change: Partial<ScopeWorkspace>): ScopeWorkspace {
+  const changed = (Object.keys(change) as (keyof ScopeWorkspace)[]).some(
+    (key) => change[key] !== workspace[key],
   );
   if (!changed) return workspace;
-  const next = { ...workspace, [dock]: { ...current, ...patch } };
-  // An empty right dock has nothing to fill the work area with.
-  if (dock === "right" && next.expanded && (!next.right.open || !next.right.tabs.length))
-    next.expanded = false;
+  const next = { ...workspace, ...change };
+  // An empty or hidden panel has nothing to fill the work area with.
+  if (next.expanded && (!next.open || !next.tabs.length)) next.expanded = false;
   return next;
 }
 
@@ -129,19 +102,20 @@ function neighbour(tabs: readonly WorkspaceTab[], index: number): string | undef
   return (tabs[index + 1] ?? tabs[index - 1])?.key;
 }
 
-function removeAt(workspace: ScopeWorkspace, dock: Dock, index: number): ScopeWorkspace {
-  const state = workspace[dock];
-  const tab = state.tabs[index];
-  if (!tab) return workspace;
-  const tabs = state.tabs.filter((_, at) => at !== index);
-  const active = state.active === tab.key ? neighbour(state.tabs, index) : state.active;
-  return withDock(workspace, dock, { tabs, active, open: state.open && tabs.length > 0 });
+function tabOf(request: OpenRequest): WorkspaceTab {
+  return {
+    key: tabKey(request.kind, request.id),
+    kind: request.kind,
+    id: request.id ?? request.kind,
+    pinned: request.pinned ?? false,
+    ...(request.title === undefined ? {} : { title: request.title }),
+    ...(request.data === undefined ? {} : { data: request.data }),
+  };
 }
 
 /**
- * Open a resource: show it if it is already open (in whichever dock holds it, with `data`
- * applied), otherwise add it to the end of its group in `request.dock`. `reveal` also shows
- * the dock.
+ * Open a resource: show it if it is already open (with `data` applied), otherwise add it to the
+ * end of its group. `reveal` also shows the panel.
  */
 export function openTab(
   workspace: ScopeWorkspace,
@@ -157,68 +131,45 @@ export function openTab(
       next = updateTab(next, key, { data: request.data });
     return reveal ? activateTab(next, key) : next;
   }
-  const tab: WorkspaceTab = {
-    key,
-    kind: request.kind,
-    id: request.id ?? request.kind,
-    pinned: request.pinned ?? false,
-    ...(request.title === undefined ? {} : { title: request.title }),
-    ...(request.data === undefined ? {} : { data: request.data }),
-  };
-  const state = workspace[request.dock];
-  return withDock(workspace, request.dock, {
-    tabs: insert(state.tabs, tab),
+  return patch(workspace, {
+    tabs: insert(workspace.tabs, tabOf(request)),
     ...(reveal ? { active: key, open: true } : {}),
   });
 }
 
-/** Show a tab and its dock. */
+/** Show a tab and the panel. */
 export function activateTab(workspace: ScopeWorkspace, key: string): ScopeWorkspace {
-  const found = findTab(workspace, key);
-  if (!found) return workspace;
-  return withDock(workspace, found.dock, { active: key, open: true });
+  return findTab(workspace, key) ? patch(workspace, { active: key, open: true }) : workspace;
 }
 
-/** Close one resource. Its nearest neighbour takes over; a dock left empty hides. */
+/** Close one resource. Its nearest neighbour takes over; a panel left empty hides. */
 export function closeTab(workspace: ScopeWorkspace, key: string): ScopeWorkspace {
   const found = findTab(workspace, key);
-  return found ? removeAt(workspace, found.dock, found.index) : workspace;
-}
-
-/** Close every unpinned tab of the dock but this one. */
-export function closeOtherTabs(workspace: ScopeWorkspace, key: string): ScopeWorkspace {
-  const found = findTab(workspace, key);
   if (!found) return workspace;
-  const tabs = workspace[found.dock].tabs.filter((tab) => tab.pinned || tab.key === key);
-  return withDock(workspace, found.dock, { tabs, active: key });
+  const tabs = workspace.tabs.filter((_, at) => at !== found.index);
+  const active =
+    workspace.active === key ? neighbour(workspace.tabs, found.index) : workspace.active;
+  return patch(workspace, { tabs, active, open: workspace.open && tabs.length > 0 });
 }
 
-/** Reorder within a dock; pinned and unpinned tabs stay in their own groups. */
+/** Close every unpinned tab but this one. */
+export function closeOtherTabs(workspace: ScopeWorkspace, key: string): ScopeWorkspace {
+  if (!findTab(workspace, key)) return workspace;
+  const tabs = workspace.tabs.filter((tab) => tab.pinned || tab.key === key);
+  return patch(workspace, {
+    tabs: tabs.length === workspace.tabs.length ? workspace.tabs : tabs,
+    active: key,
+  });
+}
+
+/** Reorder; pinned and unpinned tabs stay in their own groups. */
 export function moveTab(workspace: ScopeWorkspace, key: string, toIndex: number): ScopeWorkspace {
   const found = findTab(workspace, key);
   if (!found) return workspace;
-  const rest = workspace[found.dock].tabs.filter((tab) => tab.key !== key);
+  const rest = workspace.tabs.filter((tab) => tab.key !== key);
   const tabs = insert(rest, found.tab, toIndex);
-  const same = tabs.every((tab, index) => tab === workspace[found.dock].tabs[index]);
-  return same ? workspace : withDock(workspace, found.dock, { tabs });
-}
-
-/** Move a tab to the other dock (at `index`, else the end of its group) and show it there. */
-export function moveTabToDock(
-  workspace: ScopeWorkspace,
-  key: string,
-  dock: Dock,
-  index?: number,
-): ScopeWorkspace {
-  const found = findTab(workspace, key);
-  if (!found) return workspace;
-  if (found.dock === dock) return index === undefined ? workspace : moveTab(workspace, key, index);
-  const removed = removeAt(workspace, found.dock, found.index);
-  return withDock(removed, dock, {
-    tabs: insert(removed[dock].tabs, found.tab, index),
-    active: key,
-    open: true,
-  });
+  const same = tabs.every((tab, index) => tab === workspace.tabs[index]);
+  return same ? workspace : patch(workspace, { tabs });
 }
 
 export function setTabPinned(
@@ -228,117 +179,80 @@ export function setTabPinned(
 ): ScopeWorkspace {
   const found = findTab(workspace, key);
   if (!found || found.tab.pinned === pinned) return workspace;
-  const rest = workspace[found.dock].tabs.filter((tab) => tab.key !== key);
+  const rest = workspace.tabs.filter((tab) => tab.key !== key);
   // Pinning puts it last among the pinned; unpinning first among the rest.
   const tabs = insert(rest, { ...found.tab, pinned }, pinned ? undefined : pinnedCount(rest));
-  return withDock(workspace, found.dock, { tabs });
+  return patch(workspace, { tabs });
 }
 
 /**
  * Replace one tab with another resource in its place (the new-tab launcher becoming the tool
- * picked from it). A resource already open in this dock shows where it is; one open in the
- * other dock moves here. Nothing opens twice. Replacing a resource keeps its dock's visibility,
- * so a terminal finishing startup cannot reopen a dock the person just hid.
+ * picked from it). A resource already open shows where it is; nothing opens twice. Replacing
+ * keeps the panel's visibility, so a terminal finishing startup cannot reopen a panel the person
+ * just hid.
  */
 export function replaceTab(
   workspace: ScopeWorkspace,
   key: string,
-  request: Omit<OpenRequest, "dock">,
+  request: OpenRequest,
 ): ScopeWorkspace {
   const found = findTab(workspace, key);
   if (!found) return workspace;
   const nextKey = tabKey(request.kind, request.id);
-  if (nextKey === key)
-    return setDockOpen(activateTab(workspace, key), found.dock, workspace[found.dock].open);
-  const existing = findTab(workspace, nextKey);
-  // Already open in this dock: show it where it is; the launcher's job is done.
-  if (existing?.dock === found.dock) {
+  const open = workspace.open;
+  if (nextKey === key) return patch(workspace, { active: key });
+  // Already open: show it where it is; the launcher's job is done.
+  if (findTab(workspace, nextKey)) {
     const shown =
       request.data === undefined
         ? workspace
         : updateTab(workspace, nextKey, { data: request.data });
-    return setDockOpen(
-      activateTab(closeTab(shown, key), nextKey),
-      found.dock,
-      workspace[found.dock].open,
-    );
+    return patch(closeTab(shown, key), { active: nextKey, open });
   }
-  let next = removeAt(workspace, found.dock, found.index);
-  let tab: WorkspaceTab;
-  if (existing) {
-    next = closeTab(next, nextKey);
-    tab = request.data === undefined ? existing.tab : { ...existing.tab, data: request.data };
-  } else {
-    tab = {
-      key: nextKey,
-      kind: request.kind,
-      id: request.id ?? request.kind,
-      pinned: request.pinned ?? false,
-      ...(request.title === undefined ? {} : { title: request.title }),
-      ...(request.data === undefined ? {} : { data: request.data }),
-    };
-  }
-  return withDock(next, found.dock, {
-    tabs: insert(next[found.dock].tabs, tab, found.index),
+  const rest = workspace.tabs.filter((tab) => tab.key !== key);
+  return patch(workspace, {
+    tabs: insert(rest, tabOf(request), found.index),
     active: nextKey,
-    open: workspace[found.dock].open,
+    open,
   });
 }
 
 export function updateTab(
   workspace: ScopeWorkspace,
   key: string,
-  patch: { title?: string; data?: unknown },
+  change: { title?: string; data?: unknown },
 ): ScopeWorkspace {
   const found = findTab(workspace, key);
   if (!found) return workspace;
-  const title = patch.title ?? found.tab.title;
-  const data = "data" in patch ? patch.data : found.tab.data;
+  const title = change.title ?? found.tab.title;
+  const data = "data" in change ? change.data : found.tab.data;
   if (title === found.tab.title && data === found.tab.data) return workspace;
   const tab: WorkspaceTab = { ...found.tab, title, data };
-  const tabs = workspace[found.dock].tabs.map((each) => (each.key === key ? tab : each));
-  return withDock(workspace, found.dock, { tabs });
+  return patch(workspace, { tabs: workspace.tabs.map((each) => (each.key === key ? tab : each)) });
 }
 
-/** Show the next (`delta` 1) or previous (-1) tab of a dock, wrapping around. */
-export function cycleTab(workspace: ScopeWorkspace, dock: Dock, delta: 1 | -1): ScopeWorkspace {
-  const state = workspace[dock];
-  if (!state.tabs.length) return workspace;
-  const current = state.tabs.findIndex((tab) => tab.key === shownTab(state)?.key);
-  const next = state.tabs[(current + delta + state.tabs.length) % state.tabs.length];
-  return next ? withDock(workspace, dock, { active: next.key, open: true }) : workspace;
+/** Show the next (`delta` 1) or previous (-1) tab, wrapping around. */
+export function cycleTab(workspace: ScopeWorkspace, delta: 1 | -1): ScopeWorkspace {
+  const { tabs } = workspace;
+  if (!tabs.length) return workspace;
+  const current = tabs.findIndex((tab) => tab.key === shownTab(workspace)?.key);
+  const next = tabs[(current + delta + tabs.length) % tabs.length];
+  return next ? patch(workspace, { active: next.key, open: true }) : workspace;
 }
 
-export function setDockOpen(workspace: ScopeWorkspace, dock: Dock, open: boolean): ScopeWorkspace {
-  return withDock(workspace, dock, { open });
+export function setPanelOpen(workspace: ScopeWorkspace, open: boolean): ScopeWorkspace {
+  return patch(workspace, { open });
 }
 
-export function setDockSize(workspace: ScopeWorkspace, dock: Dock, size: number): ScopeWorkspace {
-  return withDock(workspace, dock, { size: Math.round(size) });
+export function setPanelSize(workspace: ScopeWorkspace, size: number): ScopeWorkspace {
+  return patch(workspace, { size: Math.round(size) });
 }
 
-/** Full view: the right dock fills the work area. Only a right dock with tabs can. */
+/** Full view: the panel fills the work area. Only a panel with tabs can. */
 export function setExpanded(workspace: ScopeWorkspace, expanded: boolean): ScopeWorkspace {
   if (expanded === workspace.expanded) return workspace;
-  if (expanded && !workspace.right.tabs.length) return workspace;
-  return {
-    ...workspace,
-    expanded,
-    right: expanded ? { ...workspace.right, open: true } : workspace.right,
-  };
-}
-
-export function setBottomMaximized(workspace: ScopeWorkspace, maximized: boolean): ScopeWorkspace {
-  if (maximized === workspace.bottomMaximized) return workspace;
-  return {
-    ...workspace,
-    bottomMaximized: maximized,
-    bottom: maximized ? { ...workspace.bottom, open: true } : workspace.bottom,
-  };
-}
-
-export function setSummaryPinned(workspace: ScopeWorkspace, pinned: boolean): ScopeWorkspace {
-  return pinned === workspace.summaryPinned ? workspace : { ...workspace, summaryPinned: pinned };
+  if (expanded && !workspace.tabs.length) return workspace;
+  return { ...workspace, expanded, open: expanded ? true : workspace.open };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -352,40 +266,55 @@ const TabSchema = z.object({
   pinned: z.boolean(),
   data: z.optional(z.unknown()),
 });
-const DockSchema = z.object({
+const PanelSchema = z.object({
   tabs: z.array(TabSchema),
   active: z.optional(z.string()),
   open: z.boolean(),
   size: z.optional(z.number()),
 });
-export const ScopeWorkspaceSchema = z.object({
-  right: DockSchema,
-  bottom: DockSchema,
-  expanded: z.boolean(),
-  bottomMaximized: z.catch(z.boolean(), false),
-  summaryPinned: z.catch(z.boolean(), false),
+const CurrentSchema = z.object({
+  ...PanelSchema.shape,
+  expanded: z.catch(z.boolean(), false),
 });
+/** Before 0.9 a scope had a side panel (`right`) and a bottom panel (terminals, logs). */
+const LegacySchema = z.object({
+  right: PanelSchema,
+  bottom: z.optional(PanelSchema),
+  expanded: z.catch(z.boolean(), false),
+});
+export const ScopeWorkspaceSchema = z.union([CurrentSchema, LegacySchema]);
+type Stored = z.infer<typeof ScopeWorkspaceSchema>;
+
+/**
+ * An older entry's two panels as the one side panel: the side panel's tabs, then the bottom
+ * panel's (its terminals and logs). Whichever panel showed stays showing, the side one first.
+ */
+function migrate(stored: Stored): z.infer<typeof CurrentSchema> {
+  if (!("right" in stored)) return stored;
+  const { right, bottom } = stored;
+  const showing = right.open ? right : bottom?.open ? bottom : right;
+  return {
+    tabs: [...right.tabs, ...(bottom?.tabs ?? [])],
+    active: showing.active ?? right.active,
+    open: right.open || (bottom?.open ?? false),
+    size: right.size,
+    expanded: stored.expanded,
+  };
+}
 
 /** Drop what a hand-edited or older entry could carry that the model never makes. */
-export function sanitize(workspace: z.infer<typeof ScopeWorkspaceSchema>): ScopeWorkspace {
+export function sanitize(stored: Stored): ScopeWorkspace {
+  const workspace = migrate(stored);
   const seen = new Set<string>();
-  const dock = (state: z.infer<typeof DockSchema>): DockState => {
-    const tabs = state.tabs.filter((tab) => !seen.has(tab.key) && seen.add(tab.key));
-    const ordered = [...tabs.filter((tab) => tab.pinned), ...tabs.filter((tab) => !tab.pinned)];
-    const active = ordered.some((tab) => tab.key === state.active) ? state.active : undefined;
-    return {
-      tabs: ordered,
-      active: active ?? ordered[0]?.key,
-      open: state.open && ordered.length > 0,
-      size: state.size,
-    };
-  };
-  const right = dock(workspace.right);
+  const tabs = workspace.tabs.filter((tab) => !seen.has(tab.key) && seen.add(tab.key));
+  const ordered = [...tabs.filter((tab) => tab.pinned), ...tabs.filter((tab) => !tab.pinned)];
+  const active = ordered.some((tab) => tab.key === workspace.active) ? workspace.active : undefined;
+  const open = workspace.open && ordered.length > 0;
   return {
-    right,
-    bottom: dock(workspace.bottom),
-    expanded: workspace.expanded && right.open,
-    bottomMaximized: workspace.bottomMaximized,
-    summaryPinned: workspace.summaryPinned,
+    tabs: ordered,
+    active: active ?? ordered[0]?.key,
+    open,
+    size: workspace.size,
+    expanded: workspace.expanded && open,
   };
 }

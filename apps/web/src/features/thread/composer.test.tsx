@@ -146,7 +146,10 @@ test("the context bar shows where the thread runs and follows its branch past a 
   const branch = await screen.findByLabelText("Branch: fix/replay-cursor");
   expect(screen.getByText("Local")).toBeTruthy();
   expect(branch.textContent).not.toContain("↑");
-  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+  // Commit… from the work card's branch row.
+  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Git actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Commit…/ }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   await waitFor(() =>

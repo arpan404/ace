@@ -250,7 +250,7 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
   );
 }
 
-/** The strip's buttons while an agent shell shows: Find and sessions (+ is New terminal). */
+/** The strip's buttons while an agent shell shows: Find and the thread's terminal sessions. */
 export function ShellActions(props: TabViewProps) {
   return (
     <WithServices quiet>
@@ -260,8 +260,8 @@ export function ShellActions(props: TabViewProps) {
 }
 
 function ShellButtons(props: TabViewProps) {
-  const { scope, tab, dock } = props;
-  useNewTerminalHotkey(scope, dock);
+  const { scope, tab } = props;
+  useNewTerminalHotkey(scope);
   const { terminalUi } = usePanelServices();
   return (
     <>
@@ -271,8 +271,7 @@ function ShellButtons(props: TabViewProps) {
         shortcut="findInTerminal"
         onClick={() => setTabUi(terminalUi, tab.key, { find: true })}
       />
-      {/* The bottom panel shows the sessions for every tab (`dock-sessions.tsx`). */}
-      {dock === "right" && <SessionsMenu scope={scope} dock={dock} />}
+      <SessionsMenu scope={scope} />
     </>
   );
 }

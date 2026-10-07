@@ -225,7 +225,7 @@ export interface TerminalViewProps {
 
 /**
  * One interactive terminal: xterm with WebGL where the browser has it, the accessible DOM
- * screen otherwise. Click anywhere in it to type; its size follows the dock.
+ * screen otherwise. Click anywhere in it to type; its size follows the panel.
  */
 export function TerminalView(props: TerminalViewProps) {
   const [xterm] = useState(canUseXterm);

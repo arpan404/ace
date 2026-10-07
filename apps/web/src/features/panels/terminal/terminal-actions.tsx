@@ -9,7 +9,7 @@ import { setTabUi } from "./tab-ui.ts";
 import { isPendingTerminal } from "./tabs.ts";
 import { MoreMenu, ToolbarButton } from "./toolbar.tsx";
 
-/** The strip's buttons while a terminal shows: Find, sessions and more (+ is New terminal). */
+/** The strip's buttons while a terminal shows: Find, the thread's sessions and more. */
 export function TerminalActions(props: TabViewProps) {
   return (
     <WithServices quiet>
@@ -19,8 +19,8 @@ export function TerminalActions(props: TabViewProps) {
 }
 
 function TerminalButtons(props: TabViewProps) {
-  const { scope, tab, dock } = props;
-  useNewTerminalHotkey(scope, dock);
+  const { scope, tab } = props;
+  useNewTerminalHotkey(scope);
   const { terminals, terminalUi } = usePanelServices();
   const actions = useWorkspaceActions(scope);
   const pending = isPendingTerminal(tab.id);
@@ -33,8 +33,7 @@ function TerminalButtons(props: TabViewProps) {
         disabled={pending}
         onClick={() => setTabUi(terminalUi, tab.key, { find: true })}
       />
-      {/* The bottom panel shows the sessions for every tab (`dock-sessions.tsx`). */}
-      {dock === "right" && <SessionsMenu scope={scope} dock={dock} />}
+      <SessionsMenu scope={scope} />
       <MoreMenu label="Terminal actions">
         <MenuItem
           icon={<PencilSimpleIcon aria-hidden size={16} />}

@@ -10,7 +10,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { keymap } from "@/lib/keymap.ts";
-import { useScopeWorkspace, useWorkspaceActions, type Dock } from "@/lib/workspace/index.ts";
+import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import {
   openNewTerminal,
@@ -39,14 +39,14 @@ const ring = { boxShadow: "0 0 0 1.5px var(--panel)" };
  * button is the shells still running that no tab shows, so a shell an agent started in the
  * background is never out of sight.
  */
-export function SessionsMenu(props: { scope: string; dock: Dock }) {
+export function SessionsMenu(props: { scope: string }) {
   const { scope } = props;
   const { terminals } = usePanelServices();
   const { list, link } = useThreadTerminals(terminals, scope);
   const shells = useBackgroundShells(scope);
   const workspace = useScopeWorkspace(scope);
   const actions = useWorkspaceActions(scope);
-  const tabs = [...workspace.right.tabs, ...workspace.bottom.tabs];
+  const tabs = workspace.tabs;
   const titleOf = (kind: string, id: string) =>
     tabs.find((tab) => tab.kind === kind && tab.id === id)?.title;
   const isOpen = (kind: string, id: string) =>
@@ -148,7 +148,7 @@ export function SessionsMenu(props: { scope: string; dock: Dock }) {
           keys={keymap.newTerminal.keys}
           disabled={link !== "connected"}
           reason={link === "connected" ? undefined : "Waiting for the daemon to reconnect"}
-          onClick={() => openNewTerminal(actions, workspace, props.dock)}
+          onClick={() => openNewTerminal(actions, workspace)}
         >
           New terminal
         </MenuItem>

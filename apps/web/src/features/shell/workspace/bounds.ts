@@ -1,12 +1,13 @@
 /*
- * How big each dock may be. Computed from the room the screen actually has (after the sidebar),
- * not from the viewport minus a constant.
+ * How wide the side panel may be. Computed from the room the screen actually has (after the
+ * sidebar), not from the viewport minus a constant.
  */
 
-export const dockLimits = {
-  right: { min: 360, keep: 480 },
-  bottom: { min: 160, keep: 240 },
-  /** Floating over a narrow window, the right dock leaves this strip of the column visible. */
+export const panelLimits = {
+  min: 360,
+  /** The main column keeps at least this much beside the panel. */
+  keep: 480,
+  /** Floating over a narrow window, the panel leaves this strip of the column visible. */
   overlayStrip: 48,
 } as const;
 
@@ -16,22 +17,16 @@ export interface Bounds {
 }
 
 /**
- * Right dock: at least 360px, at most what leaves the main column 480px. Floating (narrow
- * windows), it may cover all but a 48px strip.
+ * At least 360px, at most what leaves the main column 480px. Floating (narrow windows), it may
+ * cover all but a 48px strip.
  */
-export function rightBounds(rowWidth: number, overlay: boolean): Bounds {
-  const { min, keep } = dockLimits.right;
+export function panelBounds(rowWidth: number, overlay: boolean): Bounds {
+  const { min, keep, overlayStrip } = panelLimits;
   if (overlay) {
-    const room = Math.max(0, rowWidth - dockLimits.overlayStrip);
+    const room = Math.max(0, rowWidth - overlayStrip);
     return { min: Math.min(min, room), max: Math.max(Math.min(min, room), room) };
   }
   return { min, max: Math.max(min, rowWidth - keep) };
-}
-
-/** Bottom dock: at least 160px, at most what leaves 240px of the screen above it. */
-export function bottomBounds(screenHeight: number): Bounds {
-  const { min, keep } = dockLimits.bottom;
-  return { min, max: Math.max(min, screenHeight - keep) };
 }
 
 export function clampToBounds(size: number, bounds: Bounds): number {

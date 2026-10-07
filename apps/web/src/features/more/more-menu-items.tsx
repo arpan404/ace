@@ -3,7 +3,7 @@ import { Icon } from "@/components/icon.tsx";
 import { MenuContent, MenuItem } from "@/components/ui/menu.tsx";
 import { morePages } from "./pages.ts";
 
-/** The sidebar's More menu: each of More's pages. */
+/** The rail's ⋯ menu: each of More's pages, a compact popover anchored to the button. */
 export function MoreMenuItems() {
   const navigate = useNavigate();
   return (

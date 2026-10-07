@@ -1,20 +1,16 @@
-/** The workspace docks' model, store and tab-kind registry. See apps/web/README.md. */
+/** The side panel's model, store and tab-kind registry. See apps/web/README.md. */
 export type { OpenTab, WorkspaceActions } from "./actions.ts";
 export { useWorkspaceCommands, type WorkspaceCommand } from "./commands.ts";
 export {
-  docks,
   findTab,
   shownTab,
   tabKey,
-  type Dock,
-  type DockState,
   type OpenRequest,
   type ScopeWorkspace,
   type WorkspaceTab,
 } from "./model.ts";
 export {
   defineWorkspace,
-  type DockPlus,
   type WorkspaceDefinition,
   type WorkspaceDefinitionOptions,
 } from "./definition.ts";
@@ -29,9 +25,9 @@ export {
 } from "./registry.ts";
 export {
   useFocusedScope,
-  usePreferredSizes,
+  usePreferredSize,
   useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
-export { defaultSizes, WorkspaceStore, type ClosedTab, type PreferredSizes } from "./store.ts";
+export { defaultSize, WorkspaceStore, type ClosedTab } from "./store.ts";

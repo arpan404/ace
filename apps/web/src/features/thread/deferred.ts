@@ -19,7 +19,7 @@ export const DeferredStepDetail = deferredComponent(() =>
   import("./items/step-detail.tsx").then((module) => module.StepDetail),
 );
 
-/** The header's ⋯ menu items (the shared thread actions) and the summary's contents. */
+/** The header's ⋯ menu items (the shared thread actions). */
 export const DeferredThreadMenu = deferredComponent(() =>
   import("./header/thread-menu.tsx").then((module) => module.ThreadMenuItems),
 );
@@ -27,16 +27,13 @@ export const DeferredThreadMenu = deferredComponent(() =>
 export const DeferredThreadHotkeys = deferredComponent(() =>
   import("./header/thread-menu.tsx").then((module) => module.ThreadHotkeys),
 );
-export const DeferredSummaryBody = deferredComponent(() =>
-  import("./header/summary-body.tsx").then((module) => module.SummaryBody),
+/** The work card the header's list button opens: project, git, actions, editors, sources. */
+export const DeferredWorkCard = deferredComponent(() =>
+  import("./header/work-card.tsx").then((module) => module.WorkCard),
 );
 /** "Limited until 15:20" beside the project in the header, while the thread is held at a limit. */
 export const DeferredLimitBadge = deferredComponent(() =>
   import("./header/limit-badge.tsx").then((module) => module.LimitBadge),
-);
-/** The pinned summary's ⋯: the project's and git's actions. */
-export const DeferredSummaryMenu = deferredComponent(() =>
-  import("./header/summary-menu.tsx").then((module) => module.SummaryMenu),
 );
 
 /**
@@ -93,8 +90,7 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredReviewNote.preload(),
     DeferredReviewSummary.preload(),
     DeferredThreadMenu.preload(),
-    DeferredSummaryBody.preload(),
-    DeferredSummaryMenu.preload(),
+    DeferredWorkCard.preload(),
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.
     threadWorkspace.load(),
     preloadComposerParts(),
