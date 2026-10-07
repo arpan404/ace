@@ -299,6 +299,7 @@ test("background catalog changes reach every authenticated read client and their
   const { f, catalog } = await setup();
   const first = await f.connect();
   const second = await f.connect();
+  first.receiveCatalogPushes = second.receiveCatalogPushes = true;
   await first.next();
   await second.next();
   await catalog.invalidate({ instance: "account" });

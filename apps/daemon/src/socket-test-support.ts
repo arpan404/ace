@@ -14,10 +14,13 @@ export class Client {
   private messages: ServerMessage[] = [];
   private waiters: { resolve(message: ServerMessage): void; reject(error: Error): void }[] = [];
   private closed = false;
+  /** Catalog pushes can arrive between any request and its reply; only catalog tests read them. */
+  receiveCatalogPushes = false;
   constructor(url: string, options: import("ws").ClientOptions = {}) {
     this.socket = new WebSocket(url, options);
     this.socket.on("message", (data) => {
       const message = ServerMessage.parse(JSON.parse(data.toString()));
+      if (message.type === "models.changed" && !this.receiveCatalogPushes) return;
       const waiter = this.waiters.shift();
       if (waiter) waiter.resolve(message);
       else this.messages.push(message);
@@ -35,13 +38,6 @@ export class Client {
       : this.closed
         ? Promise.reject(new Error("Socket closed before next message"))
         : new Promise((resolve, reject) => this.waiters.push({ resolve, reject }));
-  }
-  /** The next message that isn't an unsolicited push of `type`, which may arrive at any time. */
-  async nextSkipping(type: ServerMessage["type"]): Promise<ServerMessage> {
-    for (;;) {
-      const message = await this.next();
-      if (message.type !== type) return message;
-    }
   }
   send(message: ClientMessage): void {
     this.socket.send(JSON.stringify(message));
