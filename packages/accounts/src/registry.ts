@@ -48,6 +48,8 @@ function summarize(
     implicit: instance.implicit ?? false,
     provider: instance.provider,
     label: instance.label,
+    authMethod: instance.authMethod ?? "unknown",
+    ...(instance.signedInAs ? { signedInAs: instance.signedInAs } : {}),
     ...(instance.provider === "acp"
       ? {
           acpAgentId: instance.acpAgentId,
@@ -292,6 +294,23 @@ export class AccountRegistry {
     this.upsert.run(
       id,
       JSON.stringify({ ...account.instance, loginRevision: String(revision) }),
+      JSON.stringify(account.quota),
+    );
+  }
+  recordAuth(id: string, method: "browser" | "api_key" | "unknown", signedInAs?: string): void {
+    const account = this.get(id);
+    if (!account) throw new Error("Unknown instance");
+    const instance = { ...account.instance };
+    delete instance.signedInAs;
+    this.upsert.run(
+      id,
+      JSON.stringify(
+        ProviderInstance.parse({
+          ...instance,
+          authMethod: method,
+          ...(signedInAs ? { signedInAs } : {}),
+        }),
+      ),
       JSON.stringify(account.quota),
     );
   }

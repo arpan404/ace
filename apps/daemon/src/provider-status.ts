@@ -17,6 +17,10 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
     binaryPath?: string | undefined;
   };
   attention?(row: Status): boolean;
+  account?(
+    row: Status,
+  ): Partial<Pick<Status, "auth" | "authMethod" | "accountLabel" | "authDetail">>;
+  authInfo?(row: Status, signal: AbortSignal): Promise<Pick<Status, "apiKey" | "authMethod">>;
   checked?(rows: readonly Status[]): void;
   cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
 }
@@ -60,6 +64,7 @@ export class ProviderStatuses {
     return this.rows.map((row) =>
       providerReadiness({
         ...row,
+        ...this.options.account?.(row),
         ...(this.options.attention?.(row) ? { readiness: "needs_attention" as const } : {}),
         enabled: this.options.configuration?.(row.provider).enabled !== false,
         stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
@@ -113,7 +118,8 @@ export class ProviderStatuses {
     const work = this.rows.map(async (row): Promise<Status> => {
       try {
         const status = await probe(row);
-        return providerStatusRow(row, status, this.runtime.now());
+        const result = providerStatusRow(row, status, this.runtime.now());
+        return { ...result, ...(await this.options.authInfo?.(result, this.controller.signal)) };
       } catch {
         return {
           provider: row.provider,

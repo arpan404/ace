@@ -147,3 +147,5 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
 }
 
 export { createCursorLoginDriver, type CursorLoginProgress } from "./login.ts";
+
+export { cursorApiKeyEntry, saveCursorApiKey } from "./api-key.ts";

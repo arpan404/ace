@@ -1,3 +1,6 @@
+import { reportedAuthMethod } from "../provider-account-support.ts";
+import { apiKeySupport } from "../provider-api-key.ts";
+import { probeOutput } from "@ace/provider-kit/process";
 import { instanceEnv, cursorSdkLoginDriver } from "@ace/accounts";
 import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
@@ -32,6 +35,40 @@ export function startProviderStatuses(context: ServiceContext): void {
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
+      account(row) {
+        const registry = context.services.accountRegistry;
+        const selected =
+          registry?.selectedProvider(row.provider) ??
+          (row.provider === "cursor" ? "cursor-sdk-default" : `${row.provider}-cli-default`);
+        const account = registry?.get(selected);
+        if (!account) return {};
+        return {
+          ...(account.instance.authMethod ? { authMethod: account.instance.authMethod } : {}),
+          ...(account.instance.signedInAs ? { accountLabel: account.instance.signedInAs } : {}),
+          ...(!account.instance.implicit && account.quota.auth !== "unknown"
+            ? { auth: account.quota.auth }
+            : {}),
+        };
+      },
+      async authInfo(row, signal) {
+        let help = "";
+        if (row.path && (row.provider === "codex" || row.provider === "opencode")) {
+          try {
+            const result = await probeOutput(
+              row.path,
+              row.provider === "codex" ? ["login", "--help"] : ["auth", "login", "--help"],
+              { env: context.options.providerStatus?.env ?? process.env, signal, timeoutMs: 4000 },
+            );
+            if (result.code === 0) help = result.stdout;
+          } catch {
+            /* Unsupported until a metadata probe succeeds. */
+          }
+        }
+        return {
+          apiKey: apiKeySupport(row.provider, row.version, help),
+          authMethod: reportedAuthMethod(row.authDetail),
+        };
+      },
       attention(row) {
         const registry = context.services.accountRegistry;
         const selected =

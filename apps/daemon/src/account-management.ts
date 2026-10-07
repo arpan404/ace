@@ -1,3 +1,5 @@
+import { inspectAccountSupport } from "./provider-account-support.ts";
+import type { SdkDiscoveryOptions } from "@ace/provider-kit/sdk";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { fileURLToPath } from "node:url";
 import {
@@ -57,8 +59,13 @@ export interface AccountManagementOptions {
       }
     | undefined;
   authChanged?(): Promise<void>;
+  configuration?(provider: ProviderInstance["provider"]): {
+    enabled?: boolean | undefined;
+    binaryPath?: string | undefined;
+  };
   signal?: AbortSignal | undefined;
   discovery?: DiscoveryOptions | undefined;
+  cursorDiscovery?: SdkDiscoveryOptions | undefined;
   terminal?: TerminalManagerOptions | undefined;
 }
 
@@ -109,6 +116,17 @@ export class AccountManagement {
         this.restorations.add(refresh);
         void refresh.catch(() => {}).finally(() => this.restorations.delete(refresh));
       }
+  }
+  summaries(provider: ProviderInstance["provider"]) {
+    return this.options.registry
+      .summaries(this.options.now())
+      .filter((account) => account.provider === provider);
+  }
+  providerOf(instanceId: string) {
+    return this.options.registry.get(instanceId)?.instance.provider;
+  }
+  apiKeySupport(provider: ProviderInstance["provider"]) {
+    return inspectAccountSupport(provider, this.options);
   }
   private account(id: string): ProviderInstance {
     const instance = this.options.registry.get(id)?.instance;
