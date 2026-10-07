@@ -600,7 +600,12 @@ export class FakeDaemon implements Host {
         const scopes = this.options.deviceScopes?.[connection.deviceId];
         const allowed =
           !this.options.deviceScopes ||
-          scopes?.some((scope) => scope === "accounts" || scope === "desktop");
+          scopes?.some(
+            (scope) =>
+              scope === "accounts" ||
+              scope === "desktop" ||
+              (flow.scope === "operate" && scope === "operate"),
+          );
         if (!allowed || flow.owner !== connection.push) {
           connection.push({
             type: "terminal.result",
@@ -673,7 +678,34 @@ export class FakeDaemon implements Host {
         return true;
       }
     }
-    return this.services.handle(message, connection.push);
+    if (
+      message.type.startsWith("provider.login.") ||
+      message.type === "provider.logout" ||
+      message.type.startsWith("onboarding.")
+    ) {
+      const scope = message.type === "onboarding.query" ? "read" : "operate";
+      if (
+        this.options.deviceScopes &&
+        !this.options.deviceScopes[connection.deviceId]?.includes(scope)
+      ) {
+        if ("requestId" in message && message.requestId)
+          connection.push(
+            message.type.startsWith("onboarding.")
+              ? {
+                  type: "onboarding.result",
+                  requestId: message.requestId,
+                  result: { ok: false, error: "forbidden" },
+                }
+              : {
+                  type: "provider.login.result",
+                  requestId: message.requestId,
+                  result: { ok: false, error: "forbidden" },
+                },
+          );
+        return true;
+      }
+    }
+    return this.services.handle(message, connection.push, connection.deviceId);
   }
   release(connection: Connection): void {
     this.connections.delete(connection);
