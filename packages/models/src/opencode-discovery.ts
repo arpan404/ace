@@ -5,7 +5,7 @@ import { CatalogModel } from "@ace/protocol";
 import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process";
 import { normalizeOpenCodeReport } from "./opencode-report.ts";
 import { base } from "./model.ts";
-import type { DiscoveryReport, ModelInstance } from "./types.ts";
+import type { DiscoveryDiagnostics, DiscoveryReport, ModelInstance } from "./types.ts";
 
 /** v2 metadata is owned and location-scoped; the CLI fallback supplies only IDs. */
 export async function discoverOpenCodeCatalog(
@@ -13,9 +13,12 @@ export async function discoverOpenCodeCatalog(
   signal: AbortSignal,
   spawn: (options: SpawnOptions) => SupervisedProcess,
   metadata?: (instance: ModelInstance, signal: AbortSignal) => Promise<unknown>,
+  diagnostic?: (metadata: DiscoveryDiagnostics) => void,
 ): Promise<DiscoveryReport> {
   const version = await installedVersion(instance, signal, spawn);
+  diagnostic?.({ cliVersion: version });
   const connected = await connectedOpenCodeProviders(instance, signal, spawn);
+  diagnostic?.({ sources: [...connected.values()] });
   if (!connected.size) return { models: [], sources: [] };
   const { discoverOpenCodeModels } = await import("@ace/adapter-opencode");
   const payload = metadata

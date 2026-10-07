@@ -9,6 +9,7 @@ import {
   type ModelListOptions,
   type ModelListResult,
   type ModelResolution,
+  type ModelSource,
   type ModelRoleSpec,
 } from "@ace/protocol";
 
@@ -44,10 +45,16 @@ export type DiscoveryReport = {
   models: readonly CatalogModel[];
   sources: readonly ModelSourceStatus[];
 };
+/** Non-secret metadata learned before discovery completes, including failed attempts. */
+export type DiscoveryDiagnostics = {
+  cliVersion?: string;
+  sources?: readonly ModelSource[];
+};
 /** Must settle after abort, once all owned I/O resources have been released. */
 export type DiscoverModels = (
   instance: ModelInstance,
   signal: AbortSignal,
+  diagnostic?: (metadata: DiscoveryDiagnostics) => void,
 ) => Promise<readonly CatalogModel[] & { sources?: readonly ModelSourceStatus[] }>;
 export type CacheEntry = {
   provider: ModelInstance["provider"];

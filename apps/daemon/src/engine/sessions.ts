@@ -2,6 +2,7 @@ import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-c
 import { isDefaultSelection } from "@ace/models";
 import type { EngineModels } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
@@ -36,7 +37,11 @@ interface SessionDependencies {
   closing(): boolean;
   wake(id: ThreadId): void;
   expireDelivery(actor: ThreadActor): void;
-  openFailed?(id: ThreadId, details: import("@ace/protocol").ProviderErrorDetails): void;
+  openFailed?(
+    id: ThreadId,
+    details: import("@ace/protocol").ProviderErrorDetails,
+    route?: import("./session-open-route.ts").SessionOpenRoute,
+  ): void;
   released(id: ThreadId): void;
   mcp?(
     threadId: ThreadId,
@@ -95,6 +100,8 @@ export class Sessions {
     let opening = true;
     let errorEnvironment: NodeJS.ProcessEnv | undefined;
     let errorSecrets: readonly string[] = [];
+    let openingModel: string | undefined;
+    let openingInstance: string | undefined;
     try {
       const state = this.dependencies.repo.requireState(actor.id);
       let metadata = this.dependencies.repo.session(actor.id);
@@ -120,10 +127,14 @@ export class Sessions {
         options: {},
         ...metadata,
       };
+      openingModel = previousSelection.model;
+      openingInstance = previousSelection.instanceId ?? metadata.instanceId;
       const resolvedSelection = await this.dependencies.models.prepare(
         previousSelection,
         this.dependencies.models.identity(actor.id),
       );
+      openingModel = resolvedSelection.model;
+      openingInstance = resolvedSelection.instanceId;
       if (resolvedSelection.model && resolvedSelection.model !== metadata.model)
         this.dependencies.models.remember(actor.id, resolvedSelection);
       metadata = this.dependencies.repo.session(actor.id);
@@ -345,12 +356,33 @@ export class Sessions {
             : value,
       );
       try {
-        const diagnostic = this.dependencies.openFailed?.(actor.id, {
-          provider: stateBefore.config.provider,
-          code: failure.code,
-          title: failure.title,
-          detail: failure.detail,
-        });
+        const scrub = createDiagnosticRedactor({ env: { ...process.env, ...errorEnvironment } });
+        const routeField = (value: string | undefined): string | null =>
+          value === undefined
+            ? null
+            : scrub(
+                errorSecrets.reduce(
+                  (text, secret) => (secret ? text.replaceAll(secret, "[redacted]") : text),
+                  value,
+                ),
+              ).slice(0, 256);
+        const model = routeField(openingModel);
+        const instance = routeField(openingInstance);
+        const backend = this.dependencies.repo.backend(actor.id);
+        const diagnostic = this.dependencies.openFailed?.(
+          actor.id,
+          {
+            provider: stateBefore.config.provider,
+            code: failure.code,
+            title: failure.title,
+            detail: failure.detail,
+          },
+          {
+            ...(model ? { model } : {}),
+            ...(instance ? { instance } : {}),
+            ...(backend ? { backend } : {}),
+          },
+        );
         void Promise.resolve(diagnostic).catch(() => {});
       } catch {
         // Diagnostics are optional; their failure cannot replace the sanitized

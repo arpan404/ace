@@ -72,6 +72,7 @@ export interface EngineOptions {
   onSessionOpenFailure?: (
     thread: ThreadId,
     details: import("@ace/protocol").ProviderErrorDetails,
+    route?: import("./session-open-route.ts").SessionOpenRoute,
   ) => void;
   onProviderDiagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void;
   aceToolAction?: typeof import("@ace/mcp-server").aceToolAction;

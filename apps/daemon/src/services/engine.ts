@@ -1,6 +1,6 @@
 import { configuredAdapter } from "../provider-admission.ts";
 import { configuredDiscovery } from "../provider-discovery.ts";
-import { logFields, logMetadata } from "@ace/diagnostics";
+import { logError, logFields, logMetadata } from "@ace/diagnostics";
 import { cursorHosts } from "./cursor-hosts.ts";
 import { openCursorMcp } from "./cursor-mcp.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
@@ -59,7 +59,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           options,
           accounts: services.accounts,
           accountRegistry: services.accountRegistry,
-          report: (error) => log.log("error", "ACP metadata failure", error),
+          report: (error) => log.log("error", "ACP metadata failure", logError(error)),
         })
       : {};
   const accounts = services.accounts;
@@ -158,7 +158,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           registry.bindSessions(bindProvider, { unboundOnly: true });
           await activateCursorProvider(context, registry);
         })
-        .catch((error: unknown) => log.log("warn", "Provider enable discovery failed", error));
+        .catch((error: unknown) =>
+          log.log("warn", "Provider enable discovery failed", logError(error)),
+        );
       services.providerActivation = update;
     });
     resources.own(() => {
@@ -178,7 +180,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       else
         void services.commands
           ?.updateRuntime(event.threadId, event.data)
-          .catch((error) => log.log("warn", "Provider command metadata unavailable", error));
+          .catch((error) =>
+            log.log("warn", "Provider command metadata unavailable", logError(error)),
+          );
     },
     ...(services.models ? { models: services.models } : {}),
     providerEnabled: (provider, instance) =>
@@ -264,21 +268,25 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           ]),
         );
       }),
-    onSessionOpenFailure: (thread, details) => {
+    onSessionOpenFailure: (thread, details, route) => {
       log.log(
         "warn",
         "Provider session opening failed",
         logFields([
           ["thread", thread],
           ["provider", details.provider],
+          ["model", route?.model ?? details.model ?? null],
+          ["instance", route?.instance ?? null],
+          ["backend", route?.backend ?? null],
           ["code", details.code],
           ["title", details.title],
           ["detail", details.detail],
         ]),
       );
-      return engineOptions.onSessionOpenFailure?.(thread, details);
+      return engineOptions.onSessionOpenFailure?.(thread, details, route);
     },
-    onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
+    onError:
+      engineOptions.onError ?? ((error) => log.log("error", "Engine failure", logError(error))),
   });
   resources.own(() => engine.close());
   await engine.ready();

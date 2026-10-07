@@ -1,3 +1,4 @@
+import { logError, logFields } from "@ace/diagnostics";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { cursorSdkCatalogInstance, registerCursorSdkCatalog } from "./cursor-activation.ts";
 import { createInstance, instanceEnv } from "@ace/accounts";
@@ -40,8 +41,21 @@ export async function startModels(context: ServiceContext): Promise<void> {
       },
     },
     () => context.services.providerConfigurations?.current() ?? [],
-    (provider, instance, error, source) =>
-      context.log.log("warn", "Model discovery failed", { provider, instance, source, ...error }),
+    (provider, instance, error, source, diagnostic) =>
+      context.log.log(
+        "warn",
+        "Model discovery failed",
+        logFields([
+          ["provider", provider],
+          ["instance", instance],
+          ["source", source ?? null],
+          ["sourceLabel", diagnostic?.sourceLabel ?? null],
+          ["code", error.code],
+          ["message", error.message],
+          ["cliVersion", diagnostic?.cliVersion ?? null],
+          ["durationMs", diagnostic?.durationMs ?? 0],
+        ]),
+      ),
   );
   const stopConfiguration = context.services.providerConfigurations?.listen(() => {
     models.configurationChanged();
@@ -94,7 +108,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
     services.modelsReady = admission;
     resources.own(() => admission);
     void admission.catch((error: unknown) =>
-      context.log.log("warn", "Default model admission failed", error),
+      context.log.log("warn", "Default model admission failed", logError(error)),
     );
   }
 }
