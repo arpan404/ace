@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { WorkspaceRefresh } from "../workspace-refresh.ts";
 import { ThreadId, ForgeCommand, WorkspaceCommands, WorkspaceActionResult } from "@ace/protocol";
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
@@ -24,7 +25,7 @@ export function startWorkspaceActions({
     Boolean(store.getThread(id)) && store.getThread(id)?.deletedAt === undefined;
   resources.own(() => workspace.close());
   const refresh = new WorkspaceRefresh(store, workspace, now, undefined, (error) =>
-    log.log("debug", "Workspace metadata unavailable", error),
+    log.log("debug", "Workspace metadata unavailable", logError(error)),
   );
   resources.own(() => refresh.close());
 }

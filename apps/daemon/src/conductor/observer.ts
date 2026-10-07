@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { nextDeadline } from "@ace/conductor";
 import { Command, type Event, ThreadId } from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
@@ -70,7 +71,11 @@ export class DeckObserver {
           await engine.prepareCommand(command);
           const result = this.executor.delegations.command(command.id, command.payload);
           if (!result.ok)
-            this.context.log.log("warn", "Deck recovery requires human input", result.error);
+            this.context.log.log(
+              "warn",
+              "Deck recovery requires human input",
+              logError(result.error),
+            );
         }
       }
     }
@@ -92,7 +97,9 @@ export class DeckObserver {
         return;
       }
       const task = this.reconcile(run, notify)
-        .catch((error) => this.context.log.log("error", "Deck reconciliation failed", error))
+        .catch((error) =>
+          this.context.log.log("error", "Deck reconciliation failed", logError(error)),
+        )
         .finally(() => {
           this.tasks.delete(task);
           this.running.delete(run);
@@ -205,14 +212,18 @@ export class DeckObserver {
                 } catch (error) {
                   // Invalid review revision/evidence or plan ownership stays in the transcript.
                   // Still observe done so the missing-artifact deadline can escalate it.
-                  this.context.log.log("warn", "Deck artifact requires correction", error);
+                  this.context.log.log(
+                    "warn",
+                    "Deck artifact requires correction",
+                    logError(error),
+                  );
                 }
               }
             }
           }
         } catch (error) {
           // Lost streams/worktrees invalidate only the artifact, never status or deadlines.
-          this.context.log.log("warn", "Deck artifact unavailable", error);
+          this.context.log.log("warn", "Deck artifact unavailable", logError(error));
         }
       }
       state = this.runtime.state(run);

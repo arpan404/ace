@@ -27,7 +27,7 @@ export type DiscoveryOptions = {
 export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverModels {
   const spawn = options.spawn ?? spawnSupervised;
   const cursorSlots = options.cursorSlots ?? new CursorHostSlots(2);
-  return async (instance: ModelInstance, signal: AbortSignal): ReturnType<DiscoverModels> => {
+  return async (instance, signal, diagnostic): ReturnType<DiscoverModels> => {
     signal.throwIfAborted();
     if (instance.backend === "cursor-sdk") {
       const { createCursorAccountDriver } = await import("@ace/adapter-cursor/auth");
@@ -63,7 +63,7 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         instance,
       );
     if (instance.provider === "pi") {
-      const models = await discoverListedModels(instance, signal, spawn);
+      const models = await discoverListedModels(instance, signal, spawn, diagnostic);
       const sources = [
         ...new Map(
           models.flatMap((model) =>
@@ -77,7 +77,13 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       );
     }
     if (instance.provider === "opencode") {
-      const report = await discoverOpenCodeCatalog(instance, signal, spawn, options.opencode);
+      const report = await discoverOpenCodeCatalog(
+        instance,
+        signal,
+        spawn,
+        options.opencode,
+        diagnostic,
+      );
       return discoveredModels([...report.models], report.sources);
     }
     const args = [...instance.args];

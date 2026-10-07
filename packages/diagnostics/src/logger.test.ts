@@ -218,6 +218,81 @@ it("an Error name accessor cannot replace its safe own message or escape to the 
   await logger.close();
 });
 
+it("raw Errors and diagnostic objects retain redacted message and code without stack, cause or stderr", async () => {
+  const directory = await temporary();
+  const logger = createLogger({
+    sink: await createFileSink({ directory, fileBytes: 65536, totalBytes: 131072, context }),
+    now: () => 0,
+    redact,
+  });
+  const message =
+    'Cannot list models: {"credentials":{"login":"opaque-login-value"}} Bearer abcdefghijklmnopqrstuvwxyz';
+  const extras = {
+    code: "ECONNREFUSED",
+    stack: "private-stack",
+    cause: { message: "private-cause" },
+    stderr: "private-stderr",
+    env: { CUSTOM: "private-env" },
+    token: "private-token",
+  };
+  try {
+    logger.log("warn", "Error failure", Object.assign(new Error(message), extras));
+    logger.log("warn", "Object failure", { message, ...extras });
+    await logger.flush();
+    const persisted = await readFile(join(directory, "ace.jsonl"), "utf8");
+    for (const lines of [persisted.trim().split("\n"), logger.recent()]) {
+      const summaries = lines.map((line) => JSON.parse(line).data);
+      expect(summaries).toEqual([
+        {
+          message: expect.stringContaining("Cannot list models"),
+          code: "ECONNREFUSED",
+          name: "Error",
+        },
+        { message: expect.stringContaining("Cannot list models"), code: "ECONNREFUSED" },
+      ]);
+      const text = lines.join("\n");
+      for (const secret of [
+        "opaque-login-value",
+        "abcdefghijklmnopqrstuvwxyz",
+        "private-stack",
+        "private-cause",
+        "private-stderr",
+        "private-env",
+        "private-token",
+      ])
+        expect(text).not.toContain(secret);
+      expect(text).not.toContain("UNPREPARED OBJECT OMITTED");
+    }
+  } finally {
+    await logger.close();
+  }
+});
+
+it("error summaries omit long and multiline messages whole instead of exposing partial environment secrets", async () => {
+  const secret = "opaque-environment-secret";
+  const logger = createLogger({
+    sink: { async write() {}, async close() {} },
+    now: () => 0,
+    redact: createRedactor({ env: { CUSTOM: secret } }),
+    schedule: () => {},
+  });
+  try {
+    logger.log("warn", "long", Object.assign(new Error("x".repeat(500) + secret), { code: "EIO" }));
+    logger.log("warn", "multiline", new Error("first line\nprivate-stderr"));
+    const lines = logger.recent();
+    expect(JSON.parse(lines[0] ?? "null").data).toEqual({
+      message: "<OVERSIZED ERROR MESSAGE OMITTED>",
+      name: "Error",
+      code: "EIO",
+    });
+    expect(JSON.parse(lines[1] ?? "null").data.message).toBe("<MULTILINE ERROR MESSAGE OMITTED>");
+    expect(lines.join("\n")).not.toContain("opaque");
+    expect(lines.join("\n")).not.toContain("private-stderr");
+  } finally {
+    await logger.close();
+  }
+});
+
 it("debug levels and nested home/worktrees paths survive redaction while credentials stay hidden", async () => {
   const directory = await temporary();
   const logContext = {

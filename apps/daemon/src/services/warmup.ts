@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import type { ServiceContext } from "./types.ts";
 import type { ServiceStatus } from "./startup.ts";
 
@@ -30,7 +31,7 @@ export function warmup(
         const message = error instanceof Error ? error.message : "Background initialization failed";
         status = { name, state: "degraded", error: `Service ${name}: ${message.slice(0, 8192)}` };
         report();
-        context.log.log("error", `Service ${name} warmup failed`, error);
+        context.log.log("error", `Service ${name} warmup failed`, logError(error));
       },
     );
 }

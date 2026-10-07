@@ -11,7 +11,13 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { createRedactor } from "@ace/redaction";
-import { logFields, createFileSink, createLogger, createHealthMonitor } from "@ace/diagnostics";
+import {
+  logError,
+  logFields,
+  createFileSink,
+  createLogger,
+  createHealthMonitor,
+} from "@ace/diagnostics";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { remoteListener } from "./network.ts";
@@ -139,7 +145,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       onListen: [],
       store: new Store(
         join(config.dataDir, "events.sqlite"),
-        (error) => log.log("error", "Event subscriber failed", error),
+        (error) => log.log("error", "Event subscriber failed", logError(error)),
         { now },
       ),
     };
@@ -191,7 +197,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       store,
       ...(options.preview ? { preview: options.preview } : {}),
       health: health.collect,
-      log: (error) => log.log("error", "WebSocket failure", error),
+      log: (error) => log.log("error", "WebSocket failure", logError(error)),
     };
     // Feature services publish only after initialization. Socket handlers read the
     // live registry, so a service can become available after endpoint discovery.

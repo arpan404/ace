@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
 import { loadNotificationChannels } from "../notification-config.ts";
 import { createDaemonNotifications } from "../notifications.ts";
@@ -12,7 +13,7 @@ export async function startNotifications(context: ServiceContext): Promise<void>
   const notifications = createDaemonNotifications(
     config.dataDir,
     store,
-    (error) => log.log("error", "Notification service failure", error),
+    (error) => log.log("error", "Notification service failure", logError(error)),
     configured.channels,
     5000,
     {

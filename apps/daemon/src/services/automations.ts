@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { join } from "node:path";
 import { randomInt } from "node:crypto";
 import { AutomationService, AutomationStore, nodeTimer, createGhClient } from "@ace/automations";
@@ -19,7 +20,7 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
       timer: nodeTimer,
       executor: automationExecutor(context),
       workspace: automationWorkspace(context),
-      onError: (error) => log.log("error", "Automation failure", error),
+      onError: (error) => log.log("error", "Automation failure", logError(error)),
     },
     createGhClient({ binary: "gh" }),
   );

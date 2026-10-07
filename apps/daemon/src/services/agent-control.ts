@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { agentControlCall } from "./agent-control-failure.ts";
 import { createAgentOwners } from "../agent-control/owners.ts";
 import { DelegationService } from "../agent-control/delegations.ts";
@@ -49,7 +50,7 @@ export function startAgentControl(context: ServiceContext): void {
     ...(services.accountRegistry ? { accounts: services.accountRegistry } : {}),
     ...(options.agentControl?.policy ? { policy: options.agentControl.policy } : {}),
     admitsWork: () => maintenance?.admit() ?? false,
-    onError: (error) => log.log("error", "Agent control failure", error),
+    onError: (error) => log.log("error", "Agent control failure", logError(error)),
   });
   resources.own(() => delegations.close());
   resources.onShutdown(() => delegations.close());
@@ -102,7 +103,11 @@ export function startAgentControl(context: ServiceContext): void {
           store.acknowledgeMcpIntent(entry.id);
         });
       } catch (error) {
-        log.log("warn", "Legacy spawn remains pending until admission is available", error);
+        log.log(
+          "warn",
+          "Legacy spawn remains pending until admission is available",
+          logError(error),
+        );
       }
     }
   });

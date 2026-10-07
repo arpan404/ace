@@ -13,6 +13,7 @@ export {
   ModelInstance,
   type InstanceInput,
   type DiscoverModels,
+  type DiscoveryDiagnostics,
   type CatalogStorage,
   type CacheEntry,
   type Deadline,

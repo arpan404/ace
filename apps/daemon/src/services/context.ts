@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
 import { contextScope } from "./context-scope.ts";
 import { realpath } from "node:fs/promises";
@@ -87,7 +88,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
           .then(() => context.uploads.collect())
           .then(() => {})
           .catch((error: unknown) =>
-            log.log("error", "Deleted thread attachment cleanup failed", error),
+            log.log("error", "Deleted thread attachment cleanup failed", logError(error)),
           );
         deletions.add(cleanup);
         void cleanup.finally(() => deletions.delete(cleanup));
@@ -102,7 +103,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
     pending = context.uploads
       .collect()
       .then(() => {})
-      .catch((error: unknown) => log.log("error", "Attachment maintenance failed", error))
+      .catch((error: unknown) => log.log("error", "Attachment maintenance failed", logError(error)))
       .finally(() => {
         pending = undefined;
       });

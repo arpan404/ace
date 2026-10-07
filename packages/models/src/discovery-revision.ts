@@ -7,7 +7,7 @@ import {
   type SpawnOptions,
   type SupervisedProcess,
 } from "@ace/provider-kit/process";
-import type { ModelInstance } from "./types.ts";
+import type { DiscoveryDiagnostics, ModelInstance } from "./types.ts";
 
 /** Hash only allowlisted non-secret provider identities and model availability. */
 export function connectionRevision(
@@ -26,13 +26,17 @@ export function connectionRevision(
 export function createModelRevisionProbe(
   spawn: (options: SpawnOptions) => SupervisedProcess = spawnSupervised,
 ) {
-  return async (instance: ModelInstance, signal: AbortSignal): Promise<string> => {
+  return async (
+    instance: ModelInstance,
+    signal: AbortSignal,
+    diagnostic?: (metadata: DiscoveryDiagnostics) => void,
+  ): Promise<string> => {
     if (instance.provider === "opencode") {
       const connections = await connectedOpenCodeProviders(instance, signal, spawn);
       return connectionRevision(instance.provider, [], [...connections.values()]);
     }
     if (instance.provider === "pi") {
-      const models = await discoverListedModels(instance, signal, spawn);
+      const models = await discoverListedModels(instance, signal, spawn, diagnostic);
       return connectionRevision(instance.provider, models, []);
     }
     throw new Error("Connection metadata is not available for this provider");

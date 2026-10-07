@@ -7,8 +7,12 @@ for (const exit of [false, true])
   test(`a failed open retains input as queued before any provider send (exit callback=${exit})`, async () => {
     const frames = scriptFrames();
     const warnings: ProviderErrorDetails[] = [];
+    const routes: unknown[] = [];
     const h = await harness([], frames, {
-      onSessionOpenFailure: (_id, details) => warnings.push(details),
+      onSessionOpenFailure: (_id, details, route) => {
+        warnings.push(details);
+        routes.push(route);
+      },
     });
     try {
       h.registry.register(
@@ -37,6 +41,7 @@ for (const exit of [false, true])
         },
       ]);
       expect(h.adapter.commands.filter((command) => command.type === "send")).toEqual([]);
+      expect(routes).toEqual([{ model: "model" }]);
       const notices = Object.values(h.store.snapshotThread(id).items).filter(
         (item) => item.type === "notice",
       );

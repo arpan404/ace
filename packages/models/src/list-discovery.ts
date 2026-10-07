@@ -4,12 +4,13 @@ import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process"
 import { providerSource } from "./model-source.ts";
 import { base } from "./model.ts";
 import { chatMetadata } from "./catalog-metadata.ts";
-import type { ModelInstance } from "./types.ts";
+import type { DiscoveryDiagnostics, ModelInstance } from "./types.ts";
 
 export async function discoverListedModels(
   instance: ModelInstance,
   signal: AbortSignal,
   spawn: (options: SpawnOptions) => SupervisedProcess,
+  diagnostic?: (metadata: DiscoveryDiagnostics) => void,
 ): Promise<CatalogModel[]> {
   signal.throwIfAborted();
   const proc = spawn({
@@ -36,7 +37,7 @@ export async function discoverListedModels(
   signal.addEventListener("abort", abort, { once: true });
   try {
     if (signal.aborted) abort();
-    const rows = await piModels(proc, instance, signal);
+    const rows = await piModels(proc, instance, signal, diagnostic);
     const exit = await proc.stop({ graceMs: 0 });
     if (exit.reason === "output-limit") throw new Error("Pi model metadata exceeded output limit");
     if (exit.reason !== "stopped" && !(exit.reason === "exit" && exit.code === 0))
@@ -81,26 +82,31 @@ async function piModels(
   proc: SupervisedProcess,
   instance: ModelInstance,
   signal: AbortSignal,
+  diagnostic?: (metadata: DiscoveryDiagnostics) => void,
 ): Promise<CatalogModel[]> {
   const payload = await piRequest(proc, "get_available_models", "ace-models");
+  const models = PiReply.parse(payload).data.models.filter(chatMetadata);
+  diagnostic?.({
+    sources: [
+      ...new Map(models.map((model) => [model.provider, providerSource(model.provider)])).values(),
+    ],
+  });
   const state = z
     .object({ model: z.object({ provider: z.string(), id: z.string() }).nullish() })
     .passthrough()
     .parse(await piRequest(proc, "get_state", "ace-models-state"));
   signal.throwIfAborted();
-  return PiReply.parse(payload)
-    .data.models.filter(chatMetadata)
-    .map((native) =>
-      CatalogModel.parse({
-        ...base(instance, `${native.provider}/${native.id}`, native.name, native),
-        isDefault: state.model?.provider === native.provider && state.model.id === native.id,
-        source: providerSource(native.provider),
-        nativeProviderId: native.provider,
-        nativeModelId: native.id,
-        contextWindow: native.contextWindow,
-        inputModalities: native.input ?? [],
-      }),
-    );
+  return models.map((native) =>
+    CatalogModel.parse({
+      ...base(instance, `${native.provider}/${native.id}`, native.name, native),
+      isDefault: state.model?.provider === native.provider && state.model.id === native.id,
+      source: providerSource(native.provider),
+      nativeProviderId: native.provider,
+      nativeModelId: native.id,
+      contextWindow: native.contextWindow,
+      inputModalities: native.input ?? [],
+    }),
+  );
 }
 async function piRequest(
   proc: SupervisedProcess,

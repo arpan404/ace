@@ -1,4 +1,4 @@
-import { logFields } from "@ace/diagnostics";
+import { logError, logFields } from "@ace/diagnostics";
 import { Resources } from "./resources.ts";
 import type { ServiceContext, Services } from "./types.ts";
 import type { startServer } from "../server.ts";
@@ -128,7 +128,7 @@ export class ServiceStartup {
     try {
       this.runtime.onStatus?.(status);
     } catch (error) {
-      this.context.log.log("error", "Startup observer failed", error);
+      this.context.log.log("error", "Startup observer failed", logError(error));
     }
   }
   private record(name: string, status: ServiceStatus): void {
@@ -224,7 +224,7 @@ export class ServiceStartup {
         for (const key of Object.keys(published))
           Reflect.deleteProperty(this.context.services, key);
         void boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>
-          this.context.log.log("error", "Degraded service cleanup failed", failure),
+          this.context.log.log("error", "Degraded service cleanup failed", logError(failure)),
         );
       };
       this.listeners.push(...onListen.map((start) => ({ name, start, disable })));
@@ -234,7 +234,7 @@ export class ServiceStartup {
       this.degraded(name, error);
       // A stuck disposer must not hold startup either. Shutdown retains the cleanup promise.
       void boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>
-        this.context.log.log("error", "Degraded service cleanup failed", failure),
+        this.context.log.log("error", "Degraded service cleanup failed", logError(failure)),
       );
       this.context.signal.throwIfAborted();
     }

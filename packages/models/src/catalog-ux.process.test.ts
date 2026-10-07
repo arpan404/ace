@@ -354,3 +354,41 @@ test.each(["opencode", "pi"] as const)(
     expect(resumed.list().models).toEqual([]);
   },
 );
+
+test("a rejected discovery reports the elapsed attempt and metadata learned before failure", async () => {
+  const work = await workspace();
+  cleanups.push(work.close);
+  let now = 1000;
+  const failures: unknown[] = [];
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(join(work.path, "models.sqlite")),
+    instances: [instance("opencode")],
+    now: () => now,
+    deadline: () => () => {},
+    discover: async (_instance, _signal, diagnostic) => {
+      diagnostic?.({
+        cliVersion: "2.1.0",
+        sources: [{ id: "openai", label: "OpenAI", kind: "api_key" }],
+      });
+      now += 37;
+      throw { status: 429, message: "private-provider-error" };
+    },
+    onError: (provider, account, error, source, diagnostic) =>
+      failures.push({ provider, account, error, source, diagnostic }),
+  });
+  cleanups.push(() => catalog.close());
+  await catalog.refresh();
+  expect(failures).toEqual([
+    {
+      provider: "opencode",
+      account: instance("opencode").id,
+      source: "openai",
+      error: {
+        code: "rate_limited",
+        message: "Provider model discovery was rate limited.",
+        hint: "Wait a few minutes, then refresh models.",
+      },
+      diagnostic: { cliVersion: "2.1.0", sourceLabel: "OpenAI", durationMs: 37 },
+    },
+  ]);
+});

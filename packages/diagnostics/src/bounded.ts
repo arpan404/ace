@@ -1,4 +1,5 @@
 import { isSecretKey } from "@ace/redaction";
+import { errorSummary, ownData } from "./error-summary.ts";
 class Fields {
   entries: readonly (readonly [string, unknown])[];
   constructor(entries: readonly (readonly [string, unknown])[]) {
@@ -8,6 +9,15 @@ class Fields {
 /** Producer supplies a bounded field list; arbitrary objects are never enumerated by log(). */
 export function logFields(entries: readonly (readonly [string, unknown])[]): object {
   return new Fields(entries);
+}
+/** Prepare a bounded, sanitized error summary without enumerating external payloads. */
+export function logError(error: unknown): object {
+  const summary = errorSummary(error);
+  return logFields([
+    ["message", summary.message],
+    ...(summary.code === undefined ? [] : [["code", summary.code] as const]),
+    ...(summary.name === undefined ? [] : [["name", summary.name] as const]),
+  ]);
 }
 function own(input: object, key: string): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(input, key);
@@ -54,8 +64,7 @@ function normalize(
     if (typeof input !== "object") return "<UNSUPPORTED>";
     if (seen.has(input)) return "<CYCLE>";
     seen.add(input);
-    if (input instanceof Error)
-      return { message: visit(own(input, "message"), depth + 1), name: "Error" };
+    if (input instanceof Error) return visit(logError(input), depth + 1);
     if (Array.isArray(input)) {
       const length = own(input, "length");
       if (typeof length !== "number") return "<INVALID ARRAY>";
@@ -64,8 +73,16 @@ function normalize(
         result.push(visit(own(input, String(n)), depth + 1));
       return result;
     }
-    if (fields === producerFields && !(input instanceof Fields))
+    if (fields === producerFields && !(input instanceof Fields)) {
+      const code = ownData(input, "code");
+      if (
+        typeof ownData(input, "message") === "string" ||
+        typeof code === "string" ||
+        typeof code === "number"
+      )
+        return visit(logError(input), depth + 1);
       return "<UNPREPARED OBJECT OMITTED>";
+    }
     const result: Record<string, unknown> = {};
     for (const [key, item] of fields(input)) {
       if (remaining <= 0) break;

@@ -1,5 +1,5 @@
 import { PublicToolError } from "@ace/mcp-server";
-import { logFields } from "@ace/diagnostics";
+import { logError, logFields } from "@ace/diagnostics";
 import { ItemId, type McpAttribution } from "@ace/protocol";
 import { AgentControlError } from "../agent-control/failure.ts";
 import type { ServiceContext } from "./types.ts";
@@ -29,9 +29,7 @@ export async function agentControlCall<T>(
         ["threadId", caller.threadId],
         ["operation", operation],
         ["code", failure.code],
-        ["error", error],
-        ["stack", error instanceof Error ? error.stack?.slice(0, 2048) : undefined],
-        ["cause", error instanceof Error ? error.cause : undefined],
+        ["error", logError(error)],
       ]),
     );
     // Reporting cannot replace the original failure, including during shutdown.
@@ -59,7 +57,7 @@ export async function agentControlCall<T>(
         context.now(),
       );
     } catch (reportError) {
-      context.log.log("error", "Agent control notice failed", reportError);
+      context.log.log("error", "Agent control notice failed", logError(reportError));
     }
     throw failure;
   }
