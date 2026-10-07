@@ -59,3 +59,27 @@ test.each([401, 403, 500, 502, 503])(
     expect(JSON.stringify(result)).not.toMatch(/private|secret/);
   },
 );
+
+test.each([
+  { code: "discovery_failed", cause: { response: { status: 401 } } },
+  { status: null, cause: { statusCode: "403" } },
+  { _tag: "APIError", data: { statusCode: 401 } },
+  { error: { code: "discovery_failed", response: { status: 401 } } },
+])("nested auth failures survive generic wrappers and unrelated null fields (%j)", (error) => {
+  expect(discoveryError(error).code).toBe("auth_expired");
+});
+
+test("unknown discovery failures expose only a fixed message and corrective hint", () => {
+  const error = new Error(
+    "Metadata bootstrap failed: Bearer private-bearer; configured key private-env-key",
+  );
+  const detail = discoveryError(error, "discovery_failed", {
+    provider: "cursor",
+    backend: "cursor-sdk",
+  });
+  expect(detail.code).toBe("discovery_failed");
+  expect(detail.message).toBe("Model discovery failed.");
+  expect(detail.hint).toContain("Check sign-in");
+  expect(detail.message).not.toContain("private");
+  expect(JSON.stringify(detail)).not.toContain("Metadata bootstrap failed");
+});

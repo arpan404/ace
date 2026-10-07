@@ -1,4 +1,4 @@
-import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
+import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { safeCursorErrorMessage } from "./sdk-failure.ts";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
@@ -131,9 +131,11 @@ export function hostWire(
     }
     void (async () => {
       let id: string | number | undefined;
+      let method: string | undefined;
       try {
         const request = Request.parse(decoded);
         id = request.id;
+        method = request.method;
         const result = await dispatch(request.method, request.params);
         await send({ jsonrpc: "2.0", id, result: result ?? null });
       } catch (error) {
@@ -145,7 +147,16 @@ export function hostWire(
             error: {
               code: -32603,
               message: "Cursor SDK operation failed; check safe lifecycle notice",
-              data: { code: discoveryFailureCode(error) },
+              data: {
+                code: discoveryFailureCode(error),
+                ...(method === "models" && discoveryFailureCode(error) === "discovery_failed"
+                  ? {
+                      detail: discoveryFailureReason(error, {
+                        env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY },
+                      }),
+                    }
+                  : {}),
+              },
             },
           });
         else disconnected();

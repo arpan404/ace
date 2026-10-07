@@ -37,7 +37,11 @@ const messages: Record<ModelDiscoveryError["code"], [string, string]> = {
 export function discoveryError(
   error: unknown,
   fallback: ModelDiscoveryError["code"] = "discovery_failed",
-  context?: { provider: string; source?: string; backend?: string | undefined },
+  context?: {
+    provider: string;
+    source?: string;
+    backend?: string | undefined;
+  },
 ): ModelDiscoveryError {
   const kind = discoveryFailureCode(error, fallback);
   const [message, hint] = messages[kind];

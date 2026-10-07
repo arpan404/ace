@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
+import { z } from "zod";
 import { afterEach, expect, test } from "vitest";
 import {
   ModelCatalog,
@@ -6,6 +8,7 @@ import {
   normalizeCodex,
   type CatalogModel,
   type DiscoverModels,
+  type CatalogOptions,
 } from "./index.ts";
 import { Clock, codexPayload, deferred, instance, workspace } from "./testing/support.ts";
 
@@ -13,12 +16,17 @@ const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
-async function setup(discover: DiscoverModels, instances = [instance()]) {
+async function setup(
+  discover: DiscoverModels,
+  instances = [instance()],
+  options: Pick<CatalogOptions, "onError"> = {},
+) {
   const work = await workspace();
   cleanups.push(work.close);
   const clock = new Clock();
   const path = join(work.path, "cache.sqlite");
   const catalog = new ModelCatalog({
+    ...options,
     storage: openModelStorage(path),
     discover,
     instances,
@@ -100,7 +108,8 @@ test("failed refresh retains stale rows and cooldown prevents repeated probes", 
   });
   await catalog.refresh();
   clock.now += 100;
-  await catalog.refresh();
+  const failed = await catalog.refresh();
+  expect(JSON.stringify(failed)).not.toContain("secret stderr");
   expect(catalog.list()).toMatchObject({
     models: [{ id: "coder" }],
     instances: [{ error: "discovery_failed", stale: true, refreshing: false }],
@@ -111,6 +120,143 @@ test("failed refresh retains stale rows and cooldown prevents repeated probes", 
   await catalog.refresh();
   expect(calls).toBe(3);
   expect(JSON.stringify(catalog.list())).not.toContain("secret stderr");
+});
+
+test("unclassified diagnostics stay in bounded local logs while client and stored errors stay fixed", async () => {
+  const config = {
+    ...instance(),
+    env: { CUSTOM_API_KEY: "private-env-value" },
+  };
+  const diagnostic: string[] = [];
+  const payloads: string[] = [];
+  let calls = 0;
+  const { catalog, path } = await setup(
+    async () => {
+      if (++calls === 1) return models();
+      throw new Error(
+        "Metadata bootstrap failed: private-env-value Bearer private-token " + "x".repeat(300),
+      );
+    },
+    [config],
+    {
+      onError: (_provider, _instance, error, _source, metadata) => {
+        payloads.push(JSON.stringify(error));
+        if (metadata?.reason) diagnostic.push(metadata.reason);
+      },
+    },
+  );
+  await catalog.refresh();
+  catalog.listen(() => payloads.push(JSON.stringify(catalog.list())));
+  payloads.push(JSON.stringify(await catalog.refresh()));
+  payloads.push(JSON.stringify(catalog.list()));
+  expect(catalog.list().instances[0]?.errorDetail?.message).toBe("Model discovery failed.");
+  expect(diagnostic).toHaveLength(1);
+  expect(diagnostic[0]).toContain("Metadata bootstrap failed");
+  expect(diagnostic[0]?.length).toBeLessThanOrEqual(200);
+  expect(diagnostic.join()).not.toMatch(/private-env-value|private-token/);
+  expect(payloads.join()).not.toMatch(/Metadata bootstrap failed|private-env-value|private-token/);
+  await catalog.close();
+  const stored = openModelStorage(path);
+  try {
+    expect(JSON.stringify(stored.load())).not.toContain("Metadata bootstrap failed");
+  } finally {
+    await stored.close();
+  }
+});
+
+test("classified failures never include provider prose in local diagnostic reasons", async () => {
+  const reports: string[] = [];
+  const { catalog } = await setup(
+    async () => {
+      throw Object.assign(new Error("private provider prose"), { status: 401 });
+    },
+    [instance()],
+    { onError: (...report) => reports.push(JSON.stringify(report)) },
+  );
+  expect(await catalog.refresh()).toMatchObject([{ errorDetail: { code: "auth_expired" } }]);
+  expect(reports).toHaveLength(1);
+  expect(reports.join()).not.toMatch(/private provider prose|"reason"/);
+});
+
+test("source error text is removed before publishing and persisting a partial refresh", async () => {
+  const source = models()[0]?.source;
+  if (!source) throw new Error("Expected a source-qualified fixture");
+  const { catalog, path } = await setup(async () =>
+    Object.assign([], {
+      sources: [
+        {
+          source,
+          status: "stale" as const,
+          error: {
+            code: "discovery_failed" as const,
+            message: "secret stderr",
+            hint: "private provider hint",
+          },
+        },
+      ],
+    }),
+  );
+  const refresh = await catalog.refresh();
+  expect(refresh[0]?.sources?.[0]?.error?.message).toBe("Model discovery failed.");
+  expect(JSON.stringify([refresh, catalog.list()])).not.toMatch(
+    /secret stderr|private provider hint/,
+  );
+  await catalog.close();
+  const stored = openModelStorage(path);
+  try {
+    expect(JSON.stringify(stored.load())).not.toMatch(/secret stderr|private provider hint/);
+  } finally {
+    await stored.close();
+  }
+});
+
+test("cached source errors from older versions never expose provider text after restart", async () => {
+  const first = await setup(async () => models());
+  await first.catalog.refresh();
+  await first.catalog.close();
+  const db = new DatabaseSync(first.path);
+  try {
+    const payload = db.prepare("SELECT payload FROM model_catalog").get()?.["payload"];
+    if (typeof payload !== "string") throw new Error("Expected persisted catalog");
+    const stored = z.record(z.string(), z.unknown()).parse(JSON.parse(payload));
+    db.prepare("UPDATE model_catalog SET payload = ?").run(
+      JSON.stringify({
+        ...stored,
+        sources: [
+          {
+            source: { kind: "account", id: "codex", label: "codex" },
+            status: "stale",
+            error: {
+              code: "discovery_failed",
+              message: "Model discovery failed: secret stderr",
+              hint: "private provider hint",
+            },
+          },
+        ],
+      }),
+    );
+  } finally {
+    db.close();
+  }
+  const pending = deferred<readonly CatalogModel[]>();
+  const restarted = new ModelCatalog({
+    storage: openModelStorage(first.path),
+    discover: () => pending.promise,
+    instances: [instance()],
+    now: () => first.clock.now,
+    deadline: first.clock.deadline,
+  });
+  cleanups.push(() => restarted.close());
+  try {
+    expect(restarted.list().models[0]?.id).toBe("coder");
+    expect(restarted.list().instances[0]?.sources?.[0]?.error?.message).toBe(
+      "Model discovery failed.",
+    );
+    expect(JSON.stringify(restarted.list())).not.toMatch(/secret stderr|private provider hint/);
+  } finally {
+    pending.resolve(models());
+    await restarted.refresh();
+  }
 });
 
 test("provider timeout leaves other instance models immediately available", async () => {

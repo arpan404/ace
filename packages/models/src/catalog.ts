@@ -1,6 +1,7 @@
 import { DiscoveryBackoff } from "./discovery-backoff.ts";
 import { connectionRevision } from "./discovery-revision.ts";
 import { discoveryError } from "./discovery-errors.ts";
+import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { refreshedSources } from "./catalog-sources.ts";
 import { cleanCatalog } from "./catalog-cleanup.ts";
 import { createCleanModelView, providerConfiguration } from "./preferences.ts";
@@ -121,6 +122,8 @@ export type CatalogOptions = {
       sourceLabel?: string;
       level?: "warn" | "debug";
       retryInMs?: number;
+      /** Local log only. Never included in catalog state, storage, or client responses. */
+      reason?: string;
     },
   ) => void;
 };
@@ -206,8 +209,8 @@ export class ModelCatalog implements ModelCatalogApi {
     state.backoff.retain(new Set(sources?.length ? sources.map((source) => source.id) : [""]));
     if (sources?.length) {
       for (const source of sources)
-        this.#reportFailure(state, state.errorDetail, startedAt, diagnostic, source);
-    } else this.#reportFailure(state, state.errorDetail, startedAt, diagnostic);
+        this.#reportFailure(state, state.errorDetail, startedAt, diagnostic, source, error);
+    } else this.#reportFailure(state, state.errorDetail, startedAt, diagnostic, undefined, error);
     state.retryAt = state.backoff.retryAt();
   }
   #reportFailure(
@@ -216,6 +219,7 @@ export class ModelCatalog implements ModelCatalogApi {
     startedAt: number,
     diagnostic: DiscoveryDiagnostics,
     source?: import("@ace/protocol").ModelSource,
+    cause?: unknown,
   ): void {
     const schedule = state.backoff.fail(
       source?.id ?? "",
@@ -229,11 +233,16 @@ export class ModelCatalog implements ModelCatalogApi {
       ...state.config,
       ...(source ? { source: source.id } : {}),
     });
+    const reason =
+      detail.code === "discovery_failed" && cause !== undefined
+        ? discoveryFailureReason(cause, { env: state.config.env }).slice(0, 200)
+        : undefined;
     this.#options.onError?.(state.config.provider, state.config.id, detail, source?.id, {
       ...schedule,
       durationMs: Math.max(0, this.#options.now() - startedAt),
       ...(cliVersion ? { cliVersion } : {}),
       ...(source ? { sourceLabel: source.label } : {}),
+      ...(reason ? { reason } : {}),
     });
   }
   #configuration(config: ModelInstance) {
@@ -595,9 +604,9 @@ export class ModelCatalog implements ModelCatalogApi {
               source.error
             ? "stale"
             : "fresh",
-        ...(state.errorDetail
+        ...(state.errorDetail || source.error
           ? {
-              error: discoveryError(state.errorDetail, state.errorDetail.code, {
+              error: discoveryError(state.errorDetail ?? source.error, "discovery_failed", {
                 ...state.config,
                 source: source.source.id,
               }),

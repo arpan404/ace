@@ -1,6 +1,7 @@
 import { CatalogModel, ProviderKind, ModelSourceStatus } from "@ace/protocol";
 import { z } from "zod";
 import { freezeCatalogModel } from "./freeze.ts";
+import { discoveryError } from "./discovery-errors.ts";
 
 export const CachedEntry = z
   .object({
@@ -37,6 +38,11 @@ export const CachedEntry = z
       freezeCatalogModel(model);
     }
     for (const source of entry.sources ?? []) {
+      if (source.error)
+        source.error = discoveryError({ code: source.error.code }, source.error.code, {
+          provider: entry.provider,
+          source: source.source.id,
+        });
       Object.freeze(source.source);
       if (source.error) Object.freeze(source.error);
       Object.freeze(source);

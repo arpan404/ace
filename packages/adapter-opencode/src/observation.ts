@@ -90,7 +90,9 @@ export function observedFetch(
           !response.body
         ) {
           await response.body?.cancel();
-          throw new Error("OpenCode event transport rejected");
+          throw Object.assign(new Error("OpenCode event transport rejected"), {
+            code: discoveryFailureCode({ status: response.status }, "unreachable"),
+          });
         }
         return new Response(boundedSse(response.body), {
           status: response.status,
@@ -101,18 +103,19 @@ export function observedFetch(
         frame("recv", "http", { method, path, status: 204 });
         return response;
       }
+      const metadataResponse = ["/api/model", "/api/info", "/openapi.json"].includes(url.pathname);
       let result: unknown;
       try {
         result = await jsonResponse(response);
       } catch (error) {
-        if (!response.ok && url.pathname === "/api/model")
-          throw Object.assign(new Error("OpenCode model response failed"), {
+        if (!response.ok && metadataResponse)
+          throw Object.assign(new Error("OpenCode metadata response failed"), {
             code: discoveryFailureCode({ status: response.status, cause: error }),
           });
         throw error;
       }
-      if (!response.ok && url.pathname === "/api/model")
-        throw Object.assign(new Error("OpenCode model response failed"), {
+      if (!response.ok && metadataResponse)
+        throw Object.assign(new Error("OpenCode metadata response failed"), {
           code: discoveryFailureCode({ status: response.status, error: result }),
         });
       frame(

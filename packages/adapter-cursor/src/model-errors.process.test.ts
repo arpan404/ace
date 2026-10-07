@@ -70,3 +70,20 @@ test.each(["missing", "incomplete", "wrong-version"] as const)(
     }
   },
 );
+
+test("Cursor host startup errors without an RPC reply identify missing local setup", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-cursor-host-startup-"));
+  const entry = join(home, "failed-host.mjs");
+  await writeFile(
+    entry,
+    "console.error('Error: Cannot find module fake-sdk-host'); process.exit(1);\n",
+  );
+  const host = new CursorHost({ entry, env: { HOME: home }, limits: { graceMs: 0 } }, () => {});
+  try {
+    await expect(host.request("models")).rejects.toMatchObject({ code: "not_configured" });
+    await host.process.exited;
+  } finally {
+    await host.stop();
+    await rm(home, { recursive: true, force: true });
+  }
+});
