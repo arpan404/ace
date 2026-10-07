@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 /**
- * An element's width in CSS px, following resizes: a dock tool picks a layout for the room it
+ * An element's width in CSS px, following resizes: a side panel tool picks a layout for the room it
  * has, not the window's. Pass the returned ref to the element; 0 until it mounts. Without
  * ResizeObserver (jsdom) it reads the width once.
  */

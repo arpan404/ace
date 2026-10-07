@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import { openWorkCard, runAction } from "./thread-header.ts";
 
 /**
  * Renders every screen against the fake daemon in Dark and Light at 1440x900 to
@@ -35,16 +36,19 @@ const rightTab =
       .getByRole("button", { name: typeof tab === "string" ? new RegExp(`^${tab}`) : tab })
       .click();
   };
-const bottomTab =
-  (path: string, tab: string): Setup =>
+/** A tool opened in the side panel by its shortcut: ⌘J's terminal (the thread's zsh), ⌃⇧L Logs. */
+const shortcutTab =
+  (path: string, keys: string, tab: string): Setup =>
   async (page) => {
     await openThread(path)(page);
-    await page.getByRole("button", { name: "Bottom panel" }).click();
+    await page.keyboard.press(keys);
     await page
-      .getByRole("region", { name: "Bottom panel" })
-      .getByRole("tab", { name: tab })
-      .click();
+      .getByRole("region", { name: "Thread panel" })
+      .getByRole("tab", { name: tab, selected: true })
+      .waitFor();
   };
+const terminalTab = shortcutTab("/t/thread-cold-start", "ControlOrMeta+j", "zsh");
+const logsTab = shortcutTab("/t/thread-cold-start", "Control+Shift+l", "Logs");
 /**
  * Home lands on a thread (the last opened, else the top row). The design's hero was the last
  * one opened here; the top rows are a running deck's lanes.
@@ -190,35 +194,31 @@ const screens: Record<string, Setup> = {
     await panel.getByRole("button", { name: "New tab" }).click();
     await panel.getByRole("list", { name: "Tools" }).waitFor();
   },
-  // The side panel hidden: the header counts its tabs and lists them on hover.
-  "thread-open-tabs": async (page) => {
-    await rightTab("/t/thread-cold-start", "Preview")(page);
-    await page.getByRole("button", { name: "Right panel" }).click();
-    // Hover once the panel has gone and the header has its full width back.
-    await expect(page.getByRole("region", { name: "Thread panel" })).toHaveCount(0);
-    // The header's actions unfold into the room the panel left; let that settle first.
-    await page.waitForTimeout(400);
-    await page.getByRole("button", { name: /^Open tabs:/ }).hover();
-    await page.getByRole("list", { name: "Open tabs" }).waitFor();
-  },
   // Full view: the side panel fills the work area, with a way back to the conversation.
   "thread-full-view": async (page) => {
     await rightTab("/t/thread-cold-start", /^Changes/)(page);
     await page.getByRole("button", { name: "Full view" }).click();
     await page.getByRole("button", { name: /Cap cold-start replay/ }).waitFor();
   },
-  "thread-summary": async (page) => {
+  // The work card: the project, changes and branch, pull requests, actions, editors, sources.
+  "thread-work-card": async (page) => {
     await openThread("/t/thread-dedupe")(page);
-    await page.getByRole("button", { name: "Pin thread summary" }).click();
-    await page
-      .getByRole("complementary", { name: "Thread summary" })
-      .getByRole("button", { name: "Open reconnect-audit" })
+    const card = await openWorkCard(page);
+    await card
+      .getByRole("region", { name: "Actions" })
+      .getByRole("button", { name: /^Run / })
+      .first()
+      .waitFor();
+    await card
+      .getByRole("region", { name: "Open in" })
+      .getByRole("button", { name: /^Open in / })
+      .first()
       .waitFor();
   },
-  // The summary's project and git menu.
-  "thread-summary-menu": async (page) => {
-    await screens["thread-summary"]?.(page);
-    await page.getByRole("button", { name: "Project and git actions" }).click();
+  // The card's project menu: where the thread runs, its branch, worktree and folder.
+  "thread-work-card-project": async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await (await openWorkCard(page)).getByRole("button", { name: "Project actions" }).click();
     await page.getByRole("menu").waitFor();
   },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
@@ -289,10 +289,12 @@ const screens: Record<string, Setup> = {
     await page.getByRole("list", { name: "Attachments" }).getByText("relay.log").waitFor();
   },
   "thread-terminal-new": async (page) => {
-    await bottomTab("/t/thread-cold-start", "zsh")(page);
-    const bottom = page.getByRole("region", { name: "Bottom panel" });
-    await bottom.getByRole("button", { name: "New terminal" }).click();
-    await bottom.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
+    await terminalTab(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: /^Terminal sessions/ }).click();
+    await page.getByRole("menuitem", { name: /^New terminal/ }).click();
+    await panel.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
+    await panel.getByRole("group", { name: "zsh 2 terminal" }).click();
     await page.keyboard.type("git status");
     await page.keyboard.press("Enter");
   },
@@ -320,56 +322,62 @@ const screens: Record<string, Setup> = {
     await phone.getByRole("img", { name: "iPhone 16 Pro screen" }).waitFor();
   },
   "thread-devices-off": rightTab("/t/thread-install-page", "Devices"),
+  // The work card's git actions behind its ⋯.
   "thread-git-menu": async (page) => {
     await openThread("/t/thread-retry-budget")(page);
-    await page.getByRole("button", { name: "Git actions" }).click();
-    await page.getByRole("menu", { name: "Git actions" }).waitFor();
+    await (await openWorkCard(page)).getByRole("button", { name: "Git actions" }).click();
+    await page.getByRole("menu").waitFor();
   },
+  // The branch row's next step, Commit & push: the commit form with push on.
   "thread-commit": async (page) => {
     await openThread("/t/thread-retry-budget")(page);
-    await page.getByRole("button", { name: "Commit", exact: true }).click();
+    await (await openWorkCard(page)).getByRole("button", { name: "Commit & push" }).click();
     await page.getByRole("dialog", { name: "Commit changes" }).waitFor();
   },
   "thread-create-pr": async (page) => {
     await openThread("/t/thread-sheet-rotate")(page);
-    await page.getByRole("button", { name: "Create PR" }).click();
+    await (await openWorkCard(page)).getByRole("button", { name: "Create PR" }).click();
     await page.getByRole("dialog", { name: "Open a pull request" }).waitFor();
   },
-  "thread-run-menu": async (page) => {
+  // The work card's actions: the project's scripts, one already running in an agent's shell.
+  "thread-actions": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
-    await page.getByRole("button", { name: "Choose a script" }).click();
-    await page.getByRole("menu").waitFor();
+    await (
+      await openWorkCard(page)
+    )
+      .getByRole("button", { name: "Run bun run dev:relay, running: shows its terminal" })
+      .waitFor();
   },
   "thread-menu": async (page) => {
     await openThread("/t/thread-install-page")(page);
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menu", { name: "More actions" }).waitFor();
   },
-  // The bottom panel's terminal picks up the thread's running zsh.
-  "thread-terminal": bottomTab("/t/thread-cold-start", "zsh"),
+  // ⌘J's terminal picks up the thread's running zsh.
+  "thread-terminal": terminalTab,
   "thread-terminal-sessions": async (page) => {
-    await bottomTab("/t/thread-cold-start", "zsh")(page);
+    await terminalTab(page);
     await page.getByRole("button", { name: /^Terminal sessions/ }).click();
     await page.getByRole("menu").waitFor();
   },
   "thread-agent-shell": async (page) => {
-    await bottomTab("/t/thread-cold-start", "zsh")(page);
+    await terminalTab(page);
     await page.getByRole("button", { name: /^Terminal sessions/ }).click();
     await page.getByRole("menuitem", { name: /relay:soak/ }).click();
     await page.getByText("Agent shell").waitFor();
   },
-  // A script started from Run, in its own terminal tab.
+  // A script run from the work card's actions, in its own terminal tab.
   "thread-terminal-run": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
-    await page.getByRole("button", { name: "Run bun run dev:relay" }).click();
+    await runAction(page, "bun run dev:relay");
     await page
-      .getByRole("region", { name: "Bottom panel" })
+      .getByRole("region", { name: "Thread panel" })
       .getByRole("tab", { name: "dev:relay" })
       .waitFor();
   },
-  "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),
+  "thread-logs": logsTab,
   "thread-logs-daemon": async (page) => {
-    await bottomTab("/t/thread-cold-start", "Logs")(page);
+    await logsTab(page);
     await page.getByRole("button", { name: /^Log source/ }).click();
     await page.getByRole("menuitemradio", { name: "Daemon" }).click();
     await page.getByText("Event loop").waitFor();
@@ -511,10 +519,15 @@ const screens: Record<string, Setup> = {
     );
     await panel.getByRole("button", { name: "Reconnect" }).waitFor();
   },
-  "state-run-no-scripts": staged('daemon.setScripts("relay", []);', async (page) => {
+  "state-no-actions": staged('daemon.setScripts("relay", []);', async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
-    await page.getByRole("button", { name: "Choose a script" }).click();
-    await page.getByRole("menuitem", { name: /No scripts in this project/ }).waitFor();
+    await (
+      await openWorkCard(page)
+    )
+      .getByRole("region", { name: "Actions" })
+      .getByText(/^Add a script to package\.json/)
+      .first()
+      .waitFor();
   }),
   "state-accounts-loading": staged('daemon.holdRequests("accounts.list");', async (page) => {
     await visit("/more", "Usage & accounts")(page);

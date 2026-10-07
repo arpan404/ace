@@ -58,6 +58,16 @@ describe("window.ace bridge", () => {
     );
   });
 
+  it("hands the page an editor's icon only as a PNG data URL", async () => {
+    const icon = "data:image/png;base64,iVBORw0KGgo=";
+    const main = fakeIpc({ [requestChannel("shell.editorIcon")]: icon });
+    await expect(createBridge(main.ipc, info).shell.editorIcon("zed")).resolves.toBe(icon);
+    const odd = fakeIpc({ [requestChannel("shell.editorIcon")]: "https://example.com/zed.png" });
+    await expect(createBridge(odd.ipc, info).shell.editorIcon("zed")).rejects.toBeInstanceOf(
+      BridgeError,
+    );
+  });
+
   it("never sends requests the main process would have to reject", async () => {
     const main = fakeIpc();
     const ace = createBridge(main.ipc, info);

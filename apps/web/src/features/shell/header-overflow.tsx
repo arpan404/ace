@@ -8,8 +8,8 @@ const row = "flex flex-wrap items-center gap-1.5";
 const rule = "-mx-1.5 h-px bg-border";
 
 /**
- * The folded header's ⋯: the actions in a row, the header's tools (on a phone: search, summary,
- * the panels and their count) in another, then the title menu behind one more tap. Loaded when
+ * The folded header's ⋯: the actions in a row, the header's tools (on a phone: the work card
+ * and the side panel's toggle) in another, then the title menu behind one more tap. Loaded when
  * a header first folds (`AppHeader`), so a wide window never fetches the popover. With tools it
  * stays mounted while closed, so their shortcuts keep working.
  */
@@ -37,10 +37,11 @@ export function Overflow(props: {
         {props.tools && (
           <div
             className={row}
-            // A panel toggle opens a panel over the header (a sheet on a phone): the ⋯ steps
-            // aside instead of staying open under it, where Escape would close it first.
+            // Each tool opens something over the header (the side panel, the work card: sheets
+            // on a phone): the ⋯ steps aside instead of staying open under it, where Escape
+            // would close it first.
             onClick={(event) => {
-              if ((event.target as Element).closest("[data-dock-toggle]")) setOpen(false);
+              if ((event.target as Element).closest("button")) setOpen(false);
             }}
           >
             {props.tools}

@@ -38,16 +38,14 @@ const kinds = [
     label: "Terminal",
     icon: BrowserIcon,
     singleton: true,
-    docks: ["bottom", "right"],
     load: view,
   }),
 ];
 const definition = defineWorkspace({
   label: "Thread panel",
-  docks: ["right", "bottom"],
   kinds: async () => ({ default: kinds }),
   launcher: "new-tab",
-  initial: [{ kind: "changes", dock: "right", pinned: true }],
+  initial: [{ kind: "changes", pinned: true }],
 });
 // The kinds load after a screen's first paint; these tests act once they have.
 beforeAll(() => definition.load());
@@ -65,33 +63,69 @@ test("each thread keeps its own tabs and showing tab; one never leaks into anoth
   const { store, scope } = open();
   scope("a").open({ kind: "preview" });
   scope("b");
-  expect(store.get("a").right.tabs.map((tab) => tab.key)).toEqual(["changes", "preview"]);
-  expect(store.get("b").right.tabs.map((tab) => tab.key)).toEqual(["changes"]);
-  expect(store.get("b").right.open).toBe(false);
+  expect(store.get("a").tabs.map((tab) => tab.key)).toEqual(["changes", "preview"]);
+  expect(store.get("b").tabs.map((tab) => tab.key)).toEqual(["changes"]);
+  expect(store.get("b").open).toBe(false);
 });
 
-test("tabs, the showing tab and sizes come back after a reload", () => {
+test("tabs, the showing tab and the width come back after a reload", () => {
   const first = open();
   const a = first.scope("a");
   a.open({ kind: "preview" });
   a.activate("changes");
-  a.setSize("right", 610, true);
+  a.setSize(610, true);
 
   const again = open(first.storage);
   again.store.define("a", definition);
   const restored = again.store.get("a");
-  expect(restored.right.tabs.map((tab) => tab.key)).toEqual(["changes", "preview"]);
-  expect(shownTab(restored.right)?.key).toBe("changes");
-  expect(restored.right.open).toBe(true);
-  expect(restored.right.size).toBe(610);
+  expect(restored.tabs.map((tab) => tab.key)).toEqual(["changes", "preview"]);
+  expect(shownTab(restored)?.key).toBe("changes");
+  expect(restored.open).toBe(true);
+  expect(restored.size).toBe(610);
 });
 
-test("a resize becomes the size threads without one of their own start at", () => {
+/** A panel as an older build stored it. */
+const storedDock = (tabs: string[], shown: boolean) => ({
+  tabs: tabs.map((key) => ({ key, kind: key, id: key, pinned: key === "changes" })),
+  active: tabs[0],
+  open: shown,
+});
+
+test("a thread saved with a bottom panel comes back with its terminal in the side panel", () => {
+  const storage = memoryKeyValue();
+  storage.setItem(
+    "ace.workspace",
+    JSON.stringify({
+      preferred: { right: 560, bottom: 280 },
+      scopes: [
+        [
+          "a",
+          {
+            right: storedDock(["changes"], false),
+            bottom: storedDock(["terminal", "logs"], true),
+            expanded: false,
+            bottomMaximized: true,
+            summaryPinned: true,
+          },
+        ],
+      ],
+    }),
+  );
+  const { store } = open(storage);
+  store.define("a", definition);
+  const restored = store.get("a");
+  expect(restored.tabs.map((tab) => tab.key)).toEqual(["changes", "terminal", "logs"]);
+  expect(restored.open).toBe(true);
+  expect(shownTab(restored)?.key).toBe("terminal");
+  expect(store.preferred).toBe(560);
+});
+
+test("a resize becomes the width threads without one of their own start at", () => {
   const { store, scope } = open();
-  scope("a").setSize("bottom", 300, true);
-  expect(store.preferred.bottom).toBe(300);
+  scope("a").setSize(600, true);
+  expect(store.preferred).toBe(600);
   scope("b");
-  expect(store.get("b").bottom.size).toBeUndefined();
+  expect(store.get("b").size).toBeUndefined();
 });
 
 test("a resize still moving is written once it ends", () => {
@@ -99,20 +133,20 @@ test("a resize still moving is written once it ends", () => {
   const a = scope("a");
   a.open({ kind: "preview" });
   const before = storage.data.get("ace.workspace");
-  a.setSize("right", 700, false);
+  a.setSize(700, false);
   expect(storage.data.get("ace.workspace")).toBe(before);
-  a.setSize("right", 720, true);
+  a.setSize(720, true);
   expect(storage.data.get("ace.workspace")).toContain("720");
 });
 
-test("the panel sizes an older build kept carry over once", () => {
+test("the panel width an older build kept carries over once", () => {
   const storage = memoryKeyValue();
   storage.setItem(
     "ace.layout",
     JSON.stringify({ sidebarOpen: true, right: { open: true, tab: "agents", size: 640 } }),
   );
   const { store } = open(storage);
-  expect(store.preferred).toEqual({ right: 640, bottom: 240 });
+  expect(store.preferred).toBe(640);
 });
 
 test("only the most recently changed threads are kept", () => {
@@ -123,45 +157,48 @@ test("only the most recently changed threads are kept", () => {
     workspaceActions(store, id).open({ kind: "preview" });
   }
   const again = new WorkspaceStore({ storage, capacity: 2 });
-  expect(again.get("a").right.tabs).toEqual([]);
-  expect(again.get("c").right.tabs.map((tab) => tab.key)).toEqual(["changes", "preview"]);
+  expect(again.get("a").tabs).toEqual([]);
+  expect(again.get("c").tabs.map((tab) => tab.key)).toEqual(["changes", "preview"]);
 });
 
-test("opening an empty dock opens a new tab to choose from, and new tabs never collide", () => {
+test("new tabs to choose from never collide", () => {
   const { store, scope } = open();
   const a = scope("a");
-  a.toggle("bottom");
-  a.newTab("bottom");
-  expect(store.get("a").bottom.tabs.map((tab) => tab.key)).toEqual(["new-tab:1", "new-tab:2"]);
-  expect(store.get("a").bottom.open).toBe(true);
+  a.newTab();
+  a.newTab();
+  expect(store.get("a").tabs.map((tab) => tab.key)).toEqual(["changes", "new-tab:1", "new-tab:2"]);
+  expect(store.get("a").open).toBe(true);
 });
 
-test("a tool's shortcut shows it, and pressed again while it shows hides its dock", () => {
+test("showing an empty panel opens a new tab to choose from", () => {
+  const store = new WorkspaceStore({ storage: memoryKeyValue() });
+  const bare = defineWorkspace({
+    label: "Panel",
+    kinds: async () => ({ default: kinds }),
+    launcher: "new-tab",
+    initial: [],
+  });
+  store.define("a", bare);
+  workspaceActions(store, "a").toggle();
+  expect(store.get("a").tabs.map((tab) => tab.key)).toEqual(["new-tab:1"]);
+  expect(store.get("a").open).toBe(true);
+});
+
+test("a tool's shortcut shows it, and pressed again while it shows hides the panel", () => {
   const { store, scope } = open();
   const a = scope("a");
   a.toggleKind("terminal");
-  expect(store.get("a").bottom.open).toBe(true);
-  expect(shownTab(store.get("a").bottom)?.key).toBe("terminal");
+  expect(store.get("a").open).toBe(true);
+  expect(shownTab(store.get("a"))?.key).toBe("terminal");
   a.toggleKind("terminal");
-  expect(store.get("a").bottom.open).toBe(false);
-  expect(store.get("a").bottom.tabs.map((tab) => tab.key)).toEqual(["terminal"]);
+  expect(store.get("a").open).toBe(false);
+  expect(store.get("a").tabs.map((tab) => tab.key)).toEqual(["changes", "terminal"]);
 });
 
-test("a tool moves only to a dock it may sit in", () => {
-  const { store, scope } = open();
-  const a = scope("a");
-  a.open({ kind: "terminal" });
-  a.moveToDock("terminal", "right");
-  expect(store.get("a").right.tabs.map((tab) => tab.key)).toContain("terminal");
-  a.moveToDock("changes", "bottom");
-  expect(store.get("a").bottom.tabs.map((tab) => tab.key)).not.toContain("changes");
-});
-
-test("a tool asked for before the kinds have loaded opens once they have, in its own dock", async () => {
+test("a tool asked for before the kinds have loaded opens once they have", async () => {
   const { promise, resolve: arrive } = Promise.withResolvers<{ default: typeof kinds }>();
   const late = defineWorkspace({
     label: "Thread panel",
-    docks: ["right", "bottom"],
     kinds: () => promise,
     launcher: "new-tab",
     initial: [],
@@ -169,10 +206,10 @@ test("a tool asked for before the kinds have loaded opens once they have, in its
   const store = new WorkspaceStore({ storage: memoryKeyValue() });
   store.define("a", late);
   workspaceActions(store, "a").toggleKind("terminal");
-  expect(store.get("a").bottom.open).toBe(false);
+  expect(store.get("a").open).toBe(false);
 
   arrive({ default: kinds });
   await late.load();
-  expect(store.get("a").bottom.tabs.map((tab) => tab.key)).toEqual(["terminal"]);
-  expect(store.get("a").bottom.open).toBe(true);
+  expect(store.get("a").tabs.map((tab) => tab.key)).toEqual(["terminal"]);
+  expect(store.get("a").open).toBe(true);
 });

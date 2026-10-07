@@ -6,7 +6,7 @@ import { AppHeader, type HeaderProps } from "./app-header.tsx";
 import { ConnectionNotice } from "./connection-notice.tsx";
 import { Workspace } from "./workspace/workspace.tsx";
 
-/** A screen's docks: the resources opened beside it, kept per `scope` (a thread's id). */
+/** A screen's side panel: the resources opened beside it, kept per `scope` (a thread's id). */
 export interface ScreenWorkspace {
   scope: string;
   definition: WorkspaceDefinition;
@@ -14,7 +14,7 @@ export interface ScreenWorkspace {
 
 /**
  * The main column of every route: the shared header, the content and, where a screen has a
- * workspace, the side and bottom docks. Slices fill `children` and register tab kinds; the
+ * workspace, the side panel beside it. Slices fill `children` and register tab kinds; the
  * frame, keyboard map, persistence and motion are the shell's.
  */
 export function Screen(
@@ -25,7 +25,7 @@ export function Screen(
 ) {
   const [scrolled, setScrolled] = useState(false);
   const pane = useRef<HTMLElement>(null);
-  // Toasts stand in this pane's bottom-right corner, clear of the docks beside and below it.
+  // Toasts stand in this pane's bottom-right corner, clear of the panel beside it.
   useToastAnchor(pane);
   // Any scroller inside the content draws the header hairline once it leaves the top.
   const onScroll = (event: UIEvent) => {
@@ -48,7 +48,7 @@ export function Screen(
       title={props.title}
       subtitle={props.subtitle}
       menu={props.menu}
-      summary={props.summary}
+      tools={props.tools}
       actions={props.actions}
       status={props.status}
       scrolled={scrolled}

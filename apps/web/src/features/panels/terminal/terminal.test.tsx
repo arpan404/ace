@@ -9,7 +9,7 @@ beforeEach(() => localStorage.clear());
 /**
  * The cold-start thread with two shells of yours already running in the daemon (`tests`, which
  * ran the test suite, and `zsh`, which ran git status) and the agent's background soak relay.
- * ⌃` shows the bottom panel's terminal.
+ * ⌃` shows the thread's terminal as a tab of the side panel.
  */
 async function openTerminal(through = "turn-2") {
   const app = harness();
@@ -19,7 +19,7 @@ async function openTerminal(through = "turn-2") {
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await userEvent.keyboard("{Control>}`{/Control}");
-  const panel = await screen.findByRole("region", { name: "Bottom panel" });
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
   return { app, script, panel, terminals: app.daemon.terminals };
 }
 const names = (app: ReturnType<typeof harness>) =>
@@ -34,6 +34,8 @@ async function openSession(panel: HTMLElement, name: RegExp) {
   await userEvent.click(within(panel).getByRole("button", { name: /^Terminal sessions/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name }));
 }
+/** New terminal, from the sessions menu a terminal tab shows. */
+const newTerminal = (panel: HTMLElement) => openSession(panel, /^New terminal/);
 
 test("⌃` picks up a running shell of the thread that no tab shows, rather than starting another", async () => {
   const { app, panel } = await openTerminal();
@@ -80,10 +82,10 @@ test("a shell that exits says so, takes no more input and can start again in the
   await waitFor(() => expect(output(panel, "zsh output").textContent).toContain("/Users/dev/ace"));
 });
 
-test("the bottom panel's + opens another shell named after the first (zsh 2), and closing its tab ends that shell", async () => {
+test("New terminal opens another shell named after the first (zsh 2), and closing its tab ends that shell", async () => {
   const { app, panel } = await openTerminal();
   await selectedTab(panel, "zsh");
-  await userEvent.click(within(panel).getByRole("button", { name: "New terminal" }));
+  await newTerminal(panel);
   expect(await selectedTab(panel, "zsh 2")).toBeTruthy();
   await userEvent.type(
     await within(panel).findByRole("textbox", { name: "zsh 2 input" }),
@@ -149,26 +151,24 @@ test("a shell that already exited closes without asking", async () => {
   expect(names(app)).toContain("tests");
 });
 
-test("⌥-click on the bottom panel's + opens a new tab's launcher there instead", async () => {
+test("the panel's + opens a new tab's launcher beside the terminals", async () => {
   const { panel } = await openTerminal();
   await selectedTab(panel, "zsh");
-  const user = userEvent.setup();
-  await user.keyboard("{Alt>}");
-  await user.click(within(panel).getByRole("button", { name: "New terminal" }));
-  await user.keyboard("{/Alt}");
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   expect(await selectedTab(panel, "New tab")).toBeTruthy();
   expect(await within(panel).findByRole("list", { name: "Tools" })).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: "zsh" })).toBeTruthy();
 });
 
-test("hiding the bottom panel keeps every shell, and showing it again returns to the same one", async () => {
+test("hiding the side panel keeps every shell, and ⌘J returns to the same one", async () => {
   const { app, panel } = await openTerminal();
   await selectedTab(panel, "zsh");
-  await userEvent.click(within(panel).getByRole("button", { name: "Hide bottom panel" }));
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Bottom panel" })).toBeNull());
+  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
   expect(names(app)).toEqual(["tests", "zsh"]);
 
   await userEvent.keyboard("{Meta>}j{/Meta}");
-  const shown = await screen.findByRole("region", { name: "Bottom panel" });
+  const shown = await screen.findByRole("region", { name: "Thread panel" });
   expect(await selectedTab(shown, "zsh")).toBeTruthy();
   await waitFor(() =>
     expect(output(shown, "zsh output").textContent).toContain("M apps/server/src/replay.ts"),
@@ -227,7 +227,7 @@ test("the transcript's background command opens its shell's output", async () =>
   await userEvent.click(
     await screen.findByRole("button", { name: "Show output of bun run relay:soak --clients 2" }),
   );
-  const panel = await screen.findByRole("region", { name: "Bottom panel" });
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(await selectedTab(panel, "relay:soak")).toBeTruthy();
 });
 
@@ -358,7 +358,7 @@ test("terminals you stopped looking at give their streams back, so the next one 
   await selectedTab(panel, "zsh");
   // The daemon streams at most eight terminals to a connection.
   for (let n = 1; n <= 9; n++) {
-    await userEvent.click(within(panel).getByRole("button", { name: "New terminal" }));
+    await newTerminal(panel);
     expect(await selectedTab(panel, `zsh ${n + 1}`)).toBeTruthy();
   }
   await userEvent.type(
@@ -397,15 +397,16 @@ test("a tab whose shell the daemon no longer runs says it has ended and starts a
   await waitFor(() => expect(names(app)).toEqual(["tests", "Terminal"]));
 });
 
-test("with Logs showing, the bottom panel still offers the thread's shells and counts the unseen ones", async () => {
+test("Logs opens as a tab beside the terminal, and going back to the terminal still counts the unseen shells", async () => {
   const { panel } = await openTerminal();
   await selectedTab(panel, "zsh");
   await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
   expect(await selectedTab(panel, "Logs")).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: "zsh" })).toBeTruthy();
+  await userEvent.click(within(panel).getByRole("tab", { name: "zsh" }));
   // `tests` and the agent's soak relay run in no tab.
   expect(
     await within(panel).findByRole("button", { name: "Terminal sessions, 2 not shown" }),
   ).toBeTruthy();
-  // Once, however many tabs show.
   expect(within(panel).getAllByRole("button", { name: /^Terminal sessions/ })).toHaveLength(1);
 });

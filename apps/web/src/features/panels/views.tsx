@@ -6,7 +6,7 @@ import { PreviewTab } from "./preview/preview-tab.tsx";
 import { WithServices } from "./with-services.tsx";
 
 /*
- * The thread's tools as workspace tab views, loaded as one chunk the first time a dock shows one
+ * The thread's tools as workspace tab views, loaded as one chunk the first time the panel shows one
  * (ADR 0056 route budget). Each adapts an existing tab to `TabViewProps`; the scope is the
  * thread id. Terminals, agent shells and Logs load their own chunks (`terminal/`, `logs/`).
  */

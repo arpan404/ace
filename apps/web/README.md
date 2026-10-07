@@ -174,19 +174,21 @@ Rules:
   Weights 400/500 (600 for titles only).
 - Keep files under ~400 lines (hard limit 1,500, `bun run check:size`).
 
-## Workspace tabs (side and bottom docks)
+## Workspace tabs (the side panel)
 
-A screen with docks passes `workspace={{ scope, definition }}` to `<Screen>`; the thread screen
-passes its id and `threadWorkspace` (`features/panels/thread-workspace.ts`). A **tab** is one
-opened resource (Changes, a terminal, a browser page, a file); a **dock** (`right` beside the
-column, `bottom` under the column and the right dock) shows one tab at a time. Hiding a dock keeps
-its tabs; closing a tab removes one resource. Each scope (thread) keeps its own tabs, showing tab,
-open docks, sizes, full view and pinned summary (`lib/workspace`, persisted under
-`ace.workspace`, the 64 most recently changed threads); the last resize anywhere is the size new
-threads start at.
+A screen with a side panel passes `workspace={{ scope, definition }}` to `<Screen>`; the thread
+screen passes its id and `threadWorkspace` (`features/panels/thread-workspace.ts`). A **tab** is
+one opened resource (Changes, a terminal, Logs, a browser page, a file); the **side panel** beside
+the column shows one tab at a time. There is no bottom panel: terminals and Logs are tabs like the
+rest. Hiding the panel keeps its tabs; closing a tab removes one resource. Each scope (thread)
+keeps its own tabs, showing tab, whether the panel shows, its width and full view
+(`lib/workspace`, persisted under `ace.workspace`, the 64 most recently changed threads); the last
+resize anywhere is the width new threads start at. A thread saved by an older build with a bottom
+panel comes back with that panel's tabs (its terminals and Logs) after the side panel's, the one
+that was showing still showing.
 
-The shell owns the strip (order, drag and keyboard reorder, close, pin, move between docks,
-overflow, the + launcher), sizes, full view, motion, persistence and shortcuts. A tool declares a
+The shell owns the strip (order, drag and keyboard reorder, close, pin, overflow, the + launcher),
+the width, full view, motion, persistence and shortcuts. A tool declares a
 **kind** in `features/panels/thread-kinds.tsx`, a module that loads after the thread screen's
 first paint, so a kind's icon, badge and loader never weigh on the route (ADR 0056):
 
@@ -197,7 +199,6 @@ export const fileKind = defineTabKind({
   kind: "file", // persisted with every tab: never rename one that shipped
   label: "Files",
   icon: FilesIcon,
-  docks: ["right"], // allowed docks, preferred first (default: right)
   singleton: false, // one tab per id; `true` for a per-thread tool like Changes
   pinned: false, // `true` opens as a tool tab at the front, without a close button
   launcher: 30, // position on the + launcher; leave out to keep it off
@@ -207,19 +208,19 @@ export const fileKind = defineTabKind({
   fromFile: (path) => ({ kind: "file", id: path }), // lets the launcher's Suggested open files
   fromUrl: (url, workspace) => ({ kind: "browser", id: "2", data: { url } }), // the launcher's address bar
   onShortcut: (scope) => {}, // the tool's shortcut does this instead of showing its tab (⌘P)
-  Overlay: QuickOpen, // drawn once per screen outside the docks (a palette the shortcut opens)
+  Overlay: QuickOpen, // drawn once per screen outside the panel (a palette the shortcut opens)
 });
 ```
 
 - List the kind in `threadKinds`. If it has a shortcut, add `kind → keymap id` to `shortcuts` in
   `thread-workspace.ts` (bound from first paint; pressed before the kinds have loaded, the tool
   opens once they have). Nothing in the shell changes.
-- The view gets `TabViewProps` (`scope`, `tab`, `dock`) and reads live state from
+- The view gets `TabViewProps` (`scope`, `tab`) and reads live state from
   `@ace/client-react` as any screen does. Tabs not showing stay mounted inside
   `<Activity mode="hidden">`; a view whose code fails to load shows the error and Try again in
   its own tab.
-- `Actions` renders at the end of the dock's strip while one of the kind's tabs shows (New
-  terminal, Clear).
+- `Actions` renders at the end of the panel's strip while one of the kind's tabs shows (a
+  terminal's Find and sessions menu, Clear).
 - Open things from anywhere with `useWorkspaceActions(threadId).open({ kind, id?, data? })`;
   opening a resource that is already open shows it (applying `data`). `data` is JSON kept with the
   tab across reloads: validate it in the view, it comes from storage.
@@ -252,9 +253,9 @@ drawn over it, and the last screencast frame shows meanwhile. A tab whose page i
 a restart) offers to open its address again. Back and Forward re-open the tab's earlier
 addresses: the relay has no history or stop commands. Preview is only a thread's dev servers through the preview gateway.
 
-Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌘J bottom panel, ⇧⌘F full view, ⌥⌘T new tab,
+Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌥⌘O the thread's work card, ⇧⌘F full view, ⌥⌘T new tab,
 ⌥⌘W close tab, ⇧⌘] and ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,
-⌃` Terminal, ⌃⇧B Browser, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P quick open, ⌥⌘S Side chat).
+⌃` or ⌘J Terminal, ⌃⇧B Browser, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P quick open, ⌥⌘S Side chat).
 In a browser tab: ⌘L the address, ⌘R reload, ⌘[ and ⌘] back and forward; in a file, ⌘F find. While a
 terminal shows, ⌃⇧` opens another and ⌘F finds in its scrollback.
 
@@ -263,11 +264,10 @@ terminal shows, ⌃⇧` opens another and ⌘F finds in its scrollback.
 `features/panels/terminal/tabs.ts` names them (open them with `useWorkspaceActions(threadId).open`):
 
 - `{ kind: "terminal", id: <pty id> }`: one of your PTYs. Closing its tab ends the shell (through
-  `terminal/closing.ts`, since `onClose` has no client); hiding the dock never does. Rename keeps a
+  `terminal/closing.ts`, since `onClose` has no client); hiding the panel never does. Rename keeps a
   tab title for this thread on this device.
 - `{ kind: "terminal" }`: a terminal that starts when it first shows, picking up a running PTY of
-  the thread that no tab shows, else opening one (the launcher, ⌃`, the bottom panel's first tab).
-`openNewTerminal` always starts a new shell, reusing that tab if it hasn't started yet.
+  the thread that no tab shows, else opening one (the launcher, ⌃`and ⌘J).`openNewTerminal` always starts a new shell, reusing that tab if it hasn't started yet.
 - `{ kind: "shell", id: <task id> }`: an agent's background shell, read-only (Stop where the
   provider allows; Take over says why it can't). Closing the tab leaves the shell running.
 - `{ kind: "logs", id? }`: the thread's log (no id), one agent's subtree (`agent:<id>`) or the
@@ -277,7 +277,19 @@ Inside a terminal the shell keeps Ctrl keys (`terminal/keys.ts`); ⌘ and Ctrl+S
 ace's, and ⌃` always leaves. Colours come from the theme (`terminal/palette.ts`): 13px text on 20px
 rows. In a strip: arrows
 move between tabs and show them, Home and End jump, Delete closes, Alt+Shift+arrows reorder;
-right-click (or the context-menu key) for pin, move, full view and close.
+right-click (or the context-menu key) for full view, pin, move and close.
+
+### The thread header and its work card
+
+The thread header holds only navigation, the title, its ⋯ menu (the thread's actions, then
+Search this thread and Turns), the work card's button and the side panel's toggle. The work card
+(`features/thread/header/work-card*.tsx`, loaded after first paint) floats under the header's
+right end, a sheet on a phone: the project and where the thread runs (the environment menu:
+folder, branch, commit, machine; switch branch, move to a worktree), Changes, the branch with its
+next git step (Commit & push, Push, Create PR) and every git action, the branch's pull request,
+the project's scripts as Actions (searchable, each running in a terminal tab), Open in (each
+editor with its own app icon from the OS in the desktop app, `shell.editorIcon`) and the tools
+the thread's agents have as Sources. Escape or a click outside closes it.
 
 ## Long threads
 

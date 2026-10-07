@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { openWorkCard, runAction } from "./thread-header.ts";
 
 /**
  * Records one continuous walkthrough of the core journeys against the fake daemon to
@@ -60,8 +61,8 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await page.getByRole("menuitem", { name: "Send now" }).click();
   await beat();
 
-  // Run: the project's script in its own terminal tab.
-  await page.getByRole("button", { name: "Run bun run dev:relay" }).click();
+  // Run: the project's script from the work card, in a terminal tab of the side panel.
+  await runAction(page, "bun run dev:relay");
   await beat(1200);
 
   // The agent tree, then Changes with a line comment.
@@ -88,7 +89,6 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await page.getByRole("button", { name: "Right panel" }).click();
   await beat(900);
 
-  // The bottom panel stays open on the terminal Run started.
   // Devices: enable them, then watch the simulator live.
   await panel.getByRole("button", { name: "New tab" }).click();
   await beat(600);
@@ -105,14 +105,18 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await phone.getByRole("button", { name: "Start live view" }).click();
   await beat(1500);
 
-  // Commit what changed, from the git control.
+  // Commit what changed, from the work card's git actions.
   await page.goto("/t/thread-retry-budget");
   await transcript.waitFor();
-  await page.getByRole("button", { name: "Commit", exact: true }).click();
+  const card = await openWorkCard(page);
+  await beat(900);
+  await card.getByRole("button", { name: "Git actions" }).click();
+  await beat(600);
+  await page.getByRole("menuitem", { name: /^Commit…/ }).click();
   await beat(900);
   await page
     .getByRole("dialog", { name: "Commit changes" })
-    .getByRole("button", { name: "Commit" })
+    .getByRole("button", { name: "Commit", exact: true })
     .click();
   await beat(1200);
 
@@ -171,9 +175,9 @@ test("walkthrough of the core journeys", async ({ page }) => {
 });
 
 /**
- * The workspace and composer: the summary, the launcher, Files with ⌘P, the Browser, reordering,
- * a subagent's tab, a review comment, a device, the bottom terminal, the composer's controls and
- * a thread switch, recorded to /tmp/aceshots-web/walkthrough-workspace.webm.
+ * The workspace and composer: the work card, the launcher, Files with ⌘P, the Browser,
+ * reordering, a subagent's tab, a review comment, a device, the terminal, the composer's controls
+ * and a thread switch, recorded to /tmp/aceshots-web/walkthrough-workspace.webm.
  */
 test("walkthrough of the workspace and composer", async ({ page }) => {
   test.setTimeout(180_000);
@@ -182,7 +186,6 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
       localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
   });
   const panel = page.getByRole("region", { name: "Thread panel" });
-  const bottom = page.getByRole("region", { name: "Bottom panel" });
   const launch = async (tool: string) => {
     await panel.getByRole("button", { name: "New tab" }).click();
     await beat(600);
@@ -197,10 +200,10 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
   await page.getByRole("feed", { name: "Transcript" }).waitFor();
   await beat(1000);
 
-  // The pinned summary: changes, subagents and sources at a glance.
-  await page.getByRole("button", { name: "Pin thread summary" }).click();
+  // The work card: changes, branch, actions, editors and sources at a glance.
+  await openWorkCard(page);
   await beat(1200);
-  await page.getByRole("button", { name: "Unpin thread summary" }).first().click();
+  await page.keyboard.press("Escape");
   await beat(500);
 
   // The side panel and its launcher.
@@ -264,21 +267,23 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
     .click();
   await beat(1200);
 
-  // The bottom terminal: a new shell, hidden and shown again with ⌘J.
+  // The terminal: ⌘J shows it in the side panel; a new shell, then the panel hidden and a
+  // terminal shown again with ⌘J.
   await page.keyboard.press("ControlOrMeta+j");
-  await bottom.getByRole("tab", { name: "zsh", selected: true }).waitFor();
+  await panel.getByRole("tab", { name: "zsh", selected: true }).waitFor();
   await beat(600);
-  await bottom.getByRole("button", { name: "New terminal" }).click();
-  await bottom.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
+  await panel.getByRole("button", { name: /^Terminal sessions/ }).click();
+  await beat(500);
+  await page.getByRole("menuitem", { name: /^New terminal/ }).click();
+  await panel.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
+  await panel.getByRole("group", { name: "zsh 2 terminal" }).click();
   await page.keyboard.type("git status", { delay: 40 });
   await page.keyboard.press("Enter");
   await beat(1200);
-  await bottom.getByRole("button", { name: "Hide bottom panel" }).click();
+  await panel.getByRole("button", { name: "Right panel" }).click();
   await beat(700);
   await page.keyboard.press("ControlOrMeta+j");
   await beat(1000);
-  await bottom.getByRole("button", { name: "Hide bottom panel" }).click();
-  await beat(500);
 
   // The composer: two lines, an attachment, approvals and the model menu.
   const message = page.getByRole("combobox", { name: "Message" });

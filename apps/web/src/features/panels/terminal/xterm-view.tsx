@@ -28,7 +28,7 @@ function estimateCell(fontFamily: string): number {
   return context.measureText("W").width || terminalText.size * 0.6;
 }
 
-/** Daemon resizes wait this long after the last change, so dragging a dock sends a few. */
+/** Daemon resizes wait this long after the last change, so dragging the panel edge sends a few. */
 const resizeSettleMs = 80;
 
 export function XtermView(props: {
