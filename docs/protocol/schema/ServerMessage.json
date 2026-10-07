@@ -27,6 +27,18 @@
       "$ref": "https://ace.local/protocol/v1/ProvidersResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProviderLoginResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ProviderLoginEvent.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/OnboardingResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ProvidersChanged.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/PreviewResult.json"
     },
     {

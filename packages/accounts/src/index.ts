@@ -1,4 +1,11 @@
-export { createInstance, instanceEnv, discoverHomes, loginStatus, loginArgs } from "./instances.ts";
+export {
+  createInstance,
+  instanceEnv,
+  discoverHomes,
+  loginStatus,
+  loginArgs,
+  logoutArgs,
+} from "./instances.ts";
 export { addAccount } from "./login.ts";
 export { AccountRegistry, openRegistry, openRegistryIndex } from "./registry.ts";
 export { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
@@ -34,3 +41,11 @@ export { daemonCursorAuth, cursorDaemonDriver, type CursorCliAuth } from "./curs
 export { assertManagedHome } from "./managed-home.ts";
 
 export { canonicalHome } from "./paths.ts";
+
+export {
+  ProviderLoginSessions,
+  type ProviderLoginDriver,
+  type LoginUpdate,
+  type LoginSessionsOptions,
+} from "./login-sessions.ts";
+export { loginObservation, loginUrl } from "./login-output.ts";

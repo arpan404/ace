@@ -27,6 +27,204 @@
       "$ref": "https://ace.local/protocol/v1/ProvidersRequest.json"
     },
     {
+      "additionalProperties": false,
+      "properties": {
+        "instance": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.login.start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instance": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.logout",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.login.terminal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.login.poll",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.login.cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/ProviderLoginInput.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.login.input",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "onboarding.query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "dismissed": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "onboarding.dismiss",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "dismissed"
+      ],
+      "type": "object"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/PreviewRequest.json"
     },
     {

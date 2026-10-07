@@ -1,3 +1,11 @@
+import {
+  ProviderLoginRequest,
+  ProviderLoginResult,
+  ProviderLoginEvent,
+  OnboardingRequest,
+  OnboardingResult,
+  ProvidersChanged,
+} from "./provider-login.ts";
 import { ActivityReadsChanged, ActivityReadsRequest, ActivityReadsResult } from "./activity.ts";
 import { ProvidersRequest, ProvidersResult } from "./provider-status.ts";
 import {
@@ -138,6 +146,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   HostIdentityRequest,
   MachinesRequest,
   ProvidersRequest,
+  ...ProviderLoginRequest.options,
+  ...OnboardingRequest.options,
   PreviewRequest,
   ConductorRequest,
   ...AutomationRequest.options,
@@ -196,6 +206,10 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HostIdentityResult,
   MachinesResult,
   ProvidersResult,
+  ProviderLoginResult,
+  ProviderLoginEvent,
+  OnboardingResult,
+  ProvidersChanged,
   PreviewResult,
   ConductorResult,
   ConductorChanged,

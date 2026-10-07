@@ -6,7 +6,8 @@
       "default": "list",
       "enum": [
         "list",
-        "refresh"
+        "refresh",
+        "readiness"
       ],
       "type": "string"
     },

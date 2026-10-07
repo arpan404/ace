@@ -1,0 +1,64 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderLoginResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "progress": {
+              "$ref": "https://ace.local/protocol/v1/ProviderLoginProgress.json"
+            }
+          },
+          "required": [
+            "ok",
+            "progress"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "error": {
+              "enum": [
+                "forbidden",
+                "unavailable",
+                "busy",
+                "not_found",
+                "invalid_input"
+              ],
+              "type": "string"
+            },
+            "ok": {
+              "const": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "provider.login.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

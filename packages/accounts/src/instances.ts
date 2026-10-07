@@ -123,7 +123,11 @@ export async function loginStatus(instance: ProviderInstance, options: Discovery
   });
   // This credential-store selector is hidden, so do not trust unknown releases
   // to isolate auth merely because they accept data/config directory variables.
-  if (instance.provider === "cursor" && result.version !== "2026.09.26-dd393fe")
+  if (
+    instance.provider === "cursor" &&
+    !instance.implicit &&
+    result.version !== "2026.09.26-dd393fe"
+  )
     return {
       ...result,
       auth: "unknown" as const,
@@ -143,6 +147,11 @@ export function loginArgs(
   if (provider === "pi") return [];
   if (provider === "claude") return ["auth", "login", mode === "api" ? "--console" : "--claudeai"];
   return provider === "cursor" ? ["login"] : ["auth", "login"];
+}
+
+export function logoutArgs(provider: Provider): string[] {
+  if (provider === "pi") return [];
+  return provider === "codex" || provider === "cursor" ? ["logout"] : ["auth", "logout"];
 }
 
 /** Conventional homes only; no auth files, no recursion, capped inventory. */

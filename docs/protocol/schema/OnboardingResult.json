@@ -1,0 +1,99 @@
+{
+  "$id": "https://ace.local/protocol/v1/OnboardingResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "dismissed": {
+              "type": "boolean"
+            },
+            "next": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "start_thread",
+                    "sign_in",
+                    "install",
+                    "refresh",
+                    "configure"
+                  ],
+                  "type": "string"
+                },
+                "provider": {
+                  "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "type": "object"
+            },
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "providers": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ProviderStatus.json"
+              },
+              "maxItems": 16,
+              "type": "array"
+            },
+            "ready": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+              },
+              "maxItems": 16,
+              "type": "array"
+            }
+          },
+          "required": [
+            "ok",
+            "dismissed",
+            "providers",
+            "ready",
+            "next"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "error": {
+              "enum": [
+                "forbidden",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "ok": {
+              "const": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "onboarding.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}
