@@ -104,7 +104,7 @@ function BranchRow(props: { git: GitFlow; onClose(): void }) {
 
 /** The next git step: a quiet pill, so it reads as the row's one action. */
 const stepButton =
-  "focus-ring inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground/6 px-2.5 text-sm font-medium text-foreground transition-colors duration-(--dur-1) hover:bg-foreground/10 disabled:text-muted-foreground aria-disabled:text-muted-foreground aria-disabled:hover:bg-foreground/6";
+  "focus-ring inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground/5 px-2.5 text-sm font-medium transition-colors duration-(--dur-1) hover:bg-foreground/8 disabled:text-muted-foreground";
 
 /** The one git step that moves the branch on: commit (and push), push, or open a PR. */
 function NextStep(props: { git: GitFlow; checkout: Checkout }) {
@@ -115,7 +115,7 @@ function NextStep(props: { git: GitFlow; checkout: Checkout }) {
     return (
       <button
         type="button"
-        className={stepButton}
+        className={`${stepButton} text-foreground`}
         disabled={git.pending}
         onClick={() => git.open("commit-push")}
       >
@@ -124,7 +124,12 @@ function NextStep(props: { git: GitFlow; checkout: Checkout }) {
     );
   if (step.kind === "push")
     return (
-      <button type="button" className={stepButton} disabled={git.pending} onClick={git.push}>
+      <button
+        type="button"
+        className={`${stepButton} text-foreground`}
+        disabled={git.pending}
+        onClick={git.push}
+      >
         Push
       </button>
     );
@@ -132,7 +137,7 @@ function NextStep(props: { git: GitFlow; checkout: Checkout }) {
     <Tip label={step.blocked ?? "Open a pull request for this branch"}>
       <button
         type="button"
-        className={stepButton}
+        className={`${stepButton} ${step.blocked ? "text-muted-foreground" : "text-foreground"}`}
         aria-disabled={step.blocked || git.pending ? true : undefined}
         aria-description={step.blocked}
         onClick={() => !step.blocked && !git.pending && git.open("pr")}

@@ -9,8 +9,13 @@ import { OpenInSection } from "./work-card-open-in.tsx";
 import { SourcesSection } from "./work-card-sources.tsx";
 import { Rule } from "./work-card-parts.tsx";
 
-/** The phone sheet's scrim (inline: a one-off value, ADR 0056 CSS budget). */
+/** The phone sheet's scrim and both shapes' sizes (inline: one-off values, ADR 0056 CSS budget). */
 const scrim = { background: "color-mix(in oklab, black 40%, transparent)" };
+const sheetSize = {
+  maxHeight: "85dvh",
+  paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
+};
+const floatingSize = { width: 352, maxWidth: "calc(100% - 24px)", maxHeight: "calc(100% - 16px)" };
 
 /** Popups the card opens (its menus, the commit form) and its toggle: clicks there keep it open. */
 const ownPopups =
@@ -92,10 +97,11 @@ function Floating(props: { onClose(returnFocus: boolean): void; children: ReactN
         role="dialog"
         aria-label="Work card"
         tabIndex={-1}
+        style={phone ? sheetSize : floatingSize}
         className={
           phone
-            ? "fx-rise-in fixed inset-x-0 bottom-0 z-40 flex max-h-[85dvh] flex-col overflow-y-auto rounded-t-xl bg-popover px-2 pb-[max(env(safe-area-inset-bottom),12px)] shadow-glass outline-none"
-            : "isolate fx-rise-in absolute top-2 right-3 z-10 flex max-h-[calc(100%-16px)] w-[352px] max-w-[calc(100%-24px)] flex-col overflow-y-auto rounded-xl bg-popover p-2 shadow-glass outline-none"
+            ? "fx-rise-in fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-y-auto rounded-t-xl bg-popover px-2 shadow-glass outline-none"
+            : "isolate fx-rise-in absolute top-2 right-3 z-10 flex flex-col overflow-y-auto rounded-xl bg-popover p-2 shadow-glass outline-none"
         }
       >
         {phone && (

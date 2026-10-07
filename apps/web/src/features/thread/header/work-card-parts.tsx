@@ -48,14 +48,15 @@ export function Rule() {
   return <hr aria-hidden className="mx-2.5 my-1.5 border-t border-border" />;
 }
 
+/** The fade at a cut line's end (inline: a one-off value, ADR 0056 CSS budget). */
+const fade = { maskImage: "linear-gradient(to right, black calc(100% - 24px), transparent)" };
+
 /** Text that fades out where it is cut, rather than ending in an ellipsis. */
 export function Fade(props: { children: ReactNode; className?: string }) {
   return (
     <span
-      className={cn(
-        "min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)]",
-        props.className,
-      )}
+      style={fade}
+      className={cn("min-w-0 flex-1 overflow-hidden whitespace-nowrap", props.className)}
     >
       {props.children}
     </span>
