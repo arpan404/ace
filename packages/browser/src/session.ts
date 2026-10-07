@@ -339,10 +339,12 @@ export class BrowserSession {
     actor: Actor,
     signal: AbortSignal | undefined,
     generation: number,
+    beforeInput?: () => void,
   ): Promise<unknown> {
     const epoch = this.ownership.epoch;
     return executeBrowserCommand(command, actor, signal, generation, {
       options: this.options,
+      beforeInput,
       refs: this.refs,
       logs: this.logs,
       policies: this.policies,

@@ -21,7 +21,11 @@ export async function dragRefs(
   start: { x: number; y: number },
   end: { x: number; y: number },
   check: () => void,
+  cleanupCheck: () => void = check,
+  beforeInput?: () => void,
 ): Promise<void> {
+  let pressed = false;
+  let point = start;
   let drag: z.infer<typeof Drag>["data"] | undefined;
   const intercepted = (raw: unknown) => {
     const event = Drag.safeParse(raw);
@@ -30,7 +34,15 @@ export async function dragRefs(
   cdp.on("Input.dragIntercepted", intercepted);
   const send = async (method: string, params: Record<string, unknown>) => {
     check();
+    if (method === "Input.dispatchMouseEvent") {
+      beforeInput?.();
+      if (params["type"] === "mousePressed") pressed = true;
+      if (typeof params["x"] === "number" && typeof params["y"] === "number")
+        point = { x: params["x"], y: params["y"] };
+    }
     await cdp.send(method, params);
+    if (method === "Input.dispatchMouseEvent" && params["type"] === "mouseReleased")
+      pressed = false;
   };
   try {
     await send("Input.setInterceptDrags", { enabled: true });
@@ -68,6 +80,21 @@ export async function dragRefs(
     });
   } finally {
     cdp.off("Input.dragIntercepted", intercepted);
+    if (pressed) {
+      // Abort stops new movement, but release our held pointer only on the original lease/document.
+      try {
+        cleanupCheck();
+        await cdp.send("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
+          ...point,
+          button: "left",
+          buttons: 0,
+          clickCount: 1,
+        });
+      } catch {
+        /* A new controller or target owns any further input. */
+      }
+    }
     await cdp.send("Input.setInterceptDrags", { enabled: false }).catch(() => {});
   }
 }

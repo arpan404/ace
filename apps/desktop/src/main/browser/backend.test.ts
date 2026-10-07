@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 import { BrowserBackend, type ControllerState } from "./backend.ts";
 import {
@@ -322,3 +323,35 @@ function frameData(params: unknown): string {
     ? String(params.data)
     : "";
 }
+
+it("relays every trace event in bounded batches and reports an individually oversized event", async () => {
+  const t = setup();
+  await t.open();
+  const events = Array.from({ length: 20 }, (_, index) => ({
+    name: "DrawFrame",
+    ts: index,
+    payload: "x".repeat(70_000),
+  }));
+  t.views.only().emit("Tracing.dataCollected", { value: events });
+  const batches = t.sent.filter(
+    (message) =>
+      message.type === "browser.backend.event" && message.method === "Tracing.dataCollected",
+  );
+  const values = batches.flatMap((message) =>
+    message.type === "browser.backend.event"
+      ? z.object({ value: z.array(z.unknown()) }).parse(message.params).value
+      : [],
+  );
+  expect(values).toEqual(events);
+  for (const batch of batches)
+    expect(Buffer.byteLength(JSON.stringify(batch))).toBeLessThan(1024 * 1024);
+  t.views
+    .only()
+    .emit("Tracing.dataCollected", { value: [{ name: "huge", payload: "x".repeat(300_000) }] });
+  expect(t.sent.at(-1)).toMatchObject({
+    type: "browser.backend.event",
+    method: "Tracing.dataCollected",
+    params: { value: [], aceTruncated: true },
+  });
+  t.backend.detach();
+});
