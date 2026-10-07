@@ -1,4 +1,8 @@
-import { decodeCursorSdkModels } from "./cursor.ts";
+import {
+  decodeCursorSdkModels,
+  cursorModelParseFailure,
+  type CursorModelRejection,
+} from "./cursor.ts";
 import { sessionSelectors, matchProfile } from "@ace/agent-registry";
 import { CatalogModel } from "@ace/protocol";
 import {
@@ -174,24 +178,35 @@ export function normalizeOpenCode(output: string, instance: ModelInstance): Cata
 }
 
 /** SDK catalog is authenticated in the selected instance host; never substitute ACP rows. */
-export function normalizeCursorSdk(payload: unknown, instance: ModelInstance): CatalogModel[] {
-  return decodeCursorSdkModels(payload)
-    .filter(chatMetadata)
-    .map((native) => {
-      const model = base(instance, native.id, native.displayName, native);
-      model.serviceTiers = (native.variants ?? []).map((variant, index) => ({
-        id: String(index),
-        name: variant.displayName,
-        parameters: Object.fromEntries(
-          variant.params.map((parameter) => [parameter.id, parameter.value]),
-        ),
-      }));
-      const defaultVariant = native.variants?.findIndex((variant) => variant.isDefault);
-      if (defaultVariant !== undefined && defaultVariant >= 0)
-        model.defaultTier = String(defaultVariant);
-      const effort = native.parameters?.find((parameter) => parameter.id === "reasoning_effort");
-      model.reasoningEfforts = effort?.values.map((value) => value.value) ?? [];
-      // Arbitrary SDK parameters remain in bounded raw metadata. No guessed model defaults/modalities.
-      return CatalogModel.parse(model);
-    });
+export function normalizeCursorSdk(
+  payload: unknown,
+  instance: ModelInstance,
+  rejected?: (entry: CursorModelRejection) => void,
+): CatalogModel[] {
+  const available = decodeCursorSdkModels(payload, rejected).filter(({ native }) =>
+    chatMetadata(native),
+  );
+  const models = available.flatMap(({ native, metadata, index }) => {
+    const model = base(instance, native.id, metadata.displayName ?? native.id, native);
+    model.serviceTiers = (metadata.variants ?? []).map((variant, variantIndex) => ({
+      id: String(variantIndex),
+      name: variant.displayName,
+      parameters: Object.fromEntries(
+        variant.params.map((parameter) => [parameter.id, parameter.value]),
+      ),
+    }));
+    const defaultVariant = metadata.variants?.findIndex((variant) => variant.isDefault);
+    if (defaultVariant !== undefined && defaultVariant >= 0)
+      model.defaultTier = String(defaultVariant);
+    const effort = metadata.parameters?.find((parameter) => parameter.id === "reasoning_effort");
+    model.reasoningEfforts =
+      effort?.values.map((value) => value.value).filter((value) => value.length > 0) ?? [];
+    // Arbitrary SDK parameters remain in bounded raw metadata. No guessed defaults/modalities.
+    const parsed = CatalogModel.safeParse(model);
+    if (parsed.success) return [parsed.data];
+    rejected?.({ index, reason: "Normalized model exceeds catalog field or row limits." });
+    return [];
+  });
+  if (available.length && !models.length) throw cursorModelParseFailure();
+  return models;
 }

@@ -62,3 +62,13 @@ test.each([
     expect(JSON.stringify(failure)).not.toContain("private");
   }
 });
+
+test("an inherited environment key can list models even when the SDK store is unavailable", async () => {
+  const models = [{ id: "environment-model", displayName: "Environment model" }];
+  const sdk = boundary("logged-out", async () => models);
+  sdk.Cursor.auth.status = async () => {
+    throw new Error("SDK store unavailable");
+  };
+  expect(await cursorModelsInHost(sdk, true)).toEqual(models);
+  await expect(cursorModelsInHost(sdk, false)).rejects.toMatchObject({ code: "not_configured" });
+});
