@@ -656,16 +656,22 @@ test("Deck watches push stable gate times, real fake-thread links and terminal d
   const f = await fixture();
   const { ConductorClient } = await import("@ace/client");
   const { ConductorSpec } = await import("@ace/protocol");
+  f.daemon.projects.seedFolders("/fake", [{ path: "/fake/deck", git: true }]);
+  const project = f.daemon.projects.command({ type: "workspace.add", path: "/fake/deck" });
+  if (!project?.ok || !project.workspace) throw new Error("Deck project missing");
+  f.daemon.services.providerStatuses = f.daemon.services.providerStatuses.map((status) =>
+    status.provider === "codex" ? { ...status, auth: "logged_in" } : status,
+  );
   const model = { provider: "codex", model: "scripted", tier: "normal", cost: 0, quota: 1 };
   const spec = ConductorSpec.parse({
-    rootAgentId: "root",
-    workspaceId: "workspace",
+    rootAgentId: "93b6f5c9-075a-4b10-a21e-c30c8a404322",
+    workspaceId: project.workspace.id,
     goal: "A fake Deck",
     repositoryRules: "",
     constraints: {
       providers: ["codex"],
       models: ["scripted"],
-      accounts: ["local.codex"],
+      accounts: ["codex-cli-default"],
       budget: 10,
       maxParallel: 1,
       deadline: null,

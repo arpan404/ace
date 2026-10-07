@@ -34,6 +34,8 @@ export async function closeDeckFixtures() {
 export async function deckFixture(
   options: {
     git?: GitOptions;
+    provider?: "codex" | "opencode" | "pi";
+    model?: string;
     hold?: boolean;
     question?: boolean;
     parallel?: number;
@@ -128,17 +130,27 @@ export async function deckFixture(
           executionErrors.push(error instanceof Error ? error.message : "unknown"),
       },
       // Restore the same scripted account catalog before recovering persisted lanes.
-      modelInstances: (["codex", "claude"] as const).map((modelProvider) =>
+      modelInstances: ([options.provider ?? "codex", "claude"] as const).map((modelProvider) =>
         scriptedModelInstance(modelProvider, home),
       ),
       workspaceActions: { forgeRunner: forge.runner, ...(options.git ? { git: options.git } : {}) },
       agentControl: { policy: { maxConcurrent: options.hostCapacity ?? 4 } },
     });
   daemon = await launch();
-  for (const modelProvider of ["codex", "claude"] as const)
-    await seedScriptedModels(daemon.models, scriptedModelInstance(modelProvider, home), "scripted");
+  for (const modelProvider of [options.provider ?? "codex", "claude"] as const)
+    await seedScriptedModels(
+      daemon.models,
+      scriptedModelInstance(modelProvider, home),
+      options.model ?? "scripted",
+    );
   const workspace = daemon.store.createWorkspace(repo, "Deck repo");
-  const model = { provider: "codex", model: "scripted", tier: "normal", cost: 0, quota: 1 };
+  const model = {
+    provider: options.provider ?? "codex",
+    model: options.model ?? "scripted",
+    tier: "normal",
+    cost: 0,
+    quota: 1,
+  };
   const fixturePath = join(home, "fixture.json");
   const models = options.crossProvider ? [model, { ...model, provider: "claude" }] : [model];
   const spec = ConductorSpec.parse(
@@ -150,9 +162,11 @@ export async function deckFixture(
           goal: "Implement the cards",
           repositoryRules: "Synthetic scripted provider; no CLI prompts",
           constraints: {
-            providers: options.crossProvider ? ["codex", "claude"] : ["codex"],
-            models: ["scripted"],
-            accounts: options.crossProvider ? ["local.codex", "local.claude"] : ["local.codex"],
+            providers: options.crossProvider ? ["codex", "claude"] : [model.provider],
+            models: [model.model],
+            accounts: options.crossProvider
+              ? ["local.codex", "local.claude"]
+              : [`local.${model.provider}`],
             budget: 100,
             maxParallel: options.parallel ?? 4,
             deadline: null,
@@ -288,8 +302,13 @@ export async function deckFixture(
       throw new Error("Deck subscription failed");
     changed(reply.run);
   }
-  async function commands(payload: CommandPayload) {
-    const command = Command.parse({ id: randomUUID(), deviceId: "deck-client", payload });
+  let commandSequence = 0;
+  const commandPrefix = randomUUID();
+  async function commands(
+    payload: CommandPayload,
+    receipt = `${commandPrefix}:${++commandSequence}`,
+  ) {
+    const command = Command.parse({ id: receipt, deviceId: "deck-client", payload });
     const reply = await request(
       { type: "command", command },
       (response) => response.type === "commandResult" && response.commandId === command.id,

@@ -1,4 +1,10 @@
-import type { ThreadView, EventPayload, InteractionResolution, Thread } from "@ace/protocol";
+import type {
+  ThreadView,
+  EventPayload,
+  InteractionResolution,
+  Thread,
+  Command,
+} from "@ace/protocol";
 export interface FakeServiceContext {
   now(): number;
   canManageProjects?(device: string): boolean;
@@ -15,6 +21,11 @@ export interface FakeServiceContext {
   update(id: string, payload: EventPayload): void;
   /** Runs after `interaction.resolve` closes an interaction: its thread and adapter key. */
   onResolved?(
-    listener: (threadId: string, key: string, resolution?: InteractionResolution) => void,
+    listener: (
+      threadId: string,
+      key: string,
+      resolution?: InteractionResolution,
+      command?: Pick<Command, "id" | "deviceId">,
+    ) => void,
   ): () => void;
 }

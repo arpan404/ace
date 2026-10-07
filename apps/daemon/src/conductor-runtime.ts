@@ -1,3 +1,4 @@
+import { conductorReceipt, conductorCommandError } from "@ace/conductor/commands";
 import { isMutationUnavailable } from "@ace/git";
 import {
   StartSpec,
@@ -20,7 +21,7 @@ import {
 import type { Store } from "./store.ts";
 export interface ConductorRuntimeOptions {
   execute?: Executor;
-  validateStart?(spec: ConductorSpec): string | undefined;
+  validateStart?(spec: ConductorSpec): string | undefined | Promise<string | undefined>;
   accounts?(spec?: ConductorSpec, run?: string): readonly Account[];
   decorate?(view: ConductorRunView): ConductorRunView;
   changed?(run: string): void;
@@ -36,6 +37,7 @@ export class ConductorRuntime {
   private env: Environment;
   private listeners = new Map<string, Set<(view: ConductorRunView) => void>>();
   private tasks = new Map<string, Promise<void>>();
+  private commands = new Map<string, { device: string; task: Promise<CommandResult> }>();
   private errors = new Map<string, string>();
   private closing = false;
   constructor(
@@ -123,32 +125,57 @@ export class ConductorRuntime {
     this.publish(id);
     this.wake(id);
   }
-  command(command: Command): CommandResult {
+  command(command: Command): Promise<CommandResult> {
+    if (this.closing)
+      return Promise.resolve({ commandId: command.id, ok: false, error: "daemon_shutting_down" });
+    const existing = this.commands.get(command.id);
+    if (existing)
+      return existing.device === command.deviceId
+        ? existing.task
+        : Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
+    if (this.commands.size >= 16)
+      return Promise.resolve({ commandId: command.id, ok: false, error: "action_busy" });
+    const task = this.applyCommand(command).finally(() => this.commands.delete(command.id));
+    this.commands.set(command.id, { device: command.deviceId, task });
+    return task;
+  }
+  private async applyCommand(command: Command): Promise<CommandResult> {
     const payload = ConductorCommandPayload.parse(command.payload);
     if (this.closing) return { commandId: command.id, ok: false, error: "daemon_shutting_down" };
     if (payload.type === "conductor.start" && !this.options.execute)
       return { commandId: command.id, ok: false, error: "conductor_executor_unavailable" };
+    let startError: string | undefined;
+    const replay = this.receipts.commandReceipt(command.id, command.deviceId);
+    if (payload.type === "conductor.start" && !replay && !this.storage.read(payload.runId)) {
+      const validated = StartSpec.safeParse(payload.spec);
+      if (!validated.success)
+        startError = validated.error.issues.every((issue) => issue.path[0] === "rootAgentId")
+          ? "conductor_invalid_root_agent"
+          : "conductor_invalid_spec";
+      else {
+        try {
+          const error = await this.options.validateStart?.(validated.data);
+          if (error) startError = conductorCommandError(new Error(error));
+        } catch (error) {
+          startError = conductorCommandError(error);
+        }
+      }
+    }
+    if (this.closing) return { commandId: command.id, ok: false, error: "daemon_shutting_down" };
     const result = this.receipts.recordCommand(command.id, command.deviceId, () => {
       try {
         if (payload.type === "conductor.start") {
-          const validated = StartSpec.safeParse(payload.spec);
-          if (!validated.success)
-            return { commandId: command.id, ok: false, error: "conductor_invalid_root_agent" };
-          // Replays of an admitted run do not re-check transient availability.
-          if (!this.storage.read(payload.runId)) {
-            const error = this.options.validateStart?.(validated.data);
-            if (error) return { commandId: command.id, ok: false, error };
-          }
+          if (startError) return { commandId: command.id, ok: false, error: startError };
           this.storage.create(
             payload.runId,
-            validated.data,
+            payload.spec,
             this.env,
-            this.options.accounts?.(validated.data, payload.runId),
+            this.options.accounts?.(payload.spec, payload.runId),
           );
-        } else this.driver.command(command.id, payload);
+        } else this.driver.command(conductorReceipt(command.deviceId, command.id), payload);
         return { commandId: command.id, ok: true };
-      } catch {
-        return { commandId: command.id, ok: false, error: "conductor_command_failed" };
+      } catch (error) {
+        return { commandId: command.id, ok: false, error: conductorCommandError(error) };
       }
     });
     if (result.ok) {
@@ -205,6 +232,7 @@ export class ConductorRuntime {
   }
   async close(): Promise<void> {
     this.closing = true;
+    await Promise.allSettled([...this.commands.values()].map((entry) => entry.task));
     await Promise.allSettled(this.tasks.values());
     this.listeners.clear();
     this.errors.clear();

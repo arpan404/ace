@@ -108,7 +108,12 @@ export interface ThreadInit {
   /** What the thread's provider can do, over the fake's defaults (a provider that reads no images). */
   capabilities?: Partial<Capabilities>;
 }
-type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
+type ResolvedListener = (
+  threadId: string,
+  key: Key,
+  resolution?: InteractionResolution,
+  command?: Pick<Command, "id" | "deviceId">,
+) => void;
 
 /**
  * In-memory daemon speaking the real wire protocol. Scripted adapter facts go through
@@ -216,6 +221,7 @@ export class FakeDaemon implements Host {
         onResolved: (listener) => this.onResolved(listener),
       },
       this.services.settings,
+      this.services,
     );
     this.review = new FakeReviewDesk(options.clock, (threadId, text) =>
       this.apply(threadId, [
@@ -927,7 +933,7 @@ export class FakeDaemon implements Host {
         this.append(host, threadMoveEvents(host.view.thread, project), this.options.clock());
       return { commandId, ok: true, threadId: ThreadId.parse(host.id) };
     }
-    const service = this.servicesWire.command(payload, commandId);
+    const service = this.servicesWire.command(payload, commandId, command.deviceId);
     if (service) return { commandId, ...service };
     if (
       organizationCommands.some((type) => type === payload.type) &&
@@ -1082,7 +1088,8 @@ export class FakeDaemon implements Host {
               resolvedBy: command.deviceId,
             },
           ]);
-          for (const listener of this.resolvedListeners) listener(host.id, key, payload.resolution);
+          for (const listener of this.resolvedListeners)
+            listener(host.id, key, payload.resolution, command);
           return { commandId, ok: true };
         }
         return { commandId, ok: false, error: "not_found" };

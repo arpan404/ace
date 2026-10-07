@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from "vitest";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { AgentId, ConductorSpec } from "@ace/protocol";
 import { closeDeckFixtures, deckFixture } from "./test-support.ts";
 
@@ -80,6 +82,48 @@ test.each(["logged_in", "unknown"] as const)(
     await h.subscribe();
     await h.waitFor((run) => run.phase === "done");
     expect(h.daemon.store.listThreads().some((thread) => thread.live?.account === normal.id)).toBe(
+      true,
+    );
+  },
+);
+
+test("start rejects a non-git workspace before creating a run or thread", async () => {
+  const h = await deckFixture();
+  const directory = join(h.home, "plain-folder");
+  mkdirSync(directory);
+  const workspaceId = h.daemon.store.createWorkspace(directory, "Plain folder");
+  expect(
+    await h.commands({ type: "conductor.start", runId: h.runId, spec: { ...h.spec, workspaceId } }),
+  ).toMatchObject({ ok: false, error: "conductor_workspace_not_git" });
+  expect(await h.listRuns()).toEqual([]);
+  expect(h.daemon.store.listThreads()).toEqual([]);
+  expect(await h.startRun()).toMatchObject({ ok: true });
+  await h.subscribe();
+  await h.waitFor((run) => run.phase === "done");
+});
+
+test.each([
+  { provider: "opencode", modelId: "openai/scripted" },
+  { provider: "pi", modelId: "anthropic/scripted" },
+] as const)(
+  "$provider model $modelId reaches the real engine and completes",
+  async ({ provider, modelId }) => {
+    const h = await deckFixture({ provider, model: modelId });
+    const model = { ...h.spec.policies.roles.planner[0], model: modelId };
+    const spec = ConductorSpec.parse({
+      ...h.spec,
+      constraints: { ...h.spec.constraints, models: [modelId] },
+      policies: {
+        ...h.spec.policies,
+        roles: { planner: [model], worker: [model], reviewer: [model], integrator: [model] },
+      },
+    });
+    expect(await h.commands({ type: "conductor.start", runId: h.runId, spec })).toMatchObject({
+      ok: true,
+    });
+    await h.subscribe();
+    await h.waitFor((run) => run.phase === "done");
+    expect(h.daemon.store.listThreads().some((thread) => thread.live?.model === modelId)).toBe(
       true,
     );
   },

@@ -17,6 +17,9 @@ import { FakeTerminalStream } from "./terminal-stream.ts";
 import { fakeHealth } from "./health.ts";
 import { FakeContextWire } from "./context-wire.ts";
 import { FakeWorkspaceWire } from "./workspace-wire.ts";
+import { conductorReceipt } from "@ace/conductor/commands";
+import { fakeStartRejection } from "./conductor/start-policy.ts";
+import type { FakeServices } from "./services/index.ts";
 import { FakeConductor } from "./conductor/fake-conductor.ts";
 import { FakePlanningWire, type PlanningSeed } from "./planning-wire.ts";
 import { FakePluginsWire, type PluginSeed } from "./plugins-wire.ts";
@@ -62,7 +65,11 @@ export class FakeServicesWire {
   private connectionSequence = 0;
   private host: FakeServiceContext;
   private settings: FakeSettings;
-  constructor(context: FakeServiceContext, settings: FakeSettings) {
+  constructor(
+    context: FakeServiceContext,
+    settings: FakeSettings,
+    catalog: Pick<FakeServices, "accounts" | "providerStatuses">,
+  ) {
     this.host = context;
     bindFakeBrowserOrigins(this.browser, context, settings);
     this.files = new FakeFilesWire(context);
@@ -70,7 +77,11 @@ export class FakeServicesWire {
     this.context = new FakeContextWire(context);
     this.workspace = new FakeWorkspaceWire(context);
     this.planning = new FakePlanningWire(
-      new FakeConductor({ clock: context.now, runs: [] }),
+      new FakeConductor({
+        clock: context.now,
+        runs: [],
+        validateStart: (spec) => fakeStartRejection(spec, this.workspace.projects, catalog),
+      }),
       context.now,
       () => settings.get("automations.enabled") === true,
       context,
@@ -92,9 +103,14 @@ export class FakeServicesWire {
   command(
     payload: CommandPayload,
     commandId?: string,
+    deviceId?: string,
   ): Omit<CommandResult, "commandId"> | undefined {
     const conductor = ConductorCommandPayload.safeParse(payload);
-    if (conductor.success) return this.planning.command(conductor.data);
+    if (conductor.success)
+      return this.planning.command(
+        conductor.data,
+        commandId && deviceId ? conductorReceipt(deviceId, commandId) : undefined,
+      );
     return this.workspace.command(payload, commandId);
   }
   session(send: (message: Message) => void): FakeWireSession {

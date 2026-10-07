@@ -9,12 +9,8 @@ import {
   ProviderKind,
 } from "@ace/protocol";
 
-/** Execution intents require a native root identity; the wire stays additive. */
-export const StartSpec = ConductorSpec.refine(
-  (spec) => z.uuid().safeParse(spec.rootAgentId).success,
-  { path: ["rootAgentId"], message: "Native conductor root must be a UUID" },
-);
-export const Key = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/);
+import { Key } from "./command-policy.ts";
+export { Key, StartSpec } from "./command-policy.ts";
 const Text = z.string().min(1).max(16_384);
 export const Completion = z.object({
   branch: z

@@ -38,7 +38,7 @@ test("a decision on a gate that is no longer open is refused", () => {
     runId: "relay-streams",
     approval: { gateId: "relay-streams-rev-1", decision: "approve" },
   });
-  expect(result).toEqual({ ok: false, error: "stale_gate" });
+  expect(result).toEqual({ ok: false, error: "gate_not_pending" });
   expect(relay(conductor).gate?.kind).toBe("merge");
 });
 
@@ -205,7 +205,10 @@ function started(
   const result = conductor.command({
     type: "conductor.start",
     runId: "deck",
-    spec: { ...base, constraints: { ...base.constraints, ...constraints } },
+    spec: {
+      ...base,
+      constraints: { ...base.constraints, ...constraints },
+    },
   });
   expect(result).toEqual({ ok: true });
   const view = () => {

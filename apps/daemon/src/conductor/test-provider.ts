@@ -11,6 +11,7 @@ import { scriptFrames, start, end } from "../engine/test-support.ts";
 import { plan, review } from "./test-artifacts.ts";
 import { git } from "./test-git.ts";
 export interface DeckProviderOptions {
+  provider?: "codex" | "opencode" | "pi";
   hold?: boolean;
   cards?: ConductorPlan;
   longReview?: boolean;
@@ -93,7 +94,7 @@ export function deckProvider(
     );
   }
   const scripted = createScriptedAdapter({
-    provider: "codex",
+    provider: options.provider ?? "codex",
     capabilities: Capabilities.parse({
       steer: false,
       interruptCascades: false,

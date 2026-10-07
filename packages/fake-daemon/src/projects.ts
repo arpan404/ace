@@ -171,15 +171,23 @@ export class FakeProjects {
       throw new Error("outside_project_roots");
     return canonical.replace(/\/+$/, "") || "/";
   }
-  private inspection(path: string) {
-    this.seed();
-    const selected = this.checked(path);
-    if (!this.directories.has(selected)) throw new Error("directory_unavailable");
-    const root = [...this.directories]
+  /** Git membership uses the same host folder facts as project inspection. */
+  isGit(id: string): boolean {
+    const project = this.get(id);
+    return !!project && !!this.repositoryRoot(project.path);
+  }
+  private repositoryRoot(selected: string) {
+    return [...this.directories]
       .filter(
         ([entry, value]) => value.git && (selected === entry || selected.startsWith(`${entry}/`)),
       )
       .toSorted(([a], [b]) => b.length - a.length)[0];
+  }
+  private inspection(path: string) {
+    this.seed();
+    const selected = this.checked(path);
+    if (!this.directories.has(selected)) throw new Error("directory_unavailable");
+    const root = this.repositoryRoot(selected);
     return ProjectInspection.parse({
       path: selected,
       git: root

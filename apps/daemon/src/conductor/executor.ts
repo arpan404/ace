@@ -1,3 +1,4 @@
+import { GitError } from "@ace/git";
 import { createHash } from "node:crypto";
 import { type Effect, type State, type Fact, type Account } from "@ace/conductor";
 import {
@@ -42,8 +43,17 @@ export class NativeConductorExecutor {
   accounts(spec?: ConductorSpec, run?: string): Account[] {
     return executionAccounts(this.context, this.delegations, this.journal, spec, run);
   }
-  validateStart(spec: ConductorSpec): string | undefined {
-    return startAvailability(this.context, spec, this.accounts(spec));
+  async validateStart(spec: ConductorSpec): Promise<string | undefined> {
+    const repo = this.context.store.getWorkspacePath(spec.workspaceId);
+    if (!repo) return "conductor_workspace_not_found";
+    let workspaceGit = true;
+    try {
+      await this.worktrees.git.repositoryInfo(repo);
+    } catch (error) {
+      if (!(error instanceof GitError) || error.code !== "not_a_repo") throw error;
+      workspaceGit = false;
+    }
+    return startAvailability(this.context, spec, this.accounts(spec), workspaceGit);
   }
   private async root(state: State): Promise<RootBinding> {
     const saved = this.journal.root(state.id);

@@ -1,3 +1,4 @@
+import { conductorReceipt, conductorCommandError } from "@ace/conductor/commands";
 import { join } from "node:path";
 import { ConductorStore } from "@ace/conductor";
 import { ConductorCommandPayload } from "@ace/protocol";
@@ -48,13 +49,13 @@ export function startConductor(context: ServiceContext): void {
       if (payload.resolution.kind !== "plan_review")
         return { commandId: command.id, ok: false, error: "invalid_resolution" };
       try {
-        runtime.approveInteraction(owner.run, `host.${command.id}`, {
+        runtime.approveInteraction(owner.run, conductorReceipt(command.deviceId, command.id), {
           gateId: owner.gate,
           decision: payload.resolution.decision === "approve" ? "approve" : "reject",
         });
         return { commandId: command.id, ok: true };
-      } catch {
-        return { commandId: command.id, ok: false, error: "conductor_approval_required" };
+      } catch (error) {
+        return { commandId: command.id, ok: false, error: conductorCommandError(error) };
       }
     });
   if (native) observer = new DeckObserver(context, runtime, native);
@@ -84,10 +85,10 @@ export function createConductorSession({
     command: {
       types: ConductorCommandPayload.options.map((schema) => schema.shape.type.value),
       scope: () => "operate",
-      accept(command) {
+      async accept(command) {
         send({
           type: "commandResult",
-          ...(options.conductor?.command(command) ?? {
+          ...((await options.conductor?.command(command)) ?? {
             commandId: command.id,
             ok: false,
             error: "conductor_unavailable",

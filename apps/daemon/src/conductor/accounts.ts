@@ -1,4 +1,4 @@
-import { startRejection } from "./start-policy.ts";
+import { conductorStartRejection } from "@ace/conductor/commands";
 import type { Account } from "@ace/conductor";
 import type { ConductorSpec } from "@ace/protocol";
 import { explicitInstance } from "@ace/accounts";
@@ -101,6 +101,7 @@ export function startAvailability(
   context: ServiceContext,
   spec: ConductorSpec,
   accounts: readonly Account[],
+  workspaceGit: boolean,
 ): string | undefined {
   const installed = new Set<import("@ace/protocol").ProviderKind>();
   for (const provider of new Set(
@@ -115,7 +116,8 @@ export function startAvailability(
       // Registry absence is an availability fact, not an execution failure.
     }
   }
-  return startRejection(spec, {
+  return conductorStartRejection(spec, {
+    workspaceGit,
     workspaceExists: context.store.getWorkspacePath(spec.workspaceId) !== undefined,
     installed,
     accounts,

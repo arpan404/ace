@@ -274,7 +274,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
-| model | yes | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
+| model | yes | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$"} |
 | tier | yes | ["fast","normal"] |  |
 | cost | yes | number | {"minimum":0} |
 | quota | yes | number | {"exclusiveMinimum":0} |
@@ -283,11 +283,11 @@ Example:
 
 ```json
 {
-  "cost": 8,
-  "model": "z0Cm3kmzaCG.2zsPRLj3E__RfrPCURQmiE59nKKtUA1uIMpbDRxQS6Meur89I4tbzuIftfeXSSyopilrcwjGoe0NcQ",
+  "cost": 7,
+  "model": "z.Dm1kmzaCH90ztQRLj1F__SfrQDVSRmiF37nLKuVA/uJNpbESyRT4Mevr67J2tbzvIfufeYSTyppilrcxjGoe.OcRS3H1.AauyQGGcGhpbZMeu5ClvfeG5tnq/pjmMCbiNF4HkrontxB4ZflB368gKo-c8tm17Z_jHszYJ7s8vQ3OKGxe9B",
   "provider": "opencode",
-  "quota": 6,
-  "tier": "normal"
+  "quota": 8,
+  "tier": "fast"
 }
 ```
 
@@ -380,10 +380,9 @@ Example:
 ```json
 {
   "operation": {
-    "op": "get",
-    "runId": "xGGcFhobYLeu7BlufeG7tmq1pjmLCbiMF6GkqonswB6YflB58-fKnZc-tm49Y_jHszXJ9s-vP5NJFxe.ACX"
+    "op": "list"
   },
-  "requestId": "z",
+  "requestId": "qRRtfQ_CKLO6QHIf8SANJAIZ3SXx-CvuXu3Bf7LYwS",
   "type": "conductor.request"
 }
 ```
@@ -406,45 +405,9 @@ Example:
 
 ```json
 {
-  "next": "MYouscgUxDP2Rkl1usGCEw0Fu9ztNz21iDiSir.uTmjvCfRubxo8BQh--gGTBK343i6497Bf37TFn",
   "ok": false,
-  "requestId": "V2ruRRtfQ_CKLO6QHIf8SANJAIZ3SXx-CvuXu3Bf7LYwSbGx.pvJ3OXHSY-8Y.R.tu",
-  "run": {
-    "budget": 1,
-    "dag": [],
-    "goal": "example",
-    "id": "I74QL0We9CVSp2FBkYVSXH7DaG2QI52HFRFri7WfcertUQmvcRHWbKjAQG-Y0vJJGUJFb4W.UknLxQmXM_WOJBan72XBdiXxQmU7Atokyb5elGpxl5MIvzO",
-    "lanes": [],
-    "merge": "PR-only",
-    "needsUser": [],
-    "phase": "paused",
-    "plan": {
-      "summary": "Example plan",
-      "workstreams": [
-        {
-          "brief": {
-            "acceptance": [
-              "Example acceptance"
-            ],
-            "files": [],
-            "instructions": "Example instructions",
-            "objective": "Example objective",
-            "packages": [],
-            "risks": []
-          },
-          "dependencies": [],
-          "id": "lane",
-          "priority": 0,
-          "title": "Example workstream"
-        }
-      ]
-    },
-    "planApproved": true,
-    "spent": 1,
-    "truncated": false,
-    "updatedAt": 3,
-    "workspaceId": "example"
-  },
+  "requestId": "8vJ3OXHSY-8Y.R.tu2YItJ874QL0We9C",
+  "runs": [],
   "type": "conductor.result"
 }
 ```
@@ -607,15 +570,14 @@ Example:
 
 ```json
 {
-  "budget": 0,
+  "branch": null,
+  "budget": 6,
   "dag": [],
-  "deadline": 5,
-  "delegations": [],
   "goal": "example",
-  "id": "DnGO_JLjspXahLzZjlxGRn46p3m-EytK9jwNsZp9RoYU5opxeSxsk49GGzRxpx38ArlBWLNf3WiodD6zfl-4Ox02j5kmFD5SKo6NM0MXgv_bDvJYPQQoSHei7DQNS",
+  "id": "kVSXH7DaG2QI52HFRFri7WfcertUQmvcRHWbKjAQG-Y0vJJGUJFb4W.UknLxQmXM_WOJBan72XBdiXxQmU7Atokyb5elGpxl5MI",
   "lanes": [],
   "needsUser": [],
-  "phase": "done",
+  "phase": "running",
   "plan": {
     "summary": "Example plan",
     "workstreams": [
@@ -637,9 +599,11 @@ Example:
       }
     ]
   },
+  "planApproval": "required",
   "planApproved": false,
-  "spent": 4,
+  "spent": 3,
   "truncated": false,
+  "updatedAt": 1,
   "workspaceId": "example"
 }
 ```
@@ -656,7 +620,7 @@ Semantic rule: Every role must offer at least one model whose provider and model
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | goal | yes | string | {"minLength":1,"maxLength":16384} |
 | repositoryRules | yes | string | {"maxLength":65536} |
-| constraints | yes | object | {"properties":{"providers":{"minItems":1,"maxItems":6,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}},"models":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"accounts":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"budget":{"type":"number","minimum":0},"maxParallel":{"type":"integer","minimum":1,"maximum":64},"deadline":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]},"stallAfterMs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["providers","models","accounts","budget","maxParallel","deadline","stallAfterMs"]} |
+| constraints | yes | object | {"properties":{"providers":{"minItems":1,"maxItems":6,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}},"models":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$"}},"accounts":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"budget":{"type":"number","minimum":0},"maxParallel":{"type":"integer","minimum":1,"maximum":64},"deadline":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]},"stallAfterMs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["providers","models","accounts","budget","maxParallel","deadline","stallAfterMs"]} |
 | policies | yes | object | {"properties":{"planApproval":{"type":"string","enum":["required","auto"]},"merge":{"type":"string","enum":["auto-after-verification","ask","PR-only"]},"maxFixRounds":{"type":"integer","minimum":0,"maximum":10},"roles":{"type":"object","properties":{"planner":{"minItems":1,"maxItems":16,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ConductorModel.json"}},"worker":{"minItems":1,"maxItems":16,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ConductorModel.json"}},"reviewer":{"minItems":1,"maxItems":16,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ConductorModel.json"}},"integrator":{"minItems":1,"maxItems":16,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ConductorModel.json"}}},"required":["planner","worker","reviewer","integrator"]}},"required":["planApproval","merge","maxFixRounds","roles"]} |
 
 Example:
@@ -745,11 +709,11 @@ Example:
 
 ```json
 {
-  "budget": 2,
+  "budget": 8,
   "goal": "example",
-  "id": "kKRmQklf6nHdhmiVt3_NxwtyozxlczDmPC1rIExEYfTOg",
-  "phase": "done",
-  "spent": 4,
+  "id": "1OMYouscgUx",
+  "phase": "paused",
+  "spent": 6,
   "workspaceId": "example"
 }
 ```
@@ -781,8 +745,8 @@ Example:
     "risks": []
   },
   "dependencies": [],
-  "id": "T-GUwBGe7._U58lkTP",
-  "priority": 2,
+  "id": "Pl1usGCEw0Fu9ztNz21iDi",
+  "priority": 6,
   "title": "example"
 }
 ```

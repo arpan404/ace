@@ -395,6 +395,7 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@noble/hashes": "2.0.1",
         "zod": "^4.6.5",
       },
     },
@@ -459,6 +460,7 @@
         "@ace/automations": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/conductor": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/project-picker": "workspace:*",
@@ -474,7 +476,6 @@
       },
       "devDependencies": {
         "@ace/adapter-opencode": "workspace:*",
-        "@ace/conductor": "workspace:*",
       },
     },
     "packages/files": {

@@ -1,3 +1,4 @@
+import { conductorReceipt } from "@ace/conductor/commands";
 import { compileSchedule } from "@ace/automations/recurrence";
 import {
   type AutomationRun,
@@ -45,29 +46,32 @@ export class FakePlanningWire {
     this.enabled = enabled;
     // As on the daemon: a deck gate answered on its root thread is the conductor's decision,
     // and a worker's answered question lets its card carry on.
-    host?.onResolved?.((threadId, key, resolution) => {
+    host?.onResolved?.((threadId, key, resolution, command) => {
       const answer = fakeDeckAnswer(this.conductor.runs(), threadId, String(key));
       if (!answer) return;
       if ("cardId" in answer) this.conductor.answer(answer.runId, answer.cardId);
       else
-        this.command({
-          type: "conductor.approve",
-          runId: answer.runId,
-          approval: {
-            gateId: answer.gateId,
-            decision:
-              resolution?.kind === "plan_review" && resolution.decision === "approve"
-                ? "approve"
-                : "reject",
+        this.command(
+          {
+            type: "conductor.approve",
+            runId: answer.runId,
+            approval: {
+              gateId: answer.gateId,
+              decision:
+                resolution?.kind === "plan_review" && resolution.decision === "approve"
+                  ? "approve"
+                  : "reject",
+            },
           },
-        });
+          command ? conductorReceipt(command.deviceId, command.id) : undefined,
+        );
     });
   }
   failDeck(runId: string, code: string): void {
     this.conductor.fail(runId, code);
   }
-  command(payload: ConductorCommandPayload) {
-    const result = this.conductor.command(payload);
+  command(payload: ConductorCommandPayload, receipt?: string) {
+    const result = this.conductor.command(payload, receipt);
     this.view(payload.runId);
     return result;
   }

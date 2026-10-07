@@ -4,6 +4,7 @@ import { AgentId, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 
 const Id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/);
+const ModelId = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$/);
 const Text = z.string().min(1).max(16_384);
 const Paths = z
   .array(
@@ -165,7 +166,7 @@ export const ConductorReview = z
 export type ConductorReview = z.infer<typeof ConductorReview>;
 export const ConductorModel = z.object({
   provider: ProviderKind,
-  model: Id,
+  model: ModelId,
   tier: z.enum(["fast", "normal"]),
   cost: z.number().finite().nonnegative(),
   quota: z.number().finite().positive(),
@@ -179,7 +180,7 @@ export const ConductorSpec = z
     repositoryRules: z.string().max(65_536),
     constraints: z.object({
       providers: z.array(ProviderKind).min(1).max(6),
-      models: z.array(Id).min(1).max(64),
+      models: z.array(ModelId).min(1).max(64),
       accounts: z.array(Id).min(1).max(64),
       budget: z.number().finite().nonnegative(),
       maxParallel: z.number().int().min(1).max(64),

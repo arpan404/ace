@@ -102,7 +102,7 @@
         },
         "models": {
           "items": {
-            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$",
             "type": "string"
           },
           "maxItems": 64,

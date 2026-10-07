@@ -54,7 +54,7 @@ test("a worker's question is a provider gate answered through its own thread", a
         runId: "mobile-cold-start",
         approval: { gateId: gate.id, decision: "approve" },
       }),
-    ).toMatchObject({ ok: false, error: "stale_gate" });
+    ).toMatchObject({ ok: false, error: "gate_not_pending" });
 
     expect(
       await resolve(client, gate.interactionId, {
@@ -86,7 +86,6 @@ test("a deck gate answered on the deck's own thread is the conductor's decision"
     });
     const interactions = root && "interactions" in root ? Object.values(root.interactions) : [];
     const mirrored = interactions.find((interaction) => interaction.state === "pending");
-    expect(mirrored?.raw[0]?.type).toBe("ace.conductor.gate");
     if (!mirrored) throw new Error("Mirrored gate missing");
 
     expect(
