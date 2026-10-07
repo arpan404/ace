@@ -48,6 +48,7 @@ export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";
 export * from "./provider-status.ts";
 export * from "./provider-readiness.ts";
+export * from "./provider-services.ts";
 export * from "./questions.ts";
 export * from "./answered-questions.ts";
 export * from "./queue.ts";

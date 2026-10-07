@@ -24,6 +24,10 @@ export interface AccountView {
   /** CLI version discovery reported, if any. */
   version: string | undefined;
   label: string;
+  /** The CLI's own login (its normal home), not an account ace added. */
+  implicit?: boolean | undefined;
+  /** New threads on this provider start on it. */
+  isDefault?: boolean | undefined;
   /** What the daemon said when it was read; `accountLimit` says what holds at a later moment. */
   availability: Summary["availability"];
   signedIn: boolean;
@@ -72,6 +76,8 @@ export function accountView(summary: Summary): AccountView {
     providerLabel: providerDisplayName(summary.provider, summary.acpAgentId),
     version: summary.installationVersion,
     label: summary.label,
+    ...(summary.implicit ? { implicit: true } : {}),
+    ...(summary.isDefault ? { isDefault: true } : {}),
     availability: summary.availability,
     signedIn: summary.quota.auth === "logged_in" && summary.availability !== "logged_out",
     windows,
