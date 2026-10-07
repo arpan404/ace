@@ -12,6 +12,7 @@ import { synthesizedStatus } from "./catalog/git-status.ts";
 import { scriptOutput } from "./catalog/scripts.ts";
 import { FakeForgeWire } from "./forge-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
+import { fakeBranchRefs } from "./worktree-base.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
 
@@ -109,7 +110,13 @@ export class FakeWorkspaceWire {
               scripts: this.scripts(this.context.thread(op.threadId)?.thread.workspaceId),
             }
           : op.op === "branches.list"
-            ? { kind: "branches", branches: ["main", "develop"], truncated: false }
+            ? {
+                kind: "branches",
+                branches: ["main", "develop"],
+                truncated: false,
+                refs: fakeBranchRefs,
+                defaultBranch: "main",
+              }
             : op.op === "pr.status"
               ? { kind: "pr", status: this.forge.status(op.threadId) }
               : op.op === "git.status"

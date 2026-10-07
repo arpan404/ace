@@ -23,7 +23,7 @@ const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
  * icon and name, the default (Auto-review) included. It shows the mode in effect; while a change
  * waits for the agent's next turn it shows both, "Auto-review → Full access", with a small
  * clock, and the tooltip says when the change applies. The provider's real coverage is in the
- * tooltip and menu. Full access is the one mode whose icon is drawn in the attention colour. A
+ * tooltip and menu. Full access is the one mode drawn in the attention colour. A
  * narrow composer shows the mode's icon alone; its name stays in the tooltip and accessible name.
  * When the mode asked for (a chosen or default Ask) can't run on this provider, `fallback` says
  * so: a small warning on the chip, in its tooltip and at the top of the menu.
@@ -69,14 +69,14 @@ export function PermissionPicker(props: {
         <MenuTrigger
           aria-label={`Approvals: ${label}${waits ? `, ${waits}` : ""}`}
           aria-description={props.fallback}
-          className={chipControl}
+          // Full access reads in the attention colour, word and glyph: a quiet, constant warning.
+          className={cn(
+            chipControl,
+            attention &&
+              "text-status-needs-you hover:text-status-needs-you aria-expanded:text-status-needs-you",
+          )}
         >
-          <Glyph
-            aria-hidden
-            size={16}
-            weight={attention ? "fill" : "regular"}
-            className={cn("shrink-0", attention && "text-status-needs-you")}
-          />
+          <Glyph aria-hidden size={16} className="shrink-0" />
           {mode && !compact && <span className="truncate">{permissionChipText(mode, next)}</span>}
           {next && <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />}
           {props.fallback && (

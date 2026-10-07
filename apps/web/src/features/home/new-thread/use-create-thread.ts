@@ -6,9 +6,10 @@ import {
   type CommandPayload,
   type MessageContext,
   type PermissionMode,
+  type WorktreeBase,
 } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
-import { provisionalTitle } from "@ace/ui-core";
+import { baseName, provisionalTitle } from "@ace/ui-core";
 import { useCallback, useState } from "react";
 import { rememberTitle } from "@/features/thread/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -21,8 +22,8 @@ export interface CreateRequest {
   /** The catalog id listed on that account (OpenCode's `provider/model`), never a bare native id. */
   model: string;
   mode: "local" | "worktree";
-  /** Where a worktree starts; ignored for the local checkout. */
-  baseBranch: string | undefined;
+  /** Where a worktree starts, a local or a remote branch; ignored for the local checkout. */
+  base: WorktreeBase | undefined;
   effort: string | undefined;
   /** The faster tier to run on (`serviceTier`), when the person turned speed on. */
   serviceTier?: string | undefined;
@@ -51,8 +52,9 @@ export function createPayload(request: CreateRequest): CreatePayload {
     workspaceId: WorkspaceId.parse(request.project),
     ...scopedSelection(request.scope, request.model),
     mode: request.mode,
-    ...(request.mode === "worktree" && request.baseBranch
-      ? { baseBranch: request.baseBranch }
+    // `baseBranch` names the same commit for a daemon that doesn't read `base` yet.
+    ...(request.mode === "worktree" && request.base
+      ? { base: request.base, baseBranch: baseName(request.base) }
       : {}),
     ...(Object.keys(options).length ? { options } : {}),
     ...(request.permission ? { permissionMode: request.permission } : {}),

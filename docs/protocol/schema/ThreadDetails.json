@@ -7,6 +7,9 @@
       "minimum": 0,
       "type": "integer"
     },
+    "base": {
+      "$ref": "https://ace.local/protocol/v1/WorktreeBaseRecord.json"
+    },
     "baseBranch": {
       "maxLength": 1024,
       "type": "string"

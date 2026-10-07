@@ -4,6 +4,7 @@ import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ForgePrStatus } from "./forge.ts";
 import { Run } from "./thread.ts";
 import { ThreadDetails } from "./thread-client.ts";
+import { BranchRef } from "./worktree-base.ts";
 const id = z.string().min(1).max(128);
 export const WorkspaceScript = z.object({
   id,
@@ -80,6 +81,10 @@ export const WorkspaceActionResult = z.object({
       kind: z.literal("branches"),
       branches: z.array(z.string().max(1024)).max(1000),
       truncated: z.boolean(),
+      /** The same branches told apart: local ones with their upstream, and remotes' ones. */
+      refs: z.array(BranchRef).max(1000).optional(),
+      /** The repository's default branch (the origin's `HEAD`, else `main` or `master`). */
+      defaultBranch: z.string().max(1024).optional(),
     }),
     z.object({ kind: z.literal("details"), details: ThreadDetails }),
     z.object({ kind: z.literal("pr"), status: ForgePrStatus.nullable() }),

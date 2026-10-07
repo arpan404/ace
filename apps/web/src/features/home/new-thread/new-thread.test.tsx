@@ -212,12 +212,14 @@ test("the last model, account and work mode are remembered for the next thread",
   await chooseModel("Sonnet 5.5", "Claude Code", /^Model: Opus 5\.5/);
   await userEvent.click(await screen.findByRole("button", { name: "Account work" }));
   await closeModelControl();
-  await userEvent.click(screen.getByRole("button", { name: "Where the work happens: Worktree" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Local" }));
-  // A worktree's base branch only applies to worktrees.
+  await userEvent.click(screen.getByRole("button", { name: /^Environment: Worktree/ }));
+  const card = await screen.findByRole("region", { name: "Where this thread runs" });
+  await userEvent.click(within(card).getByRole("radio", { name: /^Local checkout/ }));
+  // Choosing the local checkout is the whole choice: the card goes, and with it the base.
   await waitFor(() =>
-    expect(screen.queryByRole("button", { name: /^Start from branch/ })).toBeNull(),
+    expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull(),
   );
+  expect(screen.getByRole("button", { name: "Environment: Local" })).toBeTruthy();
   cleanup();
 
   const made = app({ storage });
@@ -225,7 +227,7 @@ test("the last model, account and work mode are remembered for the next thread",
   expect(
     await screen.findByRole("button", { name: "Model: Sonnet 5.5, work, provider default effort" }),
   ).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Where the work happens: Local" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Environment: Local" })).toBeTruthy();
 
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
@@ -276,14 +278,80 @@ test("a worktree thread starts from the chosen branch, on the chosen account and
   expect(
     await screen.findByRole("button", { name: "Model: GPT-5 Codex, personal, High effort" }),
   ).toBeTruthy();
-  await userEvent.click(await screen.findByRole("button", { name: /^Start from branch/ }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "develop" }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Environment: Worktree/ }));
+  await userEvent.type(await screen.findByRole("combobox", { name: "Start from branch" }), "dev");
+  const local = await screen.findByRole("group", { name: "Local" });
+  await userEvent.click(within(local).getByRole("option", { name: /^develop/ }));
+  expect(
+    await screen.findByRole("button", { name: "Environment: Worktree · develop" }),
+  ).toBeTruthy();
 
   await userEvent.type(await prompt(), "Add jitter to the retry backoff{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Add jitter to the retry backoff" });
   const created = await started(made);
-  expect(created?.details).toMatchObject({ mode: "worktree", baseBranch: "develop" });
+  expect(created?.details).toMatchObject({
+    mode: "worktree",
+    baseBranch: "develop",
+    base: { ref: "develop" },
+  });
   expect(created?.live).toMatchObject({ account: "codex-personal", options: { effort: "high" } });
+});
+
+test("a new worktree starts from the remote's fresh default branch unless another is picked", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  // The local main is behind origin's: the fresher remote copy is the default.
+  const pill = await screen.findByRole("button", { name: "Environment: Worktree · origin/main" });
+  await userEvent.click(pill);
+  const card = await screen.findByRole("region", { name: "Where this thread runs" });
+  const remote = within(card).getByRole("group", { name: "On origin" });
+  expect(within(remote).getByRole("option", { name: /^origin\/main/ }).textContent).toContain(
+    "default",
+  );
+  const local = within(card).getByRole("group", { name: "Local" });
+  expect(within(local).getByRole("option", { name: /^main/ }).textContent).toContain(
+    "2 behind origin",
+  );
+
+  // A branch only the remote has is found by typing, and picked with the keyboard.
+  await userEvent.type(within(card).getByRole("combobox", { name: "Start from branch" }), "login");
+  expect(
+    within(card)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["origin/fix/login-timeout"]);
+  await userEvent.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("button", { name: "Environment: Worktree · origin/fix/login-timeout" }),
+  ).toBeTruthy();
+  expect(document.activeElement).toBe(await prompt());
+
+  await userEvent.type(await prompt(), "Retry the login after a timeout{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Retry the login after a timeout" });
+  const created = await started(made);
+  expect(created?.details).toMatchObject({
+    mode: "worktree",
+    baseBranch: "origin/fix/login-timeout",
+    base: { ref: "fix/login-timeout", remote: "origin", fetch: "fetched" },
+  });
+});
+
+test("when the remote can't be reached, the thread starts from the last fetched copy and says so", async () => {
+  const made = app();
+  made.daemon.setRemoteReachable(false);
+  await made.open("/new?project=relay");
+  await screen.findByRole("button", { name: "Environment: Worktree · origin/main" });
+  await userEvent.type(await prompt(), "Bump the retry budget{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Bump the retry budget" });
+
+  const created = await started(made);
+  expect(created?.details?.base).toMatchObject({ remote: "origin", fetch: "unreachable" });
+  await userEvent.click(await screen.findByRole("button", { name: /^Environment: Worktree/ }));
+  const card = await screen.findByRole("region", { name: "Where this thread runs" });
+  expect(within(card).getByText(/^origin\/main at [0-9a-f]{7}$/)).toBeTruthy();
+  expect(
+    within(card).getByText("origin couldn't be reached, so it started from the last fetched copy."),
+  ).toBeTruthy();
 });
 
 test("files and @ mentions work before the thread exists and arrive with it", async () => {

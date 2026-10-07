@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/WorktreeBase.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ref": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "remote": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[\\w.-]+$",
+      "type": "string",
+      "x-ace-constraint": "A remote name: letters, digits, `_`, `.`, `-`; no leading `-` or `.`."
+    }
+  },
+  "required": [
+    "ref"
+  ],
+  "type": "object"
+}

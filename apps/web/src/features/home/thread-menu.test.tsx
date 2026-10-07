@@ -148,5 +148,5 @@ test("New thread on main starts a thread in the same project", async () => {
   expect(
     screen.getByRole("heading", { level: 2, name: "What should we work on in billing-api?" }),
   ).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Start from branch: from main" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Environment: Worktree · main" })).toBeTruthy();
 });

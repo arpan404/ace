@@ -1,6 +1,8 @@
-import { Suspense, useEffect, useState, type KeyboardEvent } from "react";
+import { Suspense, useState, type KeyboardEvent, type ReactNode } from "react";
+import type { ClientApi } from "@ace/client";
 import {
   useAgent,
+  useClient,
   useInteraction,
   useIntentSender,
   useItem,
@@ -50,27 +52,49 @@ const typing = (target: EventTarget) =>
       !["radio", "checkbox"].includes((target as HTMLInputElement).type)));
 
 /**
+ * Follow an answer's receipt to the end, whether or not its card is still on screen (the deck
+ * drops a card as soon as its request closes, which can be before the receipt): remembered
+ * once the daemon accepts it, offered again once it refuses it.
+ */
+function settleAnswer(
+  client: ClientApi,
+  commandId: string,
+  interactionId: string,
+  identity: string | undefined,
+) {
+  const receipt = client.intent(commandId);
+  const settled = () => {
+    const state = receipt.getSnapshot()?.state;
+    if (state !== "acked" && state !== "failed") return false;
+    const pick = pendingAnswers.get(interactionId);
+    if (state === "acked" && pick) answerStore.remember(interactionId, pick, identity);
+    pendingAnswers.clear(interactionId);
+    return true;
+  };
+  const stop = receipt.subscribe(() => {
+    if (settled()) stop();
+  });
+  if (settled()) stop();
+}
+
+/**
  * Send one answer as a durable intent. The pick shows at once (IR-2, SY-9); it is remembered
  * once the daemon accepts it, and offered again if the daemon refuses it.
  */
 function useAnswerSender(interactionId: string, identity: string | undefined) {
+  const client = useClient();
   const { send, intent, error } = useIntentSender();
   const state = intent?.state;
-  useEffect(() => {
-    const pick = pendingAnswers.get(interactionId);
-    if (state === "acked" && pick) answerStore.remember(interactionId, pick, identity);
-    if (state === "acked" || state === "failed") pendingAnswers.clear(interactionId);
-  }, [state, interactionId, identity]);
-  useEffect(() => {
-    if (error) pendingAnswers.clear(interactionId);
-  }, [error, interactionId]);
   const answer: Answer = (resolution) => {
     pendingAnswers.set(interactionId, resolution);
     void send({
       type: "interaction.resolve",
       interactionId: interactionId as Interaction["id"],
       resolution,
-    }).catch(() => {});
+    }).then(
+      (commandId) => settleAnswer(client, commandId, interactionId, identity),
+      () => pendingAnswers.clear(interactionId),
+    );
   };
   const failed =
     state === "failed"
@@ -82,12 +106,27 @@ function useAnswerSender(interactionId: string, identity: string | undefined) {
   return { answer, failed };
 }
 
+/** How the card is drawn: a bordered card of its own, or inside a surface that frames it. */
+const frames = {
+  card: "rounded-lg px-[18px] py-4 shadow-[inset_0_0_0_1px_var(--border)]",
+  attached: "px-4 pt-3.5 pb-1",
+};
+export type InteractionFrame = keyof typeof frames;
+
 /**
  * A request from an agent, answered in place: approve or deny a command, answer questions,
- * review a plan. A question stays in the transcript once answered, as the question and the
- * answer it got; a request offered again after it was answered reads as answered (A3).
+ * review a plan. A question answered here reads as the question and the answer it got; a
+ * request offered again after it was answered reads as answered (A3). `frame` "attached" drops
+ * the card's own border for a surface that has one (the composer's attached card), and `aside`
+ * goes at the end of its top line (that card's "1 of 3").
  */
-export function InteractionCard(props: { threadId: string; interactionId: string }) {
+export function InteractionCard(props: {
+  threadId: string;
+  interactionId: string;
+  frame?: InteractionFrame | undefined;
+  aside?: ReactNode;
+}) {
+  const frame = frames[props.frame ?? "card"];
   const interaction = useInteraction(props.threadId, props.interactionId);
   const agent = useAgent(props.threadId, interaction?.agentId ?? "");
   const identity = interaction ? requestIdentity(interaction) : undefined;
@@ -108,6 +147,7 @@ export function InteractionCard(props: { threadId: string; interactionId: string
     if (!pending)
       return (
         <AnsweredQuestionCard
+          className={frame}
           asker={asker}
           questions={request.questions}
           resolution={interaction.resolution ?? local?.resolution}
@@ -117,6 +157,7 @@ export function InteractionCard(props: { threadId: string; interactionId: string
     if (local && !reopened)
       return (
         <AnsweredQuestionCard
+          className={frame}
           asker={asker}
           questions={request.questions}
           resolution={local.resolution}
@@ -138,6 +179,7 @@ export function InteractionCard(props: { threadId: string; interactionId: string
     if (earlier && !reopened)
       return (
         <AnsweredQuestionCard
+          className={frame}
           asker={asker}
           questions={request.questions}
           resolution={earlier.resolution}
@@ -149,6 +191,8 @@ export function InteractionCard(props: { threadId: string; interactionId: string
   if (!pending) return null;
   return (
     <OpenRequest
+      className={frame}
+      aside={props.aside}
       threadId={props.threadId}
       interaction={interaction}
       asker={asker}
@@ -175,6 +219,8 @@ function earlierAsLocal(earlier: Interaction | undefined): LocalAnswer | undefin
 }
 
 function OpenRequest(props: {
+  className: string;
+  aside: ReactNode;
   threadId: string;
   interaction: Interaction;
   asker: string;
@@ -238,14 +284,11 @@ function OpenRequest(props: {
     answer({ kind: "approval", optionId: option.id });
   };
   return (
-    <article
-      aria-label={title}
-      onKeyDown={onKeyDown}
-      className="rounded-lg px-[18px] py-4 shadow-[inset_0_0_0_1px_var(--border)]"
-    >
-      <p className="flex items-center gap-[7px] text-xs text-subtle-foreground">
+    <article aria-label={title} onKeyDown={onKeyDown} className={props.className}>
+      <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
         <Dot tone="needs-you" />
         {props.asker} · {kind}
+        {props.aside && <span className="ml-auto flex items-center">{props.aside}</span>}
       </p>
       {request.kind !== "question" || request.questions.length !== 1 ? (
         <h3 className="mt-2 mb-2.5 text-md leading-[1.35] font-medium tracking-[-0.005em]">

@@ -55,7 +55,7 @@ export function PrimaryAction(props: {
           type="button"
           aria-label="Stopping…"
           aria-disabled
-          className={cn(iconControl, "cursor-default bg-secondary text-muted-foreground")}
+          className={cn(iconControl, "cursor-default bg-foreground/10 text-muted-foreground")}
         >
           <Spinner />
         </button>
@@ -66,9 +66,12 @@ export function PrimaryAction(props: {
           type="button"
           aria-label="Stop the agent"
           onClick={props.onStop}
-          className={cn(iconControl, "bg-secondary text-foreground hover:bg-accent")}
+          className={cn(
+            iconControl,
+            "bg-foreground text-background hover:bg-foreground/85 hover:text-background",
+          )}
         >
-          <StopIcon aria-hidden size={14} weight="fill" />
+          <StopIcon aria-hidden size={12} weight="fill" />
         </button>
       </Tip>
     );
@@ -91,8 +94,8 @@ export function PrimaryAction(props: {
         className={cn(
           iconControl,
           blocked
-            ? "cursor-default bg-secondary text-subtle-foreground hover:bg-secondary hover:text-subtle-foreground"
-            : "bg-tint text-tint-foreground hover:bg-tint hover:text-tint-foreground active:scale-95",
+            ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
+            : "bg-foreground text-background hover:bg-foreground/85 hover:text-background",
           props.off && "opacity-40",
         )}
       >

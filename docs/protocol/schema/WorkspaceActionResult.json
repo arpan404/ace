@@ -59,9 +59,20 @@
               "maxItems": 1000,
               "type": "array"
             },
+            "defaultBranch": {
+              "maxLength": 1024,
+              "type": "string"
+            },
             "kind": {
               "const": "branches",
               "type": "string"
+            },
+            "refs": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/BranchRef.json"
+              },
+              "maxItems": 1000,
+              "type": "array"
             },
             "truncated": {
               "type": "boolean"

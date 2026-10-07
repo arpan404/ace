@@ -9,9 +9,16 @@ export function focusOpenRequest(root: Element, tries = 60): () => void {
   const look = () => {
     const cards = root.querySelectorAll("article[aria-label]");
     for (let index = cards.length - 1; index >= 0; index--) {
-      const option = cards[index]?.querySelector<HTMLElement>(
-        "button:not([disabled]):not([aria-disabled='true']), [role='radio'], input",
-      );
+      // An answer first (a numbered choice, an option, a field), never the card's own chrome
+      // such as its pager; any other button only when it has none.
+      const card = cards[index];
+      const option =
+        card?.querySelector<HTMLElement>(
+          "button[aria-keyshortcuts]:not([disabled]):not([aria-disabled='true']), [role='radio'], input",
+        ) ??
+        card?.querySelector<HTMLElement>(
+          "button:not([disabled]):not([aria-disabled='true']):not([data-slot='icon-button'])",
+        );
       if (option) {
         option.focus();
         return;

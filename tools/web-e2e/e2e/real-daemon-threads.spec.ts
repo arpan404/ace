@@ -32,9 +32,8 @@ test("a new thread opens from the daemon's receipt and its organization survives
   ).toBeVisible();
 
   // The local checkout, so the journey doesn't depend on preparing a worktree.
-  await page.getByRole("button", { name: /^Where the work happens:/ }).click();
-  await page.getByRole("menuitemradio", { name: "Local" }).click();
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^Environment:/ }).click();
+  await page.getByRole("radio", { name: /^Local checkout/ }).click();
 
   const ask = "Summarise the README for the journey.";
   const message = page.getByRole("combobox", { name: "Message" });

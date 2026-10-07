@@ -62,6 +62,7 @@ Example:
 | handoffFrom | no | [ThreadId.json](schema/ThreadId.json) |  |
 | mode | no | ["local","worktree"] |  |
 | baseBranch | no | string | {"minLength":1,"maxLength":1024} |
+| base | no | [WorktreeBase.json](schema/WorktreeBase.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | title | yes | string | {"minLength":1,"maxLength":256} |
@@ -81,8 +82,7 @@ Example:
 {
   "baseBranch": "example",
   "handoffFrom": "example",
-  "permissionMode": "full-access",
-  "provider": "cursor",
+  "provider": "claude",
   "threadId": "example",
   "title": "example",
   "titleSource": "person",
@@ -1384,6 +1384,7 @@ Example:
 | account | no | string | {"minLength":1,"maxLength":256} |
 | mode | no | ["local","worktree"] |  |
 | baseBranch | no | string | {"minLength":1,"maxLength":1024} |
+| base | no | [WorktreeBase.json](schema/WorktreeBase.json) |  |
 | options | no | [ThreadCreateOptions.json](schema/ThreadCreateOptions.json) |  |
 | title | no | string |  |
 | input | yes | array | {"minItems":1,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
@@ -1394,14 +1395,10 @@ Example:
 ```json
 {
   "account": "example",
-  "context": {
-    "attachments": []
-  },
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "text": "example",
+      "type": "text"
     }
   ],
   "mode": "local",
@@ -1434,14 +1431,16 @@ Example:
 
 ```json
 {
-  "delivery": "queue",
+  "context": {
+    "mentions": []
+  },
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "path": "example",
+      "type": "file"
     }
   ],
+  "options": {},
   "threadId": "example",
   "type": "thread.send"
 }
@@ -1461,7 +1460,8 @@ Example:
 
 ```json
 {
-  "agentId": "example",
+  "cascade": false,
+  "runId": "example",
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -1533,8 +1533,8 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "action": "accept",
-    "kind": "elicitation"
+    "kind": "approval",
+    "optionId": "example"
   },
   "type": "interaction.resolve"
 }
@@ -1585,33 +1585,13 @@ Example:
 ```json
 {
   "commandId": "example",
-  "ok": true,
-  "prStatus": {
-    "checks": [],
-    "ci": "none",
+  "ok": false,
+  "review": {
     "comments": [],
-    "headSha": "example",
-    "mergeability": "unknown",
-    "raw": null,
-    "ref": {
-      "number": 10,
-      "repository": {
-        "forge": "gitlab",
-        "host": "4AYt",
-        "name": "BnN",
-        "owner": "tB/P0xBL/w64zWS"
-      }
-    },
-    "reviewThreads": [],
-    "state": "open",
-    "title": "example",
-    "url": "example"
+    "intentId": "example",
+    "replies": [],
+    "sessions": []
   },
-  "threadId": "example",
-  "workspace": {
-    "id": "example",
-    "name": "example",
-    "path": "example"
-  }
+  "title": "example"
 }
 ```

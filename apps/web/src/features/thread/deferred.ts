@@ -1,8 +1,8 @@
 import { threadWorkspace } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { preloadComposerCards } from "./composer/deferred-cards.ts";
 import { preloadComposerParts } from "./composer/deferred-parts.tsx";
-import { DeferredAccountMeter } from "./composer/deferred-usage.ts";
-import { DeferredInteractionCard } from "./interactions/deferred-card.ts";
+import { DeferredInteractionCard, DeferredQuestionRecord } from "./interactions/deferred-card.ts";
 import { DeferredReviewNote, DeferredReviewSummary } from "./items/deferred-review.ts";
 import { preloadJump } from "./long/jump.ts";
 
@@ -90,6 +90,7 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredAgentComposer.preload(),
     DeferredStepDetail.preload(),
     DeferredInteractionCard.preload(),
+    DeferredQuestionRecord.preload(),
     DeferredReviewNote.preload(),
     DeferredReviewSummary.preload(),
     DeferredThreadMenu.preload(),
@@ -98,7 +99,7 @@ export function preloadDeferred(): Promise<unknown> {
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.
     threadWorkspace.load(),
     preloadComposerParts(),
-    DeferredAccountMeter.preload(),
+    preloadComposerCards(),
     DeferredTurnsPanel.preload(),
     DeferredSearchBar.preload(),
     DeferredJumpBar.preload(),

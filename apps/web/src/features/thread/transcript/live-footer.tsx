@@ -1,42 +1,22 @@
-import { useInteractions } from "@ace/client-react";
 import { activityText, type TurnActivity } from "@ace/ui-core";
-import { Suspense } from "react";
 import { HourglassMediumIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { DeferredInteractionCard } from "../deferred.ts";
 import { useTicker } from "../lib/clock.ts";
 
-const InteractionCard = DeferredInteractionCard.Component;
-
-const noneShown: ReadonlySet<string> = new Set();
-
 /**
- * Below the last block: open requests to answer, then the turn's live line. `activity` is left
- * out when the bottom work log already carries the line as its header. Requests in `inline`
- * already sit in the transcript where they were asked.
+ * Below the last block: the turn's live line. It is left out when the bottom work log already
+ * carries the line as its header. The agent's open requests are answered on the composer, as
+ * attached cards, not here.
  */
-export function LiveFooter(props: {
-  threadId: string;
-  activity: TurnActivity | undefined;
-  inline?: ReadonlySet<string>;
-}) {
-  const inline = props.inline ?? noneShown;
-  const pending = (useInteractions(props.threadId) ?? []).filter((id) => !inline.has(id));
+export function LiveFooter(props: { activity: TurnActivity | undefined }) {
   const { activity } = props;
-  if (!pending.length && !activity) return null;
+  if (!activity) return null;
   return (
     <div className="flex flex-col gap-3 pb-2">
-      {pending.length > 0 && (
-        <Suspense fallback={null}>
-          {pending.map((id) => (
-            <InteractionCard key={id} threadId={props.threadId} interactionId={id} />
-          ))}
-        </Suspense>
-      )}
-      {activity && <ActivityLine activity={activity} />}
+      <ActivityLine activity={activity} />
     </div>
   );
 }

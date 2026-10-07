@@ -19,6 +19,13 @@ import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
 import { createWorktree, removeWorktree, type CreateWorktreeOptions } from "./worktrees.ts";
 import { GitError } from "./types.ts";
+import {
+  branchHead,
+  branchRefs,
+  fetchBranch,
+  type BranchRefs,
+  type FetchBranchOptions,
+} from "./remote-branches.ts";
 import type { ChangedFile, Checkpoint, DiffSide, GitOptions } from "./types.ts";
 
 export { validateCloneUrl } from "./projects.ts";
@@ -28,6 +35,7 @@ export { spawnGitProcess } from "./process-runtime.ts";
 export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
 export type { CreateWorktreeOptions } from "./worktrees.ts";
+export type { BranchRefs, FetchBranchOptions } from "./remote-branches.ts";
 
 export class GitService {
   private readonly repository: Repository;
@@ -120,6 +128,22 @@ export class GitService {
   }
   branches(worktree: string): Promise<{ branches: string[]; truncated: boolean }> {
     return listBranches(this.repository, worktree);
+  }
+  /** Local branches with their upstreams, and remotes' branches; no network. */
+  branchRefs(worktree: string): Promise<BranchRefs> {
+    return branchRefs(this.repository, worktree);
+  }
+  /** A local (or, with `remote`, remote-tracking) branch's commit; undefined when missing. */
+  branchHead(options: {
+    repo: string;
+    branch: string;
+    remote?: string | undefined;
+  }): Promise<string | undefined> {
+    return branchHead(this.repository, options);
+  }
+  /** Fetch one branch into its remote-tracking ref only, bounded by `timeoutMs`. */
+  fetchBranch(options: FetchBranchOptions): Promise<void> {
+    return fetchBranch(this.repository, options);
   }
   async repositoryInfo(repo: string) {
     const root = await this.repository.root(repo);
