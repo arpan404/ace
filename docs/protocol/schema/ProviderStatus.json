@@ -11,6 +11,9 @@
       "const": "provider.sign_in",
       "type": "string"
     },
+    "apiKey": {
+      "$ref": "https://ace.local/protocol/v1/ApiKeySupport.json"
+    },
     "auth": {
       "enum": [
         "logged_in",
@@ -26,6 +29,9 @@
     "authEvidence": {
       "const": "credentials_configured",
       "type": "string"
+    },
+    "authMethod": {
+      "$ref": "https://ace.local/protocol/v1/AccountAuthMethod.json"
     },
     "checkedAt": {
       "minimum": 0,

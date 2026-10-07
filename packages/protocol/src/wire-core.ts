@@ -141,7 +141,7 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("hello"),
-      channel: z.enum(["files", "devices", "browser", "screen"]).optional(),
+      channel: z.enum(["files", "devices", "browser", "screen", "provider_auth"]).optional(),
       protocolVersion: z.literal(1),
       deviceId: DeviceId,
       token: z.string().optional(),

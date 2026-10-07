@@ -5,7 +5,20 @@ import { ProviderStatus } from "./provider-status.ts";
 
 const id = z.string().min(1).max(128);
 const target = { provider: ProviderKind, instance: AccountId.optional() };
-/** Input is deliberately finite: credential entry is never a provider-login RPC. */
+export const ProviderApiKey = z
+  .string()
+  .min(1)
+  .max(8192)
+  // oxlint-disable-next-line eslint/no-control-regex -- Keys are a single printable token, never terminal control input.
+  .regex(/^[^\s\x00-\x1f\x7f]+$/)
+  .meta({
+    secret: true,
+    "x-ace-secret": true,
+    writeOnly: true,
+    description:
+      "Ephemeral credential handed only to the selected CLI stdin. Never log or persist.",
+  });
+/** Non-secret continuation input. API keys use their own message type. */
 export const ProviderLoginInput = z.union([
   z.strictObject({ confirm: z.literal(true) }),
   z.strictObject({ value: z.literal("enter") }),
@@ -13,7 +26,19 @@ export const ProviderLoginInput = z.union([
 ]);
 export type ProviderLoginInput = z.infer<typeof ProviderLoginInput>;
 export const ProviderLoginRequest = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("provider.login.start"), requestId: id, ...target }),
+  z.strictObject({
+    type: z.literal("provider.login.start"),
+    requestId: id,
+    ...target,
+    method: z.enum(["login", "api_key"]).optional(),
+    upstream: z.enum(["openai", "anthropic", "openrouter", "opencode"]).optional(),
+  }),
+  z.strictObject({
+    type: z.literal("provider.login.apiKey"),
+    requestId: id,
+    session: id,
+    apiKey: ProviderApiKey,
+  }),
   z.strictObject({ type: z.literal("provider.logout"), requestId: id, ...target }),
   z.strictObject({ type: z.literal("provider.login.terminal"), requestId: id, session: id }),
   z.strictObject({ type: z.literal("provider.login.poll"), requestId: id, session: id }),
@@ -30,11 +55,13 @@ export const ProviderLoginProgress = z.strictObject({
   session: id,
   ...target,
   action: z.enum(["login", "logout"]),
+  method: z.enum(["login", "api_key"]).optional(),
   state: z.enum([
     "starting",
     "awaiting_browser",
     "awaiting_code_entry",
     "awaiting_input",
+    "awaiting_api_key",
     "verifying",
     "succeeded",
     "failed",

@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderApiKey.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Ephemeral credential handed only to the selected CLI stdin. Never log or persist.",
+  "maxLength": 8192,
+  "minLength": 1,
+  "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
+  "secret": true,
+  "type": "string",
+  "writeOnly": true,
+  "x-ace-secret": true
+}

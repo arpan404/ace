@@ -14,13 +14,14 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 
 // #72 adds queue schemas to the canonical union. Keep only correlation here;
 // queue storage, removal, context leases and recovery remain with that owner.
-export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends
-  | `provider.login.${string}`
-  | "provider.logout"
-  ? Replies<"provider.login.result">
-  : Q["type"] extends `onboarding.${string}`
-    ? Replies<"onboarding.result">
-    : LegacyServiceResponse<Q>;
+export type ServiceResponse<Q extends ServiceRequest> =
+  Q["type"] extends `provider.accounts.${string}`
+    ? Replies<"provider.accounts.result">
+    : Q["type"] extends `provider.login.${string}` | "provider.logout"
+      ? Replies<"provider.login.result">
+      : Q["type"] extends `onboarding.${string}`
+        ? Replies<"onboarding.result">
+        : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "host.identity"
   ? Replies<"host.identity.result">
@@ -143,6 +144,13 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "workspace.request": ["workspace.result"],
   "projects.request": ["projects.result"],
   "providers.request": ["providers.result"],
+  "provider.accounts.list": ["provider.accounts.result"],
+  "provider.accounts.add": ["provider.accounts.result"],
+  "provider.accounts.rename": ["provider.accounts.result"],
+  "provider.accounts.setDefault": ["provider.accounts.result"],
+  "provider.accounts.remove": ["provider.accounts.result"],
+  "provider.accounts.reauth": ["provider.accounts.result"],
+  "provider.login.apiKey": ["provider.login.result"],
   "provider.login.start": ["provider.login.result"],
   "provider.login.poll": ["provider.login.result"],
   "provider.login.input": ["provider.login.result"],
