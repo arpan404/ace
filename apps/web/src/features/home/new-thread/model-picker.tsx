@@ -1,7 +1,7 @@
 import {
   accountTag,
-  distinctModelOptions,
   modelControlName,
+  pickerModel,
   pickerProviders,
   speedControl,
   speedOffTier,
@@ -23,8 +23,11 @@ import type { NewThreadOptions, Resolved } from "./choices.ts";
 export function ModelPicker(props: {
   options: NewThreadOptions | undefined;
   resolved: Resolved;
-  /** Called with the option's `key`, which tells apart providers that share a model id. */
-  onModel(key: string): void;
+  /**
+   * Called with the option's `key`, which tells apart providers that share a model id, and the
+   * account its row was listed under (undefined: keep the account).
+   */
+  onModel(key: string, account: string | undefined): void;
   onAccount(id: string): void;
   onEffort(effort: string | undefined): void;
   onFast(on: boolean): void;
@@ -66,14 +69,10 @@ export function ModelPicker(props: {
     fast: speed.on,
   };
   const name = details && modelControlName(details);
-  // One row per model in the list; each account keeps its own default and capabilities.
-  const models: PickerModel[] = distinctModelOptions(props.options?.models ?? []).map((option) => ({
-    key: option.key,
-    provider: option.provider,
-    label: option.label,
-    isNew: option.isNew,
-    legacy: option.legacy,
-  }));
+  // Each account's rows: the picker groups them by account and source.
+  const models: PickerModel[] = (props.options?.models ?? []).map((option) =>
+    pickerModel(option, option.label, option.account),
+  );
   const view: ModelControlView = {
     provider,
     label: model?.label,
@@ -83,6 +82,7 @@ export function ModelPicker(props: {
     // An account without models can still move to another model or account.
     disabled: !model && (props.options === undefined || none),
     modelKey: model?.key,
+    instance: model?.account,
     efforts,
     defaultStop: model?.defaultEffort === undefined,
     effort,
@@ -109,8 +109,8 @@ export function ModelPicker(props: {
         onEffort: props.onEffort,
         onFast: props.onFast,
         onReset: props.onReset,
-        onModel: (key) => {
-          props.onModel(key);
+        onModel: (key, listed) => {
+          props.onModel(key, listed);
           return true;
         },
         onAccount: props.onAccount,

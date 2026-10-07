@@ -1,18 +1,31 @@
-import type { Capabilities, ProviderKind } from "@ace/protocol";
+import type { Capabilities, ModelSource, ProviderKind } from "@ace/protocol";
 import { modelLine } from "./model-label.ts";
-import { effortLabel, type ModelChoice } from "./models.ts";
+import { effortLabel, type ModelChoice, type ModelPlacement } from "./models.ts";
 import type { ProviderState } from "./provider-status.ts";
 import { providerNames } from "./providers.ts";
 
-/** One model as the model picker lists it, whichever account would run it. */
+/** One model on one account (or source) as the model picker lists it. */
 export interface PickerModel {
   /** `modelKey(provider, id)`: what favorites store and what choosing one hands back. */
   key: string;
   provider: ProviderKind;
+  /** The human name, "Haiku 4.5"; never a raw id. */
   label: string;
+  /** Quiet secondary text beside the name: a snapshot date, "latest". */
+  detail?: string | undefined;
   isNew: boolean;
-  /** Deprecated by the provider: listed under Legacy models, after the rest. */
+  /** An older model, or one its provider deprecated: listed under Legacy models. */
   legacy: boolean;
+  /** Its account's (or instance's) default model. */
+  isDefault?: boolean | undefined;
+  /** The default because the person chose it in Settings. */
+  userDefault?: boolean | undefined;
+  /** Opaque ascending order within the provider and account. */
+  sortKey?: string | undefined;
+  /** The catalog instance (account) serving this row. */
+  instance?: string | undefined;
+  /** Where the model comes from, which groups it: an account, local, a subscription, a key. */
+  source?: ModelSource | undefined;
   /** Why it can't be chosen now (every account that serves it is at its limit). */
   unavailable?: string | undefined;
 }
@@ -20,7 +33,7 @@ export interface PickerModel {
 /** The picker's left column: Favorites, or one provider. */
 export type PickerTab = "favorites" | ProviderKind;
 
-/** What the picker lists: current models first, then from `legacyFrom` on the legacy ones. */
+/** A search or Favorites: current models first, then from `legacyFrom` on the legacy ones. */
 export interface PickerList {
   rows: readonly PickerModel[];
   /** Index of the first legacy row; `rows.length` when there are none. */
@@ -34,33 +47,56 @@ function words(query: string): string[] {
 
 function haystack(model: PickerModel): string {
   const id = model.key.slice(model.key.indexOf("\u0000") + 1);
-  return `${model.label} ${id} ${providerNames[model.provider]}`.toLocaleLowerCase();
+  return `${model.label} ${model.detail ?? ""} ${model.source?.label ?? ""} ${id} ${providerNames[model.provider]}`.toLocaleLowerCase();
 }
 
 /**
- * The rows for a tab, or for a search across every provider when the query has words.
- * Favorites keep the order they were starred in; elsewhere the catalog's order holds. Legacy
- * models always come last, so the ⌘1…⌘9 shortcuts land on current ones.
+ * One row per model where accounts don't matter (a search, Favorites): one that can take work,
+ * on `instance` (the account in use) where it can, so a model is unavailable only when every
+ * account serving it is.
+ */
+function distinctModels(
+  models: readonly PickerModel[],
+  instance: string | undefined,
+): PickerModel[] {
+  const score = (model: PickerModel) =>
+    (model.unavailable ? 0 : 2) + (model.instance === instance ? 1 : 0);
+  const byKey = new Map<string, PickerModel>();
+  for (const model of models) {
+    const kept = byKey.get(model.key);
+    if (!kept || score(model) > score(kept)) byKey.set(model.key, model);
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * A search across every provider, or Favorites in the order they were starred: each model once,
+ * legacy ones last, so the ⌘1…⌘9 shortcuts land on current ones. A provider's own tab lists
+ * its source groups instead (`pickerGroups`).
  */
 export function pickerList(
   models: readonly PickerModel[],
-  input: { tab: PickerTab; query: string; favorites: readonly string[] },
+  input: {
+    query: string;
+    favorites: readonly string[];
+    /** The account in use, whose row stands for a model several accounts list. */
+    instance?: string | undefined;
+  },
 ): PickerList {
   const terms = words(input.query);
+  const distinct = distinctModels(models, input.instance);
   let found: PickerModel[];
   if (terms.length) {
-    found = models.filter((model) => {
+    found = distinct.filter((model) => {
       const text = haystack(model);
       return terms.every((term) => text.includes(term));
     });
-  } else if (input.tab === "favorites") {
-    const byKey = new Map(models.map((model) => [model.key, model]));
+  } else {
+    const byKey = new Map(distinct.map((model) => [model.key, model]));
     found = input.favorites.flatMap((key) => {
       const model = byKey.get(key);
       return model ? [model] : [];
     });
-  } else {
-    found = models.filter((model) => model.provider === input.tab);
   }
   const current = found.filter((model) => !model.legacy);
   return {
@@ -219,40 +255,52 @@ export function modelControlName(input: {
   return [model, input.account, effort, input.fast ? "fast" : undefined].filter(Boolean).join(", ");
 }
 
+/** A choice or New thread option as a picker row. */
+export function pickerModel(
+  row: ModelPlacement & {
+    key: string;
+    provider: ProviderKind;
+    isNew: boolean;
+    legacy: boolean;
+    isDefault: boolean;
+  },
+  label: string,
+  instance: string | undefined,
+  unavailable?: string,
+): PickerModel {
+  return {
+    key: row.key,
+    provider: row.provider,
+    label,
+    detail: row.detail,
+    isNew: row.isNew,
+    legacy: row.legacy,
+    isDefault: row.isDefault,
+    userDefault: row.userDefault,
+    sortKey: row.sortKey,
+    instance,
+    source: row.source,
+    unavailable,
+  };
+}
+
 /**
- * A running thread's picker rows: each model once, whichever accounts serve it, unavailable
- * (with when it frees up) only when every one of those accounts is at its limit.
+ * A running thread's picker rows: each model on each account that serves it, unavailable (with
+ * when it frees up) while that account is at its limit. Where accounts don't matter (a search,
+ * Favorites) a model is unavailable only when every account serving it is.
  */
 export function pickerModelsFromChoices(
   choices: readonly ModelChoice[],
   limitReached: (resetsAt: number | undefined) => string,
 ): PickerModel[] {
-  const byKey = new Map<string, ModelChoice[]>();
-  for (const choice of choices) {
-    const group = byKey.get(choice.key);
-    if (group) group.push(choice);
-    else byKey.set(choice.key, [choice]);
-  }
-  return [...byKey.values()].flatMap((group) => {
-    const first = group[0];
-    if (!first) return [];
-    const exhausted = group.every((choice) => choice.exhausted);
-    const resets = group.flatMap((choice) =>
-      choice.resetsAt === undefined ? [] : [choice.resetsAt],
-    );
-    return [
-      {
-        key: first.key,
-        provider: first.provider,
-        label: first.model,
-        isNew: first.isNew,
-        legacy: first.legacy,
-        unavailable: exhausted
-          ? limitReached(resets.length ? Math.min(...resets) : undefined)
-          : undefined,
-      },
-    ];
-  });
+  return choices.map((choice) =>
+    pickerModel(
+      choice,
+      choice.model,
+      choice.accountId,
+      choice.exhausted ? limitReached(choice.resetsAt) : undefined,
+    ),
+  );
 }
 
 /** The choice that runs a picked model: on `account` when it serves it with headroom, else any. */

@@ -126,7 +126,7 @@ test("Claude canonical choices merge family aliases and resolve the Opus default
   expect(catalog.list().models).toMatchObject([
     {
       id: "claude-opus-5-5",
-      displayName: "Claude Opus 5.5",
+      displayName: "Opus 5.5",
       aliases: ["opus"],
       isDefault: true,
       defaultSource: "built-in",
@@ -187,7 +187,7 @@ test("Codex missing preferred Sol selects the next Sol over a different GPT fami
   expect(chosen(catalog)).toBe("gpt-6-sol");
 });
 
-test("Cursor uses its reported Auto selector and falls back when Auto is unavailable", async () => {
+test("Cursor selects a concrete flagship while preserving Auto as an explicit choice", async () => {
   const payload = {
     models: {
       currentModelId: "gpt-6.1-sol",
@@ -206,7 +206,8 @@ test("Cursor uses its reported Auto selector and falls back when Auto is unavail
       .models.map((row) => row.id)
       .toSorted(),
   ).toEqual(["auto", "gpt-6.1-sol"]);
-  expect(chosen(catalog)).toBe("auto");
+  expect(chosen(catalog)).toBe("gpt-6.1-sol");
+  expect(chosen(catalog, "cursor", "auto")).toBe("auto");
   const fallback = await catalogFor("cursor", {
     models: {
       ...payload.models,
@@ -216,7 +217,7 @@ test("Cursor uses its reported Auto selector and falls back when Auto is unavail
   expect(chosen(fallback.catalog)).toBe("gpt-6.1-sol");
 });
 
-test("OpenCode honors its scoped native default before the connected Muse preference", async () => {
+test("OpenCode ranks the newest connected flagship independently of the CLI selection", async () => {
   const data = [
     openCode("opencode-go", "muse-spark-1.3-contributor"),
     openCode("anthropic", "claude-opus-5-5"),
@@ -236,7 +237,7 @@ test("OpenCode honors its scoped native default before the connected Muse prefer
     "anthropic/claude-opus-5-5",
     "anthropic/claude-opus-4-8",
   ]);
-  expect(chosen(catalog)).toBe("anthropic/claude-opus-5-5");
+  expect(chosen(catalog)).toBe("opencode-go/muse-spark-1.3-contributor");
   const fallback = await catalogFor(
     "opencode",
     {},
@@ -251,7 +252,7 @@ test("OpenCode honors its scoped native default before the connected Muse prefer
   expect(chosen(noMuse.catalog)).toBe("anthropic/claude-opus-5-5");
 });
 
-test("Pi preserves get_state's configured default and falls back to an available chat model", async () => {
+test("Pi resolves the newest available flagship independently of get_state's selection", async () => {
   const models = [
     { provider: "anthropic", id: "claude-opus-5-5", name: "claude-opus-5-5" },
     { provider: "openai", id: "gpt-6.1-sol", name: "gpt-6.1-sol" },
@@ -267,7 +268,7 @@ test("Pi preserves get_state's configured default and falls back to an available
     "anthropic/claude-opus-5-5",
     "openai/gpt-6.1-sol",
   ]);
-  expect(chosen(catalog)).toBe("openai/gpt-6.1-sol");
+  expect(chosen(catalog)).toBe("anthropic/claude-opus-5-5");
   const fallback = await catalogFor("pi", {
     models,
     currentModel: { provider: "missing", id: "absent" },
@@ -285,7 +286,7 @@ test("ACP session fixtures deduplicate options across groups and remove pseudo a
       modelConfigId: "model",
       selectorMethod: "session/set_config_option",
     },
-    { id: "gpt-5", group: "legacy", hidden: true },
+    { id: "gpt-5", group: "legacy", hidden: false },
   ]);
   expect(chosen(catalog, "acp", "Default (recommended)")).toBe("gpt-6.1-sol");
   await catalog.updateFromSession(config, {
@@ -304,7 +305,7 @@ test("ACP session fixtures deduplicate options across groups and remove pseudo a
   });
   expect(catalog.list().models).toMatchObject([
     { id: "gpt-6.1-sol", group: "current", hidden: false },
-    { id: "old-chat", group: "legacy", hidden: true },
+    { id: "old-chat", group: "legacy", hidden: false },
   ]);
   const fallback = await catalogFor("acp", {
     configOptions: [
@@ -485,7 +486,7 @@ test("large ACP metadata cannot hide non-chat flags or erase aliases and legacy 
   });
   expect(catalog.list().models[1]).toMatchObject({
     group: "legacy",
-    hidden: true,
+    hidden: false,
     raw: { truncated: true },
   });
   expect(chosen(catalog, "acp", "old-chat")).toBe("real-chat");

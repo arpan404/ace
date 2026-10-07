@@ -19,18 +19,48 @@ test("providers show what discovery found, with the account at its limit flagged
   expect(screen.queryByRole("button", { name: "Manage Antigravity" })).toBeNull();
 });
 
-test("Manage opens a provider's accounts and models", async () => {
+test("Manage opens a provider's accounts and its models by name, older ones folded away", async () => {
   await harness().open("/settings/providers");
   await userEvent.click(await screen.findByRole("button", { name: "Manage Codex" }));
   const detail = screen.getByRole("region", { name: "Codex details" });
   expect(within(detail).getByText("Limit reached")).toBeTruthy();
   const models = await within(detail).findByRole("list", { name: "Models" });
-  expect(within(models).getByText("GPT-5 Codex")).toBeTruthy();
-  expect(within(models).getByText("Default · 400K context")).toBeTruthy();
-  expect(within(models).queryByText("Opus 4.1")).toBeNull();
+  const personal = await within(models).findByRole("group", { name: "Personal" });
+  expect(within(personal).getByText("GPT-6.1 Sol")).toBeTruthy();
+  expect(within(personal).getByText("Default · 400K context")).toBeTruthy();
+  // Names only: no raw ids, and the older models wait behind Legacy models.
+  expect(models.textContent).not.toMatch(/gpt-6\.1-sol|gpt-5-codex/);
+  expect(within(personal).queryByText("GPT-5.5")).toBeNull();
+  await userEvent.click(within(personal).getByRole("button", { name: "Legacy models (4)" }));
+  expect(within(personal).getByText("GPT-5.5")).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Manage Codex" }));
   expect(screen.queryByRole("region", { name: "Codex details" })).toBeNull();
+});
+
+test("a provider's default model can be changed, even to a legacy one, and reads as the person's", async () => {
+  const app = harness();
+  await app.open("/settings/providers");
+  await userEvent.click(await screen.findByRole("button", { name: "Manage Claude Code" }));
+  const detail = screen.getByRole("region", { name: "Claude Code details" });
+  const field = await within(detail).findByRole("button", { name: "Default model: Opus 5.5" });
+  await userEvent.click(field);
+  const picker = await screen.findByRole("listbox", { name: "Models" });
+  // One list for the provider: the default is the provider's, whichever account runs it.
+  expect(within(picker).queryByRole("group", { name: "Work" })).toBeNull();
+  await userEvent.click(within(picker).getByRole("option", { name: "Legacy models, 6" }));
+  await userEvent.click(within(picker).getByRole("option", { name: /^Sonnet 4\.5/ }));
+
+  expect(
+    await within(detail).findByRole("button", { name: "Default model: Sonnet 4.5, Your choice" }),
+  ).toBeTruthy();
+  const stored = app.daemon.services.settings.get("providers.configuration");
+  expect(stored).toEqual([{ provider: "claude", defaultModel: "claude-sonnet-4-5" }]);
+
+  await userEvent.click(within(detail).getByRole("button", { name: "Reset" }));
+  expect(
+    await within(detail).findByRole("button", { name: "Default model: Opus 5.5" }),
+  ).toBeTruthy();
 });
 
 test("an ACP agent added by command joins the provider list", async () => {

@@ -148,3 +148,59 @@ policy choices and the authenticated daemon wire API. Apply at least eight
 production mutation cases for the merge gate. The owner's latest policy defers
 tests, mutation runs, benchmarks and `bun run check` until merge. Development
 verification uses fmt, lint, typecheck and check:size only.
+
+## Amendment: catalog names, lifecycle, sources and refresh notifications
+
+Accepted 2026-10-06 for the model-catalog UX task. The
+[model catalog contract](../daemon/model-catalog.md) defines the additive wire
+fields and the UI handoff. It supersedes the 15-minute TTL, code-only errors,
+and deleting usable rows for ordinary invalidations described above.
+
+Snapshot dates and preview suffixes are details, not versions. Parse family
+and numeric version before formatting names or ranking models. Keep good native
+names. Classify the newest version of each family/tier independently per account
+and upstream provider as current; older versions are legacy. Native lifecycle
+flags win. Keep legacy selections usable and list derived legacy choices for a
+submenu unless the person explicitly hides them.
+
+Defaults are real discovered routes, ranked by flagship family and numeric
+version, without preferred hard-coded IDs. Claude therefore advances from Opus
+5.5 when a newer Opus appears. Settings can override these defaults, including
+an explicitly selected legacy model. Interpret old default sentinels through
+this resolver and retain the existing thread migration. When known models are
+available, execution now sends the concrete route instead of relying on the
+CLI's implicit default. Unknown/empty catalogs retain the engine's existing
+metadata-discovery and implicit fallback behavior.
+
+Sources carry a structured kind, ID, and label. OpenCode uses credential-free
+connection metadata for local, Go, Zen, API-key and other providers. Pi uses its
+own available-model provider IDs. Account-based CLIs use account identities.
+Do not read credential files or config objects that may contain credentials.
+A custom endpoint is local only when the CLI exposes safe evidence of that fact.
+
+Serve persisted catalogs before discovery. Revalidate at startup, after a CLI
+version or settings change, and after non-secret OpenCode/Pi connection metadata
+changes. Poll external connection changes every minute; unchanged fingerprints
+do not trigger catalog discovery. Maximum age is six hours. Login changes still
+revoke the old account. Unknown auth probes are not evidence of a changed login;
+an unavailable CLI retains the account's last-good catalog beside its error.
+Cache schema v2 migrates old payloads on load/replacement;
+all existing model/output/persistence bounds remain.
+
+Account-revocation `invalidate` retains its original destructive semantics:
+remove choices immediately, fence discovery, and drain obsolete writes before
+durable deletion. Ordinary catalog changes use stale marking and refresh.
+Runtime version notifications cannot cross from Cursor CLI to SDK catalogs;
+explicit refresh waits through same-account discovery replacements. Custom
+names and Settings order remain authoritative, and arbitrary numeric selectors
+are not parsed as model versions.
+
+Refresh failures retain last-good models. Partial failures retain only failing
+sources and replace healthy sources. OpenCode's ID-only fallback may recover
+missing metadata but cannot erase an explicit connection failure.
+Freshness, timestamp, and a fixed human
+error message with a corrective hint are available per instance and source.
+Log the same sanitized categories through the daemon logger. Main read sockets
+receive `models.changed` invalidations at refresh and catalog transitions and
+re-read their pages. The event contains no model data and goes to no dedicated
+service channel. The UI should keep cached rows visible beside errors.

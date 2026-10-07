@@ -15,6 +15,7 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
     enabled?: boolean | undefined;
     binaryPath?: string | undefined;
   };
+  checked?(rows: readonly Status[]): void;
   cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
 }
 export interface ProviderStatusRuntime {
@@ -123,7 +124,10 @@ export class ProviderStatuses {
     });
     this.flight = Promise.all(work)
       .then((rows) => {
-        if (!this.controller.signal.aborted) this.rows = rows;
+        if (!this.controller.signal.aborted) {
+          this.rows = rows;
+          this.options.checked?.(rows);
+        }
       })
       .finally(() => {
         this.flight = undefined;

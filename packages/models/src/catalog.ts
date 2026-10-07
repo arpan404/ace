@@ -1,3 +1,6 @@
+import { connectionRevision } from "./discovery-revision.ts";
+import { discoveryError } from "./discovery-errors.ts";
+import { refreshedSources } from "./catalog-sources.ts";
 import { cleanCatalog } from "./catalog-cleanup.ts";
 import { createCleanModelView, providerConfiguration } from "./preferences.ts";
 import { freezeCatalogModel } from "./freeze.ts";
@@ -31,7 +34,11 @@ type State = {
   admit?: (() => Promise<void>) | undefined;
   entry?: CacheEntry;
   error?: ModelInstanceStatus["error"];
+  errorDetail?: ModelInstanceStatus["errorDetail"];
+  dirty?: boolean;
+  probe?: { abort: AbortController; done: Promise<void> };
   retryAt: number;
+  settingsKey: string;
   invalidating?: Promise<void>;
   flight?: Promise<ModelInstanceStatus>;
   probeRevision?: string;
@@ -62,6 +69,24 @@ function cacheRevision(instance: ModelInstance): string {
           .digest("hex")
       : instance.loginRevision;
 }
+function identityRevision(instance: ModelInstance): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        instance.id,
+        instance.provider,
+        instance.loginRevision,
+        instance.backend,
+        instance.homeDir,
+        instance.cwd,
+        instance.acpAgentId,
+        instance.installationId,
+        instance.instanceId,
+        instance.profileRevision,
+      ]),
+    )
+    .digest("hex");
+}
 export type CatalogOptions = {
   storage: CatalogStorage;
   discover: DiscoverModels;
@@ -74,6 +99,13 @@ export type CatalogOptions = {
   concurrency?: number;
   /** Keep the snapshot stable between updates; replace it or call configurationChanged on edits. */
   preferences?: () => ProviderConfigurations;
+  revisionProbe?: (instance: ModelInstance, signal: AbortSignal) => Promise<string>;
+  onError?: (
+    provider: ModelInstance["provider"],
+    instance: string,
+    error: NonNullable<ModelInstanceStatus["errorDetail"]>,
+    source?: string,
+  ) => void;
 };
 export class ModelCatalog implements ModelCatalogApi {
   readonly #options: CatalogOptions;
@@ -89,6 +121,8 @@ export class ModelCatalog implements ModelCatalogApi {
   readonly #flights = new Set<Promise<ModelInstanceStatus>>();
   readonly #sessionWrites = new Set<Promise<void>>();
   readonly #sessionTails = new Map<string, Promise<void>>();
+  readonly #probes = new Set<Promise<void>>();
+  readonly #listeners = new Set<(filter: ModelFilter) => void>();
   #closing: Promise<void> | undefined;
   #active = 0;
   #closed = false;
@@ -96,7 +130,7 @@ export class ModelCatalog implements ModelCatalogApi {
     this.#options = options;
     this.#deletions = new PendingDeletions(options.storage);
     for (const duration of [
-      options.ttlMs ?? 900_000,
+      options.ttlMs ?? 21_600_000,
       options.timeoutMs ?? 15_000,
       options.retryMs ?? 30_000,
     ]) {
@@ -114,10 +148,39 @@ export class ModelCatalog implements ModelCatalogApi {
       const parsed = CachedEntry.parse(entry);
       this.#persisted.set(parsed.instance, {
         ...parsed,
-        models: Object.freeze(cleanCatalog(parsed.models).map(freezeCatalogModel)),
+        ...refreshedSources(
+          cleanCatalog(parsed.models).map(freezeCatalogModel),
+          parsed.sources,
+          undefined,
+          parsed.refreshedAt,
+        ),
       });
     }
     for (const instance of options.instances ?? []) this.registerInstance(instance);
+  }
+  listen(listener: (filter: ModelFilter) => void): () => void {
+    if (this.#listeners.size >= 4096) throw new Error("Catalog listener limit reached");
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
+  #changed(state: State): void {
+    for (const listener of this.#listeners) {
+      try {
+        listener({ provider: state.config.provider, instance: state.config.id });
+      } catch {
+        /* One disconnected client cannot stop discovery. */
+      }
+    }
+  }
+  #failed(
+    state: State,
+    error: unknown,
+    fallback: NonNullable<ModelInstanceStatus["errorDetail"]>["code"] = "discovery_failed",
+  ): void {
+    state.errorDetail = discoveryError(error, fallback);
+    this.#options.onError?.(state.config.provider, state.config.id, state.errorDetail);
   }
   #configuration(config: ModelInstance) {
     return providerConfiguration(this.#options.preferences?.() ?? [], config.provider, config.id);
@@ -126,9 +189,13 @@ export class ModelCatalog implements ModelCatalogApi {
     const path = this.#configuration(config).binaryPath;
     return path
       ? createHash("sha256")
-          .update(JSON.stringify([cacheRevision(config), path]))
+          .update(JSON.stringify([cacheRevision(config), path, config.installationVersion]))
           .digest("hex")
-      : cacheRevision(config);
+      : config.installationVersion
+        ? createHash("sha256")
+            .update(JSON.stringify([cacheRevision(config), config.installationVersion]))
+            .digest("hex")
+        : cacheRevision(config);
   }
   #models(state: State) {
     const preferences = this.#options.preferences?.() ?? emptyPreferences;
@@ -139,6 +206,7 @@ export class ModelCatalog implements ModelCatalogApi {
       state.config.provider,
       state.config.id,
       providerConfiguration(preferences, state.config.provider, state.config.id),
+      state.config.label,
     );
     state.view = { preferences, ...(state.entry ? { entry: state.entry } : {}), models };
     return models;
@@ -146,7 +214,12 @@ export class ModelCatalog implements ModelCatalogApi {
   /** Fence disabled flights immediately; enabling resumes ordinary lazy discovery. */
   configurationChanged(): void {
     for (const state of this.#states.values()) {
+      const settingsKey = JSON.stringify(this.#configuration(state.config));
+      if (settingsKey === state.settingsKey) continue;
+      state.settingsKey = settingsKey;
       delete state.view;
+      state.dirty = true;
+      state.retryAt = 0;
       if (
         this.#configuration(state.config).enabled === false ||
         (state.probeRevision && state.probeRevision !== this.#revision(state.config))
@@ -154,9 +227,91 @@ export class ModelCatalog implements ModelCatalogApi {
         state.abort?.abort();
       if (state.entry && state.entry.revision !== this.#revision(state.config)) {
         state.abort?.abort();
-        delete state.entry;
+        state.dirty = true;
         state.retryAt = 0;
       }
+      this.#changed(state);
+      if (state.flight)
+        void state.flight.then(() => {
+          if (!this.#closed && this.#states.get(state.config.id) === state)
+            void this.#refresh(state);
+        });
+      else void this.#refresh(state);
+    }
+  }
+  /** Poll only CLI connection metadata. Unchanged metadata never starts catalog discovery. */
+  reconcileConnections(): Promise<void> {
+    if (this.#closed || !this.#options.revisionProbe) return Promise.resolve();
+    const probe = this.#options.revisionProbe;
+    const tasks: Promise<void>[] = [];
+    for (const state of this.#states.values()) {
+      if (
+        !["opencode", "pi"].includes(state.config.provider) ||
+        this.#configuration(state.config).enabled === false
+      )
+        continue;
+      if (state.probe) {
+        tasks.push(state.probe.done);
+        continue;
+      }
+      if (state.flight || this.#probes.size >= 64) continue;
+      const abort = new AbortController();
+      const revision = this.#revision(state.config);
+      const stop = this.#options.deadline(() => abort.abort(), this.#options.timeoutMs ?? 15_000);
+      const done = Promise.resolve().then(async () => {
+        try {
+          const configuration = this.#configuration(state.config);
+          const fingerprint = await probe(
+            { ...state.config, executable: configuration.binaryPath ?? state.config.executable },
+            abort.signal,
+          );
+          if (
+            abort.signal.aborted ||
+            this.#closed ||
+            this.#states.get(state.config.id) !== state ||
+            revision !== this.#revision(state.config)
+          )
+            return;
+          if (fingerprint !== state.entry?.connectionRevision || state.error) {
+            state.dirty = true;
+            await this.#refresh(state);
+          }
+        } catch (error) {
+          if (!this.#closed && this.#states.get(state.config.id) === state) {
+            state.error = "discovery_failed";
+            this.#failed(state, error);
+            state.retryAt = this.#options.now() + (this.#options.retryMs ?? 30_000);
+            this.#changed(state);
+          }
+        } finally {
+          stop();
+          delete state.probe;
+          this.#probes.delete(done);
+        }
+      });
+      state.probe = { abort, done };
+      this.#probes.add(done);
+      tasks.push(done);
+    }
+    return Promise.all(tasks).then(() => {});
+  }
+  installationChanged(
+    provider: ModelInstance["provider"],
+    version: string,
+    runtime: "cli" | "cursor-sdk" = "cli",
+  ): void {
+    for (const state of this.#select({ provider })) {
+      if ((state.config.backend === "cursor-sdk" ? "cursor-sdk" : "cli") !== runtime) continue;
+      if (state.config.installationVersion === version) continue;
+      state.config = { ...state.config, installationVersion: version };
+      state.dirty = true;
+      state.retryAt = 0;
+      state.abort?.abort();
+      const refresh = () => {
+        if (!this.#closed && this.#states.get(state.config.id) === state) void this.#refresh(state);
+      };
+      if (state.flight) void state.flight.then(refresh);
+      else refresh();
     }
   }
   hasProvider(provider: ModelInstance["provider"]): boolean {
@@ -174,9 +329,15 @@ export class ModelCatalog implements ModelCatalogApi {
     // Re-registration also invalidates flights when executable/env/cwd changed.
     const entry = old?.entry ?? this.#persisted.get(config.id);
     const compatible =
-      entry?.revision === this.#revision(config) && entry.provider === config.provider;
+      entry?.provider === config.provider &&
+      (old
+        ? identityRevision(old.config) === identityRevision(config)
+        : entry.identityRevision
+          ? entry.identityRevision === identityRevision(config)
+          : entry.revision === this.#revision(config));
     if (entry && !compatible) void this.#deletions.remove(config.id);
     old?.abort?.abort();
+    old?.probe?.abort.abort();
     if (old) this.#providers.get(old.config.provider)?.delete(config.id);
     if (!old && !this.#persisted.has(config.id) && this.#states.size + this.#persisted.size >= 64) {
       const evicted = this.#persisted.keys().next().value;
@@ -188,13 +349,20 @@ export class ModelCatalog implements ModelCatalogApi {
     this.#states.set(config.id, {
       config,
       ...((admit ?? old?.admit) ? { admit: admit ?? old?.admit } : {}),
-      ...(compatible ? { entry } : {}),
+      ...(compatible ? { entry, dirty: entry?.revision !== this.#revision(config) } : {}),
       retryAt: 0,
+      settingsKey: JSON.stringify(this.#configuration(config)),
     });
     const ids = this.#providers.get(config.provider) ?? new Set<string>();
     ids.add(config.id);
     this.#providers.set(config.provider, ids);
     this.#persisted.delete(config.id);
+    const registered = this.#states.get(config.id);
+    if (registered && entry && compatible && !old) {
+      registered.dirty = true;
+      void this.#refresh(registered);
+    }
+    if (registered) this.#changed(registered);
   }
   /** Metadata from an already authorized session. No process, session or inference is started. */
   async updateFromSession(input: InstanceInput, metadata: unknown): Promise<void> {
@@ -210,8 +378,10 @@ export class ModelCatalog implements ModelCatalogApi {
       provider: instance.provider,
       instance: instance.id,
       revision: this.#revision(instance),
+      loginRevision: instance.loginRevision,
+      identityRevision: identityRevision(instance),
       refreshedAt: this.#options.now(),
-      models: cleanCatalog(models),
+      ...refreshedSources(cleanCatalog(models), undefined, state.entry, this.#options.now()),
     });
     const previous = this.#sessionTails.get(instance.id) ?? Promise.resolve();
     const write = previous
@@ -225,7 +395,10 @@ export class ModelCatalog implements ModelCatalogApi {
         await this.#options.storage.replace(entry);
         if (this.#states.get(instance.id) === state) {
           state.entry = entry;
+          state.dirty = false;
           delete state.error;
+          delete state.errorDetail;
+          this.#changed(state);
         }
       });
     this.#sessionWrites.add(write);
@@ -250,9 +423,11 @@ export class ModelCatalog implements ModelCatalogApi {
     if (this.#removals.size >= 128) throw new Error("Instance removal capacity reached");
     const state = this.#states.get(instance);
     state?.abort?.abort();
+    state?.probe?.abort.abort();
     if (state) this.#providers.get(state.config.provider)?.delete(instance);
     this.#states.delete(instance);
     this.#persisted.delete(instance);
+    if (state) this.#changed(state);
     const removal = Promise.resolve().then(async () => {
       // Storage failure must not short-circuit process cleanup. Flight settles before
       // sampling cleanup, including a discovery that started during admission.
@@ -262,6 +437,7 @@ export class ModelCatalog implements ModelCatalogApi {
         state?.invalidating,
         this.#sessionTails.get(instance),
       ]);
+      await state?.probe?.done;
       await Promise.all(this.#instanceDiscoveries.get(instance) ?? []);
       // A flight/write already committing may have raced the first deletion.
       const failures = results.flatMap((result) =>
@@ -294,8 +470,11 @@ export class ModelCatalog implements ModelCatalogApi {
   }
   #stale(state: State): boolean {
     return (
+      state.dirty === true ||
+      state.error !== undefined ||
+      state.entry?.sources?.some((source) => source.error) === true ||
       !state.entry ||
-      this.#options.now() - state.entry.refreshedAt >= (this.#options.ttlMs ?? 900_000)
+      this.#options.now() - state.entry.refreshedAt >= (this.#options.ttlMs ?? 21_600_000)
     );
   }
   #status(state: State): ModelInstanceStatus {
@@ -309,6 +488,27 @@ export class ModelCatalog implements ModelCatalogApi {
         ? { refreshedAt: state.entry.refreshedAt, lastRefreshedAt: state.entry.refreshedAt }
         : {}),
       enabled: this.#configuration(state.config).enabled !== false,
+      status: state.flight ? "refreshing" : this.#stale(state) ? "stale" : "fresh",
+      ...(state.errorDetail ? { errorDetail: state.errorDetail } : {}),
+      // oxlint-disable-next-line oxc/no-map-spread -- Clone immutable cached values for this view.
+      sources: (state.entry?.sources ?? []).map((source) => ({
+        ...source,
+        source:
+          state.config.label && source.source.kind === "account"
+            ? { ...source.source, label: state.config.label }
+            : source.source,
+        status: state.flight
+          ? "refreshing"
+          : state.error ||
+              state.dirty ||
+              !state.entry ||
+              this.#options.now() - (source.lastRefreshedAt ?? state.entry.refreshedAt) >=
+                (this.#options.ttlMs ?? 21_600_000) ||
+              source.error
+            ? "stale"
+            : "fresh",
+        ...(state.errorDetail ? { error: state.errorDetail } : {}),
+      })),
       stale: this.#stale(state),
       refreshing: state.flight !== undefined,
       ...(state.error ? { error: state.error } : {}),
@@ -318,6 +518,9 @@ export class ModelCatalog implements ModelCatalogApi {
     if (this.#closed) return;
     for (const state of states)
       if (this.#stale(state) && this.#options.now() >= state.retryAt) void this.#refresh(state);
+  }
+  revalidate(): void {
+    this.#revalidate(this.#select({}));
   }
   list(input: ModelListOptions = {}): ModelListResult {
     const options = ModelListOptions.parse(input);
@@ -369,7 +572,17 @@ export class ModelCatalog implements ModelCatalogApi {
       return !state || this.#stale(state);
     });
   }
-  /** Account-change boundary: revoke cached choices and obsolete discoveries immediately. */
+  /** Ordinary catalog changes retain usable choices while discovery replaces them. */
+  markStale(input: ModelFilter = {}): void {
+    if (this.#closed) throw new Error("Catalog closed");
+    for (const state of this.#select(ModelFilter.parse(input))) {
+      if (state.config.provider === "acp") continue;
+      state.dirty = true;
+      state.retryAt = 0;
+      this.#changed(state);
+    }
+  }
+  /** Account-change boundary: revoke choices immediately and drain obsolete writes before deletion. */
   async invalidate(input: ModelFilter = {}): Promise<void> {
     if (this.#closed) throw new Error("Catalog closed");
     const selected = this.#select(ModelFilter.parse(input));
@@ -377,16 +590,17 @@ export class ModelCatalog implements ModelCatalogApi {
       throw new Error("Invalidation capacity reached");
     const pending: Promise<void>[] = [];
     for (const state of selected) {
-      // Generic ACP has no metadata-only probe; its account owner supplies session metadata.
       if (state.config.provider === "acp") continue;
       delete state.entry;
       this.registerInstance(state.config);
       const next = this.#states.get(state.config.id);
       if (!next) continue;
-      // A storage write already in flight must settle before revoking its persisted rows.
-      const removal = Promise.allSettled([state.flight, state.invalidating]).then(() =>
-        this.#deletions.remove(state.config.id),
-      );
+      const removal = Promise.allSettled([
+        state.flight,
+        state.invalidating,
+        state.probe?.done,
+        this.#sessionTails.get(state.config.id),
+      ]).then(() => this.#deletions.remove(state.config.id));
       next.invalidating = removal;
       this.#invalidations.add(removal);
       const done = () => this.#invalidations.delete(removal);
@@ -397,7 +611,21 @@ export class ModelCatalog implements ModelCatalogApi {
   }
   async refresh(input: ModelFilter = {}): Promise<ModelInstanceStatus[]> {
     if (this.#closed) throw new Error("Catalog closed");
-    return Promise.all(this.#select(ModelFilter.parse(input)).map((state) => this.#refresh(state)));
+    return Promise.all(
+      this.#select(ModelFilter.parse(input)).map((state) => this.#refreshCurrent(state)),
+    );
+  }
+  async #refreshCurrent(state: State): Promise<ModelInstanceStatus> {
+    let revision = this.#revision(state.config);
+    let status = await this.#refresh(state);
+    // An explicit refresh owns its result through same-account version/settings replacements.
+    while (!this.#closed && this.#states.get(state.config.id) === state) {
+      const current = this.#revision(state.config);
+      if (!state.flight && current === revision) break;
+      revision = current;
+      status = await this.#refresh(state);
+    }
+    return status;
   }
   #refresh(state: State): Promise<ModelInstanceStatus> {
     if (state.config.provider === "acp" || this.#configuration(state.config).enabled === false)
@@ -405,7 +633,9 @@ export class ModelCatalog implements ModelCatalogApi {
     if (state.flight) return state.flight;
     if (this.#flights.size >= 64 || this.#discoveries.size >= 64) {
       state.error = "discovery_failed";
+      this.#failed(state, undefined);
       state.retryAt = this.#options.now() + (this.#options.retryMs ?? 30_000);
+      this.#changed(state);
       return Promise.resolve(this.#status(state));
     }
     const abort = new AbortController();
@@ -473,12 +703,28 @@ export class ModelCatalog implements ModelCatalogApi {
             this.#revision(state.config) !== revision
           )
             return;
+          if (!models.length && models.sources === undefined)
+            throw new Error("The CLI returned no model choices");
+          const combined = refreshedSources(
+            cleanCatalog(models),
+            models.sources,
+            state.entry,
+            this.#options.now(),
+          );
           const entry = CachedEntry.parse({
             provider: state.config.provider,
             instance: state.config.id,
             revision,
+            loginRevision: state.config.loginRevision,
+            identityRevision: identityRevision(state.config),
             refreshedAt: this.#options.now(),
-            models: cleanCatalog(models),
+            connectionRevision: connectionRevision(
+              state.config.provider,
+              models,
+              models.sources?.map((source) => source.source) ?? [],
+            ),
+            ...combined,
+            models: cleanCatalog(combined.models),
           });
           try {
             // Only this instance's deletion is a prerequisite. Unrelated failures retain
@@ -495,6 +741,7 @@ export class ModelCatalog implements ModelCatalogApi {
             await this.#options.storage.replace(entry);
           } catch {
             state.error = "persistence_failed";
+            this.#failed(state, undefined, "persistence_failed");
             return;
           }
           if (
@@ -505,10 +752,50 @@ export class ModelCatalog implements ModelCatalogApi {
           )
             return;
           state.entry = entry;
+          state.dirty = false;
           delete state.error;
-          state.retryAt = 0;
-        } catch {
+          delete state.errorDetail;
+          for (const source of entry.sources ?? [])
+            if (source.error)
+              this.#options.onError?.(
+                state.config.provider,
+                state.config.id,
+                source.error,
+                source.source.id,
+              );
+          state.retryAt = entry.sources?.some((source) => source.error)
+            ? this.#options.now() + (this.#options.retryMs ?? 30_000)
+            : 0;
+        } catch (error) {
+          if (abort.signal.aborted && !timedOut) return;
           state.error = timedOut ? "timeout" : "discovery_failed";
+          this.#failed(
+            state,
+            timedOut ? undefined : error,
+            timedOut ? "timeout" : "discovery_failed",
+          );
+          if (
+            state.entry &&
+            this.#states.get(state.config.id) === state &&
+            !this.#closed &&
+            revision === this.#revision(state.config)
+          ) {
+            const retained = {
+              ...state.entry,
+              // oxlint-disable-next-line oxc/no-map-spread -- Clone immutable cached values for this view.
+              sources: (state.entry.sources ?? []).map((source) => ({
+                ...source,
+                status: "stale" as const,
+                error: state.errorDetail,
+              })),
+            };
+            try {
+              await this.#options.storage.replace(retained);
+              state.entry = retained;
+            } catch {
+              /* Memory still retains the last good catalog. */
+            }
+          }
         } finally {
           cancel?.();
           this.#release();
@@ -520,10 +807,12 @@ export class ModelCatalog implements ModelCatalogApi {
         delete state.flight;
         delete state.abort;
         delete state.probeRevision;
+        if (this.#states.get(state.config.id) === state && !this.#closed) this.#changed(state);
         return this.#status(state);
       });
     this.#flights.add(flight);
     state.flight = flight;
+    this.#changed(state);
     return flight;
   }
   async #acquire(): Promise<void> {
@@ -542,7 +831,12 @@ export class ModelCatalog implements ModelCatalogApi {
     if (this.#closing) return this.#closing;
     const closing = (async () => {
       this.#closed = true;
-      for (const state of this.#states.values()) state.abort?.abort();
+      this.#listeners.clear();
+      for (const state of this.#states.values()) {
+        state.abort?.abort();
+        state.probe?.abort.abort();
+      }
+      await Promise.all(this.#probes);
       await Promise.all(this.#flights);
       await Promise.all(this.#invalidations);
       const writes = await Promise.allSettled(this.#sessionWrites);

@@ -21,11 +21,14 @@ export function registerCursorSdkCatalog(
   services.models?.registerInstance(
     {
       id: instance.id,
+      label: services.accountRegistry?.get(instance.id)?.instance.label ?? "Default",
       provider: "cursor",
       backend: "cursor-sdk",
       homeDir: instance.homeDir,
       cwd: instance.homeDir,
-      loginRevision: "cursor-sdk-default-v1",
+      loginRevision:
+        services.accountRegistry?.get(instance.id)?.instance.loginRevision ??
+        "cursor-sdk-default-v1",
     },
     async () => {
       const account = services.accountRegistry?.get(instance.id)?.instance;

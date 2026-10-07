@@ -64,7 +64,7 @@ test("picking another provider's model asks first, then switches after the runni
   app.play(replayCursor()).runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 4.1/);
+  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
 
   const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
   expect(within(dialog).getByText(/doesn't carry over/)).toBeTruthy();

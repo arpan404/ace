@@ -1,5 +1,5 @@
 import type { ModelScope } from "@ace/client";
-import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
+import type { Capabilities, CatalogModel, ModelSource, ProviderKind } from "@ace/protocol";
 import { tightestWindow, type AccountView } from "./accounts.ts";
 import { accountLimit } from "./limits.ts";
 import type { ProviderStatus } from "./provider-status.ts";
@@ -7,8 +7,45 @@ import { modelAliases } from "./catalog-ids.ts";
 import { modelLine, modelName } from "./model-label.ts";
 import { modelLabel, providerNames } from "./providers.ts";
 
+/**
+ * Where a picker places a model: its quiet detail, the order and source group it lists under,
+ * and whether the person made it the default.
+ */
+export interface ModelPlacement {
+  /** A snapshot or preview suffix ("20251001"): secondary text, never part of the name. */
+  detail?: string | undefined;
+  /** Opaque ascending order within the provider and account; never parsed. */
+  sortKey?: string | undefined;
+  /** Where the model comes from: an account, a local runtime, a subscription, an API key. */
+  source?: ModelSource | undefined;
+  /** The default because the person chose it in Settings, not ace's built-in policy. */
+  userDefault?: boolean | undefined;
+}
+
+/** A catalog row is legacy by its tier, or because its provider deprecated it. */
+function isLegacy(model: CatalogModel): boolean {
+  return model.tier === "legacy" || model.deprecated || model.legacy === true;
+}
+
+/**
+ * A stand-in for "whatever the CLI defaults to" ("default", "Default (recommended)"). Pickers
+ * offer the concrete default model instead, so such a row is never listed.
+ */
+function isPseudoDefault(model: CatalogModel): boolean {
+  return /^default(?:\s*\(recommended\))?$/i.test(model.id.trim());
+}
+
+function placement(model: CatalogModel): ModelPlacement {
+  return {
+    detail: model.detail,
+    sortKey: model.sortKey,
+    source: model.source,
+    userDefault: model.isDefault && model.defaultSource === "user",
+  };
+}
+
 /** One model on one of the person's signed-in accounts, as the composer's picker lists it. */
-export interface ModelChoice {
+export interface ModelChoice extends ModelPlacement {
   /** The row on one account: `instance:catalog id`. Catalog ids repeat across accounts. */
   id: string;
   provider: ProviderKind;
@@ -37,7 +74,7 @@ export interface ModelChoice {
   key: string;
   /** The provider marks it newly released. */
   isNew: boolean;
-  /** Deprecated by the provider: listed under Legacy models. */
+  /** An older model (tier legacy) or one its provider deprecated: listed under Legacy models. */
   legacy: boolean;
   /** The `serviceTier` that runs it faster, when it has one ace can ask for. */
   fastTier: string | undefined;
@@ -157,7 +194,7 @@ export function modelChoices(
   const providers = [...new Set(models.map((model) => model.provider))];
   return providers.flatMap((provider) =>
     models
-      .filter((model) => model.provider === provider && !model.hidden)
+      .filter((model) => model.provider === provider && !model.hidden && !isPseudoDefault(model))
       .flatMap((model): ModelChoice[] => {
         const account = byId.get(model.instance);
         if (account?.quota.auth === "logged_out") return [];
@@ -182,9 +219,10 @@ export function modelChoices(
             defaultEffort: model.defaultEffort,
             key: modelKey(provider, model.id),
             isNew: model.isNew ?? false,
-            legacy: model.deprecated || model.legacy === true,
+            legacy: isLegacy(model),
             fastTier: fastTier(model),
             fastDefault: fastByDefault(model),
+            ...placement(model),
           },
         ];
       }),
@@ -257,7 +295,7 @@ export function choiceSelection(choice: ModelChoice): ThreadSelection & { model:
  * A model on one account, to start a thread with. Accounts keep their own rows: each has its own
  * default and capabilities, so New thread picks the account first and then its model.
  */
-export interface ModelOption {
+export interface ModelOption extends ModelPlacement {
   /**
    * The model's identity across accounts (`modelKey`). Providers share ids (Codex, Pi and Cursor
    * all list `gpt-5.5`), so picking by `id` alone would land on another provider's model.
@@ -278,7 +316,7 @@ export interface ModelOption {
   defaultEffort: string | undefined;
   /** The provider marks it newly released. */
   isNew: boolean;
-  /** Deprecated by the provider: listed under Legacy models. */
+  /** An older model (tier legacy) or one its provider deprecated: listed under Legacy models. */
   legacy: boolean;
   /** The `serviceTier` that runs it faster, when it has one ace can ask for. */
   fastTier: string | undefined;
@@ -324,7 +362,7 @@ export function newThreadOptions(
   for (const model of models) {
     // An ACP agent needs its identity to start, which only its catalog rows carry.
     const scope = modelScope(model);
-    if (model.hidden || missing.has(model.provider) || !scope) continue;
+    if (model.hidden || missing.has(model.provider) || !scope || isPseudoDefault(model)) continue;
     options.push({
       key: modelKey(model.provider, model.id),
       id: model.id,
@@ -336,9 +374,10 @@ export function newThreadOptions(
       efforts: model.reasoningEfforts,
       defaultEffort: model.defaultEffort,
       isNew: model.isNew ?? false,
-      legacy: model.deprecated || model.legacy === true,
+      legacy: isLegacy(model),
       fastTier: fastTier(model),
       fastDefault: fastByDefault(model),
+      ...placement(model),
     });
   }
   const signedIn = accounts.filter((account) => account.signedIn);
@@ -359,19 +398,6 @@ export function newThreadOptions(
       };
     }),
   };
-}
-
-/**
- * The model picker's list for New thread: each model once, whichever accounts serve it. Only
- * what the list shows is shared across accounts; defaults and capabilities stay per account.
- */
-export function distinctModelOptions(models: readonly ModelOption[]): ModelOption[] {
-  const seen = new Set<string>();
-  return models.filter((model) => {
-    if (seen.has(model.key)) return false;
-    seen.add(model.key);
-    return true;
-  });
 }
 
 /** What New thread starts with: an account of the provider, then that account's model. */
@@ -409,15 +435,17 @@ export function selectNewThreadModel(input: {
     accounts.find((option) => serves(option.id, undefined)) ??
     accounts.find((option) => option.isDefault) ??
     accounts[0];
+  // A legacy default only when the person chose it in Settings; ace's own default is current.
+  const usableDefault = (row: ModelOption) => row.isDefault && (!row.legacy || row.userDefault);
   // Without signed-in accounts (no account service), the rows' own instance is the account.
   const anchor = account
     ? undefined
-    : (own.find((model) => model.key === wanted) ?? own.find((model) => model.isDefault) ?? own[0]);
+    : (own.find((model) => model.key === wanted) ?? own.find(usableDefault) ?? own[0]);
   const instance = account?.id ?? anchor?.account;
   const rows = own.filter((model) => model.account === instance);
   const model =
     (wanted === undefined ? undefined : rows.find((row) => row.key === wanted)) ??
-    rows.find((row) => row.isDefault && !row.legacy) ??
+    rows.find(usableDefault) ??
     rows.find((row) => !row.legacy) ??
     rows[0];
   return { account, model };

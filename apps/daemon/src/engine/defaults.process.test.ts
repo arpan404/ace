@@ -106,83 +106,91 @@ test("new threads and legacy next-turn default selections launch the synced conc
   }
 });
 
-test("cached legacy default rows migrate for display and resume without sending the sentinel to the CLI", async () => {
-  const m = models();
-  await m.catalog.refresh();
-  const frames = scriptFrames();
-  const h = await harness(
-    [
-      { on: "send", frames: [frames.frame(start, end)] },
-      { on: "send", frames: [frames.frame(start, end)] },
-    ],
-    frames,
-  );
-  let cold: Store | undefined;
-  let engine: Engine | undefined;
-  try {
-    const id = await h.create();
-    await h.engine.close();
-    // Fixture of the pre-defaults persisted selection, preserving its native checkpoint.
-    h.store.atomic((db) => {
-      db.prepare("UPDATE engine_sessions SET model='default' WHERE thread_id=?").run(id);
-      db.prepare(
-        "UPDATE engine_transitions SET value=json_set(value, '$.selection.model', 'default') WHERE thread_id=?",
-      ).run(id);
-    });
-    h.store.appendEvents(
-      id,
-      [{ type: "thread.updated", execution: { provider: "codex", model: "default", options: {} } }],
-      1001,
+test.each(["default", "Default (recommended)"])(
+  "cached %s selections migrate for display and resume without sending the sentinel to the CLI",
+  async (sentinel) => {
+    const m = models();
+    await m.catalog.refresh();
+    const frames = scriptFrames();
+    const h = await harness(
+      [
+        { on: "send", frames: [frames.frame(start, end)] },
+        { on: "send", frames: [frames.frame(start, end)] },
+      ],
+      frames,
     );
-    m.override();
-    cold = new Store(h.path);
-    engine = new Engine(cold, { registry: h.registry, models: m.catalog, clock: h.clock });
-    await engine.ready();
-    expect(cold.getThread(id)?.execution?.model).toBe("gpt-6-sol");
-    expect(Object.values(cold.snapshotThread(id).agents)[0]?.model).toBe("gpt-6-sol");
-    const { Command } = await import("@ace/protocol");
-    const receipt = engine.handler.handle(
-      Command.parse({
-        id: "resume-default",
-        deviceId: "test",
-        payload: {
-          type: "thread.send",
-          threadId: id,
-          input: [{ type: "text", text: "synthetic" }],
-        },
-      }),
-      commandContext(cold),
-    );
-    expect(receipt.ok).toBe(true);
-    await engine.flush();
-    expect(h.contexts[1]?.model).toBe("gpt-6-sol");
-    await engine.close();
-    cold.close();
-    cold = undefined;
-    const restarted = new Store(h.path);
-    const beforeRestart = restarted.readEvents({ afterSeq: 0, threadId: id, limit: 1000 });
-    const secondEngine = new Engine(restarted, {
-      registry: h.registry,
-      models: m.catalog,
-      clock: h.clock,
-    });
+    let cold: Store | undefined;
+    let engine: Engine | undefined;
     try {
-      await secondEngine.ready();
-      expect(restarted.getThread(id)?.execution?.model).toBe("gpt-6-sol");
-      expect(restarted.readEvents({ afterSeq: 0, threadId: id, limit: 1000 })).toEqual(
-        beforeRestart,
+      const id = await h.create();
+      await h.engine.close();
+      // Fixture of the pre-defaults persisted selection, preserving its native checkpoint.
+      h.store.atomic((db) => {
+        db.prepare("UPDATE engine_sessions SET model=? WHERE thread_id=?").run(sentinel, id);
+        db.prepare(
+          "UPDATE engine_transitions SET value=json_set(value, '$.selection.model', ?) WHERE thread_id=?",
+        ).run(sentinel, id);
+      });
+      h.store.appendEvents(
+        id,
+        [
+          {
+            type: "thread.updated",
+            execution: { provider: "codex", model: sentinel, options: {} },
+          },
+        ],
+        1001,
       );
+      m.override();
+      cold = new Store(h.path);
+      engine = new Engine(cold, { registry: h.registry, models: m.catalog, clock: h.clock });
+      await engine.ready();
+      expect(cold.getThread(id)?.execution?.model).toBe("gpt-6-sol");
+      expect(Object.values(cold.snapshotThread(id).agents)[0]?.model).toBe("gpt-6-sol");
+      const { Command } = await import("@ace/protocol");
+      const receipt = engine.handler.handle(
+        Command.parse({
+          id: "resume-default",
+          deviceId: "test",
+          payload: {
+            type: "thread.send",
+            threadId: id,
+            input: [{ type: "text", text: "synthetic" }],
+          },
+        }),
+        commandContext(cold),
+      );
+      expect(receipt.ok).toBe(true);
+      await engine.flush();
+      expect(h.contexts[1]?.model).toBe("gpt-6-sol");
+      await engine.close();
+      cold.close();
+      cold = undefined;
+      const restarted = new Store(h.path);
+      const beforeRestart = restarted.readEvents({ afterSeq: 0, threadId: id, limit: 1000 });
+      const secondEngine = new Engine(restarted, {
+        registry: h.registry,
+        models: m.catalog,
+        clock: h.clock,
+      });
+      try {
+        await secondEngine.ready();
+        expect(restarted.getThread(id)?.execution?.model).toBe("gpt-6-sol");
+        expect(restarted.readEvents({ afterSeq: 0, threadId: id, limit: 1000 })).toEqual(
+          beforeRestart,
+        );
+      } finally {
+        await secondEngine.close();
+        restarted.close();
+      }
     } finally {
-      await secondEngine.close();
-      restarted.close();
+      await engine?.close();
+      cold?.close();
+      await h.close();
+      await m.catalog.close();
     }
-  } finally {
-    await engine?.close();
-    cold?.close();
-    await h.close();
-    await m.catalog.close();
-  }
-});
+  },
+);
 
 test("a native thread without an account does not borrow another account's default", async () => {
   const config = ModelInstance.parse({

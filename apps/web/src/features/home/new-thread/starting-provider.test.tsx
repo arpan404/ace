@@ -29,7 +29,7 @@ async function send(text: string) {
 test("New thread starts on the last-used provider", async () => {
   const storage = memoryKeyValue();
   await app(storage).open("/new?project=relay");
-  expect((await model()).getAttribute("aria-label")).toMatch(/^Model: Opus 4\.1/);
+  expect((await model()).getAttribute("aria-label")).toMatch(/^Model: Opus 5\.5/);
   await chooseModel("GPT-5 Codex", "Codex");
   await closeModelControl();
   await send("Log every restart with its backoff delay");
@@ -54,7 +54,7 @@ test("New thread falls back to the first installed, logged-in provider", async (
   await made.open("/new?project=relay");
 
   // Claude Code isn't installed and every Codex account is signed out: OpenCode is next.
-  expect((await model()).getAttribute("aria-label")).toMatch(/^Model: Sonnet 4\.5 \(OpenCode\)/);
+  expect((await model()).getAttribute("aria-label")).toMatch(/^Model: Muse Spark/);
 });
 
 test("an installed CLI whose catalog lists no models shows an empty state, not a made-up default", async () => {
@@ -83,14 +83,14 @@ test("an installed CLI whose catalog lists no models shows an empty state, not a
 test("the default provider picked in Settings wins over the last-used one", async () => {
   const storage = memoryKeyValue();
   await app(storage).open("/new?project=relay");
-  expect((await model()).getAttribute("aria-label")).toMatch(/^Model: Opus 4\.1/);
+  expect((await model()).getAttribute("aria-label")).toMatch(/^Model: Opus 5\.5/);
   await send("Log every restart with its backoff delay");
   cleanup();
 
   const made = app(storage);
   made.daemon.services.settings.seed({ "providers.default": "codex" });
   await made.open("/new?project=relay");
-  expect((await model()).getAttribute("aria-label")).toMatch(/^Model: GPT-5 Codex/);
+  expect((await model()).getAttribute("aria-label")).toMatch(/^Model: GPT-6\.1 Sol/);
 });
 
 test("with no provider CLI installed, New thread says so instead of loading forever", async () => {

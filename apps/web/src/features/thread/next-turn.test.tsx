@@ -66,18 +66,18 @@ test("effort picked while a message is still saving stays for the next message",
     },
   };
   const { sent, message } = await open({ outbox });
-  await effort(/^Model: Opus 4\.1/, "{End}");
+  await effort(/^Model: Opus 5\.5/, "{End}");
 
   held = new Promise((resolve) => (release = resolve));
   await userEvent.type(message, "Cap the replay at 200{Enter}");
   // While it saves, the person picks Low for the message after.
-  await effort(/^Model: Opus 4\.1, personal, High effort/, "{Home}{ArrowRight}");
+  await effort(/^Model: Opus 5\.5, personal, High effort/, "{Home}{ArrowRight}");
   release?.();
 
   await waitFor(() => expect(sent).toHaveLength(1));
   expect(sent[0]?.options).toMatchObject({ effort: "high" });
   expect(
-    await screen.findByRole("button", { name: "Model: Opus 4.1, personal, Low effort" }),
+    await screen.findByRole("button", { name: "Model: Opus 5.5, personal, Low effort" }),
   ).toBeTruthy();
   await userEvent.type(message, "And log the cap{Enter}");
   await waitFor(() => expect(sent).toHaveLength(2));
@@ -86,15 +86,15 @@ test("effort picked while a message is still saving stays for the next message",
 
 test("a switch the daemon refuses keeps the effort picked for the next message", async () => {
   const { app, sent, message } = await open();
-  await effort(/^Model: Opus 4\.1/, "{End}");
+  await effort(/^Model: Opus 5\.5/, "{End}");
   app.daemon.refuseCommands("instance_unavailable", "thread.switch");
 
-  const popover = await openModelControl(/^Model: Opus 4\.1, personal, High effort/);
+  const popover = await openModelControl(/^Model: Opus 5\.5, personal, High effort/);
   await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));
   expect(await screen.findByText("Couldn't switch the model")).toBeTruthy();
   await closeModelControl();
   expect(
-    screen.getByRole("button", { name: "Model: Opus 4.1, personal, High effort" }),
+    screen.getByRole("button", { name: "Model: Opus 5.5, personal, High effort" }),
   ).toBeTruthy();
 
   await userEvent.type(message, "Cap the replay at 200{Enter}");
@@ -104,11 +104,11 @@ test("a switch the daemon refuses keeps the effort picked for the next message",
 
 test("a switch that lands keeps the effort its model also takes", async () => {
   const { sent, message } = await open();
-  await effort(/^Model: Opus 4\.1/, "{End}");
-  const popover = await openModelControl(/^Model: Opus 4\.1, personal, High effort/);
+  await effort(/^Model: Opus 5\.5/, "{End}");
+  const popover = await openModelControl(/^Model: Opus 5\.5, personal, High effort/);
   await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));
   expect(
-    await screen.findByRole("button", { name: "Model: Opus 4.1, work, High effort" }),
+    await screen.findByRole("button", { name: "Model: Opus 5.5, work, High effort" }),
   ).toBeTruthy();
   await closeModelControl();
 
@@ -137,13 +137,13 @@ test("a move to another provider from another device resets what its model can't
 
   switchElsewhere(app, "to-claude", {
     provider: "claude",
-    model: "claude-opus-4-1",
+    model: "claude-opus-5-5",
     instanceId: "claude-personal",
   });
-  expect(await screen.findByText("Effort and speed reset for Opus 4.1")).toBeTruthy();
+  expect(await screen.findByText("Effort and speed reset for Opus 5.5")).toBeTruthy();
   expect(
     await screen.findByRole("button", {
-      name: "Model: Opus 4.1, personal, provider default effort",
+      name: "Model: Opus 5.5, personal, provider default effort",
     }),
   ).toBeTruthy();
 

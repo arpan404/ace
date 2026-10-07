@@ -36,6 +36,13 @@ export class Client {
         ? Promise.reject(new Error("Socket closed before next message"))
         : new Promise((resolve, reject) => this.waiters.push({ resolve, reject }));
   }
+  /** The next message that isn't an unsolicited push of `type`, which may arrive at any time. */
+  async nextSkipping(type: ServerMessage["type"]): Promise<ServerMessage> {
+    for (;;) {
+      const message = await this.next();
+      if (message.type !== type) return message;
+    }
+  }
   send(message: ClientMessage): void {
     this.socket.send(JSON.stringify(message));
   }

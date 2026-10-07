@@ -1,5 +1,4 @@
 import type { ClientApi } from "@ace/client";
-import type { CatalogModel, ProviderKind } from "@ace/protocol";
 import type { AccountView, ProviderStatus } from "@ace/ui-core";
 import { readProviderStatuses } from "@/lib/provider-statuses.ts";
 import type { AccessSource } from "./access-source.ts";
@@ -30,21 +29,9 @@ function providerInstall(status: ProviderStatus): ProviderInstall {
   };
 }
 
-/** One row per model, however many accounts serve it. */
-function distinct(models: readonly CatalogModel[]): CatalogModel[] {
-  const seen = new Set<string>();
-  return models.filter((model) => {
-    const key = `${model.provider}\u0000${model.nativeModelId}`;
-    if (model.hidden || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 /**
  * Settings against the connected daemon: values through `settings.subscribe` / `settings.set`,
- * providers from discovery and `accounts.list` (`readProviderStatuses`), models from
- * `models.list` / `models.refresh`, and paired devices, machines and ACP agents added by command
+ * providers from discovery and `accounts.list` (`readProviderStatuses`), and paired devices, machines and ACP agents added by command
  * through `access`.
  */
 export function daemonSettingsBackend(
@@ -68,13 +55,6 @@ export function daemonSettingsBackend(
     }));
     return [...statuses.map(providerInstall), ...added];
   };
-  const models = async (provider: ProviderKind) => {
-    const reply = await client.request({
-      type: "models.list",
-      options: { provider, offset: 0, limit: 100 },
-    });
-    return "models" in reply.result ? distinct(reply.result.models) : [];
-  };
   return {
     values,
     set: (key, value) => values.set(key, value),
@@ -91,11 +71,6 @@ export function daemonSettingsBackend(
     canAddAcpAgent: access.canAddAcpAgent,
     addAcpAgent: (agent) => access.addAcpAgent(agent),
     removeAcpAgent: (name) => access.removeAcpAgent(name),
-    models,
-    async refreshModels(provider) {
-      await client.request({ type: "models.refresh", filter: { provider } });
-      return models(provider);
-    },
     machines: () => access.machines(),
     devices: () => access.devices(),
     pair: (scopes) => access.pair(scopes),

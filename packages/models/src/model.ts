@@ -13,16 +13,17 @@ export function base(
   const metadata = catalogMetadata(raw);
   return {
     id,
-    displayName: modelDisplayName(
+    ...modelDisplayName(
       id,
       displayName.toLowerCase() === id.toLowerCase() ||
         displayName.toLowerCase() === id.slice(id.indexOf("/") + 1).toLowerCase()
         ? undefined
         : displayName,
-    ).displayName,
+    ),
     nativeModelId: id,
     provider: instance.provider,
     instance: instance.id,
+    source: { kind: "account", id: instance.id, label: instance.label ?? instance.id },
     ...(instance.acpAgentId ? { acpAgentId: instance.acpAgentId } : {}),
     ...(instance.installationId ? { installationId: instance.installationId } : {}),
     ...(instance.instanceId ? { instanceId: instance.instanceId } : {}),

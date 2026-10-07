@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CatalogModel } from "@ace/protocol";
 import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process";
+import { providerSource } from "./model-source.ts";
 import { base } from "./model.ts";
 import { chatMetadata } from "./catalog-metadata.ts";
 import type { ModelInstance } from "./types.ts";
@@ -93,6 +94,7 @@ async function piModels(
       CatalogModel.parse({
         ...base(instance, `${native.provider}/${native.id}`, native.name, native),
         isDefault: state.model?.provider === native.provider && state.model.id === native.id,
+        source: providerSource(native.provider),
         nativeProviderId: native.provider,
         nativeModelId: native.id,
         contextWindow: native.contextWindow,

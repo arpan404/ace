@@ -30,6 +30,7 @@ export function indexModelPreferences(config: ProviderConfiguration) {
   return {
     enabled: config.enabled !== false,
     hideDeprecated: config.hideDeprecated !== false,
+    hideLegacy: config.hideDeprecated === true,
     showOnlyFavourites: config.showOnlyFavourites === true,
     hiddenModels: new Set(config.hiddenModels),
     shownModels: new Set(config.shownModels),
@@ -58,7 +59,8 @@ function indexedVisibility(
         ? "model_hidden"
         : explicitShow
           ? undefined
-          : (model.deprecated || model.legacy) && config.hideDeprecated
+          : ((model.deprecated && config.hideDeprecated) || (model.legacy && config.hideLegacy)) &&
+              !favourite
             ? "deprecated"
             : model.hidden
               ? "provider_hidden"
@@ -101,11 +103,15 @@ export function createCleanModelView(
   provider: ProviderKind,
   instance: string,
   config: ProviderConfiguration,
+  accountLabel?: string,
 ) {
   const index = indexModelPreferences(config);
   const found = config.customModels?.length
     ? new Set(models.flatMap((model) => [model.id, ...(model.aliases ?? [])]))
     : new Set<string>();
+  const customPositions = new Map(
+    (config.customModels ?? []).map((model, position) => [model.id, position]),
+  );
   const custom: CatalogModel[] = cleanCatalog(
     (config.customModels ?? [])
       .filter((model) => !found.has(model.id))
@@ -130,7 +136,10 @@ export function createCleanModelView(
           raw: { json: "{}", truncated: false },
         };
       }),
-  );
+  ).toSorted((a, b) => {
+    // Settings order is explicit; numeric custom IDs are not a preference ranking.
+    return (customPositions.get(a.id) ?? 0) - (customPositions.get(b.id) ?? 0);
+  });
   const selection = defaultModel(
     [...models, ...custom].map((row) => indexedVisibility(row, index)),
     provider,
@@ -146,6 +155,9 @@ export function createCleanModelView(
     const { defaultSource: _source, ...rest } = visible;
     const value = freezeCatalogModel({
       ...rest,
+      ...(accountLabel && rest.source?.kind === "account"
+        ? { source: { ...rest.source, label: accountLabel } }
+        : {}),
       isDefault: row.id === selection?.model.id,
       ...(row.id === selection?.model.id ? { defaultSource: selection.source } : {}),
     });

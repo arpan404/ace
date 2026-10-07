@@ -283,7 +283,9 @@ export class AccountRegistry {
       if (!account) throw new Error("Unknown instance");
       if (fact.provider !== account.instance.provider) throw new Error("Provider mismatch");
       const result = ingestQuota(account.quota, fact);
-      if (result.state.auth !== account.quota.auth) this.loginChanged(id);
+      // An unreadable status is not evidence that the signed-in identity changed.
+      if (result.state.auth !== account.quota.auth && result.state.auth !== "unknown")
+        this.loginChanged(id);
       if (result.state !== account.quota)
         this.updateQuota.run(JSON.stringify(AccountQuota.parse(result.state)), id);
       this.db.exec("COMMIT");

@@ -977,6 +977,9 @@
       "$ref": "https://ace.local/protocol/v1/ModelsResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ModelsChanged.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/NotificationMessage.json"
     },
     {

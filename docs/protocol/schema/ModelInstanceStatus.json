@@ -18,6 +18,9 @@
       ],
       "type": "string"
     },
+    "errorDetail": {
+      "$ref": "https://ace.local/protocol/v1/ModelDiscoveryError.json"
+    },
     "installationId": {
       "maxLength": 256,
       "minLength": 1,
@@ -47,8 +50,23 @@
     "refreshing": {
       "type": "boolean"
     },
+    "sources": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ModelSourceStatus.json"
+      },
+      "maxItems": 512,
+      "type": "array"
+    },
     "stale": {
       "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "fresh",
+        "refreshing",
+        "stale"
+      ],
+      "type": "string"
     }
   },
   "required": [

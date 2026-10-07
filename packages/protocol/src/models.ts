@@ -13,10 +13,45 @@ export const ModelTier = z.object({
     .refine((parameters) => Object.keys(parameters).length <= 16)
     .meta({ maxProperties: 16, "x-ace-constraint": "At most 16 entries." }),
 });
+export const ModelSource = z.object({
+  service: z.enum(["opencode_go", "opencode_zen"]).optional(),
+  kind: z.enum(["local", "subscription", "api_key", "account", "other"]),
+  id: label,
+  label,
+});
+export type ModelSource = z.infer<typeof ModelSource>;
+export const ModelDiscoveryError = z.object({
+  code: z.enum([
+    "auth_expired",
+    "unreachable",
+    "cli_too_old",
+    "rate_limited",
+    "parse_failure",
+    "timeout",
+    "persistence_failed",
+    "discovery_failed",
+  ]),
+  message: z.string().min(1).max(256),
+  hint: z.string().min(1).max(256),
+});
+export type ModelDiscoveryError = z.infer<typeof ModelDiscoveryError>;
+export const ModelSourceStatus = z.object({
+  source: ModelSource,
+  status: z.enum(["fresh", "refreshing", "stale"]),
+  lastRefreshedAt: z.number().nonnegative().optional(),
+  error: ModelDiscoveryError.optional(),
+});
+export type ModelSourceStatus = z.infer<typeof ModelSourceStatus>;
 export const CatalogModel = z
   .object({
     id: label,
     displayName: label,
+    detail: label.optional(),
+    family: label.optional(),
+    version: label.optional(),
+    tier: z.enum(["current", "legacy"]).optional(),
+    sortKey: label.optional(),
+    source: ModelSource.optional(),
     provider: ProviderKind,
     ...AcpIdentity.partial().shape,
     instance: label,
@@ -89,6 +124,9 @@ export const ModelInstanceStatus = z.object({
   refreshedAt: z.number().nonnegative().optional(),
   lastRefreshedAt: z.number().nonnegative().optional(),
   enabled: z.boolean().optional(),
+  status: z.enum(["fresh", "refreshing", "stale"]).optional(),
+  errorDetail: ModelDiscoveryError.optional(),
+  sources: z.array(ModelSourceStatus).max(512).optional(),
   stale: z.boolean(),
   refreshing: z.boolean(),
   error: z.enum(["discovery_failed", "timeout", "persistence_failed"]).optional(),
@@ -137,6 +175,11 @@ export const ModelsResolveRequest = z.object({
   type: z.literal("models.resolve"),
   requestId: label,
   roleSpec: ModelRoleSpec,
+});
+/** Authenticated read sockets receive invalidations and re-read their own catalog pages. */
+export const ModelsChanged = z.object({
+  type: z.literal("models.changed"),
+  filter: ModelFilter,
 });
 export const ModelsResult = z.object({
   type: z.literal("models.result"),

@@ -40,6 +40,8 @@ export interface ModelControlView {
   disabled?: boolean | undefined;
   /** The chosen model's picker key. */
   modelKey: string | undefined;
+  /** The account (catalog instance) it runs on, when known. */
+  instance?: string | undefined;
   efforts: readonly string[];
   /**
    * The model has no default ace knows of: the slider starts with a "Default" stop, the
@@ -70,7 +72,10 @@ export interface ModelControlActions {
   onEffort(effort: string | undefined): void;
   onFast(on: boolean): void;
   onReset(): void;
-  /** A picked model; false when the popover should close (a dialog asks first). */
-  onModel(key: string): boolean;
+  /**
+   * A picked model, on the account its row was listed under (undefined: keep the account);
+   * false when the popover should close (a dialog asks first).
+   */
+  onModel(key: string, instance: string | undefined): boolean;
   onAccount(id: string): void;
 }

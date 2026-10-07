@@ -6,6 +6,7 @@ import { startDaemon } from "@ace/daemon";
 import { createInstance, openRegistry } from "@ace/accounts";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { readConfig } from "./config.ts";
+import { ModelCatalog, ModelInstance, openModelStorage, normalizeCursorSdk } from "@ace/models";
 
 afterEach(() => vi.unstubAllEnvs());
 test.each(["default", "configured", "selected", "configured-missing-sdk"] as const)(
@@ -93,3 +94,61 @@ createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line)
     }
   },
 );
+
+test("Cursor refresh ignores CLI versions and waits for the current SDK revision after discovery is replaced", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-cursor-version-"));
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const instance = ModelInstance.parse({
+    id: "private-account",
+    provider: "cursor",
+    backend: "cursor-sdk",
+    homeDir: root,
+    cwd: root,
+    loginRevision: "same-account",
+    installationVersion: "1.0.35",
+  });
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(join(root, "models.sqlite")),
+    instances: [instance],
+    now: () => 1,
+    deadline: () => () => {},
+    discover: async (config) => {
+      if (config.installationVersion === "1.0.36") {
+        started.resolve();
+        await release.promise;
+      }
+      return normalizeCursorSdk(
+        [
+          {
+            id:
+              config.installationVersion === "1.0.35"
+                ? "private-model"
+                : config.installationVersion === "1.0.36"
+                  ? "obsolete-model"
+                  : "private-current",
+            displayName: "Private model",
+          },
+        ],
+        config,
+      );
+    },
+  });
+  try {
+    await catalog.refresh();
+    catalog.installationChanged("cursor", "2026.10.06", "cli");
+    await catalog.refresh();
+    expect(catalog.list().models.map((model) => model.id)).toEqual(["private-model"]);
+    catalog.installationChanged("cursor", "1.0.36", "cursor-sdk");
+    const refresh = catalog.refresh();
+    await started.promise;
+    catalog.installationChanged("cursor", "1.0.37", "cursor-sdk");
+    release.resolve();
+    expect(await refresh).toMatchObject([{ stale: false, refreshing: false }]);
+    expect(catalog.list().models.map((model) => model.id)).toEqual(["private-current"]);
+  } finally {
+    release.resolve();
+    await catalog.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

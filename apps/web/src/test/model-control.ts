@@ -15,12 +15,22 @@ export async function openModelPicker(popover: HTMLElement): Promise<HTMLElement
   return within(popover).findByRole("listbox", { name: "Models" });
 }
 
-/** Pick a model by searching for it, as a person would: "GPT-5 Codex" under "Codex". */
+/**
+ * Pick a model by searching for it, as a person would: "GPT-5 Codex" under "Codex". The row's
+ * name may carry its detail or a default mark between the two ("Opus 5.5, default, Claude Code").
+ */
 export async function chooseModel(label: string, provider: string, chip?: RegExp | string) {
   const popover = await openModelControl(chip);
   await openModelPicker(popover);
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), label);
-  await userEvent.click(within(popover).getByRole("option", { name: `${label}, ${provider}` }));
+  const row = within(popover)
+    .getAllByRole("option")
+    .find((option) => {
+      const name = option.getAttribute("aria-label") ?? "";
+      return name.startsWith(`${label}, `) && name.endsWith(`, ${provider}`);
+    });
+  if (!row) throw new Error(`No ${label} under ${provider} in the model picker`);
+  await userEvent.click(row);
 }
 
 /** Close the popover and wait for it to leave, so the next control can open. */

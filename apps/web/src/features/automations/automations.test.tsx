@@ -271,16 +271,25 @@ test("every few hours is picked from a list, so it can't be anything but a whole
   expect(screen.queryByText(/NaN/)).toBeNull();
 });
 
-test("the model is picked from the agent's models, by name", async () => {
+test("the model is picked by name from the agent's models, its default chosen and older ones apart", async () => {
   await open("/automations/new");
   await heading("New automation");
-  await userEvent.click(screen.getByRole("combobox", { name: "Model" }));
-  const options = await screen.findAllByRole("option");
-  expect(options[0]?.textContent).toBe("Agent's default");
-  expect(options.some((option) => /Claude Code · .*Sonnet/.test(option.textContent ?? ""))).toBe(
-    true,
-  );
-  expect(options.some((option) => /:/.test(option.textContent ?? ""))).toBe(false);
+  // Left alone it follows the agent's default, named rather than a stand-in "default".
+  const model = await screen.findByRole("button", { name: /^Model: / });
+  await waitFor(() => expect(model.getAttribute("aria-label")).toBe("Model: Opus 5.5, Default"));
+  await userEvent.click(model);
+  const list = await screen.findByRole("listbox", { name: "Models" });
+  expect(
+    within(list)
+      .getAllByRole("option")
+      .map((option) => option.getAttribute("aria-label")),
+  ).toEqual([
+    "Opus 5.5, default, Claude Code",
+    "Sonnet 5.5, Claude Code",
+    "Haiku 4.5, 20251001, Claude Code",
+    "Legacy models, 6",
+  ]);
+  expect(list.textContent).not.toMatch(/claude-|Agent's default/);
 });
 
 test("a custom cron schedule must have five fields and is described once it does", async () => {
@@ -535,7 +544,8 @@ test("an explicit automation model is saved as the provider model and survives e
   await userEvent.type(field("Name"), "Explicit model QA");
   await userEvent.type(field("What should the agent do?"), "Reply QA_AUTOMATION_OK");
   await choose("Agent", "Codex");
-  await choose("Model", "Codex · personal · GPT-5 Codex");
+  await userEvent.click(await screen.findByRole("button", { name: /^Model: / }));
+  await userEvent.click(await screen.findByRole("option", { name: /^GPT-5 Codex, / }));
   await userEvent.click(screen.getByRole("button", { name: "Create automation" }));
   await heading("Explicit model QA");
   const reply = await app.client.request({ type: "automation.list" });
@@ -543,7 +553,9 @@ test("an explicit automation model is saved as the provider model and survives e
   expect(saved?.model).toBe("gpt-5-codex");
   await userEvent.click(screen.getByRole("link", { name: "Edit prompt" }));
   await heading("Edit automation");
-  expect(screen.getByRole("combobox", { name: "Model" }).textContent).toContain("GPT-5 Codex");
+  expect((await screen.findByRole("button", { name: /^Model: / })).textContent).toContain(
+    "GPT-5 Codex",
+  );
 }, 20_000);
 
 test("saving an old automation repairs its catalog row model identity", async () => {

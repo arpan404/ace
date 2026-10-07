@@ -52,7 +52,7 @@ export class FakeServices {
    * The provider CLIs discovery found on this machine. Like the daemon, only these have an
    * adapter, so `permissions.capabilities` for any other answers `provider_unavailable`.
    */
-  installed = new Set<ProviderKind>(["claude", "codex", "opencode", "cursor", "acp"]);
+  installed = new Set<ProviderKind>(["claude", "codex", "opencode", "cursor", "pi", "acp"]);
   localCommands = new Set(["fake-acp"]);
   private host: ServiceHost;
   private refreshingModels = new Set<string>();
@@ -101,6 +101,7 @@ export class FakeServices {
           this.refreshingModels.delete(row.instance);
           this.refreshedModels.set(row.instance, this.host.clock());
         }
+        this.host.broadcast?.({ type: "models.changed", filter: message.filter });
         push({
           type: "models.result",
           requestId: message.requestId,
@@ -144,12 +145,66 @@ export class FakeServices {
         (options.instance && options.instance !== model.instance)
       )
         continue;
-      const refreshedAt = this.refreshedModels.get(model.instance);
+      const refreshedAt =
+        this.refreshedModels.get(model.instance) ?? Math.max(0, this.host.clock() - 60_000);
       instances.set(model.instance, {
         provider: model.provider,
         instance: model.instance,
         enabled: model.providerEnabled !== false,
-        stale: false,
+        status: this.refreshingModels.has(model.instance)
+          ? "refreshing"
+          : model.provider === "cursor" || model.provider === "opencode"
+            ? "stale"
+            : "fresh",
+        stale: model.provider === "cursor" || model.provider === "opencode",
+        ...(model.provider === "cursor"
+          ? {
+              error: "discovery_failed",
+              errorDetail: {
+                code: "auth_expired",
+                message: "Cursor sign-in has expired.",
+                hint: "Sign in using Cursor, then refresh models.",
+              },
+            }
+          : {}),
+        sources: [
+          ...new Map(
+            models
+              .filter((row) => row.instance === model.instance && row.source)
+              .map((row) => [row.source?.id, row.source]),
+          ).values(),
+        ].flatMap((source) =>
+          source
+            ? [
+                {
+                  source,
+                  status: this.refreshingModels.has(model.instance)
+                    ? "refreshing"
+                    : model.provider === "cursor" || source.id === "openrouter"
+                      ? "stale"
+                      : "fresh",
+                  lastRefreshedAt: refreshedAt ?? Math.max(0, this.host.clock() - 60_000),
+                  ...(source.id === "openrouter"
+                    ? {
+                        error: {
+                          code: "unreachable",
+                          message: "OpenRouter could not be reached.",
+                          hint: "Check your network and refresh models.",
+                        },
+                      }
+                    : model.provider === "cursor"
+                      ? {
+                          error: {
+                            code: "auth_expired",
+                            message: "Cursor sign-in has expired.",
+                            hint: "Sign in using Cursor, then refresh models.",
+                          },
+                        }
+                      : {}),
+                },
+              ]
+            : [],
+        ),
         refreshing: this.refreshingModels.has(model.instance),
         ...(refreshedAt === undefined ? {} : { refreshedAt, lastRefreshedAt: refreshedAt }),
       });

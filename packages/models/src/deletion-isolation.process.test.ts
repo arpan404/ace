@@ -63,15 +63,26 @@ test.each([2, 64])(
             }
             const restartStorage = openModelStorage(path);
             try {
+              const discovery = Promise.withResolvers<void>();
               const restarted = new ModelCatalog({
                 ...options,
+                discover: async (config) => {
+                  await discovery.promise;
+                  return options.discover(config);
+                },
                 storage: restartStorage,
                 instances: [instance("codex", "account-1")],
               });
               try {
                 expect(restarted.list().models[0]?.id).toBe("fresh");
-                expect(restarted.list().instances[0]?.refreshing).toBe(false);
+                expect(restarted.list().instances[0]?.refreshing).toBe(true);
+                discovery.resolve();
+                expect(await restarted.refresh()).toMatchObject([
+                  { stale: false, refreshing: false },
+                ]);
+                expect(restarted.list().models[0]?.id).toBe("fresh");
               } finally {
+                discovery.resolve();
                 await restarted.close();
               }
             } finally {

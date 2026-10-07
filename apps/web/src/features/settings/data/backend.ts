@@ -1,11 +1,10 @@
-import type { CatalogModel, Device, DeviceScope, ProviderKind } from "@ace/protocol";
+import type { Device, DeviceScope, ProviderKind } from "@ace/protocol";
 import type { ProviderState } from "@ace/ui-core";
 
 /**
  * Everything Settings reads from or writes to the daemon, behind one narrow seam
  * (daemon-backend.ts): values over `settings.subscribe` / `settings.set`, providers from
- * discovery and `accounts.list`, models from `models.list` / `models.refresh`, paired devices, pairing and
- * revoking from the daemon's access routes (access-source.ts). Machines and ACP agents added by
+ * discovery and `accounts.list`, paired devices, pairing and revoking from the daemon's access routes (access-source.ts). Machines and ACP agents added by
  * command wait for daemon support (access-gaps.ts).
  */
 export interface SettingsBackend {
@@ -21,8 +20,6 @@ export interface SettingsBackend {
   readonly canAddAcpAgent: boolean;
   addAcpAgent(agent: { name: string; command: string }): Promise<void>;
   removeAcpAgent(name: string): Promise<void>;
-  models(provider: ProviderKind): Promise<CatalogModel[]>;
-  refreshModels(provider: ProviderKind): Promise<CatalogModel[]>;
   machines(): Promise<Machine[]>;
   devices(): Promise<Device[]>;
   pair(scopes: DeviceScope[]): Promise<Pairing>;

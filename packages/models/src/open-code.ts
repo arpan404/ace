@@ -54,7 +54,7 @@ export class OpenCodeParser {
 export function normalizeOpenCodeV2(
   payload: unknown,
   instance: ModelInstance,
-  connected?: ReadonlySet<string>,
+  connected?: Pick<ReadonlySet<string>, "has">,
 ): CatalogModel[] {
   const parsed = V2Catalog.parse(payload);
   if (parsed.location.directory !== instance.cwd)

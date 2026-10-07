@@ -112,6 +112,30 @@ test("account overrides replace only supplied fields and favourites restrict aut
   });
 });
 
+test("custom names and configured ordering survive names that resemble snapshots or versions", async () => {
+  const { catalog, settings } = await setup();
+  await catalog.refresh();
+  await settings.set(
+    "providers.configuration",
+    [
+      {
+        provider: "codex",
+        customModels: [
+          { id: "custom-0", displayName: "Custom 0" },
+          { id: "custom-127", displayName: "Office preview 20261006" },
+          { id: "gpt-6", displayName: "gpt-6" },
+        ],
+      },
+    ],
+    { kind: "global" },
+  );
+  expect(catalog.list().models.filter((model) => model.custom)).toMatchObject([
+    { id: "custom-0", displayName: "Custom 0" },
+    { id: "custom-127", displayName: "Office preview 20261006" },
+    { id: "gpt-6", displayName: "gpt-6" },
+  ]);
+});
+
 test("disabled discovery does no CLI work and refresh exposes progress, success and sanitized failure", async () => {
   const home = await workspace();
   cleanup.push(home.close);

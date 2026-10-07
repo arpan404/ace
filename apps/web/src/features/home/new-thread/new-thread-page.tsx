@@ -148,14 +148,16 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                 <ModelPicker
                   options={options}
                   resolved={resolved}
-                  onModel={(model) => {
+                  onModel={(model, listed) => {
                     const rows = options?.models.filter((m) => m.key === model) ?? [];
                     setPicked(rows[0]?.provider);
-                    // Stay on the chosen account when it serves the model; else one that does.
+                    // The account the row was listed under; else stay on the chosen account
+                    // when it serves the model; else one that does.
+                    const under = options?.accounts.some((account) => account.id === listed);
                     const stays = rows.some((m) => m.account === choices.account);
                     choose({
                       model,
-                      account: stays ? choices.account : undefined,
+                      account: under ? listed : stays ? choices.account : undefined,
                       effort: undefined,
                       fast: undefined,
                     });
