@@ -31,7 +31,8 @@ export function startProviderStatuses(context: ServiceContext): void {
       checked(rows) {
         context.options.providerStatus?.checked?.(rows);
         for (const row of rows)
-          if (row.version) context.services.models?.installationChanged(row.provider, row.version);
+          if (row.version)
+            context.services.models?.installationChanged(row.provider, row.version, row.runtime);
       },
       configuration: (provider) =>
         context.services.providerConfigurations?.for(provider) ?? { provider },

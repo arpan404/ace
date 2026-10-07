@@ -295,8 +295,13 @@ export class ModelCatalog implements ModelCatalogApi {
     }
     return Promise.all(tasks).then(() => {});
   }
-  installationChanged(provider: ModelInstance["provider"], version: string): void {
+  installationChanged(
+    provider: ModelInstance["provider"],
+    version: string,
+    runtime: "cli" | "cursor-sdk" = "cli",
+  ): void {
     for (const state of this.#select({ provider })) {
+      if ((state.config.backend === "cursor-sdk" ? "cursor-sdk" : "cli") !== runtime) continue;
       if (state.config.installationVersion === version) continue;
       state.config = { ...state.config, installationVersion: version };
       state.dirty = true;
@@ -567,8 +572,9 @@ export class ModelCatalog implements ModelCatalogApi {
       return !state || this.#stale(state);
     });
   }
-  /** Mark cached data stale without removing usable choices. Login changes revoke identity separately. */
-  async invalidate(input: ModelFilter = {}): Promise<void> {
+  /** Ordinary catalog changes retain usable choices while discovery replaces them. */
+  markStale(input: ModelFilter = {}): void {
+    if (this.#closed) throw new Error("Catalog closed");
     for (const state of this.#select(ModelFilter.parse(input))) {
       if (state.config.provider === "acp") continue;
       state.dirty = true;
@@ -576,9 +582,50 @@ export class ModelCatalog implements ModelCatalogApi {
       this.#changed(state);
     }
   }
+  /** Account-change boundary: revoke choices immediately and drain obsolete writes before deletion. */
+  async invalidate(input: ModelFilter = {}): Promise<void> {
+    if (this.#closed) throw new Error("Catalog closed");
+    const selected = this.#select(ModelFilter.parse(input));
+    if (this.#invalidations.size + selected.length > 128)
+      throw new Error("Invalidation capacity reached");
+    const pending: Promise<void>[] = [];
+    for (const state of selected) {
+      if (state.config.provider === "acp") continue;
+      delete state.entry;
+      this.registerInstance(state.config);
+      const next = this.#states.get(state.config.id);
+      if (!next) continue;
+      const removal = Promise.allSettled([
+        state.flight,
+        state.invalidating,
+        state.probe?.done,
+        this.#sessionTails.get(state.config.id),
+      ]).then(() => this.#deletions.remove(state.config.id));
+      next.invalidating = removal;
+      this.#invalidations.add(removal);
+      const done = () => this.#invalidations.delete(removal);
+      void removal.then(done, done);
+      pending.push(removal);
+    }
+    await Promise.all(pending);
+  }
   async refresh(input: ModelFilter = {}): Promise<ModelInstanceStatus[]> {
     if (this.#closed) throw new Error("Catalog closed");
-    return Promise.all(this.#select(ModelFilter.parse(input)).map((state) => this.#refresh(state)));
+    return Promise.all(
+      this.#select(ModelFilter.parse(input)).map((state) => this.#refreshCurrent(state)),
+    );
+  }
+  async #refreshCurrent(state: State): Promise<ModelInstanceStatus> {
+    let revision = this.#revision(state.config);
+    let status = await this.#refresh(state);
+    // An explicit refresh owns its result through same-account version/settings replacements.
+    while (!this.#closed && this.#states.get(state.config.id) === state) {
+      const current = this.#revision(state.config);
+      if (!state.flight && current === revision) break;
+      revision = current;
+      status = await this.#refresh(state);
+    }
+    return status;
   }
   #refresh(state: State): Promise<ModelInstanceStatus> {
     if (state.config.provider === "acp" || this.#configuration(state.config).enabled === false)
@@ -720,6 +767,7 @@ export class ModelCatalog implements ModelCatalogApi {
             ? this.#options.now() + (this.#options.retryMs ?? 30_000)
             : 0;
         } catch (error) {
+          if (abort.signal.aborted && !timedOut) return;
           state.error = timedOut ? "timeout" : "discovery_failed";
           this.#failed(
             state,

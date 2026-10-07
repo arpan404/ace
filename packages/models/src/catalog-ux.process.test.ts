@@ -142,7 +142,7 @@ test("a failed fresh refresh keeps good models and persists a safe source error"
   next.resolve(codex());
   await restarted.refresh();
 });
-test("maximum age and explicit invalidation serve old data while discovery replaces it", async () => {
+test("maximum age and stale marking serve old data while discovery replaces it", async () => {
   let model = "gpt-6.1-sol";
   const { catalog, clock } = await setup(async () => codex(model));
   await catalog.refresh();
@@ -155,7 +155,7 @@ test("maximum age and explicit invalidation serve old data while discovery repla
   await catalog.refresh();
   expect(catalog.list().models[0]?.id).toBe("gpt-6.2-sol");
   model = "gpt-6.3-sol";
-  await catalog.invalidate();
+  catalog.markStale();
   expect(catalog.list().models[0]?.id).toBe("gpt-6.2-sol");
   await catalog.refresh();
   expect(catalog.list().models[0]?.id).toBe("gpt-6.3-sol");

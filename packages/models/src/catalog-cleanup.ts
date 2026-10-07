@@ -175,8 +175,9 @@ export function cleanCatalog(models: readonly CatalogModel[]): CatalogModel[] {
     ]
       .filter((id) => id !== canonical && !isDefaultSelection(id))
       .slice(0, 32);
-    const name =
-      chosen.id !== canonical || /^(?:opus|sonnet|haiku)$/i.test(chosen.displayName)
+    const name = chosen.custom
+      ? chosen.displayName
+      : chosen.id !== canonical || /^(?:opus|sonnet|haiku)$/i.test(chosen.displayName)
         ? modelDisplayName(canonical).displayName
         : modelDisplayName(canonical, chosen.displayName).displayName;
     byId.set(canonical, {

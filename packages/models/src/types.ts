@@ -73,6 +73,7 @@ export interface ModelCatalogApi {
   resolve(spec: ModelRoleSpec): ModelResolution;
   /** Resolve retained choices without scheduling discovery. Optional for embedded catalogs. */
   resolveCached?(spec: ModelRoleSpec): ModelResolution;
+  /** Account revocation removes retained choices and drains obsolete writes before deletion. */
   invalidate(filter?: ModelFilter): Promise<void>;
   refresh(filter?: ModelFilter): Promise<ModelInstanceStatus[]>;
 }

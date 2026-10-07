@@ -187,6 +187,14 @@ an unavailable CLI retains the account's last-good catalog beside its error.
 Cache schema v2 migrates old payloads on load/replacement;
 all existing model/output/persistence bounds remain.
 
+Account-revocation `invalidate` retains its original destructive semantics:
+remove choices immediately, fence discovery, and drain obsolete writes before
+durable deletion. Ordinary catalog changes use stale marking and refresh.
+Runtime version notifications cannot cross from Cursor CLI to SDK catalogs;
+explicit refresh waits through same-account discovery replacements. Custom
+names and Settings order remain authoritative, and arbitrary numeric selectors
+are not parsed as model versions.
+
 Refresh failures retain last-good models. Partial failures retain only failing
 sources and replace healthy sources. OpenCode's ID-only fallback may recover
 missing metadata but cannot erase an explicit connection failure.

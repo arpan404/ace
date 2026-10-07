@@ -97,6 +97,9 @@ use the CLI's reported concrete
 default, then a deterministic fallback. No policy contains a preferred model ID.
 Settings can override per provider or account.
 
+Custom routes retain the person's supplied name and Settings order. Numeric
+selector suffixes outside recognized model families do not imply versions.
+
 Stored `default` and `Default (recommended)` selections resolve at read/admission
 time to the concrete default. Existing engine startup migration rewrites cached
 thread selections and display metadata; settings are interpreted at read time.
@@ -139,6 +142,9 @@ stale reads trigger one coalesced refresh, with a 30-second retry cooldown after
 failure. Explicit refresh bypasses cooldown.
 
 Provider status probes notify catalog invalidation when a CLI version changes.
+Version notifications apply only to their runtime, so Cursor CLI versions do
+not invalidate SDK catalogs. An explicit refresh waits for a replacement
+discovery when the same account's runtime version changes during its flight.
 OpenCode/Pi connection metadata is reconciled every minute. An unchanged
 non-secret fingerprint leaves the catalog alone; connect/disconnect or changed
 availability triggers discovery. Settings changes affect only changed provider
@@ -149,6 +155,12 @@ good account cache; only confirmed auth changes advance the login revision.
 Late results cannot replace a newer generation. Replacing a login outside ace
 without changing CLI-exposed connection flags or model availability cannot be
 detected from those flags alone; explicit refresh always discovers again.
+
+The internal `ModelCatalog.invalidate` API remains an account-revocation
+boundary: it immediately removes choices and drains obsolete writes before
+durable deletion. Ordinary age/settings/version changes and refresh use the
+retaining path; `markStale` also exposes that path to local owners. Cache
+retention never crosses an account revocation or removal.
 
 Existing bounds remain: 64 instances, 512 models and sources per instance,
 4 MiB persisted payload per instance, 2 KiB raw metadata per model, 128 queued

@@ -18,9 +18,18 @@ export function compareVersions(a: string, b: string): number {
 function scope(row: CatalogModel): string {
   return JSON.stringify([row.provider, row.instance, row.nativeProviderId, row.family]);
 }
+/** Numeric selectors are naturally ascending unless a recognized family supplies a version. */
+function identitySortKey(id: string): string {
+  return id.replace(/\d+/g, (digits) => digits.padStart(12, "0"));
+}
 export function classifyCatalog(rows: readonly CatalogModel[]): CatalogModel[] {
   const named = rows.map((row) =>
-    Object.assign({}, row, modelDisplayName(row.id, row.displayName)),
+    Object.assign(
+      {},
+      row,
+      modelDisplayName(row.id, row.displayName),
+      row.custom ? { displayName: row.displayName } : {},
+    ),
   );
   const newest = new Map<string, string>();
   for (const row of named) {
@@ -50,7 +59,7 @@ export function classifyCatalog(rows: readonly CatalogModel[]): CatalogModel[] {
       legacy: tier === "legacy",
       group: tier,
       sortKey:
-        `${tier === "current" ? "0" : "1"}:${row.family ?? row.id}:${versionKey}:${row.id}`.slice(
+        `${tier === "current" ? "0" : "1"}:${identitySortKey(row.family ?? row.id)}:${versionKey}:${identitySortKey(row.id)}`.slice(
           0,
           256,
         ),

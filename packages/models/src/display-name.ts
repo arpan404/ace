@@ -40,10 +40,13 @@ export function modelIdentity(id: string): {
     return { name, family: `gpt${tier ? `-${tier}` : ""}`, version, ...(detail ? { detail } : {}) };
   }
   const general = /^([a-z]+)[- ]?(\d+(?:[.-]\d+)?)(.*)$/i.exec(name);
+  const versionedFamily =
+    general?.[1] &&
+    /^(?:composer|gemini|grok|llama|qwen|glm|mistral|codestral|kimi|deepseek|o)$/i.test(general[1]);
   return {
     name,
     ...(detail ? { detail } : {}),
-    ...(general?.[1] && general[2]
+    ...(versionedFamily && general?.[1] && general[2]
       ? {
           family: `${general[1].toLowerCase()}${general[3]?.toLowerCase() ?? ""}`,
           version: general[2].replaceAll("-", "."),

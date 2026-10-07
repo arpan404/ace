@@ -109,6 +109,9 @@ export function createCleanModelView(
   const found = config.customModels?.length
     ? new Set(models.flatMap((model) => [model.id, ...(model.aliases ?? [])]))
     : new Set<string>();
+  const customPositions = new Map(
+    (config.customModels ?? []).map((model, position) => [model.id, position]),
+  );
   const custom: CatalogModel[] = cleanCatalog(
     (config.customModels ?? [])
       .filter((model) => !found.has(model.id))
@@ -133,7 +136,10 @@ export function createCleanModelView(
           raw: { json: "{}", truncated: false },
         };
       }),
-  );
+  ).toSorted((a, b) => {
+    // Settings order is explicit; numeric custom IDs are not a preference ranking.
+    return (customPositions.get(a.id) ?? 0) - (customPositions.get(b.id) ?? 0);
+  });
   const selection = defaultModel(
     [...models, ...custom].map((row) => indexedVisibility(row, index)),
     provider,
