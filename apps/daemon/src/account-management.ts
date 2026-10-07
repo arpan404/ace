@@ -19,7 +19,7 @@ import {
   type AccountService,
 } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
-import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
+import { defaultProviderExecutable, type DiscoveryOptions } from "@ace/provider-kit/discovery";
 import { createManagedHome, deleteManagedHome, registerImplicitAccounts } from "./account-homes.ts";
 import type { ModelCatalog } from "@ace/models";
 
@@ -63,6 +63,7 @@ export class AccountManagement {
   private manager: TerminalManager;
   private terminals = new Map<string, AuthTerminal>();
   private closed = false;
+  private restorations = new Set<Promise<void>>();
   constructor(options: AccountManagementOptions) {
     this.options = options;
     this.manager = new TerminalManager({
@@ -80,7 +81,27 @@ export class AccountManagement {
     for (const { instance } of this.options.registry.list())
       if (instance.managed) {
         this.options.signal?.throwIfAborted();
-        await this.refresh(instance);
+        await assertManagedHome(this.options.dataDir, instance);
+        const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
+        const env = instanceEnv(
+          instance,
+          sdk?.env ?? this.options.env,
+          sdk ? "cursor-sdk" : undefined,
+        );
+        if (
+          this.options.registry.get(instance.id)?.quota.auth !== "logged_out" &&
+          instance.provider !== "acp"
+        ) {
+          const executable =
+            instance.provider === "pi"
+              ? defaultProviderExecutable(instance.provider)
+              : (this.options.discovery?.overrides?.[instance.provider] ??
+                defaultProviderExecutable(instance.provider));
+          this.registerCatalog(instance, sdk !== undefined, executable, env);
+        }
+        const refresh = this.refresh(instance);
+        this.restorations.add(refresh);
+        void refresh.catch(() => {}).finally(() => this.restorations.delete(refresh));
       }
   }
   private account(id: string): ProviderInstance {
@@ -287,6 +308,7 @@ export class AccountManagement {
   }
   private async refresh(instance: ProviderInstance): Promise<void> {
     await assertManagedHome(this.options.dataDir, instance);
+    if (instance.provider === "acp") return;
     const { registry, models, now } = this.options;
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
     const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);
@@ -305,43 +327,45 @@ export class AccountManagement {
     });
     const catalog = models();
     if (!catalog) return;
-    await catalog.removeInstance(instance.id);
-    if ((!status.path && !sdk) || status.auth === "logged_out") return;
-    if (sdk) {
-      catalog.registerInstance(
-        {
-          id: instance.id,
-          provider: "cursor",
-          backend: "cursor-sdk",
-          homeDir: instance.homeDir,
-          cwd: instance.homeDir,
-          loginRevision: registry.get(instance.id)?.instance.loginRevision ?? "0",
-        },
-        () => assertManagedHome(this.options.dataDir, instance),
-      );
-      await catalog.refresh({ instance: instance.id });
+    if (status.auth === "logged_out") {
+      await catalog.removeInstance(instance.id);
       return;
     }
-    // Undefined masks are represented as empty values at the catalog boundary, not omitted.
-    const modelEnv = Object.fromEntries(
-      Object.entries(env).map(([key, value]) => [key, value ?? ""]),
-    );
-    catalog.registerInstance(
-      {
-        id: instance.id,
-        provider: instance.provider,
-        executable: status.path,
-        cwd: instance.homeDir,
-        env: modelEnv,
-        loginRevision: registry.get(instance.id)?.instance.loginRevision ?? "0",
-      },
-      () => assertManagedHome(this.options.dataDir, instance),
+    this.registerCatalog(
+      instance,
+      sdk !== undefined,
+      status.path ?? defaultProviderExecutable(instance.provider),
+      env,
     );
     await catalog.refresh({ instance: instance.id });
   }
+  private registerCatalog(
+    instance: ProviderInstance,
+    sdk: boolean,
+    executable: string,
+    env: NodeJS.ProcessEnv,
+  ): void {
+    const catalog = this.options.models();
+    if (!catalog) return;
+    catalog.registerInstance(
+      {
+        id: instance.id,
+        label: instance.label,
+        provider: instance.provider,
+        ...(sdk ? { backend: "cursor-sdk", homeDir: instance.homeDir } : {}),
+        executable,
+        cwd: instance.homeDir,
+        env: Object.fromEntries(Object.entries(env).map(([key, value]) => [key, value ?? ""])),
+        loginRevision: this.options.registry.get(instance.id)?.instance.loginRevision ?? "0",
+      },
+      () => assertManagedHome(this.options.dataDir, instance),
+    );
+  }
+
   async close(): Promise<void> {
     this.closed = true;
     await Promise.all([...this.terminals].map(([id, entry]) => this.stop(id, entry.owner)));
+    await Promise.allSettled(this.restorations);
     await this.manager.closeAll();
   }
 }

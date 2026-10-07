@@ -40,6 +40,8 @@ export async function startModels(context: ServiceContext): Promise<void> {
       },
     },
     () => context.services.providerConfigurations?.current() ?? [],
+    (provider, instance, error, source) =>
+      context.log.log("warn", "Model discovery failed", { provider, instance, source, ...error }),
   );
   const stopConfiguration = context.services.providerConfigurations?.listen(() => {
     models.configurationChanged();
@@ -53,6 +55,13 @@ export async function startModels(context: ServiceContext): Promise<void> {
   if (stopConfiguration) resources.own(stopConfiguration);
   resources.own(() => models.close());
   services.models = models;
+  // These CLIs own connect/disconnect outside ace. Metadata-only reconciliation is bounded.
+  const connectionsTimer = setInterval(() => {
+    models.revalidate();
+    void models.reconcileConnections();
+  }, 60_000);
+  connectionsTimer.unref();
+  resources.own(() => clearInterval(connectionsTimer));
   const account = services.accountRegistry?.selectedCursorSdk();
   const sdk =
     context.services.providerConfigurations?.for("cursor").enabled === false ||
@@ -95,7 +104,17 @@ import type { SocketContext, SocketService } from "./socket.ts";
 export function createModelsSession(context: SocketContext): SocketService {
   const { options, authorize, send, tasks } = context;
   let modelRequests = 0;
+  let stopChanges: (() => void) | undefined;
   return {
+    authenticated(channel) {
+      if (channel !== undefined || stopChanges || !authorize("read")) return;
+      stopChanges = options.models?.listen?.((filter) => {
+        if (context.connected() && authorize("read")) send({ type: "models.changed", filter });
+      });
+    },
+    close() {
+      stopChanges?.();
+    },
     async handle(message) {
       switch (message.type) {
         case "models.list":

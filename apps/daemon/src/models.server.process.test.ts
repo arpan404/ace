@@ -1,3 +1,4 @@
+import type { ServerMessage } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import {
   ModelCatalog,
@@ -8,6 +9,13 @@ import {
 } from "@ace/models";
 import { setup as remoteSetup } from "./remote-test-support.ts";
 import { fixture } from "./socket-test-support.ts";
+async function nextReply(client: { next(): Promise<ServerMessage> }): Promise<ServerMessage> {
+  for (let i = 0; i < 8; i++) {
+    const message = await client.next();
+    if (message.type !== "models.changed") return message;
+  }
+  throw new Error("Catalog updates never yielded a reply");
+}
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
@@ -59,14 +67,14 @@ async function setup() {
 test("authenticated clients list, refresh and resolve models through correlated wire requests", async () => {
   const { f } = await setup();
   const client = await f.connect();
-  await client.next();
+  await nextReply(client);
   const head = f.store.headSeq();
   client.send({
     type: "models.list",
     requestId: "list",
     options: { offset: 0, limit: 100, instance: "account" },
   });
-  expect(await client.next()).toMatchObject({
+  expect(await nextReply(client)).toMatchObject({
     type: "models.result",
     requestId: "list",
     result: { models: [{ id: "coder", instance: "account" }] },
@@ -82,13 +90,13 @@ test("authenticated clients list, refresh and resolve models through correlated 
       tier: "fast",
     },
   });
-  expect(await client.next()).toMatchObject({
+  expect(await nextReply(client)).toMatchObject({
     type: "models.result",
     requestId: "role",
     result: { ok: true, model: { id: "coder" }, tier: { id: "priority" }, effort: "high" },
   });
   client.send({ type: "models.refresh", requestId: "refresh", filter: { instance: "account" } });
-  expect(await client.next()).toMatchObject({
+  expect(await nextReply(client)).toMatchObject({
     type: "models.result",
     requestId: "refresh",
     result: { instances: [{ stale: false, refreshing: false }] },
@@ -99,12 +107,12 @@ test("catalog requests before hello cannot reveal provider models", async () => 
   const { f } = await setup();
   const client = await f.open();
   client.send({ type: "models.list", requestId: "private", options: { offset: 0, limit: 100 } });
-  expect(await client.next()).toMatchObject({ type: "error", code: "unauthorized" });
+  expect(await nextReply(client)).toMatchObject({ type: "error", code: "unauthorized" });
 });
 test("malformed catalog filters fail at the socket boundary", async () => {
   const { f } = await setup();
   const client = await f.connect();
-  await client.next();
+  await nextReply(client);
   client.socket.send(
     JSON.stringify({
       type: "models.list",
@@ -112,7 +120,7 @@ test("malformed catalog filters fail at the socket boundary", async () => {
       options: { provider: "unknown", limit: 999 },
     }),
   );
-  expect(await client.next()).toMatchObject({ type: "error", code: "invalid_message" });
+  expect(await nextReply(client)).toMatchObject({ type: "error", code: "invalid_message" });
 });
 test("slow refreshes leave ping and cached model queries responsive", async () => {
   const started = Promise.withResolvers<void>();
@@ -138,13 +146,13 @@ test("slow refreshes leave ping and cached model queries responsive", async () =
     await f.close();
   });
   const connected = await f.connect();
-  await connected.next();
+  await nextReply(connected);
   connected.send({ type: "models.refresh", requestId: "slow", filter: {} });
   await started.promise;
   connected.send({ type: "ping" });
-  expect(await connected.next()).toEqual({ type: "pong" });
+  expect(await nextReply(connected)).toEqual({ type: "pong" });
   connected.send({ type: "models.list", requestId: "cached", options: { offset: 0, limit: 100 } });
-  expect(await connected.next()).toMatchObject({
+  expect(await nextReply(connected)).toMatchObject({
     type: "models.result",
     requestId: "cached",
     result: { models: [{ id: "coder" }], instances: [{ refreshing: true }] },
@@ -154,13 +162,13 @@ test("slow refreshes leave ping and cached model queries responsive", async () =
     requestId: "cached-role",
     roleSpec: { role: "coder", selection: "default", preferenceOrder: [], imageInput: false },
   });
-  expect(await connected.next()).toMatchObject({
+  expect(await nextReply(connected)).toMatchObject({
     type: "models.result",
     requestId: "cached-role",
     result: { ok: true, model: { id: "coder" } },
   });
   release.resolve(rows);
-  expect(await connected.next()).toMatchObject({
+  expect(await nextReply(connected)).toMatchObject({
     type: "models.result",
     requestId: "slow",
     result: { models: [{ id: "coder" }] },
@@ -200,7 +208,7 @@ test("maximum-length legal policies return valid correlated socket replies", asy
   const f = await fixture({ models: catalog });
   cleanups.push(f.close);
   const client = await f.connect();
-  await client.next();
+  await nextReply(client);
   client.send({
     type: "models.resolve",
     requestId: "long",
@@ -215,7 +223,7 @@ test("maximum-length legal policies return valid correlated socket replies", asy
     },
   });
   // The real client parses every received frame with ServerMessage.
-  expect(await client.next()).toMatchObject({
+  expect(await nextReply(client)).toMatchObject({
     type: "models.result",
     requestId: "long",
     result: { ok: true, model: { id }, tier: { id: tier }, effort },
@@ -226,15 +234,15 @@ test("an unavailable catalog returns a correlated failure without breaking the s
   const f = await fixture();
   cleanups.push(f.close);
   const client = await f.connect();
-  await client.next();
+  await nextReply(client);
   client.send({ type: "models.list", requestId: "missing", options: { offset: 0, limit: 100 } });
-  expect(await client.next()).toMatchObject({
+  expect(await nextReply(client)).toMatchObject({
     type: "models.result",
     requestId: "missing",
     result: { ok: false },
   });
   client.send({ type: "ping" });
-  expect(await client.next()).toEqual({ type: "pong" });
+  expect(await nextReply(client)).toEqual({ type: "pong" });
 });
 
 test("paired read devices can inspect model choices but cannot launch explicit refreshes", async () => {
@@ -243,15 +251,15 @@ test("paired read devices can inspect model choices but cannot launch explicit r
   const paired = await f.pair(["read"]);
   const ticket = await f.ticket(paired.token);
   const client = await f.connectTicket(paired.device.id, ticket.ticket);
-  await client.next();
+  await nextReply(client);
   client.send({ type: "models.list", requestId: "read", options: { offset: 0, limit: 100 } });
-  expect(await client.next()).toMatchObject({
+  expect(await nextReply(client)).toMatchObject({
     type: "models.result",
     requestId: "read",
     result: { models: [{ id: "coder" }] },
   });
   client.send({ type: "models.refresh", requestId: "denied", filter: {} });
-  expect(await client.next()).toMatchObject({
+  expect(await nextReply(client)).toMatchObject({
     type: "models.result",
     requestId: "denied",
     result: { ok: false, reason: "operate scope required" },
@@ -264,13 +272,13 @@ test("paired devices need read scope to list or resolve model choices", async ()
   const paired = await f.pair(["operate"]);
   const ticket = await f.ticket(paired.token);
   const client = await f.connectTicket(paired.device.id, ticket.ticket);
-  await client.next();
+  await nextReply(client);
   client.send({
     type: "models.list",
     requestId: "list-denied",
     options: { offset: 0, limit: 100 },
   });
-  expect(await client.next()).toMatchObject({
+  expect(await nextReply(client)).toMatchObject({
     type: "models.result",
     requestId: "list-denied",
     result: { ok: false, reason: "read scope required" },
@@ -280,9 +288,57 @@ test("paired devices need read scope to list or resolve model choices", async ()
     requestId: "resolve-denied",
     roleSpec: { role: "coder", selection: "default", imageInput: false, preferenceOrder: [] },
   });
-  expect(await client.next()).toMatchObject({
+  expect(await nextReply(client)).toMatchObject({
     type: "models.result",
     requestId: "resolve-denied",
     result: { ok: false, reason: "read scope required" },
+  });
+});
+
+test("background catalog changes reach every authenticated read client and their next read returns the replacement", async () => {
+  const { f, catalog } = await setup();
+  const first = await f.connect();
+  const second = await f.connect();
+  await first.next();
+  await second.next();
+  await catalog.invalidate({ instance: "account" });
+  expect(await first.next()).toEqual({
+    type: "models.changed",
+    filter: { provider: "codex", instance: "account" },
+  });
+  expect(await second.next()).toEqual({
+    type: "models.changed",
+    filter: { provider: "codex", instance: "account" },
+  });
+  const flight = catalog.refresh();
+  expect(await first.next()).toMatchObject({ type: "models.changed" });
+  expect(await second.next()).toMatchObject({ type: "models.changed" });
+  await flight;
+  expect(await first.next()).toMatchObject({ type: "models.changed" });
+  expect(await second.next()).toMatchObject({ type: "models.changed" });
+  first.send({
+    type: "models.list",
+    requestId: "updated",
+    options: { instance: "account", offset: 0, limit: 100 },
+  });
+  expect(await first.next()).toMatchObject({
+    type: "models.result",
+    result: {
+      models: [
+        {
+          displayName: "Coder",
+          source: { kind: "account", id: "account" },
+          tier: "current",
+          isDefault: true,
+        },
+      ],
+      instances: [
+        {
+          status: "fresh",
+          lastRefreshedAt: 1000,
+          sources: [{ source: { id: "account" }, status: "fresh" }],
+        },
+      ],
+    },
   });
 });

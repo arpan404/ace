@@ -4,6 +4,7 @@ import {
   ModelCatalog,
   ModelInstance,
   createModelDiscovery,
+  createModelRevisionProbe,
   openModelStorage,
   type InstanceInput,
   type ModelCatalogApi,
@@ -75,6 +76,7 @@ export async function registerDefaultModelInstances(
     if (!candidate.path) continue;
     catalog.registerInstance({
       id: `${candidate.provider}-cli-default`,
+      label: "Default",
       provider: candidate.provider,
       executable: candidate.executable,
       cwd,
@@ -94,6 +96,7 @@ export function registerConfiguredModelInstances(
     if (config.provider === "acp" || config.provider === "antigravity") continue;
     catalog.registerInstance({
       id: `${config.provider}-cli-default`,
+      label: "Default",
       provider: config.provider,
       executable: defaultProviderExecutable(config.provider),
       cwd,
@@ -106,6 +109,7 @@ export function openDaemonModels(
   instances: readonly InstanceInput[],
   discoveryOptions: DiscoveryOptions = {},
   preferences?: CatalogOptions["preferences"],
+  onError?: CatalogOptions["onError"],
 ): ModelCatalog {
   assertTestHomeIsolation(dataDir);
   assertModelTestIsolation(instances);
@@ -114,8 +118,10 @@ export function openDaemonModels(
     return new ModelCatalog({
       storage,
       ...(preferences ? { preferences } : {}),
+      ...(onError ? { onError } : {}),
       instances,
       discover: createModelDiscovery(discoveryOptions),
+      revisionProbe: createModelRevisionProbe(discoveryOptions.spawn),
       now: Date.now,
       deadline(expire, ms) {
         const timer = setTimeout(expire, ms);

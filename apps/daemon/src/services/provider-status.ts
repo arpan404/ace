@@ -28,6 +28,11 @@ export function startProviderStatuses(context: ServiceContext): void {
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
+      checked(rows) {
+        context.options.providerStatus?.checked?.(rows);
+        for (const row of rows)
+          if (row.version) context.services.models?.installationChanged(row.provider, row.version);
+      },
       configuration: (provider) =>
         context.services.providerConfigurations?.for(provider) ?? { provider },
       cursorSdk:
