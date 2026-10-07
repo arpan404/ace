@@ -1,10 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import {
-  createModelDiscovery,
-  parseOpenCodeConnections,
-  normalizeOpenCodeReport,
-  discoveryError,
-} from "./index.ts";
+import { createModelDiscovery, parseOpenCodeConnections, discoveryError } from "./index.ts";
 import { instance, fakeCli, workspace } from "./testing/support.ts";
 const native = (providerID: string, modelID: string) => ({
   id: `${providerID}/${modelID}`,
@@ -129,13 +124,35 @@ test("OpenCode CLI connection flags survive discovery and a malformed connection
       }),
     ]),
   );
-  expect(
-    normalizeOpenCodeReport(
-      { location: { directory: config.cwd }, data: [] },
-      config,
-      parseOpenCodeConnections([{ id: "anthropic", connections: [{ type: "env" }] }]),
-    ).sources[0],
-  ).toMatchObject({ status: "stale", error: { code: "discovery_failed" } });
+});
+test("a connected OpenCode source with no enabled chat models reports fresh information", async () => {
+  const work = await workspace();
+  cleanups.push(work.close);
+  const config = {
+    ...instance("opencode"),
+    cwd: work.path,
+    args: [await fakeCli(work.path)],
+    env: {
+      HOME: work.path,
+      FAKE_PROVIDER: "opencode",
+      FAKE_CONNECTIONS: JSON.stringify([{ id: "anthropic", connections: [{ type: "env" }] }]),
+    },
+  };
+  const models = await createModelDiscovery({
+    opencode: async () => ({ location: { directory: config.cwd }, data: [] }),
+  })(config, new AbortController().signal);
+  expect(models).toEqual([]);
+  expect(models.sources).toMatchObject([
+    {
+      source: { id: "anthropic" },
+      status: "fresh",
+      error: {
+        code: "no_models",
+        message: "The connected source has no chat models enabled.",
+        hint: "Enable models for it in OpenCode, then Refresh.",
+      },
+    },
+  ]);
 });
 test.each([
   ["auth_expired", { data: [], errors: [{ providerID: "anthropic", error: { status: 401 } }] }],

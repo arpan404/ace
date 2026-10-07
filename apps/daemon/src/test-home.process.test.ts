@@ -145,7 +145,8 @@ test("the test guard rejects real-home resolution and explicit data dirs before 
       { env: { ...process.env, ACE_HOME: undefined } },
     ),
   ).rejects.toThrow(/ACE_TEST_REAL_HOME guard/);
-  expect(readConfig({}, safeHome).dataDir).toBe(join(safeHome, ".ace"));
+  expect(readConfig({}, safeHome).dataDir).toBe(join(safeHome, ".ace-next"));
+  expect(await readdir(safeHome)).toEqual([".ace-next"]);
   expect(await readdir(protectedHome)).toEqual([".ace"]);
   expect(await readdir(join(protectedHome, ".ace"))).toEqual(["ace.db"]);
   expect(await readFile(join(protectedHome, ".ace/ace.db"), "utf8")).toBe("legacy data");
