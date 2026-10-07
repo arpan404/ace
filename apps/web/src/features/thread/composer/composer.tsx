@@ -46,9 +46,11 @@ const compactWidth = 480;
 const terseWidth = 640;
 
 /**
- * The composer: an input area above a footer, inside one shell, at every width and line count
- * (SPEC "Composer"). Text keeps one inset from empty to many lines and grows upward a line at a
- * time; the footer's controls share one centre line. + opens the Add menu, `@` completes files,
+ * The composer: an input area above a footer, inside one rounded surface, at every width and
+ * line count (SPEC "Composer"). Text keeps one inset from empty to many lines and grows upward a
+ * line at a time; the footer's controls share one centre line, + and the thread's settings on
+ * the left, the model and the primary action on the right. A card the agent or the person opens
+ * (`attached`) sits behind its top edge like the next card of a deck. + opens the Add menu, `@` completes files,
  * a leading `/` completes commands, and paste or drop attach files. Enter empties it at once:
  * the message shows as its bubble straight away (UX audit SY-2) and comes back here only if
  * this device couldn't even save it. The unsent draft is kept per `draftKey` across navigation,
@@ -79,10 +81,18 @@ export function Composer({
   stopping?: boolean | undefined;
   /** Edit on a failed message brought back the effort and speed it was sent with. */
   onReturnedOptions?: ((options: ReturnedDraft["options"]) => void) | undefined;
-  /** Footer controls after +, e.g. approvals and the model; they read `useComposerCompact()`. */
+  /**
+   * Footer controls after +, e.g. where the thread runs and its approvals; they read
+   * `useComposerCompact()`.
+   */
   controls?: ReactNode;
-  /** Right of the controls, before the primary action, e.g. the context meter. */
-  status?: ReactNode;
+  /** Right of the footer, before the primary action: the model. */
+  trailing?: ReactNode;
+  /**
+   * A card attached to the composer (an agent's question, where the thread runs): drawn above
+   * it, narrower and tucked behind its top edge.
+   */
+  attached?: ReactNode;
   /**
    * Provider/model information for the surrounding composer controls. Attachments always
    * have a daemon file-path fallback, including when native media input is unavailable.
@@ -383,6 +393,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           {notice}
         </p>
       )}
+      {props.attached}
       <div
         data-slot="composer"
         onDragOver={(event) => {
@@ -394,7 +405,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           intake(event.dataTransfer);
         }}
         className={cn(
-          "glass flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
+          "glass relative z-10 flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
           // Typing keeps the shell calm: a slightly firmer edge and a faint halo, nothing louder;
           // the footer's controls carry their own focus-visible rings.
           "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
@@ -431,7 +442,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             event.preventDefault();
             intake(event.clipboardData);
           }}
-          className="block min-h-11 w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground disabled:cursor-not-allowed"
+          className="block min-h-10 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-1.5 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground disabled:cursor-not-allowed"
         />
         {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
         <div
@@ -441,7 +452,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             event.preventDefault();
             input.current?.focus();
           }}
-          className="mb-1 flex h-10 items-center gap-1 px-2"
+          className="mb-1.5 flex h-11 items-center gap-0.5 px-2"
         >
           <AddButton
             handle={addMenu}
@@ -461,10 +472,14 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             unavailable={props.unavailable}
           />
           <ComposerCompact value={compact}>
-            {/* The controls give up room before the status: they shrink and truncate, the
-                meters keep their width, so nothing on the row ever paints over another. */}
-            <div className="flex min-w-0 flex-1 items-center gap-1">{props.controls}</div>
-            {props.status}
+            {/* Both sides shrink and truncate their labels, so nothing on the row ever paints
+                over another; the left gives up its room first. */}
+            <div className="flex min-w-0 flex-1 items-center gap-0.5">{props.controls}</div>
+            {props.trailing && (
+              <div className="flex max-w-[60%] min-w-0 shrink-0 items-center justify-end gap-0.5">
+                {props.trailing}
+              </div>
+            )}
           </ComposerCompact>
           <PrimaryAction
             mode={mode}

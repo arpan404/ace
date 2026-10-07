@@ -200,16 +200,27 @@ const sheetRotate = () => {
   return scenario;
 };
 
+/** The card for an open request, on the deck attached to the composer. */
+const onDeck = async (name: string) =>
+  within(await screen.findByRole("region", { name: "Waiting for you" })).findByRole("article", {
+    name,
+  });
+/** A question's line in the transcript, opened to the question and its answer. */
+async function openedLine(feed: HTMLElement, text: string) {
+  const line = await within(feed).findByRole("group", { name: `Question: ${text}` });
+  await userEvent.click(
+    await within(line).findByRole("button", { name: "Show the question and answer" }),
+  );
+  return within(line).getByRole("article", { name: `Question: ${text}` });
+}
+
 test("an answered question stays where it was asked, with the answer it got", async () => {
   const feed = await open(sheetRotate());
-  const card = await within(feed).findByRole("article", {
-    name: "How should the sheet recover after rotate?",
-  });
+  const card = await onDeck("How should the sheet recover after rotate?");
   await userEvent.click(within(card).getByRole("radio", { name: /Block rotation/ }));
   await userEvent.click(within(card).getByRole("button", { name: "Answer" }));
-  const answered = await within(feed).findByRole("article", {
-    name: "Question: How should the sheet recover after rotate?",
-  });
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull());
+  const answered = await openedLine(feed, "How should the sheet recover after rotate?");
   expect(
     within(within(answered).getByRole("list", { name: "Answer" })).getByText(
       "Block rotation while the sheet is open",
@@ -318,9 +329,7 @@ async function answerThenReplay(scenario: Scenario) {
   player.runUntilBlocked();
   await app.open(`/t/${scenario.thread.id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const card = await within(feed).findByRole("article", {
-    name: "How should the sheet recover after rotate?",
-  });
+  const card = await onDeck("How should the sheet recover after rotate?");
   await userEvent.click(within(card).getByRole("radio", { name: /Block rotation/ }));
   await userEvent.click(within(card).getByRole("button", { name: "Answer" }));
   await waitFor(() => expect(app.daemon.isPending(scenario.thread.id, "ask-1")).toBe(false));
@@ -334,18 +343,20 @@ test("the same native request replayed after it was answered reads as answered",
   const feed = await answerThenReplay(
     replayScenario("thread-replay", [opened("ask-2", "asked", recovery)]),
   );
-  await waitFor(() =>
-    expect(
-      within(feed).getAllByRole("article", {
-        name: "Question: How should the sheet recover after rotate?",
-      }),
-    ).toHaveLength(2),
-  );
-  expect(within(feed).queryByRole("button", { name: "Skip" })).toBeNull();
-  expect(within(feed).getByText(/Answered earlier/)).toBeTruthy();
-  // The agent may still be waiting on the copy: it can be answered anew.
-  await userEvent.click(within(feed).getByRole("button", { name: "Answer again" }));
-  expect(await within(feed).findByRole("button", { name: "Skip" })).toBeTruthy();
+  // Both lines read as answered: the copy with the first one's answer.
+  await waitFor(() => {
+    const lines = within(feed).getAllByRole("group", {
+      name: "Question: How should the sheet recover after rotate?",
+    });
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect(line.textContent).toContain("Block rotation");
+  });
+  // On the deck the copy reads as answered earlier, with no form, and can be answered anew.
+  const deck = await screen.findByRole("region", { name: "Waiting for you" });
+  expect(await within(deck).findByText(/Answered earlier/)).toBeTruthy();
+  expect(within(deck).queryByRole("button", { name: "Skip" })).toBeNull();
+  await userEvent.click(within(deck).getByRole("button", { name: "Answer again" }));
+  expect(await within(deck).findByRole("button", { name: "Skip" })).toBeTruthy();
 }, 15_000);
 
 test("the same wording asked again later is a new question, left open", async () => {
@@ -355,13 +366,14 @@ test("the same wording asked again later is a new question, left open", async ()
       opened("ask-2", "asked-again", recovery),
     ]),
   );
-  expect(
-    await within(feed).findByRole("article", {
-      name: "How should the sheet recover after rotate?",
-    }),
-  ).toBeTruthy();
-  expect(within(feed).getByRole("button", { name: "Skip" })).toBeTruthy();
-  expect(within(feed).queryByText(/Answered earlier/)).toBeNull();
+  const card = await onDeck("How should the sheet recover after rotate?");
+  expect(within(card).getByRole("button", { name: "Skip" })).toBeTruthy();
+  expect(screen.queryByText(/Answered earlier/)).toBeNull();
+  // Its own line in the transcript is open, beside the first one's answer.
+  const lines = within(feed).getAllByRole("group", {
+    name: "Question: How should the sheet recover after rotate?",
+  });
+  expect(lines.map((line) => line.textContent?.includes("is asking"))).toEqual([false, true]);
 }, 15_000);
 
 test("a different question on the same message never inherits the earlier answer", async () => {
@@ -372,8 +384,11 @@ test("a different question on the same message never inherits the earlier answer
   const feed = await answerThenReplay(
     replayScenario("thread-other-question", [opened("ask-2", "asked", other)]),
   );
-  const card = await within(feed).findByRole("article", { name: "Which screens should change?" });
+  const card = await onDeck("Which screens should change?");
   expect(within(card).getByRole("button", { name: "Skip" })).toBeTruthy();
+  expect(
+    within(feed).getByRole("group", { name: "Question: Which screens should change?" }).textContent,
+  ).toContain("is asking");
 }, 15_000);
 
 test("outside full access, approvals don't offer choices the daemon would refuse", async () => {

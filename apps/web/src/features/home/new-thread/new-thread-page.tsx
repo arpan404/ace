@@ -1,8 +1,9 @@
-import type { PermissionMode, ProviderKind } from "@ace/protocol";
-import { useEffect, useMemo, useState } from "react";
+import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
+import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import {
   Composer,
+  EnvironmentPill,
   PermissionPicker,
   preloadComposerParts,
   rememberAttachments,
@@ -18,20 +19,42 @@ import { useStartingProvider } from "@/lib/provider-statuses.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
-import { permissionAdmission, providerNames, speedOffTier } from "@ace/ui-core";
+import {
+  baseName,
+  defaultWorktreeBase,
+  permissionAdmission,
+  providerNames,
+  speedOffTier,
+} from "@ace/ui-core";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
-import { ContextBar } from "./context-bar.tsx";
 import { ModelPicker } from "./model-picker.tsx";
-import { useBranches } from "@/lib/branches.ts";
+import { ProjectPicker } from "./project-picker.tsx";
+import { useBaseRefs } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
+/** Where the thread runs, opened from the composer's environment pill. */
+const DeferredEnvironmentCard = deferredComponent(() =>
+  import("./environment-card.tsx").then((module) => module.NewThreadEnvironmentCard),
+);
+
 /**
- * ⌘N: pick a project, a model and account, how actions get approved, a worktree or the local
- * checkout, and describe the work. Enter opens the thread at once, with the message as its
- * first bubble, while the daemon creates it (and its worktree). Mentions, files and slash
- * commands work before then, in a draft scope on the daemon.
+ * A base asked for by name (`?base=` from a branch's "New thread from here"): the remote's copy
+ * when the name is `<remote>/<branch>` and the project lists it, else a local branch.
+ */
+function namedBase(name: string, refs: readonly BranchRef[]): WorktreeBase {
+  const remote = refs.find((ref) => ref.remote && `${ref.remote}/${ref.name}` === name);
+  return remote?.remote ? { ref: remote.name, remote: remote.remote } : { ref: name };
+}
+
+/**
+ * ⌘N: pick a project, a model and account, how actions get approved, where it runs (a new
+ * worktree from a local or remote branch, or the local checkout), and describe the work. Enter
+ * opens the thread at once, with the message as its first bubble, while the daemon creates it
+ * (and its worktree). Mentions, files and slash commands work before then, in a draft scope on
+ * the daemon.
  */
 export function NewThreadPage(props: { project?: string | undefined; base?: string | undefined }) {
   const { storage } = useLayout();
@@ -41,7 +64,10 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   const [requested, setRequested] = useState(props.project);
   const project = pickProject(projects, requested, choices.project, filter);
   const projectName = project === undefined ? undefined : name(project);
-  const [baseChoice, setBase] = useState(props.base);
+  const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
+  const [environment, setEnvironment] = useState(false);
+  const environmentId = useId();
+  const page = useRef<HTMLDivElement>(null);
   const { create, error } = useCreateThread();
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
 
@@ -51,8 +77,16 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind>();
   const resolved = resolve(options, choices, picked ?? start.provider);
-  const branches = useBranches(project);
-  const base = baseChoice && branches.includes(baseChoice) ? baseChoice : branches[0];
+  const branches = useBaseRefs(project);
+  // The base picked here, else the one asked for by name (a local branch until the branches
+  // say otherwise), else the default branch at its freshest; undefined while the branches load
+  // (the daemon then starts from HEAD).
+  const base =
+    typeof baseChoice === "object"
+      ? baseChoice
+      : baseChoice !== undefined
+        ? namedBase(baseChoice, branches.refs)
+        : defaultWorktreeBase(branches.refs, branches.defaultBranch);
   const provider = resolved.provider;
 
   // Approvals start at the daemon's default for the project; a choice here applies to this
@@ -110,7 +144,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
       scope: resolved.model.scope,
       model: resolved.model.id,
       mode: resolved.mode,
-      baseBranch: base,
+      base,
       effort: resolved.effort,
       serviceTier: resolved.fast ? resolved.model.fastTier : speedOffTier(resolved.model),
       permission: chosen,
@@ -123,6 +157,11 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     });
   };
 
+  const closeEnvironment = () => {
+    setEnvironment(false);
+    page.current?.querySelector("textarea")?.focus();
+  };
+
   // The first run: nothing to start a thread in until a project is added.
   if (loaded && !projects.length)
     return (
@@ -132,10 +171,27 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     );
   return (
     <Screen title="New thread" subtitle={projectName}>
-      <div className="flex h-full flex-col justify-center overflow-y-auto px-5 pt-8 pb-[12vh] sm:px-8">
+      <div
+        ref={page}
+        className="flex h-full flex-col justify-center overflow-y-auto px-5 pt-8 pb-[12vh] sm:px-8"
+      >
         <div className="mx-auto w-full max-w-(--column)">
-          <h2 className="mb-5 px-1 text-2xl font-semibold tracking-title text-foreground">
-            What should we work on{projectName ? ` in ${projectName}` : ""}?
+          <h2
+            aria-label={`What should we work on${projectName ? ` in ${projectName}` : ""}?`}
+            className="mb-5 px-1 text-2xl font-semibold tracking-title text-foreground"
+          >
+            What should we work on in{" "}
+            <ProjectPicker
+              projects={projects}
+              projectName={name}
+              project={project}
+              onProject={(next) => {
+                setRequested(next);
+                setBase(undefined);
+                choose({ project: next });
+              }}
+            />
+            ?
           </h2>
           <Composer
             thread={draftThread}
@@ -144,29 +200,59 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
             onSubmit={send}
             autoFocus
             placeholder="Describe the change, a bug, or a question. @ to mention a file"
+            attached={
+              environment ? (
+                <Suspense fallback={null}>
+                  <DeferredEnvironmentCard.Component
+                    id={environmentId}
+                    mode={resolved.mode}
+                    onMode={(mode) => {
+                      choose({ mode });
+                      if (mode === "local") closeEnvironment();
+                    }}
+                    branches={branches}
+                    base={base}
+                    onBase={(next) => {
+                      setBase(next);
+                      closeEnvironment();
+                    }}
+                    onClose={closeEnvironment}
+                  />
+                </Suspense>
+              ) : undefined
+            }
+            trailing={
+              <ModelPicker
+                options={options}
+                resolved={resolved}
+                onModel={(model, listed) => {
+                  const rows = options?.models.filter((m) => m.key === model) ?? [];
+                  setPicked(rows[0]?.provider);
+                  // The account the row was listed under; else stay on the chosen account
+                  // when it serves the model; else one that does.
+                  const under = options?.accounts.some((account) => account.id === listed);
+                  const stays = rows.some((m) => m.account === choices.account);
+                  choose({
+                    model,
+                    account: under ? listed : stays ? choices.account : undefined,
+                    effort: undefined,
+                    fast: undefined,
+                  });
+                }}
+                onAccount={(account) => choose({ account })}
+                onEffort={(effort) => choose({ effort })}
+                onFast={(fast) => choose({ fast })}
+                onReset={() => choose({ effort: undefined, fast: undefined })}
+              />
+            }
             controls={
               <>
-                <ModelPicker
-                  options={options}
-                  resolved={resolved}
-                  onModel={(model, listed) => {
-                    const rows = options?.models.filter((m) => m.key === model) ?? [];
-                    setPicked(rows[0]?.provider);
-                    // The account the row was listed under; else stay on the chosen account
-                    // when it serves the model; else one that does.
-                    const under = options?.accounts.some((account) => account.id === listed);
-                    const stays = rows.some((m) => m.account === choices.account);
-                    choose({
-                      model,
-                      account: under ? listed : stays ? choices.account : undefined,
-                      effort: undefined,
-                      fast: undefined,
-                    });
-                  }}
-                  onAccount={(account) => choose({ account })}
-                  onEffort={(effort) => choose({ effort })}
-                  onFast={(fast) => choose({ fast })}
-                  onReset={() => choose({ effort: undefined, fast: undefined })}
+                <EnvironmentPill
+                  place={resolved.mode}
+                  detail={resolved.mode === "worktree" && base ? baseName(base) : undefined}
+                  open={environment}
+                  controls={environmentId}
+                  onToggle={() => setEnvironment(!environment)}
                 />
                 <PermissionPicker
                   mode={admitted.mode}
@@ -184,21 +270,6 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                 />
               </>
             }
-          />
-          <ContextBar
-            projects={projects}
-            projectName={name}
-            project={project}
-            onProject={(next) => {
-              setRequested(next);
-              setBase(undefined);
-              choose({ project: next });
-            }}
-            mode={resolved.mode}
-            onMode={(mode) => choose({ mode })}
-            branches={branches}
-            base={base}
-            onBase={setBase}
           />
           <SignInNotice provider={provider} />
           {error && (

@@ -8,5 +8,10 @@ export const DeferredInteractionCard = deferredComponent(() =>
   import("./interaction-card.tsx").then((module) => module.InteractionCard),
 );
 
+/** A question's line in the transcript, where the agent asked it (answered on the composer). */
+export const DeferredQuestionRecord = deferredComponent(() =>
+  import("./question-record.tsx").then((module) => module.QuestionRecord),
+);
+
 /** The card as a component other slices render (it suspends until its code arrives). */
 export const DeferredThreadInteraction = DeferredInteractionCard.Component;

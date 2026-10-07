@@ -7,6 +7,9 @@ export { rememberAttachments, rememberTitle, startedTitle } from "./composer/sen
 export { PermissionPicker } from "./composer/permission-picker.tsx";
 export { usePermissionCapabilities } from "./composer/permission-hooks.ts";
 export { chipControl as composerChip } from "./composer/composer-styles.ts";
+/** Where a thread runs, as the footer's pill, and the card shell attached to the composer. */
+export { EnvironmentPill } from "./composer/environment-pill.tsx";
+export { AttachedCard } from "./composer/attached-card.tsx";
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";
 export { ThreadView, type ThreadTarget } from "./thread-view.tsx";

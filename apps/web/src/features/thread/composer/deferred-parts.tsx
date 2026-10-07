@@ -8,13 +8,16 @@ import { preloadComposerMenus } from "./deferred-menus.tsx";
  * painted, warmed while idle with the rest of `preloadDeferred`, which keeps the thread route
  * inside its ADR 0056 budget.
  */
-export const DeferredThreadControls = deferredComponent(() =>
-  import("./thread-controls.tsx").then((module) => module.ThreadControls),
+export const DeferredPermissionControl = deferredComponent(() =>
+  import("./thread-controls.tsx").then((module) => module.ThreadPermissionControl),
+);
+export const DeferredModelControl = deferredComponent(() =>
+  import("./thread-controls.tsx").then((module) => module.ThreadModelControl),
 );
 export const DeferredQueueArea = deferredComponent(() =>
   import("./queue-area.tsx").then((module) => module.QueueArea),
 );
-/** "Plan 3/7" beside the queue: the main agent's latest todo list (CMP-6). */
+/** "3/7" in the footer: the main agent's latest todo list (CMP-6). */
 export const DeferredPlanChip = deferredComponent(() =>
   import("./plan-chip.tsx").then((module) => module.PlanChip),
 );
@@ -31,21 +34,16 @@ export const DeferredLocalSends = deferredComponent(() =>
   import("../items/local-sends.tsx").then((module) => module.LocalSends),
 );
 
-/** The thread's tokens and cost in the context meter's tooltip, read when the tooltip opens. */
-export const DeferredThreadUsage = deferredComponent(() =>
-  import("./thread-usage.tsx").then((module) => module.ThreadUsage),
-);
-
 export function preloadComposerParts(): Promise<unknown> {
   return Promise.all([
     preloadComposerMenus(),
     // The model chip's popover, through the controls' own chunk so the route never holds it.
     import("@/features/models/index.ts").then((models) => models.preloadModelControl()),
-    DeferredThreadControls.preload(),
+    DeferredPermissionControl.preload(),
+    DeferredModelControl.preload(),
     DeferredQueueArea.preload(),
     DeferredPlanChip.preload(),
     DeferredSuggestionList.preload(),
-    DeferredThreadUsage.preload(),
     DeferredSendStatus.preload(),
     DeferredLocalSends.preload(),
     preloadAttachmentChips(),
@@ -55,7 +53,7 @@ export function preloadComposerParts(): Promise<unknown> {
 
 /** Room for the thread's footer controls while their code arrives: same height, nothing drawn. */
 export function ControlsPending() {
-  return <span aria-hidden className="h-(--composer-control) w-40 shrink" />;
+  return <span aria-hidden className="h-(--composer-control) w-24 shrink" />;
 }
 
 export const DeferredCursorContinuation = deferredComponent(() =>

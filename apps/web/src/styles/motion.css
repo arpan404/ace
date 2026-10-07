@@ -84,6 +84,10 @@
   .fx-panel-out[data-edge="bottom"] {
     --fx-y: var(--slide);
   }
+  /* A card attached to the composer rising from behind its top edge. */
+  .fx-attach-in {
+    animation: fx-attach-in var(--dur-3) var(--sheet) both;
+  }
   /* Counts and badges that change: a small pop, never a bounce. */
   .fx-pop {
     animation: fx-pop var(--dur-2) var(--spring) both;
@@ -120,6 +124,12 @@
   from {
     opacity: 0;
     transform: translateY(var(--rise));
+  }
+}
+@keyframes fx-attach-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--slide) * 1.5)) scale(0.985);
   }
 }
 @keyframes fx-fade-in {

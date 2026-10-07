@@ -20,20 +20,27 @@ function scenario(id: string) {
   return found;
 }
 
-test("a question sits in the transcript where the agent asked it", async () => {
+test("a question keeps its line in the transcript where the agent asked it, and is answered once, on the composer", async () => {
   const app = harness();
   app.play(scenario("thread-sheet-rotate")).runUntilBlocked();
   await app.open("/t/thread-sheet-rotate");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const card = await within(feed).findByRole("article", {
-    name: "How should the sheet recover after rotate?",
+  const line = await within(feed).findByRole("group", {
+    name: "Question: How should the sheet recover after rotate?",
   });
   const finding = within(feed).getByText(/three ways to fix it/);
-  expect(finding.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  // Once, in place: not again under the transcript.
+  expect(finding.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // The card to answer it is on the composer, once, and nowhere in the transcript.
+  const deck = await screen.findByRole("region", { name: "Waiting for you" });
+  expect(
+    await within(deck).findByRole("article", {
+      name: "How should the sheet recover after rotate?",
+    }),
+  ).toBeTruthy();
   expect(
     screen.getAllByRole("article", { name: "How should the sheet recover after rotate?" }),
   ).toHaveLength(1);
+  expect(within(feed).queryByRole("radio")).toBeNull();
 });
 
 const { endTurn, message, rootAgent, subagent, tool, toolDone, turn } = facts;
@@ -530,7 +537,7 @@ test("a question still waiting in an old turn keeps that turn open in a long thr
     await within(feed).findByRole("button", { name: /^Turn 2: Question 2\. Show the turn$/ }),
   ).toBeTruthy();
   expect(
-    await within(feed).findByRole("article", { name: "Keep the legacy flag reader?" }),
+    await within(feed).findByRole("group", { name: "Question: Keep the legacy flag reader?" }),
   ).toBeTruthy();
   expect(within(feed).getByText("Answer 1")).toBeTruthy();
 });

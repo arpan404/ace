@@ -79,10 +79,6 @@
   "apps/web/src/features/devices/device-screen.tsx": {
     "radius": 1
   },
-  "apps/web/src/features/home/new-thread/context-bar.tsx": {
-    "text-size": 2,
-    "bare-outline": 1
-  },
   "apps/web/src/features/home/project-filter.tsx": {
     "bare-outline": 1
   },
@@ -161,7 +157,6 @@
     "text-size": 1
   },
   "apps/web/src/features/thread/interactions/question-form.tsx": {
-    "text-size": 2,
     "radius": 1
   },
   "apps/web/src/features/thread/items/agent-row.tsx": {
