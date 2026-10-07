@@ -1,3 +1,4 @@
+import { PermissionMode } from "./permissions.ts";
 import { validatePlan } from "./conductor-plan-validation.ts";
 import { z } from "zod";
 import { AgentId, WorkspaceId } from "./ids.ts";
@@ -164,6 +165,7 @@ export const ConductorReview = z
   });
 export type ConductorReview = z.infer<typeof ConductorReview>;
 export const ConductorModel = z.object({
+  permissionMode: PermissionMode.optional(),
   provider: ProviderKind,
   model: Id,
   tier: z.enum(["fast", "normal"]),

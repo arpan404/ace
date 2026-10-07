@@ -1,9 +1,12 @@
 import { z } from "zod";
+import { NativePermissionMode } from "./permissions.ts";
 import { ProviderKind } from "./provider.ts";
 
 /** Local runtime discovery is independent of ace's account registry and adapter capabilities. */
 export const ProviderStatus = z.object({
   provider: ProviderKind,
+  instanceId: z.string().min(1).max(256).optional(),
+  permissionModes: z.array(NativePermissionMode).max(256).optional(),
   readiness: z
     .enum([
       "not_installed",

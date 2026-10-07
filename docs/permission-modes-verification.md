@@ -1,3 +1,5 @@
+> Historical verification for ADR 0061. Superseded by [ADR 0069](adr/0069-provider-native-permission-modes.md); its mode and enforcement claims no longer describe current behavior.
+
 # Permission modes verification
 
 No tests, provider prompts, probes, benchmarks, mutation runs, recorder sessions or UI changes were executed. Behavior and adapter tests are written for the merge gate. Runtime statements below need run at merge.

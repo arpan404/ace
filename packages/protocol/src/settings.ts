@@ -31,8 +31,10 @@ export const SettingsValues = z.object({
   "browser.allowedOrigins": z.array(BrowserOrigin).max(256),
   "browser.backend": z.enum(["auto", "embedded", "headless"]),
   "browser.backendLoss": z.enum(["pause", "headless"]),
-  "permissions.defaultMode": PermissionMode,
-  /** Deprecated. Explicit values migrate to permissions.defaultMode. */
+  /** Deprecated global input. Migrates to provider-specific native selections. */
+  "permissions.defaultMode": PermissionMode.nullable(),
+  "permissions.providerModes": z.partialRecord(ProviderKind, PermissionMode),
+  /** Deprecated. Explicit values migrate to permissions.providerModes. */
   "approvals.policy": z.enum(["ask", "on-failure", "never"]),
   "notifications.enabled": z.boolean(),
   "notifications.sound": z.boolean(),

@@ -132,7 +132,23 @@
       "type": "boolean"
     },
     "permissions.defaultMode": {
-      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "permissions.providerModes": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+      },
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      },
+      "type": "object"
     },
     "plugins.enabled": {
       "items": {
@@ -343,6 +359,7 @@
     "browser.backend",
     "browser.backendLoss",
     "permissions.defaultMode",
+    "permissions.providerModes",
     "approvals.policy",
     "notifications.enabled",
     "notifications.sound",

@@ -1,3 +1,4 @@
+import { NativePermissionMode } from "./permissions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
@@ -122,6 +123,7 @@ export const ModelListOptions = ModelFilter.extend({
 });
 export type ModelListOptions = z.input<typeof ModelListOptions>;
 export const ModelInstanceStatus = z.object({
+  permissionModes: z.array(NativePermissionMode).max(256).optional(),
   ...AcpIdentity.partial().shape,
   provider: ProviderKind,
   instance: label,

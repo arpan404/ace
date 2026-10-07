@@ -1,3 +1,4 @@
+import { providerPermissionDefaults } from "@ace/provider-kit/permission-modes";
 import { cursorConfiguration } from "./cursor-configuration.ts";
 import { guardSecrets, MAX_CLIENT_BYTES, MAX_DOCUMENT_BYTES, SettingsError } from "./validation.ts";
 import { parseDocument, type ScalarRange } from "./jsonc.ts";
@@ -85,14 +86,23 @@ export function decode(text: string): DecodedDocument {
   for (const key of ["clients.theme", "clients.keybindings"] as const) {
     if (Object.hasOwn(result.data.settings, key)) validateValue(key, result.data.settings[key]);
   }
-  if (
-    result.data.settings["permissions.defaultMode"] === undefined &&
-    result.data.settings["approvals.policy"] !== undefined
-  ) {
-    const policy = result.data.settings["approvals.policy"];
-    text = edit(text, ["settings", "permissions.defaultMode"], legacyPermissionMode(policy));
+  const legacy =
+    result.data.settings["permissions.defaultMode"] ??
+    (result.data.settings["approvals.policy"]
+      ? legacyPermissionMode(result.data.settings["approvals.policy"])
+      : undefined);
+  if (legacy) {
+    const modes = {
+      ...providerPermissionDefaults(legacy),
+      ...result.data.settings["permissions.providerModes"],
+    };
+    text = edit(text, ["settings", "permissions.providerModes"], modes);
+    text = edit(text, ["settings", "permissions.defaultMode"], null);
+    text = edit(text, ["settings", "approvals.policy"], undefined);
     return { ...decode(text), migrated: true };
   }
+  if (result.data.settings["approvals.policy"] !== undefined)
+    return { ...decode(edit(text, ["settings", "approvals.policy"], undefined)), migrated: true };
   const configuration = result.data.settings["providers.configuration"];
   if (configuration) {
     const next = cursorConfiguration(configuration);
@@ -111,8 +121,27 @@ export const emptyText = '{\n  "version": 2,\n  "settings": {}\n}\n';
 /** Reuse only validated offsets and primitive values. Complex insertions use the full decoder. */
 export function assign(source: DecodedDocument, key: SettingsKey, value: unknown): DecodedDocument {
   const parsed = validateValue(key, value);
+  if (
+    (key === "permissions.defaultMode" && typeof parsed === "string") ||
+    key === "approvals.policy"
+  ) {
+    const legacy =
+      key === "approvals.policy" ? legacyPermissionMode(parsed) : z.string().parse(parsed);
+    let text = edit(source.text, ["settings", "permissions.providerModes"], {
+      ...source.document.settings["permissions.providerModes"],
+      ...providerPermissionDefaults(legacy),
+    });
+    text = edit(text, ["settings", "permissions.defaultMode"], null);
+    text = edit(text, ["settings", "approvals.policy"], undefined);
+    return decode(text);
+  }
+
   const range = source.ranges.get(key);
-  if (!range || (parsed !== null && typeof parsed === "object"))
+  if (
+    key === "permissions.defaultMode" ||
+    !range ||
+    (parsed !== null && typeof parsed === "object")
+  )
     return decode(edit(source.text, ["settings", key], parsed));
   const content = JSON.stringify(parsed);
   const bytes =

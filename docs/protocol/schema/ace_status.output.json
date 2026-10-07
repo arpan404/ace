@@ -49,12 +49,8 @@
     "permissionMode": {
       "anyOf": [
         {
-          "enum": [
-            "read-only",
-            "ask",
-            "auto-review",
-            "full-access"
-          ],
+          "maxLength": 4096,
+          "minLength": 1,
           "type": "string"
         },
         {

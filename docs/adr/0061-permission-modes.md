@@ -1,6 +1,10 @@
 # 0061: Permission modes with auto-review by default
 
-Date: 2026-10-03. Status: accepted for implementation.
+Date: 2026-10-03. Status: superseded on 2026-10-07 by
+[ADR 0069](0069-provider-native-permission-modes.md) for the ace-wide mode model,
+default, reviewer, tool gates, enforcement guarantees and parent ordering.
+The historical record below describes the previous design. ace-owned browser
+and computer tool consent remains independent of provider permissions.
 
 ## Number allocation
 

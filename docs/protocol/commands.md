@@ -1303,12 +1303,12 @@ Example:
     "targetBranch": "example",
     "template": {
       "budget": {
-        "cost": 9,
-        "durationMs": 9,
-        "maxAttempts": 6,
-        "maxDepth": 1,
-        "maxLanes": 9,
-        "tokens": 8
+        "cost": 10,
+        "durationMs": 8,
+        "maxAttempts": 9,
+        "maxDepth": 4,
+        "maxLanes": 2,
+        "tokens": 9
       },
       "checks": {
         "command": [
@@ -1340,7 +1340,7 @@ Example:
 
 ```json
 {
-  "orchestrationId": "9vFks",
+  "orchestrationId": "wFks",
   "type": "orchestration.cancel"
 }
 ```

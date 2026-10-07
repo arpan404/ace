@@ -2072,64 +2072,58 @@ Example:
     "runs": {},
     "seq": 7,
     "thread": {
-      "acpAgentId": "example",
-      "acpSupport": {
-        "capabilities": {
-          "imageInput": false,
-          "planMode": true,
-          "resume": true
-        },
-        "coverage": "source_profile",
-        "mcp": "unavailable",
-        "modeSelection": false,
-        "modelSelection": false,
-        "raw": {
-          "json": "example",
-          "truncated": false
-        },
-        "visibility": "limited"
+      "activityAt": 6,
+      "autoSettleAt": 7,
+      "continuation": {
+        "actionId": "thread.continue_new",
+        "reason": "cursor_cli_retired",
+        "state": "read_only"
       },
-      "archivedAt": 8,
-      "createdAt": 9,
-      "deletedAt": 9,
-      "handoff": {
-        "bytes": 1,
-        "sourceThreadId": "example",
-        "truncated": false
+      "createdAt": 4,
+      "deck": {
+        "deckId": "HZHMuGuTJnyxn",
+        "role": "planner",
+        "runId": "xbhtWCOaXkWYPXjNOwmSSyD2U.nsG",
+        "workspaceId": "example"
+      },
+      "details": {
+        "ahead": 9,
+        "diff": {
+          "additions": 9,
+          "deletions": 7,
+          "files": 9
+        },
+        "linkedPr": null,
+        "machine": {
+          "host": "example",
+          "name": "example"
+        }
       },
       "id": "example",
-      "imported": {
-        "importedAt": 4,
-        "instanceId": "example",
-        "native": {
-          "forkedFromNativeId": "example",
-          "instanceId": "example",
-          "path": "example",
-          "provider": "claude"
-        },
-        "sourceId": "example"
-      },
-      "provider": "cursor",
-      "snoozedUntil": 2,
-      "status": {
-        "state": "failed"
-      },
-      "switch": {
-        "at": 5,
+      "installationId": "example",
+      "lineage": {
         "lossy": true,
-        "recommendation": "delegate_task",
-        "selection": {
-          "model": "example",
-          "provider": "claude"
-        },
-        "state": "failed"
+        "mode": "portable",
+        "parentAgentId": "example",
+        "parentThreadId": "example",
+        "point": {
+          "itemId": "example",
+          "type": "item"
+        }
+      },
+      "pinOrder": 5,
+      "provider": "cursor",
+      "readAt": 5,
+      "status": {
+        "state": "done"
       },
       "title": "example",
-      "unread": false,
+      "titleSource": "provisional",
       "updatedAt": 3,
       "workspaceId": "example"
     },
-    "usage": {}
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```
@@ -2150,10 +2144,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 2,
+  "afterSeq": 8,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 7,
+  "throughSeq": 9,
   "type": "events"
 }
 ```
@@ -2173,9 +2167,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 5,
+  "afterSeq": 2,
   "subscriptionId": "example",
-  "throughSeq": 7,
+  "throughSeq": 6,
   "type": "progress"
 }
 ```
@@ -2208,39 +2202,34 @@ Example:
 ```json
 {
   "commandId": "example",
-  "commit": "ccd80c2e741fd229634d7f0d59e62526e2ab5b2ab314732af18b9f480",
+  "commit": "ab5db3ef93a8d27a8538d170691e70c44400674435d22a20794a8576c1366a",
   "detail": "example",
-  "editor": {
-    "editor": {
-      "command": "example",
-      "id": "example",
-      "name": "example"
-    },
+  "error": "example",
+  "inspection": {
+    "git": null,
     "path": "example"
   },
-  "ok": true,
-  "prStatus": {
-    "checks": [],
-    "ci": "unknown",
-    "comments": [],
-    "headSha": "example",
-    "mergeability": "conflicting",
-    "raw": null,
-    "ref": {
-      "number": 7,
-      "repository": {
-        "forge": "gitlab",
-        "host": "R",
-        "name": "R40ihU56w",
-        "owner": "G6DF"
-      }
+  "ok": false,
+  "review": {
+    "nextCursor": "example",
+    "session": {
+      "createdAt": 5,
+      "id": "example",
+      "source": {
+        "from": {
+          "kind": "working-tree"
+        },
+        "to": {
+          "id": "example",
+          "kind": "checkpoint"
+        },
+        "workspaceId": "example"
+      },
+      "status": "open"
     },
-    "reviewThreads": [],
-    "state": "merged",
-    "title": "example",
-    "url": "example"
+    "sessions": []
   },
-  "threadId": "example",
+  "title": "example",
   "type": "commandResult",
   "workspace": {
     "id": "example",
@@ -2267,9 +2256,7 @@ Example:
 ```json
 {
   "code": "example",
-  "commandId": "example",
   "message": "example",
-  "retryable": true,
   "type": "error"
 }
 ```
@@ -2291,9 +2278,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "eof": true,
-  "nextOffset": 8,
-  "offset": 9,
+  "eof": false,
+  "nextOffset": 7,
+  "offset": 1,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -2319,7 +2306,7 @@ Example:
   "items": [],
   "itemsBefore": null,
   "requestId": "example",
-  "seq": 9,
+  "seq": 4,
   "threadId": "example",
   "type": "items.page"
 }

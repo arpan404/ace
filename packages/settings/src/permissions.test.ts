@@ -1,64 +1,64 @@
 import { expect, test } from "vitest";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { fixture } from "./test-support.ts";
-
-test("an unset policy uses auto-review and a workspace or thread can select an explicit mode", async () => {
+test("new settings leave native defaults alone and provider overrides survive reopening", async () => {
   const f = await fixture();
   try {
-    expect((await f.service.get("permissions.defaultMode")).value).toBe("auto-review");
-    await f.service.set("permissions.defaultMode", "ask", {
-      kind: "workspace",
-      workspace: f.workspace,
-    });
-    expect((await f.service.get("permissions.defaultMode", { workspace: f.workspace })).value).toBe(
-      "ask",
+    expect((await f.service.get("permissions.providerModes")).value).toEqual({});
+    await f.service.set(
+      "permissions.providerModes",
+      { claude: "acceptEdits", opencode: "deny" },
+      { kind: "global" },
     );
-    await f.service.set("permissions.defaultMode", "full-access", {
-      kind: "thread",
-      thread: "thread",
+    expect((await f.service.get("permissions.providerModes")).value).toEqual({
+      claude: "acceptEdits",
+      opencode: "deny",
     });
     expect(
-      (await f.service.get("permissions.defaultMode", { workspace: f.workspace, thread: "thread" }))
-        .value,
-    ).toBe("full-access");
-    expect((await f.service.get("permissions.defaultMode")).value).toBe("auto-review");
+      JSON.parse(await readFile(f.globalPath, "utf8")).settings["permissions.providerModes"],
+    ).toEqual({ claude: "acceptEdits", opencode: "deny" });
   } finally {
     await f.close();
   }
 });
-
 test.each([
-  ["ask", "ask"],
-  ["on-failure", "auto-review"],
-  ["never", "full-access"],
-] as const)("explicit legacy %s survives reopening as %s", async (old, expected) => {
+  ["ask", "default", ":read-only"],
+  ["auto-review", "auto", '{"permissions":":workspace","approvalsReviewer":"auto_review"}'],
+  ["full-access", "bypassPermissions", ":danger-full-access"],
+] as const)(
+  "stored %s migrates once into separate native selections",
+  async (old, claude, codex) => {
+    const f = await fixture();
+    try {
+      await f.write(f.globalPath, { "permissions.defaultMode": old, "future.setting": "retained" });
+      expect((await f.service.get("permissions.providerModes")).value).toMatchObject({
+        claude,
+        codex,
+      });
+      await f.service.set("logs.retention", "7d", { kind: "global" });
+      const text = await readFile(f.globalPath, "utf8");
+      expect(text).toContain('"future.setting"');
+      expect(text).not.toContain(`"permissions.defaultMode": "${old}"`);
+      expect((await f.service.get("permissions.providerModes")).value).toMatchObject({
+        claude,
+        codex,
+      });
+    } finally {
+      await f.close();
+    }
+  },
+);
+test("a legacy client can replace a provider default without persisting the ace mode", async () => {
   const f = await fixture();
   try {
-    await f.write(f.globalPath, { "approvals.policy": old, "future.setting": "retained" });
-    expect((await f.service.get("permissions.defaultMode")).value).toBe(expected);
-    await f.service.set("logs.retention", "7d", { kind: "global" });
-    expect(await readFile(f.globalPath, "utf8")).toContain('"future.setting"');
-    expect((await f.service.get("permissions.defaultMode")).value).toBe(expected);
-  } finally {
-    await f.close();
-  }
-});
-
-test("an old client changes the effective mode and a new key wins over a conflicting legacy document", async () => {
-  const f = await fixture();
-  try {
-    await f.write(join(f.workspace, ".ace/settings.json"), {
-      "approvals.policy": "never",
-      "permissions.defaultMode": "read-only",
-    });
-    expect((await f.service.get("permissions.defaultMode", { workspace: f.workspace })).value).toBe(
-      "read-only",
+    await f.service.set("permissions.defaultMode", "ask", { kind: "global" });
+    await f.service.set("approvals.policy", "never", { kind: "global" });
+    expect((await f.service.get("permissions.providerModes")).value.claude).toBe(
+      "bypassPermissions",
     );
-    await f.service.set("approvals.policy", "ask", { kind: "workspace", workspace: f.workspace });
-    expect((await f.service.get("permissions.defaultMode", { workspace: f.workspace })).value).toBe(
-      "ask",
-    );
+    expect(
+      JSON.parse(await readFile(f.globalPath, "utf8")).settings["approvals.policy"],
+    ).toBeUndefined();
   } finally {
     await f.close();
   }

@@ -386,22 +386,16 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 8,
+    "concurrency": 2,
     "enabled": false,
     "id": "example",
-    "jitterMs": 5,
+    "jitterMs": 7,
     "missedRun": "skip",
     "prompt": "example",
     "provider": "acp",
     "title": "example",
     "trigger": {
-      "kind": "schedule",
-      "schedule": {
-        "expression": "example",
-        "kind": "rrule",
-        "startAt": 0,
-        "timezone": "example"
-      }
+      "kind": "manual"
     },
     "workspace": "example",
     "worktree": true
@@ -478,7 +472,7 @@ Example:
 
 ```json
 {
-  "limit": 9,
+  "limit": 5,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -514,9 +508,9 @@ Example:
 
 ```json
 {
-  "read": [],
   "requestId": "example",
-  "type": "activity.markRead"
+  "type": "activity.markRead",
+  "unread": []
 }
 ```
 
@@ -535,7 +529,7 @@ Example:
 
 ```json
 {
-  "after": "example",
+  "expectedRevision": 9,
   "requestId": "example",
   "threadId": "example",
   "type": "queue.get"
@@ -707,13 +701,14 @@ Example:
 | type | yes | `"permissions.capabilities"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | backend | no | ["cli","acp","cursor-sdk"] |  |
 
 Example:
 
 ```json
 {
-  "backend": "cursor-sdk",
+  "instanceId": "example",
   "provider": "claude",
   "requestId": "example",
   "type": "permissions.capabilities"
@@ -803,7 +798,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.coder.tier"
+    "providers.coder.reasoningEffort"
   ],
   "requestId": "example",
   "scope": {

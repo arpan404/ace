@@ -632,6 +632,7 @@
     "packages/provider-kit": {
       "name": "@ace/provider-kit",
       "dependencies": {
+        "@ace/protocol": "workspace:*",
         "@ace/redaction": "workspace:*",
         "zod": "^4.6.5",
       },
