@@ -75,7 +75,7 @@ export function NewThreadEnvironmentCard(props: {
                 className={cn(
                   "flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors duration-(--dur-1) focus-ring",
                   checked
-                    ? "bg-accent shadow-[inset_0_0_0_1px_var(--ring)]"
+                    ? "bg-accent shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_55%,transparent)]"
                     : "bg-muted hover:bg-accent",
                 )}
               >
@@ -171,8 +171,13 @@ function BasePicker(props: {
     );
   return (
     <div className="mt-3">
-      <label className="flex h-9 items-center gap-2 rounded-md bg-muted px-2.5 text-ui text-muted-foreground focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
-        <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
+      {/* The field is the box, so its focus edge goes round the glass too. */}
+      <div className="relative text-ui">
+        <MagnifyingGlassIcon
+          aria-hidden
+          size={14}
+          className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground"
+        />
         <input
           // Opening the card is for choosing: typing narrows the branches straight away.
           autoFocus
@@ -189,9 +194,9 @@ function BasePicker(props: {
           }}
           onKeyDown={onKeyDown}
           placeholder="Start from a branch…"
-          className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-subtle-foreground"
+          className="h-9 w-full rounded-md bg-transparent pr-2.5 pl-8 text-foreground shadow-[inset_0_0_0_1px_var(--input)] outline-none placeholder:text-subtle-foreground focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]"
         />
-      </label>
+      </div>
       {state === "loading" ? (
         <p
           role="status"

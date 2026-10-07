@@ -29,9 +29,7 @@ export function ProjectPicker(props: {
         aria-label={`Project: ${props.project === undefined ? "Choose a project" : value}`}
         className="-mx-1 inline-flex items-center gap-1 rounded-md px-1 text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent"
       >
-        <span className="underline decoration-subtle-foreground decoration-dotted decoration-2 underline-offset-[5px]">
-          {value}
-        </span>
+        <span className="underline decoration-dotted underline-offset-4">{value}</span>
         <CaretDownIcon aria-hidden size={14} className="text-subtle-foreground" />
       </MenuTrigger>
       <MenuContent align="start" className="max-h-[50vh] min-w-[220px] overflow-y-auto">

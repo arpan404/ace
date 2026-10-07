@@ -2,8 +2,8 @@ import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { attachedSurface } from "./composer-styles.ts";
 
-/** Cards waiting behind the top one, drawn as slivers above it; more read as the last. */
-const slivers = ["inset-x-3 -top-2 opacity-90", "inset-x-6 -top-4 opacity-60"];
+/** Cards waiting behind the top one, drawn as slivers above it, farthest first. */
+const slivers = ["inset-x-6 -top-4 opacity-60", "inset-x-3 -top-2 opacity-90"];
 
 /**
  * A card attached to the composer: above it, a little narrower, its bottom tucked behind the
@@ -23,24 +23,21 @@ export function AttachedCard(props: {
   const behind = Math.min(props.behind ?? 0, slivers.length);
   return (
     <div className="relative z-0 mx-3 -mb-4">
-      {slivers.slice(0, behind).map((place, index) => (
+      {slivers.slice(slivers.length - behind).map((place) => (
         <div
           key={place}
           aria-hidden
-          className={cn(
-            "fx-fade-in absolute h-8 rounded-t-xl",
-            attachedSurface,
-            place,
-            index === 0 ? "z-[-1]" : "z-[-2]",
-          )}
+          className={cn("fx-fade-in absolute -z-10 h-8", attachedSurface, place)}
         />
       ))}
+      {/* It rises from behind the composer: a panel coming in from its bottom edge. */}
       <section
+        data-edge="bottom"
         aria-label={props.label}
         // Before anything inside (a tooltip closing on Escape) can keep the key to itself.
         onKeyDownCapture={props.onKeyDown}
         className={cn(
-          "fx-attach-in relative max-h-[min(56vh,560px)] overflow-y-auto overscroll-contain pb-7",
+          "fx-panel-in relative max-h-[50vh] overflow-y-auto overscroll-contain pb-7",
           attachedSurface,
         )}
       >

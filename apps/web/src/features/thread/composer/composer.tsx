@@ -476,9 +476,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
                 over another; the left gives up its room first. */}
             <div className="flex min-w-0 flex-1 items-center gap-0.5">{props.controls}</div>
             {props.trailing && (
-              <div className="flex max-w-[60%] min-w-0 shrink-0 items-center justify-end gap-0.5">
-                {props.trailing}
-              </div>
+              <div className="flex min-w-0 items-center justify-end gap-0.5">{props.trailing}</div>
             )}
           </ComposerCompact>
           <PrimaryAction

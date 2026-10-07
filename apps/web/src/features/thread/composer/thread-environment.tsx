@@ -74,7 +74,7 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
           </div>
           <IconButton icon={XIcon} label="Close" size="sm" onClick={props.onClose} />
         </div>
-        <dl className="mt-3 grid grid-cols-[auto_1fr] items-center gap-x-5 gap-y-1.5 text-sm">
+        <dl className="mt-3 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-sm">
           {checkout && (
             <Row term="Branch">
               <span className="font-mono">{checkout.branch ?? "detached HEAD"}</span>
