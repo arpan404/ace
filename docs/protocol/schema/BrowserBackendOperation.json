@@ -164,6 +164,26 @@
         "kind"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "purge",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "kind",
+        "threadId",
+        "workspaceId"
+      ],
+      "type": "object"
     }
   ]
 }

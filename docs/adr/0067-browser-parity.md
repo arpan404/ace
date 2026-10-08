@@ -1,6 +1,7 @@
 # 0067: Background browser tabs and private human control
 
-Date: 2026-10-05. Status: accepted.
+Date: 2026-10-05. Status: accepted. Agent backend choice (MCP opens no longer force headless)
+is superseded by [ADR 0069](0069-shared-native-browser.md).
 
 ## Context
 

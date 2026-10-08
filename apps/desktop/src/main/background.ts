@@ -167,6 +167,7 @@ export class Background {
     const views = new EmbeddedViews({
       preload: this.options.browserPreload,
       window: this.options.window,
+      partitionsDir: join(this.options.userData, "Partitions"),
       platform: process.platform,
       log,
       onClaim: (threadId, owner) => backend.claimControl(threadId, owner),

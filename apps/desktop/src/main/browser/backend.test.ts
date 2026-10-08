@@ -91,6 +91,14 @@ function setup() {
 }
 
 describe("embedded browser backend", () => {
+  it("refuses to confirm a purge when its host cannot clear partitions", async () => {
+    const t = setup();
+    delete t.views.host.purge;
+    const id = t.request("purge-1", { kind: "purge", threadId: "t-1", workspaceId: "w-1" });
+    expect(await t.response(id)).toMatchObject({ error: "Browser partition purge unavailable" });
+    expect(t.views.purged).toEqual([]);
+  });
+
   it("opens a view for the daemon and answers each request once with its ids and the exact CDP result", async () => {
     const t = setup();
     expect(await t.open()).toMatchObject({
@@ -309,6 +317,37 @@ describe("embedded browser backend", () => {
       expect([...t.views.pages.values()].every((page) => page.closed)).toBe(true),
     );
     expect(t.controllers.slice(-2).map((state) => state.controller)).toEqual(["none", "none"]);
+  });
+
+  it("answers a command for a view that closed underneath it with that request's error", async () => {
+    const t = setup();
+    await t.open();
+    // The view is destroyed before Electron reports the detach.
+    t.views.only().closed = true;
+    const id = t.request("s-1", { kind: "cdp", method: "Runtime.evaluate" });
+    expect(await t.response(id)).toMatchObject({ sessionId: "s-1", error: "Browser view closed" });
+  });
+
+  it("purges a deleted thread's partition without an open session, closing its view first", async () => {
+    const t = setup();
+    await t.open("s-1", "t-1");
+    await t.open("s-2", "t-2");
+    const id = t.request("purge-1", { kind: "purge", threadId: "t-1", workspaceId: "w-1" });
+    expect(await t.response(id)).toMatchObject({ sessionId: "purge-1", result: {} });
+    expect(t.views.purged).toEqual([{ threadId: "t-1", workspaceId: "w-1" }]);
+    expect(t.views.pages.get("s-1")?.closed).toBe(true);
+    expect(t.views.pages.get("s-2")?.closed).toBe(false);
+    const after = t.request("s-1", { kind: "cdp", method: "Page.reload" });
+    expect(await t.response(after)).toMatchObject({ error: "Unknown browser session" });
+  });
+
+  it("reports a partition it could not clear, so the daemon retries the purge", async () => {
+    const t = setup();
+    t.views.failPurge("Browser partition could not be cleared");
+    const id = t.request("purge-1", { kind: "purge", threadId: "t-1", workspaceId: "w-1" });
+    expect(await t.response(id)).toMatchObject({
+      error: "Browser partition could not be cleared",
+    });
   });
 
   it("refuses a ninth view", async () => {

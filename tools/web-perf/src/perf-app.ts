@@ -1,10 +1,9 @@
 import { chromium, type Browser } from "@playwright/test";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { createRequire } from "node:module";
-import { stopProcess } from "@ace/perf-kit";
+import { join } from "node:path";
+import { startPreview } from "./preview-server.ts";
 
 /*
  * The production build in `--mode perf` (ADR 0056), served by `vite preview` and opened in
@@ -13,45 +12,27 @@ import { stopProcess } from "@ace/perf-kit";
  */
 
 const web = new URL("../../../apps/web/", import.meta.url).pathname;
-const requireWeb = createRequire(new URL("../../../apps/web/package.json", import.meta.url));
-const vite = join(dirname(requireWeb.resolve("vite/package.json")), "bin/vite.js");
-
 export async function withPerfApp<T>(
-  port: number,
   run: (app: { browser: Browser; origin: string }) => Promise<T>,
   args: string[] = [],
   executablePath?: string,
 ): Promise<T> {
   const out = mkdtempSync(join(tmpdir(), "ace-web-perf-"));
-  let server: ReturnType<typeof spawn> | undefined;
+  let server: Awaited<ReturnType<typeof startPreview>> | undefined;
   try {
     execFileSync("bunx", ["vite", "build", "--mode", "perf", "--outDir", out, "--emptyOutDir"], {
       cwd: web,
       stdio: ["ignore", "ignore", "inherit"],
     });
-    server = spawn(
-      process.execPath,
-      [
-        vite,
-        "preview",
-        "--outDir",
-        out,
-        "--port",
-        String(port),
-        "--strictPort",
-        "--host",
-        "127.0.0.1",
-      ],
-      { cwd: web, stdio: "ignore" },
-    );
+    server = await startPreview(web, out);
     const browser = await chromium.launch({ args, ...(executablePath ? { executablePath } : {}) });
     try {
-      return await run({ browser, origin: `http://127.0.0.1:${port}` });
+      return await run({ browser, origin: server.origin });
     } finally {
       await browser.close();
     }
   } finally {
-    if (server) await stopProcess(server);
+    await server?.close();
     rmSync(out, { recursive: true, force: true });
   }
 }

@@ -114,7 +114,7 @@ async function openEmbeddedBrowser() {
   await screen.findByRole("heading", { level: 1, name: scenario.thread.title });
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByText("is using this page", { exact: false }, { timeout: 10000 });
+  await within(panel).findByText("is browsing", { exact: false }, { timeout: 10000 });
   return { panel, browser: app.daemon.browser };
 }
 
@@ -160,7 +160,7 @@ test("a page from the daemon's own headless browser is never placed natively", a
   await screen.findByRole("heading", { level: 1, name: scenario.thread.title });
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByText("is using this page", { exact: false }, { timeout: 10000 });
+  await within(panel).findByText("is browsing", { exact: false }, { timeout: 10000 });
   // The tab has drawn the page's frame, so its layout effects have run.
   await within(panel).findByRole("img", { name: /^Live view of / });
   expect(placed).toEqual([]);
@@ -173,7 +173,7 @@ test("a click on the agent's page takes control, and the page takes input once i
   expect(last()?.owner).toBeUndefined();
   const count = placed.length;
   act(() => wantsControl?.({ threadId: "thread-cold-start" }));
-  await within(panel).findByText("have control", { exact: false });
+  await within(panel).findByText("in control", { exact: false });
   // The connection the daemon's take-control reply named, which the desktop checks the lease
   // against before any input reaches the page.
   await waitFor(() => expect(last()?.owner).toBe("fake-browser-1"));
@@ -183,17 +183,17 @@ test("a click on the agent's page takes control, and the page takes input once i
 
 test("handing control back stops claiming the page", async () => {
   const { panel } = await openEmbeddedBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
   await waitFor(() => expect(last()?.owner).toBe("fake-browser-1"));
   await userEvent.click(within(panel).getAllByRole("button", { name: "Hand back" })[0]!);
-  await within(panel).findByText("is using this page", { exact: false }, { timeout: 10000 });
+  await within(panel).findByText("is browsing", { exact: false }, { timeout: 10000 });
   await waitFor(() => expect(last()?.owner).toBeUndefined());
   expect(last()?.visible).toBe(true);
 });
 
 test("while another device holds the page, this one claims nothing and a click takes nothing", async () => {
   const { panel, browser } = await openEmbeddedBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
   await waitFor(() => expect(last()?.owner).toBe("fake-browser-1"));
   // The daemon gives the page to another device's connection (this one's dropped meanwhile).
   await act(async () => {
