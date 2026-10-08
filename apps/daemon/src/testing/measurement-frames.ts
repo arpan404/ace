@@ -77,7 +77,10 @@ export function measurementFrames(
         frame({
           type: "tool_execution_end",
           toolCallId: "measure",
-          result: "$RESULT",
+          result: {
+            content: "$CONTENT",
+            details: { aceMcp: { isError: "$IS_ERROR", structuredContent: "$STRUCTURED" } },
+          },
           isError: false,
         }),
         frame({ type: "agent_settled" }),

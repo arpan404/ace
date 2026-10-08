@@ -80,7 +80,15 @@ export function foldProviderFacts(
       (fact.type === "process.exited" && fact.message)
     )
       fact = shapeProviderError(fact, state.config.provider, repo.session(id).model);
-    fact = capFact((raw) => repo.store.capRaw(raw, id), fact);
+    const previousItem =
+      fact.type === "item.upsert" || fact.type === "item.reconciled"
+        ? state.items[fact.item]
+        : undefined;
+    fact = capFact(
+      (raw) => repo.store.capRaw(raw, id),
+      fact,
+      previousItem?.type === "tool_call" ? previousItem.call : undefined,
+    );
     if (
       (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
       fact.agent === (state.rootKey ?? "root") &&

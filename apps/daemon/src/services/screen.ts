@@ -1,8 +1,4 @@
-import {
-  ThreadId as importThreadId,
-  ItemId as importItemId,
-  AgentId as importAgentId,
-} from "@ace/protocol";
+import { ThreadId as importThreadId } from "@ace/protocol";
 import { localScreenManager, screenConnection, type Simulators } from "@ace/screen";
 import { join } from "node:path";
 import type { ServiceContext } from "./types.ts";
@@ -50,36 +46,8 @@ export async function startScreen({
       request: (bundleId, reason, caller, signal) =>
         approvals.request(bundleId, reason, caller, signal),
       foreground: (state, reason, signal) => approvals.foreground(state, signal, reason),
-      audit(state, action, outcome) {
-        if (!state.holder) return;
-        const threadId = importThreadId.parse(state.holder.threadId);
-        if (!store.getThread(threadId)) return;
-        store.appendEvents(
-          threadId,
-          [
-            {
-              type: "item.created",
-              item: {
-                type: "notice",
-                id: importItemId.parse(id()),
-                agentId: importAgentId.parse(state.holder.agentId),
-                createdAt: now(),
-                complete: true,
-                level: outcome === "completed" ? "info" : "warning",
-                code: "screen.step",
-                text: `${action} · ${state.target.kind === "display" ? "display" : state.target.bundleId} · ${state.mode} · ${outcome}`,
-                raw: [
-                  {
-                    type: "ace.screen.step",
-                    data: { sessionId: state.sessionId, action, mode: state.mode, outcome },
-                  },
-                ],
-              },
-            },
-          ],
-          now(),
-        );
-      },
+      // Agent MCP notices are emitted by the result observer, covering pre-dispatch failures too.
+      audit() {},
     });
     services.screenApprovals = approvals;
     resources.own(() => approvals.close());

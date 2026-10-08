@@ -15,7 +15,11 @@ export function createStatusRegistry(
   read: StatusReader = () => ({ permissionMode: null }),
 ) {
   // Discovery is mandatory server metadata, independent of the backend tool admission limit.
-  const status = new ToolRegistry({ scheduler: nodeScheduler, maxTools: 1 });
+  const status = new ToolRegistry({
+    scheduler: nodeScheduler,
+    maxTools: 1,
+    ...(registry.observeCall ? { observeCall: registry.observeCall } : {}),
+  });
   status.register({
     ...statusToolCatalog[0],
     async run(_, { caller, capabilities, signal }): Promise<McpStatus> {

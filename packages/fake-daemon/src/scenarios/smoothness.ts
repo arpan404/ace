@@ -78,7 +78,25 @@ export function typedMeasurementCall(agent: Key, item: Key, measurement: StepMea
     throw new Error("Invalid measurement seed");
   return {
     ...legacy,
-    draft: { ...legacy.draft, measurement, call: { ...legacy.draft.call, raw: [] } },
+    draft: {
+      ...legacy.draft,
+      measurement,
+      call: {
+        ...legacy.draft.call,
+        raw: [],
+        result: {
+          isError: false,
+          durationMs: measurement.windowMs,
+          content: [
+            { type: "text", text: JSON.stringify(metrics) },
+            ...(measurement.filmstrip
+              ? [{ type: "image" as const, attachment: measurement.filmstrip }]
+              : []),
+          ],
+          structuredContent: metrics,
+        },
+      },
+    },
   };
 }
 

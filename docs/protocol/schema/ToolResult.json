@@ -1,0 +1,113 @@
+{
+  "$id": "https://ace.local/protocol/v1/ToolResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "content": {
+      "items": {
+        "oneOf": [
+          {
+            "properties": {
+              "text": {
+                "maxLength": 32768,
+                "type": "string"
+              },
+              "type": {
+                "const": "text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "attachment": {
+                "$ref": "https://ace.local/protocol/v1/Attachment.json"
+              },
+              "type": {
+                "const": "image",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "attachment"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "durationMs": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "isError": {
+      "type": "boolean"
+    },
+    "mode": {
+      "enum": [
+        "background",
+        "foreground"
+      ],
+      "type": "string"
+    },
+    "scale": {
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "size": {
+      "properties": {
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 16384,
+          "type": "integer"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 16384,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    "structuredContent": {},
+    "target": {
+      "properties": {
+        "bundleId": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "displayName": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "windowId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bundleId",
+        "displayName"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "isError",
+    "content",
+    "durationMs"
+  ],
+  "type": "object"
+}

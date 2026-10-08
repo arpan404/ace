@@ -1920,6 +1920,181 @@
                     },
                     "type": "array"
                   },
+                  "result": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "content": {
+                        "items": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "text": {
+                                  "maxLength": 32768,
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "text",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "text"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "attachment": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "bytes": {
+                                      "maximum": 9007199254740991,
+                                      "minimum": 0,
+                                      "type": "integer"
+                                    },
+                                    "delivery": {
+                                      "enum": [
+                                        "native_image",
+                                        "native_pdf",
+                                        "native_resource",
+                                        "inline_text",
+                                        "inline_text_and_path",
+                                        "file_path"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "height": {
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991,
+                                      "type": "integer"
+                                    },
+                                    "kind": {
+                                      "enum": [
+                                        "image",
+                                        "pdf",
+                                        "text",
+                                        "binary"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "mimeType": {
+                                      "maxLength": 128,
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "maxLength": 255,
+                                      "type": "string"
+                                    },
+                                    "sha256": {
+                                      "pattern": "^[a-f0-9]{64}$",
+                                      "type": "string"
+                                    },
+                                    "thumbnailAvailable": {
+                                      "type": "boolean"
+                                    },
+                                    "width": {
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991,
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "required": [
+                                    "sha256",
+                                    "bytes",
+                                    "mimeType",
+                                    "name"
+                                  ],
+                                  "type": "object"
+                                },
+                                "type": {
+                                  "const": "image",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "attachment"
+                              ],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        "maxItems": 16,
+                        "type": "array"
+                      },
+                      "durationMs": {
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      "isError": {
+                        "type": "boolean"
+                      },
+                      "mode": {
+                        "enum": [
+                          "background",
+                          "foreground"
+                        ],
+                        "type": "string"
+                      },
+                      "scale": {
+                        "exclusiveMinimum": 0,
+                        "type": "number"
+                      },
+                      "size": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "height": {
+                            "exclusiveMinimum": 0,
+                            "maximum": 16384,
+                            "type": "integer"
+                          },
+                          "width": {
+                            "exclusiveMinimum": 0,
+                            "maximum": 16384,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "height"
+                        ],
+                        "type": "object"
+                      },
+                      "structuredContent": {},
+                      "target": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "bundleId": {
+                            "maxLength": 256,
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "maxLength": 256,
+                            "type": "string"
+                          },
+                          "windowId": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "bundleId",
+                          "displayName"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "isError",
+                      "content",
+                      "durationMs"
+                    ],
+                    "type": "object"
+                  },
                   "startedAt": {
                     "maximum": 9007199254740991,
                     "minimum": 0,

@@ -1,3 +1,4 @@
+import { normalizeAceCall } from "./ace-tools.ts";
 import type { AgentId, Item, ItemId, RunId, ToolDetail } from "@ace/protocol";
 import { summarizeOutput } from "@ace/projection";
 import type { ToolDetailDraft, ItemDraft } from "./facts.ts";
@@ -31,6 +32,12 @@ export function itemInput(
   detailPatch?: Partial<ToolDetail> | ToolDetailDraft,
 ): unknown {
   if (patch.type === "tool_call") {
+    const normalized = normalizeAceCall(
+      patch.call ?? {},
+      previous?.type === "tool_call" ? previous.call : undefined,
+    );
+    patch = { ...patch, call: normalized };
+    if (normalized.detail?.kind === "mcp") detailPatch = normalized.detail;
     const priorCall = previous?.type === "tool_call" ? previous.call : undefined;
     const detail = patch.call?.detail;
     const kind = patch.call?.kind ?? itemDetailKind(previous, patch) ?? "custom";

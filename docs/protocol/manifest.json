@@ -21,8 +21,8 @@
       "sha256": "5f8629b4b8f0275948b30bf617db6b76409081e059c2bbf936bc5008e2831605"
     },
     "mcp.md": {
-      "bytes": 106324,
-      "sha256": "4e202a6e463a1975528164a7345a6bd443a4b896be421c062003294c9369a4a8"
+      "bytes": 108228,
+      "sha256": "eae2f30b6a6a292c71d330edb7debc4c5e0e4e4cf2afab3bb7e6ab7cd3f3e7a4"
     },
     "models.md": {
       "bytes": 14366,
@@ -2245,8 +2245,8 @@
       "sha256": "c9002116f66416eb0ca06cc233d0dfa78e8e24a3816c31ff2c619664fe1be9b4"
     },
     "schema/ToolCall.json": {
-      "bytes": 1194,
-      "sha256": "bd431dde9e434deb7eef2fe45aab6474668131c0b9866b7c02c3c0f7f36bb967"
+      "bytes": 1279,
+      "sha256": "462ef5dd3b1c78d13d175059e4d5510bb7cc4551516a587e51adef7932f79751"
     },
     "schema/ToolDetail.json": {
       "bytes": 5608,
@@ -2255,6 +2255,10 @@
     "schema/ToolKind.json": {
       "bytes": 455,
       "sha256": "950dd4c471c6d614662fb30389ee29599ec191cb847f886278a812bc8358c2cb"
+    },
+    "schema/ToolResult.json": {
+      "bytes": 2323,
+      "sha256": "a0069e9e0ee691578dc767dc8d7c63002d02beacae74f1c1d8d01b56561ac4d4"
     },
     "schema/ToolStatus.json": {
       "bytes": 277,
@@ -2489,8 +2493,8 @@
       "sha256": "59f40bf437c0bfc8bc6b87a7746fa8632de1926e6e924b2cd3c643ddb47e4eec"
     },
     "schema/ace_read_handoff.output.json": {
-      "bytes": 160681,
-      "sha256": "7ce8bc425b8fedd67f33e9e3547f7c4d96f164c48355e618cb3bebd38b66d363"
+      "bytes": 168113,
+      "sha256": "a5f486b9cfc1c914bdae5a9e15b5738b013101614f6b18e1b109f5cfbb44932d"
     },
     "schema/ace_read_handoff_chunk.input.json": {
       "bytes": 206,
@@ -2661,10 +2665,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 569490,
-      "sha256": "0527b4ccc048f1e140462e2fb0b6525264f1fc0447c41599fea9882ee2f16aed"
+      "bytes": 570832,
+      "sha256": "bc181bf72a72e9d1c6156608b8afa97b0134b7546d1e91a776fcde74139eae39"
     }
   },
-  "input": "4821c023aae0723d91caef583e361f84afdabcac7c8a81c2a78b8116e6bdd394",
+  "input": "1e082f40d8fb2c92c4751dc4831e27908c4a509b47d443f4611c63f5cd1a5246",
   "version": 1
 }

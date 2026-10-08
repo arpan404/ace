@@ -27,7 +27,7 @@ function publicOrigin(raw: string): string {
 export function toolFailure(error: unknown): CallToolResult {
   const trusted = error instanceof PublicToolError;
   const failure = trusted
-    ? new PublicToolError(error.code, error.permission)
+    ? new PublicToolError(error.code, error.permission, error.detail)
     : new PublicToolError(error instanceof z.ZodError ? "invalid_data" : "execution_failed");
   const origin = trusted ? Origin.safeParse(error) : undefined;
   return {
@@ -39,6 +39,7 @@ export function toolFailure(error: unknown): CallToolResult {
           code: failure.code,
           message: failure.message,
           hint: failure.hint,
+          ...(failure.detail ? { detail: failure.detail } : {}),
           ...(failure.permission ? { permission: failure.permission } : {}),
           ...(origin?.success
             ? {

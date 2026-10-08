@@ -165,6 +165,7 @@ export function computerUseHandler(
       | { type: "image"; data: string; mimeType: "image/jpeg" }
       | { type: "text"; text: string }
     )[];
+    _meta?: Record<string, unknown>;
   }> => {
     signal.throwIfAborted();
     const raw = z.record(z.string(), z.unknown()).parse(input);
@@ -195,12 +196,23 @@ export function computerUseHandler(
         () => signal.throwIfAborted(),
       );
       const snapshot = await observe();
-      return { content: [{ type: "text", text: JSON.stringify({ mode, snapshot }) }] };
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ mode: manager.state(sessionId).mode, snapshot }) },
+        ],
+      };
     }
     if (name === "screen_screenshot") {
       Screenshot.parse(payload);
       const image = await manager.modelScreenshot(sessionId, owner, signal);
       return {
+        _meta: {
+          "ace/screen": {
+            mode: manager.state(sessionId).mode,
+            scale: image.scale,
+            size: { width: image.width, height: image.height },
+          },
+        },
         content: [
           {
             type: "image",
@@ -235,7 +247,11 @@ export function computerUseHandler(
         content: [
           {
             type: "text",
-            text: JSON.stringify({ mode, ...data, ...(snapshot ? { snapshot } : {}) }),
+            text: JSON.stringify({
+              ...data,
+              mode: manager.state(sessionId).mode,
+              ...(snapshot ? { snapshot } : {}),
+            }),
           },
         ],
       };
@@ -277,6 +293,10 @@ export function computerUseHandler(
         signal.throwIfAborted(),
       );
     const snapshot = await observe();
-    return { content: [{ type: "text", text: JSON.stringify({ mode, snapshot }) }] };
+    return {
+      content: [
+        { type: "text", text: JSON.stringify({ mode: manager.state(sessionId).mode, snapshot }) },
+      ],
+    };
   };
 }

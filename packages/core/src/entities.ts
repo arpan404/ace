@@ -1,3 +1,4 @@
+import { redactAceApproval } from "./ace-tools.ts";
 import {
   BackgroundTaskId,
   InteractionId,
@@ -22,6 +23,9 @@ export function openInteraction(
   ctx: ApplyContext,
   events: EventPayload[],
 ): void {
+  const request = redactAceApproval(fact.request);
+  if (request !== fact.request)
+    fact = { ...fact, request, raw: [{ type: "ace.private-input", data: { redacted: true } }] };
   const previous = get(state.interactions, fact.interaction);
   if (previous?.state === "pending") return;
   if (previous) put(state.interactionHistory, previous.id, structuredClone(previous));

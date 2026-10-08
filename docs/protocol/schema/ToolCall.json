@@ -29,6 +29,9 @@
       },
       "type": "array"
     },
+    "result": {
+      "$ref": "https://ace.local/protocol/v1/ToolResult.json"
+    },
     "startedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
