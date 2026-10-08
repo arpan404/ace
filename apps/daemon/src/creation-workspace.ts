@@ -144,8 +144,8 @@ export class WorkspaceCreations {
       }
       try {
         await this.cleanup(resource, ranSetup ? { force: true } : {});
-      } catch (error) {
-        throw new Error("workspace_cleanup_required", { cause: error });
+      } catch (cleanupFailure) {
+        throw new Error("workspace_cleanup_required", { cause: cleanupFailure });
       }
       throw error;
     }
