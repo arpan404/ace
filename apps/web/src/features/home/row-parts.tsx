@@ -1,12 +1,10 @@
-import { useLiveConnection } from "@/lib/live-connection.ts";
-import { GitBranchIcon, GitPullRequestIcon, MoonIcon } from "@phosphor-icons/react";
-import { formatSpan, type ProjectBadge, type ThreadCard } from "@ace/ui-core";
+import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { type ProjectBadge, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
-import { useSeconds } from "@/lib/time.ts";
 
 /*
  * Pure pieces of a Home thread row. They render a `ThreadCard` view model and know nothing about
@@ -25,7 +23,7 @@ export function threadDetails(card: ThreadCard): string[] {
     card.status.label,
     card.providerLabel,
     branch && `${branch.worktree ? "Worktree" : "Branch"} ${branch.name}`,
-    branch?.pr !== undefined && `Pull request #${branch.pr}`,
+    card.pr !== undefined && `Pull request #${card.pr}`,
     card.diff && `${card.diff.added} lines added, ${card.diff.removed} removed`,
     `Project ${card.project}`,
     card.flags.pinned && "Pinned",
@@ -54,7 +52,7 @@ export function ProjectMark(props: { badge: ProjectBadge }) {
  * The status as one small mark in its tone: a spinner while working, a dot when it needs you or
  * failed, a hollow ring while it waits on something other than the person. Nothing at rest.
  */
-function StatusMark(props: { card: ThreadCard }) {
+export function StatusMark(props: { card: ThreadCard }) {
   const { card } = props;
   switch (card.status.mark) {
     case "working":
@@ -69,14 +67,6 @@ function StatusMark(props: { card: ThreadCard }) {
   }
 }
 
-/** "18s", "4m", "1h 2m" since work began, ticking with the shared second clock. */
-function Elapsed(props: { since: number }) {
-  const { fresh } = useLiveConnection();
-  const now = useSeconds(fresh);
-  if (!fresh) return null;
-  return <span className="tabular-nums">{formatSpan(props.since, now)}</span>;
-}
-
 /** The pull request, as its glyph and number. */
 function PullRequest(props: { number: number }) {
   return (
@@ -87,24 +77,13 @@ function PullRequest(props: { number: number }) {
   );
 }
 
-/**
- * The row's right end: a snooze, the pull request, the status mark, then how long it has worked
- * or how long ago it last moved. Quick actions take its place on hover and focus.
- */
+/** Settled rows show only a pull request or their age, replaced by Unsettle on hover. */
 export function RowMeta(props: { card: ThreadCard }) {
   const { card } = props;
-  const pr = card.branch?.pr;
   return (
-    <span className="flex shrink-0 items-center gap-1.5 text-xs text-subtle-foreground group-focus-within/row:hidden group-hover/row:hidden">
-      {card.wake && <Icon icon={MoonIcon} size={12} />}
-      {pr !== undefined && (
-        <span className="group-data-[status=active]/link:hidden">
-          <PullRequest number={pr} />
-        </span>
-      )}
-      <StatusMark card={card} />
-      {card.pill?.since !== undefined ? (
-        <Elapsed since={card.pill.since} />
+    <span className="flex shrink-0 items-center text-xs text-subtle-foreground group-focus-within/row:hidden group-hover/row:hidden">
+      {card.pr !== undefined ? (
+        <PullRequest number={card.pr} />
       ) : (
         <span className="tabular-nums">{card.age}</span>
       )}
@@ -117,15 +96,16 @@ export function RowMeta(props: { card: ThreadCard }) {
  * quieter still once settled.
  */
 export function titleTone(card: ThreadCard): string {
-  if (card.emphasis) return "font-medium text-foreground";
   if (card.flags.settled) return "text-subtle-foreground";
+  if (card.emphasis) return "font-medium text-foreground";
   return card.dimmed ? "text-muted-foreground" : "text-sidebar-foreground";
 }
 
 /** The diff as +added −removed in the only colours a row carries, or the pull request. */
 function ChangeMark(props: { card: ThreadCard }) {
-  const { branch, diff } = props.card;
-  if (!diff) return branch?.pr !== undefined ? <PullRequest number={branch.pr} /> : null;
+  const { pr, diff } = props.card;
+  if (pr !== undefined) return <PullRequest number={pr} />;
+  if (!diff) return null;
   return (
     <span className="inline-flex items-center gap-1 tabular-nums">
       {diff.added > 0 && <span className="text-status-done">+{diff.added}</span>}
@@ -138,13 +118,8 @@ function ChangeMark(props: { card: ThreadCard }) {
 function ProviderMark(props: { card: ThreadCard }) {
   const { card } = props;
   return (
-    <span className="inline-flex items-center gap-0.5">
-      <ProviderIcon
-        provider={card.provider}
-        acpAgentId={card.acpAgentId}
-        size={card.provider === "opencode" ? 24 : 16}
-        decorative
-      />
+    <span role="img" aria-label={card.providerLabel} className="inline-flex items-center gap-0.5">
+      <ProviderIcon provider={card.provider} acpAgentId={card.acpAgentId} size={16} decorative />
       {card.subagents > 0 && (
         <span className="text-2xs text-muted-foreground tabular-nums">{card.subagents}</span>
       )}
@@ -152,22 +127,17 @@ function ProviderMark(props: { card: ThreadCard }) {
   );
 }
 
-/** Branch on hover, readable changes on hover and in the open row. */
+/** Always-visible task context; only its right-side marks give way to the hover action. */
 export function RowDetail(props: { card: ThreadCard }) {
   const { card } = props;
   return (
-    <span
-      aria-hidden
-      className="hidden min-w-0 items-center gap-1.5 text-xs text-muted-foreground group-hover/row:flex group-hover/row:flex-1 group-data-[status=active]/link:flex"
-    >
-      <span className="hidden min-w-0 items-center gap-1 group-hover/row:flex group-hover/row:flex-1">
-        {card.branch?.worktree && <Icon icon={GitBranchIcon} size={12} />}
-        <span className="truncate">{card.branch?.name ?? card.machine}</span>
+    <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+      <span className="min-w-0 flex-1 truncate">
+        {card.branch?.name ?? card.project}
+        {card.machine && ` · ${card.machine}`}
       </span>
-      <span className="shrink-0">
+      <span className="flex shrink-0 items-center gap-1.5 group-focus-within/row:invisible group-hover/row:invisible">
         <ChangeMark card={card} />
-      </span>
-      <span className="hidden shrink-0 group-hover/row:mr-11 group-hover/row:inline-flex">
         <ProviderMark card={card} />
       </span>
     </span>

@@ -33,29 +33,28 @@ test("a thread watching a background command says so in its live line, its row a
   const { header, row } = await open(watchingRelay());
   const line = await screen.findByRole("status", { name: "Watching bun run dev:relay" });
   expect(within(line).getByText("bun run dev:relay").tagName).toBe("CODE");
-  expect(row.textContent).toContain("Watching");
-  expect(row.textContent).toContain("bun run dev:relay");
+  expect(row.getAttribute("aria-label")).toContain("Watching bun run dev:relay");
   expect(within(header).getByRole("status").textContent).toBe("Watching bun run dev:relay");
 });
 
 test("a thread waiting on its subagents counts them everywhere", async () => {
   const { header, row } = await open(waitingOnSubagents());
   expect(await screen.findByRole("status", { name: "Waiting on 2 subagents" })).toBeTruthy();
-  expect(row.textContent).toContain("Waiting on 2 subagents");
+  expect(row.getAttribute("aria-label")).toContain("Waiting on 2 subagents");
   expect(within(header).getByRole("status").textContent).toBe("Waiting on 2 subagents");
 });
 
 test("a thread that asked the person a question waits for their answer everywhere", async () => {
   const { header, row } = await open(askingQuestion());
   expect(await screen.findByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
-  expect(row.textContent).toContain("Waiting for your answer");
+  expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
   expect(within(header).getByRole("status").textContent).toBe("Waiting for your answer");
 });
 
 test("a thread running its tests says Running tests", async () => {
   const { feed, header, row } = await open(runningTests());
   expect(await within(feed).findByText("Running tests…")).toBeTruthy();
-  expect(row.textContent).toContain("Running tests…");
+  expect(row.getAttribute("aria-label")).toContain("Running tests…");
   expect(within(header).getByRole("status").textContent).toBe("Running tests…");
 });
 
