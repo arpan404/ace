@@ -56,6 +56,7 @@ export function ProviderSetupRow(props: {
       (props.view?.primary ||
         props.view?.state === "unconfirmed" ||
         (provider === "acp" && !props.view?.ready)));
+  const updateAvailable = props.updateAvailable && !needsSignIn;
   const status = busy
     ? progress?.state === "running"
       ? progress.action === "update"
@@ -80,7 +81,7 @@ export function ProviderSetupRow(props: {
           </span>
         ) : missing ? (
           <StatusLabel tone="idle" label="Not installed" />
-        ) : props.updateAvailable && (!props.view || props.view.ready) ? (
+        ) : updateAvailable && (!props.view || props.view.ready) ? (
           <StatusLabel tone="needs-you" label="Update available" />
         ) : props.view ? (
           <StatusLine
@@ -118,7 +119,7 @@ export function ProviderSetupRow(props: {
         ) : failed ||
           progress?.state === "cancelled" ||
           (missing && provider !== "cursor" && plan?.status !== "sign_in") ||
-          props.updateAvailable ? (
+          updateAvailable ? (
           <Button
             size="sm"
             variant="primary"

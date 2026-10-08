@@ -28,6 +28,8 @@ const verdict = (status: Verdict["status"], message: string, fix: string): Verdi
   message,
   fix,
 });
+const antigravityFix =
+  "Install Antigravity's official ACP server in Settings > Providers, then use its own ACP authentication to sign in.";
 export function nodeVerdict(version: string): Verdict {
   const major = /^v?(\d+)\./.exec(version)?.[1];
   return verdict(
@@ -37,9 +39,12 @@ export function nodeVerdict(version: string): Verdict {
   );
 }
 export function providerVerdict(provider: string, result: DiscoveryResult): Verdict {
-  const fix = result.installed
-    ? `Run ${result.loginHint}; update the CLI if its status probe fails.`
-    : `Install ${provider}'s CLI and add it to PATH.`;
+  const fix =
+    provider === "antigravity"
+      ? antigravityFix
+      : result.installed
+        ? `Run ${result.loginHint}; update the CLI if its status probe fails.`
+        : `Install ${provider}'s CLI and add it to PATH.`;
   if (!result.installed) return verdict("warn", `${provider}: CLI not installed`, fix);
   const status =
     result.auth === "logged_out"
@@ -102,15 +107,11 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
     })),
     {
       id: "provider.antigravity",
-      fix: "Install agy or open it interactively to verify your Google account login.",
+      fix: antigravityFix,
       run: async (signal) =>
         probes.antigravity
           ? providerVerdict("antigravity", await probes.antigravity(signal))
-          : verdict(
-              "warn",
-              "Antigravity login status is unknown",
-              "Open agy interactively to verify your Google account login.",
-            ),
+          : verdict("warn", "Antigravity login status is unknown", antigravityFix),
     },
     {
       id: "git",

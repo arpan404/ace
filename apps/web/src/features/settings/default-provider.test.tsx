@@ -24,23 +24,26 @@ test("Settings offers an installed Codex CLI with unverified login as sign-in un
   await waitFor(() => expect(services.settings.get("providers.default")).toBe("codex"));
 });
 
-test("the Providers list calls a CLI that doesn't report its login ready, and signed in once it does", async () => {
+test("the Providers list trusts working models for unreported login and refreshes reported sign-in", async () => {
   const app = harness();
   const { services } = app.daemon;
   services.accounts = services.accounts.filter((account) => account.provider !== "codex");
   const codex = services.providerStatuses.find((status) => status.provider === "codex");
   if (!codex) throw new Error("Missing Codex discovery");
   codex.auth = "unknown";
+  codex.updateAvailable = false;
   await app.open("/settings/providers");
 
-  const link = await screen.findByRole("link", { name: "Codex" }, { timeout: 10_000 });
-  const row = link.closest<HTMLElement>(".group");
-  if (!row) throw new Error("No Codex row");
+  const row = await screen.findByRole("group", { name: "Codex" }, { timeout: 10_000 });
   // It lists models, so it works; nothing in the list calls it unknown.
   expect(await within(row).findByText("Ready")).toBeTruthy();
+  codex.auth = "logged_out";
+  await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+  await within(row).findByRole("button", { name: "Sign in to Codex" });
   codex.auth = "logged_in";
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
-  expect(await within(row).findByText("Signed in", {}, { timeout: 10_000 })).toBeTruthy();
+  expect(await within(row).findByText("Ready", {}, { timeout: 10_000 })).toBeTruthy();
+  expect(within(row).queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
 });
 
 test("a CLI whose ace accounts are all signed out is offered as not signed in", async () => {
