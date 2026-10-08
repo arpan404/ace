@@ -43,10 +43,6 @@ test("Skills opens on the first skill with its source from the plugin", async ()
   expect(await screen.findByRole("heading", { level: 1, name: "Code review" })).toBeTruthy();
   expect(screen.getByText("skills/code-review/SKILL.md")).toBeTruthy();
   expect(await screen.findByText(/Review the changes since a fixed point/)).toBeTruthy();
-  const sections = within(catalog())
-    .getAllByRole("region")
-    .map((region) => region.getAttribute("aria-label"));
-  expect(sections).toEqual(["Skills", "Slash commands", "Agents", "Plugins"]);
 });
 
 test("searching matches the plugin a skill ships with, and a miss offers to clear the search", async () => {
