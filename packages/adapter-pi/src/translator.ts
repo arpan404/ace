@@ -4,6 +4,7 @@ import type { ThreadId } from "@ace/protocol";
 import { Dialog, Envelope, obj, str, list, isBlockingDialogMethod } from "./native.ts";
 import { dialogRequest } from "./dialogs.ts";
 import { toolDetail, resultSuffix } from "./tools.ts";
+import { piTurnBoundary } from "./turn-boundary.ts";
 import { piContextSample } from "./context-usage.ts";
 import { messageFacts } from "./messages.ts";
 
@@ -15,6 +16,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
     active = false,
     message = 0,
     outcome: "completed" | "failed" | "interrupted" = "completed";
+  let lastAnswer: Key | undefined;
   let poisoned = false;
   let settled = false;
   let prefix = "pi",
@@ -189,6 +191,13 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
       case "message_end": {
         const translated = messageFacts({ agent, prefix, message, streamed, data: frame.data });
         if (!translated) return overflow(frame);
+        for (const fact of translated.facts)
+          if (
+            fact.type === "item.upsert" &&
+            fact.draft.type === "message" &&
+            fact.draft.role === "assistant"
+          )
+            lastAnswer = fact.item;
         if (translated.outcome) outcome = translated.outcome;
         return translated.facts;
       }
@@ -269,6 +278,16 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         return facts;
       }
       case "extension_ui_request": {
+        const entryId = e.method === "notify" ? piTurnBoundary(e.message) : undefined;
+        if (entryId && lastAnswer)
+          return [
+            {
+              type: "item.upsert",
+              agent,
+              item: lastAnswer,
+              draft: { type: "message", nativeId: entryId },
+            },
+          ];
         const sample = e.method === "notify" ? piContextSample(e.message) : undefined;
         if (sample) {
           return [
@@ -349,7 +368,10 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         return [];
       case "session_info_changed":
       case "thinking_level_changed":
+        return [];
       case "turn_start":
+        lastAnswer = undefined;
+        return [];
       case "turn_end":
         return [];
       default:

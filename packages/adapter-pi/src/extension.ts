@@ -1,4 +1,5 @@
 import { PermissionMode } from "@ace/protocol";
+import { registerPiTurnBoundaries } from "./turn-boundary.ts";
 import { registerPiContextSamples } from "./context-usage.ts";
 import { registerPiToolGate } from "./tool-approval.ts";
 import { z } from "zod";
@@ -78,6 +79,7 @@ export default async function aceExtension(
   delete env.ACE_PI_SESSION_FILE;
   const secret = session.controlSecret;
   registerPiContextSamples(pi);
+  registerPiTurnBoundaries(pi);
   registerPiToolGate(pi, PermissionMode.parse(env.ACE_PI_PERMISSION_MODE ?? "read-only"));
   pi.registerCommand("ace-rollback", {
     description: "ace conversation navigation",
