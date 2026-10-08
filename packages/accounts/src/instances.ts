@@ -93,7 +93,7 @@ export function instanceEnv(
     });
   }
   for (const key of authOverrides) env[key] = undefined;
-  if (parsed.provider === "cursor" && backend === "cursor-sdk")
+  if (parsed.provider === "cursor" && backend === "cursor-sdk" && parsed.authMethod !== "api_key")
     env["CURSOR_API_KEY"] = base["CURSOR_API_KEY"];
   const selected = { ...env, ...parsed.env };
   return parsed.provider === "cursor" && backend === "cursor-sdk"
@@ -124,7 +124,7 @@ export function loginArgs(
 ): string[] {
   if (provider === "codex") {
     if (mode === "api")
-      throw new Error("Use codex login --with-api-key directly; ace never accepts keys");
+      throw new Error("Use the provider.login.apiKey stdin hand-off for API-key sign-in");
     return ["login"];
   }
   if (provider === "pi") return [];

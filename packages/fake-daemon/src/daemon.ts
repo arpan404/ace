@@ -676,28 +676,38 @@ export class FakeDaemon implements Host {
       }
     }
     if (
+      message.type.startsWith("provider.accounts.") ||
       message.type.startsWith("provider.login.") ||
       message.type === "provider.logout" ||
       message.type.startsWith("onboarding.")
     ) {
-      const scope = message.type === "onboarding.query" ? "read" : "operate";
+      const scope =
+        message.type === "onboarding.query" || message.type === "provider.accounts.list"
+          ? "read"
+          : "operate";
       if (
         this.options.deviceScopes &&
         !this.options.deviceScopes[connection.deviceId]?.includes(scope)
       ) {
         if ("requestId" in message && message.requestId)
           connection.push(
-            message.type.startsWith("onboarding.")
+            message.type.startsWith("provider.accounts.")
               ? {
-                  type: "onboarding.result",
+                  type: "provider.accounts.result",
                   requestId: message.requestId,
                   result: { ok: false, error: "forbidden" },
                 }
-              : {
-                  type: "provider.login.result",
-                  requestId: message.requestId,
-                  result: { ok: false, error: "forbidden" },
-                },
+              : message.type.startsWith("onboarding.")
+                ? {
+                    type: "onboarding.result",
+                    requestId: message.requestId,
+                    result: { ok: false, error: "forbidden" },
+                  }
+                : {
+                    type: "provider.login.result",
+                    requestId: message.requestId,
+                    result: { ok: false, error: "forbidden" },
+                  },
           );
         return true;
       }

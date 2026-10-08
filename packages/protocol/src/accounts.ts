@@ -38,6 +38,8 @@ export const ProviderInstance = z
     managed: z.literal(true).optional(),
     ...AcpIdentity.partial().shape,
     homeStrategy: z.literal("default_cli").optional(),
+    authMethod: z.enum(["browser", "api_key", "unknown"]).optional(),
+    signedInAs: z.string().max(256).optional(),
     loginRevision: z.string().max(128).optional(),
     profileRevision: z.string().max(256).optional(),
     installationVersion: z.string().max(256).optional(),
@@ -143,6 +145,8 @@ export const AccountSummary = z.object({
   ...AcpIdentity.partial().shape,
   homeStrategy: z.literal("default_cli").optional(),
   isolation: z.literal("unsupported").optional(),
+  authMethod: z.enum(["browser", "api_key", "unknown"]).optional(),
+  signedInAs: z.string().max(256).optional(),
   loginRevision: z.string().max(128).optional(),
   profileRevision: z.string().max(256).optional(),
   installationVersion: z.string().max(256).optional(),
@@ -151,6 +155,7 @@ export const AccountSummary = z.object({
   quota: AccountQuota,
   availability: AccountAvailability,
 });
+export type AccountSummary = z.infer<typeof AccountSummary>;
 const cleanupWarnings = z
   .array(z.enum(["lease_release_failed", "staging_cleanup_failed", "rollback_failed"]))
   .max(3)

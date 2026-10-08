@@ -7,6 +7,14 @@
       "minLength": 1,
       "type": "string"
     },
+    "authMethod": {
+      "enum": [
+        "browser",
+        "api_key",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "availability": {
       "$ref": "https://ace.local/protocol/v1/AccountAvailability.json"
     },
@@ -58,6 +66,10 @@
     },
     "quota": {
       "$ref": "https://ace.local/protocol/v1/AccountQuota.json"
+    },
+    "signedInAs": {
+      "maxLength": 256,
+      "type": "string"
     }
   },
   "required": [

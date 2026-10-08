@@ -1,3 +1,4 @@
+import { ProviderAccountsRequest, ProviderAccountsResult } from "./provider-accounts.ts";
 import {
   ProviderLoginRequest,
   ProviderLoginResult,
@@ -178,6 +179,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   CommandsList,
   CommandsResolve,
   ...AccountsRequest.options,
+  ...ProviderAccountsRequest.options,
   ...CursorAuthRequest.options,
   SearchQueryRequest,
   SearchStatusRequest,
@@ -242,6 +244,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   CommandsListResult,
   CommandsResolveResult,
   ...AccountsResponse.options,
+  ProviderAccountsResult,
   ...CursorAuthEvent.options,
   SearchQueryResponse,
   SearchStatusResponse,

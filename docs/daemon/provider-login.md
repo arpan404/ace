@@ -174,3 +174,86 @@ references: [Codex CLI](https://developers.openai.com/codex/cli/reference),
 and [Cursor SDK auth](https://cursor.com/docs/sdk/typescript#cursorauth).
 The transcript JSON under `apps/daemon/src/__fixtures__/provider-login/` is synthetic,
 version-tagged fake output. It contains no recorded login or real credential.
+
+## Provider account operations and API keys
+
+The provider-page backend uses the additive `provider.accounts.*` family. Old
+`accounts.*` requests remain supported; daemon removal delegates to the same logout-first path and preserves the old reply shape. Replies have type
+`provider.accounts.result`, with `{ ok: true, accounts, apiKey, progress? }` or
+`{ ok: false, error, instanceId? }`. A failed start after registration may retain
+`instanceId` so the view can offer reauthentication.
+
+| Request                        | Fields beyond `requestId`                                                         | Scope   |
+| ------------------------------ | --------------------------------------------------------------------------------- | ------- |
+| `provider.accounts.list`       | `provider`                                                                        | read    |
+| `provider.accounts.add`        | `provider`, `label?`, `method: login \| api_key`, `upstream?`                     | operate |
+| `provider.accounts.rename`     | `provider`, `instanceId`, `label`                                                 | operate |
+| `provider.accounts.setDefault` | `provider`, `instanceId`                                                          | operate |
+| `provider.accounts.remove`     | `provider`, `instanceId`, `confirm: true`, `deleteHome?: boolean` (default false) | operate |
+| `provider.accounts.reauth`     | `provider`, `instanceId`, `method?: login \| api_key`, `upstream?`                | operate |
+
+Add returns a newly isolated account and starts its sign-in immediately. Use
+`progress.session` with the existing polling, cancellation and progress messages.
+Failed/cancelled sign-in leaves the account for retry. Account rows include
+`id`, `label`, `implicit`, `isDefault`, `status` using the existing availability
+values, `authMethod: browser | api_key | unknown`, `signedInAs?`, `quota`,
+`usageSummary` and `apiKey`. `usageSummary` reuses sanitized quota counters; it is
+not an authoritative billing estimate. `apiKey` is `{ supported, reason?, upstreams? }`
+and also appears on readiness rows. Never show a key or a key prefix.
+
+For key sign-in, add or reauthenticate with `method: api_key`. Direct
+`provider.login.start` also accepts that method. OpenCode requires an upstream
+from `openai`, `anthropic`, `openrouter`, `opencode`. Wait for
+`awaiting_api_key`, then submit the dedicated message:
+
+```ts
+{
+  type: "provider.login.apiKey",
+  requestId: "submit-key",
+  session: "session-from-start",
+  apiKey: "pasted-key",
+}
+```
+
+This field is secret and write-only in the schema, bounded to 8192 characters,
+and excludes whitespace and terminal control characters. It is not a
+`provider.login.input` variant. The client's service calls never persist or
+replay it and drop their key references after sending. The daemon checks the
+session-owning device, operate scope and state before creating an owned buffer.
+Only the child stdin receives the bytes. Output is bounded, drained and discarded;
+no raw failure text crosses the wire. Success follows child cleanup, account
+revision invalidation and readiness/model refresh.
+
+Host-token loopback clients may submit directly. Paired clients, including those
+on loopback, must use the encrypted relay with `hello.channel: provider_auth`.
+`authenticatedChannel(options, "provider_auth")` exposes this dedicated route.
+Ordinary paired/TLS WebSockets reject key submission. The relay rechecks operate
+scope on requests and pushes. A device cannot submit to another device's session.
+
+Remove waits for Codex/Claude/Cursor's native logout and refuses on failure.
+It preserves the instance home unless `deleteHome: true`. Deletion validates the
+private direct child of the daemon data directory and never removes implicit CLI
+homes. OpenCode/Pi have no reviewed unattended logout here and permit unregistering
+only with the home preserved.
+
+### Verified credential paths
+
+| Runtime                        | Path                                                                                        | Evidence and limitation                                                                                                                                                                                                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex 0.159.1                  | `codex login --with-api-key`, stdin                                                         | Installed help explicitly names stdin; version/help gates admit reviewed 0/1 families.                                                                                                                                                                                                                      |
+| Claude 2.1.286                 | unsupported                                                                                 | `auth login --help` offers browser subscription/Console login. An env key or `apiKeyHelper` would require ace storage or future env injection.                                                                                                                                                              |
+| OpenCode v1                    | `auth login --provider <upstream> --method "Manually enter API Key"`, password prompt stdin | [CLI reference](https://opencode.ai/docs/cli/#login) documents flags; [provider guide](https://opencode.ai/docs/providers/#using-api-keys) documents key entry. Synthetic prompt fixtures cover the hand-off.                                                                                               |
+| OpenCode 2.0.22 installed here | unsupported                                                                                 | Installed help uses positional targets, method IDs and `--answer`; no reviewed stdin credential contract. Do not put a key in `--answer`.                                                                                                                                                                   |
+| Pi 0.85.1                      | unsupported                                                                                 | Installed `auth --help` exposes read/check commands, not stdin storage. `--api-key` is argv; env/user-managed auth files do not meet this policy.                                                                                                                                                           |
+| Cursor SDK 1.0.35              | isolated stdin worker → `FileCredentialStore.save`                                          | [SDK auth docs](https://cursor.com/docs/sdk/typescript#cursorauth) and the pinned public credential-store declarations; tests use the SDK's real file store without provider calls. [Cursor network configuration](https://cursor.com/docs/enterprise/network-configuration) identifies the backend domain. |
+
+Installed metadata probes ran on 2026-10-07. No real keys, OAuth exchanges,
+provider prompts or recorder sessions ran. OpenCode v1 stdin compatibility is
+covered by fakes; the installed v2 runtime is deliberately refused. Real key
+validity, quota and subscription entitlement remain the provider's responsibility.
+
+The fake daemon supplies three accounts per native provider, both auth methods,
+inline add/rename/default/remove/reauth and explicit login completion. API-key
+submission completes immediately; setting
+`daemon.services.providerLogin.scenarios[provider] = "failure"` rejects it.
+Claude/Pi key additions return `unsupported`; read-only mutations return `forbidden`.

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NativePermissionMode } from "./permissions.ts";
+import { ApiKeySupport, AccountAuthMethod } from "./account-auth.ts";
 import { ProviderKind } from "./provider.ts";
 
 /** Local runtime discovery is independent of ace's account registry and adapter capabilities. */
@@ -25,6 +26,8 @@ export const ProviderStatus = z.object({
   path: z.string().min(1).max(4096).optional(),
   version: z.string().min(1).max(256).optional(),
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
+  authMethod: AccountAuthMethod.optional(),
+  apiKey: ApiKeySupport.optional(),
   accountLabel: z.string().min(1).max(256).optional(),
   authDetail: z.string().max(1024).optional(),
   authEvidence: z.literal("credentials_configured").optional(),

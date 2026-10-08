@@ -71,6 +71,12 @@ export class SocketInput {
           socket.terminate();
         })
         .finally(() => {
+          // Transport buffers may have carried ephemeral credentials. No frame is retained after handling.
+          if (!binary) {
+            if (Buffer.isBuffer(data)) data.fill(0);
+            else if (Array.isArray(data)) for (const chunk of data) chunk.fill(0);
+            else new Uint8Array(data).fill(0);
+          }
           queued--;
           bytes -= charge;
           this.queued--;

@@ -512,6 +512,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProviderAccountsResult.json"
+    },
+    {
       "additionalProperties": false,
       "properties": {
         "auth": {

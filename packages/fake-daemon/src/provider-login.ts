@@ -1,3 +1,4 @@
+import { fakeApiKeySupport } from "./provider-auth-support.ts";
 import { ProviderLoginRequest, ProviderLoginProgress, OnboardingRequest } from "@ace/protocol";
 import { onboardingChecklist, providerReadiness } from "@ace/core";
 import type { ClientMessage, ProviderKind, ProviderStatus, ServerMessage } from "@ace/protocol";
@@ -23,11 +24,21 @@ export class FakeProviderLogin {
     progress: ProviderLoginProgress,
     push: (message: ServerMessage) => void,
   ) => string;
-  private changed: (provider: ProviderKind, signedIn: boolean) => void;
+  private changed: (
+    provider: ProviderKind,
+    signedIn: boolean,
+    instance?: string,
+    method?: "login" | "api_key",
+  ) => void;
   constructor(
     now: () => number,
     statuses: () => ProviderStatus[],
-    changed: (provider: ProviderKind, signedIn: boolean) => void,
+    changed: (
+      provider: ProviderKind,
+      signedIn: boolean,
+      instance?: string,
+      method?: "login" | "api_key",
+    ) => void,
     openTerminal: (
       progress: ProviderLoginProgress,
       push: (message: ServerMessage) => void,
@@ -55,7 +66,13 @@ export class FakeProviderLogin {
     const job = this.jobs.get(session);
     if (!job || ["succeeded", "failed", "cancelled"].includes(job.progress.state)) return;
     this.update(job, { state: "verifying" });
-    if (success) this.changed(job.progress.provider, job.progress.action === "login");
+    if (success)
+      this.changed(
+        job.progress.provider,
+        job.progress.action === "login",
+        job.progress.instance,
+        job.progress.method,
+      );
     this.update(job, {
       state: success ? "succeeded" : "failed",
       message: success
@@ -64,12 +81,13 @@ export class FakeProviderLogin {
     });
   }
   private update(job: Job, update: Partial<ProviderLoginProgress>): void {
-    const { session, provider, instance, action, expiresAt, sequence } = job.progress;
+    const { session, provider, instance, action, method, expiresAt, sequence } = job.progress;
     job.progress = ProviderLoginProgress.parse({
       session,
       provider,
       instance,
       action,
+      method,
       expiresAt,
       sequence: sequence + 1,
       ...update,
@@ -105,7 +123,12 @@ export class FakeProviderLogin {
         hint: "Open this URL on your device to finish the provider's login.",
       });
   }
-  handle(message: ClientMessage, owner: string, push: (message: ServerMessage) => void): boolean {
+  handle(
+    message: ClientMessage,
+    owner: string,
+    push: (message: ServerMessage) => void,
+    respond = push,
+  ): boolean {
     const onboarding = OnboardingRequest.safeParse(message);
     if (onboarding.success) {
       if (onboarding.data.type === "onboarding.dismiss") {
@@ -130,13 +153,13 @@ export class FakeProviderLogin {
     const error = (
       category: "busy" | "not_found" | "forbidden" | "invalid_input" | "unavailable",
     ) =>
-      push({
+      respond({
         type: "provider.login.result",
         requestId: input.requestId,
         result: { ok: false, error: category },
       });
     const reply = (job: Job) =>
-      push({
+      respond({
         type: "provider.login.result",
         requestId: input.requestId,
         result: { ok: true, progress: job.progress },
@@ -148,6 +171,16 @@ export class FakeProviderLogin {
         this.jobs.delete(id);
       }
     if (input.type === "provider.login.start" || input.type === "provider.logout") {
+      if (
+        input.type === "provider.login.start" &&
+        input.method === "api_key" &&
+        (!fakeApiKeySupport(input.provider).supported ||
+          (input.provider === "opencode" && !input.upstream))
+      ) {
+        error("unavailable");
+        return true;
+      }
+
       const instance =
         input.instance === `${input.provider}-cli-default` ? undefined : input.instance;
       const retried = [...this.jobs.values()].find(
@@ -187,6 +220,7 @@ export class FakeProviderLogin {
           provider: input.provider,
           ...(instance ? { instance } : {}),
           action: input.type === "provider.logout" ? "logout" : "login",
+          ...(input.type === "provider.login.start" ? { method: input.method ?? "login" } : {}),
           state: "starting",
           expiresAt: this.now() + 600_000,
           sequence: 0,
@@ -195,6 +229,11 @@ export class FakeProviderLogin {
       this.jobs.set(job.progress.session, job);
       reply(job);
       if (input.type === "provider.logout") this.complete(job.progress.session);
+      else if (input.method === "api_key")
+        this.update(job, {
+          state: "awaiting_api_key",
+          prompt: "Enter the API key for this account.",
+        });
       else if (scenario === "choice")
         this.update(job, {
           state: "awaiting_input",
@@ -222,6 +261,15 @@ export class FakeProviderLogin {
     if (job.owner !== owner) {
       error("forbidden");
       return true;
+    }
+    if (input.type === "provider.login.apiKey") {
+      input.apiKey = "";
+      if (message.type === "provider.login.apiKey") message.apiKey = "";
+      if (job.progress.state !== "awaiting_api_key") {
+        error("invalid_input");
+        return true;
+      }
+      this.complete(job.progress.session, job.scenario !== "failure");
     }
     if (input.type === "provider.login.cancel") {
       if (!["succeeded", "failed", "cancelled"].includes(job.progress.state))
