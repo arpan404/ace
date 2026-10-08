@@ -1,3 +1,4 @@
+import { hasOpenCodeV2, supportsOpenCodeV2, openCodeV2Records } from "./opencode-messages.ts";
 import { orderedMessages, orderedParts } from "./storage-order.ts";
 import { basename, join } from "node:path";
 import { readJsonLines, readRange, object, string, RECORD_LIMIT } from "@ace/native-session";
@@ -62,6 +63,11 @@ export async function* sourceRecords(
   const db = handle.db;
   try {
     if (!supportsOpenCode(db)) throw new Error("Unsupported provider database history");
+    if (hasOpenCodeV2(db, source.summary.nativeId)) {
+      if (!supportsOpenCodeV2(db)) throw new Error("Unsupported OpenCode history format");
+      yield* openCodeV2Records(db, source.summary.nativeId, signal);
+      return;
+    }
     db.exec("BEGIN"); // Consistent read-only snapshot, including live WAL.
     const rows = db.prepare(
       "SELECT id,octet_length(data) AS bytes FROM message WHERE session_id=? ORDER BY time_created,id",

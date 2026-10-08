@@ -1,3 +1,6 @@
+import { scanCodexTitles } from "./codex-titles.ts";
+import { sourceRecords } from "./source-records.ts";
+import { sessionTitle, userPrompt, hasUserInput } from "./user-text.ts";
 import { setImmediate } from "node:timers/promises";
 import { basename, join } from "node:path";
 import { lstat } from "node:fs/promises";
@@ -108,7 +111,7 @@ export async function scan(
             ...s,
             id: sourceId(instance.id, path, nativeId),
             nativeId,
-            title: string(r.title) ?? nativeId,
+            title: sessionTitle(string(r.title) ?? "", "", timestamp(time.updated) ?? sample.mtime),
             cwd: string(r.directory) ?? "",
             lastActivity: timestamp(time.updated) ?? sample.mtime,
             parentNativeId: string(r.parentID),
@@ -125,9 +128,49 @@ export async function scan(
         }
         if (!isStorage && fp !== sample.fingerprint)
           throw new Error("Session changed before sampling");
+        let prompt = sample.records.map(userPrompt).find(Boolean) ?? "";
+        let input = sample.records.some(hasUserInput);
+        if (isStorage || !sample.exact) {
+          if (!isStorage) result.reads++;
+          for await (const record of sourceRecords(
+            instance,
+            {
+              summary: s,
+              path,
+              fingerprint: fp,
+              kind: isStorage ? "storage" : "jsonl",
+              instanceId: instance.id,
+              hidden: false,
+            },
+            signal,
+            catalog.scratchRoot,
+          )) {
+            if (!isStorage) result.bytes += record.bytes;
+            if ("value" in record) {
+              prompt = userPrompt(record.value);
+              input = hasUserInput(record.value);
+            }
+            if (input) break;
+          }
+          if (!isStorage)
+            s = summary(instance, path, sample.records, sample.exact, sample.mtime, prompt);
+          s = {
+            ...s,
+            title: sessionTitle(
+              isStorage
+                ? (string(object(sample.records[0]).title) ?? "")
+                : s.title.startsWith("Session from ")
+                  ? ""
+                  : s.title,
+              prompt,
+              s.lastActivity,
+            ),
+          };
+        }
         catalog.put(
           {
             summary: s,
+            hidden: !input,
             path,
             fingerprint: fp,
             kind: isStorage ? "storage" : "jsonl",
@@ -183,7 +226,9 @@ export async function scan(
           db = await openProviderDb(instance, path, catalog.scratchRoot, signal);
           result.reads++;
           let rows = 0;
-          for (const s of dbSessions(instance, path, db.db)) {
+          for (const entry of dbSessions(instance, path, db.db)) {
+            const s = entry.summary;
+
             if (++rows > 100000)
               throw new Error("Provider database session inventory limit exceeded");
             if (rows % 64 === 0) {
@@ -192,9 +237,18 @@ export async function scan(
             }
             signal.throwIfAborted();
             catalog.put(
-              { summary: s, path, fingerprint: fp, kind: "database", instanceId: instance.id },
+              {
+                summary: s,
+                hidden: entry.hidden,
+                path,
+                fingerprint: fp,
+                kind: "database",
+                instanceId: instance.id,
+              },
               epoch,
             );
+            if (instance.provider === "codex" && !s.title.startsWith("Session from "))
+              catalog.setNativeTitle(instance.id, s.nativeId, s.title, "database");
           }
           // The private snapshot is consistent even if the live provider has committed again.
           // Remember the original fingerprint so its newer data is picked up next scan.
@@ -214,6 +268,7 @@ export async function scan(
           await db?.close();
         }
       }
+      if (instance.provider === "codex") await scanCodexTitles(catalog, instance, epoch, signal);
       signal.throwIfAborted();
       if (changed) {
         for (const path of changed) await catalog.updates.prune(instance.id, path, epoch, signal);

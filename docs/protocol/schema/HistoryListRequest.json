@@ -26,9 +26,16 @@
       "minimum": 1,
       "type": "integer"
     },
+    "openableOnly": {
+      "type": "boolean"
+    },
     "requestId": {
       "maxLength": 256,
       "minLength": 1,
+      "type": "string"
+    },
+    "search": {
+      "maxLength": 256,
       "type": "string"
     },
     "type": {
