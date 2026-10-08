@@ -153,7 +153,7 @@ test("prepared handoffs publish their summary before the spawn input", async () 
   expect(ordered.indexOf(summary)).toBeLessThan(ordered.indexOf(spawn));
 });
 
-test("send failures publish readable correlated notices with operation names in diagnostics", async () => {
+test("pre-delivery failures retain input in the queue without a failed draft", async () => {
   const frames = scriptFrames();
   const h = await harness([], frames, {
     beforeSend: async () => {
@@ -174,13 +174,14 @@ test("send failures publish readable correlated notices with operation names in 
   if (!receipt.threadId) throw new Error("No thread");
   await h.engine.flush();
   const notices = Object.values(h.store.snapshotThread(receipt.threadId).items).filter(
-    (item) => item.type === "notice" && item.level === "error",
+    (item) => item.type === "notice",
   );
   expect(notices).toEqual([
     expect.objectContaining({
-      text: "Message not sent",
-      code: "delivery_failed",
-      title: "Not sent",
+      text: "Message kept in queue",
+      code: "input_queued",
+      level: "info",
+      title: "Message kept in queue",
       commandId: "failure-command",
       detail: "checkpoint failed",
     }),
