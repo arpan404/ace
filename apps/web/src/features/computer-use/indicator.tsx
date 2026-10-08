@@ -16,8 +16,7 @@ import { useComputerUse, type ComputerUse } from "./use-computer-use.ts";
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
- * The sidebar's quiet sign that agents are working on this Mac: shown only while an agent controls
- * an app (capturing or not) or a browser page open in this window, or a page is held privately.
+ * The sidebar indicator shows every active app session and any agent-held or private browser.
  * Its popover lists each with Take over and Stop, and opens the live sessions.
  */
 export default function ComputerUseIndicator() {

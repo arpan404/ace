@@ -1,0 +1,2 @@
+{"type":"user","uuid":"request","sessionId":"native","cwd":"/repo/history","message":{"role":"user","content":"Check how reconnect replay orders the last saved event and the first live event."}}
+{"type":"assistant","uuid":"answer","parentUuid":"request","sessionId":"native","cwd":"/repo/history","message":{"role":"assistant","content":[{"type":"text","text":"The replay cursor advances only after the event is stored. Live events arriving during replay wait behind that cursor, so reconnects preserve transcript order."}]}}

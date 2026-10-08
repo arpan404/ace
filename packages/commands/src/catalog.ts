@@ -281,6 +281,11 @@ export interface CommandService {
     query: string,
     limit: number,
   ): Promise<{ entries: import("@ace/protocol").CatalogEntry[]; stale: boolean }>;
+  listCatalogWorkspace?(
+    context: import("./types.ts").LibraryContext,
+    query: string,
+    limit: number,
+  ): Promise<{ entries: import("@ace/protocol").CatalogEntry[]; stale: boolean }>;
   listCatalogDraft?(
     draft: string,
     context: import("./types.ts").LibraryContext,

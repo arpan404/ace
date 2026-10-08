@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CommandLibrary } from "@ace/commands";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, WorkspaceId } from "@ace/protocol";
 import { startServer } from "./server.ts";
 import { Client } from "./socket-test-support.ts";
 import { harness, scriptFrames, start, end } from "./engine/test-support.ts";
@@ -17,13 +17,17 @@ test("an authenticated subscriber receives file catalog replacements scoped to i
   const root = await realpath(h.home);
   const directory = join(root, ".cursor/skills/review");
   await mkdir(directory, { recursive: true });
-  await mkdir(join(root, "provider"));
+  await mkdir(join(root, "provider/skills/review-user"), { recursive: true });
+  await writeFile(
+    join(root, "provider/skills/review-user/SKILL.md"),
+    "---\nname: review-user\ndescription: Review prose\n---\nBody",
+  );
   const file = join(directory, "SKILL.md");
   await writeFile(file, "---\nname: review\ndescription: Review the project\n---\nBody");
   const library = new CommandLibrary({
     aceHome: root,
-    instances: [{ id: "cursor", provider: "cursor", home: join(root, "provider") }],
-    context: () => ({ workspace: root, provider: "cursor", instance: "cursor" }),
+    instances: [{ id: "cursor-personal", provider: "cursor", home: join(root, "provider") }],
+    context: () => ({ workspace: root, provider: "cursor", instance: "cursor-personal" }),
     now: () => h.clock.now(),
   });
   const server = await startServer({
@@ -62,9 +66,43 @@ test("an authenticated subscriber receives file catalog replacements scoped to i
       stale: false,
     });
     if (snapshot.type !== "catalog.list.result") throw new Error("Missing snapshot");
-    expect(snapshot.entries.find((e) => e.kind === "skill")).toMatchObject({
+    expect(
+      snapshot.entries.find((e) => e.kind === "skill" && e.source.scope === "project"),
+    ).toMatchObject({
       source: { scope: "project", provider: "cursor" },
       description: "Review the project",
+    });
+    expect(
+      snapshot.entries.find((e) => e.source.scope === "global" && e.kind === "skill"),
+    ).toMatchObject({ name: "review-user", description: "Review prose" });
+    const workspaceId = h.store.getThread(id)?.workspaceId;
+    if (!workspaceId) throw new Error("Missing workspace");
+    client.send({
+      type: "catalog.list",
+      requestId: "skills-page",
+      subscribe: false,
+      workspace: { workspaceId, provider: "cursor" },
+      query: "review",
+      limit: 100,
+    });
+    const workspaceCatalog = await client.next();
+    expect(workspaceCatalog).toMatchObject({
+      type: "catalog.list.result",
+      entries: snapshot.entries,
+      stale: false,
+    });
+    client.send({
+      type: "catalog.list",
+      requestId: "missing-project",
+      subscribe: false,
+      workspace: { workspaceId: WorkspaceId.parse("missing"), provider: "cursor" },
+      query: "",
+      limit: 100,
+    });
+    expect(await client.next()).toMatchObject({
+      type: "error",
+      requestId: "missing-project",
+      code: "catalog_unavailable",
     });
     await writeFile(file, "---\nname: review\ndescription: Changed project review\n---\nNew body");
     for (;;) {

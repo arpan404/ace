@@ -36,6 +36,7 @@ export function bootFake(): {
   const daemon = new FakeDaemon({
     clock: () => Date.now(),
     hostId: "this-mac",
+    threadCompletionSchedule: (callback) => void setTimeout(callback, 1200),
     displayName: "This Mac",
     snapshotItems: 40,
     // A clone takes a few seconds, so its progress and Cancel can be seen.

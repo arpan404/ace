@@ -1,10 +1,13 @@
-import { projectionName } from "./project-shared.ts";
+import { projectionName } from "./projection-name.ts";
 import type { CatalogEntry, ProviderKind } from "@ace/protocol";
 import type { PluginSnapshot } from "./types.ts";
 /** Names match the existing provider projection. No templates or executable configuration leave here. */
 export function pluginCatalog(
   provider: ProviderKind,
-  snapshots: readonly PluginSnapshot[],
+  snapshots: readonly {
+    install: PluginSnapshot["install"];
+    manifest: Pick<PluginSnapshot["manifest"], "description" | "skills" | "commands" | "agents">;
+  }[],
 ): CatalogEntry[] {
   const entries: CatalogEntry[] = [];
   for (const snapshot of snapshots) {

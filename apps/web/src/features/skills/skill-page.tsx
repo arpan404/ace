@@ -74,6 +74,7 @@ export function SkillPage(props: { skillId: string }) {
         )}
       </Screen>
     );
+  if (skill.discovered) return <DiscoveredSkillDetail skill={skill} />;
   const plugin = skills.data?.find((entry) => entry.id === pluginSkillId(skill.plugin));
   return (
     <SkillDetail
@@ -207,12 +208,6 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
               />
             )}
             {isPlugin && plugin.install && <VersionRow skill={plugin} />}
-            {skill.path && (
-              <SettingRow
-                title="Source"
-                description={<span className="font-mono text-sm">{skill.path}</span>}
-              />
-            )}
             {(isPlugin || ownSkill) && (
               <SettingRow
                 inline
@@ -347,5 +342,29 @@ function Contents(props: { components: readonly Skill[] }) {
         );
       })}
     </SettingSection>
+  );
+}
+
+function DiscoveredSkillDetail({ skill }: { skill: Skill }) {
+  const source = skill.discovered?.source;
+  return (
+    <Screen
+      title={skillTitle(skill)}
+      subtitle={kinds.find((entry) => entry.kind === skill.kind)?.label}
+    >
+      <div className="mx-auto max-w-(--column) px-4 pt-6 sm:px-8 sm:pt-11">
+        <p className="text-base text-muted-foreground">{skill.description}</p>
+        <SettingSection label="Source">
+          <p className="text-sm text-muted-foreground">
+            {source?.provider === "ace" ? "ace" : source && providerNames[source.provider]} ·{" "}
+            {source?.scope === "project" ? "This project" : "Provider catalog"}
+          </p>
+          {skill.path && <p className="break-words font-mono text-sm">{skill.path}</p>}
+          <p className="mt-2 text-sm text-muted-foreground">
+            Use this from the / menu in a thread with the same project and provider.
+          </p>
+        </SettingSection>
+      </div>
+    </Screen>
   );
 }

@@ -1,3 +1,4 @@
+import { watchCatalog } from "@/lib/catalog.ts";
 import type { ClientApi } from "@ace/client";
 import { ThreadId, WorkspaceId, type CatalogEntry } from "@ace/protocol";
 import type { ThreadRef } from "./workspace-source.ts";
@@ -12,12 +13,6 @@ export interface CommandSource {
 export function daemonCommandSource(client: ClientApi): CommandSource {
   return {
     watch(thread, receive, failed) {
-      const requestId = crypto.randomUUID();
-      const controller = new AbortController();
-      const stop = client.onMessage((message) => {
-        if (message.type === "catalog.changed" && message.requestId === requestId)
-          receive(message.entries);
-      });
       const target =
         thread.draft && thread.provider
           ? {
@@ -29,24 +24,7 @@ export function daemonCommandSource(client: ClientApi): CommandSource {
               },
             }
           : { threadId: ThreadId.parse(thread.id) };
-      void client
-        .request(
-          { type: "catalog.list", ...target, subscribe: true, limit: 512 },
-          { requestId, signal: controller.signal },
-        )
-        .then(
-          (reply) => {
-            if (!controller.signal.aborted) receive(reply.entries);
-          },
-          () => {
-            if (!controller.signal.aborted) failed();
-          },
-        );
-      return () => {
-        controller.abort();
-        stop();
-        if (client.state === "ready") client.send({ type: "catalog.unsubscribe", requestId });
-      };
+      return watchCatalog(client, target, receive, failed);
     },
   };
 }

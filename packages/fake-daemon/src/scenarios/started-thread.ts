@@ -48,3 +48,16 @@ export function startedThread(
     ],
   };
 }
+
+/** A finite demo response after the new thread has read the project. */
+export function completedThread(commandId: string): Fact[] {
+  return [
+    message(
+      "root",
+      "reading",
+      "assistant",
+      "I've read the project and identified its entry points. What would you like to change?",
+    ),
+    { type: "turn.ended", agent: "root", nativeTurnId: `turn-${commandId}`, outcome: "completed" },
+  ];
+}

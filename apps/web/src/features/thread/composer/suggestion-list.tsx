@@ -1,6 +1,7 @@
 import { MentionIcon } from "@/components/mention-chip.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { catalogSourceLabel } from "@/lib/catalog.ts";
 import type { Suggestion, Suggestions } from "./suggestions.tsx";
 
 export function SuggestionList(props: {
@@ -24,15 +25,7 @@ export function SuggestionList(props: {
               <div
                 id={`${props.id}-${index}`}
                 role="option"
-                aria-label={[
-                  item.label,
-                  item.detail,
-                  item.entry?.source.scope === "project"
-                    ? "Project"
-                    : item.entry?.source.scope === "global"
-                      ? "Global"
-                      : undefined,
-                ]
+                aria-label={[item.label, item.detail, item.entry && catalogSourceLabel(item.entry)]
                   .filter(Boolean)
                   .join(" ")}
                 aria-selected={index === props.active}
@@ -65,11 +58,7 @@ export function SuggestionList(props: {
                 )}
                 {item.entry && item.entry.source.scope !== "ace" && (
                   <span className="shrink-0 text-[11px] text-subtle-foreground">
-                    {item.entry.source.scope === "project"
-                      ? "Project"
-                      : item.entry.source.scope === "global"
-                        ? "Global"
-                        : (item.entry.source.plugin ?? "Plugin")}
+                    {catalogSourceLabel(item.entry)}
                   </span>
                 )}
               </div>

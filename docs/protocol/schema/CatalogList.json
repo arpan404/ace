@@ -54,6 +54,26 @@
     "type": {
       "const": "catalog.list",
       "type": "string"
+    },
+    "workspace": {
+      "properties": {
+        "instanceId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "workspaceId",
+        "provider"
+      ],
+      "type": "object"
     }
   },
   "required": [
@@ -61,5 +81,5 @@
     "type"
   ],
   "type": "object",
-  "x-ace-constraint": "Exactly one of threadId or draft is required."
+  "x-ace-constraint": "Exactly one of threadId, draft or workspace is required."
 }

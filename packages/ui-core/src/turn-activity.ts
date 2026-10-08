@@ -140,8 +140,16 @@ function readActivity(
   options: ActivityOptions,
   watch: string[],
 ): TurnActivity | undefined {
-  const status = reader.agent(rootId)?.status;
+  const agent = reader.agent(rootId);
+  const status = agent?.status;
   if (!status) return undefined;
+  // Imported history has no live provider until the person sends a new message.
+  if (
+    reader.thread?.imported &&
+    reader.thread.status.state === "new" &&
+    (status.state === "starting" || status.state === "unresponsive")
+  )
+    return undefined;
   const ledger = ledgerOf(reader);
   const pending = [...ledger.pending()];
   const live =

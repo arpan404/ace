@@ -3,6 +3,7 @@
  * `plugins.catalog`), a component's source, availability per plugin, removal, and installing
  * through the mandatory trust review (`plugins.prepare`, `readReview`, `accept` or `cancel`).
  */
+import { useSkillDiscovery, withDiscoveredSkills } from "./discovered-skills.tsx";
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type {
@@ -78,7 +79,20 @@ export function useSkills() {
       hiddenNow.size ? skills.filter((skill) => !hiddenNow.has(skill.plugin)) : skills,
     [hiddenNow],
   );
-  return useDaemonQuery({ queryKey: key, read: readCatalog, select });
+  const discovered = useSkillDiscovery();
+  const query = useDaemonQuery({ queryKey: key, read: readCatalog, select });
+  return {
+    ...query,
+    data:
+      query.data && !discovered.pending
+        ? withDiscoveredSkills(query.data, discovered.entries)
+        : undefined,
+    isError: query.isError || discovered.failed,
+    refetch: (options?: Parameters<typeof query.refetch>[0]) => {
+      discovered.retry();
+      return query.refetch(options);
+    },
+  };
 }
 
 /** Read bounded source pages against one accepted hash, without cutting off at 64 KiB. */

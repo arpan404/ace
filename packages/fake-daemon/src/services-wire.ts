@@ -31,6 +31,7 @@ export interface ServicesSeed extends AutomationSeed {
   extensionCatalogs?: Partial<
     Record<import("@ace/protocol").ProviderKind, import("@ace/protocol").CatalogEntry[]>
   >;
+  historyTranscripts?: Record<string, { role: "user" | "assistant"; text: string }[]>;
   history?: import("@ace/protocol").HistorySession[];
   /** Seed the small PNG fixture for scoped client attachment reads. */
   notificationPublicKey?: string;
@@ -58,7 +59,9 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  */
 export class FakeServicesWire {
   readonly prompts = new FakePromptFiles();
-  private readonly catalog = new FakeCatalogWire(this.prompts);
+  private readonly catalog = new FakeCatalogWire(this.prompts, (provider) =>
+    this.plugins.extensions(provider),
+  );
   readonly history: FakeHistory;
   private notificationPublicKey: string | null = null;
   readonly mcp = new FakeMcpWire();
@@ -94,7 +97,7 @@ export class FakeServicesWire {
   seed(seed: ServicesSeed): void {
     if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs);
-    if (seed.history) this.history.seed(seed.history);
+    if (seed.history) this.history.seed(seed.history, seed.historyTranscripts);
     this.notificationPublicKey = seed.notificationPublicKey ?? null;
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
@@ -311,6 +314,15 @@ export class FakeServicesWire {
           }
           if (message.type === "pluginRequest") {
             emit(await this.plugins.handle(message));
+            if (
+              [
+                "plugins.accept",
+                "plugins.remove",
+                "plugins.availability",
+                "plugins.skillAvailability",
+              ].includes(message.request.type)
+            )
+              this.catalog.invalidate();
             return;
           }
           if (message.type.startsWith("automation.")) {

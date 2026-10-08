@@ -247,16 +247,24 @@ function SelectedDevice(props: { devices: Devices }) {
             />
           </>
         ) : (
-          <div className="grid min-h-40 flex-1 place-items-center rounded-xl bg-secondary/40">
+          <div className="grid min-h-40 flex-1 place-items-center">
             <div className="flex flex-col items-center gap-2 text-center">
               <p className="text-sm text-muted-foreground">
-                {controls.running ? "The live view is off." : `${selected.name} is off.`}
+                {controls.running
+                  ? selected.platform === "ios" && !controls.approvedHere
+                    ? "Approve this device above to start its live view."
+                    : "The live view is off."
+                  : `${selected.name} is off.`}
               </p>
               {controls.running ? (
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={view.pending || controls.busy}
+                  disabled={
+                    view.pending ||
+                    controls.busy ||
+                    (selected.platform === "ios" && !controls.approvedHere)
+                  }
                   onClick={devices.start}
                 >
                   {controls.busy && <Spinner />}
