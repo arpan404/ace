@@ -382,6 +382,12 @@
       "$ref": "https://ace.local/protocol/v1/CommandsResolveResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/CatalogListResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CatalogChanged.json"
+    },
+    {
       "properties": {
         "account": {
           "anyOf": [

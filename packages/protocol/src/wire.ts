@@ -1,4 +1,10 @@
 import {
+  CatalogList,
+  CatalogUnsubscribe,
+  CatalogListResult,
+  CatalogChanged,
+} from "./extension-catalog.ts";
+import {
   ProviderLoginRequest,
   ProviderLoginResult,
   ProviderLoginEvent,
@@ -179,6 +185,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...FilesClientMessage.options,
   CommandsList,
   CommandsResolve,
+  CatalogList,
+  CatalogUnsubscribe,
   ...AccountsRequest.options,
   ...CursorAuthRequest.options,
   SearchQueryRequest,
@@ -245,6 +253,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...FilesServerMessage.options,
   CommandsListResult,
   CommandsResolveResult,
+  CatalogListResult,
+  CatalogChanged,
   ...AccountsResponse.options,
   ...CursorAuthEvent.options,
   SearchQueryResponse,

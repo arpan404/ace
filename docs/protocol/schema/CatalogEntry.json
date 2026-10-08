@@ -1,0 +1,76 @@
+{
+  "$id": "https://ace.local/protocol/v1/CatalogEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "description": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "icon": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "invocation": {
+      "$ref": "https://ace.local/protocol/v1/CatalogInvocation.json"
+    },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/CatalogKind.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "source": {
+      "properties": {
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "plugin": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+            },
+            {
+              "const": "ace",
+              "type": "string"
+            }
+          ]
+        },
+        "scope": {
+          "enum": [
+            "global",
+            "project",
+            "plugin",
+            "ace"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "scope"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "name",
+    "description",
+    "source",
+    "invocation"
+  ],
+  "type": "object"
+}

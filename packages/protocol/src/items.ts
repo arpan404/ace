@@ -1,3 +1,4 @@
+import { CatalogMention } from "./extension-catalog.ts";
 import { StepMeasurement } from "./interaction-measurement.ts";
 import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadStatus } from "./thread-status.ts";
@@ -17,6 +18,7 @@ export const TextSource = z.object({
 export type TextSource = z.infer<typeof TextSource>;
 
 export const ContentPart = z.discriminatedUnion("type", [
+  CatalogMention,
   z.object({ type: z.literal("text"), text: z.string(), source: TextSource.optional() }),
   z.object({ type: z.literal("image"), mimeType: z.string(), url: z.string() }),
   z.object({

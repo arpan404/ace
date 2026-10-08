@@ -1405,14 +1405,18 @@ Example:
   "accountId": "example",
   "baseBranch": "example",
   "context": {
-    "draftId": "Hs4"
+    "items": []
   },
   "handoffFrom": "example",
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "source": {
+        "bytes": 2,
+        "encoding": "utf-16le",
+        "streamId": "example"
+      },
+      "text": "example",
+      "type": "text"
     }
   ],
   "provider": "antigravity",
@@ -1441,12 +1445,8 @@ Example:
 {
   "input": [
     {
-      "content": {
-        "data": "example",
-        "encoding": "text"
-      },
-      "path": "example",
-      "type": "file"
+      "text": "example",
+      "type": "text"
     }
   ],
   "threadId": "example",
@@ -1540,8 +1540,8 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "kind": "approval",
-    "optionId": "example"
+    "answers": {},
+    "kind": "question"
   },
   "type": "interaction.resolve"
 }
@@ -1592,46 +1592,111 @@ Example:
 
 ```json
 {
-  "commandId": "example",
-  "editor": {
-    "editor": {
-      "command": "example",
-      "id": "example",
-      "name": "example"
-    },
-    "path": "example"
+  "alive": {
+    "agentsRunning": 1,
+    "operationsRunning": 6,
+    "terminalsOpen": 3
   },
+  "code": "example",
+  "commandId": "example",
+  "commit": "b2881653601914a8854b6fc467ea2eff2bec69bb33283f810faa5d9525bf2",
   "error": "example",
-  "inspection": {
-    "git": {
-      "branch": null,
-      "defaultBranch": "example",
-      "remotes": [],
-      "root": "example"
+  "forkThreadId": "example",
+  "health": {
+    "activeSessions": null,
+    "at": 4,
+    "eventLoop": {
+      "maxMs": 5,
+      "meanMs": null,
+      "p99Ms": null
     },
-    "path": "example"
+    "logs": {
+      "dropped": 9,
+      "failed": 3,
+      "queued": 3
+    },
+    "memory": {
+      "heapTotalBytes": 1,
+      "heapUsedBytes": 8,
+      "rssBytes": 8
+    },
+    "openHandles": 5,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": null,
+      "walBytes": null
+    }
   },
   "ok": false,
   "prStatus": {
     "checks": [],
-    "ci": "unknown",
+    "ci": "pending",
     "comments": [],
     "headSha": "example",
-    "mergeability": "mergeable",
+    "mergeability": "conflicting",
     "raw": null,
     "ref": {
-      "number": 1,
+      "number": 8,
       "repository": {
         "forge": "github",
-        "host": "sh",
-        "name": "R.vYd-OdHW",
-        "owner": "OgSGu/zmeF/-Bmi-Vl_P/4HJNHUZR/mlhg3/9IgLZ9fC"
+        "host": "P4IKNHUZ",
+        "name": "xBLEw64zW",
+        "owner": "Bmlhg3O9/LZ/fC1R.vYd-Od/W_Rk2k/GJEPDU/.rSt4zYtg/BmwP"
       }
     },
     "reviewThreads": [],
-    "state": "merged",
+    "state": "draft",
     "title": "example",
     "url": "example"
+  },
+  "review": {
+    "comment": {
+      "anchor": {
+        "fingerprint": {
+          "after": [],
+          "before": [],
+          "lines": [
+            "example"
+          ]
+        },
+        "position": {
+          "end": 1,
+          "file": "example.ts",
+          "side": "new",
+          "start": 1
+        },
+        "revision": {
+          "kind": "working-tree"
+        },
+        "state": "active"
+      },
+      "id": "example",
+      "originalAnchor": {
+        "fingerprint": {
+          "after": [],
+          "before": [],
+          "lines": [
+            "example"
+          ]
+        },
+        "position": {
+          "end": 1,
+          "file": "example.ts",
+          "side": "new",
+          "start": 1
+        },
+        "revision": {
+          "kind": "working-tree"
+        },
+        "state": "active"
+      },
+      "resolved": false,
+      "sessionId": "example",
+      "suggestion": "example",
+      "text": "example"
+    },
+    "nextCursor": "example",
+    "replies": []
   },
   "threadId": "example",
   "workspace": {

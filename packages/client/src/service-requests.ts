@@ -98,27 +98,29 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                               | "files.error"
                                               | "files.upload"
                                             >
-                                          : Q["type"] extends "commands.list"
-                                            ? Replies<"commands.list.result">
-                                            : Q["type"] extends "commands.resolve"
-                                              ? Replies<"commands.resolve.result">
-                                              : Q["type"] extends `registry.${string}`
-                                                ? Replies<"registry.result">
-                                                : Q["type"] extends `mcp.${string}`
-                                                  ? Replies<"mcp.result">
-                                                  : Q["type"] extends "pluginRequest"
-                                                    ? Replies<"pluginResult">
-                                                    : Q["type"] extends `browser.${string}`
-                                                      ? Replies<"browser.result">
-                                                      : Q["type"] extends "screen.request"
-                                                        ? Replies<"screen.result">
-                                                        : Q["type"] extends "diagnostics.health"
-                                                          ? Replies<"diagnostics.health.result">
-                                                          : Q["type"] extends "items.page"
-                                                            ? Replies<"items.page">
-                                                            : Q["type"] extends "output.read"
-                                                              ? Replies<"output.data">
-                                                              : Reply;
+                                          : Q["type"] extends "catalog.list"
+                                            ? Replies<"catalog.list.result">
+                                            : Q["type"] extends "commands.list"
+                                              ? Replies<"commands.list.result">
+                                              : Q["type"] extends "commands.resolve"
+                                                ? Replies<"commands.resolve.result">
+                                                : Q["type"] extends `registry.${string}`
+                                                  ? Replies<"registry.result">
+                                                  : Q["type"] extends `mcp.${string}`
+                                                    ? Replies<"mcp.result">
+                                                    : Q["type"] extends "pluginRequest"
+                                                      ? Replies<"pluginResult">
+                                                      : Q["type"] extends `browser.${string}`
+                                                        ? Replies<"browser.result">
+                                                        : Q["type"] extends "screen.request"
+                                                          ? Replies<"screen.result">
+                                                          : Q["type"] extends "diagnostics.health"
+                                                            ? Replies<"diagnostics.health.result">
+                                                            : Q["type"] extends "items.page"
+                                                              ? Replies<"items.page">
+                                                              : Q["type"] extends "output.read"
+                                                                ? Replies<"output.data">
+                                                                : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "host.identity": ["host.identity.result"],
@@ -176,6 +178,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "files.pull": ["files.data", "files.error"],
   "files.chunk": ["files.upload", "files.error"],
   "files.request": ["files.result", "files.ready", "files.error", "files.upload"],
+  "catalog.list": ["catalog.list.result"],
   "commands.list": ["commands.list.result"],
   "commands.resolve": ["commands.resolve.result"],
   pluginRequest: ["pluginResult"],
