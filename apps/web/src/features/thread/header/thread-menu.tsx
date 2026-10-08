@@ -5,6 +5,7 @@ import {
   ChatsCircleIcon,
   MagnifyingGlassIcon,
   TreeStructureIcon,
+  PaperclipIcon,
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { threadRowFlags } from "@ace/ui-core";
@@ -33,6 +34,7 @@ export function ThreadMenuItems(props: {
   thread: ThreadRef;
   onRename(): void;
   onFork(point: ForkPoint): void;
+  onAttachments(): void;
 }) {
   const meta = useThreadMeta(props.thread.id);
   const point = useLatestForkPoint(props.thread.id);
@@ -67,6 +69,9 @@ export function ThreadMenuItems(props: {
             onClick={() => workspace.open({ kind: "agents" })}
           >
             Open agent tree
+          </MenuItem>
+          <MenuItem icon={<PaperclipIcon aria-hidden size={16} />} onClick={props.onAttachments}>
+            Attachments
           </MenuItem>
           <MenuSeparator />
           <MenuItem

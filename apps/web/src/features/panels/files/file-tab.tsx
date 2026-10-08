@@ -1,6 +1,7 @@
-import { CaretDownIcon, CaretUpIcon, XIcon } from "@phosphor-icons/react";
-import { useConnectionState, useThreadMeta } from "@ace/client-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { CaretDownIcon, CaretUpIcon, PencilSimpleIcon, XIcon } from "@phosphor-icons/react";
+import { useClient, useConnectionState, useThreadMeta } from "@ace/client-react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
@@ -31,6 +32,14 @@ import { quickOpen } from "./quick-open-store.ts";
 import { findHits } from "./source-view.tsx";
 import { useEditedPaths, useFileContent } from "./use-checkout.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
+
+const TextEditor = lazy(() =>
+  import("./text-editor.tsx").then((module) => ({ default: module.TextEditor })),
+);
+const FileOperations = lazy(() =>
+  import("./file-operations.tsx").then((module) => ({ default: module.FileOperations })),
+);
+import type { FileOperationDialog } from "./file-operation.ts";
 
 const findChord = parseChord("mod+f");
 const fadeRight = { background: "linear-gradient(to left, var(--background), transparent)" };
@@ -144,6 +153,23 @@ function UploadStatus(props: { state: UploadState; onReplace(): void; onDismiss(
  */
 export function FileTab(props: TabViewProps) {
   const threadId = props.scope;
+  const client = useClient();
+  const queries = useQueryClient();
+  useEffect(
+    () =>
+      client.onMessage((message) => {
+        if (
+          message.type === "files.changed" ||
+          (message.type === "events" &&
+            message.events.some(
+              (event) =>
+                event.threadId === threadId && event.payload.type === "workspace.files_changed",
+            ))
+        )
+          void queries.invalidateQueries({ queryKey: ["checkout"] });
+      }),
+    [client, queries, threadId],
+  );
   const data = fileTabData(props.tab);
   const path = data.path;
   const workspace = useScopeWorkspace(threadId);
@@ -157,6 +183,7 @@ export function FileTab(props: TabViewProps) {
   const edited = useEditedPaths(threadId);
   const known = [...new Set([...(path ? [path] : []), ...recent, ...edited])];
   const content = useFileContent(threadId, path);
+  const [operation, setOperation] = useState<FileOperationDialog>();
   const [query, setQuery] = useState("");
   const [find, setFind] = useState<{ query: string; index: number } | undefined>();
   // The tree goes beside the file while the source keeps 420px, else it steps aside (over the
@@ -183,7 +210,8 @@ export function FileTab(props: TabViewProps) {
   }, [recentStore, threadId, path]);
 
   const text = content.data?.kind === "text" ? content.data.text : undefined;
-  const readable = text !== undefined && !(path?.match(/\.(md|markdown|mdx)$/i) && !data.source);
+  const readable =
+    !data.draft && text !== undefined && !(path?.match(/\.(md|markdown|mdx)$/i) && !data.source);
   const hits = useMemo(
     () => (find && text !== undefined ? findHits(text, find.query) : []),
     [find, text],
@@ -202,7 +230,43 @@ export function FileTab(props: TabViewProps) {
 
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDown={onKeyDown}>
+      {operation && (
+        <Suspense fallback={null}>
+          <FileOperations
+            key={JSON.stringify(operation)}
+            threadId={threadId}
+            operation={operation}
+            onClose={() => setOperation(undefined)}
+            onChanged={(changed, destination) => {
+              if (operation.kind === "create") open(changed, true);
+              if (destination && path === changed) open(destination, true);
+            }}
+          />
+        </Suspense>
+      )}
       <FileToolbar
+        extra={
+          content.data?.kind === "text" &&
+          !data.draft && (
+            <IconButton
+              icon={PencilSimpleIcon}
+              label="Edit file"
+              className="size-7 rounded-sm"
+              disabled={!online || content.data.size > 1024 * 1024}
+              onClick={() => {
+                if (content.data?.kind === "text")
+                  update({
+                    preview: false,
+                    draft: {
+                      text: content.data.text,
+                      original: content.data.text,
+                      version: content.data.version,
+                    },
+                  });
+              }}
+            />
+          )
+        }
         project={meta ? projectName(meta.workspaceId) : "Checkout"}
         path={path}
         preview={data.preview === true}
@@ -225,7 +289,7 @@ export function FileTab(props: TabViewProps) {
         onTree={() => update({ tree: !treeShown })}
       />
       <div className="relative flex min-h-0 flex-1">
-        <div className="relative min-w-0 flex-1">
+        <div className={cn("relative min-w-0 flex-1", !path && treeShown && "hidden")}>
           {find && (
             <FindBar
               query={find.query}
@@ -237,7 +301,21 @@ export function FileTab(props: TabViewProps) {
             />
           )}
           <div ref={viewer} className="h-full overflow-auto" tabIndex={-1}>
-            {path ? (
+            {path && data.draft ? (
+              <Suspense fallback={null}>
+                <TextEditor
+                  threadId={threadId}
+                  path={path}
+                  draft={data.draft}
+                  onChange={(draft) => update({ draft })}
+                  onClose={() => update({ draft: undefined })}
+                  onSaved={() => {
+                    update({ draft: undefined });
+                    void content.refetch();
+                  }}
+                />
+              </Suspense>
+            ) : path ? (
               <FileViewer
                 path={path}
                 content={content.data}
@@ -268,9 +346,10 @@ export function FileTab(props: TabViewProps) {
             role="complementary"
             data-edge="right"
             aria-label="Checkout files"
-            style={{ width: over ? Math.min(treeWidth, 320) : treeWidth }}
+            style={{ width: !path ? "100%" : over ? Math.min(treeWidth, 320) : treeWidth }}
             className={cn(
-              "relative flex min-h-0 shrink-0 flex-col border-l bg-background",
+              "relative flex min-h-0 shrink-0 flex-col bg-background",
+              path && "border-l",
               over &&
                 "fx-panel-in absolute inset-y-0 right-0 z-[3] max-w-[85%] shadow-[-12px_0_32px_rgb(0_0_0/0.22)]",
             )}
@@ -278,7 +357,7 @@ export function FileTab(props: TabViewProps) {
               if (over && event.key === "Escape") update({ tree: false });
             }}
           >
-            {!over && (
+            {path && !over && (
               <ResizeHandle
                 label="Resize the file tree"
                 edge="left"
@@ -291,6 +370,7 @@ export function FileTab(props: TabViewProps) {
             )}
             <FileTree
               threadId={threadId}
+              onOperation={setOperation}
               known={known}
               current={path}
               query={query}

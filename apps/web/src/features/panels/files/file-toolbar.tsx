@@ -43,7 +43,7 @@ function Breadcrumb(props: {
   );
   return (
     <nav aria-label="File path" className="min-w-0 flex-1">
-      <ol className="flex h-7 w-fit max-w-full min-w-0 items-center gap-0.5 rounded-sm bg-foreground/5 px-1.5 text-ui">
+      <ol className="flex h-7 w-fit max-w-full min-w-0 items-center gap-0.5 px-1.5 text-ui">
         <li className="flex min-w-0 shrink-[3] items-center">
           <Tip label="Find files in the checkout">
             <button type="button" className={crumb} onClick={() => props.onFolder("")}>
@@ -77,7 +77,7 @@ function Breadcrumb(props: {
           return (
             <Fragment key={folder}>
               {separator}
-              <li className={cn("flex min-w-0 items-center", last ? "shrink-0" : "shrink-[2]")}>
+              <li className={cn("flex min-w-0 items-center", last ? "shrink" : "shrink-[2]")}>
                 {last ? (
                   <span aria-current="page" className="truncate px-1 font-medium text-foreground">
                     {segment}
@@ -128,7 +128,7 @@ export function FileToolbar(props: {
   const { path, actions } = props;
   const markdown = path !== undefined && isMarkdownPath(path);
   const editor = actions.editor;
-  const offline = props.online ? undefined : "The daemon is offline";
+  const offline = props.online ? undefined : "Connection lost";
   const saving = actions.saving?.path === path ? actions.saving : undefined;
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-b pr-2 pl-2.5">
@@ -191,7 +191,7 @@ export function FileToolbar(props: {
             icon={<EditorIcon id={editor?.id} />}
             actionLabel={
               offline ??
-              (editor ? `Open in ${editor.name}` : "No editors found on the daemon's machine")
+              (editor ? `Open in ${editor.name}` : "No editors found on the checkout's computer")
             }
             menuLabel="Open in another editor"
             disabled={!props.online || !actions.editors?.length}

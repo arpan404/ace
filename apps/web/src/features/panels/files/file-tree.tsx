@@ -2,12 +2,11 @@ import {
   CaretRightIcon,
   FolderIcon,
   FolderOpenIcon,
-  InfoIcon,
   MagnifyingGlassIcon,
   UploadSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { useConnectionState } from "@ace/client-react";
+import { useClient, useConnectionState } from "@ace/client-react";
 import {
   ancestorFolders,
   buildFileTree,
@@ -28,51 +27,23 @@ import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { Highlighted } from "./highlighted-path.tsx";
 import { fileIcon } from "./file-icon.ts";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { fileManagement } from "./file-management-source.ts";
+import { FileMenu, FileRowMenu } from "./file-menu.tsx";
+import type { FileOperationDialog } from "./file-operation.ts";
 import { useCheckoutSearch } from "./use-checkout.ts";
 
 const rowClass =
-  "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground";
-
-/** "config.ts" with the characters a fuzzy query matched in full ink. */
-function Highlighted(props: { text: string; offset: number; positions: readonly number[] }) {
-  if (!props.positions.length) return props.text;
-  const hits = new Set(props.positions.map((position) => position - props.offset));
-  const parts: ReactNode[] = [];
-  let run = "";
-  let lit = false;
-  const flush = (index: number) => {
-    if (!run) return;
-    parts.push(
-      lit ? (
-        <b key={index} className="font-medium text-foreground">
-          {run}
-        </b>
-      ) : (
-        run
-      ),
-    );
-    run = "";
-  };
-  for (let index = 0; index < props.text.length; index++) {
-    const hit = hits.has(index);
-    if (hit !== lit) {
-      flush(index);
-      lit = hit;
-    }
-    run += props.text[index];
-  }
-  flush(props.text.length);
-  return parts;
-}
+  "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground";
 
 /**
- * The checkout tree beside a file: a filter that searches the whole checkout (the daemon's path
- * index) and, without one, the files this thread touched. There is no folder listing on the wire
- * yet, so the unfiltered tree says so instead of passing a partial tree off as the checkout.
+ * A bounded checkout tree, with indexed search for paths beyond the listing limit.
  */
 export function FileTree(props: {
   threadId: string;
+  onOperation(operation: FileOperationDialog): void;
   /** Files this thread edited or opened, newest first. */
   known: readonly string[];
   current: string | undefined;
@@ -86,12 +57,18 @@ export function FileTree(props: {
 }) {
   const online = useConnectionState() === "ready";
   const { query, onQuery: setQuery } = props;
+  const client = useClient();
+  const listing = useDaemonQuery({
+    queryKey: ["checkout", "list", props.threadId],
+    retry: false,
+    read: (_client, signal) => fileManagement(client, props.threadId).list(signal),
+  });
   const search = useCheckoutSearch(props.threadId, query);
   const searching = query.trim().length > 0;
   const results = searching ? search.data : undefined;
   const tree = useMemo(
-    () => buildFileTree(searching ? (results ?? []) : props.known),
-    [searching, results, props.known],
+    () => buildFileTree(searching ? (results ?? []) : (listing.data?.paths ?? props.known)),
+    [searching, results, listing.data, props.known],
   );
   // Folders start open: the known tree is small and search results are worth seeing whole.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -129,6 +106,25 @@ export function FileTree(props: {
     props.onOpen(row.node.path, keep);
   };
   const onRowKey = (event: KeyboardEvent<HTMLElement>, row: FileTreeRow, index: number) => {
+    if (
+      online &&
+      (event.key === "F2" ||
+        event.key === "Delete" ||
+        event.key === "Backspace" ||
+        ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "m"))
+    ) {
+      event.preventDefault();
+      props.onOperation({
+        kind:
+          event.key === "F2"
+            ? "rename"
+            : event.key === "Delete" || event.key === "Backspace"
+              ? "delete"
+              : "move",
+        path: row.node.path,
+      });
+      return;
+    }
     switch (event.key) {
       case "ArrowDown":
         focusRow(rows[index + 1]?.node.path);
@@ -181,7 +177,7 @@ export function FileTree(props: {
 
   let status: ReactNode = null;
   if (searching && !online)
-    status = <Note>The daemon is offline. Search works again once it reconnects.</Note>;
+    status = <Note>Connection lost. Search works again once it reconnects.</Note>;
   else if (searching && search.error)
     status = (
       <Note role="alert">
@@ -258,6 +254,7 @@ export function FileTree(props: {
             </button>
           )}
         </label>
+        <FileMenu folder={currentFolder} disabled={!online} onOperation={props.onOperation} />
         <IconButton
           icon={UploadSimpleIcon}
           label={currentFolder ? `Upload to ${currentFolder}` : "Upload to the checkout"}
@@ -281,12 +278,12 @@ export function FileTree(props: {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {!searching && rows.length > 0 && (
-          <p className="flex h-6 items-center px-1 text-xs text-subtle-foreground">This thread</p>
+          <p className="flex h-6 items-center px-1 text-xs text-subtle-foreground">Checkout</p>
         )}
         <div
           ref={list}
           role="tree"
-          aria-label={searching ? "Matching files" : "Files this thread touched"}
+          aria-label={searching ? "Matching files" : "Checkout files"}
           aria-busy={searching && search.pending}
           className={cn(
             "flex flex-col rounded-md",
@@ -300,68 +297,81 @@ export function FileTree(props: {
               : [];
             const nameStart = row.node.path.replace(/\/$/, "").length - row.node.name.length;
             return (
-              <button
+              <FileRowMenu
                 key={row.node.path}
-                type="button"
-                role="treeitem"
-                data-path={row.node.path}
-                aria-level={row.depth + 1}
-                aria-expanded={folder ? row.expanded : undefined}
-                aria-selected={row.node.path === props.current}
-                tabIndex={row.node.path === focusable ? 0 : -1}
-                title={row.node.path}
-                onFocus={() => setFocusKey(row.node.path)}
-                onClick={() => activate(row, false)}
-                onDoubleClick={() => !folder && props.onOpen(row.node.path, true)}
-                onKeyDown={(event) => onRowKey(event, row, index)}
-                onDragOver={folder ? (event) => dragOver(event, row.node.path) : undefined}
-                onDrop={folder ? (event) => drop(event, row.node.path) : undefined}
-                style={{ paddingLeft: 4 + row.depth * 12 }}
-                className={cn(
-                  rowClass,
-                  folder &&
-                    dropTarget === row.node.path &&
-                    "shadow-[inset_0_0_0_1.5px_var(--ring)]",
-                )}
+                path={row.node.path}
+                folder={folder}
+                disabled={!online}
+                onOperation={props.onOperation}
               >
-                <span className="grid size-4 shrink-0 place-items-center">
-                  {folder && (
-                    <CaretRightIcon
-                      aria-hidden
-                      size={10}
-                      weight="bold"
-                      className={cn(
-                        "text-subtle-foreground transition-transform duration-(--dur-1)",
-                        row.expanded && "rotate-90",
-                      )}
-                    />
+                <button
+                  type="button"
+                  role="treeitem"
+                  data-path={row.node.path}
+                  aria-level={row.depth + 1}
+                  aria-expanded={folder ? row.expanded : undefined}
+                  aria-selected={row.node.path === props.current}
+                  tabIndex={row.node.path === focusable ? 0 : -1}
+                  title={row.node.path}
+                  onFocus={() => setFocusKey(row.node.path)}
+                  onClick={() => activate(row, false)}
+                  onDoubleClick={() => !folder && props.onOpen(row.node.path, true)}
+                  onKeyDown={(event) => onRowKey(event, row, index)}
+                  onDragOver={folder ? (event) => dragOver(event, row.node.path) : undefined}
+                  onDrop={folder ? (event) => drop(event, row.node.path) : undefined}
+                  style={{ paddingLeft: 4 + row.depth * 12 }}
+                  className={cn(
+                    rowClass,
+                    folder &&
+                      dropTarget === row.node.path &&
+                      "shadow-[inset_0_0_0_1.5px_var(--ring)]",
                   )}
-                </span>
-                <Icon
-                  icon={
-                    folder ? (row.expanded ? FolderOpenIcon : FolderIcon) : fileIcon(row.node.path)
-                  }
-                  size={14}
-                  className="text-subtle-foreground"
-                />
-                <span className="min-w-0 truncate">
-                  <Highlighted text={row.node.name} offset={nameStart} positions={positions} />
-                </span>
-              </button>
+                >
+                  <span className="grid size-4 shrink-0 place-items-center">
+                    {folder && (
+                      <CaretRightIcon
+                        aria-hidden
+                        size={10}
+                        weight="bold"
+                        className={cn(
+                          "text-subtle-foreground transition-transform duration-(--dur-1)",
+                          row.expanded && "rotate-90",
+                        )}
+                      />
+                    )}
+                  </span>
+                  <Icon
+                    icon={
+                      folder
+                        ? row.expanded
+                          ? FolderOpenIcon
+                          : FolderIcon
+                        : fileIcon(row.node.path)
+                    }
+                    size={14}
+                    className="text-subtle-foreground"
+                  />
+                  <span className="min-w-0 truncate">
+                    <Highlighted text={row.node.name} offset={nameStart} positions={positions} />
+                  </span>
+                </button>
+              </FileRowMenu>
             );
           })}
         </div>
         {status}
       </div>
       {props.footer}
-      {!searching && !props.footer && (
-        <p className="flex shrink-0 items-start gap-1.5 border-t px-3 py-2 text-xs leading-4 text-subtle-foreground">
-          <InfoIcon aria-hidden size={12} className="mt-0.5 shrink-0" />
-          <span>
-            Showing files this thread touched. The daemon can't list folders yet; find any other
-            file by name above.
-          </span>
-        </p>
+      {!searching && listing.error && (
+        <Note role="alert">
+          Couldn't list files.{" "}
+          <button type="button" onClick={() => void listing.refetch()}>
+            Try again
+          </button>
+        </Note>
+      )}
+      {!searching && listing.data?.truncated && (
+        <Note>Showing the first 1,000 entries. Search by name to find more.</Note>
       )}
     </div>
   );

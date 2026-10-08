@@ -22,6 +22,9 @@ import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
 const PendingThreadView = lazy(() =>
   import("./pending-thread.tsx").then((m) => ({ default: m.PendingThreadView })),
 );
+const AttachmentsSheet = lazy(() =>
+  import("./attachments-sheet.tsx").then((module) => ({ default: module.AttachmentsSheet })),
+);
 const RenameDialog = lazy(() =>
   import("./header/rename-dialog.tsx").then((m) => ({ default: m.RenameDialog })),
 );
@@ -114,6 +117,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const nav = useThreadNav();
   const meta = useThreadMeta(props.threadId);
   const error = useThreadError(props.threadId);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [forking, setForking] = useState<ForkPoint>();
   const id = props.threadId;
@@ -159,6 +163,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           thread && (
             <Suspense fallback={null}>
               <DeferredThreadMenu.Component
+                onAttachments={() => setAttachmentsOpen(true)}
                 thread={thread}
                 onRename={() => setRenaming(true)}
                 onFork={setForking}
@@ -226,6 +231,9 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           </Suspense>
         )}
         <Suspense fallback={null}>
+          {attachmentsOpen && thread && (
+            <AttachmentsSheet thread={thread} onClose={() => setAttachmentsOpen(false)} />
+          )}
           {renaming && thread && (
             <RenameDialog thread={thread} onClose={() => setRenaming(false)} />
           )}

@@ -2,7 +2,7 @@ import { facts, fixtureImage, type FakeDaemon } from "@ace/fake-daemon";
 import type { Attachment, ContentPart } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 /*
@@ -26,6 +26,7 @@ afterEach(() => {
   URL.createObjectURL = original.create;
   URL.revokeObjectURL = original.revoke;
   objectUrls.clear();
+  vi.restoreAllMocks();
 });
 
 const fixtureBytes = atob(fixtureImage.data).length;
@@ -204,29 +205,43 @@ test("the lightbox steps through the message's images and gives focus back on Es
   await waitFor(() => expect(document.activeElement).toBe(thumbnail));
 });
 
-test("a file the agent saved is named relative to the project, and its image reads as unavailable", async () => {
+test("a saved artifact opens its checkout file and downloads the original bytes", async () => {
+  const user = userEvent.setup();
+  const downloads: { name: string; blob: Blob | undefined }[] = [];
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    downloads.push({ name: this.download, blob: objectUrls.get(this.href) });
+  });
   const { feed } = await openMessage({}, [
     {
       type: "item.upsert",
       agent: "root",
-      item: "shot",
+      item: "saved",
       draft: {
         type: "artifact",
         source: "browser",
-        path: "/work/shop/.ace/screens/checkout.png",
-        mimeType: "image/png",
-        bytes: 4096,
+        path: "/work/shop/src/index.ts",
+        mimeType: "text/plain",
+        bytes: 32,
         complete: true,
       },
     },
   ]);
-  expect(
-    await within(feed).findByRole("img", {
-      name: ".ace/screens/checkout.png: image unavailable on this device",
-    }),
-  ).toBeTruthy();
-  expect(within(feed).getByText("Saved").parentElement?.textContent).toBe(
-    "Saved.ace/screens/checkout.png",
+  await user.click(await within(feed).findByRole("button", { name: "Download saved file" }));
+  await waitFor(() => expect(downloads).toHaveLength(1));
+  expect(downloads[0]?.name).toBe("index.ts");
+  expect(await downloads[0]?.blob?.text()).toContain('export { App } from "./app.tsx"');
+  await waitFor(() =>
+    expect(
+      within(feed).getByRole("button", { name: "Download saved file" }).hasAttribute("disabled"),
+    ).toBe(false),
   );
+  await user.click(within(feed).getByRole("button", { name: "Open saved file" }));
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  const source = await within(panel).findByRole("region", { name: "Source of src/index.ts" });
+  await waitFor(() => expect(source.textContent).toContain('export { App } from "./app.tsx"'));
+  expect(within(panel).getByRole("tab", { name: "index.ts" })).toBeTruthy();
+  expect(within(feed).getByText("src/index.ts")).toBeTruthy();
   expect(feed.textContent).not.toContain("/work/shop");
 });
