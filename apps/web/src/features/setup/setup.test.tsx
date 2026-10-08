@@ -88,8 +88,8 @@ test("Skip for now goes on to adding a project, and Home doesn't send this devic
 
   // Home again: it stays Home.
   const sidebar = screen.getByRole("navigation", { name: "App" });
-  await userEvent.click(within(sidebar).getByRole("link", { name: "Offshifts" }));
-  await screen.findByRole("heading", { level: 1, name: "Offshifts" });
+  await userEvent.click(within(sidebar).getByRole("link", { name: "Automations" }));
+  await screen.findByRole("heading", { level: 1, name: "Automations" });
   await userEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(await screen.findByRole("heading", { name: "Add your first project" })).toBeTruthy();
   expect(screen.queryByRole("list", { name: "Providers on this computer" })).toBeNull();

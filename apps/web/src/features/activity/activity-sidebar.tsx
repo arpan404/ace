@@ -174,13 +174,9 @@ function FeedList(props: { id: string }) {
       <ul {...keys} onKeyDown={onKeyDown} aria-label="Activity" className="flex flex-col gap-px">
         <ArrivalScope>
           {showNeeds &&
-            needs.entries.map((entry) =>
-              entry.kind === "thread" ? (
-                <ThreadNeedsRows key={entry.threadId} threadId={entry.threadId} />
-              ) : (
-                <EventItemRow key={entry.event.id} event={entry.event} read={false} />
-              ),
-            )}
+            needs.entries.map((entry) => (
+              <ThreadNeedsRows key={entry.threadId} threadId={entry.threadId} />
+            ))}
           {grouped(items, now)}
         </ArrivalScope>
       </ul>

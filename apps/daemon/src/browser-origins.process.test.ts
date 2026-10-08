@@ -263,7 +263,7 @@ it("engine browser approvals keep the tree needing a human and resolve without n
         context.services.browserApprovals?.resolve(command) ??
         context.services.browserOrigins?.resolve(command),
     );
-    // A later host owner, such as Deck, must not replace the browser owner.
+    // A later host owner must not replace the browser owner.
     h.engine.bindHostInteractions(() => undefined);
     readyServices(context.services);
     const browser = context.services.browser;

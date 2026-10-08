@@ -46,7 +46,7 @@ export interface DelegationDependencies {
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
 }
-/** Durable execution owner shared by agent tools and Deck, independent of MCP transport. */
+/** Durable execution owner shared by agent tools and host callers, independent of MCP transport. */
 export class DelegationService {
   readonly journal: DelegationJournal;
   readonly policy: DelegationPolicy;
@@ -189,7 +189,7 @@ export class DelegationService {
       configuredModel,
     );
   }
-  /** Host-only workspace selection for Deck/worktree owners; never exposed as tool input. */
+  /** Host-only workspace selection for worktree owners; never exposed as tool input. */
   prepareInWorkspace(
     caller: McpAttribution,
     value: DelegationRequest,
@@ -228,7 +228,6 @@ export class DelegationService {
     ownership?: {
       resultDelivery: "owner";
       handoffFrom?: ThreadId;
-      deck?: import("@ace/protocol").DeckOwnership;
     },
   ) {
     return this.admission.commit(caller, reservation, workspace, ownership);
@@ -449,7 +448,7 @@ export class DelegationService {
     }
     this.arm();
   }
-  /** Deterministic timer boundary also used by Deck's scheduler. Never executes provider I/O. */
+  /** Deterministic timer boundary for host scheduling. Never executes provider I/O. */
   drain() {
     if (this.closed) return;
     for (let limit = 0; limit < 64; limit++) {

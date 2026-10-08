@@ -100,6 +100,20 @@ test("dirty removal refuses staged, unstaged and untracked changes and force sta
   expect(await readFile(join(repo, "tracked.txt"), "utf8")).toBe("original\n");
 });
 
+test("non-force removal preserves ignored uncommitted files and the worktree registration", async () => {
+  const repo = await repository();
+  const path = join(dirname(repo), "ignored-files");
+  await service.createWorktree({ repo, path, baseRef: "HEAD", branch: "ignored" });
+  await put(path, "ignored/private.txt", "uncommitted ignored contents\n");
+  await expect(service.removeWorktree({ repo, path })).rejects.toMatchObject({
+    code: "dirty_worktree",
+  });
+  expect(await readFile(join(path, "ignored/private.txt"), "utf8")).toBe(
+    "uncommitted ignored contents\n",
+  );
+  expect((await service.listWorktrees(repo)).map((tree) => tree.path)).toContain(path);
+});
+
 test("removal rejects the main tree, subdirectories and unrelated directories even with force", async () => {
   const repo = await repository();
   const unrelated = await scratch();

@@ -63,7 +63,7 @@ export function bootFake(): {
   daemon.projects.seedFolders(host.home, host.folders);
   // The panels' terminals, browser and dev server, in the daemon's own services.
   if (!empty) seedPanels(daemon);
-  // Decks, automations, plugins and linked pull requests, served over the wire like a daemon's.
+  // Automations, plugins and linked pull requests, served over the wire like a daemon's.
   if (!empty)
     daemon.seedServices(
       workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),

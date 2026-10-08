@@ -26,7 +26,7 @@ const InPaneContext = createContext(false);
  * Where a view's own list goes. `threads`: the view is the thread list the sidebar always shows
  * (Home, and pages that keep it, like Usage & accounts). `sidebar`: the list takes the sidebar's
  * body in its place (Settings' pages). `pane`: the sidebar keeps the threads and the list is a
- * pane at the start of the view's column (Offshifts, Automations, Skills, Activity).
+ * pane at the start of the view's column (Automations, Skills, Activity).
  */
 export type ViewListPlace = "threads" | "sidebar" | "pane";
 
@@ -78,7 +78,7 @@ export function ViewFrame(props: {
 
 /**
  * A view's index page. On a narrow window, where the sidebar is a sheet, the list is the page:
- * tapping Home (or Offshifts, Skills…) shows its list, and a row opens the item. On a wide window
+ * tapping Home (or Skills…) shows its list, and a row opens the item. On a wide window
  * the list is already on screen, so `fallback` shows (usually a redirect to the first item).
  */
 export function ViewListPage(props: { title: string; fallback: ReactNode }) {

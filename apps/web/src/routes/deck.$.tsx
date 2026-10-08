@@ -1,4 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-/** Any old `/deck/…` address; its parent sends it on to `/offshifts/…`. */
-export const Route = createFileRoute("/deck/$")({});
+export const Route = createFileRoute("/deck/$")({
+  beforeLoad: () => {
+    throw redirect({ to: "/", replace: true });
+  },
+});

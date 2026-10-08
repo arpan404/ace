@@ -24,14 +24,11 @@ export function GlobalHotkeys(props: {
   useHotkey(keymap.newThread.keys, () =>
     noProjects ? props.onAddProject?.() : void navigate({ to: "/new" }),
   );
-  // Deck is called Offshift in the UI, at `/offshifts…`.
-  useHotkey(keymap.newDeck.keys, () => void navigate({ to: "/offshifts/new" }));
   useHotkey(keymap.back.keys, nav.back);
   useHotkey(keymap.forward.keys, nav.forward);
   useHotkey(keymap.settings.keys, () => void navigate({ to: "/settings" }));
   useHotkey(keymap.goHome.keys, () => void navigate({ to: "/" }));
   useHotkey(keymap.goActivity.keys, () => void navigate({ to: "/activity" }));
-  useHotkey(keymap.goDeck.keys, () => void navigate({ to: "/offshifts" }));
   useHotkey(keymap.goAutomations.keys, () => void navigate({ to: "/automations" }));
   useHotkey(keymap.goSkills.keys, () => void navigate({ to: "/skills" }));
   return null;

@@ -12,7 +12,7 @@ import {
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 
 /**
- * A second-sidebar row for list-detail views (Deck, Skills, More, Automations): a 26px icon
+ * A second-sidebar row for list-detail views (Skills, More, Automations): a 26px icon
  * tile, a title, a muted description and an optional age. Put `viewRowClass` on the Link or
  * button that wraps `ViewRowBody`; the router's `data-status="active"` marks the selection.
  */
@@ -121,7 +121,7 @@ function homeRow(rows: HTMLElement[]): HTMLElement | undefined {
 }
 
 /**
- * Keyboard for a view's list in the sidebar (Skills, More, Deck, Automations): the list is
+ * Keyboard for a view's list in the sidebar (Skills, More, Automations): the list is
  * one Tab stop, ↑/↓ move between rows, Home/End jump to the ends, and typing a letter moves
  * to the next row whose title starts with it. Enter is the row's own (it is a link or button).
  * Spread the result on the element that holds the rows.

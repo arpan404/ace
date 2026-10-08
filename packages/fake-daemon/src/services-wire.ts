@@ -3,7 +3,6 @@ import {
   ServerMessage,
   type ClientMessage,
   type ServerMessage as Message,
-  ConductorCommandPayload,
   type CommandPayload,
   type CommandResult,
   type ForgePrStatus,
@@ -17,13 +16,12 @@ import { FakeTerminalStream } from "./terminal-stream.ts";
 import { fakeHealth } from "./health.ts";
 import { FakeContextWire } from "./context-wire.ts";
 import { FakeWorkspaceWire } from "./workspace-wire.ts";
-import { FakeConductor } from "./conductor/fake-conductor.ts";
-import { FakePlanningWire, type PlanningSeed } from "./planning-wire.ts";
+import { FakeAutomationWire, type AutomationSeed } from "./automation-wire.ts";
 import { FakePluginsWire, type PluginSeed } from "./plugins-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
-export interface ServicesSeed extends PlanningSeed {
+export interface ServicesSeed extends AutomationSeed {
   /** Seed the small PNG fixture for scoped client attachment reads. */
   attachmentImages?: { threadId: string; name?: string }[];
   plugins?: PluginSeed;
@@ -48,7 +46,7 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
     });
 }
 /**
- * Per-connection services: context drafts and uploads, workspace reads, health, plugins, Deck
+ * Per-connection services: context drafts and uploads, workspace reads, health, plugins,
  * and automations, previews, terminals and the browser. Catalog services and settings are
  * `FakeServices`; this reads settings through the same store.
  */
@@ -57,7 +55,7 @@ export class FakeServicesWire {
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
   readonly files: FakeFilesWire;
-  private planning: FakePlanningWire;
+  private automations: FakeAutomationWire;
   private plugins = new FakePluginsWire();
   private connectionSequence = 0;
   private host: FakeServiceContext;
@@ -69,8 +67,7 @@ export class FakeServicesWire {
     this.settings = settings;
     this.context = new FakeContextWire(context);
     this.workspace = new FakeWorkspaceWire(context);
-    this.planning = new FakePlanningWire(
-      new FakeConductor({ clock: context.now, runs: [] }),
+    this.automations = new FakeAutomationWire(
       context.now,
       () => settings.get("automations.enabled") === true,
       context,
@@ -80,21 +77,16 @@ export class FakeServicesWire {
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
     if (seed.settings) this.settings.seed(seed.settings);
-    this.planning.seed(seed);
+    this.automations.seed(seed);
     if (seed.plugins) this.plugins.seed(seed.plugins);
     // A seed describes the whole world; pull requests for threads this daemon lacks are skipped.
     for (const [threadId, status] of Object.entries(seed.pullRequests ?? {}))
       if (this.host.thread(threadId)) this.workspace.forge.seed(threadId, status);
   }
-  failDeck(runId: string, code: string): void {
-    this.planning.failDeck(runId, code);
-  }
   command(
     payload: CommandPayload,
     commandId?: string,
   ): Omit<CommandResult, "commandId"> | undefined {
-    const conductor = ConductorCommandPayload.safeParse(payload);
-    if (conductor.success) return this.planning.command(conductor.data);
     return this.workspace.command(payload, commandId);
   }
   session(send: (message: Message) => void): FakeWireSession {
@@ -225,8 +217,8 @@ export class FakeServicesWire {
             emit(await this.plugins.handle(message));
             return;
           }
-          if (message.type === "conductor.request" || message.type.startsWith("automation.")) {
-            const result = this.planning.handle(message, emit, subscriptions);
+          if (message.type.startsWith("automation.")) {
+            const result = this.automations.handle(message);
             if (result) emit(result);
             return;
           }

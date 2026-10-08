@@ -32,7 +32,7 @@ export async function integrateRevision(
       status.untracked.length ||
       status.conflicted.length
     )
-      throw new GitError("dirty_worktree", "Deck integration worktree requires attention");
+      throw new GitError("dirty_worktree", "Integration worktree requires attention");
     await repository.commit(root, revision);
     const contained = await repository.cli.call(
       root,

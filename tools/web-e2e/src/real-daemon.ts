@@ -3,12 +3,10 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { createTurnProvider, ScriptedTurnConfig } from "@ace/adapter-testkit";
-import { deckTurn } from "./deck-script.ts";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
 import { ThreadId, WorkspaceId, type CommandPayload, type ProviderKind } from "@ace/protocol";
 import { daemonCommands } from "./daemon-socket.ts";
 import {
-  deckStepMs,
   daemonHome,
   daemonPort,
   pluginMarketPath,
@@ -57,31 +55,6 @@ function scriptedProvider(provider: ProviderKind) {
     reply: scriptedReply,
     config: scriptedConfig,
     markers: { hold: holdMarker, limit: limitMarker, notice: limitNotice },
-    respond(text, cwd) {
-      const deck = deckTurn(text, cwd);
-      if (!deck) return;
-      if (deck.kind === "reply") return { ...deck, delayMs: deckStepMs };
-      return {
-        kind: "question",
-        delayMs: deckStepMs,
-        answer: deck.answer,
-        request: {
-          kind: "question",
-          questions: [
-            {
-              id: "where",
-              text: deck.question,
-              options: [
-                { id: "root", label: "Yes, at the root" },
-                { id: "docs", label: "No, under docs/" },
-              ],
-              multiSelect: false,
-              allowOther: false,
-            },
-          ],
-        },
-      };
-    },
     now: Date.now,
     schedule(delayMs, callback) {
       const timer = setTimeout(callback, delayMs);

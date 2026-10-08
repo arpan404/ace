@@ -9,8 +9,7 @@ import {
 
 /**
  * Automations and skills against a real apps/daemon (src/real-daemon.ts): its automation and
- * plugin services, over the wire. No provider CLI runs. Deck has its own journey
- * (real-daemon-deck.spec.ts).
+ * plugin services, over the wire. No provider CLI runs.
  */
 async function connect(page: Page, path: string) {
   const token = readFileSync(daemonTokenPath, "utf8").trim();

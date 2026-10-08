@@ -57,7 +57,7 @@ an `arguments` map. Arguments declare `type: string | number | boolean`,
 unknown and incorrectly typed arguments return typed errors. Provider dollar
 syntax is interpreted only for provider files, keeping library prose literal.
 
-Built-ins `/review`, `/fork`, `/checkpoint`, `/conductor` and `/model` resolve to
+Built-ins `/review`, `/fork`, `/checkpoint` and `/model` resolve to
 ace action plans. This package does not execute those actions. Consumers route
 supported actions through their owning modules and reject unavailable actions.
 

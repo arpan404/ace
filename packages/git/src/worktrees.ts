@@ -1,3 +1,4 @@
+import { ignoredPaths } from "./nested.ts";
 import { deleteUnchangedBranch } from "./branch-cleanup.ts";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -128,6 +129,8 @@ export async function removeWorktree(
       ) {
         throw new GitError("dirty_worktree", "Worktree has uncommitted changes");
       }
+      if ((await ignoredPaths(repository, target)).length)
+        throw new GitError("dirty_worktree", "Worktree has ignored files that would be deleted");
     }
     // No JS recursive deletion. Git owns removal of this exact registered root.
     await repository.cli.call(

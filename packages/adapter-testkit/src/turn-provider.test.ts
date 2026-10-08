@@ -222,7 +222,7 @@ test("the e2e hold and limit markers still expose working turns to queue and sto
   }
 });
 
-test("custom Deck artifacts and questions use the same delayed turns as ordinary messages", async () => {
+test("custom replies and questions use the same delayed turns as ordinary messages", async () => {
   const request = InteractionRequest.parse({
     kind: "question",
     questions: [{ id: "where", text: "Should the note live at the root?", options: [] }],
@@ -281,7 +281,7 @@ test("custom Deck artifacts and questions use the same delayed turns as ordinary
   }
 });
 
-test("interruption and close fence delayed Deck questions and their answers", async () => {
+test("interruption and close fence delayed questions and their answers", async () => {
   const f = await fixture(
     () => ({
       kind: "question",

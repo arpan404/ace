@@ -35,7 +35,7 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentStatusMark } from "./agent-status.tsx";
 import { StopAgent } from "./stop-agent.tsx";
 import { subagentCounts } from "./subagents.ts";
-import { AgentCounts, ThreadDeck } from "./tree-extras.tsx";
+import { AgentCounts } from "./tree-extras.tsx";
 
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground";
 
@@ -131,9 +131,8 @@ function useRunningTasks(threadId: string): readonly string[] {
 
 /**
  * Agents tab: the whole agent tree with what each agent is doing and for how long (a row opens
- * that agent as its own tab), the background work still running with Stop, queued input, the
- * deck the thread works for with its lanes, and a plain answer to "why isn't this done?". Every
- * row subscribes to its own entity.
+ * that agent as its own tab), the background work still running with Stop, queued input,
+ * and a plain answer to "why isn't this done?". Every row subscribes to its own entity.
  */
 export function AgentsTab(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
@@ -150,9 +149,6 @@ export function AgentsTab(props: { threadId: string }) {
           description="The thread's agent and any subagents it starts appear here."
           className="h-auto flex-none pt-16 pb-4"
         />
-        <div className="px-2.5 pb-5">
-          <ThreadDeck threadId={props.threadId} />
-        </div>
       </div>
     );
   return (
@@ -173,7 +169,6 @@ export function AgentsTab(props: { threadId: string }) {
             </ul>
           </section>
         )}
-        <ThreadDeck threadId={props.threadId} />
         <h3 className={heading}>Status</h3>
         <Why threadId={props.threadId} queued={queuedCount} />
       </div>

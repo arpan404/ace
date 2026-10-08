@@ -15,7 +15,6 @@ import { notifyInBrowser, useTitleCount } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { interactionKey } from "./item-keys.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
-import { useDeckEvents } from "./escalations.ts";
 import { requestTitle } from "./request-title.ts";
 import { threadToasts, type ToastCause } from "./toast-rules.ts";
 import { useNeedsYouCount } from "./use-needs-you.ts";
@@ -59,7 +58,6 @@ function ThreadNotifier() {
   const sidebar = useSidebarStore();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const statuses = useSidebarAll(readStatuses, arrayEqual);
-  const deck = useDeckEvents();
   const seenThreads = useRef<Map<string, ThreadStatus["state"]>>(undefined);
   const context = useRef({ prefs, pathname });
   // Threads with a needs-you toast up: each keeps its toast's words and life in step.
@@ -71,29 +69,6 @@ function ThreadNotifier() {
     if (!thread) return;
     const needsYou = cause.kind === "needs_you";
     const visible = documentVisibility.visible();
-    // A deck's own threads speak as the deck: its decision, opening the deck.
-    const owner = deck.threads.get(thread.id);
-    if (owner) {
-      if (context.current.pathname === `/offshifts/${owner.runId}`) return;
-      const decision = deck.events.find((event) => event.runId === owner.runId);
-      const title = needsYou
-        ? (decision?.title ?? `${owner.deck} needs you`)
-        : `${thread.title} failed`;
-      const open = () => void navigate({ to: "/offshifts/$runId", params: { runId: owner.runId } });
-      if (!visible) {
-        if (context.current.prefs.browser)
-          notifyInBrowser({ title, body: owner.deck, tag: needsToastId(thread.id), open });
-        return;
-      }
-      toast.add({
-        id: needsToastId(thread.id),
-        title,
-        description: `${projectName(owner.workspaceId)} · ${owner.deck}`,
-        timeout: attentionTimeout,
-        actionProps: { children: "Open offshift", onClick: open },
-      });
-      return;
-    }
     const description = `${projectName(thread.workspaceId)} · ${thread.title}`;
     if (needsYou) {
       const open = () => void navigate({ to: "/activity" });

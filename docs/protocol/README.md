@@ -14,7 +14,6 @@ Protocol version: **1**. Exchange UTF-8 JSON objects over the daemon WebSocket. 
 - [Orchestration](orchestration.md)
 - [Model catalog](models.md)
 - [Automations](automations.md)
-- [Conductor](conductor.md)
 - [Forge](forge.md)
 - [Supporting types](types.md)
 

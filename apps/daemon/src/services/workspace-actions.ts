@@ -1,10 +1,11 @@
+import { cleanRetiredWorktrees } from "../retired-worktrees.ts";
 import { logError } from "@ace/diagnostics";
 import { WorkspaceRefresh } from "../workspace-refresh.ts";
 import { ThreadId, ForgeCommand, WorkspaceCommands, WorkspaceActionResult } from "@ace/protocol";
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export function startWorkspaceActions({
+export async function startWorkspaceActions({
   store,
   config,
   services,
@@ -12,7 +13,13 @@ export function startWorkspaceActions({
   now,
   options,
   log,
-}: ServiceContext): void {
+}: ServiceContext): Promise<void> {
+  await cleanRetiredWorktrees(
+    store,
+    config.dataDir,
+    options.workspaceActions?.git ?? {},
+    (path, error) => log.log("warn", `Retained former Offshift worktree: ${path}`, logError(error)),
+  );
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     ...options.workspaceActions,
     reconcileThread: async (id) => {

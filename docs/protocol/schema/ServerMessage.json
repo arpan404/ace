@@ -42,12 +42,6 @@
       "$ref": "https://ace.local/protocol/v1/PreviewResult.json"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/ConductorResult.json"
-    },
-    {
-      "$ref": "https://ace.local/protocol/v1/ConductorChanged.json"
-    },
-    {
       "$ref": "https://ace.local/protocol/v1/AutomationResponse.json"
     },
     {

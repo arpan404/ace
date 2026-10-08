@@ -38,7 +38,7 @@ test("mixed history reconciles per-kind ordinals without merging equal replies f
           name: "read",
           state: { status: "completed", input: { path: "/project" }, content: [] },
         },
-        { type: "text", text: "Offshift summary" },
+        { type: "text", text: "Delegation summary" },
         { type: "reasoning", text: "Think again" },
         { type: "text", text: "Further detail" },
       ],
@@ -53,7 +53,7 @@ test("mixed history reconciles per-kind ordinals without merging equal replies f
   event("session.text.ended", {
     assistantMessageID: "different-answer",
     ordinal: 0,
-    text: "Offshift summary",
+    text: "Delegation summary",
   });
   const replies = Object.values(h.view.items).filter(
     (item) => item.type === "message" && item.role === "assistant",
@@ -63,7 +63,7 @@ test("mixed history reconciles per-kind ordinals without merging equal replies f
     replies.filter(
       (item) =>
         item.type === "message" &&
-        item.parts.some((part) => part.type === "text" && part.text === "Offshift summary"),
+        item.parts.some((part) => part.type === "text" && part.text === "Delegation summary"),
     ),
   ).toHaveLength(2);
 });
@@ -88,7 +88,7 @@ test("history after a new input updates the streamed answer even when reasoning 
   event("session.text.ended", {
     assistantMessageID: "answer",
     ordinal: 0,
-    text: "Offshift summary",
+    text: "Delegation summary",
   });
   event("session.execution.succeeded");
   const answer = Object.values(h.view.items).find((item) => item.type === "message");
@@ -105,7 +105,7 @@ test("history after a new input updates the streamed answer even when reasoning 
         time: { completed: 10 },
         content: [
           { type: "reasoning", text: "Think" },
-          { type: "text", text: "Offshift summary" },
+          { type: "text", text: "Delegation summary" },
         ],
       },
     });
@@ -116,6 +116,6 @@ test("history after a new input updates the streamed answer even when reasoning 
   expect(replies[0]).toMatchObject({
     id: answer?.id,
     runId: answer?.runId,
-    parts: [{ type: "text", text: "Offshift summary" }],
+    parts: [{ type: "text", text: "Delegation summary" }],
   });
 });

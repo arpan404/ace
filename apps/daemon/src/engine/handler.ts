@@ -240,7 +240,6 @@ export function engineHandler(
             at,
             silenceMs,
             client: {
-              ...(p.type === "thread.prepare" && p.deck ? { deck: p.deck } : {}),
               details: {
                 workspace: {
                   id: p.workspaceId,

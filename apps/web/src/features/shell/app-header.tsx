@@ -137,7 +137,7 @@ export function AppHeader(
         </h1>
         {phone && props.status}
         {props.subtitle && (
-          // The title keeps the room: a long subtitle (a Deck lane's branch) truncates first.
+          // The title keeps the room: a long subtitle (a worktree's branch) truncates first.
           <span className="hidden min-w-0 shrink-[3] truncate text-base font-normal text-muted-foreground md:inline @max-[45rem]/header:hidden">
             {props.subtitle}
           </span>

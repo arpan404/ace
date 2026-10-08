@@ -35,7 +35,6 @@
     "@ace/automations": "workspace:*",
     "@ace/browser": "workspace:*",
     "@ace/commands": "workspace:*",
-    "@ace/conductor": "workspace:*",
     "@ace/context": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/devices": "workspace:*",

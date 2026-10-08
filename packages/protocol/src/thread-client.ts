@@ -1,4 +1,3 @@
-import { DeckOwnership } from "./deck-ownership.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
@@ -114,7 +113,6 @@ export const ThreadRunMetadata = z.object({
 });
 export type ThreadRunMetadata = z.infer<typeof ThreadRunMetadata>;
 export const ThreadClientFields = ThreadOrganization.extend({
-  deck: DeckOwnership.optional(),
   details: ThreadDetails.optional(),
   live: ThreadRunMetadata.optional(),
 });

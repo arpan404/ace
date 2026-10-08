@@ -25,15 +25,10 @@ import { PlanBody, QuestionBody, requestTitle } from "./question-card.tsx";
 import { confirmations, useAnswer } from "./use-answer.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
-/**
- * One open interaction as a Needs-you card, answerable by mouse or by keyboard. A deck agent's
- * request names its deck (`context`) and takes the deck decision's card key, so its feed row
- * focuses it.
- */
+/** One open interaction as a Needs-you card, answerable by mouse or by keyboard. */
 export function InteractionCard(props: {
   threadId: string;
   interactionId: string;
-  context?: string;
   cardKey?: string;
 }) {
   const interaction = useInteraction(props.threadId, props.interactionId);
@@ -49,10 +44,7 @@ export function InteractionCard(props: {
           ? approvalCopy(interaction.request).title
           : requestTitle(interaction.request)
       }
-      context={
-        props.context ??
-        (thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : "A thread")
-      }
+      context={thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : "A thread"}
       at={interaction.createdAt}
     >
       <CardBody interaction={interaction} cardKey={cardKey} />

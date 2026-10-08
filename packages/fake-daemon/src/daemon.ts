@@ -585,13 +585,6 @@ export class FakeDaemon implements Host {
   holdRequests(...types: ClientMessage["type"][]): void {
     for (const type of types) this.faults.set(type, "hold");
   }
-  /**
-   * The conductor couldn't run a deck's next step (`executionError`), as after a restart that
-   * lost its project: the deck reports it until it is resumed.
-   */
-  failDeck(runId: string, code: string): void {
-    this.servicesWire.failDeck(runId, code);
-  }
   /** Refuse every command of these types with `error`, as a daemon that won't run them would. */
   refuseCommands(error: string, ...types: Command["payload"]["type"][]): void {
     for (const type of types) this.refusals.set(type, error);

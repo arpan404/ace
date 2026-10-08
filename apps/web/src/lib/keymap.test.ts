@@ -24,9 +24,6 @@ const platforms: [string, KeyboardEnv][] = [
 const sharing: [KeymapId, KeymapId, string][] = [
   ["findInThread", "findInTerminal", "the terminal takes ⌘F only while it has focus"],
   ["fullView", "findInTerminal", "off Apple the terminal takes Ctrl+Shift+F while focused"],
-  ["send", "deckApprove", "the composer's ⌘↵ and a deck page's are never on screen together"],
-  ["activity.next", "deckNextCard", "Activity's j and a deck's j are different pages"],
-  ["activity.prev", "deckPrevCard", "Activity's k and a deck's k are different pages"],
 ];
 const allowed = (a: KeymapId, b: KeymapId) =>
   sharing.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
@@ -103,11 +100,11 @@ test("in a browser tab New thread moves off ⌘N, which the browser keeps; the d
 test("a key a shortcut still answers through its browser alias can't be given to another", () => {
   const web: KeyboardEnv = { apple: true, web: true };
   const resolved = resolveKeymap({}, web);
-  // New deck shows ⌥⇧⌘N in a browser but still answers ⇧⌘N where the browser lets it through.
-  expect(conflictFor("shift+mod+n", "newThread", resolved, web)).toBe("newDeck");
-  // Once New deck is rebound, its alias is gone and the keys are free.
-  const moved = resolveKeymap({ newDeck: "alt+mod+d" }, web);
-  expect(conflictFor("shift+mod+n", "newThread", moved, web)).toBeUndefined();
+  // New thread shows ⌥⌘N in a browser and still answers ⌘N where it reaches the app.
+  expect(conflictFor("mod+n", "settings", resolved, web)).toBe("newThread");
+  // Once New thread is rebound, its alias is gone and the keys are free.
+  const moved = resolveKeymap({ newThread: "alt+mod+d" }, web);
+  expect(conflictFor("mod+n", "settings", moved, web)).toBeUndefined();
 });
 
 test("rebindings of unknown or fixed shortcuts are ignored", () => {

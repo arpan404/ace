@@ -18,7 +18,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { automationRunSummary } from "@/features/automations/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { approvalCopy, deliberateApproval, formatAge, privateBrowserGate } from "@ace/ui-core";
-import { eventKey, interactionKey, useActivityState } from "./activity-state.tsx";
+import { interactionKey, useActivityState } from "./activity-state.tsx";
 import { offeredChoices } from "./approval.ts";
 import { FeedRow } from "./feed-row.tsx";
 import { useFeedSource, type FeedEvent, type FeedKind } from "./feed-source.ts";
@@ -110,27 +110,21 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
 }
 
 const eventIcons: Record<FeedKind, PhosphorIcon> = {
-  escalation: WarningIcon,
   mention: AtIcon,
   ci: XIcon,
   pr: GitMergeIcon,
 };
 
-/** Mentions, CI and pull-request events open their thread; escalations focus their card. */
+/** Mentions, CI and pull-request events open their thread. */
 export function EventRow(props: { event: FeedEvent; read: boolean }) {
   const { event } = props;
-  const { focused, setFocused } = useActivityState();
   const source = useFeedSource();
   const navigate = useNavigate();
   const now = useNow();
   const projectName = useProjectName();
-  const key = eventKey(event.id);
-  const needsYou = event.kind === "escalation";
   const select = () => {
     source.markRead([event.id]);
-    if (needsYou) setFocused(key);
-    else if (event.threadId)
-      void navigate({ to: "/t/$threadId", params: { threadId: event.threadId } });
+    if (event.threadId) void navigate({ to: "/t/$threadId", params: { threadId: event.threadId } });
   };
   return (
     <FeedRow
@@ -138,8 +132,7 @@ export function EventRow(props: { event: FeedEvent; read: boolean }) {
       title={event.title}
       description={`${projectName(event.project)} · ${event.context}`}
       age={formatAge(event.at, now)}
-      mark={needsYou ? "needs-you" : props.read ? undefined : "unread"}
-      selected={needsYou && focused === key}
+      mark={props.read ? undefined : "unread"}
       onSelect={select}
     />
   );

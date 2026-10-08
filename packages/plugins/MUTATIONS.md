@@ -75,7 +75,7 @@ Every case below is **not executed (tests run at merge)**. Runtime confirmation 
 | C1-stdout  | Wait for stdout EOF before starting the drain              | a detached Git helper terminates after normal exit while holding stdout in private/nested                                                                                       | not executed (tests run at merge) |
 | C1-sibling | Use a raw string prefix for directory ownership            | private lease cleanup stops nested processes and preserves siblings with the same path prefix                                                                                   | not executed (tests run at merge) |
 
-The integration rehearsal comment provides no specific per-PR diagnostic beyond the canonical status precedence. This branch merges main's conductor, automations and process-test changes and leaves core status unchanged. Plugin real-edge tests join main's process project. No combined runtime rehearsal was executed under the owner's rule.
+The integration rehearsal comment provides no specific per-PR diagnostic beyond the canonical status precedence. This branch merges main's automations and process-test changes and leaves core status unchanged. Plugin real-edge tests join main's process project. No combined runtime rehearsal was executed under the owner's rule.
 
 ## Merge with main at 4701bfa
 

@@ -57,9 +57,6 @@
   "apps/web/src/features/accounts/scheduling-policy.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/activity/escalation-card.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/activity/interaction-card.tsx": {
     "text-size": 1
   },

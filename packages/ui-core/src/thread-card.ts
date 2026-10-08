@@ -147,7 +147,7 @@ export const branchLabelLength = 24;
 
 /**
  * `text` cut to at most `max` characters by taking out its middle, so both the prefix and the
- * distinctive end stay: "deck/re…treams".
+ * distinctive end stay: "work/re…treams".
  */
 export function middleTruncateText(text: string, max: number): string {
   const chars = Array.from(text);

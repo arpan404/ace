@@ -1,13 +1,12 @@
-import { CardsIcon, ClockIcon, CubeIcon } from "@phosphor-icons/react";
+import { ClockIcon, CubeIcon } from "@phosphor-icons/react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 
 /** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
 export interface View {
-  // `deck` is Offshifts in the UI: Deck is called Offshift there, and its routes are `/offshifts…`.
-  id: "home" | "activity" | "deck" | "automations" | "skills";
+  id: "home" | "activity" | "automations" | "skills";
   label: string;
-  to: "/" | "/activity" | "/offshifts" | "/automations" | "/skills";
+  to: "/" | "/activity" | "/automations" | "/skills";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
@@ -20,14 +19,6 @@ export interface NavView extends View {
 
 /** The sidebar's places under New thread, top to bottom. */
 export const navViews: readonly NavView[] = [
-  {
-    id: "deck",
-    label: "Offshifts",
-    icon: CardsIcon,
-    to: "/offshifts",
-    matches: ["/offshifts"],
-    shortcut: "goDeck",
-  },
   {
     id: "automations",
     label: "Automations",

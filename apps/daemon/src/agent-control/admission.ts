@@ -175,7 +175,6 @@ export class DelegationAdmission {
     ownership?: {
       resultDelivery: "owner";
       handoffFrom?: ThreadId;
-      deck?: import("@ace/protocol").DeckOwnership;
     },
   ) {
     return this.deps.store.atomic(() => {
@@ -214,16 +213,12 @@ export class DelegationAdmission {
           );
       }
       const identity = r.request.provider === "acp" ? AcpIdentity.parse(r.request) : undefined;
-      const parentDeck = this.deps.store.getThread(r.parentId)?.deck;
-      const deck =
-        ownership?.deck ?? (parentDeck ? { ...parentDeck, role: "delegate" as const } : undefined);
       const result = this.deps.engine.spawn(
         Command.parse({
           id: controlCommandId(r.parentId, r.requestId, "create"),
           deviceId: "ace-agent",
           payload: {
             type: "thread.prepare",
-            ...(deck ? { deck } : {}),
             ...(ownership?.handoffFrom ? { handoffFrom: ownership.handoffFrom } : {}),
             threadId: r.childId,
             workspaceId: workspace,

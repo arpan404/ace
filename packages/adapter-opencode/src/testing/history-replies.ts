@@ -23,7 +23,7 @@ export function historyReplyFrames(): { initial: Frame[]; next: Frame[] } {
     event("session.text.ended", {
       assistantMessageID: "answer",
       ordinal: 0,
-      text: "Offshift summary",
+      text: "Delegation summary",
     }),
     event("session.execution.succeeded"),
   ];
@@ -48,7 +48,7 @@ export function historyReplyFrames(): { initial: Frame[]; next: Frame[] } {
           time: { completed: 10 },
           content: [
             { type: "reasoning", text: "Think" },
-            { type: "text", text: "Offshift summary" },
+            { type: "text", text: "Delegation summary" },
           ],
         },
       }),
