@@ -1,4 +1,4 @@
-import { FileIcon, TerminalIcon } from "@phosphor-icons/react";
+import { FileIcon } from "@phosphor-icons/react";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect } from "react";
@@ -16,25 +16,14 @@ import {
 const view = { load: () => Promise.resolve({ default: () => null }) };
 const definition = defineWorkspace({
   label: "Side panel",
-  docks: ["right", "bottom"],
   launcher: "file",
   initial: [
-    { kind: "file", id: "a", title: "notes.md", dock: "right" },
-    { kind: "file", id: "b", title: "todo.md", dock: "right" },
-    { kind: "logs", dock: "bottom" },
+    { kind: "file", id: "a", title: "notes.md" },
+    { kind: "file", id: "b", title: "todo.md" },
   ],
   kinds: () =>
     Promise.resolve({
-      default: [
-        defineTabKind({ kind: "file", label: "File", icon: FileIcon, ...view }),
-        defineTabKind({
-          kind: "logs",
-          label: "Logs",
-          icon: TerminalIcon,
-          docks: ["bottom", "right"],
-          ...view,
-        }),
-      ],
+      default: [defineTabKind({ kind: "file", label: "File", icon: FileIcon, ...view })],
     }),
 });
 
@@ -48,10 +37,10 @@ function Palette() {
   const commands = useWorkspaceCommands();
   return (
     <>
-      <button type="button" onClick={() => actions.setOpen("right", true)}>
+      <button type="button" onClick={() => actions.setOpen(true)}>
         Show side panel
       </button>
-      <p>{workspace.right.tabs.map((tab) => tab.title).join(", ")}</p>
+      <p>{workspace.tabs.map((tab) => tab.title).join(", ")}</p>
       {commands.map((command) => (
         <button
           key={command.id}
@@ -86,5 +75,4 @@ test("the palette's tab commands act on the showing tab, and bring back the tab 
 
   await userEvent.click(screen.getByRole("button", { name: "Reopen closed tab" }));
   expect(screen.getByText("notes.md, todo.md")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Maximize bottom panel" })).toBeTruthy();
 });

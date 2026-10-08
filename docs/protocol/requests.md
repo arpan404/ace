@@ -51,10 +51,11 @@ Example:
 
 ```json
 {
-  "before": 6,
+  "after": 5,
+  "aroundSeq": 6,
+  "before": 8,
   "requestId": "example",
   "threadId": "example",
-  "turnOrdinal": 5,
   "type": "items.window"
 }
 ```
@@ -76,9 +77,7 @@ Example:
 
 ```json
 {
-  "filter": "commands",
   "requestId": "example",
-  "scope": "tree",
   "text": "example",
   "threadId": "example",
   "type": "thread.search"

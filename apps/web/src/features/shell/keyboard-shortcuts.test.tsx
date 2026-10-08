@@ -99,7 +99,7 @@ test("the terminal's find shows the key the terminal takes, which can't be chang
   await app.open("/t/thread-cold-start");
   await heading("Cap cold-start replay at 200 events");
   await userEvent.keyboard("{Control>}`{/Control}");
-  const panel = await screen.findByRole("region", { name: "Bottom panel" });
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
   (await within(panel).findByRole("button", { name: "Find" })).focus();
   // Off Apple the terminal keeps Ctrl+F for the shell and finds with Ctrl+Shift+F.
   expect((await screen.findByRole("tooltip")).textContent).toBe("FindShift+Ctrl+F");

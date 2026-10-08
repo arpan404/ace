@@ -130,7 +130,7 @@ test("the account on the rail is named by its tooltip too", async () => {
   expect((await screen.findByRole("tooltip")).textContent).toBe("Account and connection");
 });
 
-test("More on the rail holds usage and accounts, files and search", async () => {
+test("More on the rail is a menu of usage and accounts, files and search, and opens no second sidebar", async () => {
   await harness().open("/new");
   await title("New thread");
   for (const [item, heading] of [
@@ -141,7 +141,37 @@ test("More on the rail holds usage and accounts, files and search", async () => 
     await userEvent.click(within(rail()).getByRole("button", { name: "More" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: item }));
     await title(heading);
+    // The one sidebar keeps the thread list; More never swaps in a list of its own.
+    expect(screen.getByRole("complementary", { name: "Threads" })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "More" })).toBeNull();
   }
+});
+
+const more = () => within(rail()).getByRole("button", { name: "More" });
+
+test("the rail's More menu closes on Escape or a click outside, and its items go from the keyboard", async () => {
+  await harness().open("/new");
+  await title("New thread");
+  await userEvent.click(more());
+  const menu = await screen.findByRole("menu");
+  expect(
+    within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent),
+  ).toEqual(["Usage & accounts", "Files", "Search"]);
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  expect(document.activeElement).toBe(more());
+
+  await userEvent.click(more());
+  await screen.findByRole("menu");
+  await userEvent.click(screen.getByRole("heading", { level: 1, name: "New thread" }));
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+  await userEvent.click(more());
+  await screen.findByRole("menu");
+  await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+  await title("Files");
 });
 
 test("the sidebar's title is the daemon's menu, and the avatar the person's", async () => {

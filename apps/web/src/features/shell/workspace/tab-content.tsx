@@ -10,19 +10,18 @@ import {
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import type { Dock, WorkspaceDefinition, WorkspaceTab } from "@/lib/workspace/index.ts";
+import type { WorkspaceDefinition, WorkspaceTab } from "@/lib/workspace/index.ts";
 
-export const tabDomId = (dock: Dock, key: string, part: "tab" | "panel") =>
-  `ws-${dock}-${part}-${key.replace(/[^\w-]/g, "_")}`;
+export const tabDomId = (key: string, part: "tab" | "panel") =>
+  `ws-${part}-${key.replace(/[^\w-]/g, "_")}`;
 
 /**
- * The views of a dock's tabs. Each mounts the first time it shows and then stays mounted:
+ * The views of the side panel's tabs. Each mounts the first time it shows and then stays mounted:
  * hidden ones sit in `<Activity mode="hidden">`, their effects (subscriptions, terminals, GPU
  * views) stopped and updates deferred, and come back as they were left.
  */
 export function TabContent(props: {
   scope: string;
-  dock: Dock;
   definition: WorkspaceDefinition;
   tabs: readonly WorkspaceTab[];
   shown: string | undefined;
@@ -35,8 +34,8 @@ export function TabContent(props: {
       <div
         key={tab.key}
         role="tabpanel"
-        id={tabDomId(props.dock, tab.key, "panel")}
-        aria-labelledby={tabDomId(props.dock, tab.key, "tab")}
+        id={tabDomId(tab.key, "panel")}
+        aria-labelledby={tabDomId(tab.key, "tab")}
         hidden={!active}
         className="min-h-0 flex-1 overflow-auto outline-none"
       >
@@ -47,7 +46,7 @@ export function TabContent(props: {
               // Called on every render, so Try again picks up a fresh loader after a failure.
               render={() => (
                 <Suspense fallback={kind.Skeleton ? <kind.Skeleton /> : <TabLoading />}>
-                  {createElement(kind.view(), { scope: props.scope, tab, dock: props.dock })}
+                  {createElement(kind.view(), { scope: props.scope, tab })}
                 </Suspense>
               )}
             />

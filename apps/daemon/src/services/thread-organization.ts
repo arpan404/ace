@@ -17,9 +17,9 @@ export function createThreadOrganizationSession({
     command: {
       types: organizationCommands,
       scope: () => "operate",
-      accept(command, device) {
+      async accept(command, device) {
         const receipt = options.store.commandReceipt(command.id, device);
-        if (receipt) {
+        if (receipt && receipt.error !== "client_action_pending") {
           send({ type: "commandResult", ...receipt });
           return;
         }
@@ -28,6 +28,21 @@ export function createThreadOrganizationSession({
           !canReadThread(ThreadId.parse(command.payload.threadId))
         ) {
           send({ type: "commandResult", commandId: command.id, ok: false, error: "forbidden" });
+          return;
+        }
+        if (command.payload.type === "thread.delete" && options.threadLifecycle) {
+          try {
+            const result = await options.threadLifecycle.delete(command);
+            send({ type: "commandResult", ...result });
+          } catch (error) {
+            options.log?.(error);
+            send({
+              type: "commandResult",
+              commandId: command.id,
+              ok: false,
+              error: "thread_cleanup_pending",
+            });
+          }
           return;
         }
         const result = options.store.recordCommand(command.id, device, () =>

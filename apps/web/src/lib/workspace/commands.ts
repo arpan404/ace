@@ -1,5 +1,5 @@
 import { keymap } from "@/lib/keymap.ts";
-import { shownTab, type Dock, type ScopeWorkspace } from "./model.ts";
+import { shownTab, type ScopeWorkspace } from "./model.ts";
 import {
   useFocusedScope,
   useScopeWorkspace,
@@ -22,22 +22,9 @@ export interface WorkspaceCommand {
   run(): void;
 }
 
-/** The dock whose tab the commands act on: the focused one, else the side panel, else the bottom. */
-function targetDock(workspace: ScopeWorkspace): Dock | undefined {
-  const focused =
-    typeof document === "undefined"
-      ? undefined
-      : document.activeElement?.closest<HTMLElement>("[data-dock]")?.dataset.dock;
-  if (focused === "right" || focused === "bottom") return focused;
-  if (workspace.right.open && workspace.right.tabs.length) return "right";
-  if (workspace.bottom.open && workspace.bottom.tabs.length) return "bottom";
-  return undefined;
-}
-
 /**
- * The showing tab's commands for the screen in view: move it to the other dock, pin or unpin
- * it, close the others, maximize the bottom panel, and reopen the tab closed last. Empty when no
- * screen with docks shows.
+ * The showing tab's commands for the screen in view: pin or unpin it, close the others, and
+ * reopen the tab closed last. Empty when no screen with a side panel shows.
  */
 export function useWorkspaceCommands(): readonly WorkspaceCommand[] {
   const scope = useFocusedScope();
@@ -57,24 +44,15 @@ function useScopeCommands(
   if (!live) return [];
   const definition = store.definition(scope);
   const commands: WorkspaceCommand[] = [];
-  const dock = targetDock(workspace);
-  const tab = dock && shownTab(workspace[dock]);
-  if (dock && tab) {
+  const tab = workspace.open ? shownTab(workspace) : undefined;
+  if (tab) {
     const title = definition?.title(tab) ?? tab.title ?? tab.kind;
-    const other: Dock = dock === "right" ? "bottom" : "right";
-    const movable = definition?.kind(tab.kind)?.docks.includes(other) ?? false;
-    if (movable)
-      commands.push({
-        id: "tab-move",
-        label: other === "bottom" ? "Move tab to bottom panel" : "Move tab to side panel",
-        run: () => actions.moveToDock(tab.key, other),
-      });
     commands.push({
       id: "tab-pin",
       label: tab.pinned ? `Unpin ${title}` : `Pin ${title}`,
       run: () => actions.setPinned(tab.key, !tab.pinned),
     });
-    const others = workspace[dock].tabs.filter((each) => !each.pinned && each.key !== tab.key);
+    const others = workspace.tabs.filter((each) => !each.pinned && each.key !== tab.key);
     commands.push({
       id: "tab-close-others",
       label: "Close other tabs",
@@ -82,15 +60,6 @@ function useScopeCommands(
       run: () => void actions.closeOthers(tab.key),
     });
   }
-  if (workspace.bottom.tabs.length)
-    commands.push({
-      id: "bottom-maximize",
-      label: workspace.bottomMaximized ? "Restore bottom panel" : "Maximize bottom panel",
-      run: () => {
-        if (!workspace.bottom.open) actions.setOpen("bottom", true);
-        actions.setBottomMaximized(!workspace.bottomMaximized);
-      },
-    });
   commands.push({
     id: "tab-reopen",
     label: "Reopen closed tab",

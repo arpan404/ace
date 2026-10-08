@@ -1,3 +1,4 @@
+import { unexpectedStopNotice } from "./thread-liveness.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
@@ -14,6 +15,7 @@ export function recoverEngine(
   repo.store.atomic(() => {
     repo.transitions.pruneGuards();
     for (const state of repo.states()) {
+      if (repo.cleaning(state.threadId)) continue;
       const legacyLimits = Object.entries(state.agents).flatMap(([agent, record]) =>
         record.retry?.on === "rate_limit" && !record.limited
           ? [{ type: "retry" as const, agent, ...record.retry }]
@@ -79,11 +81,16 @@ export function recoverEngine(
               message: "Daemon restarted; previous provider work stopped",
             },
             { type: "queue.changed", source: "provider", count: 0 },
+            unexpectedStopNotice(state.rootKey, clock.now()),
           ],
           clock.now(),
         );
     }
     for (const intent of repo.pending.headers()) {
+      if (repo.cleaning(intent.threadId)) {
+        fail(intent, "Retired for thread deletion");
+        continue;
+      }
       if (repo.store.getThread(intent.threadId)?.continuation) {
         fail(
           intent,
@@ -125,6 +132,7 @@ export function recoverEngine(
         fail(intent, "Control interrupted by daemon restart; retry explicitly");
     }
     for (const state of repo.states()) {
+      if (repo.cleaning(state.threadId)) continue;
       const queue = repo.queue.get(state.threadId);
       const pending = Boolean(
         repo.pending.message(state.threadId) || repo.pending.recovery(state.threadId),

@@ -58,13 +58,21 @@ test.each(["missing", "incomplete", "wrong-version"] as const)(
         executable: async () => {},
       },
     });
+    const diagnostics: { cliVersion?: string }[] = [];
     try {
       await expect(
-        driver.models({ id: "synthetic", homeDir: home }, new AbortController().signal),
+        driver.models(
+          { id: "synthetic", homeDir: home },
+          new AbortController().signal,
+          (metadata) => diagnostics.push(metadata),
+        ),
       ).rejects.toMatchObject({
         code: setup === "wrong-version" ? "cli_too_old" : "not_configured",
         message: "Cursor SDK backend is unavailable",
       });
+      expect(diagnostics).toEqual([
+        setup === "missing" ? {} : { cliVersion: setup === "wrong-version" ? "0.9.0" : "1.0.35" },
+      ]);
     } finally {
       await rm(home, { recursive: true, force: true });
     }

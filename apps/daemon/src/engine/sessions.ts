@@ -1,3 +1,5 @@
+import { unexpectedStopNotice } from "./thread-liveness.ts";
+import { lostWork } from "./lost-work.ts";
 import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-command-metadata.ts";
 import { isDefaultSelection } from "@ace/models";
 import type { EngineModels } from "./models.ts";
@@ -67,6 +69,7 @@ export class Sessions {
     if (this.dependencies.repo.store.getThread(actor.id)?.continuation)
       throw new Error("Cursor CLI threads are read-only; continue in a new thread");
     await this.dependencies.repo.store.writable();
+    if (this.dependencies.repo.cleaning(actor.id)) throw new Error("Thread is being deleted");
     const stateBefore = this.dependencies.repo.requireState(actor.id);
     if (actor.session && this.turnPermissions.get(actor.id) === actor.generation) return;
     // A prepared root is starting before its first turn, not a pinned live policy.
@@ -113,6 +116,8 @@ export class Sessions {
         backend,
       );
       const entity = this.dependencies.repo.store.getThread(actor.id);
+      if (lifetime.signal.aborted || this.dependencies.repo.cleaning(actor.id))
+        throw new Error("Thread is being deleted");
       if (entity?.deletedAt !== undefined) throw new Error("Thread deleted");
       if (!metadata.workspaceReady) {
         if (!this.dependencies.prepareWorkspace)
@@ -163,6 +168,8 @@ export class Sessions {
       errorEnvironment = context?.env;
       errorSecrets = [...(context?.mcp?.secrets ?? []), ...(aceMcp ? [aceMcp.bearer] : [])];
       await this.dependencies.repo.store.writable();
+      if (lifetime.signal.aborted || this.dependencies.repo.cleaning(actor.id))
+        throw new Error("Thread is being deleted");
       await this.dependencies.assertWorkspaceAvailable?.(metadata.cwd);
       this.dependencies.repo.store.workspaceReservations.assertAvailable(metadata.cwd);
       const codexContext = {
@@ -294,8 +301,14 @@ export class Sessions {
             actor.generation++;
             // No input can have been consumed until open returns a usable session.
             if (!opening) this.dependencies.expireDelivery(actor);
+            // Say so in the transcript only when the death cost work, not after an idle exit.
+            const before = this.dependencies.repo.requireState(actor.id);
+            const lost = !exit.deliberate && lostWork(before) !== undefined;
             actor.apply([
               { type: "process.exited", ...exit },
+              ...(lost
+                ? [unexpectedStopNotice(before.rootKey, this.dependencies.clock.now())]
+                : []),
               { type: "queue.changed", source: "provider", count: 0 },
             ]);
             if (!actor.poisoned) this.dependencies.released(actor.id);

@@ -204,3 +204,33 @@ Log the same sanitized categories through the daemon logger. Main read sockets
 receive `models.changed` invalidations at refresh and catalog transitions and
 re-read their pages. The event contains no model data and goes to no dedicated
 service channel. The UI should keep cached rows visible beside errors.
+
+## Amendment: Cursor SDK model-entry isolation
+
+Accepted for the Cursor SDK model-discovery fix. Cursor uses the SDK-only runtime
+in ADR 0043. Its public `Cursor.models.list()` returns `ModelListItem[]`, extracted
+from the service's `items` property without runtime validation by SDK 1.0.35.
+The declared parameter and variant values are strings with no minimum length.
+
+Cursor decoding requires a bounded non-empty model ID. Display labels fall back
+to the ID; nullable or malformed optional controls do not reject the model.
+Unknown and unusable metadata remains in the existing bounded, redacted raw
+payload. Native empty parameter values survive variant selection; the canonical
+non-empty effort list omits empty effort labels. One invalid identity or
+oversized normalized row skips that entry, preserving other usable models. A
+non-empty list with no readable entries fails the refresh and retains the last
+good catalog. Top-level shape and catalog size limits remain enforced.
+
+Each skipped entry emits an attempt-local warning with its array index and a
+fixed reason capped at 200 characters. These warnings do not mark a successful
+refresh as failed, schedule retries, or enter catalog state, SQLite or client
+responses. Discovery reports the installed SDK manifest version through the
+existing `cliVersion` diagnostic field, including admission failures.
+
+Metadata hosts have zero shutdown grace because they own no tools or transcript
+writes. Existing catalog caching and single-flight discovery govern all reads.
+The SDK performs privacy-mode setup before fetching `/v1/models`, with an
+in-process cache that is lost when a host exits. Its public catalog request
+has no configurable timeout or retries. We retain the daemon's bounded discovery
+deadline rather than altering SDK privacy behavior or caching credentials.
+The owner's exact ten-second latency remains unverified without a live request.

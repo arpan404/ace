@@ -2,6 +2,31 @@
   "$id": "https://ace.local/protocol/v1/CommandResult.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "alive": {
+      "properties": {
+        "agentsRunning": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "operationsRunning": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "terminalsOpen": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "agentsRunning",
+        "terminalsOpen",
+        "operationsRunning"
+      ],
+      "type": "object"
+    },
     "code": {
       "type": "string"
     },

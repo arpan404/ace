@@ -1,46 +1,67 @@
 import { expect, test } from "@playwright/test";
+import { openWorkCard, runAction, workCard } from "../thread-header.ts";
 
-/** Run, Commit and Create PR in the thread header, against the fake daemon's checkouts. */
-test("Run on a script an agent already runs shows the agent's shell, not a second empty copy", async ({
+/** Running scripts, Commit and Create PR from the thread's work card, against the fake daemon. */
+
+test("running a script an agent already runs shows the agent's shell, not a second empty copy", async ({
   page,
 }) => {
   await page.goto("/t/thread-replay-cursor");
   await expect(
     page.getByRole("group", { name: "Background task bun run dev:relay" }),
   ).toContainText("Running in background");
-  await page.getByRole("button", { name: "Run bun run dev:relay" }).click();
-  const bottom = page.getByRole("region", { name: "Bottom panel" });
-  await expect(bottom.getByRole("tab", { name: "dev:relay", selected: true })).toBeVisible();
-  await expect(bottom.getByText("Agent shell")).toBeVisible();
-  await expect(bottom.getByRole("log", { name: "dev:relay output" })).toContainText(
+  const card = await openWorkCard(page);
+  // The card says so before it is run.
+  const run = card.getByRole("button", {
+    name: "Run bun run dev:relay, running: shows its terminal",
+  });
+  await run.click();
+  await expect(card).toHaveCount(0);
+  const panel = page.getByRole("region", { name: "Thread panel" });
+  await expect(panel.getByRole("tab", { name: "dev:relay", selected: true })).toBeVisible();
+  await expect(panel.getByText("Agent shell")).toBeVisible();
+  await expect(panel.getByRole("log", { name: "dev:relay output" })).toContainText(
     "relay listening on ws://127.0.0.1:8787",
   );
-  await expect(bottom.getByRole("tab", { name: /dev:relay/ })).toHaveCount(1);
+  await expect(panel.getByRole("tab", { name: /dev:relay/ })).toHaveCount(1);
 });
 
-test("Run starts another script in a terminal tab of its own, printing as it runs", async ({
+test("running another script opens a terminal tab of its own, printing as it runs", async ({
   page,
 }) => {
   await page.goto("/t/thread-replay-cursor");
-  await page.getByRole("button", { name: "Choose a script" }).click();
-  await page.getByRole("menuitem", { name: /bun run test/ }).click();
-  const bottom = page.getByRole("region", { name: "Bottom panel" });
-  await expect(bottom.getByRole("tab", { name: "test", selected: true })).toBeVisible();
-  await expect(bottom.getByRole("group", { name: "test terminal" })).toContainText("8 pass");
+  await runAction(page, "bun run test");
+  const panel = page.getByRole("region", { name: "Thread panel" });
+  await expect(panel.getByRole("tab", { name: "test", selected: true })).toBeVisible();
+  await expect(panel.getByRole("group", { name: "test terminal" })).toContainText("8 pass");
 });
 
 test("Commit, then Create PR, opens a pull request for the branch", async ({ page }) => {
   await page.goto("/t/thread-retry-budget");
-  await page.getByRole("button", { name: "Commit", exact: true }).click();
+  const card = await openWorkCard(page);
+  await card.getByRole("button", { name: "Git actions" }).click();
+  await page.getByRole("menuitem", { name: /^Commit…/ }).click();
+  // The form steps in front of the card.
+  await expect(workCard(page)).toHaveCount(0);
   const commit = page.getByRole("dialog", { name: "Commit changes" });
-  await commit.getByRole("button", { name: "Commit" }).click();
+  await commit.getByRole("button", { name: "Commit", exact: true }).click();
   await expect(page.getByText("Committed", { exact: true })).toBeVisible();
 
   await page.goto("/t/thread-sheet-rotate");
-  await page.getByRole("button", { name: "Create PR" }).click();
+  await (
+    await openWorkCard(page)
+  )
+    .getByRole("region", { name: "Changes and branch" })
+    .getByRole("button", { name: "Create PR" })
+    .click();
   const dialog = page.getByRole("dialog", { name: "Open a pull request" });
   await dialog.getByRole("button", { name: "Create PR" }).click();
-  await expect(page.getByRole("button", { name: /^PR #\d+/ })).toBeVisible();
+  await expect(page.getByText(/^Pull request #\d+ opened$/)).toBeVisible();
+  await expect(
+    (await openWorkCard(page))
+      .getByRole("region", { name: "Pull requests" })
+      .getByRole("button", { name: /^Open pull request #\d+/ }),
+  ).toBeVisible();
 });
 
 test("toasts stand in the main pane's bottom-right corner, above the composer and clear of the right panel", async ({
@@ -51,11 +72,12 @@ test("toasts stand in the main pane's bottom-right corner, above the composer an
   await page.getByRole("button", { name: "Right panel" }).click();
   const panel = page.getByRole("region", { name: "Thread panel" });
   await panel.waitFor();
-  // Beside the panel the column is narrow: Run, Open and Commit stay in the header as icons.
-  await page.getByRole("banner").getByRole("button", { name: "Commit", exact: true }).click();
+  // Beside the panel the column is narrow: the work card still opens from the header.
+  await (await openWorkCard(page)).getByRole("button", { name: "Git actions" }).click();
+  await page.getByRole("menuitem", { name: /^Commit…/ }).click();
   await page
     .getByRole("dialog", { name: "Commit changes" })
-    .getByRole("button", { name: "Commit" })
+    .getByRole("button", { name: "Commit", exact: true })
     .click();
   const toast = page.getByRole("dialog", { name: "Committed" });
   await expect(toast).toBeVisible();

@@ -1,3 +1,4 @@
+import { ThreadLifecycle } from "../thread-lifecycle.ts";
 import { startFilesRelay } from "../files-relay.ts";
 import type { ServerOptions } from "../server-options.ts";
 import type { RemoteAuth } from "../remote-auth.ts";
@@ -29,6 +30,10 @@ export async function startTransports(options: ServerOptions, auth: RemoteAuth) 
   const resources = new Resources();
   let relayHostId: string | undefined;
   try {
+    const lifecycle = new ThreadLifecycle(options);
+    options.threadLifecycle = lifecycle;
+    resources.own(() => lifecycle.close());
+    await lifecycle.start();
     for (const factory of transportFactories) {
       const service = await factory(options, auth);
       if (service) {

@@ -14,7 +14,7 @@ const none: readonly string[] = [];
 /**
  * A project's branches, from the daemon's workspace service (`branches.list`), default branch
  * first; empty while loading or when the project's branches can't be read. New thread starts a
- * worktree from one; a thread's summary switches its checkout to one.
+ * worktree from one; a thread's environment pill switches its checkout to one.
  */
 export function useBranches(project: string | undefined, enabled = true): readonly string[] {
   return (

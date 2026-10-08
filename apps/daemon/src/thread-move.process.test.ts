@@ -227,7 +227,7 @@ test("missing and removed destinations and isolated bindings refuse a move witho
   }
 });
 
-test("owned terminals block moving even after exit until their owner closes them", async () => {
+test("live terminals block moving and exited terminals are reconciled before a move", async () => {
   const f = await world();
   try {
     f.client.send({
@@ -252,13 +252,6 @@ test("owned terminals block moving even after exit until their owner closes them
     } finally {
       stream.detach();
     }
-    expect(await f.command(payload)).toMatchObject({ ok: false, error: "thread_busy" });
-    f.client.send({
-      type: "terminal.request",
-      requestId: "close",
-      operation: { op: "close", threadId: f.id, terminalId },
-    });
-    await f.client.next();
     expect(await f.command(payload)).toMatchObject({ ok: true });
   } finally {
     await f.close();
@@ -306,6 +299,27 @@ test("moving a settled thread leaves another thread's owned terminal available i
       terminals: [expect.objectContaining({ id: opened.terminal.id, threadId: peer })],
     });
     expect(f.store.getThread(peer)?.workspaceId).toBe(f.workspace);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a move reconciles a dead provider and exited terminal before testing live ownership", async () => {
+  const f = await world(true);
+  try {
+    const context = f.contexts[0];
+    if (!context) throw new Error("Missing fake provider");
+    context.onExit({ deliberate: false });
+    await f.engine.flush();
+    const terminalId = await f.runtime.openTerminal(f.id, "Exited shell");
+    const terminal = f.runtime.terminal(terminalId, f.id);
+    terminal.write("exit 0\r");
+    await terminal.exited;
+    expect(
+      await f.command({ type: "thread.move", threadId: f.id, workspaceId: f.target }),
+    ).toMatchObject({ ok: true });
+    expect(f.store.getThread(f.id)?.workspaceId).toBe(f.target);
+    expect(f.runtime.listTerminals(f.id)).toEqual([]);
   } finally {
     await f.close();
   }

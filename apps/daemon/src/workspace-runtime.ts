@@ -1,3 +1,4 @@
+import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
 import type { WorkspaceChangeReservation } from "./engine/workspace-change.ts";
 import { moveThread } from "./thread-move.ts";
 import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
@@ -26,6 +27,7 @@ import type { Store } from "./store.ts";
 
 export interface WorkspaceRuntimeOptions {
   git?: GitOptions;
+  reconcileThread?(id: ThreadId): Promise<void>;
   changeWorkspace?(
     id: ThreadId,
     commandId: string,
@@ -55,7 +57,6 @@ export class WorkspaceRuntime {
   private options: WorkspaceRuntimeOptions;
   private manager: TerminalManager;
   private terminals = new Map<string, { threadId: ThreadId; terminal: Terminal }>();
-  private ownedTerminals = new Map<ThreadId, number>();
   private pendingOpens = 0;
   private nextTerminal = 0;
   constructor(
@@ -65,6 +66,7 @@ export class WorkspaceRuntime {
     options: WorkspaceRuntimeOptions = {},
   ) {
     this.store = store;
+    initializeThreadCleanup(store);
     this.now = now;
     this.options = options;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
@@ -107,7 +109,24 @@ export class WorkspaceRuntime {
       .map(([key]) => this.describe(key, id));
   }
   hasOwnedWork(id: ThreadId): boolean {
-    return (this.ownedTerminals.get(id) ?? 0) > 0;
+    return this.liveTerminalCount(id) > 0;
+  }
+  /** Exited shells stay listed (their output is readable) but are no longer live work. */
+  liveTerminalCount(id: ThreadId): number {
+    let count = 0;
+    for (const entry of this.terminals.values())
+      if (entry.threadId === id && terminalAlive(entry.terminal)) count++;
+    return count;
+  }
+  /** Release shells that exited, including ones killed outside ace. */
+  async reconcileTerminals(id: ThreadId): Promise<void> {
+    for (const [key, entry] of this.terminals)
+      if (entry.threadId === id && !terminalAlive(entry.terminal))
+        await this.closeTerminal(key, id);
+  }
+  async closeThreadTerminals(id: ThreadId): Promise<void> {
+    for (const [key, entry] of this.terminals)
+      if (entry.threadId === id) await this.closeTerminal(key, id);
   }
   terminal(id: string, threadId: ThreadId): Terminal {
     this.root(threadId);
@@ -128,13 +147,13 @@ export class WorkspaceRuntime {
     });
   }
   async openTerminal(threadId: ThreadId, name: string, cols = 80, rows = 24): Promise<string> {
+    if (threadCleaning(this.store, threadId)) throw new Error("thread_deleting");
     if (this.terminals.size + this.pendingOpens >= 64) throw new Error("terminal_limit");
     this.pendingOpens++;
     try {
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });
       const id = `terminal-${++this.nextTerminal}`;
       this.terminals.set(id, { threadId, terminal });
-      this.ownedTerminals.set(threadId, (this.ownedTerminals.get(threadId) ?? 0) + 1);
       return id;
     } finally {
       this.pendingOpens--;
@@ -143,10 +162,7 @@ export class WorkspaceRuntime {
   async closeTerminal(id: string, threadId: ThreadId): Promise<void> {
     const terminal = this.terminal(id, threadId);
     await this.manager.release(terminal);
-    if (!this.terminals.delete(id)) return;
-    const remaining = (this.ownedTerminals.get(threadId) ?? 1) - 1;
-    if (remaining > 0) this.ownedTerminals.set(threadId, remaining);
-    else this.ownedTerminals.delete(threadId);
+    this.terminals.delete(id);
   }
   async read(request: WorkspaceActionRequest): Promise<WorkspaceActionResult> {
     const op = request.operation;
@@ -235,7 +251,10 @@ export class WorkspaceRuntime {
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
       if (!id) throw new Error("invalid_command");
       const threadId = ThreadId.parse(id);
-      if (p.type === "thread.move")
+      if (threadCleaning(this.store, threadId)) return { ok: false, error: "thread_deleting" };
+      if (p.type === "thread.move") {
+        await this.reconcileTerminals(threadId);
+        await this.options.reconcileThread?.(threadId);
         return moveThread(
           this.store,
           command,
@@ -244,6 +263,7 @@ export class WorkspaceRuntime {
           this.options.changeWorkspace,
           allowed,
         );
+      }
       if (p.type === "thread.workspace.set") {
         if (!this.options.changeWorkspace) return { ok: false, error: "engine_unavailable" };
         if (this.hasOwnedWork(threadId)) return { ok: false, error: "terminal_owned" };
@@ -310,11 +330,21 @@ export class WorkspaceRuntime {
     await this.checkpoints.close();
     await this.manager.closeAll();
     this.terminals.clear();
-    this.ownedTerminals.clear();
     await this.git.close();
   }
 }
 
 function allowLocalAction(): boolean {
   return true;
+}
+
+function terminalAlive(terminal: Terminal): boolean {
+  try {
+    if (terminal.info().exit !== null) return false;
+    process.kill(terminal.pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the PID exists under another owner; only ESRCH proves it is gone.
+    return !(error instanceof Error && "code" in error && error.code === "ESRCH");
+  }
 }
