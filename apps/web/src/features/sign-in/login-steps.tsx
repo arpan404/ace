@@ -8,6 +8,7 @@ import { BrowserStep, ChallengeFooter, CodeStep } from "./login-challenge.tsx";
 import type { LoginController, LoginView } from "./login-controller.ts";
 import { Done, Problem } from "./login-outcome.tsx";
 import { Actions, refusals, Step, StepTitle, useFocusOnShow, Waiting } from "./login-parts.tsx";
+import { ApiKeyStep } from "./api-key-step.tsx";
 import { ManualSteps } from "./manual-steps.tsx";
 
 /*
@@ -125,6 +126,18 @@ export function LoginBody(props: {
         </Step>
       );
     }
+    case "awaiting_api_key":
+      return (
+        <Step key={key}>
+          <ApiKeyStep
+            name={name}
+            disabled={view.sending}
+            onSubmit={(apiKey) => login.submitApiKey(apiKey)}
+            onCancel={() => login.cancel()}
+          />
+          {notice && <Notice text={notice} />}
+        </Step>
+      );
     case "awaiting_input":
       return (
         <Step key={key}>
