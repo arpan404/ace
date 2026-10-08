@@ -7,6 +7,8 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 const coldStart = "Cap cold-start replay at 200 events";
 /** The Preview tab, titled by the dev server it shows (the thread's web server on 5173). */
 const web = "web · :5173";
+/** The cold-start totals belong to the last completed turn. */
+const changes = "ChangesLast turn";
 
 async function openColdStart(storage = memoryKeyValue()) {
   const app = harness({ storage });
@@ -38,13 +40,13 @@ test("the side panel starts on Changes, Agents and Files, and + opens a new tab 
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files"]);
 
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   expect(selected(panel).textContent).toBe("New tab");
   await launch(panel, "Preview");
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", "New tab", web]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", "New tab", web]);
 });
 
 test("a thread's tabs stay with it: another thread doesn't inherit them, and they come back on return", async () => {
@@ -71,7 +73,7 @@ test("tabs survive a reload with the one that was showing", async () => {
 
   await openColdStart(storage);
   const panel = await sidePanel();
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", "Devices"]);
   expect(selected(panel).textContent).toBe("Devices");
 });
 
@@ -81,7 +83,7 @@ test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Del
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", web, "Devices"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", web, "Devices"]);
 
   within(panel).getByRole("tab", { name: "Devices" }).focus();
   await userEvent.keyboard("{ArrowLeft}");
@@ -89,17 +91,17 @@ test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Del
   expect(document.activeElement?.textContent).toBe(web);
 
   await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", "Devices", web]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", "Devices", web]);
   expect(screen.getByText(`${web} moved to position 5 of 5`)).toBeTruthy();
 
   await userEvent.keyboard("{Delete}");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", "Devices"]);
   expect(selected(panel).textContent).toBe("Devices");
   expect(document.activeElement?.textContent).toBe("Devices");
 
   // Pinned tools don't close from the keyboard by accident.
   await userEvent.keyboard("{Home}{Delete}");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", "Devices"]);
 });
 
 test("dragging a tab onto another puts it beside that one", async () => {
@@ -122,7 +124,7 @@ test("dragging a tab onto another puts it beside that one", async () => {
   fireEvent.dragStart(tab(web), { dataTransfer });
   fireEvent.dragOver(tab("Devices"), { dataTransfer, clientX: 10 });
   fireEvent.drop(tab("Devices"), { dataTransfer });
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", "Devices", web]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", "Devices", web]);
   // Reordering doesn't change which tab shows.
   expect(selected(panel).textContent).toBe("Devices");
 });
@@ -156,7 +158,7 @@ test("hiding the side panel keeps its tabs, and the header then keeps only its t
 
   await userEvent.click(toggle);
   const back = await sidePanel();
-  expect(tabNames(back)).toEqual(["Changes", "Agents", "Files", web]);
+  expect(tabNames(back)).toEqual([changes, "Agents", "Files", web]);
   expect(selected(back).textContent).toBe(web);
 });
 
@@ -180,13 +182,13 @@ test("a closed tab comes back where it was with Reopen closed tab", async () => 
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", web, "Devices"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", web, "Devices"]);
   within(panel).getByRole("tab", { name: web }).focus();
   await userEvent.keyboard("{Delete}");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", "Devices"]);
 
   await userEvent.keyboard("{Control>}{Alt>}{Shift>}t{/Shift}{/Alt}{/Control}");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", web, "Devices"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", web, "Devices"]);
   expect(selected(panel).textContent).toBe(web);
 });
 
@@ -274,7 +276,7 @@ test("a thread laid out with the old bottom panel opens with its terminal and lo
   await openColdStart(storage);
   const panel = await sidePanel();
   // A saved layout keeps its tabs; the Files tab is for threads that start fresh.
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", expect.any(String), "Logs"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", expect.any(String), "Logs"]);
   expect(selected(panel).textContent).toBe("Logs");
 });
 
@@ -288,7 +290,7 @@ test("the new tab suggests the thread's dev server and edited files, and opens t
   // An edited file opens in the Files tool, in the new tab's place.
   await userEvent.click(within(suggested).getByRole("button", { name: /^replay\.ts/ }));
   expect(selected(panel).textContent).toBe("replay.ts");
-  expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", "replay.ts"]);
+  expect(tabNames(panel)).toEqual([changes, "Agents", "Files", "replay.ts"]);
 });
 
 test("the new tab's tools are one Tab stop that arrow keys move through by row and column", async () => {
@@ -330,7 +332,7 @@ test("the command palette pins the showing tab and reopens the tab closed last",
   await within(panel).findByRole("tab", { name: "Logs", selected: true });
 
   await fromPalette("pin logs", /^Pin Logs/);
-  await waitFor(() => expect(tabNames(panel)).toEqual(["Changes", "Agents", "Files", "Logs"]));
+  await waitFor(() => expect(tabNames(panel)).toEqual([changes, "Agents", "Files", "Logs"]));
   await fromPalette("unpin", /^Unpin Logs/);
 
   within(panel).getByRole("tab", { name: "Logs" }).focus();

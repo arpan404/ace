@@ -104,11 +104,27 @@ describe("provider formats and planning", () => {
     });
   });
   it("returns diagnostics for malformed YAML, duplicate keys and mistyped defaults", () => {
-    for (const text of [
-      "---\nname: [oops\n---\nbody",
-      "---\nname: a\nname: b\n---\nbody",
-      "---\narguments:\n  x: {type: number, default: nope}\n---\nbody",
-      "---\nname: a\nbody",
+    for (const { text, message } of [
+      {
+        text: "---\nname: [oops\n---\nbody",
+        message:
+          "The settings at the top of this prompt have invalid syntax. Check the names, brackets and indentation.",
+      },
+      {
+        text: "---\nname: a\nname: b\n---\nbody",
+        message:
+          "The settings at the top of this prompt have invalid syntax. Check the names, brackets and indentation.",
+      },
+      {
+        text: "---\narguments:\n  x: {type: number, default: nope}\n---\nbody",
+        message:
+          "A prompt setting or argument has an unsupported value. Check the names and values at the top of the file.",
+      },
+      {
+        text: "---\nname: a\nbody",
+        message:
+          "The settings at the top of this prompt need a closing --- line. Add it before the prompt text.",
+      },
     ]) {
       const parsed = parseMarkdown(text, {
         source: "broken",
@@ -117,9 +133,7 @@ describe("provider formats and planning", () => {
         scope: "user",
       });
       expect(parsed.commands).toEqual([]);
-      expect(parsed.diagnostics).toEqual([
-        { source: "broken", message: "Invalid command metadata or document" },
-      ]);
+      expect(parsed.diagnostics).toEqual([{ source: "broken", message }]);
     }
   });
   it("applies typed defaults, escaping and required validation without expanding inserted values", () => {

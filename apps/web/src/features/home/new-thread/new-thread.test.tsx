@@ -89,7 +89,7 @@ test("a model id two providers share starts the thread on the provider it was pi
     "false",
   );
   expect(
-    within(picker).getByRole("option", { name: "GPT-6, Cursor · Your CLI login" }).ariaSelected,
+    within(picker).getByRole("option", { name: "GPT-6, Cursor · Your Cursor login" }).ariaSelected,
   ).toBe("true");
   await closeModelControl();
 

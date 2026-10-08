@@ -164,7 +164,7 @@ test("Pi groups its models by the provider it is signed in to", async () => {
 test("a provider whose sign-in expired says so and how to fix it, and Refresh models discovers again", async () => {
   const app = harness();
   const { popover, list } = await openPicker(app);
-  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor · Your CLI login" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor · Your Cursor login" }));
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
   expect(within(list).getByText(/Sign in using Cursor, then refresh models\./)).toBeTruthy();
   expect(within(list).getByRole("option", { name: /^Composer 2\.5/ })).toBeTruthy();
@@ -202,7 +202,7 @@ test("a provider whose discovery failed with no models left still opens, to say 
             : push(reply),
         );
   const { popover, list } = await openPicker(app);
-  const cursor = within(popover).getByRole("tab", { name: "Cursor · Your CLI login" });
+  const cursor = within(popover).getByRole("tab", { name: "Cursor · Your Cursor login" });
   expect(cursor.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(cursor);
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
@@ -297,6 +297,7 @@ test("search finds models across every provider, older ones last and marked", as
     "Sonnet 4.5, OpenCode · Anthropic · Your CLI login",
     "Sonnet 4.5, OpenCode · OpenCode Zen · Your CLI login",
     "Sonnet 4.5, OpenCode · OpenRouter · Your CLI login",
+    "Sonnet 4.5, OpenCode · OpenRouter · OpenRouter API",
     "Sonnet 4.5, Claude Code · Personal · Legacy",
     "Sonnet 4.5, Claude Code · Work · Legacy",
   ]);
