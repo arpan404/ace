@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { ReactNode, UIEvent } from "react";
 import { useToastAnchor } from "@/lib/toast-clearance.ts";
+import { PausedNotice } from "@/components/paused-notice.tsx";
 import type { WorkspaceDefinition } from "@/lib/workspace/index.ts";
 import { AppHeader, type HeaderProps } from "./app-header.tsx";
 import { ConnectionNotice } from "./connection-notice.tsx";
@@ -59,6 +60,7 @@ export function Screen(
     return (
       <>
         {header()}
+        <PausedNotice />
         <ConnectionNotice />
         <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
       </>
@@ -69,7 +71,12 @@ export function Screen(
       definition={props.workspace.definition}
       title={props.title}
       header={header}
-      notice={<ConnectionNotice />}
+      notice={
+        <>
+          <PausedNotice />
+          <ConnectionNotice />
+        </>
+      }
     >
       {main}
     </Workspace>

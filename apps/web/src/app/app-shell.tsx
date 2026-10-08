@@ -12,7 +12,6 @@ import { SignInHost } from "@/features/sign-in/index.ts";
 import { AppSidebar, GlobalHotkeys, SidebarFrame } from "@/features/shell/index.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
-import { PausedNotice } from "@/components/paused-notice.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /**
@@ -47,10 +46,7 @@ export function AppShell() {
             Skip to content
           </a>
           <SidebarFrame sidebar={<ShellSidebar />}>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <PausedNotice />
-              <Outlet />
-            </div>
+            <Outlet />
           </SidebarFrame>
           <CommandPalette />
           <SearchHost />

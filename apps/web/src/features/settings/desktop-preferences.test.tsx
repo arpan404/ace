@@ -1,4 +1,5 @@
 import { cleanup, screen, waitFor } from "@testing-library/react";
+import { facts } from "@ace/fake-daemon";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -174,7 +175,22 @@ test("tray pause is visible across pages and Resume reopens admission", async ()
     },
   });
   const app = harness();
+  app
+    .play({
+      thread: {
+        id: "paused-example",
+        workspaceId: "project",
+        title: "Pause example",
+        provider: "claude",
+      },
+      steps: [{ kind: "facts", facts: [facts.rootAgent("claude"), facts.turn("root")] }],
+    })
+    .runUntilBlocked();
   await app.open("/settings/general");
+  expect(await screen.findByText("Paused", { exact: true })).toBeTruthy();
+  cleanup();
+  await app.open("/t/paused-example");
+  await screen.findByRole("heading", { level: 1, name: "Pause example" });
   expect(await screen.findByText("Paused", { exact: true })).toBeTruthy();
   cleanup();
   await app.open("/settings/appearance");
