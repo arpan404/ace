@@ -112,7 +112,7 @@ export function harnessCatalog(
         id: `${provider}:mcp-server:${name}`,
         kind: "plugin",
         name: `MCP: ${name}`,
-        description: `MCP server${typeof v.status === "string" ? ` (${v.status})` : ""}`,
+        description: "MCP server",
         source,
         invocation: { type: "unavailable", reason: "Select an advertised tool from this server" },
       });

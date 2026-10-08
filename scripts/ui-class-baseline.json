@@ -51,9 +51,6 @@
   "apps/web/src/components/ui/step-slider.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/features/accounts/account-card.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/accounts/scheduling-policy.tsx": {
     "text-size": 1
   },
@@ -129,7 +126,7 @@
     "bare-outline": 1
   },
   "apps/web/src/features/thread/composer/suggestion-list.tsx": {
-    "text-size": 2
+    "text-size": 1
   },
   "apps/web/src/features/thread/interactions/question-form.tsx": {
     "radius": 1

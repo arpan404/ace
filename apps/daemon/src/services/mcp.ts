@@ -1,7 +1,6 @@
 import { logError } from "@ace/diagnostics";
 import { toolResultObserver } from "../tool-result-mcp.ts";
 import { requestDeviceAccess } from "../device-access.ts";
-import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { providerMcpSources } from "../provider-mcp-sources.ts";
 import { measurementObserver } from "../measurement-mcp.ts";
 import { agentControlCall } from "./agent-control-failure.ts";
@@ -155,58 +154,63 @@ export async function startMcp(context: ServiceContext): Promise<void> {
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
+import { McpProviderRequest, type McpSources } from "@ace/protocol";
+const mcpTypes = new Set<string>(
+  McpProviderRequest.options.map((option) => option.shape.type.value),
+);
+const isMcp = (message: { type: string }): message is McpProviderRequest =>
+  mcpTypes.has(message.type);
 export function createMcpSession(context: SocketContext): SocketService {
   const { options, authorize, connected, send, fail, canReadThread } = context;
   return {
     async handle(message) {
+      if (!isMcp(message)) return false;
+      const reading = ["mcp.status", "mcp.sources", "mcp.provider.sources"].includes(message.type);
       if (
-        message.type !== "mcp.sources" &&
-        message.type !== "mcp.add" &&
-        message.type !== "mcp.status" &&
-        message.type !== "mcp.replace" &&
-        message.type !== "mcp.reconnect" &&
-        message.type !== "mcp.enable" &&
-        message.type !== "mcp.disable"
-      )
-        return false;
-      if (
-        !authorize(["mcp.status", "mcp.sources"].includes(message.type) ? "read" : "operate") ||
-        !canReadThread(message.threadId)
+        !authorize(reading ? "read" : "operate") ||
+        ("threadId" in message && !canReadThread(message.threadId))
       ) {
         fail("forbidden", "Thread MCP scope required", false, { requestId: message.requestId });
         return true;
       }
+      // A provider-wide request (Settings) reaches the provider's latest live session it may read.
+      const scope =
+        "threadId" in message ? { threadId: message.threadId } : { provider: message.provider };
+      const live = () =>
+        "threadId" in message
+          ? options.mcp?.providers.require(message.threadId)
+          : options.mcp?.providers.latest(message.provider, canReadThread);
+      const reply = (result: unknown) => {
+        if (connected())
+          send({ type: "mcp.result", ...scope, requestId: message.requestId, result });
+      };
       try {
-        if (message.type === "mcp.sources") {
+        if (message.type === "mcp.sources" || message.type === "mcp.provider.sources") {
           let controls;
           try {
-            controls = options.mcp?.providers.require(message.threadId);
+            controls = live();
           } catch {
             /* An idle provider has no live catalog. */
           }
-          const result = {
-            groups: options.mcp?.groups?.(message.threadId, daemonMcpCapabilities(options)) ?? [],
+          const result: McpSources = {
+            // Older clients still read this field; ace's own tools live in the side panel.
+            groups: [],
             servers: controls ? providerMcpSources(await controls.status()) : [],
             live: Boolean(controls),
             canAdd: Boolean(controls?.add),
             appliesNextTurn: controls?.appliesNextTurn ?? false,
           };
-          if (connected())
-            send({
-              type: "mcp.result",
-              threadId: message.threadId,
-              requestId: message.requestId,
-              result,
-            });
+          reply(result);
           return true;
         }
         if ("name" in message && message.name === "ace")
           throw new Error("ace owns this MCP connection");
-        const controls = options.mcp?.providers.require(message.threadId);
+        const controls = live();
         if (!controls) throw new Error("Provider MCP session unavailable");
         let result: unknown;
         switch (message.type) {
           case "mcp.add":
+          case "mcp.provider.add":
             if (!controls.add)
               throw new Error("Adding MCP servers is unavailable for this provider");
             if (
@@ -225,22 +229,19 @@ export function createMcpSession(context: SocketContext): SocketService {
             result = await controls.replace(message.servers);
             break;
           case "mcp.reconnect":
+          case "mcp.provider.reconnect":
             result = await controls.reconnect(message.name);
             break;
           case "mcp.enable":
+          case "mcp.provider.enable":
             result = await controls.enable(message.name);
             break;
           case "mcp.disable":
+          case "mcp.provider.disable":
             result = await controls.disable(message.name);
             break;
         }
-        if (connected())
-          send({
-            type: "mcp.result",
-            threadId: message.threadId,
-            requestId: message.requestId,
-            result: result ?? null,
-          });
+        reply(result ?? null);
       } catch (error) {
         fail(
           "mcp_failed",

@@ -195,6 +195,144 @@
         "name"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "mcp.provider.sources",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "provider",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "type": "string",
+          "x-ace-constraint": "The service-owned name ace is reserved."
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "server": {
+          "$ref": "https://ace.local/protocol/v1/McpServerInput.json"
+        },
+        "type": {
+          "const": "mcp.provider.add",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "provider",
+        "type",
+        "name",
+        "server"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "mcp.provider.reconnect",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "provider",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "mcp.provider.enable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "provider",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "mcp.provider.disable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "provider",
+        "type",
+        "name"
+      ],
+      "type": "object"
     }
   ]
 }
