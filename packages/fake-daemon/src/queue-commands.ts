@@ -1,4 +1,5 @@
 import { accountName, providerDisplayName } from "@ace/ui-core";
+import { blockedUntil } from "@ace/accounts/availability";
 import type { AccountSummary } from "@ace/protocol/accounts";
 import type { Fact } from "@ace/core";
 import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
@@ -78,7 +79,7 @@ export function queueCommand(
   payload: QueueCommand,
   now: number,
   commandId: string,
-  destination?: AccountSummary,
+  account?: AccountSummary,
 ): ThreadCommandOutcome {
   if (payload.expectedRevision !== host.queue.revision) return fail("queue_conflict");
   const index =
@@ -148,8 +149,13 @@ export function queueCommand(
       return { ok: true, facts: release(host) };
     case "thread.limit": {
       if (payload.action === "resume_at_reset" || payload.action === "snooze_until_reset") {
-        const reset = limitedUntil(host) ?? host.queue.resumeAt ?? undefined;
-        if (reset === undefined || reset <= now) return fail("reset_time_unknown");
+        const accountReset = account ? blockedUntil(account.quota, now) : undefined;
+        const reset =
+          accountReset === undefined
+            ? (limitedUntil(host) ?? host.queue.resumeAt ?? undefined)
+            : accountReset;
+        if (reset === null || reset === undefined || reset <= now)
+          return fail("reset_time_unknown");
         hold(host, payload.action === "resume_at_reset" ? "limit" : "snooze", reset);
         return { ok: true, facts: [] };
       }
@@ -167,7 +173,7 @@ export function queueCommand(
                     type: "notice",
                     complete: true,
                     level: "info",
-                    text: `Moved to ${destination ? accountName({ ...destination, providerLabel: providerDisplayName(destination.provider) }) : "another account"} after the usage limit.`,
+                    text: `Moved to ${account ? accountName({ ...account, providerLabel: providerDisplayName(account.provider) }) : "another account"} after the usage limit.`,
                   },
                 },
               ];

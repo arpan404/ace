@@ -1114,7 +1114,13 @@ export class FakeDaemon implements Host {
           this.options.clock(),
           commandId,
           payload.type === "thread.limit"
-            ? this.services.accounts.find((account) => account.id === payload.instanceId)
+            ? this.services.accounts.find(
+                (account) =>
+                  account.id ===
+                  (payload.action === "migrate_now"
+                    ? (payload.instanceId ?? this.migrationTarget(host))
+                    : (host.view.thread.live?.account ?? host.view.thread.execution?.instanceId)),
+              )
             : undefined,
         ),
       );
