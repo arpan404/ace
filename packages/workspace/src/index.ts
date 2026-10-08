@@ -84,3 +84,5 @@ export { SafeRoot, transferTemporary as isWorkspaceTransferTemporary } from "./s
 export { PinnedDirectory } from "./pinned-directory.ts";
 export { GitIgnore } from "./ignore.ts";
 export { tree as walkWorkspace } from "./tree.ts";
+
+export { list as listWorkspace } from "./list.ts";

@@ -201,6 +201,16 @@ export class UploadStore {
         this.metadata.run("DELETE FROM drafts WHERE id=?", op.draftId);
         return { kind: "ok" };
       }
+      if (op.op === "draft.attachment.release") {
+        await this.draftWorkspace(device, op.draftId);
+        requireContext(
+          this.metadata.get("SELECT adopted FROM drafts WHERE id=?", op.draftId)?.adopted === null,
+          "forbidden",
+          "Draft already adopted",
+        );
+        this.release(op.draftId, op.sha256);
+        return { kind: "ok" };
+      }
       if (op.op === "draft.upload.begin") {
         await this.draftWorkspace(device, op.draftId);
         requireContext(
