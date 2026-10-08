@@ -7,6 +7,9 @@ import {
   searchRegistry,
   type RegistryStanding,
 } from "@ace/ui-core/acp-registry";
+import { useQuery } from "@tanstack/react-query";
+import { acpRegistryId } from "@ace/ui-core/provider-icons";
+import { settingsQueries, useSettingsBackend } from "../data/use-settings.ts";
 import { useMemo } from "react";
 import {
   Command,
@@ -50,6 +53,12 @@ export function RegistryList(props: {
 }) {
   const { view, query } = props;
   const phone = usePhone();
+  const providers = useQuery(settingsQueries.providers(useSettingsBackend()));
+  const added = new Set(
+    (providers.data ?? [])
+      .filter((provider) => provider.state !== "not_installed")
+      .map((provider) => acpRegistryId(provider.acpAgentId ?? provider.kind)),
+  );
   const groups = useMemo(() => {
     const rows = searchRegistry(view?.agents ?? [], query).map((agent): Row => ({
       agent,
@@ -132,7 +141,12 @@ export function RegistryList(props: {
                       {row.agent.version}
                     </span>
                   )}
-                  <Standing standing={row.standing} phone={phone} />
+                  {added.has(acpRegistryId(row.agent.acpAgentId)) &&
+                  row.standing.kind !== "installed" ? (
+                    <span className="shrink-0 text-xs text-muted-foreground">Already added</span>
+                  ) : (
+                    <Standing standing={row.standing} phone={phone} />
+                  )}
                 </CommandItem>
               )}
             </CommandCollection>

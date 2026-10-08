@@ -16,7 +16,6 @@ import { cn } from "@/lib/cn.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { ViewSidebarError, useViewListKeys } from "@/components/ui/view-row.tsx";
@@ -68,24 +67,24 @@ export function AutomationsSidebar() {
     <ViewSidebar
       title="Automations"
       actions={
-        <Tip label="New automation">
-          <Link
-            to="/automations/new"
-            aria-label="New automation"
-            className={cn(buttonVariants({ variant: "ghost" }), "size-[30px] px-0")}
-          >
-            <Icon icon={PlusIcon} size={16} />
-          </Link>
-        </Tip>
+        automations?.length ? (
+          <Tip label="New automation">
+            <Link
+              to="/automations/new"
+              aria-label="New automation"
+              className={cn(buttonVariants({ variant: "ghost" }), "size-[30px] px-0")}
+            >
+              <Icon icon={PlusIcon} size={16} />
+            </Link>
+          </Tip>
+        ) : undefined
       }
     >
       {!automations && list.isError ? (
         <ViewSidebarError onRetry={() => void list.refetch()} />
       ) : !automations ? (
-        <ListSkeleton label="automations" shape="tile" rows={4} />
-      ) : !automations.length ? (
-        <EmptyState variant="inline" title="No automations yet" />
-      ) : (
+        <ListSkeleton label="automations" shape="row" rows={4} />
+      ) : !automations.length ? null : (
         <ul {...keys} aria-label="Automations" className="flex flex-col gap-px">
           {automations.map(({ automation, lastPollError }) => (
             <li key={automation.id}>

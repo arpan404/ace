@@ -236,8 +236,8 @@ function Prompt(props: { text: string }) {
 
 /**
  * A follow-up to this agent alone, in the thread composer's own shape. ace reaches an agent it
- * delegated as a thread of its own (a queued message to that thread); a provider's own subagent
- * takes instructions only from its parent, so there the composer is off and says where to ask.
+ * delegated as a thread of its own (a queued message to that thread). A provider's own subagent
+ * takes instructions from its parent; a short note explains where to ask.
  */
 function FollowUp(props: { threadId: string; agent: Agent }) {
   const { agent } = props;
@@ -252,18 +252,13 @@ function FollowUp(props: { threadId: string; agent: Agent }) {
   return (
     <div className="shrink-0 px-4 pt-2 pb-4">
       <div className="mx-auto flex w-full max-w-[736px] flex-col gap-2">
-        {AgentComposer && (
+        {target && AgentComposer && (
           <AgentComposer
             threadId={props.threadId}
             agentId={agent.id}
             target={target}
             label={`Message ${name}`}
             placeholder={`Follow up with ${name} only`}
-            unavailable={
-              target
-                ? undefined
-                : { reason: note, describedBy: noteId, short: "Ask the main agent instead" }
-            }
           />
         )}
         <p id={noteId} className="px-4 text-xs leading-4 text-subtle-foreground">

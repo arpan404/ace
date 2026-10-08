@@ -74,7 +74,7 @@ function ContrastNotice(props: { warnings: ContrastWarning[] }) {
   return (
     <div role="status" className="mt-3.5 text-sm text-muted-foreground">
       <StatusLabel
-        tone={count ? "needs-you" : "done"}
+        tone={count ? "failed" : "done"}
         label={
           count ? `${count} contrast warning${count === 1 ? "" : "s"}` : "Contrast looks good."
         }

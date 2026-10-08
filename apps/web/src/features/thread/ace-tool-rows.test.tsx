@@ -33,8 +33,8 @@ test("a refused background key press reads as a sentence naming Safari, with its
   const refused = within(safari).getByRole("button", {
     name: "Safari didn't accept that key in the background Failed",
   });
-  // Safari's letter stands in for its icon in a browser (the desktop app shows the real one).
-  expect(refused.textContent).toMatch(/^SSafari didn't accept/);
+  // The row reads once; a browser fallback letter belongs only to the group heading.
+  expect(refused.textContent).toBe("Safari didn't accept that key in the backgroundFailed");
   expect(
     within(safari).getByRole("button", {
       name: "Safari's focus changed while typing; try again Failed",
@@ -88,7 +88,7 @@ test("a screenshot a tool returned shows as a thumbnail that opens the lightbox"
   const tile = await within(steps).findByRole("img", { name: "Took a screenshot of github.com" });
   expect(tile.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
 
-  await userEvent.click(tile.closest("button")!);
+  await userEvent.click(tile);
   const lightbox = await screen.findByRole("dialog", { name: "Took a screenshot of github.com" });
   expect(
     within(lightbox)
@@ -175,4 +175,12 @@ test("an audit with no call, and a tool ace has no words for, still read plainly
     }),
   ).toBeTruthy();
   expect(within(steps).getByRole("button", { name: "Used ace frobnicate widgets" })).toBeTruthy();
+});
+
+test("the Safari demo reports the time spent across its actions", async () => {
+  const app = harness({ clock: () => 100_000 });
+  app.play(aceToolsComputerUse()).runThrough("used-safari");
+  const { feed } = await openSteps(app, "thread-ace-tools-safari");
+  expect(within(feed).queryByRole("button", { name: /^Worked for 1s/ })).toBeNull();
+  expect(within(feed).getByRole("button", { name: /^Worked for 3[0-9]s/ })).toBeTruthy();
 });

@@ -15,7 +15,6 @@
   /* Layout. */
   --sidebar-w: 280px;
   /* A view's own list beside its column (Automations, Skills, Activity). */
-  --pane-w: 272px;
   --header-h: 50px;
   --column: 760px;
   /* Every composer footer control: plus, permission, model, meter, send and stop. */

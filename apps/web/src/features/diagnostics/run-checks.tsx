@@ -85,13 +85,7 @@ export function RunChecks() {
                     <StatusLine tone={view?.tone ?? "idle"} text={view?.summary ?? "Checking…"} />
                   ) : (
                     <StatusLabel
-                      tone={
-                        check.status === "ok"
-                          ? "done"
-                          : check.status === "warn"
-                            ? "waiting"
-                            : "failed"
-                      }
+                      tone={check.status === "ok" ? "done" : "failed"}
                       label={
                         check.status === "ok"
                           ? "Passed"

@@ -155,12 +155,9 @@ test("a subagent opens as its own tab: who started it, what it was asked, and on
   // The parent's own answer stays in the conversation.
   expect(within(transcript).queryByText(/replayFrom now treats seq 0/)).toBeNull();
 
-  // A provider's own subagent can't be messaged directly; the composer says where to ask.
-  const box = within(panel).getByRole("combobox", { name: "Message resume-sweep" });
-  expect(box.getAttribute("aria-disabled")).toBe("true");
-  expect(document.getElementById(box.getAttribute("aria-describedby") ?? "")?.textContent).toMatch(
-    /take instructions only from the agent that started them/,
-  );
+  // A native subagent has a clear direction instead of another disabled composer.
+  expect(within(panel).queryByRole("combobox", { name: "Message resume-sweep" })).toBeNull();
+  expect(within(panel).getByText(/Ask the main agent in the thread's composer/)).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("button", { name: /Back to agents/ }));
   expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();

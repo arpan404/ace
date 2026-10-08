@@ -1,10 +1,9 @@
 import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
-import { Icon, type IconGlyph } from "@/components/icon.tsx";
+import { type IconGlyph } from "@/components/icon.tsx";
 
 /**
- * Empty state: a duotone glyph on a soft wash of the accent, a plain sentence and at most one action. Calm, never
- * celebratory. A view says it once: the main pane takes the full state (`variant="page"`),
+ * Empty state: a plain sentence and at most one action. A view says it once: the main pane takes the full state (`variant="page"`),
  * its sidebar list one quiet line (`variant="inline"`: no glyph, top-aligned).
  */
 function EmptyState(props: {
@@ -37,16 +36,11 @@ function EmptyState(props: {
     <div
       data-slot="empty"
       className={cn(
-        "flex h-full min-h-0 flex-col items-center justify-center gap-2 px-5 py-10 text-center",
+        "flex h-full min-h-0 flex-col items-center justify-center gap-1 px-5 py-6 text-center",
         props.className,
       )}
     >
-      {props.icon && (
-        <span className="mb-2 grid size-16 place-items-center rounded-full bg-ring/10 text-link">
-          <Icon icon={props.icon} size={36} empty />
-        </span>
-      )}
-      <Title className="text-md font-medium text-foreground">{props.title}</Title>
+      <Title className="text-ui font-medium text-foreground">{props.title}</Title>
       {props.description && (
         <p className="max-w-[44ch] text-ui leading-normal text-muted-foreground">
           {props.description}

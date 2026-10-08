@@ -174,7 +174,7 @@ export function UsageSection() {
         </p>
       ) : (
         <>
-          <dl className="mt-4 grid grid-cols-2 gap-3.5 md:grid-cols-4">
+          <dl className="mt-4 flex flex-col">
             <Stat label="Tokens" value={daily.data && formatTokens(total)} />
             <Stat
               label="Reported cost"
@@ -265,13 +265,13 @@ function ReadFailed(props: { retry: () => void; children: ReactNode; className?:
 /** One figure; a skeleton until its value has loaded. */
 function Stat(props: { label: string; value: string | undefined; note?: string | undefined }) {
   return (
-    <div className="py-2">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 py-1.5">
       <dt className="text-xs font-medium text-subtle-foreground">{props.label}</dt>
-      <dd className="mt-1 text-xl font-semibold tracking-title tabular-nums">
+      <dd className="text-ui font-medium tabular-nums">
         {props.value ?? <Skeleton className="my-1.5 h-4 w-16" />}
       </dd>
       {props.value !== undefined && props.note && (
-        <dd className="mt-1 text-xs text-subtle-foreground">{props.note}</dd>
+        <dd className="w-full text-xs text-subtle-foreground">{props.note}</dd>
       )}
     </div>
   );

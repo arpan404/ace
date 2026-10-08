@@ -9,6 +9,7 @@ import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { useNow } from "@/lib/time.ts";
+import { useSidebarInline } from "@/lib/breakpoints.ts";
 import { ArrivalScope } from "@/lib/arrival.tsx";
 import { useActivityState, type ActivityTab } from "./activity-state.tsx";
 import { EventItemRow, RunItemRow } from "./feed-item-rows.tsx";
@@ -108,6 +109,7 @@ function MarkAllRead() {
 
 /** The feed's rows; one Tab stop: ↑/↓, J/K, Home and End move, Enter opens, E/U mark. */
 function FeedList(props: { id: string }) {
+  const wide = useSidebarInline();
   const { tab } = useActivityState();
   const needs = useNeedsYou();
   const { items, loaded } = useFeedItems();
@@ -131,18 +133,13 @@ function FeedList(props: { id: string }) {
   if (!sidebarLoaded || !loaded)
     return (
       <div {...panel}>
-        <ListSkeleton label="activity" shape="tile" rows={4} />
+        <ListSkeleton label="activity" shape="row" rows={4} />
       </div>
     );
   const showNeeds = tab === "all" || tab === "needs";
   const empty = (!showNeeds || !needs.entries.length) && !items.length;
   const label = tabs.find((entry) => entry.id === tab)?.empty ?? "Nothing here";
-  if (empty)
-    return (
-      <div {...panel}>
-        <EmptyState variant="inline" title={label} />
-      </div>
-    );
+  if (empty) return <div {...panel}>{!wide && <EmptyState variant="inline" title={label} />}</div>;
   const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return keys.onKeyDown(event);
     const rows = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-view-row]")];

@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from "react";
 import { useSidebarInline } from "@/lib/breakpoints.ts";
-import { cn } from "@/lib/cn.ts";
 import { Screen } from "./screen.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
@@ -19,20 +18,17 @@ interface ViewList {
   setInPage(inPage: boolean): void;
 }
 const ViewListContext = createContext<ViewList | null>(null);
-/** The list is drawn as a pane beside its column, so its heading lines up with the column's title. */
-const InPaneContext = createContext(false);
 
 /**
  * Where a view's own list goes. `threads`: the view is the thread list the sidebar always shows
  * (Home, and pages that keep it, like Usage & accounts). `sidebar`: the list takes the sidebar's
- * body in its place (Settings' pages). `pane`: the sidebar keeps the threads and the list is a
- * pane at the start of the view's column (Automations, Skills, Activity).
+ * body in its place (Settings' pages). Activity, Automations and Skills also replace the thread list in the sidebar.
  */
-export type ViewListPlace = "threads" | "sidebar" | "pane";
+export type ViewListPlace = "threads" | "sidebar";
 
 /**
  * A view: its own list (`place`) and its main column. On a narrow window, where the sidebar is a
- * sheet, the view's index page may show the list itself (`ViewListPage`), and a pane isn't drawn.
+ * sheet, the view's index page may show the list itself (`ViewListPage`).
  */
 export function ViewFrame(props: {
   label: string;
@@ -42,7 +38,6 @@ export function ViewFrame(props: {
   children: ReactNode;
 }) {
   const { body, claimBody } = useViewFrame();
-  const wide = useSidebarInline();
   const [inPage, setInPage] = useState(false);
   const list = useMemo<ViewList>(
     () => ({ label: props.label, sidebar: props.sidebar, setInPage }),
@@ -62,14 +57,6 @@ export function ViewFrame(props: {
           body,
         )}
       <div className="relative flex min-w-0 flex-1 bg-reading">
-        {props.place === "pane" && wide && (
-          <aside
-            aria-label={props.label}
-            className="flex w-(--pane-w) min-h-0 shrink-0 flex-col border-r"
-          >
-            <InPaneContext.Provider value>{props.sidebar}</InPaneContext.Provider>
-          </aside>
-        )}
         <div className="relative flex min-w-0 flex-1 flex-col">{props.children}</div>
       </div>
     </ViewListContext.Provider>
@@ -105,22 +92,9 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
 
 /** The heading of a view's list in the sidebar, with an optional filter or actions. */
 export function SidebarHeader(props: { title: string; actions?: ReactNode }) {
-  const inPane = useContext(InPaneContext);
   return (
-    <div
-      className={cn(
-        "group/heading flex shrink-0 items-center gap-1.5 pr-2.5 pl-4",
-        // Beside a column, the heading takes the header's height so both titles share a line.
-        inPane ? "h-(--header-h)" : "h-9 pt-1",
-      )}
-    >
-      {/* In the sidebar, a quiet section label like the list's own headings. */}
-      <h2
-        className={cn(
-          "min-w-0 flex-1 truncate",
-          inPane ? "text-ui text-muted-foreground" : "text-xs font-medium text-subtle-foreground",
-        )}
-      >
+    <div className="group/heading flex h-9 shrink-0 items-center gap-1.5 pt-1 pr-2.5 pl-4">
+      <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-subtle-foreground">
         {props.title}
       </h2>
       {props.actions}

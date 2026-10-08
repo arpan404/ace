@@ -29,7 +29,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
       data-slot="dialog-overlay"
       className={cn(
         layers.overlay,
-        "fixed inset-0 bg-black/30 [-webkit-app-region:no-drag] transition-opacity duration-(--dur-2) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-starting-style:opacity-0",
+        "fixed inset-0 bg-black/50 [-webkit-app-region:no-drag] transition-opacity duration-(--dur-2) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-starting-style:opacity-0",
         className,
       )}
       {...props}

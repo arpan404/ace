@@ -152,7 +152,7 @@ export function StepRow(props: { step: StepText; open: boolean; panel: string; o
       {!step.settled ? (
         <LiveWorkMark className="mx-px" />
       ) : step.ace ? (
-        <ToolMarkIcon mark={step.ace.mark} />
+        <ToolMarkIcon mark={step.ace.mark} fallback="row" />
       ) : (
         <Glyph aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
       )}

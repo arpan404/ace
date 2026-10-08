@@ -45,6 +45,7 @@ const progress = () => screen.findByRole("progressbar", { name: "Providers ready
 test("a first launch opens setup; signing in updates readiness, and Add a project opens the folder chooser", async () => {
   const app = firstRun();
   await app.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const cards = await screen.findByRole(
     "list",
     { name: "Providers on this computer" },
@@ -78,6 +79,7 @@ test("a first launch opens setup; signing in updates readiness, and Add a projec
 test("Skip for now goes on to adding a project, and Home doesn't send this device back to setup", async () => {
   const app = firstRun();
   await app.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   await screen.findByRole("list", { name: "Providers on this computer" }, { timeout: 10_000 });
   await userEvent.click(screen.getByRole("button", { name: "Skip for now" }));
   // The first run's next step: a project to work in.
@@ -98,6 +100,7 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   // upstreams (Pi doesn't report a sign-in), Codex's CLI login signed out with Personal available, Cursor expired.
   const app = harness({ onboarding: "pending" });
   await app.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const cards = await screen.findByRole(
     "list",
     { name: "Providers on this computer" },
@@ -128,6 +131,7 @@ test("an agent that isn't installed waits apart, its install command a click awa
   app.daemon.services.installed.delete("codex");
   stage(app, "codex", { installed: false });
   await app.open("/setup");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const missing = await screen.findByRole("region", { name: "Not installed" }, { timeout: 10_000 });
   const codex = within(missing).getByRole("listitem", { name: "Codex" });
   expect(within(codex).queryByText("npm install -g @openai/codex")).toBeNull();
@@ -136,3 +140,13 @@ test("an agent that isn't installed waits apart, its install command a click awa
   // Installed ones count toward setup; this one doesn't.
   expect((await progress()).getAttribute("aria-valuetext")).toMatch(/ of 4 ready$/);
 }, 30_000);
+
+test("setup welcomes a new user before showing ready providers", async () => {
+  const app = harness({ onboarding: "pending" });
+  await app.open("/");
+  expect(await screen.findByRole("heading", { name: "Welcome to ace" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "You're ready to go" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Get started" }));
+  expect(await screen.findByRole("heading", { name: "You're ready to go" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
+});

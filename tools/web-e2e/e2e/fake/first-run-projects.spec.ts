@@ -19,6 +19,7 @@ for (const theme of ["light", "dark"])
         Object.assign(globalThis, { aceFakeWorld: "empty" });
       }, theme);
       await page.goto("/");
+      await page.getByRole("button", { name: "Get started" }).click();
       const providers = page.getByRole("list", { name: "Providers on this computer" });
       await expect(providers).toBeVisible();
       await expect(providers.getByRole("listitem", { name: "Claude Code" })).toContainText(
@@ -96,6 +97,7 @@ for (const preset of ["midnight", "graphite", "paper", "slate", "contrast"])
       localStorage.setItem("ace.appearance", JSON.stringify({ theme: id }));
     }, preset);
     await page.goto("/setup");
+    await page.getByRole("button", { name: "Get started" }).click();
     await expect(page.getByRole("button", { name: "Add a project", exact: true })).toBeVisible();
     await shot(page, `setup-${preset}-390`);
     await page.goto("/new");
