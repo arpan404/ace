@@ -5,9 +5,9 @@ import type { OpenCodeClient } from "@opencode/client";
 import type { Runtime } from "./runtime.ts";
 import { mcpReadyRpc } from "./mcp-ready-contract.ts";
 
-export const mcpReadyPluginDirectory = fileURLToPath(
-  new URL("./mcp-ready-plugin", import.meta.url),
-);
+export function mcpReadyPluginDirectory(): string {
+  return fileURLToPath(new URL("./mcp-ready-plugin", import.meta.url));
+}
 
 /** Add only a credential-free plugin. User config and persistent files stay provider-owned. */
 export function mcpReadyEnvironment(

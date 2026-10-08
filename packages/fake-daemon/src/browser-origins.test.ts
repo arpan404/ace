@@ -1,9 +1,10 @@
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { expect, it } from "vitest";
 import { Client, BrowserOriginsClient } from "@ace/client";
 import { DeviceId, ThreadId, ThreadView } from "@ace/protocol";
 import { FakeDaemon, fakeTransport } from "./index.ts";
 
-async function fixture(mode: "ask" | "auto-review" | "read-only" | "full-access" = "ask") {
+async function fixture(mode: string = ":workspace") {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   daemon.createThread({
     id: "thread",
@@ -100,7 +101,7 @@ it("the typed client grant API lists consent, grants exact origins, revokes and 
     await f.client.close();
   }
 });
-it.each(["ask", "auto-review"] as const)(
+it.each(nativePermissionModes("codex").map((entry) => entry.id))(
   "fake %s navigation waits on the real client approval command and honors thread grants",
   async (mode) => {
     const f = await fixture(mode);
@@ -112,7 +113,7 @@ it.each(["ask", "auto-review"] as const)(
       expect(interaction.request).toMatchObject({
         title: "open https://youtube.com in the thread browser",
       });
-      if (mode === "auto-review") expect(interaction.review?.decision).toBe("escalate");
+      expect(interaction.review).toBeUndefined();
       expect(
         await f.client.command({
           type: "interaction.resolve",
@@ -145,29 +146,29 @@ it.each(["ask", "auto-review"] as const)(
     }
   },
 );
-it("fake full access and a global allowlist open sites; read-only refuses them", async () => {
-  for (const mode of ["full-access", "ask", "read-only"] as const) {
+it("fake native modes honor the global allowlist without granting other origins", async () => {
+  for (const mode of [":danger-full-access", ":workspace", ":read-only"]) {
     const f = await fixture(mode);
     try {
       f.daemon.services.settings.seed({ "browser.allowedOrigins": ["https://youtube.com"] });
-      if (mode === "read-only")
-        await expect(
-          f.daemon.browser.navigateAgent("thread", "https://youtube.com"),
-        ).rejects.toMatchObject({ blocked: { reason: "read_only" } });
-      else {
-        await f.daemon.browser.navigateAgent(
-          "thread",
-          mode === "full-access" ? "https://new.example" : "https://youtube.com",
-        );
-        expect(Object.values(f.view().interactions)).toEqual([]);
-        if (mode === "full-access") {
-          expect(f.daemon.browser.originsList("thread")).toMatchObject([
-            { origin: "https://new.example", scope: "page" },
-          ]);
-          f.daemon.browser.originsRevoke("thread", "https://new.example");
-          expect(f.daemon.browser.originsList("thread")).toEqual([]);
-        }
-      }
+      await f.daemon.browser.navigateAgent("thread", "https://youtube.com");
+      expect(Object.values(f.view().interactions)).toEqual([]);
+      const navigation = f.daemon.browser.navigateAgent("thread", "https://new.example");
+      const pending = Object.values(f.view().interactions).find(
+        (entry) => entry.state === "pending",
+      );
+      if (!pending) throw new Error("Missing approval outside the allowlist");
+      await f.client.command({
+        type: "interaction.resolve",
+        interactionId: pending.id,
+        resolution: { kind: "approval", optionId: "allow_once" },
+      });
+      await navigation;
+      expect(f.daemon.browser.originsList("thread")).toMatchObject([
+        { origin: "https://new.example", scope: "page" },
+      ]);
+      f.daemon.browser.originsRevoke("thread", "https://new.example");
+      expect(f.daemon.browser.originsList("thread")).toEqual([]);
     } finally {
       await f.client.close();
     }

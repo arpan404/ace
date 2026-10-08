@@ -28,7 +28,13 @@ class Client {
       const value: unknown = binary
         ? z.instanceof(Buffer).parse(data)
         : ServerMessage.parse(JSON.parse(data.toString()));
-      if (!binary && ServerMessage.parse(value).type === "models.changed") return;
+      if (
+        !binary &&
+        ["models.changed", "providers.changed", "usage.limits_changed"].includes(
+          ServerMessage.parse(value).type,
+        )
+      )
+        return;
       const waiting = this.waiters.shift();
       if (waiting) waiting(value);
       else this.queue.push(value);

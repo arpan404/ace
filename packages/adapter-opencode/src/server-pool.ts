@@ -66,7 +66,7 @@ export class ServerPool {
       },
       ...(connection
         ? {
-            mcpReadyPlugin: mcpReadyPluginDirectory,
+            mcpReadyPlugin: mcpReadyPluginDirectory(),
             secrets: [...(this.options.secrets ?? []), connection.bearer],
           }
         : {}),

@@ -132,7 +132,6 @@ createInterface({input:process.stdin}).on('line', line => {
             type: "thread.create",
             workspaceId,
             provider: corpus.provider,
-            permissionMode: "full-access",
             input: [{ type: "text", text: "fixture input" }],
           },
         }),

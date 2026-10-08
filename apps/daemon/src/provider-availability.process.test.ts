@@ -77,7 +77,6 @@ for (const provider of ["claude", "codex", "opencode", "pi"] as const)
       {
         threadId: thread.id,
         cwd: home,
-        permissionMode: "full-access",
         env: { PATH: home },
         signal: new AbortController().signal,
         onExit(exit) {

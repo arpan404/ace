@@ -80,7 +80,7 @@ test.each([0, 80])(
     await mkdir(dataDir, { recursive: true });
     const service = new SettingsService({ dataDir, io: f.edges.io, scheduler: f.edges.scheduler });
     cleanups.push(() => service.close());
-    await service.set("approvals.policy", "ask", { kind: "global" });
+    await service.set("notifications.sound", true, { kind: "global" });
     await service.get("notifications.sound", { workspace: f.workspace });
     for (let index = 0; index < count; index++)
       await service.get("notifications.sound", { thread: `inactive-${index}` });
@@ -90,16 +90,16 @@ test.each([0, 80])(
     // Refresh must retain the original identity even when the physical cache was reclaimed.
     await service.refresh({ kind: "workspace", workspace: f.workspace });
     expect(
-      (await service.read({ keys: ["approvals.policy"], scope: { workspace: f.workspace } }))
+      (await service.read({ keys: ["notifications.sound"], scope: { workspace: f.workspace } }))
         .diagnostics,
     ).toContainEqual(expect.objectContaining({ code: "validation" }));
     await expect(
-      service.set("approvals.policy", "never", { kind: "workspace", workspace: f.workspace }),
+      service.set("notifications.sound", false, { kind: "workspace", workspace: f.workspace }),
     ).rejects.toMatchObject({ code: "validation" });
     expect(await readFile(join(dataDir, "settings.json"), "utf8")).toBe(source);
     await service.refresh({ kind: "global" });
-    expect(await service.get("approvals.policy")).toMatchObject({
-      value: "ask",
+    expect(await service.get("notifications.sound")).toMatchObject({
+      value: true,
       provenance: "global",
     });
   },
@@ -220,8 +220,10 @@ test("global aliases retain workspace containment after physical file eviction",
   const result = await service.read({ keys: ["notifications.sound"], scope: {} });
   expect(result.entries[0]).toMatchObject({ value: false, provenance: "defaults" });
   expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "validation" }));
-  await expect(service.set("approvals.policy", "never", { kind: "global" })).rejects.toMatchObject({
-    code: "validation",
-  });
+  await expect(service.set("notifications.sound", false, { kind: "global" })).rejects.toMatchObject(
+    {
+      code: "validation",
+    },
+  );
   expect(await readFile(path, "utf8")).toBe(source);
 });

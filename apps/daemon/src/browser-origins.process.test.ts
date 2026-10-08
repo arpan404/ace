@@ -1,3 +1,4 @@
+import { codexReviewerMode } from "@ace/provider-kit/permission-modes";
 import { expect, it } from "vitest";
 import { readyServices } from "./services/composition.ts";
 import { originFixture } from "./browser-origin-test-support.ts";
@@ -49,31 +50,38 @@ it("the backend policy grants human main documents and allows temporary cross-or
   expect(await backend.allowed("wss://socket.example/live")).toBe(false);
   expect(await backend.allowed("wss://links.example/live")).toBe(true);
 });
-it("full access opens new origins without human work and keeps the allowance page-only", async () => {
-  const f = await originFixture("full-access");
-  expect(await f.navigation()).toMatchObject({ url: expect.stringContaining("youtube.com") });
+it("native full access requires consent and keeps a one-shot allowance page-only", async () => {
+  const f = await originFixture(":danger-full-access");
+  let opened = f.opened();
+  const first = f.navigation();
+  expect(f.resolve(await opened, "allow_once").ok).toBe(true);
+  expect(await first).toMatchObject({ url: expect.stringContaining("youtube.com") });
   expect(f.browser.originsList(f.thread.id)).toMatchObject([
     { origin: "https://youtube.com", scope: "page" },
   ]);
   const backend = f.headless.opens[0];
   expect(await backend?.allowed("wss://youtube.com/live")).toBe(true);
-  expect(await backend?.allowed("https://cdn.example/image")).toBe(true);
-  expect(await backend?.allowed("wss://socket.example/live")).toBe(true);
-  await f.navigation("https://other.example");
+  expect(await backend?.allowed("https://cdn.example/image")).toBe(false);
+  expect(await backend?.allowed("wss://socket.example/live")).toBe(false);
+  opened = f.opened();
+  const other = f.navigation("https://other.example");
+  expect(f.resolve(await opened, "allow_once").ok).toBe(true);
+  await other;
   f.store.appendEvents(f.thread.id, [
-    { type: "thread.updated", permission: { override: "ask", effective: "ask", pending: false } },
+    {
+      type: "thread.updated",
+      permission: { override: ":read-only", effective: ":read-only", pending: false },
+    },
   ]);
   expect(await backend?.allowed("wss://youtube.com/live")).toBe(false);
   expect(await backend?.allowed("wss://socket.example/live")).toBe(false);
   expect(await backend?.allowed("wss://other.example/live")).toBe(true);
 });
-it("read-only refuses agent navigation even to granted and loopback origins; human consent still works", async () => {
-  const f = await originFixture("read-only");
+it("native read-only leaves browser consent and loopback access independent", async () => {
+  const f = await originFixture(":read-only");
   f.browser.originsGrant(f.thread.id, "https://youtube.com");
   for (const url of ["https://youtube.com", "http://localhost:1234"])
-    await expect(f.navigation(url)).rejects.toMatchObject({
-      blocked: { reason: "read_only", origin: url },
-    });
+    expect(await f.navigation(url)).toMatchObject({ url: expect.stringContaining(url) });
   f.browser.takeover(f.thread.id, "owner");
   expect(
     await f.browser.execute(
@@ -83,7 +91,7 @@ it("read-only refuses agent navigation even to granted and loopback origins; hum
     ),
   ).toMatchObject({ url: "https://human.example" });
 });
-it.each(["ask", "auto-review"] as const)(
+it.each([":workspace", codexReviewerMode("auto_review")])(
   "%s requests the exact action and honors once, thread and denial decisions",
   async (mode) => {
     const f = await originFixture(mode);
@@ -98,16 +106,7 @@ it.each(["ask", "auto-review"] as const)(
         { id: "deny", label: "Deny" },
       ],
     });
-    if (mode === "auto-review")
-      expect(f.store.getInteraction(interaction.id)?.review).toMatchObject({
-        decision: "escalate",
-        target: {
-          input: {
-            origin: "https://youtube.com",
-            action: "open https://youtube.com in the thread browser",
-          },
-        },
-      });
+    expect(f.store.getInteraction(interaction.id)?.review).toBeUndefined();
     expect(f.resolve(interaction, "allow_once").ok).toBe(true);
     expect(await first).toMatchObject({ url: expect.stringContaining("youtube.com") });
     expect(f.browser.originsList(f.thread.id)).toMatchObject([
@@ -287,7 +286,7 @@ it("engine browser approvals keep the tree needing a human and resolve without n
       state: "needs_you",
       interactions: 1,
     });
-    expect(h.store.getInteraction(interaction.id)?.review?.decision).toBe("escalate");
+    expect(h.store.getInteraction(interaction.id)?.review).toBeUndefined();
     const command = Command.parse({
       id: "allow-browser",
       deviceId: "owner",

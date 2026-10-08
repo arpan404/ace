@@ -1,3 +1,4 @@
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { copyScriptedFrame } from "./scripted-frames.ts";
 import type { Key } from "@ace/core";
 import type { Frame, ProviderAdapter, ProviderSession, SessionContext } from "@ace/engine-api";
@@ -40,11 +41,16 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
     ...(step.exit ? { exit: structuredClone(step.exit) } : {}),
   }));
   const capabilities = structuredClone(script.capabilities);
-  capabilities.permissions ??= {
-    modes: ["read-only", "ask", "auto-review", "full-access"],
-    nativeAutoReview: false,
-    toolGate: true,
-  };
+  if (!capabilities.permissions) {
+    const permissionModes = capabilities.permissionModes ?? nativePermissionModes(script.provider);
+    capabilities.permissionModes ??= permissionModes;
+    capabilities.permissions = {
+      modes: permissionModes.map((entry) => entry.id),
+      permissionModes,
+      nativeAutoReview: false,
+      toolGate: true,
+    };
+  }
   const commands: ScriptedCommand[] = [];
   const sessions: ScriptedSession[] = [];
   return {

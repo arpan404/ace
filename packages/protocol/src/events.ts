@@ -7,7 +7,7 @@ import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
 import { QueueUpdated } from "./queue.ts";
 import { ContextMeterUpdated, ContextSampled } from "./context-meter.ts";
-import { UsageMetadata } from "./usage.ts";
+import { UsageMetadata } from "./usage-core.ts";
 import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import {

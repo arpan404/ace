@@ -32,7 +32,7 @@ test("the list says each provider's state in one line and asks only where someth
   const installed = await section();
   expect(within(await rowOf("Claude Code")).getByText("Signed in as ada@example.com")).toBeTruthy();
   expect(within(await rowOf("Codex")).getByText("Sign in needed")).toBeTruthy();
-  expect(await within(await rowOf("OpenCode")).findByText("4 services connected")).toBeTruthy();
+  expect(await within(await rowOf("OpenCode")).findByText("Ready")).toBeTruthy();
   expect(
     await within(await rowOf("Cursor")).findByText("Needs attention · Cursor sign-in has expired."),
   ).toBeTruthy();

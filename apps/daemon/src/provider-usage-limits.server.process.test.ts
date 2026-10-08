@@ -88,6 +88,7 @@ it("provider reads combine per-account costs with limits and push changes only t
   );
   await service.catchUp();
   const client = await f.connect();
+  client.receiveQuotaPushes = true;
   await client.next();
   const device = await f.pair(["operate"]);
   const ticket = await f.ticket(device.token);
