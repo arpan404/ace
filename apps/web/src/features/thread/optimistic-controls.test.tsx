@@ -47,10 +47,10 @@ test("an approval mode chosen offline shows at once and reaches the daemon once 
   await offline(app);
   await chooseApprovals("Auto-review", "Full access");
 
-  const chip = await screen.findByRole("button", {
+  // The icon keeps the mode in effect and names the one waiting.
+  await screen.findByRole("button", {
     name: "Approvals: Auto-review, Full access will apply when reconnected",
   });
-  expect(chip.textContent).toBe("Auto-review → Full access");
   expect(thread(app)?.permission?.override).toBeNull();
 
   await online(app);
@@ -69,8 +69,7 @@ test("an approval mode the daemon refuses goes back to the one in effect, with a
 
   expect(await screen.findByText("Couldn't change approvals")).toBeTruthy();
   expect(screen.getByText("This device isn't allowed to do that.")).toBeTruthy();
-  const chip = await screen.findByRole("button", { name: "Approvals: Auto-review" });
-  expect(chip.textContent).toBe("Auto-review");
+  expect(await screen.findByRole("button", { name: "Approvals: Auto-review" })).toBeTruthy();
   expect(thread(app)?.permission?.override).toBeNull();
 });
 

@@ -1,13 +1,13 @@
-import { ArrowUpIcon, ClockIcon, StopIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, ArrowUpIcon, ClockIcon, StopIcon } from "@phosphor-icons/react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatKeys } from "@/lib/keymap.ts";
-import { iconControl } from "./composer-styles.ts";
+import { iconControl, pillControl } from "./composer-styles.ts";
 
-export type PrimaryMode = "send" | "queue" | "steer" | "stop";
+export type PrimaryMode = "send" | "queue" | "steer" | "stop" | "answer";
 
-const labels: Record<Exclude<PrimaryMode, "stop">, string> = {
+const labels: Record<Exclude<PrimaryMode, "stop" | "answer">, string> = {
   send: "Send",
   queue: "Queue message",
   steer: "Steer message",
@@ -17,7 +17,7 @@ const labels: Record<Exclude<PrimaryMode, "stop">, string> = {
  * What Enter does now, and what ⌘↵ does instead while the agent works. A provider that can't
  * steer only queues, so ⌘↵ isn't offered (UX audit SY-14).
  */
-function hint(mode: Exclude<PrimaryMode, "stop">, canSteer: boolean): string {
+function hint(mode: Exclude<PrimaryMode, "stop" | "answer">, canSteer: boolean): string {
   const mod = formatKeys("mod+enter");
   if (mode === "steer") return `Steer into the running turn · ${mod} queues it instead`;
   if (mode === "queue")
@@ -30,8 +30,9 @@ function hint(mode: Exclude<PrimaryMode, "stop">, canSteer: boolean): string {
 /**
  * The composer's one primary action, always in the same place: Send, Queue or Steer for a draft
  * (by the daemon's follow-up setting while the agent works), Stop when the agent works and the
- * composer is empty. A draft never turns into Stop. Unavailable, it stays focusable and its
- * tooltip says why.
+ * composer is empty, and Submit (or Next) when the empty composer carries an answer picked on the
+ * question card above it. A draft never turns into Stop or Submit. Unavailable, it stays
+ * focusable and its tooltip says why.
  */
 export function PrimaryAction(props: {
   mode: PrimaryMode;
@@ -45,9 +46,33 @@ export function PrimaryAction(props: {
   canSteer?: boolean | undefined;
   /** A Stop is on its way: "Stopping…" until the turn ends. */
   stopping?: boolean | undefined;
+  /** In `answer` mode: what the button says, "Submit" or "Next". */
+  answer?: string | undefined;
   onSend(): void;
   onStop(): void;
 }) {
+  if (props.mode === "answer") {
+    const next = props.answer === "Next";
+    return (
+      <Tip label={next ? "Next question" : "Send your answer"} keys="enter" side="top">
+        <button
+          type="button"
+          onClick={props.onSend}
+          className={cn(
+            pillControl,
+            "fx-pop bg-foreground text-background hover:bg-foreground/85 hover:text-background",
+          )}
+        >
+          {props.answer}
+          {next ? (
+            <ArrowRightIcon aria-hidden size={14} weight="bold" />
+          ) : (
+            <ArrowUpIcon aria-hidden size={14} weight="bold" />
+          )}
+        </button>
+      </Tip>
+    );
+  }
   if (props.mode === "stop")
     return props.stopping ? (
       <Tip label="Stopping… the agent stops at its next safe point" side="top">

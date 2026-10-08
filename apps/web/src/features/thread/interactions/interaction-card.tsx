@@ -192,6 +192,7 @@ export function InteractionCard(props: {
   return (
     <OpenRequest
       className={frame}
+      attached={props.frame === "attached"}
       aside={props.aside}
       threadId={props.threadId}
       interaction={interaction}
@@ -220,6 +221,8 @@ function earlierAsLocal(earlier: Interaction | undefined): LocalAnswer | undefin
 
 function OpenRequest(props: {
   className: string;
+  /** On the composer's tab: a question is sent with the composer's button, Skip is a link. */
+  attached: boolean;
   aside: ReactNode;
   threadId: string;
   interaction: Interaction;
@@ -288,7 +291,19 @@ function OpenRequest(props: {
       <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
         <Dot tone="needs-you" />
         {props.asker} · {kind}
-        {props.aside && <span className="ml-auto flex items-center">{props.aside}</span>}
+        <span className="ml-auto flex items-center gap-3">
+          {props.aside}
+          {props.attached && request.kind === "question" && (
+            <button
+              type="button"
+              disabled={sending}
+              onClick={() => answer({ kind: "question", answers: {}, dismissed: true })}
+              className="rounded-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-ring disabled:opacity-50"
+            >
+              Skip
+            </button>
+          )}
+        </span>
       </p>
       {request.kind !== "question" || request.questions.length !== 1 ? (
         <h3 className="mt-2 mb-2.5 text-md leading-[1.35] font-medium tracking-[-0.005em]">
@@ -356,7 +371,12 @@ function OpenRequest(props: {
         </>
       )}
       {request.kind === "question" && (
-        <QuestionForm questions={request.questions} disabled={sending} onAnswer={answer} />
+        <QuestionForm
+          questions={request.questions}
+          disabled={sending}
+          onAnswer={answer}
+          composer={props.attached ? props.threadId : undefined}
+        />
       )}
       {request.kind === "plan_review" && privateBrowserGate(interaction) && (
         <PrivateBrowserNotice />
