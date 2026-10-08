@@ -27,6 +27,7 @@ import { ViewSidebar } from "@/features/shell/index.ts";
 import { InstallPluginButton } from "./install-plugin.tsx";
 import { useRemovalReconciler } from "./remove-plugin.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
+import { catalogSourceLabel } from "@/lib/catalog.ts";
 import { skillTitle } from "./skills-model.ts";
 import type { Skill, SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
@@ -135,12 +136,31 @@ export function SkillsSidebar() {
                 <Link
                   to="/skills/$skillId"
                   params={{ skillId: skill.id }}
+                  aria-label={
+                    skill.discovered
+                      ? [
+                          skillTitle(skill),
+                          catalogSourceLabel(skill.discovered),
+                          !skill.enabled && "Off",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")
+                      : undefined
+                  }
                   className={compactViewRowClass}
                 >
                   <CompactViewRowBody
                     icon={group.icon}
                     title={skillTitle(skill)}
-                    status={skill.enabled ? undefined : <StatusLabel tone="idle" label="Off" />}
+                    status={
+                      !skill.enabled ? (
+                        <StatusLabel tone="idle" label="Off" />
+                      ) : skill.discovered && catalogSourceLabel(skill.discovered) ? (
+                        <span className="text-xs text-subtle-foreground">
+                          {catalogSourceLabel(skill.discovered)}
+                        </span>
+                      ) : undefined
+                    }
                   />
                 </Link>
               </li>

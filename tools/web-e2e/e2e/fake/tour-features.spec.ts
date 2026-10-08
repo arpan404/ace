@@ -84,9 +84,9 @@ for (const { theme, width } of cases) {
     await page.getByRole("combobox", { name: "Skills provider" }).click();
     await page.getByRole("option", { name: "Claude Code", exact: true }).click();
     const catalog = page.getByRole("navigation", { name: "Skills catalog" });
-    await expect(catalog.getByRole("link", { name: "Writing", exact: true })).toBeVisible();
-    await expect(catalog.getByRole("link", { name: "Review", exact: true })).toBeVisible();
-    await expect(catalog.getByRole("link", { name: "Quality:fix", exact: true })).toBeVisible();
+    await expect(catalog.getByRole("link", { name: "Writing Global", exact: true })).toBeVisible();
+    await expect(catalog.getByRole("link", { name: "Review Project", exact: true })).toBeVisible();
+    await expect(catalog.getByRole("link", { name: /^Quality:fix quality$/ })).toBeVisible();
     await shot(page, "21-skills-catalog", suffix);
     await page.goto("/new?project=relay");
     await page.getByRole("combobox", { name: "Message" }).fill("/");

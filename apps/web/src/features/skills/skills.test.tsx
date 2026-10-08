@@ -393,7 +393,8 @@ test("Skills and a thread offer the same discovered skills for a project and pro
   expect(await list.findByText("Explain")).toBeTruthy();
   for (const name of ["Quality tools", "Search docs", "Branch checks"])
     expect(await list.findByText(name)).toBeTruthy();
-  await userEvent.click(list.getByRole("link", { name: "Writing" }));
+  expect(list.getByRole("link", { name: "Reviewer Global" })).toBeTruthy();
+  await userEvent.click(list.getByRole("link", { name: "Writing Global" }));
   expect(await screen.findByRole("heading", { level: 1, name: "Writing" })).toBeTruthy();
   expect(screen.getAllByRole("heading", { name: "Source" })).toHaveLength(1);
   await app.open("/t/catalog-parity");

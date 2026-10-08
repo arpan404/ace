@@ -36,3 +36,17 @@ export function watchCatalog(
     if (client.state === "ready") client.send({ type: "catalog.unsubscribe", requestId });
   };
 }
+
+/** The same provenance label in Skills and the slash menu. */
+export function catalogSourceLabel(entry: CatalogEntry): string | undefined {
+  switch (entry.source.scope) {
+    case "project":
+      return "Project";
+    case "global":
+      return "Global";
+    case "plugin":
+      return entry.source.plugin ?? "Plugin";
+    case "ace":
+      return undefined;
+  }
+}
