@@ -112,6 +112,8 @@ export interface BlockSource {
   pausedTurns?: ReadonlySet<string>;
   /** The agent stopped or failed in a turn none of whose output is loaded. */
   stoppedTail?: "failed" | "interrupted" | "paused" | undefined;
+  /** The owner is still active when the newest output has no known root turn. */
+  unsettledTail?: boolean | undefined;
   /** Filled with the runs and agents whose settling would change the blocks. */
   watch?: { runs: Set<string>; agents: Set<string> };
 }
@@ -472,7 +474,10 @@ export function buildBlocks(source: BlockSource): Block[] {
     const facts = pseudo ? undefined : source.run?.(turn.id);
     const held = !pseudo && (source.heldTurn === turn.id || source.pausedTurns?.has(turn.id));
     if (held) turn.paused = true;
-    if (!pseudo && !settled(source, turn, newest === turn)) {
+    if (
+      (pseudo && newest === turn && source.unsettledTail) ||
+      (!pseudo && !settled(source, turn, newest === turn))
+    ) {
       for (const block of turn.work) block.ongoing = true;
       // A pause shows while the turn waits on the limit, before anything settles.
       if (source.heldTurn === turn.id)

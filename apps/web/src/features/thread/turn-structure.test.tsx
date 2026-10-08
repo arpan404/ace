@@ -534,3 +534,60 @@ test("a question still waiting in an old turn keeps that turn open in a long thr
   ).toBeTruthy();
   expect(within(feed).getByText("Answer 1")).toBeTruthy();
 });
+
+test("a finished child with no spawn link does not claim the active parent's turn has worked", async () => {
+  let now = 1000;
+  const app = harness({ clock: () => now });
+  const script = app.play({
+    thread: {
+      id: "thread-unlinked",
+      workspaceId: "ace",
+      provider: "claude",
+      title: "Partial subagent stream",
+    },
+    steps: [
+      {
+        kind: "facts",
+        label: "started",
+        facts: [
+          rootAgent("claude"),
+          turn("root"),
+          {
+            type: "agent.seen",
+            agent: "child",
+            parent: "root",
+            origin: "provider_subagent",
+            fidelity: "full",
+            native: { provider: "claude", nativeId: "child" },
+            cwd: "/fake/ace",
+          },
+          turn("child"),
+          tool("child", "read", {
+            kind: "file.read",
+            title: "Read policy.ts",
+            detail: { kind: "file.read", path: "policy.ts" },
+          }),
+        ],
+      },
+      {
+        kind: "facts",
+        label: "child-finished",
+        facts: [
+          toolDone("child", "read"),
+          message("child", "answer", "assistant", "Policy checked."),
+          endTurn("child"),
+        ],
+      },
+    ],
+  });
+  script.runThrough("started");
+  now = 5000;
+  script.runThrough("child-finished");
+  await app.open("/t/thread-unlinked");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  expect(await within(feed).findByRole("button", { name: /^Work so far/ })).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
+  expect(await screen.findByRole("status", { name: "Working" })).toBeTruthy();
+  act(() => app.daemon.apply("thread-unlinked", [endTurn("root")]));
+  expect(await within(feed).findByRole("button", { name: /^Worked for 4s/ })).toBeTruthy();
+});

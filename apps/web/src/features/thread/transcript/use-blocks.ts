@@ -60,6 +60,11 @@ function createBlockReader(agentId?: string): (reader: ThreadReader) => Watched<
     const ownerId = agentId ?? reader.thread?.rootAgentId;
     const owner = ownerId ? reader.agent(ownerId) : undefined;
     const status = owner?.status;
+    const state = reader.thread?.status.state;
+    const unsettledTail =
+      agentId === undefined
+        ? state !== undefined && state !== "done" && state !== "failed" && state !== "new"
+        : !agentSettled(owner);
     const limited =
       agentId === undefined &&
       status?.state === "blocked" &&
@@ -78,6 +83,7 @@ function createBlockReader(agentId?: string): (reader: ThreadReader) => Watched<
       ledger.questions().length,
       ledger.tasksVersion,
       status,
+      unsettledTail,
       limited,
       heldTurn,
       ...lastWatch.map((key) =>
@@ -121,6 +127,7 @@ function createBlockReader(agentId?: string): (reader: ThreadReader) => Watched<
             ? "paused"
             : undefined,
       watch,
+      unsettledTail,
     });
     const byKey = new Map(last.map((block) => [block.key, block]));
     const blocks = built.map((block) => {
