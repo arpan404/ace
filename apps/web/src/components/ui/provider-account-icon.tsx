@@ -54,7 +54,7 @@ export function ProviderAccountIcon(
             background: accountColors[account?.badgeColor ?? "neutral"],
             color: "var(--background)",
           }}
-          className="absolute -right-1 -bottom-1 min-w-2.5 rounded-xs px-0.5 text-center text-[8px] leading-[11px] font-semibold shadow-[0_0_0_1px_var(--background)]"
+          className="absolute -right-1 -bottom-1 min-w-2.5 rounded-xs px-0.5 text-center text-2xs leading-[11px] font-semibold shadow-[0_0_0_1px_var(--background)]"
         >
           {label}
         </span>
