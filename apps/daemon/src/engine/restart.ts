@@ -151,14 +151,13 @@ export function recoverEngine(
         state.threadId,
         {
           paused: true,
-          reason:
-            queue.reason === "stopped"
-              ? "stopped"
-              : uncertain
-                ? "uncertain"
-                : queue.limited
-                  ? "limit"
-                  : "restart",
+          reason: ["stopped", "model_unavailable", "not_sent"].includes(queue.reason ?? "")
+            ? queue.reason
+            : uncertain
+              ? "uncertain"
+              : queue.limited
+                ? "limit"
+                : "restart",
         },
         clock.now(),
       );
@@ -166,7 +165,7 @@ export function recoverEngine(
       if (
         !uncertain &&
         !queue.limited &&
-        queue.reason !== "stopped" &&
+        !["stopped", "model_unavailable", "not_sent"].includes(queue.reason ?? "") &&
         recovery.preferences(state.threadId).continueAfterRestart
       )
         recovery.automatic(state.threadId);

@@ -14,7 +14,9 @@
             "limit",
             "snooze",
             "uncertain",
-            "stopped"
+            "stopped",
+            "not_sent",
+            "model_unavailable"
           ],
           "type": "string"
         },

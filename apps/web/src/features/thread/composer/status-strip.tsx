@@ -28,6 +28,7 @@ export function StatusStrip(props: {
   const activity = useTurnActivity(props.threadId);
   const now = useTicker(activity?.elapsedFrom !== undefined);
   const live = useThreadLiveState(props.threadId);
+  if (!activity && !live.canStop) return null;
   const agents = props.status?.state === "working" ? props.status.agents : 1;
   // While Stop is on its way the button says so; the label keeps saying what is running.
   const label =

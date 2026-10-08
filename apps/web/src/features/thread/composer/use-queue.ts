@@ -215,7 +215,7 @@ export function useQueue(threadId: string): QueueControls {
         "save the message",
       ),
     act: (action) => {
-      if (!target) return;
+      if (!target || action.id === "choose_model") return;
       const payload: CommandPayload =
         action.id === "resume"
           ? { type: page?.reason === "restart" ? "thread.resume" : "queue.resume", ...target }

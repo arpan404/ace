@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn.ts";
 import { useCallback, type CSSProperties } from "react";
 import { Dot } from "@/components/ui/dot.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
-import { agentName, providerNames } from "@ace/ui-core";
+import { agentName, modelLine, providerNames } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
 
@@ -88,7 +88,7 @@ export function AgentRow(props: { threadId: string; agentId: string; depth: numb
       </span>
       <span className="max-w-[18ch] shrink-0 truncate rounded-sm bg-secondary px-1.5 py-px text-[11px] text-muted-foreground">
         {agent.model
-          ? `${providerNames[agent.native.provider]} · ${agent.model}`
+          ? modelLine(agent.native.provider, agent.model)
           : providerNames[agent.native.provider]}
       </span>
       {agent.childThreadId && (

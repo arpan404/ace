@@ -20,10 +20,13 @@ import {
   recordedChoice,
   speedControl,
   threadEffortControl,
+  unavailablePickerModel,
+  unavailableModelNotice,
   threadPermissionSummary,
   type ModelChoice,
 } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
+import { useThreadModelAvailability } from "../lib/model-availability.ts";
 import { useThreadToast } from "../lib/thread-toast.ts";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -40,7 +43,7 @@ import type { ThreadRef } from "../sources/index.ts";
 import { SwitchDialog } from "../transitions/switch-dialog.tsx";
 import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
-import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
+import { selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useModelSwitch } from "./use-model-switch.ts";
 import { usePermissionModes, useThreadPermission } from "./permission-hooks.ts";
 import { PermissionPicker } from "./permission-picker.tsx";
@@ -124,7 +127,12 @@ const droppedWords = { effort: "Effort", speed: "Speed" } as const;
  * options. They belong to the selection they were picked for: when the thread moves (here, or
  * from another device), what the new model doesn't take is reset, and the person is told.
  */
-export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; next: NextTurn }) {
+export function ThreadModelControl(props: {
+  thread: ThreadRef;
+  busy: boolean;
+  next: NextTurn;
+  pickerRequest?: number;
+}) {
   const meta = useThreadMeta(props.thread.id);
   const toast = useThreadToast(props.thread.id);
   const accounts = useAccountViews();
@@ -135,7 +143,7 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
   const [asking, setAsking] = useState<ModelChoice>();
   const moving = useModelSwitch(props.thread, meta, choices);
   const online = useConnectionState() === "ready";
-  const selection = runsOn(meta);
+  const { selection, unavailable } = useThreadModelAvailability(props.thread.id);
   const current = currentModelChoice(choices, selection);
   // Offline the catalog can't be read: keep what this view last knew, but only for the selection
   // it was known for (a queued switch moves to another). Anything else, including a provider the
@@ -225,8 +233,23 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
   const name = target && modelControlName(details);
   const waiting = pending ? "applies with your next message" : undefined;
   const switchWaits = moving.waiting(target);
-  const models = pickerModelsFromChoices(choices, limitReached);
+  const models = pickerModelsFromChoices(choices, limitReached).filter(
+    (model) =>
+      !unavailable ||
+      model.key !== (current?.key ?? `${unavailable.provider}\u0000${unavailable.model}`) ||
+      (unavailable.instance && model.instance !== unavailable.instance),
+  );
+  if (unavailable)
+    models.unshift(
+      unavailablePickerModel({
+        provider: unavailable.provider,
+        model: current?.modelId ?? unavailable.model,
+        instanceId: unavailable.instance,
+      }),
+    );
   const view: ModelControlView = {
+    unavailable: unavailable && unavailableModelNotice(unavailable),
+    pickerRequest: props.pickerRequest,
     provider: target?.provider,
     label: target?.model,
     accountLabel:
@@ -234,7 +257,7 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
         ? account
         : undefined,
     placeholder: "Model",
-    ariaLabel: name ? `Model: ${name}` : "Choose a model",
+    ariaLabel: name ? `Model: ${name}${unavailable ? ", Unavailable" : ""}` : "Choose a model",
     tip: target
       ? [modelControlName({ ...details, provider: target.provider }), waiting]
           .filter(Boolean)

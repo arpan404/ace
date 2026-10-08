@@ -192,11 +192,12 @@ test("reset drops the effort picked for the next message, so it can steer again"
   expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });
 
-test("a model without effort levels says so instead of offering a slider", async () => {
+test("a model without effort levels shows only model and account controls", async () => {
   await open("idle");
   // OpenCode's default model on this thread lists no effort levels.
   const popover = await openModelControl(/^Model: Muse Spark/);
-  expect(within(popover).getByText(/^Muse Spark .* has no effort levels$/)).toBeTruthy();
+  expect(within(popover).queryByText(/has no effort levels/)).toBeNull();
+  expect(within(popover).queryByText("Default effort")).toBeNull();
   expect(within(popover).queryByRole("slider")).toBeNull();
 });
 test("while the agent works, Stop sits on the composer's tab and a draft offers Queue", async () => {

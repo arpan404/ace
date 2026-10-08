@@ -82,3 +82,28 @@ test("moving a queued message names the one it goes after, or the front", () => 
   expect(queueMoveAfter(order, 0, -1)).toBeUndefined();
   expect(queueMoveAfter(order, 2, 1)).toBeUndefined();
 });
+
+test("a missing model replaces restart continuation with one model-picking action", () => {
+  const notice = queueNotice(
+    { state: "waiting", on: "queue" },
+    { paused: true, reason: "restart", resumeAt: null },
+    now,
+    undefined,
+    undefined,
+    { provider: "opencode", model: "opencode-go/muse-spark-1.3-contributor" },
+  );
+  expect(notice?.title).toBe(
+    "Muse Spark 1.3 Contributor isn't available in OpenCode anymore — pick another model",
+  );
+  expect(ids(notice)).toEqual(["choose_model"]);
+});
+
+test("a kept pre-delivery failure offers retry while a restart offers continuation", () => {
+  expect(
+    queueNotice(
+      { state: "waiting", on: "queue" },
+      { paused: true, reason: "not_sent", resumeAt: null },
+      now,
+    ),
+  ).toMatchObject({ title: "Message not sent", actions: [{ id: "resume", label: "Try again" }] });
+});

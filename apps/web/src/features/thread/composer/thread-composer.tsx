@@ -3,7 +3,13 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useClient, useIntent, useInteractions, useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
 import { RunId, ThreadId } from "@ace/protocol";
-import { modelLabel, providerNames, selectionInputs, type AttachmentReader } from "@ace/ui-core";
+import {
+  modelLabel,
+  providerNames,
+  threadIsRunning,
+  selectionInputs,
+  type AttachmentReader,
+} from "@ace/ui-core";
 import { Suspense, useEffect, useId, useRef, useState, type Ref } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 // The catalog alone: the models feature is also loaded lazily, so importing its index would bring
@@ -45,10 +51,7 @@ const wideEnoughToFocus = () =>
 
 /** The agent is mid-turn or held up: a new message follows up rather than starting a turn. */
 export function isBusy(status: ThreadStatus | undefined): boolean {
-  if (!status) return false;
-  if (status.state === "working" || status.state === "needs_you" || status.state === "limited")
-    return true;
-  return status.state === "waiting" && status.on !== "background_task";
+  return threadIsRunning(status) || status?.state === "limited";
 }
 
 /**
@@ -83,6 +86,7 @@ export function ThreadComposer({
   const canSteer = meta?.capabilities?.steer === true;
   const followUp = canSteer ? setting : "queue";
   const busy = isBusy(props.status);
+  const [pickerRequest, requestPicker] = useState(0);
   const activityState = useThreadLiveState(props.thread.id);
   const threadId = ThreadId.parse(props.thread.id);
   // Toasts (a thread elsewhere needs you, Undo) rise above the composer, never over it.
@@ -204,7 +208,11 @@ export function ThreadComposer({
   return (
     <ComposerDock ref={box}>
       <Suspense fallback={null}>
-        <DeferredQueueArea.Component threadId={props.thread.id} status={props.status} />
+        <DeferredQueueArea.Component
+          threadId={props.thread.id}
+          status={props.status}
+          onChooseModel={() => requestPicker((count) => count + 1)}
+        />
       </Suspense>
       <Composer
         ref={composer}
@@ -277,7 +285,12 @@ export function ThreadComposer({
         }
         trailing={
           <Suspense fallback={<ControlsPending />}>
-            <DeferredModelControl.Component thread={props.thread} busy={busy} next={next} />
+            <DeferredModelControl.Component
+              thread={props.thread}
+              busy={busy}
+              next={next}
+              pickerRequest={pickerRequest}
+            />
           </Suspense>
         }
       />

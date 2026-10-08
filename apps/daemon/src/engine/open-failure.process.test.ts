@@ -29,7 +29,7 @@ for (const exit of [false, true])
       const id = await h.create();
       expect(h.engine.queue(id)).toMatchObject({
         paused: true,
-        reason: "manual",
+        reason: "not_sent",
         messages: [{ state: "queued", input: [{ type: "text", text: "first" }] }],
       });
       expect(warnings).toEqual([
@@ -128,7 +128,7 @@ test.each([false, true])(
       expect(context?.signal.aborted).toBe(true);
       expect(h.engine.queue(id)).toMatchObject({
         paused: true,
-        reason: "manual",
+        reason: "not_sent",
         messages: [{ state: "queued" }],
       });
       const snapshot = h.store.snapshotThread(id);
@@ -237,6 +237,53 @@ test("an open failure clears a persisted uncertainty flag when no provider input
       }).ok,
     ).toBe(true);
     expect(h.adapter.commands.filter((command) => command.type === "send")).toEqual([]);
+  } finally {
+    await h.close();
+  }
+});
+
+test("an unavailable model holds the original input until a model switch sends it once", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  try {
+    h.registry.register(
+      {
+        ...h.adapter,
+        async openSession() {
+          throw new Error("model_unavailable");
+        },
+      },
+      { installed: true, auth: "logged_in", loginHint: "unused" },
+    );
+    const id = await h.create();
+    const original = h.engine.queue(id).messages[0]?.id;
+    expect(h.engine.queue(id)).toMatchObject({
+      paused: true,
+      reason: "model_unavailable",
+      messages: [{ state: "queued" }],
+    });
+    expect(h.store.snapshotThread(id).thread.status).toEqual({ state: "waiting", on: "queue" });
+    expect(
+      Object.values(h.store.snapshotThread(id).items).filter(
+        (item) => item.type === "notice" && item.level === "error",
+      ),
+    ).toEqual([]);
+    h.registry.register(h.adapter, { installed: true, auth: "logged_in", loginHint: "unused" });
+    expect(
+      h.command({
+        type: "thread.switch",
+        threadId: id,
+        selection: { provider: "codex", model: "replacement" },
+      }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    expect(h.engine.queue(id).messages).toEqual([]);
+    expect(h.store.snapshotThread(id).items[`input:${original}`]).toMatchObject({
+      type: "message",
+      parts: [{ type: "text", text: "first" }],
+    });
+    expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
+    expect(h.store.snapshotThread(id).thread.execution?.model).toBe("replacement");
   } finally {
     await h.close();
   }

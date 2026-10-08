@@ -281,3 +281,39 @@ test("a draft with a file written in another window brings the file, and sends i
   await waitFor(() => expect(sent).toHaveLength(1));
   expect(sent[0]).toMatchObject({ attachments: [{ sha256 }] });
 });
+
+test("a failed follow-up still says Not sent when its admission inherited an earlier working turn", async () => {
+  const { app, feed } = await open("busy");
+  act(() =>
+    app.daemon.apply("thread-replay-cursor", [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "input:refused-follow-up",
+        draft: {
+          type: "message",
+          role: "user",
+          parts: [{ type: "text", text: "Also inspect the retry" }],
+          complete: true,
+          origin: { kind: "person", commandId: CommandId.parse("refused-follow-up") },
+        },
+      },
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "refused-follow-up-notice",
+        draft: {
+          type: "notice",
+          level: "error",
+          code: "delivery_failed",
+          commandId: CommandId.parse("refused-follow-up"),
+          text: "Message not sent",
+          title: "Not sent",
+          complete: true,
+        },
+      },
+    ]),
+  );
+  expect(await within(feed).findByText("Also inspect the retry")).toBeTruthy();
+  expect(await within(feed).findByText("Not sent")).toBeTruthy();
+});

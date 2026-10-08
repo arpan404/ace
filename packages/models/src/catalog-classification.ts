@@ -38,14 +38,26 @@ export function classifyCatalog(rows: readonly CatalogModel[]): CatalogModel[] {
     const previous = newest.get(key);
     if (!previous || compareVersions(row.version, previous) > 0) newest.set(key, row.version);
   }
+  const undated = new Set(
+    named
+      .filter((row) => !/20\d{6}|20\d{2}-\d{2}-\d{2}/.test(row.detail ?? ""))
+      .map((row) => `${scope(row)}:${row.version ?? ""}`),
+  );
   return named.map((row) => {
     const override = overrides[row.provider]?.[row.id];
     const older =
       row.family &&
       row.version &&
       compareVersions(row.version, newest.get(scope(row)) ?? row.version) < 0;
+    const snapshot =
+      /20\d{6}|20\d{2}-\d{2}-\d{2}/.test(row.detail ?? "") &&
+      undated.has(`${scope(row)}:${row.version ?? ""}`);
     const tier =
-      row.deprecated || row.legacy || override === "legacy" || (override !== "current" && older)
+      row.deprecated ||
+      row.legacy ||
+      snapshot ||
+      override === "legacy" ||
+      (override !== "current" && older)
         ? "legacy"
         : "current";
     const versionKey = Array.from(

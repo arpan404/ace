@@ -63,7 +63,10 @@ export function admissionFacts(
 export function startTurn(host: ThreadHost, key: string, _text: string): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined) return [];
-  return [{ type: "turn.started", agent: root, nativeTurnId: `turn-${key}`, trigger: "user" }];
+  return [
+    ...(host.state.processExit ? [{ type: "process.started" } as const] : []),
+    { type: "turn.started", agent: root, nativeTurnId: `turn-${key}`, trigger: "user" },
+  ];
 }
 /** Steering acknowledges an admitted input without fabricating an echo item. */
 export function steerFacts(host: ThreadHost, key: string, _text: string): Fact[] {

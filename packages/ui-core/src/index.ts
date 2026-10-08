@@ -90,3 +90,15 @@ export {
   tokensFromInput,
   type ComposerToken,
 } from "./composer-tokens.ts";
+
+export { threadIsRunning } from "./live-status.ts";
+export {
+  unavailableSelection,
+  modelReplacement,
+  unavailablePickerModel,
+  unavailableModelNotice,
+} from "./model-availability.ts";
+
+export { withoutEmptySources } from "@ace/models/availability";
+
+export { isDefaultSelection } from "@ace/models/resolve";

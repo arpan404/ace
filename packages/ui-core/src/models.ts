@@ -1,3 +1,4 @@
+import { isDefaultSelection } from "@ace/models/resolve";
 import type { ModelScope } from "@ace/client";
 import { modelRequiresAuth } from "@ace/models/availability";
 import type { Capabilities, CatalogModel, ModelSource, ProviderKind } from "@ace/protocol";
@@ -37,10 +38,31 @@ function isPseudoDefault(model: CatalogModel): boolean {
   return /^default(?:\s*\(recommended\))?$/i.test(model.id.trim());
 }
 
+function snapshotDetail(model: CatalogModel): string | undefined {
+  const date = /(20\d{2})-?(\d{2})-?\d{2}/.exec(model.detail ?? "");
+  if (!date) return model.detail;
+  if (!isLegacy(model)) return undefined;
+  const month = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ][Number(date[2]) - 1];
+  return month ? `${month} ${date[1]} snapshot` : undefined;
+}
+
 function placement(model: CatalogModel, account?: AccountView): ModelPlacement {
   return {
     free: model.free,
-    detail: model.detail,
+    detail: snapshotDetail(model),
     sortKey: model.sortKey,
     source:
       account && (!model.source || model.source.kind === "account")
@@ -210,7 +232,7 @@ export function modelChoices(
           {
             id: rowId(model),
             provider,
-            model: modelName(provider, model.displayName),
+            model: modelName(provider, model.displayName, model.id),
             modelId: model.id,
             aliases: modelAliases(model),
             account: account ? accountDisplayName(account) : "",
@@ -265,24 +287,27 @@ export function currentModelChoice(
   selection: ThreadSelection | undefined,
 ): ModelChoice | undefined {
   if (!selection) return defaultModelChoice(choices, undefined);
+  const selected = isDefaultSelection(selection.model) ? undefined : selection.model;
   const sameModel = choices.filter(
     (choice) =>
-      choice.provider === selection.provider &&
-      (selection.model === undefined || names(choice, selection.model)),
+      choice.provider === selection.provider && (selected === undefined || names(choice, selected)),
   );
   // Never another provider's model: a thread shows what it runs on, and picking from a wrong
   // choice (an effort change) would move it to that provider. With no catalog choice for its
   // provider, the caller shows the recorded selection (`recordedChoice`).
   const onAccount = sameModel.filter((choice) => choice.accountId === selection.instanceId);
+  if (selection.instanceId && selected) return onAccount[0];
   return (
-    (selection.model === undefined ? onAccount.find((choice) => choice.isDefault) : undefined) ??
+    (selected === undefined ? onAccount.find((choice) => choice.isDefault) : undefined) ??
     onAccount[0] ??
-    (selection.model === undefined ? sameModel.find((choice) => choice.isDefault) : undefined) ??
+    (selected === undefined ? sameModel.find((choice) => choice.isDefault) : undefined) ??
     sameModel[0] ??
-    defaultModelChoice(
-      choices.filter((choice) => choice.provider === selection.provider),
-      selection.provider,
-    )
+    (selected !== undefined
+      ? undefined
+      : defaultModelChoice(
+          choices.filter((choice) => choice.provider === selection.provider),
+          selection.provider,
+        ))
   );
 }
 
@@ -374,7 +399,7 @@ export function newThreadOptions(
       id: model.id,
       account: model.instance,
       scope,
-      label: modelName(model.provider, model.displayName),
+      label: modelName(model.provider, model.displayName, model.id),
       provider: model.provider,
       isDefault: model.isDefault,
       efforts: model.reasoningEfforts,

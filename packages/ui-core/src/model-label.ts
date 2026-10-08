@@ -23,9 +23,11 @@ function isDefault(provider: ProviderKind, name: string): boolean {
  * A model's name where its provider shows beside it: "Opus 4.1", or "Claude Code · Default" for
  * the provider's default (no model named, or the catalog's "Default (recommended)").
  */
-export function modelName(provider: ProviderKind, displayName?: string): string {
+export function modelName(provider: ProviderKind, displayName?: string, id = displayName): string {
   const name = (displayName ?? "").replace(recommended, "");
-  return isDefault(provider, name) ? modelLine(provider, undefined) : name.trim();
+  return isDefault(provider, name)
+    ? modelLine(provider, undefined)
+    : modelDisplayName(id ?? name, name).displayName;
 }
 
 /**
@@ -41,7 +43,11 @@ export function modelLine(
   // A default's name already carries its provider: never say it twice.
   const own = displayName?.startsWith(prefix) ? displayName.slice(prefix.length) : displayName;
   const name = (own ?? "").replace(recommended, "");
-  return [providerNames[provider], account, isDefault(provider, name) ? "Default" : name.trim()]
+  return [
+    providerNames[provider],
+    account,
+    isDefault(provider, name) ? "Default" : modelDisplayName(name, name).displayName,
+  ]
     .filter(Boolean)
     .join(separator);
 }
@@ -51,7 +57,10 @@ export function catalogModelNames(models: readonly CatalogModel[]) {
   const labels = new Map<string, string>();
   for (const model of models)
     for (const id of [model.id, ...modelAliases(model)])
-      labels.set(`${model.provider}\u0000${id}`, modelName(model.provider, model.displayName));
+      labels.set(
+        `${model.provider}\u0000${id}`,
+        modelName(model.provider, model.displayName, model.id),
+      );
   return (provider: string, id: string | null | undefined): string =>
     id
       ? (labels.get(`${provider}\u0000${id}`) ?? modelDisplayName(id).displayName)

@@ -32,6 +32,9 @@ export interface ModelFieldProps {
 export function ModelField(props: ModelFieldProps) {
   const [open, setOpen] = useState(false);
   const catalog = useModelCatalogState();
+  const unavailable = props.models.some(
+    (model) => model.key === props.current && model.unavailable,
+  );
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -44,7 +47,14 @@ export function ModelField(props: ModelFieldProps) {
       >
         <span className="min-w-0 truncate">{props.value}</span>
         {props.note && (
-          <span className="shrink-0 text-xs text-subtle-foreground">{props.note}</span>
+          <span
+            className={cn(
+              "shrink-0 text-xs",
+              unavailable ? "text-status-failed" : "text-subtle-foreground",
+            )}
+          >
+            {props.note}
+          </span>
         )}
         <CaretDownIcon aria-hidden size={12} className="ml-auto shrink-0 text-subtle-foreground" />
       </PopoverTrigger>
