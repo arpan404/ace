@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/WorktreeCreationResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "enum": [
+        "not_found",
+        "forbidden",
+        "busy",
+        "cleanup_required",
+        "settled"
+      ],
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "progress": {
+      "$ref": "https://ace.local/protocol/v1/WorktreeCreationProgress.json"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "worktree.creation.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ok"
+  ],
+  "type": "object"
+}

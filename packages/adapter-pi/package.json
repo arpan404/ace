@@ -15,6 +15,7 @@
     "bench": "node --expose-gc bench/translation.ts"
   },
   "dependencies": {
+    "@ace/commands": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/mcp-server": "workspace:*",

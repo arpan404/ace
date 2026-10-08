@@ -117,3 +117,8 @@ export function toml(value: unknown): string {
 export function override(projection: PluginProjection, key: string, value: unknown): void {
   projection.args.push("-c", `${key}=${toml(value)}`);
 }
+
+/** Stable provider projection identity for portable components and MCP servers. */
+export function projectionName(plugin: string, component: string): string {
+  return `ace-${plugin}__${component}`;
+}

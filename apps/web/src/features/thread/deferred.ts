@@ -3,7 +3,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { preloadComposerCards } from "./composer/deferred-cards.ts";
 import { preloadComposerParts } from "./composer/deferred-parts.tsx";
 import { DeferredInteractionCard, DeferredQuestionRecord } from "./interactions/deferred-card.ts";
-import { DeferredReviewNote, DeferredReviewSummary } from "./items/deferred-review.ts";
+import { DeferredReviewNote } from "./items/deferred-review.ts";
 import { preloadJump } from "./long/jump.ts";
 
 export { DeferredInteractionCard };
@@ -89,7 +89,8 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredInteractionCard.preload(),
     DeferredQuestionRecord.preload(),
     DeferredReviewNote.preload(),
-    DeferredReviewSummary.preload(),
+    // An approval card's Details, with ace's review in words.
+    import("@/components/approval-request.tsx").then((module) => module.preloadApprovalDetails()),
     DeferredThreadMenu.preload(),
     DeferredWorkCard.preload(),
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.

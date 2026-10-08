@@ -12,6 +12,9 @@ export class FakeForgeWire {
   private context: FakeServiceContext;
   private links = new Map<string, ForgePrStatus>();
   private sequence = 0;
+  private publications = new Map<string, ForgePrStatus>();
+  /** Threads whose PR merges as soon as its checks pass (`forge.pr.auto-merge`). */
+  private autoMerge = new Set<string>();
   constructor(context: FakeServiceContext) {
     this.context = context;
   }
@@ -21,10 +24,29 @@ export class FakeForgeWire {
   /** Link a pull request the forge already knows: its checks, comments and state. */
   seed(threadId: string, status: ForgePrStatus): void {
     if (!this.context.thread(threadId)) throw new Error(`No thread ${threadId} to link`);
-    this.publish(threadId, ForgePrStatus.parse(status));
+    this.sequence = Math.max(this.sequence, status.ref.number);
+    const next = ForgePrStatus.parse(status);
+    // As GitHub does, a PR with auto-merge on merges once its checks pass.
+    this.publish(threadId, this.autoMerge.has(threadId) && ready(next) ? merged(next) : next);
   }
   private publish(id: string, status: ForgePrStatus): void {
     this.links.set(id, status);
+    for (const [key, known] of this.publications)
+      if (
+        known.ref.number === status.ref.number &&
+        JSON.stringify(known.ref.repository) === JSON.stringify(status.ref.repository)
+      )
+        this.publications.set(key, status);
+    const details = this.context.thread(id)?.thread.details;
+    if (details?.branch && this.publications.size < 64)
+      this.publications.set(
+        JSON.stringify({
+          repository: status.ref.repository,
+          branch: details.branch,
+          base: details.base?.ref ?? details.baseBranch ?? "main",
+        }),
+        status,
+      );
     const thread = this.context.thread(id)?.thread;
     if (thread && status.state !== "unknown")
       this.context.update(id, {
@@ -64,13 +86,33 @@ export class FakeForgeWire {
     const id = "threadId" in p ? p.threadId : p.link.threadId;
     if (!this.context.thread(id)) return { ok: false, error: "thread_not_found" };
     if (!this.links.has(id) && this.links.size >= 64) return { ok: false, error: "forge_limit" };
+    const repository = "repository" in p ? p.repository : p.link.pr.repository;
+    if (repository.forge !== "github") return { ok: false, error: "forge_unsupported" };
     if (p.type === "forge.pr.create") {
+      const key = JSON.stringify({
+        repository: p.repository,
+        branch: p.input.branch,
+        base: p.input.base,
+      });
+      const existing = this.publications.get(key);
+      if (existing) {
+        this.publish(id, existing);
+        return { ok: true, pr: existing.ref, prStatus: existing };
+      }
+      if (this.publications.size >= 64) return { ok: false, error: "forge_limit" };
       const pr = { repository: p.repository, number: ++this.sequence };
-      this.publish(id, this.open(id, pr, p.input.title, p.input.draft));
-      return { ok: true, pr };
+      const status = this.open(id, pr, p.input.title, p.input.draft);
+      this.publications.set(key, status);
+      this.publish(id, status);
+      return { ok: true, pr, prStatus: this.links.get(id) };
     }
     if (p.type === "forge.pr.link") {
-      const status = this.open(id, p.link.pr, this.context.thread(id)?.thread.title ?? "PR");
+      const status =
+        [...this.links.values()].find(
+          (known) =>
+            known.ref.number === p.link.pr.number &&
+            JSON.stringify(known.ref.repository) === JSON.stringify(p.link.pr.repository),
+        ) ?? this.open(id, p.link.pr, this.context.thread(id)?.thread.title ?? "PR");
       this.publish(id, status);
       return { ok: true, pr: p.link.pr, prStatus: status };
     }
@@ -80,15 +122,16 @@ export class FakeForgeWire {
       status.ref.number !== p.link.pr.number ||
       JSON.stringify(status.ref.repository) !== JSON.stringify(p.link.pr.repository)
     )
-      return { ok: false, error: "pr_not_found" };
+      return { ok: false, error: "forge_not_found" };
     if (p.type === "forge.pr.status") return { ok: true, prStatus: status };
     if (p.type === "forge.pr.merge" || p.type === "forge.pr.auto-merge") {
-      if (p.headSha !== status.headSha) return { ok: false, error: "head_changed" };
-      if (p.type === "forge.pr.merge")
-        this.publish(ThreadId.parse(id), { ...status, state: "merged" });
+      if (p.headSha !== status.headSha) return { ok: false, error: "forge_conflict" };
+      if (p.type === "forge.pr.merge" || ready(status))
+        this.publish(ThreadId.parse(id), merged(status));
+      else this.autoMerge.add(id);
     }
     if (p.type === "forge.comment.reply") {
-      if (status.comments.length >= 64) return { ok: false, error: "comment_limit" };
+      if (status.comments.length >= 64) return { ok: false, error: "forge_limit" };
       this.publish(id, {
         ...status,
         comments: [
@@ -106,6 +149,10 @@ export class FakeForgeWire {
         ],
       });
     }
-    return { ok: true };
+    return { ok: true, pr: status.ref, prStatus: this.links.get(id) };
   }
 }
+
+const ready = (status: ForgePrStatus) =>
+  status.state === "open" && status.ci === "success" && status.mergeability === "mergeable";
+const merged = (status: ForgePrStatus): ForgePrStatus => ({ ...status, state: "merged" });

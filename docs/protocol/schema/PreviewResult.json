@@ -6,6 +6,9 @@
       "maxLength": 128,
       "type": "string"
     },
+    "link": {
+      "$ref": "https://ace.local/protocol/v1/PreviewLink.json"
+    },
     "ok": {
       "type": "boolean"
     },

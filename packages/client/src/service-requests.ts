@@ -23,7 +23,9 @@ export type ServiceResponse<Q extends ServiceRequest> =
         ? Replies<"provider.login.result">
         : Q["type"] extends `onboarding.${string}`
           ? Replies<"onboarding.result">
-          : LegacyServiceResponse<Q>;
+          : Q["type"] extends "worktree.creation.request"
+            ? Replies<"worktree.creation.result">
+            : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "host.identity"
   ? Replies<"host.identity.result">
@@ -99,27 +101,29 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                             | "files.error"
                                             | "files.upload"
                                           >
-                                        : Q["type"] extends "commands.list"
-                                          ? Replies<"commands.list.result">
-                                          : Q["type"] extends "commands.resolve"
-                                            ? Replies<"commands.resolve.result">
-                                            : Q["type"] extends `registry.${string}`
-                                              ? Replies<"registry.result">
-                                              : Q["type"] extends `mcp.${string}`
-                                                ? Replies<"mcp.result">
-                                                : Q["type"] extends "pluginRequest"
-                                                  ? Replies<"pluginResult">
-                                                  : Q["type"] extends `browser.${string}`
-                                                    ? Replies<"browser.result">
-                                                    : Q["type"] extends "screen.request"
-                                                      ? Replies<"screen.result">
-                                                      : Q["type"] extends "diagnostics.health"
-                                                        ? Replies<"diagnostics.health.result">
-                                                        : Q["type"] extends "items.page"
-                                                          ? Replies<"items.page">
-                                                          : Q["type"] extends "output.read"
-                                                            ? Replies<"output.data">
-                                                            : Reply;
+                                        : Q["type"] extends "catalog.list"
+                                          ? Replies<"catalog.list.result">
+                                          : Q["type"] extends "commands.list"
+                                            ? Replies<"commands.list.result">
+                                            : Q["type"] extends "commands.resolve"
+                                              ? Replies<"commands.resolve.result">
+                                              : Q["type"] extends `registry.${string}`
+                                                ? Replies<"registry.result">
+                                                : Q["type"] extends `mcp.${string}`
+                                                  ? Replies<"mcp.result">
+                                                  : Q["type"] extends "pluginRequest"
+                                                    ? Replies<"pluginResult">
+                                                    : Q["type"] extends `browser.${string}`
+                                                      ? Replies<"browser.result">
+                                                      : Q["type"] extends "screen.request"
+                                                        ? Replies<"screen.result">
+                                                        : Q["type"] extends "diagnostics.health"
+                                                          ? Replies<"diagnostics.health.result">
+                                                          : Q["type"] extends "items.page"
+                                                            ? Replies<"items.page">
+                                                            : Q["type"] extends "output.read"
+                                                              ? Replies<"output.data">
+                                                              : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "host.identity": ["host.identity.result"],
@@ -162,6 +166,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "provider.login.terminal": ["provider.login.result"],
   "provider.logout": ["provider.login.result"],
   "onboarding.query": ["onboarding.result"],
+  "worktree.creation.request": ["worktree.creation.result"],
   "onboarding.dismiss": ["onboarding.result"],
   "context.request": ["context.result"],
   "models.list": ["models.result"],
@@ -188,6 +193,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "files.pull": ["files.data", "files.error"],
   "files.chunk": ["files.upload", "files.error"],
   "files.request": ["files.result", "files.ready", "files.error", "files.upload"],
+  "catalog.list": ["catalog.list.result"],
   "commands.list": ["commands.list.result"],
   "commands.resolve": ["commands.resolve.result"],
   pluginRequest: ["pluginResult"],

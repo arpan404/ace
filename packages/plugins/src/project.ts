@@ -4,6 +4,7 @@ import { PluginInstall } from "@ace/protocol/plugins";
 import { PluginManifest, normalizePath, limits } from "./manifest.ts";
 import { agentPluginSchema } from "./import.ts";
 import {
+  projectionName,
   body,
   claudeEvents,
   codexEvents,
@@ -136,7 +137,7 @@ export function projectPlugins(
       skillRoots.push(join(options.root, base, "skills"));
     }
     for (const [serverName, server] of Object.entries(plugin.manifest.mcpServers)) {
-      const key = `ace-${name}__${serverName}`;
+      const key = projectionName(name, serverName);
       if (mcp[key]) throw new Error("MCP namespace collision");
       mcp[key] = resolveServer(server, payloadRoot);
     }
@@ -158,7 +159,7 @@ export function projectPlugins(
           projection,
         );
       else if (provider === "opencode")
-        commands[`ace-${name}__${entry.name}`] = {
+        commands[projectionName(name, entry.name)] = {
           template: body(content),
           description: entry.description ?? entry.name,
         };
@@ -182,7 +183,7 @@ export function projectPlugins(
           projection,
         );
       else if (provider === "opencode")
-        agents[`ace-${name}__${entry.name}`] = {
+        agents[projectionName(name, entry.name)] = {
           prompt: body(content),
           description: entry.description ?? entry.name,
           mode: "subagent",
@@ -257,7 +258,7 @@ export function projectPlugins(
       );
       const servers = Object.fromEntries(
         Object.entries(plugin.manifest.mcpServers).map(([key, server]) => [
-          `ace-${name}__${key}`,
+          projectionName(name, key),
           resolveServer(server, payloadRoot),
         ]),
       );

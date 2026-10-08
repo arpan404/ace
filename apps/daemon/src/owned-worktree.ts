@@ -17,6 +17,7 @@ export async function cleanupOwnedWorktree(
   git: OwnedWorktreeGit,
   resource: OwnedWorktree,
   saveHead: (head: string) => void,
+  options: { force?: boolean } = {},
 ): Promise<void> {
   const tree = (await git.listWorktrees(resource.repo)).find(
     (candidate) => candidate.path === resource.path,
@@ -26,7 +27,11 @@ export async function cleanupOwnedWorktree(
       throw new Error("Worktree cleanup identity changed");
     saveHead(resource.baseHead);
     resource.cleanupHead = resource.baseHead;
-    await git.removeWorktree({ repo: resource.repo, path: resource.path });
+    await git.removeWorktree({
+      repo: resource.repo,
+      path: resource.path,
+      ...(options.force ? { force: true } : {}),
+    });
   }
   if (!tree && !resource.cleanupHead && resource.uncertain) {
     let exists = false;

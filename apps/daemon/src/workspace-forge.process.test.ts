@@ -34,10 +34,33 @@ test("forge failures produce durable error receipts and a later command can use 
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
   let recovered = false;
   const runtime = new WorkspaceRuntime(store, root, () => 1000, {
-    forgeRunner: () => async () =>
-      recovered
-        ? { code: 0, stdout: 'HTTP/1.1 201 Created\n\n{"id":31}', truncated: false }
-        : { code: 1, stdout: "offline", truncated: false },
+    forgeRunner: () => async (request) => {
+      if (!recovered) return { code: 1, stdout: "offline", truncated: false };
+      const path = request.args[1] ?? "";
+      let body: unknown = [];
+      if (path.endsWith("/replies")) body = { id: 31 };
+      else if (path === "repos/test/project/pulls/7")
+        body = {
+          number: 7,
+          node_id: "PR_7",
+          title: "Recovered PR",
+          html_url: "https://github.com/test/project/pull/7",
+          state: "open",
+          head: { sha: "a".repeat(40), ref: "topic" },
+        };
+      else if (path.includes("/check-runs?")) body = { check_runs: [] };
+      else if (path === "graphql")
+        body = {
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+              },
+            },
+          },
+        };
+      return { code: 0, stdout: `HTTP/1.1 200 OK\n\n${JSON.stringify(body)}`, truncated: false };
+    },
   });
   const command = (id: string) =>
     Command.parse({
@@ -61,7 +84,10 @@ test("forge failures produce durable error receipts and a later command can use 
     expect(failed).toMatchObject({ ok: false });
     recovered = true;
     expect(await runtime.execute(command("failure"))).toEqual(failed);
-    expect(await runtime.execute(command("recovered"))).toMatchObject({ ok: true });
+    expect(await runtime.execute(command("recovered"))).toMatchObject({
+      ok: true,
+      prStatus: { ref: { number: 7 }, title: "Recovered PR" },
+    });
   } finally {
     await runtime.close();
     await store.close();

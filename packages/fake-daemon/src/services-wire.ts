@@ -1,3 +1,4 @@
+import { FakeCatalogWire } from "./catalog-wire.ts";
 import {
   BrowserClientMessage,
   ServerMessage,
@@ -18,10 +19,14 @@ import { FakeContextWire } from "./context-wire.ts";
 import { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { FakeAutomationWire, type AutomationSeed } from "./automation-wire.ts";
 import { FakePluginsWire, type PluginSeed } from "./plugins-wire.ts";
-import type { FakeServiceContext } from "./service-context.ts";
+import type { FakeServiceContext, FakeWireSession } from "./service-context.ts";
+export type { FakeWireSession } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends AutomationSeed {
+  extensionCatalogs?: Partial<
+    Record<import("@ace/protocol").ProviderKind, import("@ace/protocol").CatalogEntry[]>
+  >;
   /** Seed the small PNG fixture for scoped client attachment reads. */
   attachmentImages?: { threadId: string; name?: string }[];
   plugins?: PluginSeed;
@@ -29,11 +34,6 @@ export interface ServicesSeed extends AutomationSeed {
   pullRequests?: Record<string, ForgePrStatus>;
   /** Global settings the person has changed from the shipped defaults. */
   settings?: Readonly<Record<string, unknown>>;
-}
-export interface FakeWireSession {
-  authenticated?(device: string): void;
-  handle(message: ClientMessage, device: string): Promise<void>;
-  close(): void;
 }
 /** A correlated request no fixture service answers gets the daemon's `unsupported` error. */
 export function replyUnsupported(message: ClientMessage, send: (message: Message) => void): void {
@@ -51,6 +51,7 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  * `FakeServices`; this reads settings through the same store.
  */
 export class FakeServicesWire {
+  private readonly catalog = new FakeCatalogWire();
   readonly browser = new FakeBrowser();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
@@ -74,6 +75,7 @@ export class FakeServicesWire {
     );
   }
   seed(seed: ServicesSeed): void {
+    if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs);
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
     if (seed.settings) this.settings.seed(seed.settings);
@@ -108,6 +110,7 @@ export class FakeServicesWire {
     });
     let picker: AbortController | undefined;
     const files = this.files.session(emit);
+    const catalog = this.catalog.session(this.host, this.context, emit);
     const browser = fakeBrowserSession(
       this.browser,
       this.host,
@@ -117,9 +120,11 @@ export class FakeServicesWire {
     return {
       authenticated: (device) => {
         owner = device;
+        catalog.authenticated?.(device);
       },
       close: () => {
         closed = true;
+        catalog.close();
         picker?.abort();
         stopProjects();
 
@@ -131,6 +136,10 @@ export class FakeServicesWire {
       },
       handle: async (message, device) => {
         try {
+          if (message.type === "catalog.list" || message.type === "catalog.unsubscribe") {
+            await catalog.handle(message, device);
+            return;
+          }
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
             return;
@@ -225,6 +234,39 @@ export class FakeServicesWire {
           if (message.type === "preview.request") {
             if (!this.host.thread(message.threadId)) throw new Error("thread_not_found");
             const op = message.operation;
+            const refusal = this.browser.previewRefusal;
+            if (refusal && (op.op === "link" || op.op === "forward")) {
+              emit({
+                type: "preview.result",
+                requestId: message.requestId,
+                ok: false,
+                error: refusal,
+              });
+              return;
+            }
+            if (op.op === "link") {
+              // The fake has no gateway: its previews are the servers' own addresses, so the
+              // sign-in link is that address and the session never needs renewing.
+              const server = this.browser
+                .servers(message.threadId)
+                .find((candidate) => candidate.port === op.port);
+              emit(
+                server?.origin
+                  ? {
+                      type: "preview.result",
+                      requestId: message.requestId,
+                      ok: true,
+                      link: { url: server.origin, sessionMs: 3_600_000 },
+                    }
+                  : {
+                      type: "preview.result",
+                      requestId: message.requestId,
+                      ok: false,
+                      error: "preview_not_found",
+                    },
+              );
+              return;
+            }
             if (op.op === "forward")
               this.browser.serve(message.threadId, {
                 port: op.port,

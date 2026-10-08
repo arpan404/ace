@@ -91,6 +91,11 @@ export function harness(
      * first run). By default setup is done, as it is on every device after its first launch.
      */
     onboarding?: "pending";
+    /**
+     * When each step of a new worktree runs (tests step creation by hand); its steps are then
+     * 1.5 s apart on the daemon's clock, as in the slow fake.
+     */
+    worktreeSchedule?: (callback: () => void, delay: number) => () => void;
   } = {},
 ) {
   let now = 1_000;
@@ -109,6 +114,9 @@ export function harness(
     ...(others.length ? { hostId: "this-mac", displayName: "This Mac" } : {}),
     ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
     ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
+    ...(options.worktreeSchedule
+      ? { worktreeCreationSlow: true, worktreeCreationSchedule: options.worktreeSchedule }
+      : {}),
   });
   if (options.onboarding !== "pending") daemon.services.providerLogin.dismiss("test-device");
   const client = options.throughWorker

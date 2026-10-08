@@ -1,4 +1,4 @@
-import { GitError, isMutationUnavailable } from "@ace/git";
+import { actionErrorCode } from "./action-errors.ts";
 import type { Command, CommandResult } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
@@ -34,12 +34,7 @@ export class AsyncCommands {
         const outcome = reserved
           ? await effect().catch((error: unknown) => ({
               ok: false,
-              error:
-                error instanceof GitError
-                  ? isMutationUnavailable(error)
-                    ? "git_quarantined"
-                    : `git_${error.code.replace(/^git_/, "")}`
-                  : "action_failed",
+              error: actionErrorCode(error),
             }))
           : { ok: false, error: "action_outcome_uncertain" };
         return this.store.completeAsyncCommand(command.id, { commandId: command.id, ...outcome });

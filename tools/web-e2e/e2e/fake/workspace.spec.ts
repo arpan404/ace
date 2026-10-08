@@ -60,7 +60,7 @@ test("Commit, then Create PR, opens a pull request for the branch", async ({ pag
   await expect(
     (await openWorkCard(page))
       .getByRole("region", { name: "Pull requests" })
-      .getByRole("button", { name: /^Open pull request #\d+/ }),
+      .getByRole("button", { name: /^Pull request #\d+/ }),
   ).toBeVisible();
 });
 

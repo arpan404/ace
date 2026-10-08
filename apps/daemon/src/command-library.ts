@@ -17,9 +17,13 @@ export function createDaemonCommandLibrary(
   env: NodeJS.ProcessEnv = process.env,
   instanceForThread: (thread: Thread) => string = (thread) => thread.provider,
   now: () => number = Date.now,
+  extras?: (
+    context: import("@ace/commands").LibraryContext,
+  ) => Promise<import("@ace/protocol").CatalogEntry[]>,
 ): CommandLibrary {
   return new CommandLibrary({
     aceHome,
+    ...(extras ? { extras } : {}),
     instances: instances ?? defaultCommandInstances(env),
     now,
     context(threadId) {
@@ -37,7 +41,12 @@ export function defaultCommandInstances(env: NodeJS.ProcessEnv): ProviderInstanc
     settings = homes.parse(env);
   return [
     { id: "claude", provider: "claude", home: settings.CLAUDE_CONFIG_DIR ?? join(home, ".claude") },
-    { id: "codex", provider: "codex", home: settings.CODEX_HOME ?? join(home, ".codex") },
+    {
+      id: "codex",
+      provider: "codex",
+      home: settings.CODEX_HOME ?? join(home, ".codex"),
+      skillsHome: home,
+    },
     {
       id: "opencode",
       provider: "opencode",
@@ -45,7 +54,9 @@ export function defaultCommandInstances(env: NodeJS.ProcessEnv): ProviderInstanc
         settings.OPENCODE_CONFIG_DIR ??
         join(settings.XDG_CONFIG_HOME ?? join(home, ".config"), "opencode"),
     },
-    ...(["cursor", "antigravity", "acp", "pi"] as const).map((provider) => ({
+    { id: "cursor", provider: "cursor", home: join(home, ".cursor") },
+    { id: "pi", provider: "pi", home: join(home, ".pi/agent") },
+    ...(["antigravity", "acp"] as const).map((provider) => ({
       id: provider,
       provider,
       home,

@@ -2,7 +2,38 @@ import type { IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http";
 
 export const httpCookieName = "ace_preview_session";
 export const httpsCookieName = "__Host-ace_preview_session";
-const reserved = new Set([httpCookieName, httpsCookieName]);
+/** The same session for a preview embedded in another site's frame (ADR 0008). */
+export const httpEmbedCookieName = "ace_preview_embed";
+export const httpsEmbedCookieName = "__Host-ace_preview_embed";
+const reserved = new Set([
+  httpCookieName,
+  httpsCookieName,
+  httpEmbedCookieName,
+  httpsEmbedCookieName,
+]);
+
+/**
+ * The gateway's cookie names, top-level first. Browsers drop a SameSite=Lax cookie set in a
+ * cross-site frame, so an embedded preview needs its own partitioned SameSite=None cookie.
+ */
+export function sessionCookieNames(tls: boolean): readonly [string, string] {
+  return tls ? [httpsCookieName, httpsEmbedCookieName] : [httpCookieName, httpEmbedCookieName];
+}
+
+/**
+ * Both session cookies. The Lax one serves top-level visits (another browser, a phone). The
+ * embedded one is Secure and Partitioned (CHIPS): browsers keep it only under the top-level
+ * site that framed the preview, and accept Secure on http only on loopback names such as
+ * `*.localhost`. Elsewhere over http the browser drops it and only top-level visits sign in.
+ */
+export function sessionCookies(session: string, tls: boolean, maxAgeSeconds: number): string[] {
+  const [top, embedded] = sessionCookieNames(tls);
+  const age = `Max-Age=${maxAgeSeconds}`;
+  return [
+    `${top}=${session}; Path=/; HttpOnly; SameSite=Lax; ${age}${tls ? "; Secure" : ""}`,
+    `${embedded}=${session}; Path=/; HttpOnly; SameSite=None; ${age}; Secure; Partitioned`,
+  ];
+}
 const hop = new Set([
   "connection",
   "keep-alive",

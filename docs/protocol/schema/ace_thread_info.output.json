@@ -747,6 +747,137 @@
             "worktree": {
               "maxLength": 4096,
               "type": "string"
+            },
+            "worktreeCreation": {
+              "additionalProperties": false,
+              "properties": {
+                "actions": {
+                  "items": {
+                    "enum": [
+                      "cancel",
+                      "local",
+                      "retry"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 3,
+                  "type": "array"
+                },
+                "attempt": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "cleanupComplete": {
+                  "type": "boolean"
+                },
+                "commandId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "details": {
+                  "items": {
+                    "maxLength": 1024,
+                    "type": "string"
+                  },
+                  "maxItems": 200,
+                  "type": "array"
+                },
+                "elapsedMs": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "message": {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                "percent": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "startedAt": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "state": {
+                  "enum": [
+                    "running",
+                    "cancelling",
+                    "cancelled",
+                    "failed",
+                    "done",
+                    "local"
+                  ],
+                  "type": "string"
+                },
+                "step": {
+                  "enum": [
+                    "preparing",
+                    "fetching",
+                    "creating",
+                    "checking_out",
+                    "setup",
+                    "done"
+                  ],
+                  "type": "string"
+                },
+                "steps": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "elapsedMs": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "startedAt": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "step": {
+                        "enum": [
+                          "preparing",
+                          "fetching",
+                          "creating",
+                          "checking_out",
+                          "setup",
+                          "done"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "step",
+                      "startedAt",
+                      "elapsedMs"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 6,
+                  "type": "array"
+                },
+                "threadId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "commandId",
+                "attempt",
+                "state",
+                "step",
+                "startedAt",
+                "elapsedMs",
+                "steps",
+                "details",
+                "cleanupComplete",
+                "actions"
+              ],
+              "type": "object"
             }
           },
           "type": "object"

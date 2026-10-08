@@ -71,14 +71,14 @@ test("in Activity, A doesn't approve a request that defaults to no; a click does
   await app.open("/activity");
   const card = await screen.findByRole("article", { name: "Drop the legacy sessions table?" });
   await waitFor(() => expect(card.getAttribute("aria-current")).toBe("true"));
-  // The Approve button carries no A key to press.
-  expect(within(card).getByRole("button", { name: "Approve" }).textContent).toBe("Approve");
+  // Allow once carries no A key to press.
+  expect(within(card).getByRole("button", { name: "Allow once" }).textContent).toBe("Allow once");
 
   await userEvent.keyboard("a");
-  expect(await within(card).findByText(/defaults to no: click Approve/)).toBeTruthy();
+  expect(await within(card).findByText(/defaults to no: click Allow once/)).toBeTruthy();
   expect(app.daemon.isPending("thread-drop-table", "drop-table")).toBe(true);
 
-  await userEvent.click(within(card).getByRole("button", { name: "Approve" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
   await waitFor(() =>
     expect(app.daemon.resolution("thread-drop-table", "drop-table")).toEqual({
       kind: "approval",

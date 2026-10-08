@@ -12,7 +12,7 @@ export interface NotifierPorts {
 /**
  * Shows routed notifications through the OS. One live notification per tag (one per thread),
  * so a newer alert replaces the older one instead of stacking. macOS and Windows get the
- * Approve / Deny buttons and an inline reply field; Linux shows plain notifications.
+ * Allow once / Deny buttons and an inline reply field; Linux shows plain notifications.
  */
 export class NativeNotifier {
   private live = new Map<string, Notification>();

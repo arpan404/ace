@@ -37,6 +37,7 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
       )?.value;
       if (enabled === true) service.start();
       if (enabled === false) service.stop();
+      services.commands?.invalidateExtras?.();
     },
   );
   resources.own(release);
@@ -65,6 +66,8 @@ export function createAutomationsSession({
         return true;
       }
       const result = options.automations.handle(request.data);
+      if (result.ok && ["automation.put", "automation.remove"].includes(request.data.type))
+        options.commands?.invalidateExtras?.();
       send(AutomationResponse.parse(result));
       return true;
     },

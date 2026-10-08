@@ -40,6 +40,11 @@ export function bootFake(): {
     snapshotItems: 40,
     // A clone takes a few seconds, so its progress and Cancel can be seen.
     projectScheduler: (callback) => void setTimeout(callback, 700),
+    // `?fakeWorktree=slow` (or `aceFakeWorktree = "slow"`): a new worktree takes a step every
+    // 1.5 s, so its card, details and actions can be seen.
+    worktreeCreationSlow:
+      (globalThis as { aceFakeWorktree?: string }).aceFakeWorktree === "slow" ||
+      new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorktree") === "slow",
   });
   // `aceFakeWorld = "empty"` (set before boot, as the screens do) starts on a daemon with no
   // threads and no projects: the first run. `?fakeWorld=thread-activity` adds threads caught

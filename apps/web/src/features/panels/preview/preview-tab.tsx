@@ -11,8 +11,10 @@ import type { PreviewServer, PreviewSource } from "../sources.ts";
 import { AddressBar } from "../browser/address-bar.tsx";
 import { setLoading } from "../browser/loading.ts";
 import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
-import { DevServerFrame, noHistory, OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
+import { noHistory, type FramePhase } from "./dev-server-frame.tsx";
 import { portLabel, portTab } from "./port.ts";
+import { forwardFailure } from "./preview-errors.ts";
+import { OpenPreviewOutside, PreviewFrame, previewUrl } from "./preview-frame.tsx";
 
 function useServers(source: PreviewSource, threadId: string) {
   // The source's reads change whenever its version does; React Compiler would memoize them
@@ -98,9 +100,9 @@ function PortForm(props: { source: PreviewSource; threadId: string }) {
         setError(undefined);
         props.source.forward(props.threadId, parsed).then(
           () => setSending(false),
-          () => {
+          (failure: unknown) => {
             setSending(false);
-            setError(`The daemon couldn't preview port ${parsed}.`);
+            setError(forwardFailure(failure, parsed));
           },
         );
       }}
@@ -143,7 +145,7 @@ function DevServer(props: {
   const [attempt, setAttempt] = useState(0);
   const workspace = useWorkspaceActions(props.threadId);
   const server = props.servers.find((candidate) => candidate.port === port) ?? props.servers[0];
-  const url = server ? (server.origin ?? `http://localhost:${server.port}`) : "";
+  const url = server ? previewUrl(server) : "";
   const [phase, setPhase] = useState<FramePhase>("loading");
   const loading = !!server && phase === "loading";
   const { onShown } = props;
@@ -194,13 +196,15 @@ function DevServer(props: {
               className={toolbarButton}
               onClick={() => workspace.open(portTab(server))}
             />
-            <OpenOutside url={url} />
+            <OpenPreviewOutside source={props.source} threadId={props.threadId} server={server} />
           </>
         }
         progress={loading ? `Loading ${url}` : undefined}
       />
-      <DevServerFrame
-        url={url}
+      <PreviewFrame
+        source={props.source}
+        threadId={props.threadId}
+        server={server}
         attempt={attempt}
         onPhase={setPhase}
         onRetry={() => setAttempt((count) => count + 1)}

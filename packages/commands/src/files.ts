@@ -10,10 +10,14 @@ import { FileIndex, type DiscoveryMetrics } from "./file-index.ts";
 import { inside, key, sourceId, type RegisteredRoot } from "./file-keys.ts";
 const rootSchema = z.object({
   path: z.string().min(1).max(4096),
-  format: z.enum(["library", "claude", "codex", "opencode", "opencode-config"]),
+  format: z.enum(["library", "claude", "codex", "opencode", "opencode-config", "cursor", "pi"]),
   scope: z.enum(["user", "workspace"]),
   instance: z.string().max(128).optional(),
   skill: z.boolean().optional(),
+  kind: z
+    .enum(["skill", "command", "plugin", "agent", "workflow", "mcp-tool", "builtin"])
+    .optional(),
+  plugin: z.string().max(256).optional(),
   trustedRoot: z.string().max(4096).optional(),
 });
 export type WatchSource = (
@@ -246,6 +250,11 @@ export class CommandFiles {
       this.healing = undefined;
     });
     return this.healing;
+  }
+  /** Retire definitions only when their roots are replaced; closing watchers preserves cached reads. */
+  async remove(): Promise<void> {
+    await this.close();
+    this.index.clear();
   }
   close(): Promise<void> {
     this.closing ??= this.dispose();

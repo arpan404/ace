@@ -101,9 +101,17 @@ export class ReviewWorker {
                 ...(output ? { output } : {}),
               });
           },
-          () => {
+          (error: unknown) => {
             if (!this.closed)
-              this.worker.postMessage({ type: "execution", key: message.key, ok: false });
+              this.worker.postMessage({
+                type: "execution",
+                key: message.key,
+                ok: false,
+                error:
+                  error instanceof Error && /^review_[a-z_]+$/.test(error.message)
+                    ? error.message
+                    : "review_executor_failed",
+              });
           },
         );
       this.executions.add(execution);

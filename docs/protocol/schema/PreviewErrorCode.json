@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewErrorCode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "forbidden",
+    "preview_unavailable",
+    "preview_not_found",
+    "preview_owned_by_another_thread",
+    "preview_limit",
+    "preview_link_refused",
+    "preview_refused"
+  ],
+  "type": "string"
+}

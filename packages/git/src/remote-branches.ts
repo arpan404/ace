@@ -125,6 +125,7 @@ export interface FetchBranchOptions {
   branch: string;
   timeoutMs: number;
   signal?: AbortSignal | undefined;
+  stderr?: (chunk: Buffer) => void;
 }
 
 /**
@@ -165,7 +166,7 @@ export async function fetchBranch(
       root,
       [
         "fetch",
-        "--quiet",
+        "--progress",
         "--no-tags",
         "--no-recurse-submodules",
         "--no-write-fetch-head",
@@ -180,6 +181,7 @@ export async function fetchBranch(
         captureBytes: 65_536,
         timeoutMs: deadline.data,
         signal: options.signal,
+        ...(options.stderr ? { stderr: options.stderr } : {}),
         env,
       },
     );

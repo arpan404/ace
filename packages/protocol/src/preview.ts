@@ -42,3 +42,28 @@ export const PreviewDescriptor = z.object({
   name: text.optional(),
   source: z.enum(["listener", "terminal", "launch"]),
 });
+
+/** Why a preview gateway refused a navigation; its refusal page names one of these. */
+export const PreviewRefusal = z.enum([
+  /** The request carried no session cookie (never signed in, expired, or the browser dropped it). */
+  "signed_out",
+  /** A session cookie that no longer verifies: expired, revoked, or from before a daemon restart. */
+  "session_expired",
+  /** A sign-in link that expired, was already used, or was not issued by this gateway. */
+  "link_invalid",
+  /** No preview answers at this address any more (stopped previewing, or a daemon restart). */
+  "not_previewed",
+  /** The gateway is signed in but the dev server behind it didn't answer. */
+  "upstream_unavailable",
+]);
+export type PreviewRefusal = z.infer<typeof PreviewRefusal>;
+/**
+ * What a gateway refusal page posts to the page framing it (`window.postMessage`), so the
+ * embedder can say what went wrong across origins. Carries no credential.
+ */
+export const PreviewGatewayStatus = z.object({
+  type: z.literal("ace-preview.status"),
+  status: z.number().int().min(400).max(599),
+  reason: PreviewRefusal,
+});
+export type PreviewGatewayStatus = z.infer<typeof PreviewGatewayStatus>;

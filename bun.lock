@@ -193,6 +193,7 @@
       "name": "@ace/adapter-acp",
       "dependencies": {
         "@ace/agent-registry": "workspace:*",
+        "@ace/commands": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/mcp-server": "workspace:*",
@@ -271,6 +272,7 @@
     "packages/adapter-pi": {
       "name": "@ace/adapter-pi",
       "dependencies": {
+        "@ace/commands": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/mcp-server": "workspace:*",
@@ -390,6 +392,7 @@
         "@ace/protocol": "workspace:*",
         "jsonc-parser": "^3.3.1",
         "koffi": "3.3.2",
+        "smol-toml": "^1.4.2",
         "yaml": "^2.8.1",
         "zod": "^4.6.5",
       },

@@ -5,6 +5,17 @@ import {
   ProviderInstallEvent,
 } from "./provider-install.ts";
 import {
+  WorktreeCreationRequest,
+  WorktreeCreationEvent,
+  WorktreeCreationResult,
+} from "./worktree-creation.ts";
+import {
+  CatalogList,
+  CatalogUnsubscribe,
+  CatalogListResult,
+  CatalogChanged,
+} from "./extension-catalog.ts";
+import {
   ProviderLoginRequest,
   ProviderLoginResult,
   ProviderLoginEvent,
@@ -144,6 +155,7 @@ import {
 } from "./search.ts";
 
 export const ClientMessage = z.discriminatedUnion("type", [
+  WorktreeCreationRequest,
   TurnsPageRequest,
   ItemsWindowRequest,
   ThreadSearchRequest,
@@ -185,6 +197,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...FilesClientMessage.options,
   CommandsList,
   CommandsResolve,
+  CatalogList,
+  CatalogUnsubscribe,
   ...AccountsRequest.options,
   ...ProviderAccountsRequest.options,
   ...CursorAuthRequest.options,
@@ -205,6 +219,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  WorktreeCreationEvent,
+  WorktreeCreationResult,
   TurnsPageResponse,
   ItemsWindowResponse,
   ThreadSearchResponse,
@@ -253,6 +269,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...FilesServerMessage.options,
   CommandsListResult,
   CommandsResolveResult,
+  CatalogListResult,
+  CatalogChanged,
   ...AccountsResponse.options,
   ProviderAccountsResult,
   ...CursorAuthEvent.options,

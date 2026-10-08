@@ -34,7 +34,7 @@ export { GitError, isMutationUnavailable } from "./types.ts";
 export { spawnGitProcess } from "./process-runtime.ts";
 export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
-export type { CreateWorktreeOptions } from "./worktrees.ts";
+export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
 export type { BranchRefs, FetchBranchOptions } from "./remote-branches.ts";
 
 export class GitService {
@@ -153,6 +153,25 @@ export class GitService {
   async status(worktree: string) {
     const root = await this.repository.root(worktree);
     return this.repository.serial(root, () => this.repository.status(root));
+  }
+
+  /** Project setup remains under the same supervised mutation boundary as Git writers. */
+  async setupWorktree(options: {
+    worktree: string;
+    command: string;
+    stderr?: (chunk: Buffer) => void;
+  }) {
+    const root = await this.repository.root(options.worktree);
+    await this.repository.serial(root, () =>
+      this.repository.cli.call(
+        root,
+        ["-c", `alias.ace-worktree-setup=!${options.command}`, "ace-worktree-setup"],
+        {
+          write: true,
+          ...(options.stderr ? { stderr: options.stderr, consume: options.stderr } : {}),
+        },
+      ),
+    );
   }
 
   createWorktree(options: CreateWorktreeOptions) {

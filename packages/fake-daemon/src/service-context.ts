@@ -1,4 +1,9 @@
 import type { ThreadView, EventPayload, InteractionResolution, Thread } from "@ace/protocol";
+export interface FakeWireSession {
+  authenticated?(device: string): void;
+  handle(message: import("@ace/protocol").ClientMessage, device: string): Promise<void>;
+  close(): void;
+}
 export interface FakeServiceContext {
   now(): number;
   canManageProjects?(device: string): boolean;

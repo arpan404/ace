@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/WorktreeCreationRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/TurnsPageRequest.json"
     },
     {
@@ -733,6 +736,12 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/CommandsResolve.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CatalogList.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CatalogUnsubscribe.json"
     },
     {
       "properties": {

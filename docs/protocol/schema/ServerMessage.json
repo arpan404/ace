@@ -3,6 +3,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/WorktreeCreationEvent.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/WorktreeCreationResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/TurnsPageResponse.json"
     },
     {
@@ -383,6 +389,12 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/CommandsResolveResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CatalogListResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CatalogChanged.json"
     },
     {
       "properties": {

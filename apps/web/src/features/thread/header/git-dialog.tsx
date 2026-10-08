@@ -12,12 +12,19 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import type { Checkout } from "@ace/ui-core";
+import { parseReviewers, type Checkout } from "@ace/ui-core";
+import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { useChangedFiles, type GitChange } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { ChangedFiles, pathsOf, pickedByDefault } from "./changed-files.tsx";
 
-export type GitDialogKind = "commit" | "commit-push" | "pr" | "draft-pr";
+export type GitDialogKind =
+  | "commit"
+  | "commit-push"
+  | "pr"
+  | "draft-pr"
+  | "link-pr"
+  | "request-review";
 
 /**
  * What a commit or PR says, written by the person: the daemon commits and opens PRs exactly as
@@ -35,6 +42,7 @@ export function GitDialog(props: {
 }) {
   const [subject, setSubject] = useState(props.thread.title);
   const [body, setBody] = useState("");
+  const [reviewerText, setReviewerText] = useState("");
   const [error, setError] = useState<string>();
   const { kind, checkout } = props;
   const commit = kind === "commit" || kind === "commit-push";
@@ -55,14 +63,16 @@ export function GitDialog(props: {
         title: draft ? "Open a draft pull request" : "Open a pull request",
         submit: draft ? "Create draft PR" : "Create PR",
       };
+  const reviewers = parseReviewers(reviewerText);
   const submit = () => {
     const title = subject.trim();
     if (!title || props.pending || nothing || (commit && !files)) return;
+    if ("error" in reviewers) return setError(reviewers.error);
     setError(undefined);
     const message = body.trim() ? `${title}\n\n${body.trim()}` : title;
     const change: GitChange = commit
       ? { kind: "commit", message, push, paths: pathsOf(files ?? [], chosen) }
-      : { kind: "create-pr", title, summary: body.trim(), draft };
+      : { kind: "create-pr", title, summary: body.trim(), draft, ...reviewers };
     props
       .onSubmit(change)
       .then(props.onClose, (failure: unknown) =>
@@ -125,6 +135,15 @@ export function GitDialog(props: {
               maxLength={8000}
               onChange={(event) => setBody(event.target.value)}
             />
+            {!commit && (
+              <Input
+                aria-label="Reviewers"
+                placeholder="Reviewers: GitHub usernames (optional)"
+                value={reviewerText}
+                maxLength={2000}
+                onChange={(event) => setReviewerText(event.target.value)}
+              />
+            )}
             {/* In a form, a one-off option is a checkbox; switches are for settings. */}
             {commit ? (
               <label
@@ -150,13 +169,13 @@ export function GitDialog(props: {
                   onCheckedChange={(checked) => setDraft(checked)}
                 />
                 Draft
-                <span>· reviewers aren't asked yet</span>
+                <span>· not ready for review yet</span>
               </label>
             )}
           </DialogBody>
           {error && (
             <p role="alert" className="text-sm text-status-failed">
-              {error}
+              <InlineMarkdown text={error} />
             </p>
           )}
           <DialogFooter submitHint>

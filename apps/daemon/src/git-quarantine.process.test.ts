@@ -7,6 +7,10 @@ import { expect, test } from "vitest";
 import { Store } from "./store.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { git } from "./test-git.ts";
+import { startServer } from "./server.ts";
+import { stubHandler } from "./commands.ts";
+import { token } from "./socket-test-support.ts";
+import { connect, command } from "./thread-creation-test-support.ts";
 
 test("quarantine blocks workspace preparation and provider input until cleanup recovers", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-git-quarantine-"));
@@ -61,6 +65,28 @@ test("quarantine blocks workspace preparation and provider input until cleanup r
     await expect(
       runtime.checkpoints.beforeSend(thread.id, CommandId.parse("blocked")),
     ).rejects.toMatchObject({ code: "git_quarantined" });
+    const server = await startServer({
+      store,
+      handler: stubHandler(),
+      workspaceActions: runtime,
+      port: 0,
+      token,
+      hostId: "host",
+    });
+    const client = await connect(server.url);
+    try {
+      expect(
+        await command(client, "quarantined-commit", {
+          type: "git.commit",
+          threadId: thread.id,
+          expectedHead: null,
+          message: "Blocked",
+        }),
+      ).toMatchObject({ ok: false, error: "git_quarantined" });
+    } finally {
+      await client.close();
+      await server.close();
+    }
     await exited.promise;
     await new GitService({
       processRuntime: {

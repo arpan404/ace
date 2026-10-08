@@ -1127,6 +1127,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"review.list"` |  |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | sessionId | no | string | {"minLength":1,"maxLength":128} |
 | commentId | no | string | {"minLength":1,"maxLength":128} |
 | cursor | no | string | {"default":"","maxLength":128} |
@@ -1136,7 +1137,8 @@ Example:
 
 ```json
 {
-  "cursor": "example",
+  "commentId": "example",
+  "limit": 2,
   "type": "review.list"
 }
 ```
@@ -1153,29 +1155,30 @@ Example:
 ```json
 {
   "input": {
-    "baseRef": "a5d6145ba257f09e6d8efe76e4fba821807c01d8",
+    "baseRef": "d6145ba257f09e6d8efe76e4fba821807c01d8e9",
     "prompt": "example",
     "targetBranch": "example",
     "template": {
       "budget": {
-        "cost": 8,
-        "durationMs": 2,
-        "maxAttempts": 8,
-        "maxDepth": 0,
-        "maxLanes": 2,
-        "tokens": 9
+        "cost": 5,
+        "durationMs": 8,
+        "maxAttempts": 9,
+        "maxDepth": 1,
+        "maxLanes": 8,
+        "tokens": 7
       },
       "checks": {
         "command": [
           "example"
-        ]
+        ],
+        "review": "example"
       },
       "kind": "pipeline",
       "lanes": [
         {
           "model": "example",
           "permissionMode": "example",
-          "provider": "pi"
+          "provider": "antigravity"
         }
       ]
     },
@@ -1196,7 +1199,7 @@ Example:
 
 ```json
 {
-  "orchestrationId": "OpdvY",
+  "orchestrationId": "p",
   "type": "orchestration.cancel"
 }
 ```
@@ -1214,8 +1217,9 @@ Example:
 
 ```json
 {
-  "laneId": "Iwe4e-U",
-  "orchestrationId": "Ae",
+  "laneId": "eU5YqLiKPSD",
+  "merge": false,
+  "orchestrationId": "uCkeKLwe4",
   "type": "orchestration.pick"
 }
 ```
@@ -1250,20 +1254,21 @@ Example:
 
 ```json
 {
-  "base": {
-    "ref": "example"
-  },
-  "baseBranch": "example",
-  "handoffFrom": "example",
+  "accountId": "example",
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "source": {
+        "bytes": 8,
+        "encoding": "utf-16le",
+        "streamId": "example"
+      },
+      "text": "example",
+      "type": "text"
     }
   ],
-  "installationId": "example",
-  "provider": "antigravity",
+  "model": "example",
+  "options": {},
+  "provider": "pi",
   "threadId": "example",
   "type": "thread.create",
   "workspaceId": "example"
@@ -1288,15 +1293,19 @@ Example:
 
 ```json
 {
+  "context": {
+    "attachments": []
+  },
+  "delivery": "queue",
   "input": [
     {
-      "mimeType": "example",
-      "path": "example",
-      "type": "file"
+      "text": "example",
+      "type": "text"
     }
   ],
   "model": "example",
   "threadId": "example",
+  "trigger": "subagent_result",
   "type": "thread.send"
 }
 ```
@@ -1315,7 +1324,7 @@ Example:
 
 ```json
 {
-  "runId": "example",
+  "agentId": "example",
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -1387,9 +1396,8 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "answers": {},
-    "feedback": "example",
-    "kind": "question"
+    "action": "decline",
+    "kind": "elicitation"
   },
   "type": "interaction.resolve"
 }
@@ -1440,29 +1448,65 @@ Example:
 
 ```json
 {
+  "alive": {
+    "agentsRunning": 6,
+    "operationsRunning": 7,
+    "terminalsOpen": 1
+  },
   "code": "example",
   "commandId": "example",
-  "commit": "a0fd82e583617594f2f202cf5f19e43fd28595e3ce68428",
-  "editor": {
-    "editor": {
-      "command": "example",
-      "id": "example",
-      "name": "example"
-    },
-    "path": "example"
-  },
   "forkThreadId": "example",
   "ok": false,
-  "pr": {
-    "number": 2,
-    "repository": {
-      "forge": "gitlab",
-      "host": "NzMzWIpL6a",
-      "name": "47NHa",
-      "owner": "gUhS6p2o/hUC/i-huV/.t3IM4-AIgC/1dX/fO1EZCHIn/1u3WUFEwXqj/jqNHH1guiCJ/UEHCyU/UBvL"
-    }
+  "review": {
+    "comment": {
+      "anchor": {
+        "fingerprint": {
+          "after": [],
+          "before": [],
+          "lines": [
+            "example"
+          ]
+        },
+        "position": {
+          "end": 1,
+          "file": "example.ts",
+          "side": "new",
+          "start": 1
+        },
+        "revision": {
+          "kind": "working-tree"
+        },
+        "state": "active"
+      },
+      "id": "example",
+      "originalAnchor": {
+        "fingerprint": {
+          "after": [],
+          "before": [],
+          "lines": [
+            "example"
+          ]
+        },
+        "position": {
+          "end": 1,
+          "file": "example.ts",
+          "side": "new",
+          "start": 1
+        },
+        "revision": {
+          "kind": "working-tree"
+        },
+        "state": "active"
+      },
+      "resolved": false,
+      "sessionId": "example",
+      "suggestion": "example",
+      "text": "example"
+    },
+    "comments": [],
+    "intentId": "example",
+    "nextCursor": "example"
   },
-  "terminalId": "example",
-  "title": "example"
+  "terminalId": "example"
 }
 ```

@@ -3,28 +3,13 @@ import type { ScreenState } from "@ace/protocol";
 import { screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
 import { DotsThreeIcon, HandIcon, StopIcon } from "@phosphor-icons/react";
 import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
+import { AppMark } from "@/components/app-mark.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
-import { cn } from "@/lib/cn.ts";
 import { LiveView } from "./live-view.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
-
-/** A letter tile for the app: the wire names apps by bundle id and carries no icon. */
-export function AppMark(props: { name: string; className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "grid size-6 shrink-0 place-items-center rounded-md bg-foreground/8 text-xs font-medium text-foreground",
-        props.className,
-      )}
-    >
-      {props.name.charAt(0).toUpperCase()}
-    </span>
-  );
-}
 
 /**
  * One agent-controlled (or person-controlled) app: its live picture, who has it, whether it runs

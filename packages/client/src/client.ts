@@ -409,7 +409,27 @@ export class Client implements ClientApi, ConnectionControl {
   ): Promise<ServiceResponse<Q>> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
     const id = options.requestId ?? this.options.id();
-    return this.service().then((wire) => this.sendRequest(wire, input, id, options));
+    // Retry and the local checkout rerun a failed worktree create under its own command id:
+    // its intent waits for the next receipt again, unless the daemon turns the action down.
+    const reopened =
+      input.type === "worktree.creation.request" &&
+      "action" in input &&
+      (input.action === "retry" || input.action === "local") &&
+      "commandId" in input
+        ? this.intents.reopen(input.commandId)
+        : undefined;
+    const reply = this.service().then((wire) => this.sendRequest(wire, input, id, options));
+    if (!reopened) return reply;
+    return reply.then(
+      (response) => {
+        if (refusedCreation(response)) reopened.undo();
+        return response;
+      },
+      (error: unknown) => {
+        reopened.undo();
+        throw error;
+      },
+    );
   }
   private sendRequest<Q extends ServiceRequest>(
     wire: ServiceWire,
@@ -776,3 +796,12 @@ function decodeThreadId(id: string): ThreadId {
   if (!result.success) throw new ClientError("protocol", "Invalid thread id");
   return result.data;
 }
+
+/** A `worktree.creation.result` turning an action down. */
+const refusedCreation = (response: unknown): boolean =>
+  typeof response === "object" &&
+  response !== null &&
+  "type" in response &&
+  response.type === "worktree.creation.result" &&
+  "ok" in response &&
+  response.ok === false;

@@ -195,6 +195,12 @@ export class ReviewService {
     }
     if (p.type === "review.list") return this.store.list(p);
     const { session, worktree } = this.store.session(p.sessionId);
+    if (
+      p.type === "review.applySuggestion" &&
+      suppliedWorktree &&
+      (await realpath(suppliedWorktree)) !== (await realpath(worktree))
+    )
+      throw new Error("review_target_mismatch");
     if (p.type === "review.sendToAgent" || p.type === "review.askReviewer") {
       if (!suppliedTarget) throw new Error("review_target_unavailable");
       const target = ReviewExecutionTarget.parse(suppliedTarget);

@@ -1,0 +1,196 @@
+{
+  "$id": "https://ace.local/protocol/v1/CatalogInvocation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "slash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "skill",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "mention",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "plugin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "server": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "type": {
+          "const": "tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "server"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commandId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/PromptArgument.json"
+          },
+          "maxProperties": 64,
+          "propertyNames": {
+            "$ref": "https://ace.local/protocol/v1/PaletteName.json"
+          },
+          "type": "object",
+          "x-ace-constraint": "At most 64 arguments."
+        },
+        "type": {
+          "const": "prompt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "commandId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "action",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reason": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "unavailable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

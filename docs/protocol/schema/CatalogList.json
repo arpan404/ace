@@ -1,0 +1,65 @@
+{
+  "$id": "https://ace.local/protocol/v1/CatalogList.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "draft": {
+      "properties": {
+        "draftId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "draftId",
+        "workspaceId",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "limit": {
+      "default": 100,
+      "maximum": 512,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "default": "",
+      "maxLength": 256,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "subscribe": {
+      "default": false,
+      "type": "boolean"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "catalog.list",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requestId",
+    "type"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Exactly one of threadId or draft is required."
+}

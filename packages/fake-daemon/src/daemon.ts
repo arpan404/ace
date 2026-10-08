@@ -1,3 +1,4 @@
+import { FakeWorktreeCreations } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
 import { threadMoveError, threadMoveEvents } from "@ace/projection";
 import { automaticTarget } from "@ace/accounts/availability";
@@ -75,6 +76,9 @@ import { fakeWorktreeBase } from "./worktree-base.ts";
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
   clock(): number;
+  /** Keep creation visible for screenshot capture. */
+  worktreeCreationSlow?: boolean;
+  worktreeCreationSchedule?: (callback: () => void, delay: number) => () => void;
   screenId?(): string;
   screenSchedule?(callback: () => void, delay: number): () => void;
   hostId?: string;
@@ -119,6 +123,7 @@ export class FakeDaemon implements Host {
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
   private options: FakeDaemonOptions;
+  private worktreeCreations: FakeWorktreeCreations;
   private servicesWire: FakeServicesWire;
   private seq = 0;
   private log: DeliveryEvent[] = [];
@@ -145,6 +150,34 @@ export class FakeDaemon implements Host {
   readonly screen: FakeScreen;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.worktreeCreations = new FakeWorktreeCreations(
+      options.clock,
+      options.worktreeCreationSchedule ??
+        ((callback, delay) => {
+          const timer = setTimeout(callback, delay);
+          return () => clearTimeout(timer);
+        }),
+      options.worktreeCreationSlow ?? false,
+      (command) => {
+        const result = this.command(command);
+        if (!result.ok) this.receipts.delete(command.id);
+        return result;
+      },
+      (progress) => {
+        const host = progress.threadId && this.threads.get(progress.threadId);
+        if (host && (progress.state === "done" || progress.state === "local"))
+          this.append(
+            host,
+            [
+              {
+                type: "thread.client.updated",
+                changes: { details: { ...host.view.thread.details, worktreeCreation: progress } },
+              },
+            ],
+            options.clock(),
+          );
+      },
+    );
     this.hostId = HostId.parse(options.hostId ?? "fake-host");
     this.version = options.version ?? "fake";
     this.longThreads = new FakeLongThreadWire({
@@ -212,15 +245,16 @@ export class FakeDaemon implements Host {
       },
       this.services.settings,
     );
-    this.review = new FakeReviewDesk(options.clock, (threadId, text) =>
-      this.apply(threadId, [
-        {
-          type: "item.upsert",
-          agent: "root",
-          item: `review-${this.seq + 1}`,
-          draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }] },
-        },
-      ]),
+    this.review = new FakeReviewDesk(
+      options.clock,
+      (threadId, text, requestId) =>
+        this.run(CommandId.parse(`review-fix:${requestId}`), threadId, (host) =>
+          sendFacts(host, `review-fix:${requestId}`, {
+            input: [{ type: "text", text }],
+            delivery: "queue",
+          }),
+        ),
+      this.servicesWire.files,
     );
   }
   /** The PTYs clients reach through `terminal.request`, for seeding a scenario's terminals. */
@@ -637,6 +671,18 @@ export class FakeDaemon implements Host {
         return true;
       }
     }
+    if (message.type === "worktree.creation.request") {
+      const scopes = this.options.deviceScopes?.[connection.deviceId];
+      if (scopes && !scopes.includes(message.action === "get" ? "read" : "operate"))
+        connection.push({
+          type: "worktree.creation.result",
+          requestId: message.requestId,
+          ok: false,
+          error: "forbidden",
+        });
+      else this.worktreeCreations.handle(message, connection.deviceId, connection.push);
+      return true;
+    }
     if (this.longThreads.handle(message, connection.deviceId, connection.push)) return true;
     if (message.type === "queue.get") {
       const host = this.threads.get(message.threadId);
@@ -785,7 +831,19 @@ export class FakeDaemon implements Host {
       scopes?.includes("desktop") === true
     );
   }
-  commandAsync(command: Command): Promise<CommandResult> {
+  commandAsync(
+    command: Command,
+    send: (message: ServerMessage) => void = () => {},
+  ): Promise<CommandResult> {
+    const p = command.payload;
+    if ((p.type === "thread.create" || p.type === "thread.prepare") && p.mode === "worktree") {
+      const scopes = this.options.deviceScopes?.[command.deviceId];
+      if (scopes && !scopes.includes("operate"))
+        return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
+      const receipt = this.receipts.get(command.id);
+      if (receipt) return Promise.resolve(this.command(command));
+      return this.worktreeCreations.start(command, send);
+    }
     if (!this.canManageProjects(command.deviceId))
       return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
     if (command.payload.type !== "workspace.clone") return Promise.resolve(this.command(command));
@@ -1233,7 +1291,7 @@ export class FakeDaemon implements Host {
       case "review.refresh":
       case "review.status":
       case "review.list":
-        return { commandId, ...this.review.execute(payload) };
+        return { commandId, ...this.review.execute(payload, commandId) };
       default:
         return { commandId, ok: false, error: "unsupported_by_fake_daemon" };
     }

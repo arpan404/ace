@@ -5,6 +5,7 @@ import {
   useInteractions,
   useIntentSender,
   useThread,
+  useThreadMeta,
 } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import {
@@ -253,15 +254,17 @@ export function CatchUpCard(props: {
 /** One request waiting on the person: an approval answers here, anything else at the end. */
 function PendingRequest(props: { threadId: string; interactionId: string; onLive(): void }) {
   const interaction = useInteraction(props.threadId, props.interactionId);
+  const mode = useThreadMeta(props.threadId)?.permission?.effective;
   const { send, intent } = useIntentSender();
   if (!interaction || interaction.state !== "pending") return null;
   const request = interaction.request;
   const sending = intent?.state === "pending" || intent?.state === "acked";
   // ace's own tools and default-to-no requests are answered on their full card, with its risk.
   const deliberate = deliberateApproval(request);
+  const copy = request.kind === "approval" ? approvalCopy(request, { mode }) : undefined;
   const title =
     request.kind === "approval"
-      ? approvalCopy(request).title
+      ? (copy?.title ?? request.title)
       : request.kind === "question"
         ? (request.questions[0]?.text ?? "A question")
         : request.kind === "plan_review"
@@ -271,22 +274,22 @@ function PendingRequest(props: { threadId: string; interactionId: string; onLive
     <li className="flex min-w-0 items-center gap-2 text-ui">
       <Dot tone="needs-you" />
       <span className="min-w-0 flex-1 truncate text-foreground">{title}</span>
-      {request.kind === "approval" && !deliberate ? (
-        request.options.slice(0, 3).map((option) => (
+      {copy && !deliberate ? (
+        copy.decisions.map((decision) => (
           <Button
-            key={option.id}
+            key={decision.option.id}
             size="sm"
-            variant={option.kind.startsWith("allow") ? "secondary" : "ghost"}
+            variant={decision.verb === "deny" ? "ghost" : "secondary"}
             disabled={sending}
             onClick={() =>
               void send({
                 type: "interaction.resolve",
                 interactionId: interaction.id,
-                resolution: { kind: "approval", optionId: option.id },
+                resolution: { kind: "approval", optionId: decision.option.id },
               }).catch(() => {})
             }
           >
-            {option.label}
+            {decision.label}
           </Button>
         ))
       ) : (

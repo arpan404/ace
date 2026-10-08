@@ -16,6 +16,7 @@ export class ReviewStore {
     this.db.exec(`
       PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256;
       CREATE TABLE IF NOT EXISTS review_sessions (id TEXT PRIMARY KEY, worktree TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS review_sessions_thread ON review_sessions(json_extract(data, '$.source.threadId'), id);
       CREATE TABLE IF NOT EXISTS review_comments (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES review_sessions(id), data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS review_comments_session ON review_comments(session_id, id);
       CREATE TABLE IF NOT EXISTS review_replies (id TEXT PRIMARY KEY, comment_id TEXT NOT NULL REFERENCES review_comments(id), data TEXT NOT NULL);
@@ -38,6 +39,9 @@ export class ReviewStore {
         "SELECT COUNT(*) AS n FROM review_replies WHERE comment_id = ?",
       ),
       putReply: this.db.prepare("INSERT INTO review_replies VALUES (?, ?, ?)"),
+      threadSessions: this.db.prepare(
+        "SELECT data FROM review_sessions WHERE json_extract(data, '$.source.threadId') = ? AND id > ? ORDER BY id LIMIT ?",
+      ),
       sessions: this.db.prepare(
         "SELECT data FROM review_sessions WHERE id > ? ORDER BY id LIMIT ?",
       ),
@@ -101,6 +105,7 @@ export class ReviewStore {
       .map((row) => ReviewComment.parse(JSON.parse(String(row.data))));
   }
   list(options: {
+    threadId?: string | undefined;
     sessionId?: string | undefined;
     commentId?: string | undefined;
     cursor: string;
@@ -121,9 +126,10 @@ export class ReviewStore {
         .map((r) => ReviewComment.parse(JSON.parse(String(r.data))));
       return { session, comments, nextCursor: comments.at(-1)?.id ?? "" };
     }
-    const sessions = this.statements.sessions
-      .all(options.cursor, options.limit)
-      .map((r) => ReviewSession.parse(JSON.parse(String(r.data))));
+    const rows = options.threadId
+      ? this.statements.threadSessions.all(options.threadId, options.cursor, options.limit)
+      : this.statements.sessions.all(options.cursor, options.limit);
+    const sessions = rows.map((r) => ReviewSession.parse(JSON.parse(String(r.data))));
     return { sessions, nextCursor: sessions.at(-1)?.id ?? "" };
   }
   receipt(id: CommandId, device: string): CommandResult | undefined {

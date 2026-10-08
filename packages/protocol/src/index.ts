@@ -1,3 +1,4 @@
+export * from "./extension-catalog.ts";
 export * from "./provider-error-details.ts";
 export * from "./agent.ts";
 export * from "./background.ts";
@@ -63,7 +64,7 @@ export * from "./forge.ts";
 export * from "./terminal-client.ts";
 
 export * from "./preview-client.ts";
-export { PreviewPort, PreviewDescriptor } from "./preview.ts";
+export { PreviewPort, PreviewDescriptor, PreviewGatewayStatus, PreviewRefusal } from "./preview.ts";
 
 export * from "./run-client.ts";
 export * from "./agent-control.ts";
@@ -108,3 +109,4 @@ export * from "./provider-login.ts";
 
 export * from "./provider-accounts.ts";
 export * from "./provider-install.ts";
+export * from "./worktree-creation.ts";
