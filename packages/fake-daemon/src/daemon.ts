@@ -287,7 +287,8 @@ export class FakeDaemon implements Host {
             setTimeout(callback, 0);
           }),
         createThread: (input) => this.createThread(input),
-        apply: (id, facts) => this.apply(id, facts),
+        apply: (id, facts, at) =>
+          this.apply(id, facts, at === undefined ? 0 : options.clock() - at),
         thread: (id) => {
           const host = this.threads.get(id);
           return host?.view.thread.deletedAt === undefined ? host?.view : undefined;
@@ -1306,7 +1307,7 @@ export class FakeDaemon implements Host {
       case "thread.prepare": {
         if (this.threads.has(payload.threadId))
           return { commandId, ok: false, error: "thread_exists" };
-        const base = fakeWorktreeBase(payload, payload.threadId, this.remoteReachable);
+        const base = fakeWorktreeBase(payload, payload.title, this.remoteReachable);
         if (!base.ok) return { commandId, ok: false, error: base.error };
         this.createThread({
           id: payload.threadId,
@@ -1329,7 +1330,8 @@ export class FakeDaemon implements Host {
         // No provider is contacted; the host may schedule a fixture completion.
         const id = payload.threadId ?? `thread-${commandId}`;
         if (this.threads.has(id)) return { commandId, ok: true, threadId: ThreadId.parse(id) };
-        const base = fakeWorktreeBase(payload, id, this.remoteReachable);
+        const started = startedThread(id, payload, commandId);
+        const base = fakeWorktreeBase(payload, started.thread.title, this.remoteReachable);
         if (!base.ok) return { commandId, ok: false, error: base.error };
         if (payload.context?.draftId)
           this.servicesWire.context.validateDraft(
@@ -1338,7 +1340,6 @@ export class FakeDaemon implements Host {
             payload.workspaceId,
             id,
           );
-        const started = startedThread(id, payload, commandId);
         this.createThread({
           ...started.thread,
           ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),

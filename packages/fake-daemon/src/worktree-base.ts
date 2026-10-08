@@ -1,3 +1,4 @@
+import { worktreeBranchName } from "@ace/workspace/branch-name";
 import type { BranchRef, ThreadDetails, WorktreeBase } from "@ace/protocol";
 
 /** The fake project's branches as `branches.list` tells them apart. */
@@ -26,8 +27,8 @@ type BaseFields = Pick<ThreadDetails, "branch" | "baseBranch" | "base">;
 
 /**
  * The checkout fields a fake `thread.create` / `thread.prepare` records, or the error the real
- * daemon would refuse it with. `base` wins over `baseBranch`; without `base` the fake keeps its
- * old behaviour (the thread sits on `baseBranch`). A worktree from a `base` gets a branch of its
+ * daemon would refuse it with. `base` wins over `baseBranch`; without `base` a local thread sits on
+ * `baseBranch`, and a worktree gets a title-derived branch. A worktree from a `base` gets a branch of its
  * own; a remote base is "fetched" unless the remote is unreachable, then the listed (cached)
  * copy is used, and an unlisted one can't be.
  */
@@ -37,7 +38,7 @@ export function fakeWorktreeBase(
     base?: WorktreeBase | undefined;
     baseBranch?: string | undefined;
   },
-  threadId: string,
+  title: string,
   remoteReachable: boolean,
 ): { ok: true; fields: BaseFields } | { ok: false; error: string } {
   const { base } = payload;
@@ -45,7 +46,8 @@ export function fakeWorktreeBase(
     return {
       ok: true,
       fields: {
-        branch: payload.baseBranch ?? "main",
+        branch:
+          payload.mode === "worktree" ? worktreeBranchName(title) : (payload.baseBranch ?? "main"),
         ...(payload.baseBranch ? { baseBranch: payload.baseBranch } : {}),
       },
     };
@@ -57,7 +59,7 @@ export function fakeWorktreeBase(
   return {
     ok: true,
     fields: {
-      branch: payload.mode === "worktree" ? `ace/${threadId.slice(0, 8)}` : base.ref,
+      branch: payload.mode === "worktree" ? worktreeBranchName(title) : base.ref,
       baseBranch: label,
       base: {
         ref: base.ref,

@@ -81,6 +81,11 @@ test("OpenCode databases import ordered messages, tool outputs and child session
   expect(text(items)).toContain("OpenCode prompt");
   expect(items.some((i) => i.type === "notice" && i.text.includes("file content"))).toBe(true);
   expect(text(items)).toContain("OpenCode answer");
+  expect(items.find((item) => item.type === "message" && item.role === "user")?.createdAt).toBe(1);
+  expect(
+    items.find((item) => item.type === "message" && item.role === "assistant")?.createdAt,
+  ).toBe(2);
+  expect(items.find((item) => item.type === "tool_call")?.createdAt).toBe(2);
   expect(items.some((i) => i.type === "tool_call" && i.call.title === "read")).toBe(true);
   expect(await service.importedAgents(init(root.id).threadId)).toHaveLength(2);
   expect(await readFile(path)).toEqual(before);
@@ -342,9 +347,11 @@ test("legacy storage follows message timestamps rather than directory creation o
   const s = (await service.list({ type: "history.list", cwd })).sessions[0];
   if (!s) throw new Error("missing");
   await service.importSession(init(s.id));
-  expect(text((await service.itemsPage({ threadId: init(s.id).threadId })).items)).toBe(
-    "earlier later",
-  );
+  const items = (await service.itemsPage({ threadId: init(s.id).threadId })).items;
+  expect(text(items)).toBe("earlier later");
+  expect(items.filter((item) => item.type === "message").map((item) => item.createdAt)).toEqual([
+    10, 20,
+  ]);
 });
 
 test("an oversized Codex title does not hide other sessions or restart the scan", async () => {
