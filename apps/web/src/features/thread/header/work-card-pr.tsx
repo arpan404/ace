@@ -26,7 +26,6 @@ import { Button } from "@/components/ui/button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "@/components/ui/menu.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -59,7 +58,7 @@ function ToneIcon(props: { tone: keyof typeof tones }) {
 const open = (url: string, onError: () => void) => void openExternal(url).catch(onError);
 
 /**
- * The thread's pull request: a row that opens its popover (checks, conflicts, open review
+ * The thread's pull request: a row that expands its details inline (checks, conflicts, open review
  * threads, Merge and Request review), or why there is none. GitLab is named up front: the daemon
  * can't open or follow merge requests yet.
  */
@@ -70,7 +69,7 @@ export function PullRequestsSection(props: { git: GitFlow }) {
     <section aria-labelledby="work-card-prs">
       <SectionHead id="work-card-prs" title="Pull requests" />
       {pr && checkout ? (
-        <PrPopover key={pr.number} git={props.git} pr={pr} base={checkout.baseBranch} />
+        <PrDisclosure key={pr.number} git={props.git} pr={pr} base={checkout.baseBranch} />
       ) : (
         <RowNote>
           <GitPullRequestIcon aria-hidden size={16} className={rowIcon} />
@@ -85,7 +84,7 @@ export function PullRequestsSection(props: { git: GitFlow }) {
   );
 }
 
-function PrPopover(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
+function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
   const { git, pr } = props;
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
@@ -105,21 +104,15 @@ function PrPopover(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
   };
   const ci = pr.ci && pr.ci !== "unknown" ? pr.ci : undefined;
   return (
-    <Popover
-      open={openNow}
-      onOpenChange={(next) => {
-        setOpen(next);
-        // Opening asks the forge again: checks and mergeability move while nobody looks.
-        if (next) refresh();
-      }}
-    >
-      <PopoverTrigger
-        render={
-          <RowButton
-            aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${prState[pr.state]}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
-            className="aria-expanded:bg-accent"
-          />
-        }
+    <div>
+      <RowButton
+        aria-expanded={openNow}
+        aria-controls={`pr-${pr.number}`}
+        onClick={() => {
+          setOpen(!openNow);
+          if (!openNow) refresh();
+        }}
+        aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${prState[pr.state]}`}
       >
         <GitPullRequestIcon aria-hidden size={16} className={rowIcon} />
         <Tip label={pr.title ?? git.checkout?.branch}>
@@ -130,83 +123,81 @@ function PrPopover(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
         </Tip>
         <span className="shrink-0 text-xs text-subtle-foreground">{prState[pr.state]}</span>
         {ci && ci !== "none" && <ToneIcon tone={ci} />}
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        aria-label={`Pull request #${pr.number}`}
-        className="max-h-[min(360px,var(--available-height))] w-[340px] overflow-y-auto p-1.5"
-      >
-        <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
-          <Tip label={pr.title ?? `Pull request #${pr.number}`}>
-            <h3 className="min-w-0 flex-1 truncate text-ui">
-              <span className="text-subtle-foreground">#{pr.number}</span> {pr.title}
-            </h3>
-          </Tip>
-          {refreshing ? (
-            <Spinner label="Reading the pull request" className="mx-1.5" />
+      </RowButton>
+      {openNow && (
+        <section id={`pr-${pr.number}`} aria-label={`Pull request #${pr.number}`}>
+          <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
+            <Tip label={pr.title ?? `Pull request #${pr.number}`}>
+              <h3 className="min-w-0 flex-1 truncate text-ui">
+                <span className="text-subtle-foreground">#{pr.number}</span> {pr.title}
+              </h3>
+            </Tip>
+            {refreshing ? (
+              <Spinner label="Reading the pull request" className="mx-1.5" />
+            ) : (
+              <IconButton
+                icon={ArrowClockwiseIcon}
+                label="Refresh"
+                size="sm"
+                className="size-7"
+                onClick={refresh}
+              />
+            )}
+            {url && (
+              <IconButton
+                icon={ArrowSquareOutIcon}
+                label="Open on GitHub"
+                size="sm"
+                className="size-7"
+                onClick={() => open(url, () => toast.error({ title: "Couldn't open the PR" }))}
+              />
+            )}
+          </div>
+          {error !== undefined ? (
+            <>
+              <p role="alert" className="px-2.5 py-1 text-sm text-status-failed">
+                {failure(error)}
+              </p>
+              <div className="flex h-8 items-center gap-1 px-2.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={git.pending}
+                  onClick={() => {
+                    setOpen(false);
+                    git.open("link-pr");
+                  }}
+                >
+                  Link…
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={git.pending}
+                  onClick={() => git.run({ kind: "unlink-pr" })}
+                >
+                  Unlink
+                </Button>
+              </div>
+            </>
+          ) : git.status ? (
+            <PrDetails
+              git={git}
+              status={git.status}
+              base={props.base}
+              onRequestReview={() => {
+                setOpen(false);
+                git.open("request-review");
+              }}
+            />
           ) : (
-            <IconButton
-              icon={ArrowClockwiseIcon}
-              label="Refresh"
-              size="sm"
-              className="size-7"
-              onClick={refresh}
-            />
+            <RowNote>
+              {refreshing ? "Reading the pull request…" : "No status from GitHub yet"}
+            </RowNote>
           )}
-          {url && (
-            <IconButton
-              icon={ArrowSquareOutIcon}
-              label="Open on GitHub"
-              size="sm"
-              className="size-7"
-              onClick={() => open(url, () => toast.error({ title: "Couldn't open the PR" }))}
-            />
-          )}
-        </div>
-        {error !== undefined ? (
-          <>
-            <p role="alert" className="px-2.5 py-1 text-sm text-status-failed">
-              {failure(error)}
-            </p>
-            <div className="flex h-8 items-center gap-1 px-2.5">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={git.pending}
-                onClick={() => {
-                  setOpen(false);
-                  git.open("link-pr");
-                }}
-              >
-                Link…
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={git.pending}
-                onClick={() => git.run({ kind: "unlink-pr" })}
-              >
-                Unlink
-              </Button>
-            </div>
-          </>
-        ) : git.status ? (
-          <PrDetails
-            git={git}
-            status={git.status}
-            base={props.base}
-            onRequestReview={() => {
-              setOpen(false);
-              git.open("request-review");
-            }}
-          />
-        ) : (
-          <RowNote>
-            {refreshing ? "Reading the pull request…" : "No status from GitHub yet"}
-          </RowNote>
-        )}
-      </PopoverContent>
-    </Popover>
+        </section>
+      )}
+    </div>
   );
 }
 

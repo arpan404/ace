@@ -84,7 +84,7 @@ async function openPr(number = 42) {
   await userEvent.click(
     await within(prs).findByRole("button", { name: new RegExp(`^Pull request #${number}`) }),
   );
-  return screen.findByRole("dialog", { name: `Pull request #${number}` });
+  return screen.findByRole("region", { name: `Pull request #${number}` });
 }
 
 const linked = (app: ReturnType<typeof harness>) => {

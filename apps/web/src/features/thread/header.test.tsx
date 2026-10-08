@@ -351,7 +351,7 @@ test("the card's branch row walks the branch from Commit & push to Create PR, an
 
   const prs = within(await openCard()).getByRole("region", { name: "Pull requests" });
   await userEvent.click(await within(prs).findByRole("button", { name: /^Pull request #1/ }));
-  const popover = await screen.findByRole("dialog", { name: "Pull request #1" });
+  const popover = await screen.findByRole("region", { name: "Pull request #1" });
   await userEvent.click(within(popover).getByRole("button", { name: "Open on GitHub" }));
   expect(opened).toHaveBeenCalledWith(
     "https://github.com/acme/billing-api/pull/1",
@@ -494,7 +494,7 @@ test("with a linked PR, the card lists it, opens it, and says why a draft PR can
     name: "Pull requests",
   });
   await userEvent.click(within(prs).getByRole("button", { name: /^Pull request #188/ }));
-  const popover = await screen.findByRole("dialog", { name: "Pull request #188" });
+  const popover = await screen.findByRole("region", { name: "Pull request #188" });
   await userEvent.click(within(popover).getByRole("button", { name: "Open on GitHub" }));
   expect(opened).toHaveBeenCalledWith(
     "https://github.com/acme/api/pull/188",

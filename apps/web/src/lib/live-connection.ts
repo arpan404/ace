@@ -2,6 +2,14 @@ import { useConnectionState } from "@ace/client-react";
 
 /** Connection freshness is shared by every thread indicator, including the phone header. */
 export function useLiveConnection() {
-  const fresh = useConnectionState() === "ready";
-  return { fresh, staleLabel: fresh ? undefined : "Connection lost · activity paused" };
+  const state = useConnectionState();
+  const fresh = state === "ready";
+  const staleLabel = fresh
+    ? undefined
+    : state === "offline"
+      ? "Offline"
+      : state === "fatal"
+        ? "Disconnected"
+        : "Reconnecting…";
+  return { fresh, staleLabel };
 }

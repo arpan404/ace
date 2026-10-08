@@ -41,6 +41,7 @@ export function StatusStrip(props: {
     activity?.elapsedFrom === undefined
       ? undefined
       : formatElapsed(Math.max(0, now - activity.elapsedFrom));
+  if (!live.fresh || props.status?.state === "limited") return null;
   return (
     <AttachedCard label="Agents" strip cardKey="status">
       <div className={cn(stripRow, "gap-2 pl-3.5")}>

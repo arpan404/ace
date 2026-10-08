@@ -10,6 +10,9 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react";
 import { limitContext, queueNotice, type QueueNotice as Notice } from "@ace/ui-core";
+import { DotsThreeIcon } from "@phosphor-icons/react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -50,27 +53,39 @@ export function QueueNotice(props: {
       aria-label={notice.title}
       className="fx-rise-in mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 px-2 py-1 text-ui"
     >
-      <Icon icon={icons[notice.kind]} size={16} className="text-muted-foreground" />
-      {/* The words keep a readable width; the actions wrap under them when they can't fit. */}
-      <div className="min-w-65 flex-1">
-        <p className="font-medium text-foreground">{notice.title}</p>
-        <p className="text-sm text-muted-foreground">{notice.detail}</p>
+      <div className="flex min-w-0 basis-full items-start gap-2">
+        <Icon
+          icon={icons[notice.kind]}
+          size={16}
+          className="mt-0.5 shrink-0 text-muted-foreground"
+        />
+        <div className="min-w-0">
+          <p className="font-medium text-foreground">{notice.title}</p>
+          <p className="text-sm text-muted-foreground">{notice.detail}</p>
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="flex items-center gap-1">
         {notice.kind === "limited" && account && (
           <AddAccountButton provider={account.provider} label="Add another account" />
         )}
-        {rest.map((action) => (
-          <Button
-            key={action.id}
-            size="sm"
-            variant="ghost"
-            disabled={props.queue.acting}
-            onClick={() => props.queue.act(action)}
-          >
-            {action.label}
-          </Button>
-        ))}
+        {rest.length > 0 && (
+          <Menu>
+            <MenuTrigger
+              render={<IconButton icon={DotsThreeIcon} label="Limit actions" size="sm" />}
+            />
+            <MenuContent side="top" align="end">
+              {rest.map((action) => (
+                <MenuItem
+                  key={action.id}
+                  disabled={props.queue.acting}
+                  onClick={() => props.queue.act(action)}
+                >
+                  {action.label}
+                </MenuItem>
+              ))}
+            </MenuContent>
+          </Menu>
+        )}
         {primary && (
           <Button
             size="sm"

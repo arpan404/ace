@@ -41,8 +41,8 @@ test("a message sent offline shows as its bubble at once and becomes the daemon'
   expect(message.textContent).toBe("");
   expect(within(feed).getByText("Add a route for /settings")).toBeTruthy();
   expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
-  // The live end says since when this window has been offline.
-  expect(await screen.findByText(/^Offline since \d/)).toBeTruthy();
+  expect(await screen.findByText("Reconnecting to ace…")).toBeTruthy();
+  expect(within(feed).queryByText(/^Offline since/)).toBeNull();
 
   act(() => app.daemon.refuseConnections(false));
   // Once the daemon has it the note goes, and the message is still shown exactly once.

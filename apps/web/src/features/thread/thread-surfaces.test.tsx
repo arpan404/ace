@@ -1,4 +1,4 @@
-import { describeWake, formatClock } from "@ace/ui-core";
+import { describeWake } from "@ace/ui-core";
 import { accountLimit, replayCursor } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -18,7 +18,9 @@ test("a disconnected thread pauses its live line and removes Stop until replay c
     app.daemon.disconnectAll();
   });
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
-  await within(feed).findByRole("button", { name: /Connection lost/ });
+  await within(feed).findByRole("button", { name: /^Work so far/ });
+  expect(screen.getByText("Reconnecting to ace…")).toBeTruthy();
+  expect(within(feed).queryByText(/Connection lost|Offline since|Reconnecting/)).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
   act(() => app.daemon.refuseConnections(false));
@@ -77,13 +79,12 @@ test("the usage pause, header and queue share the account reset when the turn ha
   });
   app.play(accountLimit("account-pause", "Finish the migration")).runUntilBlocked();
   await app.open("/t/account-pause");
-  const time = formatClock(reset);
-  await screen.findByRole("note", { name: `Paused · Codex usage limit · resets ${time}` });
+  await screen.findByRole("note", { name: "Paused · Codex usage limit" });
   await waitFor(() =>
     expect(screen.getByRole("region", { name: "Usage limit reached" }).textContent).toContain(
       describeWake(reset, now),
     ),
   );
-  expect(screen.getByText(`Limited until ${time}`)).toBeTruthy();
+  expect(screen.getByText("Limited")).toBeTruthy();
   expect(screen.queryByText(/reset time unknown/)).toBeNull();
 });
