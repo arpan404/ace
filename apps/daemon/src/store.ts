@@ -61,7 +61,7 @@ import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
 
 import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
-import { scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
+import { createSearchMaintenance, scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 
 export interface StoreOptions extends Partial<CredentialRuntime> {
@@ -82,7 +82,7 @@ export class Store {
   readonly search: SearchIndex;
   readonly searchQueries: SearchQueries;
   private readonly searchAbort = new AbortController();
-  private readonly stopSearchTimer: () => void;
+  private readonly searchMaintenance: ReturnType<typeof createSearchMaintenance>;
   private closing: Promise<void> | undefined;
   private readonly payloads: PayloadStore;
   readonly measurements: MeasurementStore;
@@ -158,23 +158,33 @@ export class Store {
         },
       });
       this.searchQueries = new SearchQueries(path, options.searchWorkerFactory);
-      this.stopSearchTimer = (options.searchScheduler ?? scheduleSearch)(() => {
-        if (this.historyWriting) return;
-        try {
-          this.search.flush();
-        } catch (error) {
+      this.searchMaintenance = createSearchMaintenance(
+        options.searchScheduler ?? scheduleSearch,
+        () => {
+          if (this.historyWriting) return;
           try {
-            this.onError(error);
-          } catch {
-            /* The interval retries on its next pass. */
+            this.search.flush();
+          } catch (error) {
+            try {
+              this.onError(error);
+            } catch {
+              /* Pending work retries on the next scheduled pass. */
+            }
           }
-        }
-      });
+        },
+        () => this.historyWriting || this.search.hasPendingWrites(),
+      );
     } catch (error) {
       this.db.close();
       throw error;
     }
-    void this.search.backfill(this, { signal: this.searchAbort.signal }).catch(this.onError);
+    void this.search
+      .backfill(this, { signal: this.searchAbort.signal })
+      .then(() => {
+        if (!this.searchAbort.signal.aborted && this.search.hasPendingWrites())
+          this.searchMaintenance.wake();
+      })
+      .catch(this.onError);
     void this.longThreads.backfill(this, this.searchAbort.signal).catch(this.onError);
   }
   private onError: (error: unknown) => void;
@@ -186,7 +196,7 @@ export class Store {
     const workers = this.searchQueries.close();
     let failure: unknown;
     try {
-      this.stopSearchTimer();
+      this.searchMaintenance.close();
     } catch (error) {
       failure = error;
     }
@@ -333,6 +343,7 @@ export class Store {
     // Main-thread writes fail immediately while the worker holds the import transaction.
     this.db.exec(active ? "PRAGMA busy_timeout=0" : "PRAGMA busy_timeout=5000");
     if (!active) {
+      if (this.search.hasPendingWrites()) this.searchMaintenance.wake();
       for (const resolve of this.historyWaiters) resolve();
       this.historyWaiters.clear();
     }
@@ -634,6 +645,7 @@ export class Store {
         else if (current) this.search.observeThread(current, seq);
       }
       this.search.append(events);
+      this.searchMaintenance.wake();
       this.transactionEvents?.push(...events);
       return events;
     });
