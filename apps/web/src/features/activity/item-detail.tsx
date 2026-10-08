@@ -23,6 +23,7 @@ import { ButtonKey, CardActions } from "./card-frame.tsx";
 import type { FeedDetail, FeedEvent, PrRef } from "./feed-events.ts";
 import { runAt, useFeed } from "./feed-source.ts";
 import { InteractionCard } from "./interaction-card.tsx";
+import { MentionReply } from "./mention-reply.tsx";
 
 // The comment renderer (marked) loads only when a mention is opened.
 const Markdown = lazy(() =>
@@ -224,6 +225,7 @@ function EventDetail(props: { event: FeedEvent }) {
               <Markdown text={detail.body} />
             </Suspense>
           </div>
+          {detail.reply && <MentionReply author={detail.author} target={detail.reply} />}
           <CardActions>
             <OnForge pr={detail.pr} />
             <OpenThread threadId={event.threadId} />

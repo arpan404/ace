@@ -1,5 +1,6 @@
 import { ThreadId as ThreadIdSchema } from "@ace/protocol";
 import type { ClientApi } from "@ace/client";
+import { actionErrorText } from "@ace/ui-core";
 import type {
   CommandPayload,
   ReviewComment,
@@ -34,8 +35,14 @@ export interface ReviewDraft {
   threadId: string;
   file: string;
   side: "old" | "new";
+  /** The first line commented on, and the last when it covers a range. */
   line: number;
+  end?: number | undefined;
   text: string;
+  /** What the lines should read instead ("Suggest change"), applied to the checkout on Apply. */
+  suggestion?: string | undefined;
+  /** The suggestion was applied to the checkout. */
+  applied?: boolean | undefined;
   state: DraftState;
   error?: string | undefined;
   /** Set once the daemon has recorded it, so a retry does not record it twice. */
@@ -61,6 +68,7 @@ export function saveDraft(
   draft: Omit<ReviewDraft, "key" | "state">,
 ): void {
   const key = draftKey(draft.threadId, draft.file, draft.side, draft.line);
+  // Editing a recorded comment records the new words as a new comment.
   store.set((drafts) => [
     ...drafts.filter((existing) => existing.key !== key),
     { ...draft, key, state: "draft" },
@@ -70,31 +78,22 @@ export function discardDraft(store: LocalStore<readonly ReviewDraft[]>, key: str
   store.set((drafts) => drafts.filter((draft) => draft.key !== key));
 }
 
-async function review(client: ClientApi, payload: CommandPayload): Promise<ReviewData> {
+/** A review command; a refusal becomes an error saying what happened and what to do. */
+export async function review(client: ClientApi, payload: CommandPayload): Promise<ReviewData> {
   const result = await client.command(payload);
-  if (!result.ok) throw new Error(refusal(result.error));
+  if (!result.ok) throw new Error(actionErrorText(result.error));
   return result.review ?? {};
 }
 
-const refusals: Record<string, string> = {
-  not_found: "the daemon no longer has this review",
-  review_not_found: "the daemon no longer has this review",
-  review_comment_unavailable: "the comment is resolved or its lines are gone",
-  not_actionable: "the comment is resolved or its lines are gone",
-  review_reviewer_unavailable:
-    "AI review isn't available on this daemon; add comments and send them to the agent",
-  review_queue_rejected:
-    "the thread couldn't accept the comments; check its queue and provider settings",
-  review_target_mismatch: "the thread's checkout moved; open a new review of its current changes",
-  review_executor_unavailable: "this daemon has no running agent engine",
-  review_suggestion_conflict:
-    "the selected lines changed; refresh and check the suggestion before applying it",
-  unsupported_by_fake_daemon: "this daemon can't do that yet",
-};
-const refusal = (code: string | undefined) =>
-  (code && refusals[code]) ?? code ?? "the daemon refused the review command";
+/** Where a draft's comment sits: its lines on one side of the diff. */
+export const positionOf = (draft: ReviewDraft) => ({
+  file: draft.file,
+  side: draft.side,
+  start: draft.line,
+  end: draft.end ?? draft.line,
+});
 
-function patch(
+export function patch(
   store: LocalStore<readonly ReviewDraft[]>,
   keys: ReadonlySet<string>,
   change: (draft: ReviewDraft) => ReviewDraft,
@@ -103,8 +102,57 @@ function patch(
 }
 
 /**
- * Review mode (ADR 0038): open (or reuse) the session for the thread's working tree, record
- * each comment on its line, then ask the daemon to deliver them to the thread's agent.
+ * Record drafts with the daemon: open (or reuse) the review session for the thread's working
+ * tree and add each comment on its lines, unless it is already there. Drafts remember their
+ * comment and session, so doing it again records nothing twice.
+ */
+export async function record(
+  client: ClientApi,
+  store: LocalStore<readonly ReviewDraft[]>,
+  thread: { id: ThreadId; workspaceId: WorkspaceId },
+  drafts: readonly ReviewDraft[],
+): Promise<{ sessionId: string; commentIds: string[] }> {
+  const previous = drafts[0]?.sessionId;
+  const reuse =
+    previous && drafts.every((draft) => draft.sessionId === previous && draft.commentId);
+  const opened = reuse
+    ? await review(client, { type: "review.list", sessionId: previous, cursor: "", limit: 1 })
+    : await review(client, {
+        type: "review.open",
+        source: {
+          workspaceId: thread.workspaceId,
+          threadId: thread.id,
+          from: { kind: "commit", ref: "HEAD" },
+          to: { kind: "working-tree" },
+        },
+      });
+  const sessionId = opened.session?.id;
+  if (!sessionId) throw new Error("The daemon didn't open a review session: try again.");
+  const commentIds: string[] = [];
+  for (const draft of drafts) {
+    // A comment recorded in another session (an older checkout) is recorded again here.
+    if (draft.commentId && draft.sessionId === sessionId) {
+      commentIds.push(draft.commentId);
+      continue;
+    }
+    const { comment } = await review(client, {
+      type: "review.comment",
+      sessionId,
+      position: positionOf(draft),
+      text: draft.text,
+      ...(draft.suggestion === undefined ? {} : { suggestion: draft.suggestion }),
+    });
+    if (!comment) throw new Error("The daemon didn't record the comment: try again.");
+    const commentId = comment.id;
+    commentIds.push(commentId);
+    patch(store, new Set([draft.key]), (d) => ({ ...d, commentId, sessionId }));
+  }
+  return { sessionId, commentIds };
+}
+
+/**
+ * Review mode (ADR 0038): record the comments, then ask the daemon to deliver them to the
+ * thread's agent as a queued turn.
  */
 export async function sendDrafts(
   client: ClientApi,
@@ -118,40 +166,7 @@ export async function sendDrafts(
   const sending = new Set(drafts.map((draft) => draft.key));
   patch(store, sending, ({ error: _error, ...draft }) => ({ ...draft, state: "sending" }));
   try {
-    const previous = drafts[0]?.sessionId;
-    const reuse =
-      previous && drafts.every((draft) => draft.sessionId === previous && draft.commentId);
-    const opened = reuse
-      ? await review(client, { type: "review.list", sessionId: previous, cursor: "", limit: 1 })
-      : await review(client, {
-          type: "review.open",
-          source: {
-            workspaceId: thread.workspaceId,
-            threadId: thread.id,
-            from: { kind: "commit", ref: "HEAD" },
-            to: { kind: "working-tree" },
-          },
-        });
-    const sessionId = opened.session?.id;
-    if (!sessionId) throw new Error("the daemon did not open a review session");
-    const commentIds: string[] = [];
-    for (const draft of drafts) {
-      // A comment recorded in another session (an older checkout) is recorded again here.
-      if (draft.commentId && draft.sessionId === sessionId) {
-        commentIds.push(draft.commentId);
-        continue;
-      }
-      const { comment } = await review(client, {
-        type: "review.comment",
-        sessionId,
-        position: { file: draft.file, side: draft.side, start: draft.line, end: draft.line },
-        text: draft.text,
-      });
-      if (!comment) throw new Error("the daemon did not record the comment");
-      const commentId = comment.id;
-      commentIds.push(commentId);
-      patch(store, new Set([draft.key]), (d) => ({ ...d, commentId, sessionId }));
-    }
+    const { sessionId, commentIds } = await record(client, store, thread, drafts);
     await review(client, {
       type: "review.sendToAgent",
       sessionId,
@@ -160,7 +175,7 @@ export async function sendDrafts(
     });
     patch(store, sending, (draft) => ({ ...draft, state: "sent", anchor: "active" }));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "sending failed";
+    const message = error instanceof Error ? error.message : actionErrorText(undefined);
     patch(store, sending, (draft) => ({ ...draft, state: "failed", error: message }));
   }
 }
@@ -186,7 +201,7 @@ export async function resolveDraft(
     });
     patch(store, only, (d) => ({ ...d, state: resolved ? "resolved" : "sent" }));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "that didn't work";
+    const message = error instanceof Error ? error.message : actionErrorText(undefined);
     patch(store, only, (d) => ({ ...d, state: before, error: message }));
   }
 }
@@ -200,7 +215,7 @@ export async function refreshDrafts(
   client: ClientApi,
   store: LocalStore<readonly ReviewDraft[]>,
   threadId: string,
-): Promise<void> {
+): Promise<ReviewSession | null> {
   const sessions = new Map<string, ReviewSession>();
   let sessionCursor = "";
   // Discover daemon sessions as well as this device's comments. Bound each refresh.
@@ -233,7 +248,11 @@ export async function refreshDrafts(
       cursor = data.nextCursor;
     }
   }
-  if (!held.size) return;
+  const newest = [...sessions.values()].reduce<ReviewSession | null>(
+    (best, session) => (!best || session.createdAt >= best.createdAt ? session : best),
+    null,
+  );
+  if (!held.size) return newest;
   store.set((drafts) => {
     const known = new Set(drafts.flatMap((draft) => (draft.commentId ? [draft.commentId] : [])));
     const updated = drafts.map((draft) => {
@@ -261,7 +280,9 @@ export async function refreshDrafts(
         file: position.file,
         side: position.side,
         line: position.start,
+        ...(position.end === position.start ? {} : { end: position.end }),
         text: comment.text,
+        ...(comment.suggestion === undefined ? {} : { suggestion: comment.suggestion }),
         state: comment.resolved
           ? "resolved"
           : sessions.get(comment.sessionId)?.status === "changes-requested"
@@ -276,4 +297,5 @@ export async function refreshDrafts(
     }
     return updated;
   });
+  return newest;
 }

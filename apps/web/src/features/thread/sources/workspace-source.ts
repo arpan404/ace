@@ -2,10 +2,12 @@
 // `workspace.request`, and running a script, opening an editor, committing, pushing and opening
 // a PR are durable commands with receipts. The fake daemon serves the same messages.
 import type { ClientApi } from "@ace/client";
+import { actionErrorText, type MergeMethod } from "@ace/ui-core";
 import {
   ThreadId,
   type CommandPayload,
   type CommandResult,
+  type ForgePrRef,
   type ForgePrStatus,
   type ForgeRepository,
   type GitStatusFile,
@@ -40,57 +42,10 @@ export interface PrInput {
   draft: boolean;
 }
 
-/** What the daemon's codes mean to a person. Unknown codes fall back to a generic sentence. */
-const messages: Record<string, string> = {
-  forbidden: "This device may not change the checkout.",
-  workspace_preparing: "The thread's worktree is still being prepared.",
-  workspace_root_changed: "The thread's worktree moved. Try again.",
-  thread_not_found: "The thread is gone.",
-  script_not_found: "That script is no longer in the project.",
-  script_shell_unsupported: "Scripts can't run on this daemon's platform yet.",
-  editor_not_found: "That editor is no longer installed.",
-  git_head_moved: "The branch moved since you looked. Refresh the changes and try again.",
-  git_hook_failed:
-    "A git hook rejected the change. Fix the hook's reported problem in a terminal and try again.",
-  git_auth_failed: "Git authentication failed. Sign in to your remote in a terminal and try again.",
-  git_conflicts: "Git found conflicts. Resolve them in the checkout and try again.",
-  git_remote_unreachable:
-    "Git couldn't reach the remote. Check the remote URL and your connection, then retry.",
-  git_quarantined:
-    "Git cleanup is still pending. Wait for cleanup or restart the daemon before retrying.",
-  forge_not_found:
-    "The pull request or repository wasn't found. Check its number and your repository access.",
-  forge_forbidden:
-    "GitHub denied access. Check your repository permissions and run gh auth login if needed.",
-  forge_rate_limit: "GitHub's request limit was reached. Wait before refreshing or trying again.",
-  forge_cli: "GitHub CLI failed. Check that gh is installed and run gh auth login, then retry.",
-  forge_auth: "GitHub authentication failed. Run gh auth login in a terminal and retry.",
-  forge_unsupported: "This forge isn't supported yet. Open the pull request on its website.",
-  forge_conflict:
-    "GitHub rejected the change because the PR changed or can't merge. Refresh and resolve conflicts or failing checks.",
-  forge_invalid_data: "GitHub returned unreadable data. Update gh and refresh the pull request.",
-  forge_limit: "The pull request is too large to read here. Open it on GitHub.",
-  forge_cancelled: "The GitHub request was cancelled. Try again.",
-  action_outcome_uncertain:
-    "The daemon lost the action's result. Check the checkout or GitHub before trying again.",
-  action_busy: "Too many actions are running. Wait for one to finish and retry.",
-  pr_link_changed: "The linked pull request changed. Refresh before trying again.",
-  forge_recovery_unavailable: "This daemon can't find an existing PR. Update the daemon and retry.",
-  workspace_change_in_progress: "The checkout is moving. Wait for it to finish, then retry.",
-  repository_mismatch: "The checkout's remote changed. Refresh and try again.",
-  terminal_limit: "Too many terminals are open. Close one and try again.",
-  thread_tree_is_live: "Wait for the agents to stop: the checkout can't move under live work.",
-  terminal_owned: "Close the thread's terminals first: the checkout can't move under them.",
-  git_dirty_worktree:
-    "Commit or discard the uncommitted changes, or carry them to the selected branch.",
-  git_invalid_ref: "That branch doesn't exist in the project.",
-  engine_unavailable: "This daemon can't move a thread's checkout.",
-};
-
 export class WorkspaceError extends Error {
   readonly code: string;
   constructor(code: string) {
-    super(messages[code] ?? "The daemon couldn't do that.");
+    super(actionErrorText(code));
     this.name = "WorkspaceError";
     this.code = code;
   }
@@ -125,8 +80,36 @@ export interface WorkspaceSource {
     paths?: readonly string[],
   ): Promise<string>;
   push(thread: ThreadRef): Promise<void>;
-  /** Opens a pull request for the branch; returns its number. */
-  createPr(thread: ThreadRef, input: PrInput): Promise<number>;
+  /**
+   * Opens a pull request for the branch, or links the one the forge already has for it (the
+   * daemon never opens a second); returns its status as the forge reports it.
+   */
+  createPr(thread: ThreadRef, input: PrInput): Promise<ForgePrStatus>;
+  /** Links an existing pull request to the thread. */
+  linkPr(thread: ThreadRef, pr: ForgePrRef): Promise<ForgePrStatus>;
+  /** Reads the linked PR from the forge now (checks, mergeability, review threads). */
+  refreshPr(thread: ThreadRef, pr: ForgePrRef): Promise<ForgePrStatus>;
+  /**
+   * Merges the PR at `headSha` (refused if it moved), or with `auto`, has the forge merge it
+   * once its checks pass.
+   */
+  mergePr(
+    thread: ThreadRef,
+    pr: ForgePrRef,
+    change: { headSha: string; method: MergeMethod; auto: boolean },
+  ): Promise<ForgePrStatus>;
+  requestReview(
+    thread: ThreadRef,
+    pr: ForgePrRef,
+    reviewers: readonly string[],
+  ): Promise<ForgePrStatus>;
+  /** Replies in the review thread of an inline PR comment. */
+  replyToComment(
+    thread: ThreadRef,
+    pr: ForgePrRef,
+    commentId: number,
+    body: string,
+  ): Promise<ForgePrStatus>;
   /**
    * Moves the thread's checkout: into a worktree of its own, or onto another branch. The daemon
    * refuses while agents or terminals work in it. Uncommitted changes require explicit carry-over.
@@ -146,6 +129,12 @@ const is = <K extends Result["kind"]>(
 ): result is Extract<Result, { kind: K }> => result.kind === kind;
 
 const id = (thread: ThreadRef) => ThreadId.parse(thread.id);
+
+/** Every forge action answers with the PR's fresh status. */
+function status(result: CommandResult): ForgePrStatus {
+  if (!result.prStatus) throw new WorkspaceError("forge_invalid_data");
+  return result.prStatus;
+}
 
 export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
   const read = async <K extends Result["kind"]>(
@@ -210,23 +199,53 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       await run({ type: "git.push", threadId: id(thread), remote: "origin" });
     },
     async createPr(thread, input) {
-      const result = await run({
-        type: "forge.pr.create",
-        threadId: thread.id,
-        repository: input.repository,
-        input: {
-          branch: input.branch,
-          base: input.base,
-          title: input.title,
-          summary: input.summary,
-          // The forge fills these from the fields above.
-          template: { title: "{{title}}", body: "{{summary}}" },
-          draft: input.draft,
-        },
-      });
-      if (!result.pr) throw new WorkspaceError("unexpected");
-      return result.pr.number;
+      return status(
+        await run({
+          type: "forge.pr.create",
+          threadId: thread.id,
+          repository: input.repository,
+          input: {
+            branch: input.branch,
+            base: input.base,
+            title: input.title,
+            summary: input.summary,
+            // The forge fills these from the fields above.
+            template: { title: "{{title}}", body: "{{summary}}" },
+            draft: input.draft,
+          },
+        }),
+      );
     },
+    linkPr: async (thread, pr) =>
+      status(await run({ type: "forge.pr.link", link: { threadId: thread.id, pr } })),
+    refreshPr: async (thread, pr) =>
+      status(await run({ type: "forge.pr.status", link: { threadId: thread.id, pr } })),
+    mergePr: async (thread, pr, change) =>
+      status(
+        await run({
+          type: change.auto ? "forge.pr.auto-merge" : "forge.pr.merge",
+          link: { threadId: thread.id, pr },
+          headSha: change.headSha,
+          method: change.method,
+        }),
+      ),
+    requestReview: async (thread, pr, reviewers) =>
+      status(
+        await run({
+          type: "forge.review.request",
+          link: { threadId: thread.id, pr },
+          reviewers: [...reviewers],
+        }),
+      ),
+    replyToComment: async (thread, pr, commentId, body) =>
+      status(
+        await run({
+          type: "forge.comment.reply",
+          link: { threadId: thread.id, pr },
+          commentId,
+          body,
+        }),
+      ),
     async setCheckout(thread, change) {
       await run({
         type: "thread.workspace.set",

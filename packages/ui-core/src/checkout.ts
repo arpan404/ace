@@ -83,7 +83,7 @@ function pullRequest(
 /** Why a checkout can't open a pull request, or undefined when it can. */
 export function prBlocker(checkout: Checkout): string | undefined {
   if (checkout.repository?.forge === "gitlab")
-    return "GitLab pull requests aren't supported yet. Open a merge request on GitLab.";
+    return "GitLab merge requests aren't supported yet: open one on GitLab.";
   if (!checkout.branch) return "The checkout is on a detached HEAD.";
   if (checkout.branch === checkout.baseBranch)
     return `The checkout is on ${checkout.baseBranch}, the branch a PR would merge into.`;

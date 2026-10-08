@@ -1,4 +1,5 @@
 import { useClient, useThreadMeta } from "@ace/client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { countChanges, type FileDiff } from "@ace/ui-core";
 import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
@@ -11,23 +12,26 @@ import { useLocal } from "../store.ts";
 import { ChangesToolbar, type Scope } from "./changes-toolbar.tsx";
 import {
   discardDraft,
-  draftKey,
+  isPending,
   refreshDrafts,
   resolveDraft,
   saveDraft,
   sendDrafts,
   type ReviewDraft,
 } from "./drafts.ts";
+import { applySuggestion, setReviewStatus } from "./review-actions.ts";
 import { FileActions } from "./file-actions.tsx";
 import {
   FileDiffBlock,
   fileHeight,
   freshView,
+  inRange,
   type FileView,
+  type LineRange,
   type LineTarget,
 } from "./file-diff.tsx";
 import { FileTree } from "./file-tree.tsx";
-import { CommentComposer, DraftCard } from "./line-comment.tsx";
+import { CommentComposer, DraftCard, linesLabel } from "./line-comment.tsx";
 import { ReviewBar } from "./review-bar.tsx";
 import { setViewed } from "./review-store.ts";
 import { useTurns } from "@/lib/diffs/use-turns.ts";
@@ -58,15 +62,16 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   const services = usePanelServices();
   const client = useClient();
   const thread = useThreadMeta(threadId);
-  useDaemonQuery({
-    queryKey: ["review-drafts", threadId, thread?.status.state, thread?.details?.head],
+  // The thread's reviews on the daemon (from every device and agent), read as the tab opens and
+  // as the thread moves on; its newest session is what Approve and Request changes act on.
+  const sessionKey = ["review-drafts", threadId, thread?.status.state, thread?.details?.head];
+  const session = useDaemonQuery({
+    queryKey: sessionKey,
     staleTime: 0,
     retry: false,
-    read: async (daemon) => {
-      await refreshDrafts(daemon, services.drafts, threadId);
-      return null;
-    },
+    read: (daemon) => refreshDrafts(daemon, services.drafts, threadId),
   });
+  const queries = useQueryClient();
   const turns = useTurns(threadId);
   const edited = useMemo(() => turns.filter((turn) => turn.edits.length), [turns]);
   const [scope, setScope] = useState<Scope>("last");
@@ -78,7 +83,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   );
   const viewedAll = useLocal(services.viewed, identity);
   const viewedHere = viewedAll.get(threadId);
-  const [composing, setComposing] = useState<{ file: string; target: LineTarget }>();
+  const [composing, setComposing] = useState<{ file: string; range: LineRange }>();
   // Per file, by path: kept here so a file scrolled out of a long list and back keeps it.
   const [views, setViews] = useState<ReadonlyMap<string, FileView>>(() => new Map());
   const [current, setCurrent] = useState<string>();
@@ -153,8 +158,15 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
       />
     );
 
-  const send = (keys: readonly string[]) => {
-    if (thread) void sendDrafts(client, services.drafts, thread, keys);
+  const send = (keys: readonly string[]) =>
+    thread ? sendDrafts(client, services.drafts, thread, keys) : Promise.resolve();
+  const review = async (status: "approved" | "changes-requested") => {
+    if (!thread) return;
+    const unsent = drafts.filter(isPending).map((draft) => draft.key);
+    // Requesting changes sends what is still unsent; the daemon marks the review for it.
+    if (status === "changes-requested" && unsent.length) await send(unsent);
+    else
+      queries.setQueryData(sessionKey, await setReviewStatus(client, thread, session.data, status));
   };
   const showTree = prefs.tree && files.length > 1;
   const beside = width >= treeBesideFrom;
@@ -174,12 +186,12 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
 
   const renderFile = (file: FileDiff, index: number) => {
     const forFile = drafts.filter((draft) => draft.file === file.path);
-    const find = (target: LineTarget) =>
-      forFile.find((draft) => draft.side === target.side && draft.line === target.line);
-    const isComposing = (target: LineTarget) =>
-      composing?.file === file.path &&
-      composing.target.side === target.side &&
-      composing.target.line === target.line;
+    // A comment shows under its last line and marks every line it covers.
+    const at = (target: LineTarget) =>
+      forFile.find(
+        (draft) => draft.side === target.side && (draft.end ?? draft.line) === target.line,
+      );
+    const writing = composing?.file === file.path ? composing.range : undefined;
     const view = viewOf(file);
     const isViewed = viewed.has(file.path);
     return (
@@ -204,44 +216,60 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
             }}
           />
         }
-        highlighted={(target) => !!find(target) || isComposing(target)}
-        onComment={(target) => setComposing({ file: file.path, target })}
+        highlighted={(target) =>
+          inRange(writing, target) ||
+          forFile.some((draft) =>
+            inRange({ side: draft.side, start: draft.line, end: draft.end ?? draft.line }, target),
+          )
+        }
+        selection={writing}
+        onComment={(range) => setComposing({ file: file.path, range })}
         renderAnnotation={(target) => {
-          const draft = find(target);
-          const label = `Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`;
-          if (isComposing(target))
+          if (writing && writing.side === target.side && writing.end === target.line) {
+            const draft = forFile.find(
+              (each) => each.side === writing.side && each.line === writing.start,
+            );
             return (
               <CommentComposer
-                label={label}
+                label={`Comment on ${linesLabel(writing.side, writing.start, writing.end)}`}
                 {...textOf(draft)}
+                suggestFrom={writing.side === "new" ? linesOf(file, writing) : undefined}
                 onCancel={() => setComposing(undefined)}
-                onSave={(text) => {
+                onSave={(text, suggestion) => {
                   saveDraft(services.drafts, {
                     threadId,
                     file: file.path,
-                    ...target,
+                    side: writing.side,
+                    line: writing.start,
+                    ...(writing.end > writing.start ? { end: writing.end } : {}),
                     text,
+                    ...(suggestion === undefined ? {} : { suggestion }),
                     createdAt: Date.now(),
                   });
                   setComposing(undefined);
                 }}
               />
             );
+          }
+          const draft = at(target);
           if (!draft) return null;
           return (
             <DraftCard
               draft={draft}
-              onSend={() => send([draft.key])}
-              onEdit={() => setComposing({ file: file.path, target })}
+              onSend={() => void send([draft.key])}
+              onEdit={() =>
+                setComposing({
+                  file: file.path,
+                  range: { side: draft.side, start: draft.line, end: draft.end ?? draft.line },
+                })
+              }
               onResolve={(resolved) =>
                 void resolveDraft(client, services.drafts, draft.key, resolved)
               }
-              onDiscard={() =>
-                discardDraft(
-                  services.drafts,
-                  draftKey(threadId, file.path, target.side, target.line),
-                )
+              onApply={() =>
+                thread && void applySuggestion(client, services.drafts, thread, draft.key)
               }
+              onDiscard={() => discardDraft(services.drafts, draft.key)}
             />
           );
         }}
@@ -281,9 +309,11 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
       <WorkingTree details={thread?.details} />
       <ReviewBar
         drafts={drafts}
-        onSend={send}
+        session={session.data ?? undefined}
+        onReview={review}
+        onSend={(keys) => void send(keys)}
         onJump={jump}
-        onRefresh={() => refreshDrafts(client, services.drafts, threadId).catch(() => undefined)}
+        onRefresh={async () => void (await session.refetch())}
       />
       <div className={cn("flex min-h-0 flex-1", beside ? "flex-row" : "flex-col")}>
         {!beside && tree}
@@ -312,4 +342,19 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
 }
 
 const identity = <T,>(value: T) => value;
-const textOf = (draft: ReviewDraft | undefined) => (draft ? { initial: draft.text } : {});
+const textOf = (draft: ReviewDraft | undefined) =>
+  draft ? { initial: draft.text, initialSuggestion: draft.suggestion } : {};
+
+/** The text of new-side lines in a range, when the diff holds every one of them. */
+function linesOf(file: FileDiff, range: LineRange): string | undefined {
+  const lines: string[] = [];
+  for (const row of file.rows)
+    for (const line of row.kind === "fold" ? (row.lines ?? []) : [row])
+      if (
+        line.kind !== "del" &&
+        line.new !== undefined &&
+        inRange(range, { side: "new", line: line.new })
+      )
+        lines.push(line.text);
+  return lines.length === range.end - range.start + 1 ? lines.join("\n") : undefined;
+}
