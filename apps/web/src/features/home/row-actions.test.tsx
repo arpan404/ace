@@ -17,29 +17,21 @@ async function openHome() {
   return app;
 }
 
-test("a row's Snooze is an icon named by its tooltip, and still opens the snooze times", async () => {
+test("Snooze and Pin are available from the task context menu", async () => {
   await openHome();
-  const snooze = screen.getByRole("button", { name: `Snooze ${title}` });
-  // No words on the button itself: the tooltip says what it does.
-  expect(snooze.textContent).toBe("");
-  await userEvent.hover(snooze);
-  expect((await screen.findByRole("tooltip")).textContent).toBe("Snooze…");
-  await userEvent.click(snooze);
+  const row = within(screen.getByRole("navigation", { name: "Threads" })).getByRole("link", {
+    name: /^Dedupe/,
+  });
+  if (!row) throw new Error("no task");
+  await userEvent.pointer({ keys: "[MouseRight]", target: row });
+  await userEvent.hover(await screen.findByRole("menuitem", { name: /^Snooze/ }));
   expect(await screen.findByRole("menuitem", { name: /^Tomorrow/ })).toBeTruthy();
-});
-
-test("a row's Pin says Pin thread, and Unpin thread once pinned", async () => {
-  await openHome();
-  const pin = screen.getByRole("button", { name: `Pin ${title}` });
-  await userEvent.hover(pin);
-  const tip = await screen.findByRole("tooltip");
-  // The label, then the key that does the same on a focused row.
-  expect(tip.textContent).toMatch(/^Pin thread/);
-  expect(within(tip).getByText("P")).toBeTruthy();
-
-  await userEvent.click(pin);
-  const unpin = await screen.findByRole("button", { name: `Unpin ${title}` });
-  await userEvent.unhover(unpin);
-  await userEvent.hover(unpin);
-  await waitFor(() => expect(screen.getByRole("tooltip").textContent).toMatch(/^Unpin thread/));
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(screen.getByRole("menuitem", { name: /^Pin/ }));
+  await waitFor(() => expect(screen.getByRole("link", { name: /^Dedupe.*Pinned/ })).toBeTruthy());
+  await userEvent.pointer({
+    keys: "[MouseRight]",
+    target: screen.getByRole("link", { name: /^Dedupe/ }),
+  });
+  expect(await screen.findByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
 });

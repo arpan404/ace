@@ -1,4 +1,4 @@
-import { useMachineName } from "@/lib/host-name.ts";
+import { useHostIdentity, useMachineName } from "@/lib/host-name.ts";
 import type { SidebarReader } from "@ace/client";
 import { useSidebarAll } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
@@ -20,7 +20,8 @@ export function useHomeMachine(): string | undefined {
       ),
     [],
   );
-  return useSidebarAll(select);
+  const fallback = useSidebarAll(select);
+  return useHostIdentity()?.hostId ?? fallback;
 }
 
 /** Branch, PR, worktree, machine and diff for a card, from the daemon's `details`. */

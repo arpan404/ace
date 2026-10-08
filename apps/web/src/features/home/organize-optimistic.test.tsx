@@ -36,7 +36,7 @@ function listed(app: App, id: string) {
 /** The row's name says Pinned (the task row's pin mark itself is decoration). */
 const pinned = (title: RegExp) => {
   const row = card(title);
-  return row !== null && /\bPinned\b/.test(row.textContent ?? "");
+  return row !== null && /\bPinned\b/.test(row.getAttribute("aria-label") ?? "");
 };
 
 test("offline, Archive hides the thread at once, says it will apply, and applies on reconnect", async () => {

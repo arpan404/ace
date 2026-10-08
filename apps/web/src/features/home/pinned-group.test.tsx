@@ -39,10 +39,14 @@ function listed(app: App, id: string) {
   return view?.kind === "threads" ? view.threads[id] : undefined;
 }
 
-/** Pin from the row's own hover button, as a person pointing at it would. */
+/** Pin from the row's context menu, as a person pointing at it would. */
 async function pinFromRow(title: RegExp, name: string) {
-  await userEvent.hover(card(title));
-  await userEvent.click(within(threads()).getByRole("button", { name }));
+  await userEvent.pointer({ keys: "[MouseRight]", target: card(title) });
+  await userEvent.click(
+    await screen.findByRole("menuitem", {
+      name: name.startsWith("Unpin") ? /^Unpin/ : /^Pin/,
+    }),
+  );
 }
 
 test("pinned threads gather under a Pinned heading, each new pin leading the group", async () => {
