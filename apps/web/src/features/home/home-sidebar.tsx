@@ -9,10 +9,10 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { SidebarHeader } from "@/features/shell/index.ts";
-import { useProjectDialogs } from "@/features/projects/index.ts";
+import { useResolvedKeymap } from "@/lib/keybindings.ts";
+import { formatKeys } from "@/lib/keymap.ts";
 import { activityOf, isUnread } from "@ace/ui-core";
 import { ThreadsActions } from "./project-filter.tsx";
-import { NeedsDaemon, useDaemonReachable } from "./needs-daemon.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { rememberThread } from "./last-thread.ts";
@@ -36,9 +36,8 @@ export function HomeSidebar() {
   const loaded = useSidebarLoaded();
   const empty = [list.pinned, list.active, list.recent, list.settled].every((ids) => !ids.length);
   const directory = useProjectDirectory();
-  const dialogs = useProjectDialogs();
+  const keys = useResolvedKeymap();
   const noProjects = directory.loaded && directory.projects.length === 0;
-  const reachable = useDaemonReachable();
   return (
     <>
       <SidebarHeader title="Threads" actions={<ThreadsActions />} />
@@ -60,22 +59,10 @@ export function HomeSidebar() {
                   ? "Threads from this project will land here."
                   : noProjects
                     ? "Add a project first: a folder agents can work in."
-                    : "Start one with ⌘N. Threads from every project and machine land here."
+                    : `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
               }
               action={
-                !project && noProjects ? (
-                  <NeedsDaemon reachable={reachable}>
-                    <button
-                      type="button"
-                      aria-disabled={!reachable || undefined}
-                      className="text-ui font-medium text-foreground underline-offset-4 hover:underline aria-disabled:opacity-40 aria-disabled:hover:no-underline"
-                      onClick={() => reachable && dialogs.open({ kind: "add", tab: "open" })}
-                      onPointerEnter={dialogs.preload}
-                    >
-                      Add project…
-                    </button>
-                  </NeedsDaemon>
-                ) : project ? (
+                project ? (
                   <button
                     type="button"
                     className="text-ui font-medium text-foreground underline-offset-4 hover:underline"

@@ -50,7 +50,7 @@ export function HomeEmptyScreen() {
           title="No threads yet"
           description={
             <>
-              Start one with <Kbd keys="mod+n" />, or search with <Kbd keys="mod+k" />.
+              Start one with <Kbd shortcut="newThread" />, or search with <Kbd shortcut="search" />.
             </>
           }
         />

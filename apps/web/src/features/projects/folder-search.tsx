@@ -299,7 +299,7 @@ export function FolderSearchBox(props: {
           )}
         </p>
       )}
-      <div className="flex min-h-5 min-w-0 items-center gap-3 text-xs text-subtle-foreground">
+      <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-3 text-xs text-subtle-foreground">
         <span id={`${listId}-path`} className="min-w-0 flex-1 truncate font-mono text-xs">
           {highlighted
             ? `${displayPath(highlighted.path, home?.path)}${props.several ? ` · ${highlighted.machine.name}` : ""}`
