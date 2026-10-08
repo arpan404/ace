@@ -17,9 +17,12 @@ const libraryMeta = providerMeta.extend({
     .default({})
     .refine((v) => Object.keys(v).length <= 64),
 });
-export const diagnostic = (source: string): ParsedSource => ({
+export const diagnostic = (
+  source: string,
+  message = "Invalid command metadata or document",
+): ParsedSource => ({
   commands: [],
-  diagnostics: [{ source, message: "Invalid command metadata or document" }],
+  diagnostics: [{ source, message }],
 });
 export function definition(
   ctx: ParseContext,
