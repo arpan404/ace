@@ -1,3 +1,4 @@
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { Capabilities } from "@ace/protocol";
 export function capabilities(cli: DiscoveryResult): Capabilities {
@@ -11,20 +12,12 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
         ((version[1] ?? 0) > 1 || (version[1] === 1 && (version[2] ?? 0) >= 286))));
   return {
     steer: false,
+    permissionModes: nativePermissionModes("claude"),
     permissions: {
-      modes: supported ? ["read-only", "ask", "auto-review", "full-access"] : [],
+      modes: nativePermissionModes("claude").map((mode) => mode.id),
+      permissionModes: nativePermissionModes("claude"),
       nativeAutoReview: true,
       toolGate: supported,
-      guarantees: supported
-        ? (["ask", "auto-review"] as const).map((mode) => ({
-            mode,
-            level: "tool-gate",
-            gates: { writes: true, network: true, protectedReads: true, shell: true },
-            limitations: [
-              "All tools, including child tools, enter ace through PreToolUse and canUseTool; native auto mode is unused.",
-            ],
-          }))
-        : [],
     },
     launchOptions: supported ? ["effort"] : [],
     interruptCascades: false,

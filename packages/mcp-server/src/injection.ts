@@ -24,13 +24,13 @@ export function developerInstructions(provider: ProviderKind): string {
     codex: "Use the ace MCP server's ace_* tools.",
     claude: "Use mcp__ace__* tools for ace operations.",
     opencode:
-      "Use native ace_* MCP tools for ace operations, including ace_screen_* and ace_device_*.",
+      "Use the ace MCP server's native tools. OpenCode prefixes every MCP name with ace_: ace_status is ace_ace_status, and delegate_task is ace_delegate_task.",
     cursor: "Use the ace MCP server for ace operations.",
     antigravity: "Use the ace MCP server for ace operations.",
     acp: "Use the ace MCP server for ace operations.",
     pi: "Use ace_*, screen_* and device_* extension tools for ace operations.",
   };
-  return `${prefix[provider]} Inspect the thread and agent tree for live status. Use delegate_task to start independent child threads on any available provider. Choose wait to await the outcome or continue working; completed children wake you in a batched turn. Creation returns acceptance, not completion. Agents may answer questions but must never resolve approvals. Notify the user when their input is needed. Browser, preview, screen and device tools appear only when authorized. Use ace_browser_open then ace_browser_snapshot for web pages; do not call cua_repl or provider browser tools for ace's thread browser. Use screen_ui_tree/screen_ui_find for the human-delegated app, or device_list/device_find for an approved simulator. Inspect semantic trees before using coordinate input. If delegation is missing or a human owns control, report the tool error and wait for the user.`;
+  return `${prefix[provider]} To check whether ace is available, call ace_status using your provider's ace tool prefix, or read ace://status through MCP. An empty or disabled tool group does not mean ace is absent. Inspect the thread and agent tree for live status. Use delegate_task to start independent child threads on any available provider. Choose wait to await the outcome or continue working; completed children wake you in a batched turn. Creation returns acceptance, not completion. Agents may answer questions but must never resolve approvals. Notify the user when their input is needed. Browser, preview, screen and device tools appear only when authorized. Use ace_browser_open then ace_browser_snapshot for web pages; do not call cua_repl or provider browser tools for ace's thread browser. Use screen_ui_tree/screen_ui_find for the human-delegated app, or device_list/device_find for an approved simulator. Inspect semantic trees before using coordinate input. If delegation is missing or a human owns control, report the tool error and wait for the user.`;
 }
 export function codexInjection(input: AceMcpConnection) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });

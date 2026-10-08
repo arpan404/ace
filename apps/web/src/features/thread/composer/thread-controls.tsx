@@ -1,5 +1,5 @@
 import { useConnectionState, useThreadMeta } from "@ace/client-react";
-import { WorkspaceId, type ExecutionOptions } from "@ace/protocol";
+import { WorkspaceId, type ExecutionOptions, type PermissionMode } from "@ace/protocol";
 import {
   accountTag,
   choiceForModel,
@@ -9,7 +9,6 @@ import {
   optionEffort,
   permissionCoverageNote,
   permissionLabel,
-  permissionModeOf,
   permissionOption,
   permissionOptions,
   permissionPendingNote,
@@ -41,69 +40,63 @@ import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useModelSwitch } from "./use-model-switch.ts";
-import { usePermissionCapabilities, useThreadPermission } from "./permission-hooks.ts";
+import { usePermissionModes, useThreadPermission } from "./permission-hooks.ts";
 import { PermissionPicker } from "./permission-picker.tsx";
 
-/**
- * The thread's approval mode, inspectable and changeable after the thread started. A change
- * applies from the agent's next turn (ADR 0061). The icon marks it at once beside the mode in
- * effect, and takes it back with a toast only when the daemon refuses it; offline it waits.
- * A thread following a default its provider can't run in (Ask on Cursor) is told to choose.
- */
+/** Native mode changes stay pending until the harness acknowledges the new selection. */
 export function ThreadPermissionControl(props: { thread: ThreadRef }) {
   const meta = useThreadMeta(props.thread.id);
   const toast = useToast();
   const permission = useThreadPermission(props.thread.id, meta?.permission);
-  const [defaultMode] = useDaemonSetting("permissions.defaultMode", {
+  const [providerModes] = useDaemonSetting("permissions.providerModes", {
     workspaceId: WorkspaceId.parse(props.thread.workspaceId),
   });
-  const { capabilities, loading, failed } = usePermissionCapabilities(
-    meta?.provider,
-    meta?.capabilities?.permissions,
-  );
-  const summary = threadPermissionSummary(meta?.permission, capabilities, {
-    chosen: permission.chosen,
-    defaultMode,
-  });
-  const provider = meta ? providerNames[meta.provider] : "This provider";
-  const wanted = summary?.next ?? summary?.mode;
-  const blocked = meta && wanted && permissionUnavailable(capabilities, wanted, provider);
-  const change = (id: string | null) => {
-    const mode = id === null ? null : permissionModeOf(id);
-    if (mode === undefined) return;
+  const defaultMode = meta ? (providerModes?.[meta.provider] ?? null) : null;
+  const change = (mode: PermissionMode | null) =>
     void permission
       .change(mode)
       .catch((error: unknown) =>
         toast.add({ title: "Couldn't change approvals", description: failureMessage(error) }),
       );
-  };
-  const resetUnavailable =
-    defaultMode && permissionUnavailable(capabilities, defaultMode, provider);
+  const { capabilities, loading, failed, setCurrentId } = usePermissionModes(meta?.provider, {
+    currentId:
+      permission.chosen !== undefined ? permission.chosen : (meta?.permission?.override ?? null),
+    setCurrentId: change,
+    live: (meta?.effectiveCapabilities ?? meta?.capabilities)?.permissions,
+  });
+  const summary = threadPermissionSummary(meta?.permission, capabilities, {
+    chosen: permission.chosen,
+    defaultMode,
+  });
+  const wanted = summary?.next ?? summary?.mode;
+  const blocked =
+    meta && wanted && permissionUnavailable(capabilities, wanted, providerNames[meta.provider]);
   return (
     <PermissionPicker
-      current={summary && permissionOption(summary.mode)}
-      next={summary?.next && permissionOption(summary.next)}
-      // The daemon has no field yet for why a change waits; when it reports one ("busy"),
-      // pass it here and the note says the running command must finish first.
+      current={summary && permissionOption(summary.mode, capabilities)}
+      next={summary?.next ? permissionOption(summary.next, capabilities) : undefined}
       note={summary?.next && (permission.note ?? permissionPendingNote())}
       detail={summary?.coverage}
       inherited={summary?.inherited}
       menu={{
-        options: permissionOptions(capabilities, provider),
-        value: wanted,
+        options: permissionOptions(capabilities),
+        value: wanted ?? undefined,
         loading: loading || (!meta?.permission && !failed),
         unavailable:
           failed && !meta?.permission
             ? "The daemon didn't say how this thread is approved"
             : undefined,
-        coverage: permissionCoverageNote(capabilities, provider, wanted),
+        coverage: permissionCoverageNote(
+          capabilities,
+          meta ? providerNames[meta.provider] : "This provider",
+          wanted,
+        ),
         fallback: blocked ? `${blocked}; choose another mode for this thread` : undefined,
-        reset:
-          defaultMode && !summary?.inherited
-            ? { label: permissionLabel(defaultMode), unavailable: resetUnavailable || undefined }
-            : undefined,
+        reset: !summary?.inherited
+          ? { label: permissionLabel(defaultMode, capabilities) }
+          : undefined,
       }}
-      onChange={change}
+      onChange={setCurrentId}
     />
   );
 }

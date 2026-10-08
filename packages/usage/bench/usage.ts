@@ -81,6 +81,17 @@ try {
   measure("year summary/provider/account", () =>
     store.summary({ ...q, groupBy: ["provider", "account"] }),
   );
+  measure("provider/account fortnight series", () =>
+    store.series({
+      ...q,
+      from: "2026-12-18",
+      filters: { provider: ["codex"] },
+      groupBy: ["account"],
+    }),
+  );
+  measure("account monthly series", () =>
+    store.series({ ...q, filters: { account: ["acc0"] }, groupBy: ["account"], bucket: "month" }),
+  );
   measure("year daily series", () => store.series(q));
   measure("year top threads", () => store.summary({ ...q, groupBy: ["thread"], limit: 10 }));
   measure("year subtree series", () => store.series({ ...q, agentTree: "a0" }));

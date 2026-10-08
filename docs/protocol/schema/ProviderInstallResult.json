@@ -1,0 +1,80 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderInstallResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "plan": {
+              "$ref": "https://ace.local/protocol/v1/ProviderInstallPlan.json"
+            }
+          },
+          "required": [
+            "ok",
+            "plan"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "progress": {
+              "$ref": "https://ace.local/protocol/v1/ProviderInstallProgress.json"
+            }
+          },
+          "required": [
+            "ok",
+            "progress"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "error": {
+              "enum": [
+                "forbidden",
+                "unavailable",
+                "busy",
+                "not_found",
+                "invalid_method"
+              ],
+              "type": "string"
+            },
+            "ok": {
+              "const": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "provider.install.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

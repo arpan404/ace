@@ -203,7 +203,7 @@ test("Cursor SDK browser sign-in uses its private environment and deletes homes 
     entry,
     `
 import {createInterface} from 'node:readline';
-import {mkdirSync,writeFileSync,existsSync,watch} from 'node:fs';
+import {mkdirSync,writeFileSync,existsSync,watch,rmSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 const home = process.env.HOME;
 const marker = join(home,'fixture-signed-in');
@@ -225,6 +225,9 @@ createInterface({input:process.stdin}).on('line', requestLine => {
     output({method:'login-url',params:{url:'https://cursor.com/login?challenge=fixture-sdk'}});
   } else if(request.method === 'status') {
     output({id:request.id,result:existsSync(marker) ? {status:'logged-in',source:'sdk-store'} : {status:'logged-out',source:'none'}});
+  } else if(request.method === 'logout') {
+    rmSync(marker,{force:true});
+    output({id:request.id,result:{status:'logged-out',source:'none'}});
   } else if(request.method === 'models') output({id:request.id,result:[]});
   else output({id:request.id,result:{disposed:true}});
 });`,

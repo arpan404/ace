@@ -2,6 +2,21 @@
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
 const args = process.argv.slice(2);
+const freeModels =
+  process.env.ACE_TEST_FREE_MODELS === "1"
+    ? ["big-pickle", "mimo-v2.5-free", "ling-3.0-tiny-free"].map((modelID) => ({
+        id: `opencode/${modelID}`,
+        providerID: "opencode",
+        modelID,
+        name: modelID,
+        enabled: true,
+        status: "active",
+        variants: [],
+        capabilities: { tools: true, input: ["text/plain"], output: ["text/plain"] },
+        limit: { context: 128000, output: 8192 },
+        cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+      }))
+    : [];
 if (args.includes("--version")) {
   console.log(`opencode v${process.env.ACE_TEST_OPENCODE_VERSION ?? "2.0.22"}`);
   process.exit(0);
@@ -17,6 +32,7 @@ if (args[0] === "auth") {
 if (args[0] === "models") {
   if (args.length !== 1) process.exit(7);
   console.log("opencode-go/muse-spark-1.3-contributor");
+  for (const model of freeModels) console.log(model.id);
   process.exit(0);
 }
 if (args[0] !== "serve") process.exit(1);
@@ -84,6 +100,71 @@ const publish = (type, data, directory = "/one", extra = {}) => {
   return e;
 };
 const nativeMcp = new Map();
+let toolCatalog = [];
+let readinessRequested = false;
+const transforms = [];
+let readiness;
+const pluginPath = configuration.plugins?.find(
+  (plugin) => typeof plugin === "string" && plugin.endsWith("mcp-ready-plugin"),
+);
+if (pluginPath) {
+  let module;
+  try {
+    module = await import(`${pluginPath}/server.ts`);
+  } catch (error) {
+    if (error.code !== "ERR_MODULE_NOT_FOUND") throw error;
+    module = await import(`${pluginPath}/server.mjs`);
+  }
+  const plugin = module.default;
+  await plugin.setup({
+    tool: {
+      async transform(read) {
+        transforms.push(read);
+        read({ list: () => toolCatalog });
+      },
+      async list() {
+        return toolCatalog;
+      },
+    },
+    rpc: {
+      async register(_definition, handlers) {
+        readiness = handlers.ready;
+      },
+    },
+  });
+}
+async function loadMcpTools() {
+  const ace = nativeMcp.get("ace");
+  const catalog = await fetch(ace.url, {
+    method: "POST",
+    headers: {
+      ...ace.headers,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      "MCP-Protocol-Version": "2026-07-28",
+      "Mcp-Method": "tools/list",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/list",
+      params: {
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "fake-opencode", version: "2.0.22" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+  const result = await catalog.json();
+  toolCatalog = result.result.tools.map((tool) => ({
+    id: `ace_${tool.name}`,
+    description: tool.description,
+    options: { namespace: "ace" },
+  }));
+  for (const read of transforms) read({ list: () => toolCatalog });
+}
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost"),
     path = url.pathname;
@@ -119,7 +200,30 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (path === "/api/experimental/mcp/ace/connect") {
+    if (readiness && !process.env.ACE_TEST_HOLD_MCP_TOOLS && !process.env.ACE_TEST_MCP_FAILED)
+      await loadMcpTools();
     empty();
+    return;
+  }
+  if (path === "/api/rpc/ace.mcp.readiness/ready") {
+    readinessRequested = true;
+    if (!readiness) throw new Error("ace native readiness plugin did not load");
+    const controller = new AbortController();
+    res.on("close", () => controller.abort());
+    json({ output: await readiness({}, { signal: controller.signal }) });
+    return;
+  }
+  if (path === "/test/mcp-tools/settle") {
+    await loadMcpTools();
+    json({ settled: true });
+    return;
+  }
+  if (path === "/test/mcp-tools") {
+    json({
+      readinessRequested,
+      tools: toolCatalog.map((tool) => ({ name: tool.id, description: tool.description })),
+      plugins: configuration.plugins ?? [],
+    });
     return;
   }
   if (path === "/test/mcp") {
@@ -325,6 +429,17 @@ const server = createServer(async (req, res) => {
     json({
       location: { directory },
       data: [
+        ...freeModels,
+        ...(freeModels.length
+          ? [
+              {
+                ...freeModels[0],
+                id: "opencode/paid-test",
+                modelID: "paid-test",
+                cost: [{ input: 1, output: 2, cache: { read: 0, write: 0 } }],
+              },
+            ]
+          : []),
         {
           id: "opencode-go/muse-spark-1.3-contributor",
           modelID: "muse-spark-1.3-contributor",

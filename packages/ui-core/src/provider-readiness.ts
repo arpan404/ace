@@ -1,5 +1,6 @@
 import type { ModelInstanceStatus, ModelSource, ProviderKind, ProviderStatus } from "@ace/protocol";
 import { providerNames } from "./providers.ts";
+import { modelsAvailableWithoutAuth } from "@ace/models/availability";
 
 /*
  * A provider's readiness (`providers.request { operation: "readiness" }`) in words, with what
@@ -57,6 +58,7 @@ export interface ReadinessView {
 
 /** What the model catalog says about a provider: whether it lists models, and an auth error. */
 export interface CatalogSignal {
+  withoutAuth?: boolean | undefined;
   models: boolean;
   /** The catalog's own words for an expired or refused sign-in. */
   problem?: string | undefined;
@@ -66,7 +68,12 @@ export interface CatalogSignal {
 
 /** A provider's catalog signal, from the catalog's models and per-account statuses. */
 export function catalogSignal(
-  models: readonly { provider: ProviderKind; source?: ModelSource | undefined }[],
+  models: readonly {
+    provider: ProviderKind;
+    instance: string;
+    free?: boolean | undefined;
+    source?: ModelSource | undefined;
+  }[],
   instances: readonly ModelInstanceStatus[],
   provider: ProviderKind,
 ): CatalogSignal {
@@ -85,11 +92,16 @@ export function catalogSignal(
       model.source &&
       model.source.kind !== "local" &&
       model.source.kind !== "account" &&
+      model.source.requiresAuth !== false &&
       !failing.has(model.source.id)
     )
       connected.add(model.source.id);
   return {
     models: models.some((model) => model.provider === provider),
+    withoutAuth: modelsAvailableWithoutAuth(
+      models.filter((model) => model.provider === provider),
+      own,
+    ),
     problem,
     connected: connected.size,
   };
@@ -146,6 +158,22 @@ export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): Rea
       : row.auth === "logged_out"
         ? "installed_signed_out"
         : "signed_in");
+  if (
+    row.provider === "opencode" &&
+    row.installed === true &&
+    row.enabled !== false &&
+    !row.error &&
+    (row.modelsAvailable || catalog?.withoutAuth)
+  )
+    return {
+      state: "ready",
+      ready: true,
+      label: "Ready",
+      summary: "Ready",
+      tone: "ready",
+      more: row.auth === "logged_out" ? ["sign_in"] : ["reconnect", "sign_out"],
+      upstreams: true,
+    };
   if (
     viaUpstreams.has(row.provider) &&
     catalog &&

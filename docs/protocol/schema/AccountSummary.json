@@ -7,8 +7,27 @@
       "minLength": 1,
       "type": "string"
     },
+    "authMethod": {
+      "enum": [
+        "browser",
+        "api_key",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "availability": {
       "$ref": "https://ace.local/protocol/v1/AccountAvailability.json"
+    },
+    "blockedUntil": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "homeStrategy": {
       "const": "default_cli",
@@ -58,6 +77,10 @@
     },
     "quota": {
       "$ref": "https://ace.local/protocol/v1/AccountQuota.json"
+    },
+    "signedInAs": {
+      "maxLength": 256,
+      "type": "string"
     }
   },
   "required": [

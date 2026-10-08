@@ -167,7 +167,13 @@ test.each(recordings)(
       );
       if (!interaction) throw new Error("Missing approval card");
       expect(interaction.state).toBe("pending");
-      expect(view.thread.permission?.effective).toBe("ask");
+      expect(view.thread.permission?.effective).toBe(
+        adapter.provider === "codex"
+          ? ":read-only"
+          : adapter.provider === "claude"
+            ? "default"
+            : "ask",
+      );
       expect(view.thread.status.state).toBe("needs_you");
       const result = h.command({
         type: "interaction.resolve",

@@ -233,6 +233,7 @@ export async function startServer(options: ServerOptions): Promise<{
       socket,
       sessionId,
       local: isLocal,
+      canSubmitSecret: () => isLocal && authenticated.get(socket)?.revocable === false,
       onPresence: () => {
         hasPresence = true;
       },

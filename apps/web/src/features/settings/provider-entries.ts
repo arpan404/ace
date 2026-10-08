@@ -1,4 +1,5 @@
 import { readinessView, type ReadinessTone, type ReadinessView } from "@ace/ui-core";
+import { compareVersions } from "@ace/ui-core/acp-registry";
 import { useQuery } from "@tanstack/react-query";
 import { useProviderReadiness, type ProviderReadiness } from "@/lib/provider-readiness.ts";
 import { useCatalogSignals } from "@/lib/provider-signals.ts";
@@ -65,6 +66,9 @@ export function entryStatus(entry: ProviderEntry): {
       problem: view.tone === "problem" ? view.detail : undefined,
     };
   if (install.added) return { tone: "idle", text: "Added by command" };
+  const listed = install.registry?.agent;
+  if (install.registry && listed && compareVersions(listed.version, install.registry.version) > 0)
+    return { tone: "action", text: `Update available · ${listed.version}` };
   if (install.state === "not_installed") return { tone: "idle", text: "Not installed" };
   return { tone: "ready", text: "Runs through ACP" };
 }

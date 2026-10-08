@@ -1,40 +1,12 @@
 import { z } from "zod";
 import { ThreadId } from "./ids.ts";
+import { AccountSummary } from "./accounts.ts";
 
 const id = z.string().min(1).max(512);
 const tokens = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const dollars = z.number().nonnegative();
 const adjustment = z.number();
-/** Scope/key validity survives schema extensions at every usage boundary. */
-export const UsageCounter = z
-  .object({
-    usageScope: z.enum(["agent", "provider_session", "model_session"]).optional(),
-    counterKey: id.optional(),
-  })
-  .refine(
-    (usage) =>
-      usage.usageScope === undefined ||
-      usage.usageScope === "agent" ||
-      usage.counterKey !== undefined,
-    { message: "Inclusive usage snapshots require a counter key", path: ["counterKey"] },
-  )
-  .meta({
-    "x-ace-constraint":
-      "If usageScope is provider_session or model_session, counterKey is required.",
-  });
-export const UsageMetadata = UsageCounter.safeExtend({
-  /** Latest occupied context, including cached input, never lifetime totals. */
-  contextTokens: tokens.optional(),
-  contextSessionId: id.optional(),
-  reasoningTokens: tokens.optional(),
-  cacheWriteTokens: tokens.optional(),
-  cacheWrite1hTokens: tokens.optional(),
-  model: z.string().min(1).optional(),
-  accountId: id.optional(),
-  billingMode: z.enum(["api", "subscription", "unknown"]).optional(),
-  counterMode: z.enum(["cumulative", "incremental"]).optional(),
-}).meta(UsageCounter.meta() ?? {});
-export type UsageMetadata = z.infer<typeof UsageMetadata>;
+export { UsageCounter, UsageMetadata } from "./usage-core.ts";
 export const UsageDimension = z.enum([
   "day",
   "thread",
@@ -58,6 +30,7 @@ export const UsageQuery = z
     limit: z.number().int().min(1).max(1000).default(100),
     orderBy: z.enum(["tokens", "cost"]).default("tokens"),
     equivalentApiCost: z.boolean().default(false),
+    bucket: z.enum(["day", "week", "month"]).optional(),
     quotaAccount: id.optional(),
   })
   .refine(
@@ -100,6 +73,7 @@ export const UsageBurn = z.object({
   unit: z.enum(["tokens", "usd"]),
   observed: z.number().nonnegative(),
   overflow: z.boolean().default(false),
+  complete: z.boolean().default(true),
   perHour: z.number().nonnegative(),
   remaining: z.number().nonnegative().nullable(),
   exhaustionAt: z.number().nonnegative().nullable(),
@@ -110,6 +84,13 @@ export const UsageResult = z.object({
   omittedEvents: tokens.default(0),
   timezone: id,
   priceVersion: id,
+  priceAsOf: date.optional(),
+  priceSources: z.array(z.url()).max(100).optional(),
+  costLabel: z.literal("estimate").optional(),
+  tokenSource: z.literal("cli").optional(),
+  retainedFrom: date.optional(),
+  /** Current accounts matching provider/account filters, alongside historical rows. */
+  accounts: z.array(AccountSummary).max(256).optional(),
   rows: z.array(UsageRow).max(1000),
   truncated: z.boolean(),
   burn: z.array(UsageBurn).max(20).optional(),
@@ -130,6 +111,10 @@ export const UsageMessage = z.object({
   requestId: id,
   kind: z.enum(["summary", "series"]),
   result: UsageResult,
+});
+export const UsageLimitsChanged = z.object({
+  type: z.literal("usage.limits_changed"),
+  account: AccountSummary,
 });
 
 export const UsageSessionTotal = z.object({

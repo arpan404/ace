@@ -259,12 +259,12 @@
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@opencode/client": "2.0.22",
+        "jsonc-parser": "^3.3.1",
         "zod": "^4.4.3",
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
         "@ace/projection": "workspace:*",
-        "jsonc-parser": "^3.3.1",
       },
     },
     "packages/adapter-pi": {
@@ -459,6 +459,7 @@
         "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "@ace/screen": "workspace:*",
         "@ace/search": "workspace:*",
         "@ace/settings": "workspace:*",
@@ -626,6 +627,7 @@
     "packages/provider-kit": {
       "name": "@ace/provider-kit",
       "dependencies": {
+        "@ace/protocol": "workspace:*",
         "@ace/redaction": "workspace:*",
         "zod": "^4.6.5",
       },
@@ -705,6 +707,7 @@
       "dependencies": {
         "@ace/accounts": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/models": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/screen": "workspace:*",

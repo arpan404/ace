@@ -30,37 +30,73 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| thread | yes | object | {"properties":{"pinned":{"type":"boolean"},"pinOrder":{"type":"number","description":"Place among pinned threads, higher first. Set on pin (the daemon's clock when the command names none, so a new pin leads) and cleared on unpin."},"unread":{"type":"boolean"},"readAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"settledAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"settledReason":{"type":"string","enum":["manual","inactivity","pr_merged","pr_closed"]},"snoozedUntil":{"type":"integer","minimum":0,"maximum":9007199254740991},"deletedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"activityAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"autoSettleAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"details":{"type":"object","properties":{"workspaceChange":{"type":"object","properties":{"commandId":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["preparing","applied","failed"]},"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"error":{"type":"string","maxLength":128},"lossy":{"default":true,"type":"boolean"},"uncertain":{"type":"boolean"}},"required":["commandId","state","at","lossy"],"additionalProperties":false},"workspace":{"type":"object","properties":{"id":{"type":"string","minLength":1},"name":{"type":"string","maxLength":256},"path":{"type":"string","maxLength":4096}},"required":["id","name","path"],"additionalProperties":false},"mode":{"type":"string","enum":["local","worktree"]},"worktree":{"type":"string","maxLength":4096},"branch":{"anyOf":[{"type":"string","maxLength":1024},{"type":"null"}]},"head":{"anyOf":[{"type":"string","pattern":"^[a-f0-9]{40,64}$"},{"type":"null"}]},"ahead":{"type":"integer","minimum":0,"maximum":9007199254740991},"behind":{"type":"integer","minimum":0,"maximum":9007199254740991},"baseBranch":{"type":"string","maxLength":1024},"base":{"type":"object","properties":{"ref":{"type":"string","minLength":1,"maxLength":1024},"remote":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\w.-]+$","x-ace-constraint":"A remote name: letters, digits, `_`, `.`, `-`; no leading `-` or `.`."},"head":{"type":"string","pattern":"^[a-f0-9]{40,64}$"},"fetch":{"type":"string","enum":["fetched","unreachable"]}},"required":["ref","head"],"additionalProperties":false},"repository":{"type":"object","properties":{"forge":{"type":"string","enum":["github","gitlab"]},"host":{"type":"string","maxLength":253,"pattern":"^[a-zA-Z0-9.-]+$"},"owner":{"type":"string","maxLength":512,"pattern":"^[\\w.-]+(?:\\/[\\w.-]+)*$","x-ace-constraint":"Every owner path segment must differ from . and ..","not":{"pattern":"(?:^\|/)\\.{1,2}(?:/\|$)"}},"name":{"type":"string","maxLength":100,"pattern":"^[\\w.-]+$"}},"required":["forge","host","owner","name"],"additionalProperties":false},"linkedPr":{"anyOf":[{"type":"object","properties":{"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"state":{"type":"string","enum":["open","closed","merged"]},"url":{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":4096,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."}},"required":["number","state"],"additionalProperties":false},{"type":"null"}]},"machine":{"type":"object","properties":{"host":{"type":"string","minLength":1,"maxLength":256},"name":{"type":"string","maxLength":256}},"required":["host","name"],"additionalProperties":false},"diff":{"type":"object","properties":{"files":{"type":"integer","minimum":0,"maximum":9007199254740991},"additions":{"type":"integer","minimum":0,"maximum":9007199254740991},"deletions":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["files","additions","deletions"],"additionalProperties":false}},"additionalProperties":false},"live":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","maxLength":256},"account":{"type":"string","maxLength":256},"options":{"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."},"subagentCount":{"type":"integer","minimum":0,"maximum":9007199254740991},"backgroundTaskCount":{"type":"integer","minimum":0,"maximum":9007199254740991},"watching":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"title":{"type":"string","maxLength":256}},"required":["id","title"],"additionalProperties":false}},"asking":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64}},"required":["id","kind"],"additionalProperties":false}},"waitingOn":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"step":{"type":"string","enum":["tests"]},"contextMeter":{"type":"object","properties":{"used":{"type":"integer","minimum":0,"maximum":9007199254740991},"limit":{"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["used","limit","at"],"additionalProperties":false}},"additionalProperties":false},"id":{"type":"string","minLength":1},"workspaceId":{"type":"string","minLength":1},"title":{"type":"string"},"titleSource":{"type":"string","enum":["provisional","provider","person","agent"]},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"backend":{"type":"string","enum":["acp","cursor-sdk"]},"continuation":{"type":"object","properties":{"state":{"type":"string","const":"read_only"},"reason":{"type":"string","const":"cursor_cli_retired"},"actionId":{"type":"string","const":"thread.continue_new"}},"required":["state","reason","actionId"],"additionalProperties":false},"capabilities":{"type":"object","properties":{"permissions":{"type":"object","properties":{"modes":{"maxItems":4,"type":"array","items":{"type":"string","enum":["read-only","ask","auto-review","full-access"]}},"nativeAutoReview":{"type":"boolean"},"toolGate":{"type":"boolean"},"guarantees":{"maxItems":4,"type":"array","items":{"type":"object","properties":{"mode":{"type":"string","enum":["read-only","ask","auto-review","full-access"]},"level":{"type":"string","enum":["tool-gate","sandbox","tool-selection","permission-requests"]},"gates":{"type":"object","properties":{"writes":{"type":"boolean"},"network":{"type":"boolean"},"protectedReads":{"type":"boolean"},"shell":{"type":"boolean"}},"required":["writes","network","protectedReads","shell"],"additionalProperties":false},"limitations":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":2048}}},"required":["mode","level","gates","limitations"],"additionalProperties":false}}},"required":["modes","nativeAutoReview","toolGate"],"additionalProperties":false},"approvals":{"type":"string","enum":["interactive","sandbox-only","none"]},"steeringMode":{"type":"string","enum":["native","interrupt-restart","queue"]},"forkMode":{"type":"string","enum":["native","context-handoff","none"]},"childControls":{"type":"string","enum":["native","read-only"]},"childFidelity":{"type":"string","enum":["full","summary","placeholder"]},"steer":{"type":"boolean"},"launchOptions":{"maxItems":2,"type":"array","items":{"type":"string","enum":["effort","serviceTier"]}},"interruptCascades":{"type":"boolean"},"resume":{"type":"boolean"},"fork":{"type":"boolean"},"forkSubagents":{"type":"boolean"},"sessionOptions":{"type":"boolean"},"forkPoints":{"maxItems":2,"type":"array","items":{"type":"string","enum":["turn","item","end"]}},"subagentTranscripts":{"type":"boolean"},"backgroundTaskControl":{"type":"boolean"},"backgroundVisibility":{"type":"string","enum":["full","partial","none"]},"planMode":{"type":"boolean"},"tokenUsage":{"type":"boolean"},"imageInput":{"type":"boolean"},"attachmentInput":{"type":"object","properties":{"format":{"type":"string","enum":["claude","codex","opencode","acp"]},"documents":{"maxItems":32,"type":"array","items":{"type":"string","maxLength":128}},"embeddedContext":{"type":"boolean"},"maxInlineBytes":{"type":"integer","minimum":0,"maximum":33554432}},"required":["format","documents","embeddedContext","maxInlineBytes"],"additionalProperties":false},"rewindFiles":{"type":"boolean"}},"required":["steer","interruptCascades","resume","fork","subagentTranscripts","backgroundTaskControl","backgroundVisibility","planMode","tokenUsage","imageInput","rewindFiles"],"additionalProperties":false},"permission":{"type":"object","properties":{"override":{"anyOf":[{"type":"string","enum":["read-only","ask","auto-review","full-access"]},{"type":"null"}]},"effective":{"type":"string","enum":["read-only","ask","auto-review","full-access"]},"pending":{"type":"boolean"}},"required":["override","effective","pending"],"additionalProperties":false},"handoff":{"type":"object","properties":{"sourceThreadId":{"type":"string","minLength":1},"truncated":{"type":"boolean"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["sourceThreadId","truncated","bytes"],"additionalProperties":false},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"effectiveCapabilities":{"type":"object","properties":{"permissions":{"type":"object","properties":{"modes":{"maxItems":4,"type":"array","items":{"type":"string","enum":["read-only","ask","auto-review","full-access"]}},"nativeAutoReview":{"type":"boolean"},"toolGate":{"type":"boolean"},"guarantees":{"maxItems":4,"type":"array","items":{"type":"object","properties":{"mode":{"type":"string","enum":["read-only","ask","auto-review","full-access"]},"level":{"type":"string","enum":["tool-gate","sandbox","tool-selection","permission-requests"]},"gates":{"type":"object","properties":{"writes":{"type":"boolean"},"network":{"type":"boolean"},"protectedReads":{"type":"boolean"},"shell":{"type":"boolean"}},"required":["writes","network","protectedReads","shell"],"additionalProperties":false},"limitations":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":2048}}},"required":["mode","level","gates","limitations"],"additionalProperties":false}}},"required":["modes","nativeAutoReview","toolGate"],"additionalProperties":false},"approvals":{"type":"string","enum":["interactive","sandbox-only","none"]},"steeringMode":{"type":"string","enum":["native","interrupt-restart","queue"]},"forkMode":{"type":"string","enum":["native","context-handoff","none"]},"childControls":{"type":"string","enum":["native","read-only"]},"childFidelity":{"type":"string","enum":["full","summary","placeholder"]},"steer":{"type":"boolean"},"launchOptions":{"maxItems":2,"type":"array","items":{"type":"string","enum":["effort","serviceTier"]}},"interruptCascades":{"type":"boolean"},"resume":{"type":"boolean"},"fork":{"type":"boolean"},"forkSubagents":{"type":"boolean"},"sessionOptions":{"type":"boolean"},"forkPoints":{"maxItems":2,"type":"array","items":{"type":"string","enum":["turn","item","end"]}},"subagentTranscripts":{"type":"boolean"},"backgroundTaskControl":{"type":"boolean"},"backgroundVisibility":{"type":"string","enum":["full","partial","none"]},"planMode":{"type":"boolean"},"tokenUsage":{"type":"boolean"},"imageInput":{"type":"boolean"},"attachmentInput":{"type":"object","properties":{"format":{"type":"string","enum":["claude","codex","opencode","acp"]},"documents":{"maxItems":32,"type":"array","items":{"type":"string","maxLength":128}},"embeddedContext":{"type":"boolean"},"maxInlineBytes":{"type":"integer","minimum":0,"maximum":33554432}},"required":["format","documents","embeddedContext","maxInlineBytes"],"additionalProperties":false},"rewindFiles":{"type":"boolean"}},"required":["steer","interruptCascades","resume","fork","subagentTranscripts","backgroundTaskControl","backgroundVisibility","planMode","tokenUsage","imageInput","rewindFiles"],"additionalProperties":false},"acpSupport":{"type":"object","properties":{"capabilities":{"type":"object","properties":{"resume":{"type":"boolean"},"imageInput":{"type":"boolean"},"planMode":{"type":"boolean"}},"required":["resume","imageInput","planMode"],"additionalProperties":false},"mcp":{"type":"string","enum":["http","stdio","unavailable"]},"modelSelection":{"type":"boolean"},"modeSelection":{"type":"boolean"},"subagentSessions":{"default":false,"type":"boolean"},"coverage":{"type":"string","enum":["source_profile","generic","legacy"]},"visibility":{"type":"string","const":"limited"},"raw":{"type":"object","properties":{"json":{"type":"string","maxLength":2048},"truncated":{"type":"boolean"}},"required":["json","truncated"],"additionalProperties":false}},"required":["capabilities","mcp","modelSelection","modeSelection","subagentSessions","coverage","visibility","raw"],"additionalProperties":false},"rootAgentId":{"type":"string","minLength":1},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"needs_you"},"interactions":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","interactions"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"agents":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","agents"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"waiting"},"on":{"type":"string","enum":["background_task","rate_limit","network","upstream","queue"]}},"required":["state","on"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"limited"},"until":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"done"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"new"}},"required":["state"],"additionalProperties":false}]},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"archivedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"imported":{"type":"object","properties":{"sourceId":{"type":"string","minLength":1},"instanceId":{"type":"string","minLength":1},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"nativeId":{"type":"string"},"path":{"type":"string"},"forkedFromNativeId":{"type":"string","minLength":1,"maxLength":1024},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"importedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["sourceId","instanceId","native","importedAt"],"additionalProperties":false},"lineage":{"type":"object","properties":{"parentThreadId":{"type":"string","minLength":1},"parentAgentId":{"type":"string","minLength":1},"point":{"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"turn"},"runId":{"type":"string","minLength":1}},"required":["type","runId"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"item"},"itemId":{"type":"string","minLength":1}},"required":["type","itemId"],"additionalProperties":false}]},"mode":{"type":"string","enum":["native","portable"]},"lossy":{"type":"boolean"}},"required":["parentThreadId","parentAgentId","point","mode","lossy"],"additionalProperties":false},"execution":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false},"switch":{"type":"object","properties":{"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false},"state":{"type":"string","enum":["queued","applied","failed"]},"lossy":{"type":"boolean"},"recommendation":{"type":"string","const":"delegate_task"},"error":{"type":"string","maxLength":2048},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["selection","state","lossy","at"],"additionalProperties":false}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":false} |
+| thread | yes | object | {"properties":{"pinned":{"type":"boolean"},"pinOrder":{"type":"number","description":"Place among pinned threads, higher first. Set on pin (the daemon's clock when the command names none, so a new pin leads) and cleared on unpin."},"unread":{"type":"boolean"},"readAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"settledAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"settledReason":{"type":"string","enum":["manual","inactivity","pr_merged","pr_closed"]},"snoozedUntil":{"type":"integer","minimum":0,"maximum":9007199254740991},"deletedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"activityAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"autoSettleAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"details":{"type":"object","properties":{"workspaceChange":{"type":"object","properties":{"commandId":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["preparing","applied","failed"]},"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"error":{"type":"string","maxLength":128},"lossy":{"default":true,"type":"boolean"},"uncertain":{"type":"boolean"}},"required":["commandId","state","at","lossy"],"additionalProperties":false},"workspace":{"type":"object","properties":{"id":{"type":"string","minLength":1},"name":{"type":"string","maxLength":256},"path":{"type":"string","maxLength":4096}},"required":["id","name","path"],"additionalProperties":false},"mode":{"type":"string","enum":["local","worktree"]},"worktree":{"type":"string","maxLength":4096},"branch":{"anyOf":[{"type":"string","maxLength":1024},{"type":"null"}]},"head":{"anyOf":[{"type":"string","pattern":"^[a-f0-9]{40,64}$"},{"type":"null"}]},"ahead":{"type":"integer","minimum":0,"maximum":9007199254740991},"behind":{"type":"integer","minimum":0,"maximum":9007199254740991},"baseBranch":{"type":"string","maxLength":1024},"base":{"type":"object","properties":{"ref":{"type":"string","minLength":1,"maxLength":1024},"remote":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[\\w.-]+$","x-ace-constraint":"A remote name: letters, digits, `_`, `.`, `-`; no leading `-` or `.`."},"head":{"type":"string","pattern":"^[a-f0-9]{40,64}$"},"fetch":{"type":"string","enum":["fetched","unreachable"]}},"required":["ref","head"],"additionalProperties":false},"repository":{"type":"object","properties":{"forge":{"type":"string","enum":["github","gitlab"]},"host":{"type":"string","maxLength":253,"pattern":"^[a-zA-Z0-9.-]+$"},"owner":{"type":"string","maxLength":512,"pattern":"^[\\w.-]+(?:\\/[\\w.-]+)*$","x-ace-constraint":"Every owner path segment must differ from . and ..","not":{"pattern":"(?:^\|/)\\.{1,2}(?:/\|$)"}},"name":{"type":"string","maxLength":100,"pattern":"^[\\w.-]+$"}},"required":["forge","host","owner","name"],"additionalProperties":false},"linkedPr":{"anyOf":[{"type":"object","properties":{"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"state":{"type":"string","enum":["open","closed","merged"]},"url":{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":4096,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."}},"required":["number","state"],"additionalProperties":false},{"type":"null"}]},"machine":{"type":"object","properties":{"host":{"type":"string","minLength":1,"maxLength":256},"name":{"type":"string","maxLength":256}},"required":["host","name"],"additionalProperties":false},"diff":{"type":"object","properties":{"files":{"type":"integer","minimum":0,"maximum":9007199254740991},"additions":{"type":"integer","minimum":0,"maximum":9007199254740991},"deletions":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["files","additions","deletions"],"additionalProperties":false}},"additionalProperties":false},"live":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","maxLength":256},"account":{"type":"string","maxLength":256},"options":{"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."},"subagentCount":{"type":"integer","minimum":0,"maximum":9007199254740991},"backgroundTaskCount":{"type":"integer","minimum":0,"maximum":9007199254740991},"watching":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"title":{"type":"string","maxLength":256}},"required":["id","title"],"additionalProperties":false}},"asking":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64}},"required":["id","kind"],"additionalProperties":false}},"waitingOn":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"step":{"type":"string","enum":["tests"]},"contextMeter":{"type":"object","properties":{"used":{"type":"integer","minimum":0,"maximum":9007199254740991},"limit":{"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["used","limit","at"],"additionalProperties":false}},"additionalProperties":false},"id":{"type":"string","minLength":1},"workspaceId":{"type":"string","minLength":1},"title":{"type":"string"},"titleSource":{"type":"string","enum":["provisional","provider","person","agent"]},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"backend":{"type":"string","enum":["acp","cursor-sdk"]},"continuation":{"type":"object","properties":{"state":{"type":"string","const":"read_only"},"reason":{"type":"string","const":"cursor_cli_retired"},"actionId":{"type":"string","const":"thread.continue_new"}},"required":["state","reason","actionId"],"additionalProperties":false},"capabilities":{"type":"object","properties":{"permissions":{"type":"object","properties":{"modes":{"maxItems":256,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"permissionModes":{"maxItems":256,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":4096},"label":{"type":"string","minLength":1,"maxLength":256},"description":{"type":"string","maxLength":2048},"risk":{"type":"string","enum":["low","medium","high"]},"default":{"type":"boolean"}},"required":["id","label","description","risk"],"additionalProperties":false}},"nativeAutoReview":{"type":"boolean"},"toolGate":{"type":"boolean"},"guarantees":{"maxItems":4,"type":"array","items":{"type":"object","properties":{"mode":{"type":"string","minLength":1,"maxLength":4096},"level":{"type":"string","enum":["tool-gate","sandbox","tool-selection","permission-requests"]},"gates":{"type":"object","properties":{"writes":{"type":"boolean"},"network":{"type":"boolean"},"protectedReads":{"type":"boolean"},"shell":{"type":"boolean"}},"required":["writes","network","protectedReads","shell"],"additionalProperties":false},"limitations":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":2048}}},"required":["mode","level","gates","limitations"],"additionalProperties":false}}},"required":["modes","nativeAutoReview","toolGate"],"additionalProperties":false},"permissionModes":{"maxItems":256,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":4096},"label":{"type":"string","minLength":1,"maxLength":256},"description":{"type":"string","maxLength":2048},"risk":{"type":"string","enum":["low","medium","high"]},"default":{"type":"boolean"}},"required":["id","label","description","risk"],"additionalProperties":false}},"approvals":{"type":"string","enum":["interactive","sandbox-only","none"]},"steeringMode":{"type":"string","enum":["native","interrupt-restart","queue"]},"forkMode":{"type":"string","enum":["native","context-handoff","none"]},"childControls":{"type":"string","enum":["native","read-only"]},"childFidelity":{"type":"string","enum":["full","summary","placeholder"]},"steer":{"type":"boolean"},"launchOptions":{"maxItems":2,"type":"array","items":{"type":"string","enum":["effort","serviceTier"]}},"interruptCascades":{"type":"boolean"},"resume":{"type":"boolean"},"fork":{"type":"boolean"},"forkSubagents":{"type":"boolean"},"sessionOptions":{"type":"boolean"},"forkPoints":{"maxItems":2,"type":"array","items":{"type":"string","enum":["turn","item","end"]}},"subagentTranscripts":{"type":"boolean"},"backgroundTaskControl":{"type":"boolean"},"backgroundVisibility":{"type":"string","enum":["full","partial","none"]},"planMode":{"type":"boolean"},"tokenUsage":{"type":"boolean"},"imageInput":{"type":"boolean"},"attachmentInput":{"type":"object","properties":{"format":{"type":"string","enum":["claude","codex","opencode","acp"]},"documents":{"maxItems":32,"type":"array","items":{"type":"string","maxLength":128}},"embeddedContext":{"type":"boolean"},"maxInlineBytes":{"type":"integer","minimum":0,"maximum":33554432}},"required":["format","documents","embeddedContext","maxInlineBytes"],"additionalProperties":false},"rewindFiles":{"type":"boolean"}},"required":["steer","interruptCascades","resume","fork","subagentTranscripts","backgroundTaskControl","backgroundVisibility","planMode","tokenUsage","imageInput","rewindFiles"],"additionalProperties":false},"permission":{"type":"object","properties":{"override":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]},"effective":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]},"pending":{"type":"boolean"}},"required":["override","effective","pending"],"additionalProperties":false},"handoff":{"type":"object","properties":{"sourceThreadId":{"type":"string","minLength":1},"truncated":{"type":"boolean"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["sourceThreadId","truncated","bytes"],"additionalProperties":false},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"effectiveCapabilities":{"type":"object","properties":{"permissions":{"type":"object","properties":{"modes":{"maxItems":256,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"permissionModes":{"maxItems":256,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":4096},"label":{"type":"string","minLength":1,"maxLength":256},"description":{"type":"string","maxLength":2048},"risk":{"type":"string","enum":["low","medium","high"]},"default":{"type":"boolean"}},"required":["id","label","description","risk"],"additionalProperties":false}},"nativeAutoReview":{"type":"boolean"},"toolGate":{"type":"boolean"},"guarantees":{"maxItems":4,"type":"array","items":{"type":"object","properties":{"mode":{"type":"string","minLength":1,"maxLength":4096},"level":{"type":"string","enum":["tool-gate","sandbox","tool-selection","permission-requests"]},"gates":{"type":"object","properties":{"writes":{"type":"boolean"},"network":{"type":"boolean"},"protectedReads":{"type":"boolean"},"shell":{"type":"boolean"}},"required":["writes","network","protectedReads","shell"],"additionalProperties":false},"limitations":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":2048}}},"required":["mode","level","gates","limitations"],"additionalProperties":false}}},"required":["modes","nativeAutoReview","toolGate"],"additionalProperties":false},"permissionModes":{"maxItems":256,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":4096},"label":{"type":"string","minLength":1,"maxLength":256},"description":{"type":"string","maxLength":2048},"risk":{"type":"string","enum":["low","medium","high"]},"default":{"type":"boolean"}},"required":["id","label","description","risk"],"additionalProperties":false}},"approvals":{"type":"string","enum":["interactive","sandbox-only","none"]},"steeringMode":{"type":"string","enum":["native","interrupt-restart","queue"]},"forkMode":{"type":"string","enum":["native","context-handoff","none"]},"childControls":{"type":"string","enum":["native","read-only"]},"childFidelity":{"type":"string","enum":["full","summary","placeholder"]},"steer":{"type":"boolean"},"launchOptions":{"maxItems":2,"type":"array","items":{"type":"string","enum":["effort","serviceTier"]}},"interruptCascades":{"type":"boolean"},"resume":{"type":"boolean"},"fork":{"type":"boolean"},"forkSubagents":{"type":"boolean"},"sessionOptions":{"type":"boolean"},"forkPoints":{"maxItems":2,"type":"array","items":{"type":"string","enum":["turn","item","end"]}},"subagentTranscripts":{"type":"boolean"},"backgroundTaskControl":{"type":"boolean"},"backgroundVisibility":{"type":"string","enum":["full","partial","none"]},"planMode":{"type":"boolean"},"tokenUsage":{"type":"boolean"},"imageInput":{"type":"boolean"},"attachmentInput":{"type":"object","properties":{"format":{"type":"string","enum":["claude","codex","opencode","acp"]},"documents":{"maxItems":32,"type":"array","items":{"type":"string","maxLength":128}},"embeddedContext":{"type":"boolean"},"maxInlineBytes":{"type":"integer","minimum":0,"maximum":33554432}},"required":["format","documents","embeddedContext","maxInlineBytes"],"additionalProperties":false},"rewindFiles":{"type":"boolean"}},"required":["steer","interruptCascades","resume","fork","subagentTranscripts","backgroundTaskControl","backgroundVisibility","planMode","tokenUsage","imageInput","rewindFiles"],"additionalProperties":false},"acpSupport":{"type":"object","properties":{"capabilities":{"type":"object","properties":{"resume":{"type":"boolean"},"imageInput":{"type":"boolean"},"planMode":{"type":"boolean"}},"required":["resume","imageInput","planMode"],"additionalProperties":false},"mcp":{"type":"string","enum":["http","stdio","unavailable"]},"modelSelection":{"type":"boolean"},"modeSelection":{"type":"boolean"},"subagentSessions":{"default":false,"type":"boolean"},"coverage":{"type":"string","enum":["source_profile","generic","legacy"]},"visibility":{"type":"string","const":"limited"},"raw":{"type":"object","properties":{"json":{"type":"string","maxLength":2048},"truncated":{"type":"boolean"}},"required":["json","truncated"],"additionalProperties":false}},"required":["capabilities","mcp","modelSelection","modeSelection","subagentSessions","coverage","visibility","raw"],"additionalProperties":false},"rootAgentId":{"type":"string","minLength":1},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"needs_you"},"interactions":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","interactions"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"agents":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","agents"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"waiting"},"on":{"type":"string","enum":["background_task","rate_limit","network","upstream","queue"]}},"required":["state","on"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"limited"},"until":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"done"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"new"}},"required":["state"],"additionalProperties":false}]},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"archivedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"imported":{"type":"object","properties":{"sourceId":{"type":"string","minLength":1},"instanceId":{"type":"string","minLength":1},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"nativeId":{"type":"string"},"path":{"type":"string"},"forkedFromNativeId":{"type":"string","minLength":1,"maxLength":1024},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"importedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["sourceId","instanceId","native","importedAt"],"additionalProperties":false},"lineage":{"type":"object","properties":{"parentThreadId":{"type":"string","minLength":1},"parentAgentId":{"type":"string","minLength":1},"point":{"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"turn"},"runId":{"type":"string","minLength":1}},"required":["type","runId"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"item"},"itemId":{"type":"string","minLength":1}},"required":["type","itemId"],"additionalProperties":false}]},"mode":{"type":"string","enum":["native","portable"]},"lossy":{"type":"boolean"}},"required":["parentThreadId","parentAgentId","point","mode","lossy"],"additionalProperties":false},"execution":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false},"switch":{"type":"object","properties":{"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false},"state":{"type":"string","enum":["queued","applied","failed"]},"lossy":{"type":"boolean"},"recommendation":{"type":"string","const":"delegate_task"},"error":{"type":"string","maxLength":2048},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["selection","state","lossy","at"],"additionalProperties":false}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":false} |
 
 Example:
 
 ```json
 {
   "thread": {
-    "acpAgentId": "example",
-    "activityAt": 8,
-    "capabilities": {
+    "acpSupport": {
+      "capabilities": {
+        "imageInput": true,
+        "planMode": true,
+        "resume": true
+      },
+      "coverage": "legacy",
+      "mcp": "unavailable",
+      "modeSelection": true,
+      "modelSelection": true,
+      "raw": {
+        "json": "example",
+        "truncated": true
+      },
+      "subagentSessions": true,
+      "visibility": "limited"
+    },
+    "autoSettleAt": 8,
+    "backend": "cursor-sdk",
+    "createdAt": 7,
+    "effectiveCapabilities": {
+      "approvals": "none",
+      "attachmentInput": {
+        "documents": [],
+        "embeddedContext": false,
+        "format": "codex",
+        "maxInlineBytes": 4
+      },
       "backgroundTaskControl": true,
-      "backgroundVisibility": "partial",
-      "fork": false,
+      "backgroundVisibility": "full",
+      "childControls": "read-only",
+      "fork": true,
       "forkSubagents": false,
       "imageInput": false,
       "interruptCascades": true,
+      "launchOptions": [],
+      "permissionModes": [],
+      "permissions": {
+        "modes": [],
+        "nativeAutoReview": false,
+        "toolGate": false
+      },
       "planMode": false,
       "resume": true,
       "rewindFiles": true,
       "sessionOptions": true,
-      "steer": false,
+      "steer": true,
       "subagentTranscripts": true,
-      "tokenUsage": true
+      "tokenUsage": false
     },
-    "createdAt": 1,
-    "deletedAt": 9,
+    "execution": {
+      "instanceId": "example",
+      "model": "example",
+      "options": {},
+      "provider": "opencode"
+    },
     "id": "example",
-    "installationId": "example",
     "lineage": {
       "lossy": false,
-      "mode": "native",
+      "mode": "portable",
       "parentAgentId": "example",
       "parentThreadId": "example",
       "point": {
@@ -68,16 +104,28 @@ Example:
         "type": "item"
       }
     },
-    "pinOrder": 7,
-    "provider": "opencode",
-    "rootAgentId": "example",
-    "snoozedUntil": 1,
+    "permission": {
+      "effective": null,
+      "override": null,
+      "pending": false
+    },
+    "provider": "codex",
+    "readAt": 5,
     "status": {
-      "state": "unresponsive"
+      "state": "failed"
+    },
+    "switch": {
+      "at": 1,
+      "error": "example",
+      "lossy": false,
+      "selection": {
+        "options": {},
+        "provider": "acp"
+      },
+      "state": "applied"
     },
     "title": "example",
-    "unread": true,
-    "updatedAt": 0,
+    "updatedAt": 4,
     "workspaceId": "example"
   }
 }
@@ -101,7 +149,9 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{}
+{
+  "limit": 3
+}
 ```
 
 ## ace_list_agents.output
@@ -118,7 +168,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": null
+  "nextCursor": "example"
 }
 ```
 
@@ -141,7 +191,6 @@ Example:
 
 ```json
 {
-  "level": "info",
   "text": "example"
 }
 ```
@@ -184,6 +233,7 @@ Example:
 
 ```json
 {
+  "name": "example",
   "task": "example"
 }
 ```
@@ -236,16 +286,15 @@ Example:
 
 ```json
 {
-  "accountId": "example",
-  "estimatedLoad": 9,
+  "acpAgentId": "example",
+  "estimatedLoad": 6,
   "instanceId": "example",
   "model": "example",
   "options": {
     "serviceTier": "default"
   },
-  "permissionMode": "full-access",
-  "provider": "opencode",
-  "requestId": "iSB92hO",
+  "provider": "claude",
+  "requestId": "Fu9ztNz21",
   "role": "example",
   "task": "example",
   "wait": true
@@ -266,8 +315,9 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "ok": false
+  "code": "not_found",
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -298,9 +348,9 @@ Example:
 
 ```json
 {
-  "permissionMode": "full-access",
-  "provider": "opencode",
-  "requestId": "UK3-",
+  "acpAgentId": "example",
+  "provider": "pi",
+  "requestId": "BQh__gGTBK3",
   "title": "example"
 }
 ```
@@ -343,7 +393,7 @@ Example:
 
 ```json
 {
-  "requestId": "2PjdhggK7Si",
+  "requestId": "FnFE-nGO",
   "text": "example",
   "threadId": "example"
 }
@@ -363,7 +413,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -388,8 +438,7 @@ Example:
 
 ```json
 {
-  "delivery": "steer",
-  "requestId": "Ja8x",
+  "requestId": "sp",
   "text": "example",
   "threadId": "example"
 }
@@ -409,8 +458,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "data": null,
+  "code": "not_ready",
   "ok": true
 }
 ```
@@ -451,7 +499,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "forbidden",
+  "ok": false
 }
 ```
 
@@ -475,7 +524,6 @@ Example:
 
 ```json
 {
-  "limit": 7,
   "threadId": "example"
 }
 ```
@@ -494,7 +542,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -519,8 +567,7 @@ Example:
 
 ```json
 {
-  "limit": 8,
-  "offset": 5,
+  "offset": 2,
   "streamId": "example",
   "threadId": "example"
 }
@@ -540,8 +587,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -566,6 +612,7 @@ Example:
 
 ```json
 {
+  "limit": 6,
   "query": "example",
   "threadId": "example"
 }
@@ -585,7 +632,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_found",
+  "ok": false
 }
 ```
 
@@ -608,7 +656,7 @@ Example:
 
 ```json
 {
-  "requestId": "ebJ8fEfiIZ",
+  "requestId": "Zp9R",
   "threadId": "example"
 }
 ```
@@ -627,8 +675,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -652,7 +699,7 @@ Example:
 
 ```json
 {
-  "requestId": "9a",
+  "requestId": "opxeSxsk49",
   "threadId": "example"
 }
 ```
@@ -671,8 +718,6 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
-  "data": null,
   "ok": false
 }
 ```
@@ -696,7 +741,7 @@ Example:
 
 ```json
 {
-  "requestId": "E6nm",
+  "requestId": "px38",
   "threadId": "example"
 }
 ```
@@ -715,6 +760,7 @@ Example:
 
 ```json
 {
+  "code": "forbidden",
   "ok": true
 }
 ```
@@ -740,8 +786,8 @@ Example:
 
 ```json
 {
-  "entryId": "UR7QB7HJja0",
-  "requestId": "Vl9bn7zM",
+  "entryId": "zfl_4Ox02j",
+  "requestId": "LNf3WiodD",
   "text": "example",
   "threadId": "example"
 }
@@ -761,8 +807,8 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": true
+  "code": "forbidden",
+  "ok": false
 }
 ```
 
@@ -787,9 +833,9 @@ Example:
 ```json
 {
   "entryIds": [
-    "YewmxX-D4Y4"
+    "0MXgv.b"
   ],
-  "requestId": "IGmdgOcSgKa",
+  "requestId": "5SKo6N",
   "threadId": "example"
 }
 ```
@@ -808,7 +854,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "limit",
+  "ok": true
 }
 ```
 
@@ -838,7 +885,7 @@ Example:
     "kind": "question"
   },
   "interactionId": "example",
-  "requestId": "CMFpzotFYK",
+  "requestId": "QQoSHei",
   "threadId": "example"
 }
 ```
@@ -857,8 +904,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -900,6 +946,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": false
 }
 ```
@@ -940,6 +987,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": false
 }
 ```
@@ -982,6 +1030,7 @@ Example:
 
 ```json
 {
+  "code": "invalid",
   "ok": true
 }
 ```
@@ -1022,7 +1071,7 @@ Example:
 
 ```json
 {
-  "data": null,
+  "code": "forbidden",
   "ok": false
 }
 ```
@@ -1047,7 +1096,7 @@ Example:
 ```json
 {
   "threadId": "example",
-  "until": 4
+  "until": 7
 }
 ```
 
@@ -1065,8 +1114,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1089,10 +1137,24 @@ Example:
 ```json
 {
   "request": {
-    "before": 8,
-    "limit": 8,
+    "automation": {
+      "concurrency": 1,
+      "enabled": true,
+      "id": "example",
+      "jitterMs": 9,
+      "missedRun": "skip",
+      "model": "example",
+      "prompt": "example",
+      "provider": "cursor",
+      "title": "example",
+      "trigger": {
+        "kind": "manual"
+      },
+      "workspace": "example",
+      "worktree": false
+    },
     "requestId": "example",
-    "type": "automation.inbox"
+    "type": "automation.put"
   }
 }
 ```
@@ -1111,7 +1173,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -1151,8 +1214,8 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "ok": false
+  "code": "unsupported",
+  "ok": true
 }
 ```
 
@@ -1194,7 +1257,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1219,7 +1282,7 @@ Example:
 ```json
 {
   "branch": "example",
-  "requestId": "XhetOQeez",
+  "requestId": "xwtyozx",
   "threadId": "example"
 }
 ```
@@ -1238,7 +1301,7 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
+  "code": "not_found",
   "ok": true
 }
 ```
@@ -1279,8 +1342,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1303,7 +1365,7 @@ Example:
 
 ```json
 {
-  "previewId": "jm",
+  "previewId": "rIExEYfTOg",
   "threadId": "example"
 }
 ```
@@ -1322,7 +1384,6 @@ Example:
 
 ```json
 {
-  "code": "not_found",
   "data": null,
   "ok": false
 }
@@ -1348,7 +1409,7 @@ Example:
 
 ```json
 {
-  "before": 5,
+  "limit": 10,
   "sourceThreadId": "example"
 }
 ```
@@ -1368,7 +1429,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 6,
+  "itemsBefore": null,
   "threadId": "example"
 }
 ```
@@ -1394,6 +1455,7 @@ Example:
 
 ```json
 {
+  "limit": 5,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -1415,9 +1477,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "encoding": "utf-16le",
-  "eof": true,
-  "nextOffset": 3
+  "encoding": "utf-8",
+  "eof": false,
+  "nextOffset": 0
 }
 ```
 
@@ -1447,7 +1509,7 @@ Example:
 | --- | --- | --- | --- |
 | threadId | yes | string | {"minLength":1} |
 | agentId | yes | string | {"minLength":1} |
-| permissionMode | yes | union | {"anyOf":[{"type":"string","enum":["read-only","ask","auto-review","full-access"]},{"type":"null"}]} |
+| permissionMode | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]} |
 | groups | yes | array | {"maxItems":13,"items":{"type":"object","properties":{"name":{"type":"string","enum":["thread","browser","preview","terminal","notify","agents","thread_control","automations","projects","forge","screen","devices","files"]},"enabled":{"type":"boolean"},"reason":{"type":"string","maxLength":512}},"required":["name","enabled"],"additionalProperties":false}} |
 
 Example:

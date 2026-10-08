@@ -78,6 +78,13 @@
       "maxLength": 256,
       "type": "string"
     },
+    "method": {
+      "enum": [
+        "login",
+        "api_key"
+      ],
+      "type": "string"
+    },
     "prompt": {
       "maxLength": 256,
       "type": "string"
@@ -101,6 +108,7 @@
         "awaiting_browser",
         "awaiting_code_entry",
         "awaiting_input",
+        "awaiting_api_key",
         "verifying",
         "succeeded",
         "failed",

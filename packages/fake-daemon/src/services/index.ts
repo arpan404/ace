@@ -1,3 +1,6 @@
+import { fakeProviderAccounts } from "./provider-accounts.ts";
+import { fakeApiKeySupport } from "../provider-auth-support.ts";
+import { FakeProviderInstalls } from "../provider-install.ts";
 import { onboardingChecklist } from "@ace/core";
 import { FakeProviderLogin, fakeReadiness } from "../provider-login.ts";
 import { configuredModels, providerConfiguration } from "@ace/models/preferences";
@@ -10,11 +13,13 @@ import type { CatalogModel, ClientMessage, PaletteCommand, ServerMessage } from 
 import { FakeUsage } from "../catalog/usage.ts";
 import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
 import { accountSummaries } from "./accounts.ts";
+import { availability, blockedUntil } from "@ace/accounts/availability";
 import { commandCatalog, listCommands } from "./commands.ts";
 import { search } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
 import { FakeActivityReads } from "./activity-reads.ts";
+import { FakeRegistry } from "./registry.ts";
 import { fakeProviderPermissions } from "../permissions.ts";
 
 type AccountSummary = z.infer<typeof Summary>;
@@ -44,6 +49,17 @@ const fakeInstall: Partial<Record<ProviderKind, { version: string; path?: string
  * public fields to stage what the daemon reports next.
  */
 export class FakeServices {
+  readonly providerInstalls: FakeProviderInstalls;
+  updateQuota(id: string, quota: AccountSummary["quota"]): void {
+    const account = this.accounts.find((candidate) => candidate.id === id);
+    if (!account) throw new Error("Unknown fake account");
+    Object.assign(account, {
+      quota,
+      availability: availability(quota, this.host.clock()),
+      blockedUntil: blockedUntil(quota, this.host.clock()),
+    });
+    this.host.broadcast?.({ type: "usage.limits_changed", account });
+  }
   readonly providerLogin: FakeProviderLogin;
   accounts: AccountSummary[];
   readonly authTerminals = new Map<
@@ -59,13 +75,13 @@ export class FakeServices {
   readonly settings: FakeSettings;
   /** Activity's read cursor (`activity.reads`); `set` stages one. */
   readonly activityReads: FakeActivityReads;
-  installations: import("@ace/protocol").RegistryInstallation[] = [];
+  /** The ACP registry: its cached index, installations and installs in progress. */
+  readonly registry: FakeRegistry;
   /**
    * The provider CLIs discovery found on this machine. Like the daemon, only these have an
    * adapter, so `permissions.capabilities` for any other answers `provider_unavailable`.
    */
   installed = new Set<ProviderKind>(["claude", "codex", "opencode", "cursor", "pi", "acp"]);
-  localCommands = new Set(["fake-acp"]);
   /** Upstream sources (OpenCode's, Pi's) whose models can't be read: OpenRouter by default. */
   failingSources = new Set(["openrouter"]);
   private host: ServiceHost;
@@ -89,18 +105,71 @@ export class FakeServices {
       runtime: provider === "cursor" ? "cursor-sdk" : "cli",
       installed: this.installed.has(provider),
       auth: loggedIn.has(provider) ? "logged_in" : provider === "codex" ? "logged_out" : "unknown",
+      apiKey: fakeApiKeySupport(provider),
+      authMethod: loggedIn.has(provider) ? "browser" : "unknown",
       accountLabel: loggedIn.has(provider) ? "ada@example.com" : undefined,
       loginHint: provider === "cursor" ? "Sign in to Cursor" : "Use the CLI login command",
+      updateAvailable: provider === "codex",
+      latestVersion: provider === "codex" ? "9.0.0" : undefined,
       checkedAt: now,
       stale: false,
       refreshing: false,
     }));
     for (const row of this.providerStatuses)
       if (this.installed.has(row.provider)) Object.assign(row, fakeInstall[row.provider]);
+    this.providerInstalls = new FakeProviderInstalls(
+      () => this.providerRows(),
+      (progress) => {
+        const installed = progress.action !== "uninstall";
+        if (installed) this.installed.add(progress.provider);
+        else this.installed.delete(progress.provider);
+        this.providerStatuses = fakeReadiness(
+          this.providerStatuses.map((row) => {
+            if (row.provider !== progress.provider) return row;
+            const {
+              version: _version,
+              path: _path,
+              readiness: _readiness,
+              state: _state,
+              actionId: _actionId,
+              ...rest
+            } = row;
+            return {
+              ...rest,
+              installed,
+              auth: installed ? row.auth : "unknown",
+              updateAvailable: false,
+              ...(installed
+                ? {
+                    version: "9.0.0",
+                    path: `/fake/bin/${progress.provider}`,
+                    latestVersion: "9.0.0",
+                  }
+                : {}),
+            };
+          }),
+        );
+        this.host.broadcast?.({ type: "providers.changed", providers: this.providerRows() });
+        this.host.broadcast?.({ type: "models.changed", filter: { provider: progress.provider } });
+      },
+    );
     this.providerLogin = new FakeProviderLogin(
       host.clock,
       () => this.providerRows(),
-      (provider, signedIn) => {
+      (provider, signedIn, instance, method) => {
+        const selected = this.accounts.find(
+          (row) => row.provider === provider && (instance ? row.id === instance : row.implicit),
+        );
+        if (selected) {
+          selected.quota.auth = signedIn ? "logged_in" : "logged_out";
+          selected.availability = signedIn ? "available" : "logged_out";
+          selected.authMethod = signedIn
+            ? method === "api_key"
+              ? "api_key"
+              : "browser"
+            : "unknown";
+          selected.loginRevision = String(Number(selected.loginRevision ?? "0") + 1);
+        }
         this.providerStatuses = fakeReadiness(
           this.providerStatuses.map((row) =>
             row.provider === provider
@@ -131,6 +200,11 @@ export class FakeServices {
         return terminalId;
       },
     );
+    this.registry = new FakeRegistry({
+      // Wall-clock facts, like quota resets above; steps on real timers so dev:fake animates.
+      now: () => Date.now(),
+      schedule: (callback, delayMs) => void setTimeout(callback, delayMs),
+    });
     this.commands = commandCatalog();
     this.usage = new FakeUsage(now);
     this.activityReads = new FakeActivityReads(
@@ -144,7 +218,23 @@ export class FakeServices {
   }
   /** Answers one service message. False when it isn't a service this fake serves. */
   handle(message: ClientMessage, push: Push, device = "fake-device"): boolean {
+    if (
+      fakeProviderAccounts(message, {
+        accounts: () => this.accounts,
+        replace: (accounts) => {
+          this.accounts = accounts;
+        },
+        id: () => `account-fake-${++this.accountCounter}`,
+        now: this.host.clock,
+        login: this.providerLogin,
+        owner: device,
+        push,
+      })
+    )
+      return true;
+    if (this.providerInstalls.handle(message, device, push)) return true;
     if (this.providerLogin.handle(message, device, push)) return true;
+    if (this.registry.handle(message, push)) return true;
     if (message.type === "models.refresh") {
       const instances = this.modelResult({
         ...message.filter,
@@ -199,6 +289,7 @@ export class FakeServices {
   }
   release(push: Push): void {
     this.providerLogin.release(push);
+    this.providerInstalls.release(push);
     for (const [id, flow] of this.authTerminals)
       if (flow.owner === push) this.authTerminals.delete(id);
     this.settings.release(push);
@@ -401,46 +492,6 @@ export class FakeServices {
       return { type: "accounts.changed", requestId: request.requestId, account: account ?? null };
     }
     switch (message.type) {
-      case "registry.list":
-        return {
-          type: "registry.result",
-          requestId: message.requestId,
-          result: {
-            ok: true,
-            agents: [],
-            installations: this.installations,
-            stale: false,
-            refreshing: false,
-            source: "fixture",
-          },
-        };
-      case "registry.bind": {
-        if (
-          !message.acpAgentId.startsWith("local:") ||
-          !this.localCommands.has(message.command) ||
-          this.installations.some((entry) => entry.installationId === message.installationId)
-        )
-          return {
-            type: "registry.result",
-            requestId: message.requestId,
-            result: { ok: false, reason: "Registry operation unavailable or invalid" },
-          };
-        const installation = {
-          acpAgentId: message.acpAgentId,
-          installationId: message.installationId,
-          instanceId: message.instanceId,
-          version: message.version,
-          source: "user-local",
-          profileRevision: "generic-v1",
-          evidence: "user_local_binding" as const,
-        };
-        this.installations.push(installation);
-        return {
-          type: "registry.result",
-          requestId: message.requestId,
-          result: { ok: true, installation },
-        };
-      }
       case "accounts.list":
         return { type: "accounts.list", requestId: message.requestId, accounts: this.accounts };
       case "accounts.status":
@@ -455,10 +506,23 @@ export class FakeServices {
           type: "usage.result",
           requestId: message.requestId,
           kind: message.type === "usage.summary" ? "summary" : "series",
-          result: this.usage.report(
-            message.query,
-            message.type === "usage.summary" ? "summary" : "series",
-          ),
+          result: {
+            ...this.usage.report(
+              message.query,
+              message.type === "usage.summary" ? "summary" : "series",
+            ),
+            ...(message.query.filters.provider || message.query.filters.account
+              ? {
+                  accounts: this.accounts.filter(
+                    (account) =>
+                      (!message.query.filters.provider ||
+                        message.query.filters.provider.includes(account.provider)) &&
+                      (!message.query.filters.account ||
+                        message.query.filters.account.includes(account.id)),
+                  ),
+                }
+              : {}),
+          },
         };
       case "accounts.migrate":
         return {

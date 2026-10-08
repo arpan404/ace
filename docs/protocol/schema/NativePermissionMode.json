@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/NativePermissionMode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "default": {
+      "type": "boolean"
+    },
+    "description": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
+    "label": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "description",
+    "risk"
+  ],
+  "type": "object"
+}

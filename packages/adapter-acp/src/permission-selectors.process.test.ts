@@ -1,30 +1,27 @@
 import { expect, test } from "vitest";
 import { fileURLToPath } from "node:url";
-import { z } from "zod";
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, type Capabilities } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
 import { openAcpSession, genericQuirks } from "./index.ts";
-
-const Envelope = z.object({ method: z.string(), params: z.record(z.string(), z.unknown()) });
-
-test.each(
-  [false, true].flatMap((legacy) =>
-    (["read-only", "ask", "auto-review", "full-access"] as const).map((mode) => ({ legacy, mode })),
-  ),
-)(
-  "ACP $mode honors admission and permission ceilings through public selectors, legacy: $legacy",
-  async ({ legacy, mode }) => {
+import { object } from "./data.ts";
+test.each([false, true])(
+  "ACP relays advertised selectors without a permission ceiling, legacy=%s",
+  async (legacy) => {
     const frames: Frame[] = [];
-    const opening = openAcpSession(
+    let capabilities: Capabilities | undefined;
+    const session = await openAcpSession(
       {
         threadId: ThreadId.parse("selectors"),
         cwd: process.cwd(),
-        permissionMode: mode,
+        permissionMode: "build",
         signal: new AbortController().signal,
-        onFrame: (frame) => {
+        onFrame(frame) {
           frames.push(frame);
         },
         onExit() {},
+        onCapabilities(value) {
+          capabilities = value;
+        },
       },
       genericQuirks,
       {
@@ -36,41 +33,25 @@ test.each(
         ],
       },
     );
-    if (mode === "ask") {
-      await expect(opening).rejects.toThrow("permission_mode_unsupported");
-      // No native requests are sent to a provider that cannot enforce Ask.
-      expect(frames).toEqual([]);
-      return;
-    }
-    const session = await opening;
     try {
-      if (!session.setMode) throw new Error("Missing advertised selector");
-      await session.setMode("read-only");
-      if (mode === "full-access") {
-        await session.setMode("build");
-        await session.setMode("bypassPermissions");
-      } else {
-        await expect(session.setMode("build")).rejects.toThrow("restricted");
-        await expect(session.setMode("bypassPermissions")).rejects.toThrow("restricted");
-      }
-      await expect(session.setMode("unknown")).rejects.toThrow("unavailable");
-      await session.send([{ type: "text", text: "scripted selector check" }], "queue");
+      expect(
+        capabilities?.permissionModes?.map((mode) => ({ id: mode.id, label: mode.label })),
+      ).toEqual([
+        { id: "read-only", label: "Read only" },
+        { id: "build", label: "Build" },
+        { id: "bypassPermissions", label: "Bypass" },
+      ]);
+      await session.setMode?.("bypassPermissions");
       const selections = frames
-        .filter((frame) => frame.dir === "send")
-        .flatMap((frame) => {
-          const parsed = Envelope.safeParse(frame.data);
-          if (
-            !parsed.success ||
-            parsed.data.method !== (legacy ? "session/set_mode" : "session/set_config_option")
-          )
-            return [];
-          return [parsed.data.params[legacy ? "modeId" : "value"]];
-        });
-      expect(selections).toEqual(
-        mode === "full-access"
-          ? ["read-only", "build", "bypassPermissions"]
-          : ["read-only", "read-only"],
-      );
+        .filter(
+          (frame) =>
+            frame.dir === "send" &&
+            ["session/set_mode", "session/set_config_option"].includes(
+              String(object(frame.data).method),
+            ),
+        )
+        .map((frame) => object(object(frame.data).params)[legacy ? "modeId" : "value"]);
+      expect(selections).toEqual(["build", "bypassPermissions"]);
     } finally {
       await session.close("shutdown");
     }

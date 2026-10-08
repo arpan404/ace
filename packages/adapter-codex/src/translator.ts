@@ -1,5 +1,4 @@
 import { CodexExitDiagnostic } from "./exit-diagnostic.ts";
-import { PermissionMode } from "@ace/protocol";
 import { answerEchoes } from "./answer-echo.ts";
 import { confirmModel } from "./model.ts";
 import { unknownBuffers, RecentSet } from "./retention.ts";
@@ -17,7 +16,6 @@ import { list, obj, raw, requestKey, str, type Obj } from "./native.ts";
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
   const agents = new Map<string, Agent>();
   const sent = new Map<string, { method: string; params: Obj; interaction?: string }>();
-  const reviewPolicies = new Map<string, import("@ace/protocol").PermissionMode>();
   let recordedAnswer: string | undefined;
   const userTurns = new RecentSet();
   const buffers = unknownBuffers();
@@ -101,10 +99,6 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     if (frame.dir === "note") {
       translation.answerEchoes.note(message);
       if (message["event"] === "session-scope") scope = str(message["scope"]);
-      if (message["event"] === "permission-review-policy") {
-        const mode = PermissionMode.safeParse(message["mode"]);
-        if (mode.success) reviewPolicies.set(str(message["interaction"]), mode.data);
-      }
       if (message["event"] === "thread-discovered") {
         const thread = obj(message["thread"]);
         const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);
@@ -267,11 +261,6 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         agent.items.has(item),
         agent.open.get(item)?.data,
       );
-      const mode = reviewPolicies.get(key);
-      reviewPolicies.delete(key);
-      for (const fact of opened)
-        if (fact.type === "interaction.opened" && mode)
-          fact.raw = [...(fact.raw ?? []), { type: "ace.permission-policy", data: { mode } }];
       facts.push(...opened);
       if (item) agent.items.add(item);
       agent.requests.set(key, { item, turn: str(p["turnId"], agent.turn) });
@@ -430,15 +419,26 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           sessionId: native,
           ...(agent.model ? { model: agent.model } : {}),
         });
-      if (typeof usage["inputTokens"] === "number" && typeof usage["outputTokens"] === "number")
+      const total = obj(tokenUsage["total"]);
+      const counts =
+        typeof total["inputTokens"] === "number" && typeof total["outputTokens"] === "number"
+          ? total
+          : usage;
+      if (typeof counts["inputTokens"] === "number" && typeof counts["outputTokens"] === "number")
         facts.push({
           type: "usage",
           agent: agent.key,
           ...(agent.model ? { model: agent.model } : {}),
-          inputTokens: usage["inputTokens"],
-          outputTokens: usage["outputTokens"],
-          ...(typeof usage["cachedInputTokens"] === "number"
-            ? { cachedInputTokens: usage["cachedInputTokens"] }
+          inputTokens: counts["inputTokens"],
+          outputTokens: counts["outputTokens"],
+          ...(counts === total
+            ? { counterMode: "cumulative", counterKey: `codex:${native}` }
+            : { counterMode: "incremental" }),
+          ...(typeof counts["reasoningOutputTokens"] === "number"
+            ? { reasoningTokens: counts["reasoningOutputTokens"] }
+            : {}),
+          ...(typeof counts["cachedInputTokens"] === "number"
+            ? { cachedInputTokens: counts["cachedInputTokens"] }
             : {}),
         });
     } else facts.push(note(agent.key, method || "unknown", frame.data));

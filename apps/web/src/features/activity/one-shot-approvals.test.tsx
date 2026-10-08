@@ -7,7 +7,7 @@ import { harness } from "@/test/harness.tsx";
 const title = "Allow git push to main?";
 
 /** A thread under `mode` whose agent asks to push, offering once, this-thread and deny. */
-function pushRequest(mode: "auto-review" | "full-access"): Scenario {
+function pushRequest(mode: "auto" | "bypassPermissions"): Scenario {
   return {
     thread: {
       id: `thread-push-${mode}`,
@@ -72,33 +72,31 @@ function pushRequest(mode: "auto-review" | "full-access"): Scenario {
   };
 }
 
-test("in Auto-review, Activity offers only one-shot approval and says why", async () => {
+test("native auto mode preserves and returns the provider session grant", async () => {
   const app = harness();
-  const scenario = pushRequest("auto-review");
+  const scenario = pushRequest("auto");
   app.play(scenario).runUntilBlocked();
   await app.open("/activity");
   const card = await screen.findByRole("article", { name: title });
-  expect(within(card).queryByRole("checkbox")).toBeNull();
-  expect(within(card).queryByText(/Always allow git push/)).toBeNull();
-  expect(within(card).getByText(/Always-allow isn't available in Auto-review/)).toBeTruthy();
+  expect(within(card).getByRole("checkbox").getAttribute("aria-checked")).toBe("false");
+  expect(within(card).getByText(/Always allow git push/)).toBeTruthy();
+  expect(within(card).queryByText(/Always-allow isn't available/)).toBeNull();
   // The command reads as typed, not as the login shell that ran it.
   expect(within(card).getByText("git push origin main")).toBeTruthy();
 
-  // A approves the focused card with the one-shot option, the one the daemon accepts.
-  await waitFor(() => expect(card.getAttribute("aria-current")).toBe("true"));
-  await userEvent.keyboard("a");
-  expect(await within(card).findByText(/Allow once · sending…|Approved/)).toBeTruthy();
+  await userEvent.click(within(card).getByRole("checkbox"));
+  await userEvent.click(within(card).getByRole("button", { name: /^Approve/ }));
   await waitFor(() =>
     expect(app.daemon.resolution(scenario.thread.id, "approve-push")).toEqual({
       kind: "approval",
-      optionId: "once",
+      optionId: "thread",
     }),
   );
 });
 
-test("in Full access, the wider grant stays on offer", async () => {
+test("native bypass mode preserves the provider session grant", async () => {
   const app = harness();
-  app.play(pushRequest("full-access")).runUntilBlocked();
+  app.play(pushRequest("bypassPermissions")).runUntilBlocked();
   await app.open("/activity");
   const card = await screen.findByRole("article", { name: title });
   expect(within(card).getByText("Always allow git push in this thread")).toBeTruthy();

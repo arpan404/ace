@@ -5,19 +5,17 @@ import {
 } from "./session-references.ts";
 import { privateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
 import { fileURLToPath } from "node:url";
-import { permissionResolutionError } from "@ace/core";
 import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
-import { PiPermissionMode } from "@ace/protocol/pi";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { readJsonLines } from "@ace/provider-kit/jsonl";
 import { PiRpc } from "./rpc.ts";
 import { runtime, type PiRuntime } from "./runtime.ts";
 import { Dialog, State, Cancelled, obj, str, list, isBlockingDialogMethod } from "./native.ts";
-import { piPermissionArgs, piProfile } from "./capabilities.ts";
+import { piProfile } from "./capabilities.ts";
 import { piInput } from "./input.ts";
-import { dialogResponse, dialogRequest } from "./dialogs.ts";
+import { dialogResponse } from "./dialogs.ts";
 import {
   checkedSessionReference,
   encodeSessionReference,
@@ -35,7 +33,6 @@ export type PiOptions = {
   sessionReferenceDir?: string;
   cli?: DiscoveryResult;
   executable?: string;
-  permissionMode?: PiPermissionMode;
   runtime?: Partial<PiRuntime>;
   /** Daemon injects existing scoped lease authority; the adapter owns the returned lease. */
   openMcp?: (
@@ -60,21 +57,6 @@ export async function openPiSession(
     }));
   if (!cli.path || !piProfile(cli).supported)
     throw new Error(`Pi ${cli.version ?? "unknown"} unsupported; audited version is 0.85.1`);
-  const permissionMode =
-    ctx.permissionMode ??
-    (options.permissionMode === "unrestricted"
-      ? "full-access"
-      : options.permissionMode === "read_only"
-        ? "read-only"
-        : options.permissionMode === "supervised"
-          ? "ask"
-          : "auto-review");
-  const permissionArgs =
-    permissionMode === "full-access"
-      ? piPermissionArgs("unrestricted")
-      : permissionMode === "read-only"
-        ? piPermissionArgs("read_only")
-        : ["--no-extensions", "--tools", "read,write,edit,bash,grep,find,ls"];
   const referenceDir = sessionReferenceDirectory(options.sessionReferenceDir);
   const resume = ctx.resume
     ? await loadSessionReference(referenceDir, ctx.resume.nativeSessionId)
@@ -82,19 +64,15 @@ export async function openPiSession(
   const lifetime = new AbortController();
   const controlSecret = io.secret();
   // The daemon's existing session lease owns capabilities and revocation. Reuse it.
-  const lease =
-    permissionMode === "read-only"
-      ? undefined
-      : ctx.aceMcp
-        ? {
-            ...AceMcpConnectionSchema.parse({ url: ctx.aceMcp.url, bearer: ctx.aceMcp.bearer }),
-            end() {},
-          }
-        : options.openMcp?.(ctx, lifetime.signal);
+  const lease = ctx.aceMcp
+    ? {
+        ...AceMcpConnectionSchema.parse({ url: ctx.aceMcp.url, bearer: ctx.aceMcp.bearer }),
+        end() {},
+      }
+    : options.openMcp?.(ctx, lifetime.signal);
   const args = [
     "--mode",
     "rpc",
-    ...permissionArgs,
     "-e",
     fileURLToPath(new URL("./extension.ts", import.meta.url)),
     ...(ctx.model ? ["--model", ctx.model] : []),
@@ -117,7 +95,6 @@ export async function openPiSession(
     ...ctx.env,
     ACE_PI_SESSION_FILE: configuration.path,
     ACE_PI_CONTROL_SECRET: undefined,
-    ACE_PI_PERMISSION_MODE: permissionMode,
     ACE_PI_MCP_URL: undefined,
     ACE_PI_MCP_BEARER: undefined,
   };
@@ -165,18 +142,6 @@ export async function openPiSession(
       })
     )
       throw new Error("ace Pi extension did not load");
-    if (
-      permissionMode !== "full-access" &&
-      !commands.some((value) => {
-        const command = obj(value);
-        return (
-          command.name === "ace-permissions" &&
-          command.source === "extension" &&
-          str(obj(command.sourceInfo).path) === extensionPath
-        );
-      })
-    )
-      throw new Error("ace Pi tool approval gate did not load");
   };
   const dialogs = new Map<string, { dialog: Dialog; cancel: () => void }>();
   const emit = (dir: Frame["dir"], payload: ProviderPayload, channel = "stdio") =>
@@ -367,12 +332,6 @@ export async function openPiSession(
       checkOpen();
       const entry = dialogs.get(id);
       if (!entry) throw new Error("Pi dialog is no longer pending");
-      const refusal = permissionResolutionError(
-        permissionMode,
-        dialogRequest(entry.dialog),
-        resolution,
-      );
-      if (refusal) throw new Error(refusal);
       const response = dialogResponse(entry.dialog, resolution);
       // Reserve before writing so concurrent devices cannot answer twice.
       dialogs.delete(id);

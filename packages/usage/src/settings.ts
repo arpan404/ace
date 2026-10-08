@@ -2,6 +2,8 @@ import { z } from "zod";
 import bundled from "./prices.json" with { type: "json" };
 const rate = z.number().nonnegative().max(1e6);
 export const ModelPrice = z.object({
+  source: z.url().optional(),
+  asOf: z.iso.date().optional(),
   input: rate,
   cached: rate,
   write: rate,
@@ -10,6 +12,7 @@ export const ModelPrice = z.object({
 });
 export const PriceTable = z.object({
   version: z.string().min(1).max(128),
+  asOf: z.iso.date().optional(),
   sources: z.array(z.url()).max(100),
   models: z
     .record(z.string().min(1).max(8192), ModelPrice)
@@ -18,6 +21,9 @@ export const PriceTable = z.object({
 export type PriceTable = z.infer<typeof PriceTable>;
 export const defaultPrices = PriceTable.parse(bundled);
 export const UsageSettings = z.object({
+  /** Daily history is retained by event time, independent of replay batch boundaries. */
+  retentionDays: z.number().int().min(1).max(3660).default(366),
+  incrementRetentionDays: z.number().int().min(1).max(3660).default(35),
   timezone: z
     .string()
     .min(1)

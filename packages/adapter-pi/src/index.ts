@@ -1,6 +1,6 @@
 export { createPiAdapter, adapter, default } from "./adapter.ts";
 export { createPiTranslator } from "./translator.ts";
-export { piCapabilities, piProfile, piPermissionArgs } from "./capabilities.ts";
+export { piCapabilities, piProfile } from "./capabilities.ts";
 export { openPiSession } from "./session.ts";
 export type { PiOptions, PiSession } from "./session.ts";
 export { default as registerAcePiExtension } from "./extension.ts";

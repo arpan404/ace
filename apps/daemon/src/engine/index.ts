@@ -10,11 +10,6 @@ import { validateCreation } from "./creation-validation.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
 import { Command as CommandSchema, type PermissionMode, type CommandResult } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
-import {
-  supportsPermissionMode,
-  isPermissionOption,
-  limitPermissionMode as resolveChildMode,
-} from "@ace/core";
 import type { PermissionSettings } from "./permissions.ts";
 import { changeEngineWorkspace, type WorkspaceChangeReservation } from "./workspace-change.ts";
 import { CommandId, ProviderKind, ThreadId } from "@ace/protocol";
@@ -83,6 +78,7 @@ export interface EngineOptions {
   ) => NonNullable<import("@ace/engine-api").SessionContext["aceMcp"]>;
 }
 export class Engine {
+  private readonly models: EngineModels;
   readonly handler: CommandHandler;
   /** In-process admission for ace-owned inputs; never installed on the socket. */
   readonly internalHandler: CommandHandler;
@@ -132,7 +128,11 @@ export class Engine {
       options.commandId,
       options.aceToolAction,
     );
-    const models = new EngineModels(this.repo, () => this.clock.now(), options.models);
+    const models = (this.models = new EngineModels(
+      this.repo,
+      () => this.clock.now(),
+      options.models,
+    ));
     this.admissions = new CreationAdmissions(this.repo, this.nextThreadId);
     this.selectInstance = options.selectInstance;
     this.registry = options.registry ?? new AdapterRegistry();
@@ -271,19 +271,17 @@ export class Engine {
     );
     this.internalHandler = {
       handle: (command, context) =>
-        permissionOptions(command)
-          ? { commandId: command.id, ok: false, error: "provider_permission_options_forbidden" }
-          : this.closing
-            ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
-            : !this.readyState
-              ? { commandId: command.id, ok: false, error: "engine_starting" }
-              : store.atomic(
-                  () =>
-                    this.hostInteractionHandler?.(command) ??
-                    (this.commandPolicy
-                      ? this.commandPolicy(command, () => handler.handle(command, context))
-                      : handler.handle(command, context)),
-                ),
+        this.closing
+          ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
+          : !this.readyState
+            ? { commandId: command.id, ok: false, error: "engine_starting" }
+            : store.atomic(
+                () =>
+                  this.hostInteractionHandler?.(command) ??
+                  (this.commandPolicy
+                    ? this.commandPolicy(command, () => handler.handle(command, context))
+                    : handler.handle(command, context)),
+              ),
     };
     this.handler = {
       handle: (command, context) => this.internalHandler.handle(personCommand(command), context),
@@ -372,30 +370,8 @@ export class Engine {
       this.repo.store.atomic(() => {
         if (this.repo.store.getThread(id))
           return { commandId: command.id, ok: false, error: "thread_exists" };
-        if (permissionOptions(command))
-          return {
-            commandId: command.id,
-            ok: false,
-            error: "provider_permission_options_forbidden",
-          };
         if (scope.parentThreadId && !this.repo.state(scope.parentThreadId))
           return { commandId: command.id, ok: false, error: "permission_parent_not_found" };
-        if (requested || scope.parentThreadId) {
-          const ceiling = scope.parentThreadId
-            ? this.repo.permissions.authority(scope.parentThreadId)
-            : undefined;
-          if (requested && ceiling && resolveChildMode(requested, ceiling) !== requested)
-            return { commandId: command.id, ok: false, error: "permission_exceeds_parent" };
-          const selected = requested ?? ceiling;
-          if (
-            selected &&
-            !supportsPermissionMode(
-              this.registry.get(p.provider).capabilities.permissions,
-              selected,
-            )
-          )
-            return { commandId: command.id, ok: false, error: "permission_mode_unsupported" };
-        }
         const payload = { ...p, threadId: id, ...(requested ? { permissionMode: requested } : {}) };
         const result = this.internalHandler.handle(
           CommandSchema.parse({ ...command, payload }),
@@ -410,7 +386,7 @@ export class Engine {
   permissionAuthority(id: ThreadId): PermissionMode {
     return this.repo.permissions.authority(id);
   }
-  permissionMode(id: ThreadId): PermissionMode {
+  permissionMode(id: ThreadId): PermissionMode | null {
     return this.repo.permissions.effective(id);
   }
   /** Host-owned summary attachment. Child transcript and native session stay independent. */
@@ -709,7 +685,6 @@ export class Engine {
   /** Validate before Git I/O and hold an engine slot until acceptance or cancellation. */
   admitCreation(command: Command): CreationAdmission | string {
     command = personCommand(command);
-    if (permissionOptions(command)) return "provider_permission_options_forbidden";
     if (this.closing) return "daemon_shutting_down";
     if (!this.readyState) return "engine_starting";
     const validation = validateCreation(
@@ -719,6 +694,7 @@ export class Engine {
       this.limits,
       workspaceDirectory,
       this.selectInstance,
+      this.models,
     );
     if (!validation.ok) return validation.error;
     return this.admissions.acquire(command);
@@ -984,11 +960,4 @@ export class Engine {
     })();
     return this.closePromise;
   }
-}
-
-function permissionOptions(command: Command): boolean {
-  const p = command.payload;
-  const options =
-    "selection" in p && p.selection ? p.selection.options : "options" in p ? p.options : undefined;
-  return Object.keys(options ?? {}).some((key) => isPermissionOption(key));
 }

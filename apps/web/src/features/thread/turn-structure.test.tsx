@@ -3,7 +3,6 @@ import {
   delegatedDocs,
   delegatedDocsIds,
   facts,
-  permissionAudit,
   workbench,
   type Scenario,
 } from "@ace/fake-daemon";
@@ -134,33 +133,6 @@ test("while a step waits for approval nothing says Working: the line says it wai
       name: /^Run git push .* Waiting for your approval$/,
     }),
   ).toBeTruthy();
-});
-
-test("ace's reviews and the agent's note between steps stay inside the turn's one log", async () => {
-  const app = harness();
-  app.play(permissionAudit()).runThrough("escalated");
-  await app.open("/t/thread-release-audit");
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const ask = await within(feed).findByText(/Clean out the old build/);
-  const logs = within(feed)
-    .getAllByRole("button", { name: /^Work(ed|ing) for/ })
-    .filter((log) => follows(ask, log));
-  expect(logs).toHaveLength(1);
-
-  // A step waits on the person, so the log is open by itself.
-  const log = logs[0]!;
-  expect(log.getAttribute("aria-expanded")).toBe("true");
-  // Each decision reads once, as the note on the step it judged (IR-2), inside that log.
-  const steps = await within(log.parentElement!).findByRole("list", { name: "Steps" });
-  expect(
-    await within(steps).findByRole("button", { name: "Ran pwd Approved by ace · auto-review" }),
-  ).toBeTruthy();
-  const denied = within(steps).getByRole("button", {
-    name: "Run rm -rf dist Denied by ace · auto-review",
-  });
-  expect(within(steps).queryByRole("article", { name: /Permission review/ })).toBeNull();
-  // What the agent said after the denial reads right after that step, before the next one.
-  expect(follows(denied, within(steps).getByText(/ace declined deleting dist/))).toBe(true);
 });
 
 function edit(key: string, path: string, agent = "root") {

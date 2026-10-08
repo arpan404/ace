@@ -1,7 +1,6 @@
 import {
   PermissionMode,
   type PermissionCapabilities,
-  type PermissionGuarantee,
   type PermissionState,
   type SettingsScope,
   type SettingsLayer,
@@ -22,9 +21,15 @@ export class PermissionClient {
     provider: ProviderKind,
     backend?: "acp" | "cursor-sdk",
     options?: RequestOptions,
+    instanceId?: string,
   ) {
     return this.client.request(
-      { type: "permissions.capabilities", provider, ...(backend ? { backend } : {}) },
+      {
+        type: "permissions.capabilities",
+        provider,
+        ...(backend ? { backend } : {}),
+        ...(instanceId ? { instanceId } : {}),
+      },
       options,
     );
   }
@@ -52,22 +57,11 @@ export function threadPermission(
 ): PermissionState | undefined {
   return source.thread?.permission;
 }
-/**
- * The modes a provider can honour, as the daemon admits them: Ask also needs a pre-execution
- * tool gate (ADR 0061), so a provider that lists Ask without one can't run in it.
- */
+/** Native selector ids, with a compatibility fallback for older daemons. */
 export function permissionModes(
   capabilities: PermissionCapabilities | undefined,
 ): readonly PermissionMode[] {
-  const modes = capabilities?.modes ?? [];
-  return capabilities?.toolGate ? modes : modes.filter((mode) => mode !== "ask");
-}
-/** Missing metadata is unknown, not a claim of complete protection. */
-export function permissionGuarantee(
-  capabilities: PermissionCapabilities | undefined,
-  mode: PermissionMode,
-): PermissionGuarantee | undefined {
-  return capabilities?.guarantees?.find((guarantee) => guarantee.mode === mode);
+  return capabilities?.permissionModes?.map((mode) => mode.id) ?? capabilities?.modes ?? [];
 }
 /** Select with interaction:<id>. Review notices are also available through source.item(id). */
 export function permissionReview(

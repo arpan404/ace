@@ -12,6 +12,7 @@ export interface ProviderLoginDriver {
     emit: (update: LoginUpdate) => void,
   ): Promise<{ success: boolean; manual?: ProviderLoginProgress["manual"] }>;
   input?(input: ProviderLoginInput): boolean;
+  apiKey?(key: Buffer): boolean;
   drain?(): Promise<void>;
   changed?(signal: AbortSignal): Promise<void>;
   release?(): void;
@@ -21,7 +22,12 @@ export interface LoginSessionsOptions {
   id(): string;
   schedule(callback: () => void, ms: number): () => void;
   prepare(
-    target: { provider: ProviderKind; instance?: string },
+    target: {
+      provider: ProviderKind;
+      instance?: string;
+      method?: "login" | "api_key";
+      upstream?: "openai" | "anthropic" | "openrouter" | "opencode";
+    },
     action: "login" | "logout",
     signal: AbortSignal,
     owner: string,
@@ -31,6 +37,7 @@ export interface LoginSessionsOptions {
 }
 interface Job {
   owner: string;
+  upstream?: "openai" | "anthropic" | "openrouter" | "opencode";
   key: string;
   requestId: string;
   progress: ProviderLoginProgress;
@@ -64,7 +71,23 @@ export class ProviderLoginSessions {
     );
   }
   async handle(owner: string, input: unknown): Promise<ProviderLoginResult> {
-    const request = ProviderLoginRequest.parse(input);
+    let request: ProviderLoginRequest | undefined;
+    try {
+      try {
+        request = ProviderLoginRequest.parse(input);
+      } catch {
+        throw new Error("Invalid login request");
+      }
+      return await this.dispatch(owner, request);
+    } finally {
+      if (request?.type === "provider.login.apiKey") request.apiKey = "";
+      if (typeof input === "object" && input !== null && "apiKey" in input) input.apiKey = "";
+    }
+  }
+  private async dispatch(
+    owner: string,
+    request: ProviderLoginRequest,
+  ): Promise<ProviderLoginResult> {
     const failure = (
       error: Extract<ProviderLoginResult["result"], { ok: false }>["error"],
     ): ProviderLoginResult => ({
@@ -100,6 +123,9 @@ export class ProviderLoginSessions {
       const session = this.options.id();
       const job: Job = {
         owner,
+        ...(request.type === "provider.login.start" && request.upstream
+          ? { upstream: request.upstream }
+          : {}),
         key,
         requestId: request.requestId,
         controller: new AbortController(),
@@ -109,6 +135,7 @@ export class ProviderLoginSessions {
           provider: request.provider,
           ...(request.instance ? { instance: request.instance } : {}),
           action: request.type === "provider.logout" ? "logout" : "login",
+          ...(request.type === "provider.login.start" ? { method: request.method ?? "login" } : {}),
           state: "starting",
           expiresAt: this.options.now() + lifetime,
           sequence: 0,
@@ -153,6 +180,17 @@ export class ProviderLoginSessions {
           }
         }
       }
+    } else if (request.type === "provider.login.apiKey") {
+      const key = Buffer.from(request.apiKey, "utf8");
+      request.apiKey = "";
+      let accepted = false;
+      try {
+        accepted =
+          job.progress.state === "awaiting_api_key" && (job.driver?.apiKey?.(key) ?? false);
+        if (!accepted) return failure("invalid_input");
+      } finally {
+        if (!accepted) key.fill(0);
+      }
     } else if (request.type === "provider.login.input") {
       if (job.progress.state !== "awaiting_input" || !job.driver?.input?.(request.input))
         return failure("invalid_input");
@@ -165,6 +203,7 @@ export class ProviderLoginSessions {
       provider: job.progress.provider,
       instance: job.progress.instance,
       action: job.progress.action,
+      ...(job.progress.method ? { method: job.progress.method } : {}),
       expiresAt: job.progress.expiresAt,
       sequence: job.progress.sequence + 1,
       ...update,
@@ -181,6 +220,8 @@ export class ProviderLoginSessions {
       const driver = await this.options.prepare(
         {
           provider: job.progress.provider,
+          ...(job.progress.method ? { method: job.progress.method } : {}),
+          ...(job.upstream ? { upstream: job.upstream } : {}),
           ...(job.progress.instance ? { instance: job.progress.instance } : {}),
         },
         job.progress.action,
@@ -232,6 +273,13 @@ export class ProviderLoginSessions {
               : "Provider authentication could not be completed.",
           },
     );
+  }
+
+  async completed(owner: string, session: string): Promise<ProviderLoginProgress> {
+    const job = this.jobs.get(session);
+    if (!job || job.owner !== owner) throw new Error("Unknown login");
+    await job.done;
+    return ProviderLoginProgress.parse(job.progress);
   }
 
   async close(): Promise<void> {

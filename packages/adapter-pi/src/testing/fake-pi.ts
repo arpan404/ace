@@ -263,7 +263,7 @@ async function handle(line: string) {
                   },
                 },
               ])
-            : Promise.resolve({ block: true });
+            : Promise.resolve({ block: false });
         reply(c);
         const decision = z
           .object({ block: z.boolean().optional() })

@@ -2,6 +2,7 @@ import * as sdk from "@cursor/sdk";
 import { mkdtemp, realpath, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { cursorMode } from "@ace/provider-kit/permission-modes";
 import { expect, test } from "vitest";
 import {
   HostRuntime,
@@ -110,7 +111,7 @@ test.each(["normal close", "create failure", "dispose failure", "close during ad
         threadId: "lease",
         generation: "host",
         cwd: home,
-        policy: "restricted",
+        permissionMode: cursorMode(true, false),
         limits: CursorLimitsSchema.parse({}),
         mcp: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) },
       });

@@ -17,6 +17,7 @@ See [ADR 0015](../adr/0015-automations.md). Schedule and trigger contracts belon
 | enabled | yes | boolean |  |
 | workspace | yes | string | {"minLength":1,"maxLength":4096} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| permissionMode | no | [PermissionMode.json](schema/PermissionMode.json) |  |
 | model | no | string | {"minLength":1,"maxLength":256} |
 | prompt | yes | string | {"minLength":1,"maxLength":32768} |
 | worktree | yes | boolean |  |
@@ -29,25 +30,22 @@ Example:
 
 ```json
 {
-  "concurrency": 3,
+  "concurrency": 4,
   "enabled": true,
   "id": "example",
-  "jitterMs": 5,
-  "missedRun": "run_once",
+  "jitterMs": 1,
+  "missedRun": "skip",
   "prompt": "example",
-  "provider": "antigravity",
+  "provider": "pi",
   "title": "example",
   "trigger": {
-    "kind": "schedule",
-    "schedule": {
-      "expression": "example",
-      "kind": "cron",
-      "startAt": 0,
-      "timezone": "example"
-    }
+    "event": "pr_changed",
+    "kind": "github",
+    "pollIntervalMs": 60002,
+    "repository": "lig2kFoHGe/NA0XIWQ959B"
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -82,7 +80,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 3,
   "runs": []
 }
 ```
@@ -104,17 +102,19 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 5,
+    "concurrency": 1,
     "enabled": false,
     "id": "example",
-    "jitterMs": 4,
-    "missedRun": "skip",
-    "model": "example",
+    "jitterMs": 6,
+    "missedRun": "run_once",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "pi",
     "title": "example",
     "trigger": {
-      "kind": "manual"
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
     "worktree": true
@@ -191,8 +191,8 @@ Example:
 
 ```json
 {
-  "before": 6,
-  "limit": 5,
+  "before": 3,
+  "limit": 3,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -218,18 +218,13 @@ Example:
 ```json
 {
   "error": "example",
-  "inbox": {
-    "before": null,
-    "runs": []
-  },
-  "ok": false,
+  "ok": true,
   "requestId": "example",
   "run": {
     "automationId": "example",
     "eventKey": "example",
-    "finishedAt": 5,
     "id": "example",
-    "startedAt": 0,
+    "startedAt": 8,
     "status": "failed",
     "title": "example",
     "trigger": "github"
@@ -262,12 +257,13 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 9,
   "id": "example",
-  "startedAt": 1,
-  "status": "running",
-  "threadId": "example",
+  "result": "example",
+  "startedAt": 9,
+  "status": "skipped",
   "title": "example",
-  "trigger": "github"
+  "trigger": "schedule"
 }
 ```
 
@@ -325,7 +321,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "rrule",
+    "kind": "cron",
     "startAt": 0,
     "timezone": "example"
   }
@@ -347,11 +343,11 @@ Example:
 
 ```json
 {
-  "event": "review_comment",
+  "event": "ci_failed",
   "kind": "github",
-  "pollIntervalMs": 60002,
-  "pullRequest": 5,
-  "repository": "Unv/4PXkb5K2O"
+  "pollIntervalMs": 60006,
+  "pullRequest": 9,
+  "repository": "qttAhL/D3o3.N"
 }
 ```
 

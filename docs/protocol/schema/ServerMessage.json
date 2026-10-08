@@ -33,6 +33,12 @@
       "$ref": "https://ace.local/protocol/v1/ProviderLoginEvent.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProviderInstallResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ProviderInstallEvent.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/OnboardingResult.json"
     },
     {
@@ -121,6 +127,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/UsageMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageLimitsChanged.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/UsageSessionTotalsMessage.json"
@@ -510,6 +519,9 @@
         "result"
       ],
       "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ProviderAccountsResult.json"
     },
     {
       "additionalProperties": false,

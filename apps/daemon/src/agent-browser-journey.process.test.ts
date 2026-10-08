@@ -179,7 +179,7 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
   expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
 });
 
-it.each(["ask", "auto-review", "read-only", "full-access"] satisfies PermissionMode[])(
+it.each([":workspace", ":read-only", ":danger-full-access"] satisfies PermissionMode[])(
   "%s reports origin decisions through real daemon MCP without external requests",
   async (mode) => {
     const f = await originFixture(mode, undefined, new FakeHeadless());
@@ -196,7 +196,7 @@ it.each(["ask", "auto-review", "read-only", "full-access"] satisfies PermissionM
       },
       new AbortController().signal,
     );
-    const opened = mode === "ask" || mode === "auto-review" ? f.opened() : undefined;
+    const opened = f.opened();
     const call = invoke({ url: mcp.url, bearer: lease.bearer }, "ace_browser_open", {
       url: "https://journey.invalid/",
     });
@@ -206,12 +206,10 @@ it.each(["ask", "auto-review", "read-only", "full-access"] satisfies PermissionM
       expect(f.resolve(approval, "deny").ok).toBe(true);
     }
     const result = Result.parse(await (await call).json()).result;
-    if (mode === "full-access") expect(result.isError).not.toBe(true);
-    else
-      expect(result).toMatchObject({
-        isError: true,
-        content: [{ text: expect.stringContaining(mode === "read-only" ? "read_only" : "denied") }],
-      });
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ text: expect.stringContaining("denied") }],
+    });
     lease.end();
   },
 );

@@ -1,3 +1,4 @@
+import { migratePermissionMode } from "@ace/provider-kit/permission-modes";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { portableContext } from "@ace/context";
 import { supportsPermissionMode } from "@ace/core";
@@ -19,6 +20,7 @@ export function validateCreation(
   limits: EngineLimits,
   directory: (path: string) => string,
   selectInstance?: EngineOptions["selectInstance"],
+  models?: import("./models.ts").EngineModels,
 ) {
   const p = command.payload;
   if (p.type !== "thread.create" && p.type !== "thread.prepare") return fail("invalid_command");
@@ -43,9 +45,7 @@ export function validateCreation(
     return fail("workspace_unavailable");
   }
   if (repo.store.workspaceReservations.reserved(cwd)) return fail("workspace_change_in_progress");
-  const entry = registry.get(p.provider);
-  if (p.permissionMode && !supportsPermissionMode(entry.capabilities.permissions, p.permissionMode))
-    return fail("permission_mode_unsupported");
+  let entry = registry.get(p.provider);
   const accountSelection = p.accountId ?? ("account" in p ? p.account : undefined);
   const accountId = p.provider === "cursor" ? cursorInstanceId(accountSelection) : accountSelection;
   if (
@@ -60,6 +60,20 @@ export function validateCreation(
     accountId ??
     selectInstance?.(p.provider, entry.adapter.backend);
   const instanceId = p.provider === "cursor" ? cursorInstanceId(selectedId) : selectedId;
+  entry = {
+    ...entry,
+    capabilities:
+      models?.permissionCapabilities(p.provider, instanceId, entry.capabilities) ??
+      entry.capabilities,
+  };
+  if (
+    migratePermissionMode(p.provider, p.permissionMode, entry.capabilities.permissionModes) &&
+    !supportsPermissionMode(
+      entry.capabilities.permissions,
+      migratePermissionMode(p.provider, p.permissionMode, entry.capabilities.permissionModes),
+    )
+  )
+    return fail("permission_mode_unsupported");
   let handoff: ReturnType<typeof portableContext> | undefined;
   if (p.handoffFrom) {
     const source = repo.store.getThread(p.handoffFrom);

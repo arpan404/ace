@@ -18,7 +18,7 @@ function byProvider(accounts: readonly Account[]) {
     const key = `${account.providerLabel}\u0000${account.version ?? ""}`;
     groups.set(key, [...(groups.get(key) ?? []), account]);
   }
-  return [...groups.values()];
+  return [...groups.entries()];
 }
 
 /** The loaded layout's shape: a provider heading over two account cards, each with two rings. */
@@ -100,11 +100,11 @@ export function AccountsPage() {
               description="Sign in to a provider CLI on this machine and refresh."
             />
           ) : (
-            byProvider(accounts.data ?? []).map((group) => {
+            byProvider(accounts.data ?? []).map(([key, group]) => {
               const first = group[0];
               if (!first) return null;
               return (
-                <section key={first.providerLabel} aria-label={first.providerLabel}>
+                <section key={key} aria-label={first.providerLabel}>
                   <div className="mt-[30px] flex items-center gap-2">
                     <ProviderIcon
                       provider={first.provider}

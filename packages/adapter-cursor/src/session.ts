@@ -148,14 +148,8 @@ export async function openCursorSession(
               afterFrameOffset: context.resume.afterFrameOffset ?? 0,
             }
           : {}),
-        policy:
-          context.permissionMode === "full-access"
-            ? "full-access"
-            : context.permissionMode
-              ? "restricted"
-              : (context.runtimePolicy ?? options.policy ?? "restricted"),
+        ...(context.permissionMode ? { permissionMode: context.permissionMode } : {}),
         autoReviewAvailable: options.autoReviewAvailable ?? false,
-        readOnly: context.permissionMode === "read-only" || context.permissionMode === "ask",
         limits,
         ...(options.mcp ? { mcp: options.mcp } : {}),
       }),

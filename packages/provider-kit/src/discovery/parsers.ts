@@ -118,13 +118,13 @@ export function parseOpenCodeAuth(text: string): AuthStatus {
   };
 }
 
-export function parseVersion(
-  _provider: "claude" | "codex" | "opencode" | "cursor" | "antigravity",
-  text: string,
-): string | undefined {
+export function parseVersion(_provider: string, text: string): string | undefined {
   const clean = stripVTControlCharacters(text)
     .trim()
     .replace(/^(?:codex-cli|agy|antigravity(?: CLI)?)\s+/i, "")
-    .replace(/^opencode\s+v?/i, "");
+    .replace(
+      /^(?:opencode|pi|gemini|qwen|claude-agent-acp|codex-acp|goose|auggie)(?:\s+version)?\s+v?/i,
+      "",
+    );
   return /^(\d+\.\d+\.\d+(?:-[\w.-]+)?)/.exec(clean)?.[1];
 }

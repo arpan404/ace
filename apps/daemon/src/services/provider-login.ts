@@ -1,22 +1,8 @@
-import {
-  ProviderLoginSessions,
-  cursorSdkLoginDriver,
-  createInstance,
-  instanceEnv,
-  assertManagedHome,
-  type ProviderLoginDriver,
-} from "@ace/accounts";
+import { prepareProviderLogin } from "./provider-login-prepare.ts";
+import { ProviderLoginSessions, createInstance } from "@ace/accounts";
 import { ProviderLoginRequest, OnboardingRequest } from "@ace/protocol";
-import { ProviderPayload } from "@ace/provider-kit/payload";
-import { discoverProvider, discoverPiStatus } from "@ace/provider-kit/discovery";
-import { probeOutput } from "@ace/provider-kit/process";
 import { createPosixBackendFactory, TerminalManager } from "@ace/terminal";
-import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
-import { cliLoginDriver, manualLogin } from "../provider-login-driver.ts";
-import { cursorLoginDriver } from "../provider-login-cursor.ts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
-import { cursorHosts } from "./cursor-hosts.ts";
-import { registerCursorSdkCatalog } from "./cursor-activation.ts";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { registerImplicitAccounts } from "../account-homes.ts";
 import { Onboarding } from "../onboarding.ts";
@@ -39,6 +25,10 @@ export async function startProviderLogin(context: ServiceContext): Promise<void>
     },
   });
   const cursorDefault = await daemonCursorInstance(context);
+  if (services.accountRegistry && !services.accountRegistry.get(cursorDefault.id))
+    await services.accountRegistry.register(
+      createInstance({ ...cursorDefault, provider: "cursor", label: "Cursor" }),
+    );
   const sessions = new ProviderLoginSessions({
     instanceKey(provider, instance) {
       return provider === "cursor"
@@ -56,202 +46,8 @@ export async function startProviderLogin(context: ServiceContext): Promise<void>
       timer.unref();
       return () => clearTimeout(timer);
     },
-    async prepare(target, action, signal) {
-      const registry = services.accountRegistry;
-      if (!registry || !services.accounts) throw new Error("Accounts unavailable");
-      if (target.provider === "acp" || target.provider === "antigravity") {
-        const manual = manualLogin(target.provider, action, target.instance);
-        return {
-          run: async () => ({
-            success: false,
-            manual,
-          }),
-        };
-      }
-      const configuration = services.providerConfigurations?.for(target.provider, target.instance);
-      if (configuration?.enabled === false) throw new Error("Provider disabled");
-      if (target.provider === "cursor") {
-        const sdk = await discoverCursorSdk(options.engine?.cursor?.discovery);
-        signal.throwIfAborted();
-        if (!sdk.supported) throw new Error("SDK unavailable");
-        await services.providerActivation;
-        signal.throwIfAborted();
-        const binding = services.cursorAccounts;
-        if (!binding) throw new Error("SDK unavailable");
-        const instanceId =
-          cursorInstanceId(target.instance) ?? registry.selectedCursorSdk() ?? cursorDefault.id;
-        if (!registry.get(instanceId) && instanceId === cursorDefault.id)
-          await registry.register(
-            createInstance({ ...cursorDefault, provider: "cursor", label: "Cursor" }),
-          );
-        const instance = registry.get(instanceId)?.instance;
-        if (!instance || instance.provider !== "cursor" || instance.implicit)
-          throw new Error("SDK requires an SDK instance");
-        if (services.cursorAuth?.isChangingInstance(instanceId))
-          throw new Error("SDK auth is busy");
-        const slots = cursorHosts(context);
-        const release = services.accounts.reserveAccountChange(instanceId);
-        const before = instance.loginRevision;
-        const account = cursorSdkLoginDriver(registry, {
-          ...options.engine?.cursor,
-          now,
-          launchEnv: options.engine?.cursor?.env ?? process.env,
-          slots,
-          stopInstance: (accountId) => binding.stopInstance(accountId),
-        });
-        return {
-          ...cursorLoginDriver(instance, account, action),
-          release,
-          async changed() {
-            if (registry.get(instanceId)?.instance.loginRevision === before)
-              registry.loginChanged(instanceId);
-            if (registry.get(instanceId)?.quota.cursorSdkAuth?.status === "logged-in")
-              await binding.rebindInstance(instanceId);
-            registerCursorSdkCatalog(context, instance);
-            await services.models?.loginChanged(
-              instanceId,
-              registry.get(instanceId)?.instance.loginRevision ?? id(),
-            );
-            await services.providerStatuses?.refresh();
-            services.providerStatuses?.publish();
-          },
-        };
-      }
-      const provider = target.provider;
-      const instanceId = target.instance ?? `${target.provider}-cli-default`;
-      const instance = registry.get(instanceId)?.instance;
-      if (
-        !instance ||
-        instance.provider !== target.provider ||
-        (!instance.implicit && !instance.managed)
-      )
-        throw new Error("Instance unavailable");
-      const release = services.accounts.reserveAccountChange(instanceId);
-      try {
-        if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
-        const env = instanceEnv(
-          instance,
-          options.accounts?.env ?? options.providerStatus?.env ?? process.env,
-        );
-        const discovery = {
-          ...options.providerStatus,
-          ...options.accounts?.discovery,
-          env,
-          signal,
-          timeoutMs: 4000,
-          ...(configuration?.binaryPath
-            ? {
-                overrides: {
-                  ...options.accounts?.discovery?.overrides,
-                  [target.provider]: configuration.binaryPath,
-                },
-              }
-            : {}),
-        };
-        const status =
-          target.provider === "pi"
-            ? await discoverPiStatus({
-                ...discovery,
-                ...(configuration?.binaryPath ? { executable: configuration.binaryPath } : {}),
-              })
-            : await discoverProvider(target.provider, discovery);
-        if (!status.path) throw new Error("CLI not installed");
-        const args =
-          target.provider === "claude" || target.provider === "opencode"
-            ? ["auth", action, "--help"]
-            : [action, "--help"];
-        const help =
-          target.provider === "pi"
-            ? ""
-            : await (async () => {
-                try {
-                  const result = await probeOutput(status.path ?? "", args, {
-                    env,
-                    signal,
-                    timeoutMs: 4000,
-                  });
-                  return result.code === 0
-                    ? [
-                        "login",
-                        "logout",
-                        "--device-auth",
-                        "--claudeai",
-                        "--no-browser",
-                        "--provider",
-                        "--method",
-                      ]
-                        .filter((hint) => result.stdout.includes(hint))
-                        .join(" ")
-                    : "";
-                } catch {
-                  return "";
-                }
-              })();
-        signal.throwIfAborted();
-        if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
-        const driver = cliLoginDriver({
-          provider: target.provider,
-          action,
-          ...(target.instance ? { instance: target.instance } : {}),
-          command: status.path,
-          ...(status.version ? { version: status.version } : {}),
-          help,
-          cwd: instance.implicit ? config.dataDir : instance.homeDir,
-          env,
-          manager,
-        });
-        const result: ProviderLoginDriver = {
-          ...driver,
-          release,
-          async changed(changeSignal) {
-            if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
-            const after =
-              provider === "pi"
-                ? await discoverPiStatus({ ...discovery, signal: changeSignal })
-                : await discoverProvider(provider, { ...discovery, signal: changeSignal });
-            if (action === "login" && after.auth === "logged_out")
-              throw new Error("CLI is still signed out");
-            const before = registry.get(instanceId)?.instance.loginRevision;
-            registry.ingest(instanceId, {
-              provider: instance.provider,
-              payload: new ProviderPayload(JSON.stringify({ auth: after.auth })),
-              observedAt: now(),
-              timeZone: "UTC",
-            });
-            if (registry.get(instanceId)?.instance.loginRevision === before)
-              registry.loginChanged(instanceId);
-            const models = services.models;
-            if (models) {
-              models.registerInstance({
-                id: instanceId,
-                provider: instance.provider,
-                label: instance.label,
-                executable: status.path,
-                cwd: instance.implicit ? config.dataDir : instance.homeDir,
-                ...(instance.implicit
-                  ? {}
-                  : {
-                      env: Object.fromEntries(
-                        Object.entries(env).map(([key, value]) => [key, value ?? ""]),
-                      ),
-                    }),
-                loginRevision: registry.get(instanceId)?.instance.loginRevision ?? "0",
-              });
-              await models.loginChanged(
-                instanceId,
-                registry.get(instanceId)?.instance.loginRevision ?? "0",
-              );
-            }
-            await services.providerStatuses?.refresh();
-            services.providerStatuses?.publish();
-          },
-        };
-        return result;
-      } catch (error) {
-        release();
-        throw error;
-      }
-    },
+    prepare: (target, action, signal) =>
+      prepareProviderLogin(context, manager, cursorDefault, target, action, signal),
   });
   services.providerLogin = sessions;
   resources.own(async () => {
@@ -272,6 +68,14 @@ export function createProviderLoginSession(context: SocketContext): SocketServic
   let pending = 0;
   const manualTerminals = new Map<string, string>();
   return {
+    authenticated() {
+      const device = context.device();
+      if (device && context.authorize("operate"))
+        stop ??= context.options.providerLogin?.listen((owner, progress) => {
+          if (owner === device && context.connected() && context.authorize("operate"))
+            context.send({ type: "provider.login.progress", progress });
+        });
+    },
     close() {
       stop?.();
       manualTerminals.clear();
@@ -281,13 +85,15 @@ export function createProviderLoginSession(context: SocketContext): SocketServic
       if (request.success) {
         const input = request.data;
         const service = context.options.providerLogin;
-        const error = !context.authorize("operate")
-          ? "forbidden"
-          : !service
-            ? "unavailable"
-            : pending >= 8
-              ? "busy"
-              : undefined;
+        const error =
+          !context.authorize("operate") ||
+          (input.type === "provider.login.apiKey" && !context.canSubmitSecret?.())
+            ? "forbidden"
+            : !service
+              ? "unavailable"
+              : pending >= 8
+                ? "busy"
+                : undefined;
         if (error || !service)
           context.send({
             type: "provider.login.result",
@@ -336,8 +142,16 @@ export function createProviderLoginSession(context: SocketContext): SocketServic
                 result: { ok: false, error: "unavailable" },
               });
           } finally {
+            if (input.type === "provider.login.apiKey") {
+              input.apiKey = "";
+              if (message.type === "provider.login.apiKey") message.apiKey = "";
+            }
             pending--;
           }
+        }
+        if (input.type === "provider.login.apiKey") {
+          input.apiKey = "";
+          if (message.type === "provider.login.apiKey") message.apiKey = "";
         }
         return true;
       }

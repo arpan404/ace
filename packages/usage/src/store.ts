@@ -6,6 +6,7 @@ import { dayFormatter, resolvePrices, UsageSettings } from "./settings.ts";
 import { Ingestion } from "./ingestion.ts";
 import { queryRows } from "./queries.ts";
 import { burnRate, QuotaWindow } from "./quotas.ts";
+import { retainedDay } from "./retention.ts";
 
 /** Synchronous SQLite boundary. The daemon uses UsageWorker, not this class. */
 export class UsageStore {
@@ -15,10 +16,16 @@ export class UsageStore {
   private readonly ingestion: Ingestion;
   private readonly settings: UsageSettings;
   private readonly priceVersion: string;
+  private readonly priceSources: string[];
+  private readonly priceAsOf: string | undefined;
+  private readonly day: (at: number) => string;
   constructor(path: string, settings: unknown = {}) {
     this.settings = UsageSettings.parse(settings);
     const prices = resolvePrices(this.settings);
     this.priceVersion = prices.version;
+    this.priceSources = prices.sources;
+    this.priceAsOf = prices.asOf;
+    this.day = dayFormatter(this.settings.timezone);
     this.db = new DatabaseSync(path);
     try {
       migrate(this.db, this.settings.timezone);
@@ -26,7 +33,12 @@ export class UsageStore {
       for (const [model, rate] of Object.entries(prices.models))
         insert.run(model, rate.input, rate.cached, rate.write, rate.write1h, rate.output);
       this.sessionTotals = new SessionTotals(this.db);
-      this.ingestion = new Ingestion(this.db, dayFormatter(this.settings.timezone));
+      this.ingestion = new Ingestion(
+        this.db,
+        this.day,
+        this.settings.retentionDays,
+        this.settings.incrementRetentionDays,
+      );
     } catch (error) {
       this.db.close();
       throw error;
@@ -67,6 +79,16 @@ export class UsageStore {
       ),
       timezone: this.settings.timezone,
       priceVersion: this.priceVersion,
+      priceSources: this.priceSources,
+      priceAsOf: this.priceAsOf,
+      costLabel: "estimate",
+      tokenSource: "cli",
+      retainedFrom: retainedDay(
+        this.day(
+          Number(this.statement("SELECT latest_at FROM usage_meta WHERE id=1").get()?.latest_at),
+        ),
+        this.settings.retentionDays,
+      ),
       ...queryRows((sql) => this.statement(sql), query, kind),
     });
   }
@@ -81,7 +103,14 @@ export class UsageStore {
         window.start,
         Math.min(now, window.end),
       );
-    return burnRate(window, Number(window.unit === "tokens" ? row?.tokens : row?.usd), now);
+    const earliest = Math.max(
+      0,
+      Number(this.statement("SELECT latest_at FROM usage_meta WHERE id=1").get()?.latest_at) -
+        this.settings.incrementRetentionDays * 86_400_000,
+    );
+    const result = burnRate(window, Number(window.unit === "tokens" ? row?.tokens : row?.usd), now);
+    if (window.start < earliest) return { ...result, complete: false, exhaustionAt: null };
+    return result;
   }
   close(): void {
     this.statements.clear();

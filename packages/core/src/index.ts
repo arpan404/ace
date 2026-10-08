@@ -1,3 +1,4 @@
+export { supportsPermissionMode } from "./permissions.ts";
 export type * from "./facts.ts";
 export { createThreadState } from "./state.ts";
 export type { ThreadState, AgentRecord, CoreConfig, ApplyContext, IdSource } from "./state.ts";
@@ -8,17 +9,11 @@ export { isActionableInteraction } from "./human.ts";
 
 export { readyForChildResults } from "./external.ts";
 export {
-  limitPermissionMode,
-  permissionAuthority,
-  resolvePermissionMode,
-  supportsPermissionMode,
   reviewPermission,
   permissionDecisionOption,
   containsSecretReference,
-  isPermissionOption,
-  permissionResolutionError,
-} from "./permissions.ts";
-export type { RiskDecision, PathRisk } from "./permissions.ts";
+} from "./ace-tool-consent.ts";
+export type { RiskDecision, PathRisk } from "./ace-tool-consent.ts";
 
 export { ExpiryMap } from "./expiry-map.ts";
 export {
