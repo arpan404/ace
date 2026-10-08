@@ -1,7 +1,12 @@
 import type { CatalogEntry } from "@ace/protocol";
 
 const human = (value: string) =>
-  value.replace(/[-_]+/g, " ").replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+  value
+    .replace(/[-_]+/g, " ")
+    .replace(
+      /(^|[^\p{L}\p{N}])(\p{L})/gu,
+      (_match, before: string, letter: string) => before + letter.toUpperCase(),
+    );
 
 /** Names for people; qualified invocation names remain unchanged for the provider. */
 export function extensionDisplayName(name: string, title?: string, agentPlugin?: string): string {
