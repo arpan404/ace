@@ -1,3 +1,4 @@
+import { ExecutionSlots } from "./execution-slots.ts";
 import { ScreenStopError } from "./stop-error.ts";
 import { Helper, HelperCommandError, type HelperOptions } from "./helper.ts";
 /** One process owns a host. Concurrent inspections share its bounded request map. */
@@ -9,24 +10,12 @@ export class HelperHost {
   constructor(options: HelperOptions) {
     this.options = options;
   }
-  private executionTail: Promise<void> = Promise.resolve();
-  private queued = 0;
+  private readonly slots = new ExecutionSlots();
   execute<T>(authorize: () => void, dispatch: () => Promise<T>): Promise<T> {
-    if (this.queued >= 160) return Promise.reject(new Error("Host execution queue limit"));
-    this.queued++;
-    const operation = this.executionTail
-      .then(() => {
-        authorize();
-        return dispatch();
-      })
-      .finally(() => {
-        this.queued--;
-      });
-    this.executionTail = operation.then(
-      () => {},
-      () => {},
-    );
-    return operation;
+    return this.slots.run(authorize, dispatch);
+  }
+  executeShared<T>(authorize: () => void, dispatch: () => Promise<T>): Promise<T> {
+    return this.slots.shared(authorize, dispatch);
   }
   open(): Promise<Helper> {
     if (this.closing) return this.closing.then(() => this.open());

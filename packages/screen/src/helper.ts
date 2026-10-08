@@ -1,3 +1,6 @@
+import { PermissionFacts } from "./permission-facts.ts";
+import { z } from "zod";
+import { ScreenPermissions, ScreenError } from "@ace/protocol";
 import { frameChannel } from "./transport.ts";
 import { spawnWindowsHelper } from "./windows-process.ts";
 import { ScreenHelperRequestV2, ScreenPermissionsV2 } from "@ace/protocol";
@@ -31,13 +34,13 @@ export type HelperOptions = {
   nextId: () => string;
   onFrame: (frame: Frame) => void;
   onFailure: (error: Error) => void;
+  onPermissionsChanged?: (permissions: ScreenPermissions) => void;
   timeoutMs?: number;
   scheduler?: { schedule: (callback: () => void, milliseconds: number) => () => void };
 };
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, "version" | "id"> : never;
 export class Helper {
-  private commandTail: Promise<void> = Promise.resolve();
-  private queuedCommands = 0;
+  private readonly permissionFacts = new PermissionFacts();
   private readonly pending = new Map<
     string,
     {
@@ -65,7 +68,16 @@ export class Helper {
     proc.stdout.on("line", (line: string) => {
       try {
         if (Buffer.byteLength(line) > 128 * 1024) throw new Error("Helper reply exceeds limit");
-        const reply = ScreenHelperReply.parse(JSON.parse(line));
+        const raw: unknown = JSON.parse(line);
+        const event = z
+          .object({ event: z.literal("permissions.changed"), permissions: ScreenPermissions })
+          .safeParse(raw);
+        if (event.success) {
+          this.permissionFacts.changed(event.data.permissions);
+          this.options.onPermissionsChanged?.(event.data.permissions);
+          return;
+        }
+        const reply = ScreenHelperReply.parse(raw);
         const pending = this.pending.get(reply.id);
         if (Buffer.byteLength(line) > (pending?.replyLimit ?? 64 * 1024))
           throw new Error("Helper reply exceeds limit");
@@ -75,12 +87,21 @@ export class Helper {
         this.pending.delete(reply.id);
         pending.cancel();
         if (reply.ok) pending.resolve(reply.data);
-        else
+        else {
+          if (typeof reply.error === "object" && reply.error.code === "permission_denied") {
+            this.permissionFacts.invalidate();
+          }
           pending.reject(
             typeof reply.error === "object"
-              ? new HelperCommandError(reply.error.code, reply.error.message)
+              ? new HelperCommandError(
+                  reply.error.code,
+                  reply.error.message,
+                  reply.error.phase,
+                  reply.error.candidates,
+                )
               : new Error(reply.error ?? "Helper rejected command"),
           );
+        }
       } catch (error) {
         this.fail(error instanceof Error ? error : new Error("Invalid helper reply"));
       }
@@ -238,44 +259,40 @@ export class Helper {
     command: WithoutEnvelope<ScreenHelperRequest | import("@ace/protocol").ScreenHelperRequestV2>,
     beforeDispatch?: () => void,
   ): Promise<unknown> {
-    const result = this.dispatch(command, beforeDispatch);
-    if (command.op !== "permissions" || this.capabilities?.platform !== "windows") return result;
+    const revision = this.permissionFacts.version();
+    const dispatched = this.dispatch(command, beforeDispatch);
+    const result =
+      command.op === "permissions" && this.capabilities?.platform === "windows"
+        ? dispatched.then((data) => {
+            const permissions = ScreenPermissionsV2.parse(data);
+            return {
+              screenRecording: ["granted", "n/a"].includes(permissions.screen),
+              accessibility: ["granted", "n/a"].includes(permissions.input),
+            };
+          })
+        : dispatched;
+    if (command.op !== "permissions" && command.op !== "permissions.request") return result;
     return result.then((data) => {
-      const permissions = ScreenPermissionsV2.parse(data);
-      return {
-        screenRecording: ["granted", "n/a"].includes(permissions.screen),
-        accessibility: ["granted", "n/a"].includes(permissions.input),
-      };
+      this.permissionFacts.inspected(revision, data);
+      return data;
     });
   }
-  /** Main.swift executes every macOS command serially. Keep even observations in this
-   * queue so no mutation enters native stdin behind work with stale authority. */
+  async permissions(): Promise<ScreenPermissions> {
+    if (!this.capabilities?.background || !this.capabilities.permissionEvents)
+      return ScreenPermissions.parse(await this.request({ op: "permissions" }));
+    return this.permissionFacts.read(() => this.request({ op: "permissions" }));
+  }
+
   private dispatch(
     command: WithoutEnvelope<ScreenHelperRequest | import("@ace/protocol").ScreenHelperRequestV2>,
     beforeDispatch?: () => void,
   ): Promise<unknown> {
-    if (this.closed) return Promise.reject(new Error("Helper is closed"));
-    const send = () => {
+    try {
       beforeDispatch?.();
       return this.send(command);
-    };
-    if (this.capabilities?.platform !== "macos" || !this.capabilities.background) {
-      try {
-        return send();
-      } catch (error) {
-        return Promise.reject(error);
-      }
+    } catch (error) {
+      return Promise.reject(error);
     }
-    if (this.queuedCommands >= 32) return Promise.reject(new Error("Helper request limit"));
-    this.queuedCommands++;
-    const request = this.commandTail.then(send).finally(() => {
-      this.queuedCommands--;
-    });
-    this.commandTail = request.then(
-      () => {},
-      () => {},
-    );
-    return request;
   }
   private send(
     command:
@@ -380,15 +397,23 @@ export class Helper {
       this.pending.clear();
     }
     await this.proc.stop({ graceMs: 1000 });
-    await this.commandTail;
     await this.cleanup();
   }
 }
 
 export class HelperCommandError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  readonly phase: ScreenError["phase"];
+  readonly candidates: ScreenError["candidates"];
+  constructor(
+    code: string,
+    message: string,
+    phase?: ScreenError["phase"],
+    candidates?: ScreenError["candidates"],
+  ) {
     super(message);
     this.code = code;
+    this.phase = phase;
+    this.candidates = candidates;
   }
 }

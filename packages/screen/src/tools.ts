@@ -7,6 +7,8 @@ import {
   ScreenUITreeOptions,
   ScreenUIFindOptions,
   ScreenUIActOptions,
+  ScreenUIActResult,
+  ScreenAppURL,
 } from "@ace/protocol";
 import { z } from "zod";
 import type { ScreenManager } from "./manager.ts";
@@ -39,13 +41,61 @@ export const computerUseSchemas = {
     bundleId: ScreenBundle,
     reason: z.string().min(1).max(2048),
   }),
-  screen_open_app: z.strictObject({ bundleId: ScreenBundle }),
+  screen_open_app: z.strictObject({
+    bundleId: ScreenBundle,
+    windowId: z.number().int().positive().optional(),
+  }),
+  screen_list_windows: z.strictObject({ bundleId: ScreenBundle }),
+  screen_select_window: z.strictObject({
+    ...SessionSelection,
+    windowId: z.number().int().positive(),
+  }),
+  screen_open_url: z.strictObject({
+    ...SessionSelection,
+    url: ScreenAppURL,
+  }),
+  screen_menu: z.strictObject({
+    ...SessionSelection,
+    path: z.array(z.string().min(1).max(256)).min(1).max(8),
+  }),
   screen_request_foreground: z.strictObject({
     ...SessionSelection,
     reason: z.string().min(1).max(2048),
   }),
 };
 export const computerUseTools = [
+  {
+    name: "screen_list_windows",
+    description:
+      "List an approved app's candidate windows, including its focused/main window. Use screen_select_window to choose a specific target.",
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_list_windows);
+    },
+  },
+  {
+    name: "screen_select_window",
+    description:
+      "Switch this app session to an exact windowId from screen_list_windows. Later actions and captures target that window.",
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_select_window);
+    },
+  },
+  {
+    name: "screen_open_url",
+    description:
+      "Open a URL or deep link in this approved native app without activating it. For website browsing use ace_browser_open.",
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_open_url);
+    },
+  },
+  {
+    name: "screen_menu",
+    description:
+      "Press an enabled app menu item by its accessibility menu path, for example [File, New Window], without synthesizing a keyboard shortcut.",
+    get inputSchema() {
+      return z.toJSONSchema(computerUseSchemas.screen_menu);
+    },
+  },
   {
     name: "screen_measure_interaction",
     description:
@@ -65,7 +115,7 @@ export const computerUseTools = [
   {
     name: "screen_open_app",
     description:
-      "Launch an approved app in the background and acquire an agent session. Returns target and sessionId; use sessionId when controlling multiple apps.",
+      "Launch an approved app in the background and acquire an agent session. Returns candidate windows, target and sessionId. If ambiguous, supply a listed windowId; use sessionId when controlling multiple apps.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_open_app);
     },
@@ -136,7 +186,7 @@ export const computerUseTools = [
   {
     name: "screen_key",
     description:
-      "Press a named key with v2 (for example Enter), or a legacy macOS keyCode, with modifiers.",
+      "Press a key from the advertised enum, including letters, digits, punctuation, f1–f20, enter, escape and arrow aliases. Modifiers: command, shift, option, control; alt aliases option, meta/super alias command. Example: {key: l, modifiers: [command]}. Legacy helpers accept keyCode.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_key);
     },
@@ -187,15 +237,56 @@ export function computerUseHandler(
         ? manager.uiTree(sessionId, { maxNodes: 64, maxDepth: 6 }, owner)
         : Promise.resolve(null);
     if (name === "screen_paste") {
-      await manager.input(
+      const result = await manager.input(
         sessionId,
         "agent",
         { kind: "text.paste", ...Type.parse(payload) },
         owner,
         () => signal.throwIfAborted(),
       );
-      const snapshot = await observe();
-      return { content: [{ type: "text", text: JSON.stringify({ mode, snapshot }) }] };
+      const snapshot = await settledSnapshot(result, observe);
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ mode, ...actionMetadata(result), snapshot }) },
+        ],
+      };
+    }
+    if (name === "screen_select_window") {
+      const { windowId } = computerUseSchemas.screen_select_window
+        .omit({ sessionId: true })
+        .parse(payload);
+      const state = await manager.selectWindow(sessionId, windowId, owner, () =>
+        signal.throwIfAborted(),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(state) }] };
+    }
+    if (name === "screen_open_url" || name === "screen_menu") {
+      const operation =
+        name === "screen_open_url"
+          ? {
+              op: "open.url" as const,
+              ...computerUseSchemas.screen_open_url.omit({ sessionId: true }).parse(payload),
+            }
+          : {
+              op: "menu.press" as const,
+              ...computerUseSchemas.screen_menu.omit({ sessionId: true }).parse(payload),
+            };
+      const result = await manager.appOperation(sessionId, operation, owner, () =>
+        signal.throwIfAborted(),
+      );
+      const snapshot = await settledSnapshot(result, observe);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              mode: manager.state(sessionId).mode,
+              ...actionMetadata(result),
+              snapshot,
+            }),
+          },
+        ],
+      };
     }
     if (name === "screen_screenshot") {
       Screenshot.parse(payload);
@@ -271,12 +362,38 @@ export function computerUseHandler(
       default:
         throw new Error("Unknown computer-use tool");
     }
-    if (v2) await manager.input(sessionId, "agent", v2, owner, () => signal.throwIfAborted());
-    else
-      await manager.modelAction(sessionId, owner, ScreenAction.parse(action), () =>
-        signal.throwIfAborted(),
-      );
-    const snapshot = await observe();
-    return { content: [{ type: "text", text: JSON.stringify({ mode, snapshot }) }] };
+    const result = v2
+      ? await manager.input(sessionId, "agent", v2, owner, () => signal.throwIfAborted())
+      : await manager.modelAction(sessionId, owner, ScreenAction.parse(action), () =>
+          signal.throwIfAborted(),
+        );
+    const snapshot = await settledSnapshot(result, observe);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            mode: manager.state(sessionId).mode,
+            ...actionMetadata(result),
+            snapshot,
+          }),
+        },
+      ],
+    };
   };
+}
+
+function actionMetadata(raw: unknown) {
+  return z
+    .object({
+      mode: z.enum(["background", "foreground"]).optional(),
+      method: z.string().max(64).optional(),
+      warnings: z.array(z.string().max(1024)).max(8).optional(),
+      notes: z.array(z.string().max(1024)).max(8).optional(),
+    })
+    .parse(raw ?? {});
+}
+async function settledSnapshot(raw: unknown, observe: () => Promise<unknown>) {
+  const result = ScreenUIActResult.partial().parse(raw ?? {});
+  return result.snapshot ?? (await observe());
 }

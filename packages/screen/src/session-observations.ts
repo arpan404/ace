@@ -1,3 +1,4 @@
+import type { HelperHost } from "./helper-host.ts";
 import { z } from "zod";
 import { ScreenStreamSettings, type ScreenTarget, type ScreenAgentScope } from "@ace/protocol";
 import type { Frame, FrameSink } from "./frames.ts";
@@ -7,6 +8,7 @@ import { nodeScheduler } from "./runtime.ts";
 import { bundles } from "./policy.ts";
 import { readTree, findElements } from "./semantic.ts";
 type ObservationPorts = {
+  host: HelperHost;
   live(id: string): Session;
   authorize(target: ScreenTarget, scope?: ScreenAgentScope): void;
   releaseUnused(session: Session): void;
@@ -14,11 +16,13 @@ type ObservationPorts = {
 };
 /** Pixel leases and fresh semantic reads do not acquire an agent controller. */
 export class SessionObservations {
+  private readonly host: HelperHost;
   private readonly live: ObservationPorts["live"];
   private readonly authorize: ObservationPorts["authorize"];
   private readonly releaseUnused: ObservationPorts["releaseUnused"];
   private readonly options: ScreenOptions;
   constructor(ports: ObservationPorts) {
+    this.host = ports.host;
     this.live = ports.live;
     this.authorize = ports.authorize;
     this.releaseUnused = ports.releaseUnused;
@@ -113,12 +117,30 @@ export class SessionObservations {
     this.authorize(session.state.target, session.approvalScope);
     const epoch = session.epoch;
     const originalOwner = session.owner;
-    const result = await read(session);
-    if (owner !== undefined && (session.owner !== originalOwner || session.epoch !== epoch))
-      throw new Error("Controller ownership changed during UI read");
-    this.authorize(session.state.target, session.approvalScope);
-    if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");
-    return result;
+    const validate = () => {
+      this.authorize(session.state.target, session.approvalScope);
+      if (session.epoch !== epoch || (owner !== undefined && session.owner !== originalOwner))
+        throw new Error("Controller ownership changed during UI read");
+      if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");
+    };
+    if (session.queuedActions >= 16) throw new Error("Observation queue limit");
+    session.queuedActions++;
+    const task = session.actionTail
+      .then(() =>
+        this.host.execute(validate, async () => {
+          const result = await read(session);
+          validate();
+          return result;
+        }),
+      )
+      .finally(() => {
+        session.queuedActions--;
+      });
+    session.actionTail = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
   }
   uiTree(id: string, options: unknown, owner?: string) {
     if (

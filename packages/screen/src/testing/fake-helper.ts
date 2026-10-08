@@ -424,6 +424,21 @@ function processRequest(request: ScreenHelperRequest) {
     };
   if (request.op === "targets" && process.env.NO_WINDOWS === "1")
     data = { displays: [], windows: [] };
+  if (request.op === "windows.list") {
+    const windowId =
+      request.bundleId === "dev.ace.test"
+        ? 1
+        : Number(request.bundleId.replace("dev.ace.test", ""));
+    data =
+      process.env.NO_WINDOWS === "1"
+        ? { windows: [] }
+        : {
+            windows: [
+              { windowId, bundleId: request.bundleId, title: "Test", focused: true, usable: true },
+            ],
+            selectedWindowId: windowId,
+          };
+  }
   if (request.op === "open.app") {
     if (process.env.LAUNCH_LOG)
       appendFileSync(

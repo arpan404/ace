@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ScreenId, type ApprovalTarget } from "@ace/protocol";
 import { PublicToolError, PublicToolCode, type Toolkit } from "@ace/mcp-server";
 import type { ScreenManager } from "./manager.ts";
+import { HelperCommandError } from "./helper.ts";
 import { TargetBusyError } from "./target-busy.ts";
 import { agentOwner } from "./agent-binding.ts";
 import { computerUseTools, computerUseSchemas, computerUseHandler } from "./tools.ts";
@@ -19,6 +20,10 @@ const risks = {
   screen_paste: "external-effect",
   screen_request_app: "external-effect",
   screen_open_app: "external-effect",
+  screen_list_windows: "read-only",
+  screen_select_window: "external-effect",
+  screen_open_url: "external-effect",
+  screen_menu: "external-effect",
   screen_request_foreground: "external-effect",
 } satisfies Record<keyof typeof computerUseSchemas, NonNullable<ApprovalTarget["riskClass"]>>;
 
@@ -57,9 +62,20 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                   ],
                 };
               }
+              if (name === "screen_list_windows") {
+                const { bundleId } = computerUseSchemas.screen_list_windows.parse(args);
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify(await manager.listAppWindows(bundleId, caller)),
+                    },
+                  ],
+                };
+              }
               if (name === "screen_open_app") {
-                const { bundleId } = computerUseSchemas.screen_open_app.parse(args);
-                const state = await manager.openAgentApp(bundleId, caller, signal);
+                const { bundleId, windowId } = computerUseSchemas.screen_open_app.parse(args);
+                const state = await manager.openAgentApp(bundleId, caller, signal, windowId);
                 signal.throwIfAborted();
                 manager.agentSession(caller, state.sessionId);
                 return { content: [{ type: "text", text: JSON.stringify(state) }] };
@@ -102,7 +118,16 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                 };
               if (error instanceof Error && "code" in error) {
                 const code = PublicToolCode.safeParse(error.code);
-                if (code.success) throw new PublicToolError(code.data);
+                if (code.success) {
+                  const publicError = new PublicToolError(code.data);
+                  if (error instanceof HelperCommandError) {
+                    Object.assign(publicError, {
+                      phase: error.phase,
+                      candidates: error.candidates,
+                    });
+                  }
+                  throw publicError;
+                }
               }
               throw error;
             }

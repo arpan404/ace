@@ -1,7 +1,6 @@
 import { releaseControllerBinding } from "./controller-binding.ts";
 import {
   ScreenTarget,
-  ScreenPermissions,
   ScreenCapabilities,
   type ScreenState,
   type ScreenAgentScope,
@@ -134,9 +133,7 @@ export class TargetSessions {
       );
       session.approvalScope = scope;
       this.sessions.set(id, session);
-      session.state.permissions = ScreenPermissions.parse(
-        await helper.request({ op: "permissions" }),
-      );
+      session.state.permissions = await helper.permissions();
       if (!session.state.permissions.screenRecording)
         throw new HelperCommandError("permission_denied", "Screen Recording permission denied");
       this.authorize(target, scope);
