@@ -14,7 +14,7 @@ function SplitButton(props: {
   label?: ReactNode;
   /** Accessible name and tooltip of the main action. */
   actionLabel: string;
-  /** Accessible name of the caret. */
+  /** Accessible name and tooltip of the caret. */
   menuLabel: string;
   onAction(): void;
   /** Menu items (`MenuItem`, `MenuRadioGroup`, …). */
@@ -58,13 +58,15 @@ function SplitButton(props: {
         </ButtonPrimitive>
       </Tip>
       <Menu>
-        <MenuTrigger
-          aria-label={props.menuLabel}
-          disabled={props.disabled}
-          className={cn(region, "pr-1.5 pl-0.5 text-subtle-foreground aria-expanded:bg-accent")}
-        >
-          <CaretDownIcon aria-hidden size={12} />
-        </MenuTrigger>
+        <Tip label={props.menuLabel}>
+          <MenuTrigger
+            aria-label={props.menuLabel}
+            disabled={props.disabled}
+            className={cn(region, "pr-1.5 pl-0.5 text-subtle-foreground aria-expanded:bg-accent")}
+          >
+            <CaretDownIcon aria-hidden size={12} />
+          </MenuTrigger>
+        </Tip>
         <MenuContent align="end">{props.menu}</MenuContent>
       </Menu>
     </div>

@@ -18,7 +18,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { mcpSource } from "../sources/mcp-source.ts";
-import { Fade, RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx";
+import { TruncatedText, RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx";
 
 const AddMcpServer = lazy(() => import("./add-mcp-server.tsx"));
 const groups = [
@@ -143,7 +143,7 @@ export function SourcesSection(props: { thread: ThreadRef; onClose(): void }) {
             <>
               <Icon aria-hidden size={16} className={rowIcon} />
               <span>{group.label}</span>
-              <Fade className="text-subtle-foreground">ace</Fade>
+              <TruncatedText className="text-subtle-foreground">ace</TruncatedText>
             </>
           );
           return (

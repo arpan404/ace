@@ -92,6 +92,7 @@ export type GitChange =
       reviewers?: readonly string[];
     }
   | { kind: "link-pr"; number: number }
+  | { kind: "unlink-pr" }
   /** Merge the head the person saw (`headSha`): the forge refuses if the branch moved since. */
   | { kind: "merge"; method: MergeMethod; auto: boolean; headSha: string }
   | { kind: "request-review"; reviewers: readonly string[] };
@@ -114,6 +115,11 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
       }
       if (change.kind === "push") {
         await workspace.push(thread);
+        return undefined;
+      }
+      if (change.kind === "unlink-pr") {
+        await workspace.unlinkPr(thread);
+        queries.removeQueries({ queryKey: prKey(thread.id) });
         return undefined;
       }
       const repository = checkout?.repository;

@@ -1,5 +1,5 @@
 import type { Fact, Key } from "@ace/core";
-import type { EventPayload, InteractionResolution } from "@ace/protocol";
+import type { EventPayload, GitStatusFile, InteractionResolution } from "@ace/protocol";
 import type { FakeDaemon, ThreadInit } from "./daemon.ts";
 import { withCardDetails } from "./scenarios/card-details.ts";
 
@@ -27,6 +27,8 @@ export type Step =
     };
 export interface Scenario {
   thread: ThreadInit;
+  /** Actual checkout changes, independent of the transcript history. */
+  gitStatus?: readonly GitStatusFile[];
   steps: Step[];
 }
 export interface Timer {
@@ -49,6 +51,7 @@ export class ScenarioPlayer {
     this.daemon = daemon;
     this.steps = [...scenario.steps];
     this.threadId = scenario.thread.id;
+    if (scenario.gitStatus) daemon.workspace.setGitStatus(this.threadId, scenario.gitStatus);
     this.agoMs = options.agoMs ?? 0;
     const first = scenario.steps[0];
     daemon.createThread(

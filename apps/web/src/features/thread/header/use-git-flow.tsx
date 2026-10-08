@@ -37,6 +37,8 @@ function confirmation(change: GitChange, status: ForgePrStatus | undefined): str
         ? `${done} · asked ${change.reviewers.join(", ")} to review`
         : done;
     }
+    case "unlink-pr":
+      return "Pull request unlinked";
     case "link-pr":
       return `Linked pull request #${number}`;
     case "request-review":
@@ -56,6 +58,7 @@ const failed: Record<GitChange["kind"], string> = {
   push: "Couldn't push",
   "create-pr": "Couldn't open the pull request",
   "link-pr": "Couldn't link the pull request",
+  "unlink-pr": "Couldn't unlink the pull request",
   "request-review": "Couldn't request a review",
   merge: "Couldn't merge",
 };
