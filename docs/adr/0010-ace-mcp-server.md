@@ -122,3 +122,11 @@ uses stored canonical views; write toolkits require explicit host ports.
 Provider adapter workstreams must wire session leases into their lifecycle and
 apply these helpers. Browser/preview and durable notification/orchestration
 consumers remain owned by their workstreams, with no substitute execution here.
+
+## Amendment: native guidance and changing availability (2026-10-07)
+
+Capabilities on a lease are an immutable ceiling. Runtime enablement, read-only thread mode and app grants further restrict both discovery and execution. Disabled screen/device groups are absent; enabled screen initially exposes only `screen_request_app`. `ace_status` explains unavailable groups. Browser computer use requires a person's turn/thread grant in ace's UI, never an Always grant or an agent-initiated approval.
+
+Deliver guidance through each provider's native instruction mechanism. Codex opts out of MCP discovery instructions with `X-Ace-Instructions: native` because it otherwise prefixes every tool description. Cursor loads an always-applied rule from a private temporary additional workspace rather than replacing its system prompt. ACP has no portable system-instruction field, so its native prompt carries labeled guidance context.
+
+Advertise `tools.listChanged`. Current clients subscribe through the SDK notification API. Native legacy clients opt in with `X-Ace-Notifications: stream`, retaining at most 128 temporary HTTP transport sessions, tied to the authenticated lease identity and closed on revocation/shutdown. Other legacy traffic remains stateless. This extends the original no-permanent-session-map contract with a bounded in-memory stream lifetime; there is still no replay buffer or persisted transport state. The ACP stdio bridge forwards notifications and Pi refreshes its active extension catalogue while preserving native tools.

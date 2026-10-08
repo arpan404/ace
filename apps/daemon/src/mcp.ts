@@ -88,6 +88,7 @@ export async function startDaemonMcp(
   });
   return {
     url: server.url,
+    toolsChanged: server.toolsChanged,
     action: (name: string, input: unknown) => registry.action(name, input),
     providers: new McpProviderSessions(),
     /** Provider adapters own this lease, and end it or abort lifetime on every exit path. */

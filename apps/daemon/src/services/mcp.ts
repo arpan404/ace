@@ -57,17 +57,18 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         services.engine?.permissionMode(caller.threadId) ??
         store.getThread(caller.threadId)?.permission?.effective ??
         null,
+      get screenApproved() {
+        return services.screen?.hasAppApproval(caller) ?? false;
+      },
       disabled: {
         ...(!services.screen?.isEnabled()
           ? {
-              screen:
-                "Computer use is disabled. Ask the person to enable it in Settings → Computer use.",
+              screen: "Computer use is disabled.",
             }
           : {}),
         ...(!services.devices?.isEnabled()
           ? {
-              devices:
-                "Devices are disabled. Ask the person to enable devices in the thread's Devices panel.",
+              devices: "Devices are disabled.",
             }
           : {}),
       },
@@ -75,6 +76,32 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;
+  if (services.devices) {
+    resources.own(services.devices.watchEnabled(mcp.toolsChanged));
+    const grants = new Map<string, string>();
+    resources.own(
+      services.devices.watch((state) => {
+        const threadId = state.approved ? state.threadId : undefined;
+        if (grants.get(state.device.id) !== threadId) {
+          if (threadId) grants.set(state.device.id, threadId);
+          else grants.delete(state.device.id);
+          mcp.toolsChanged();
+        }
+      }),
+    );
+  }
+  resources.own(
+    store.subscribe((events) => {
+      if (
+        events.some(({ payload }) =>
+          payload.type === "thread.updated"
+            ? payload.permission !== undefined
+            : ["run.started", "run.ended", "thread.client.updated"].includes(payload.type),
+        )
+      )
+        mcp.toolsChanged();
+    }),
+  );
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";

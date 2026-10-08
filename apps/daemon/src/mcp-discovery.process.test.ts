@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent, McpScope, McpStatus } from "@ace/protocol";
 import { ScreenManager } from "@ace/screen";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { expect, it } from "vitest";
 import { createDevThread, readConfig, startDaemon } from "./index.ts";
@@ -79,7 +80,7 @@ it("agents discover ace through initialize, resources and status even when compu
       capabilities: {},
     });
     expect(initialized.instructions).toEqual(expect.stringContaining("ace_"));
-    expect(initialized.instructions).toEqual(expect.stringContaining("disabled"));
+    expect(initialized.instructions).toEqual(expect.stringContaining("Call ace_status"));
     expect(initialized.capabilities).toMatchObject({ resources: {}, tools: {} });
     expect((await request("resources/list")).resources).toEqual(
       expect.arrayContaining([
@@ -99,7 +100,7 @@ it("agents discover ace through initialize, resources and status even when compu
     expect(disabled.groups).toContainEqual({
       name: "screen",
       enabled: false,
-      reason: expect.stringContaining("Settings → Computer use"),
+      reason: "Computer use is disabled.",
     });
     expect(disabled.groups).toContainEqual({ name: "browser", enabled: true });
     const resource = z
@@ -109,24 +110,53 @@ it("agents discover ace through initialize, resources and status even when compu
     const tools = z
       .array(z.object({ name: z.string(), description: z.string() }))
       .parse((await request("tools/list")).tools);
-    expect(tools.find((tool) => tool.name === "screen_request_app")?.description).toContain(
-      "Settings → Computer use",
-    );
+    expect(tools.some((tool) => tool.name.startsWith("screen_"))).toBe(false);
     expect(JSON.stringify(disabled)).not.toContain(lease.bearer);
     expect(JSON.stringify(disabled)).not.toContain(home);
-    await screen.enable(true);
-    expect((await status()).groups).toContainEqual({ name: "screen", enabled: true });
-    const enabledTools = z
-      .array(z.object({ name: z.string(), description: z.string() }))
-      .parse((await request("tools/list")).tools);
-    expect(
-      enabledTools.find((tool) => tool.name === "screen_request_app")?.description,
-    ).not.toContain("Computer use is disabled");
+    const client = new Client(
+      { name: "changes-test", version: "1" },
+      { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+    );
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(daemon.mcp.url), {
+          requestInit: { headers: { Authorization: `Bearer ${lease.bearer}` } },
+        }),
+      );
+      let changed = Promise.withResolvers<void>();
+      client.setNotificationHandler("notifications/tools/list_changed", () => changed.resolve());
+      await client.listen({ toolsListChanged: true });
+      await screen.enable(true);
+      await changed.promise;
+      expect((await status()).groups).toContainEqual({ name: "screen", enabled: true });
+      const enabledTools = z
+        .array(z.object({ name: z.string(), description: z.string() }))
+        .parse((await request("tools/list")).tools);
+      expect(
+        enabledTools.filter((tool) => tool.name.startsWith("screen_")).map((tool) => tool.name),
+      ).toEqual(["screen_request_app"]);
+      changed = Promise.withResolvers<void>();
+      await screen.approve("com.apple.TextEdit", true, "thread", thread.id);
+      await changed.promise;
+      expect((await client.listTools()).tools.some((tool) => tool.name === "screen_ui_tree")).toBe(
+        true,
+      );
+      changed = Promise.withResolvers<void>();
+      await screen.approve("com.apple.TextEdit", false, "thread", thread.id);
+      await changed.promise;
+      expect(
+        (await client.listTools()).tools
+          .filter((tool) => tool.name.startsWith("screen_"))
+          .map((tool) => tool.name),
+      ).toEqual(["screen_request_app"]);
+    } finally {
+      await client.close();
+    }
     await screen.enable(false);
     expect((await status()).groups).toContainEqual({
       name: "screen",
       enabled: false,
-      reason: expect.stringContaining("Settings → Computer use"),
+      reason: "Computer use is disabled.",
     });
     // Current providers use per-request metadata, without the legacy handshake.
     const current = await fetch(daemon.mcp.url, {

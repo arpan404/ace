@@ -177,6 +177,9 @@ export class ScreenManager {
   configureAccess(access: ScreenAccess): void {
     this.accessPolicy.configureAccess(access);
   }
+  hasAppApproval(caller: ScreenAgentScope): boolean {
+    return this.accessPolicy.hasAppApproval(caller);
+  }
   approvals(threadId?: string) {
     return this.accessPolicy.approvals(threadId);
   }

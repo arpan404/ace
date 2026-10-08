@@ -1,4 +1,5 @@
 import { ScreenBundle, ScreenAgentScope, type ScreenTarget } from "@ace/protocol";
+import { browserApp } from "./sensitive-app.ts";
 import type { ScreenAccess } from "./access.ts";
 import { HelperCommandError } from "./helper.ts";
 import type { HelperHost } from "./helper-host.ts";
@@ -65,6 +66,11 @@ export class ScreenAccessPolicy {
     threadId?: string,
   ): Promise<void> {
     ScreenBundle.parse(bundleId);
+    if (allowed && scope === "always" && browserApp(bundleId))
+      throw new HelperCommandError(
+        "approval_required",
+        "Web browsers require a turn or thread grant from the person in ace's UI",
+      );
     if (!allowed) this.launches.invalidate();
     this.access?.approve(bundleId, allowed, scope, threadId);
     if (!this.access || scope === "always") this.policy.approve(bundleId, allowed);
@@ -123,6 +129,16 @@ export class ScreenAccessPolicy {
     )
       throw new HelperCommandError("approval_required", "Application approval required");
   }
+  hasAppApproval(caller: ScreenAgentScope): boolean {
+    return this.approvals(caller.threadId).some(({ bundleId }) => {
+      try {
+        this.authorize({ kind: "app", bundleId }, caller);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  }
   async requestApp(
     bundleId: string,
     reason: string,
@@ -133,6 +149,10 @@ export class ScreenAccessPolicy {
       throw new HelperCommandError("screen_disabled", "Screen access is disabled");
     if (!this.access)
       throw new HelperCommandError("approval_required", "Host approval unavailable");
+    if (browserApp(bundleId)) {
+      this.authorize({ kind: "app", bundleId: ScreenBundle.parse(bundleId) }, caller);
+      return;
+    }
     await this.access.request(
       ScreenBundle.parse(bundleId),
       reason,
