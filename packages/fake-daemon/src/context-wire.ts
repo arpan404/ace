@@ -35,6 +35,7 @@ interface Upload {
 }
 export class FakeContextWire {
   private context: FakeServiceContext;
+  private checkoutPaths: ((threadId: string) => string[]) | undefined;
   private drafts = new Map<string, { device: string; workspaceId: string; adopted?: string }>();
   private uploads = new Map<string, Upload>();
   private attachments = new Map<string, Map<string, Attachment>>();
@@ -58,7 +59,8 @@ export class FakeContextWire {
       return attachment;
     });
   }
-  constructor(context: FakeServiceContext) {
+  constructor(context: FakeServiceContext, checkoutPaths?: (threadId: string) => string[]) {
+    this.checkoutPaths = checkoutPaths;
     this.context = context;
   }
   private references(scope: string) {
@@ -83,7 +85,7 @@ export class FakeContextWire {
     this.validateDraft(device, draftId, draft.workspaceId, threadId);
     const target = this.references(threadId);
     const source = this.references(draftId);
-    if (target.size + source.size > 64) throw new Error("quota");
+    if (target.size + source.size > 256) throw new Error("quota");
     for (const [key, attachment] of source) target.set(key, attachment);
     source.clear();
     draft.adopted = threadId;
@@ -176,14 +178,14 @@ export class FakeContextWire {
             .join("");
           if (hash !== upload.hash) throw new Error("hash_mismatch");
           const refs = this.references(upload.scope);
-          if (refs.size >= 64) throw new Error("quota");
+          if (refs.size >= 256 && !refs.has(hash)) throw new Error("quota");
           const attachment = {
             sha256: hash,
             bytes: bytes.length,
             ...imageMetadata(bytes, upload.name),
             name: upload.name,
           };
-          if (!this.blobs.has(hash) && this.blobs.size >= 64) throw new Error("quota");
+          if (!this.blobs.has(hash) && this.blobs.size >= 256) throw new Error("quota");
           this.blobs.set(hash, bytes);
           refs.set(hash, attachment);
           upload.attachment = attachment;
@@ -228,9 +230,12 @@ export class FakeContextWire {
       } else if (op.op === "attachment.list") {
         check(op.threadId);
         result = { kind: "attachments", attachments: [...this.references(op.threadId).values()] };
-      } else if (op.op === "attachment.release") {
-        check(op.threadId);
-        this.references(op.threadId).delete(op.sha256);
+      } else if (op.op === "attachment.release" || op.op === "draft.attachment.release") {
+        const scope = "threadId" in op ? op.threadId : op.draftId;
+        check(scope);
+        this.references(scope).delete(op.sha256);
+        if (![...this.attachments.values()].some((refs) => refs.has(op.sha256)))
+          this.blobs.delete(op.sha256);
         result = { kind: "ok" };
       } else if (op.op === "mention.resolve") {
         check(op.threadId);
@@ -250,7 +255,14 @@ export class FakeContextWire {
           this.drafts.get(scope)?.workspaceId ?? this.context.thread(scope)?.thread.workspaceId;
         result = {
           kind: "completion",
-          paths: workspaceId ? completePaths(workspaceId, op.query, op.limit) : [],
+          paths: workspaceId
+            ? completePaths(
+                workspaceId,
+                op.query,
+                op.limit,
+                this.drafts.has(scope) ? undefined : this.checkoutPaths?.(scope),
+              )
+            : [],
         };
       }
     } catch (error) {

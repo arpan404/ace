@@ -65,7 +65,7 @@ export class FakeServicesWire {
     bindFakeBrowserOrigins(this.browser, context, settings);
     this.files = new FakeFilesWire(context);
     this.settings = settings;
-    this.context = new FakeContextWire(context);
+    this.context = new FakeContextWire(context, (threadId) => this.files.paths(threadId));
     this.workspace = new FakeWorkspaceWire(context);
     this.automations = new FakeAutomationWire(
       context.now,
