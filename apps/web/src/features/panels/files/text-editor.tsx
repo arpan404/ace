@@ -113,7 +113,7 @@ export function TextEditor(props: {
             void save();
           }
         }}
-        className="min-h-0 flex-1 resize-none bg-background p-3 font-mono text-ui leading-6 text-foreground outline-none"
+        className="min-h-0 flex-1 resize-none bg-background p-3 font-mono text-ui leading-6 text-foreground focus-ring-inset"
       />
     </div>
   );
