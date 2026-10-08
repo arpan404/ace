@@ -91,6 +91,14 @@ function setup() {
 }
 
 describe("embedded browser backend", () => {
+  it("refuses to confirm a purge when its host cannot clear partitions", async () => {
+    const t = setup();
+    delete t.views.host.purge;
+    const id = t.request("purge-1", { kind: "purge", threadId: "t-1", workspaceId: "w-1" });
+    expect(await t.response(id)).toMatchObject({ error: "Browser partition purge unavailable" });
+    expect(t.views.purged).toEqual([]);
+  });
+
   it("opens a view for the daemon and answers each request once with its ids and the exact CDP result", async () => {
     const t = setup();
     expect(await t.open()).toMatchObject({

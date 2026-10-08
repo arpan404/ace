@@ -183,7 +183,8 @@ export class BrowserBackend {
     if (operation.kind === "purge") {
       const open = this.byThread(operation.threadId);
       if (open) await this.dispose(open);
-      await this.host.purge?.({ threadId: operation.threadId, workspaceId: operation.workspaceId });
+      if (!this.host.purge) throw new Error("Browser partition purge unavailable");
+      await this.host.purge({ threadId: operation.threadId, workspaceId: operation.workspaceId });
       return {};
     }
     const session = this.sessions.get(sessionId);

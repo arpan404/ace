@@ -20,6 +20,10 @@ export class BrowserForget {
   private onError: (error: unknown) => void;
   private stop: () => void;
   private running = new Map<string, Promise<void>>();
+  private queue = Promise.resolve();
+  private flushing: Promise<void> | undefined;
+  private replayRequested = false;
+  private closed = false;
   constructor(store: Store, browser: BrowserForgetPort, onError: (error: unknown) => void) {
     this.store = store;
     this.browser = browser;
@@ -27,7 +31,10 @@ export class BrowserForget {
     store.atomic((db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS browser_forget_pending (
         thread_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL
-      )`),
+      );
+      INSERT OR IGNORE INTO browser_forget_pending (thread_id, workspace_id)
+      SELECT id, workspace_id FROM threads
+      WHERE json_extract(client, '$.deletedAt') IS NOT NULL;`),
     );
     this.stop = store.subscribe((events) => {
       for (const event of events) {
@@ -41,14 +48,44 @@ export class BrowserForget {
 
   /** A desktop registered: purge every deletion it has not confirmed yet. */
   flush(): Promise<void> {
-    const rows = this.store.atomic((db) =>
-      db.prepare("SELECT thread_id, workspace_id FROM browser_forget_pending LIMIT 256").all(),
-    );
-    return Promise.all(rows.map((raw) => this.forget(Row.parse(raw)))).then(() => {});
+    if (this.closed) return Promise.resolve();
+    this.replayRequested = true;
+    return (this.flushing ??= this.drain().finally(() => {
+      this.flushing = undefined;
+    }));
   }
 
-  close(): void {
+  private async drain(): Promise<void> {
+    while (!this.closed && this.replayRequested) {
+      this.replayRequested = false;
+      await this.replay();
+    }
+  }
+
+  private async replay(): Promise<void> {
+    let after = "";
+    while (!this.closed) {
+      const rows = this.store.atomic((db) =>
+        db
+          .prepare(
+            "SELECT thread_id, workspace_id FROM browser_forget_pending WHERE thread_id>? ORDER BY thread_id LIMIT 256",
+          )
+          .all(after),
+      );
+      if (!rows.length) return;
+      for (const raw of rows) {
+        const row = Row.parse(raw);
+        // Advance even after a failed purge: it stays pending for the next registration.
+        after = row.thread_id;
+        await this.forget(row);
+      }
+    }
+  }
+
+  close(): Promise<void> {
+    this.closed = true;
     this.stop();
+    return Promise.all([this.flushing, this.queue]).then(() => {});
   }
 
   private record(threadId: ThreadId, workspaceId: WorkspaceId): void {
@@ -63,8 +100,13 @@ export class BrowserForget {
   private forget(row: z.infer<typeof Row>): Promise<void> {
     const running = this.running.get(row.thread_id);
     if (running) return running;
-    const task = this.browser
-      .forgetThread(row.thread_id, row.workspace_id)
+    // Live deletions and replay share admission so neither can flood the bounded relay.
+    const task = this.queue
+      .then(() =>
+        this.closed
+          ? { desktop: false }
+          : this.browser.forgetThread(row.thread_id, row.workspace_id),
+      )
       .then(({ desktop }) => {
         if (!desktop) return;
         this.store.atomic((db) =>
@@ -74,6 +116,7 @@ export class BrowserForget {
       .catch(this.onError)
       .finally(() => this.running.delete(row.thread_id));
     this.running.set(row.thread_id, task);
+    this.queue = task.catch(() => {});
     return task;
   }
 }

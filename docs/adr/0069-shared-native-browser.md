@@ -50,6 +50,11 @@ closes any view of that thread, clears the partition's data and removes its dire
 partition it never created is left alone. Deletions are recorded in
 `browser_forget_pending` and retried each time a desktop registers until the desktop
 confirms, so a deletion made while the desktop is closed is still honoured.
+Startup reconciles pending cleanup with stored deleted threads to recover a crash between
+deletion and cleanup recording. Purging is idempotent, so this can repeat confirmed purges
+after restart. Live deletion and replay share serial admission to the desktop relay; replay
+drains every batch, and a registration during replay requests another pass. A desktop
+without partition purge support reports failure and leaves cleanup pending.
 
 **Fallback and handoff.**
 

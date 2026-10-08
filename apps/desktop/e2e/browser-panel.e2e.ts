@@ -27,41 +27,9 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect
         .poll(() => s.daemon.browser.state(s.thread.id)?.backend, { timeout: 30000 })
         .toBe("embedded");
-      const geometry = async () => {
-        const box = await p.locator("[data-browser-page]").evaluateAll((elements) => {
-          const element = elements[0];
-          if (!element) return null;
-          const r = element.getBoundingClientRect();
-          return { x: r.x, y: r.y, width: r.width, height: r.height };
-        });
-        const native = await s.app.evaluate(({ BrowserWindow, webContents }, url) => {
-          const contents = webContents.getAllWebContents().find((entry) => entry.getURL() === url);
-          const view = BrowserWindow.getAllWindows()[0]?.contentView.children.find(
-            (v) => "webContents" in v && v.webContents === contents,
-          );
-          // A view outside the app window (parked while an agent drives it) is not seen.
-          return view
-            ? { bounds: view.getBounds(), visible: view.getVisible() }
-            : { bounds: { x: 0, y: 0, width: 0, height: 0 }, visible: false };
-        }, s.url);
-        return { box, native };
-      };
-      await expect
-        .poll(
-          async () => {
-            const { box, native } = await geometry();
-            return (
-              !!box &&
-              native?.visible &&
-              Math.abs(native.bounds.x - box.x) < 2 &&
-              Math.abs(native.bounds.y - box.y) < 2 &&
-              Math.abs(native.bounds.width - box.width) < 2 &&
-              Math.abs(native.bounds.height - box.height) < 2
-            );
-          },
-          { timeout: 30000 },
-        )
-        .toBe(true);
+      const pageView = nativePage(s.app, p, s.url);
+      const geometry = pageView.geometry;
+      await expect.poll(pageView.placed, { timeout: 30000 }).toBe(true);
       await address.fill("127.0.0.1");
       const suggestions = p.getByRole("listbox", { name: "Suggested addresses" });
       await suggestions.waitFor();
@@ -85,15 +53,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
           return !!box && Math.abs((native?.bounds.x ?? 0) - box.x) < 2;
         })
         .toBe(true);
-      const nativeRead = (expression: string) =>
-        s.app.evaluate(
-          ({ webContents }, args) => {
-            const c = webContents.getAllWebContents().find((entry) => entry.getURL() === args.url);
-            if (!c) throw new Error("Fixture native page missing");
-            return c.executeJavaScript(args.expression);
-          },
-          { url: s.url, expression },
-        );
+      const nativeRead = pageView.read;
       expect(await nativeRead("typeof window.__aceDialog")).toBe("function");
       expect(
         await nativeRead("typeof document.querySelector('iframe').contentWindow.__aceDialog"),
@@ -107,36 +67,9 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         // Leave renderer tooltips and wait for the native surface before native input.
         await p.mouse.move(0, 0);
         await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
-        const point = z
-          .object({ x: z.number(), y: z.number() })
-          .parse(
-            await nativeRead(
-              `(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`,
-            ),
-          );
-        await s.app.evaluate(
-          ({ webContents }, args) => {
-            const c = webContents.getAllWebContents().find((entry) => entry.getURL() === args.url);
-            if (!c) throw new Error("Native fixture missing");
-            c.focus();
-            setTimeout(() => {
-              for (const type of ["mouseDown", "mouseUp"] as const)
-                c.sendInputEvent({ type, ...args.point, button: "left", clickCount: 1 });
-            }, 0);
-          },
-          { url: s.url, point },
-        );
+        await pageView.personClicks(selector);
       };
-      const exact = async () => {
-        const { box, native } = await geometry();
-        return (
-          !!box &&
-          native?.visible &&
-          ["x", "y", "width", "height"].every(
-            (key) => Math.abs(Reflect.get(native.bounds, key) - Reflect.get(box, key)) < 2,
-          )
-        );
-      };
+      const exact = pageView.placed;
       await p.getByRole("button", { name: "Full view", exact: true }).click();
       await expect.poll(exact).toBe(true);
       await p.getByRole("button", { name: "Exit full view", exact: true }).click();
