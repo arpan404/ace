@@ -31,6 +31,15 @@ try {
   configuration = parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
 }
 
+let catalogServers = [];
+let catalogSkills = [
+  {
+    id: "skill-one",
+    name: "review",
+    path: "/one/.opencode/skills/review/SKILL.md",
+    description: "Review changes",
+  },
+];
 const streams = new Set(),
   requests = [],
   sessions = new Map(),
@@ -105,7 +114,11 @@ const server = createServer(async (req, res) => {
   if (path === "/api/mcp") {
     json({
       data: [
-        ...new Set([...Object.keys(configuration.mcp?.servers ?? {}), ...nativeMcp.keys()]),
+        ...new Set([
+          ...Object.keys(configuration.mcp?.servers ?? {}),
+          ...nativeMcp.keys(),
+          ...catalogServers,
+        ]),
       ].map((name) => ({
         name,
         status: { status: process.env.ACE_TEST_MCP_FAILED ? "failed" : "connected" },
@@ -218,6 +231,12 @@ const server = createServer(async (req, res) => {
     json(true);
     return;
   }
+  if (path === "/test/catalog") {
+    if (body.skills) catalogSkills = body.skills;
+    if (body.servers) catalogServers = body.servers;
+    json(true);
+    return;
+  }
   if (path === "/test/instance") {
     json({ instance: process.env.ACE_TEST_INSTANCE ?? "default" });
     return;
@@ -244,6 +263,18 @@ const server = createServer(async (req, res) => {
   }
   if (process.env.ACE_TEST_METADATA_ONLY === "1" && ["/api/session", "/api/auth"].includes(path)) {
     res.writeHead(500).end();
+    return;
+  }
+  if (["/api/skill", "/api/agent", "/api/plugin"].includes(path) && req.method === "GET") {
+    json({
+      location: { directory: "/one" },
+      data:
+        path === "/api/skill"
+          ? catalogSkills
+          : path === "/api/agent"
+            ? [{ id: "agent-one", name: "auditor", description: "Audit changes" }]
+            : [],
+    });
     return;
   }
   if (path === "/api/command" && req.method === "GET") {
@@ -361,6 +392,14 @@ const server = createServer(async (req, res) => {
   const match = /^\/api\/session\/([^/]+)(.*)$/.exec(path);
   if (match) {
     const [, id, suffix] = match;
+    if (suffix === "/command" && req.method === "POST") {
+      if (body.name === "reject") {
+        res.writeHead(400).end();
+        return;
+      }
+      empty();
+      return;
+    }
     if (suffix === "/model" && req.method === "POST") {
       const info = sessions.get(id);
       if (!info) {

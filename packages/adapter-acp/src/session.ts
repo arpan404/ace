@@ -1,3 +1,4 @@
+import { nativeCommandInputs } from "@ace/commands/invocation";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { appendAcpMcp } from "@ace/mcp-server";
 import { AcpConfiguration } from "./configuration.ts";
@@ -315,22 +316,32 @@ class AcpSession implements ProviderSession {
   ): Promise<void> {
     if (this.closed) throw new Error("ACP session closed");
     if (this.shells.blocked) throw new Error("ACP shell execution completion is unconfirmed");
-    const bytes = Buffer.byteLength(JSON.stringify(input));
-    if (this.queue.length >= 64 || this.queuedBytes + bytes > 4 * 1024 * 1024)
+    const inputs = nativeCommandInputs(input);
+    const bytes = inputs.reduce(
+      (total, parts) => total + Buffer.byteLength(JSON.stringify(parts)),
+      0,
+    );
+    if (this.queue.length + inputs.length > 64 || this.queuedBytes + bytes > 4 * 1024 * 1024)
       throw new Error("ACP input queue capacity reached");
-    await new Promise<void>((resolve, reject) => {
-      this.queuedBytes += bytes;
-      this.queue.push({
-        input: structuredClone(input),
-        ...(commandId ? { commandId } : {}),
-        ...(origin ? { origin } : {}),
-        bytes,
-        resolve,
-        reject,
-      });
-      this.queueChanged();
-      void this.drain();
-    });
+    await Promise.all(
+      inputs.map(
+        (parts) =>
+          new Promise<void>((resolve, reject) => {
+            const partBytes = Buffer.byteLength(JSON.stringify(parts));
+            this.queuedBytes += partBytes;
+            this.queue.push({
+              input: structuredClone(parts),
+              ...(commandId ? { commandId } : {}),
+              ...(origin ? { origin } : {}),
+              bytes: partBytes,
+              resolve,
+              reject,
+            });
+            this.queueChanged();
+            void this.drain();
+          }),
+      ),
+    );
   }
   queueChanged(): void {
     this.frame("note", "recorder", { event: "queue-changed", count: this.queue.length });

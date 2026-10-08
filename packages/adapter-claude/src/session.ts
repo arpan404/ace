@@ -266,7 +266,16 @@ export async function openSession(
   })();
   ctx.signal.addEventListener("abort", abort, { once: true });
   try {
-    await q.supportedCommands();
+    const commands = await q.supportedCommands();
+    frame("note", "commands.runtime", {
+      type: "system",
+      subtype: "init",
+      slash_commands: commands.map((c) => ({
+        name: c.name,
+        description: c.description,
+        argumentHint: c.argumentHint,
+      })),
+    });
     if (ctx.options !== undefined)
       await q.applyFlagSettings({ effortLevel: selectedOptions.effort ?? null });
     ctx.signal.throwIfAborted();
@@ -274,6 +283,17 @@ export async function openSession(
     await close();
     throw error;
   }
+  await q
+    .supportedAgents()
+    .then((agents) => {
+      if (!closed)
+        frame("note", "catalog.runtime", {
+          method: "agent.list",
+          result: { data: agents.map((a) => ({ name: a.name, description: a.description })) },
+          cwd: ctx.cwd,
+        });
+    })
+    .catch(() => {});
   const ensureOpen = () => {
     if (closed || exited) throw new Error("Claude session is closed");
   };

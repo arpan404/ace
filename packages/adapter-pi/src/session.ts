@@ -1,3 +1,4 @@
+import { nativeCommandInputs } from "@ace/commands/invocation";
 import {
   loadSessionReference,
   saveSessionReference,
@@ -350,10 +351,13 @@ export async function openPiSession(
         });
         return;
       }
-      await rpc.request("prompt", {
-        ...piInput(input),
-        streamingBehavior: delivery === "steer" ? "steer" : "followUp",
-      });
+      // Validate every admission before the first one can reach the harness.
+      const inputs = nativeCommandInputs(input).map(piInput);
+      for (const content of inputs)
+        await rpc.request("prompt", {
+          ...content,
+          streamingBehavior: delivery === "steer" ? "steer" : "followUp",
+        });
     },
     async interrupt(target) {
       check();

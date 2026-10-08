@@ -12,8 +12,10 @@ export function promptBody(input: ContentPart[], cwd: string, id: string, model?
     throw new Error("OpenCode model must be provider/model");
   return {
     messageID: id,
-    parts: input.map((part) =>
-      part.type === "text"
+    parts: input.map((part) => {
+      if (part.type === "mention")
+        throw new Error("The retired v1 verifier cannot invoke extension mentions");
+      return part.type === "text"
         ? part
         : part.type === "image"
           ? { type: "file", mime: part.mimeType, url: part.url }
@@ -21,8 +23,8 @@ export function promptBody(input: ContentPart[], cwd: string, id: string, model?
               type: "file",
               mime: part.mimeType ?? "text/plain",
               url: pathToFileURL(resolve(cwd, part.path)).href,
-            },
-    ),
+            };
+    }),
     ...(model === undefined
       ? {}
       : { model: { providerID: model.slice(0, slash), modelID: model.slice(slash + 1) } }),
