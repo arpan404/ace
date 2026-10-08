@@ -91,6 +91,7 @@ test("secure input says what it is from the session menu, and once allowed, on t
   const sessionId = await world.agentApp("com.apple.TextEdit");
   await app.open("/settings/computer-use");
   const card = await screen.findByRole("article", { name: "TextEdit" });
+  await userEvent.click(within(card).getByRole("button", { expanded: false }));
 
   await userEvent.click(within(card).getByRole("button", { name: "Session options" }));
   const allow = await screen.findByRole("menuitem", { name: /^Allow typing in secure fields/ });
@@ -117,6 +118,7 @@ test("an agent's app shows live in the background; taking over and handing back 
   await app.open("/settings/computer-use");
 
   const card = await screen.findByRole("article", { name: "TextEdit" });
+  await userEvent.click(within(card).getByRole("button", { expanded: false }));
   expect(within(card).getByText("Background")).toBeTruthy();
   expect(within(card).getByText("Capturing")).toBeTruthy();
   await waitFor(() =>
@@ -145,6 +147,8 @@ test("leaving the page closes the live view's decoded frames", async () => {
   const { app, world } = await openSettings();
   await world.agentApp("com.apple.TextEdit");
   const view = await app.open("/settings/computer-use");
+  const row = await screen.findByRole("article", { name: "TextEdit" });
+  await userEvent.click(within(row).getByRole("button", { expanded: false }));
   const live = await screen.findByRole("img", { name: "TextEdit live view" });
   await waitFor(() => expect(browser.draws(live)).toBeGreaterThan(0));
 
@@ -172,7 +176,7 @@ test("revoking an approved app removes the daemon's grant; a sensitive app says 
   await app.open("/settings/computer-use");
 
   const grants = await screen.findByRole("list", { name: "Approved apps" });
-  expect(within(grants).getByText(/Always · asks every turn/)).toBeTruthy();
+  expect(within(grants).getByText(/Ask each turn/)).toBeTruthy();
 
   await userEvent.click(within(grants).getByRole("button", { name: "Revoke TextEdit (Always)" }));
 
@@ -257,6 +261,7 @@ test("permissions that can't be read say why and what to do, then show once Chec
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
   await waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
   expect(screen.queryByText("Unavailable")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
 });
 
 test("permissions refused because computer use is off point at turning it on, and read once it is", async () => {

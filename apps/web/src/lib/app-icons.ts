@@ -4,7 +4,7 @@ import { appIdentityReader } from "../boot/app-identity.ts";
 /*
  * Any app's own icon by its bundle id, as this computer's OS draws it (a PNG data URL): the
  * desktop app reads it from the app itself, so nothing is bundled. Computer-use steps show the
- * app the agent used with it; a browser, which can't ask, shows the app's letter instead.
+ * app the agent used with it; a browser without OS metadata shows a neutral app glyph.
  */
 
 /** The shared bounded desktop metadata lookup also supplies computer-use icons. */

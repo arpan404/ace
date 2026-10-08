@@ -18,7 +18,7 @@ import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
 import { useActivityState } from "./activity-state.tsx";
-import { ButtonKey, CardActions } from "./card-frame.tsx";
+import { CardActions } from "./card-frame.tsx";
 import type { FeedDetail, FeedEvent, PrRef } from "./feed-events.ts";
 import { useFeed } from "./feed-source.ts";
 import { InteractionCard } from "./interaction-card.tsx";
@@ -75,6 +75,7 @@ function RequestDetail(props: {
   return (
     <Page>
       <InteractionCard
+        expanded
         threadId={props.threadId}
         interactionId={props.interactionId}
         cardKey={props.itemKey}
@@ -190,7 +191,6 @@ function OpenThread(props: { threadId: string | undefined; label?: string }) {
   return (
     <Button variant="primary" onClick={open}>
       {props.label ?? "Open thread"}
-      <ButtonKey primary>O</ButtonKey>
     </Button>
   );
 }

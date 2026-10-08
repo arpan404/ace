@@ -1,17 +1,10 @@
 import type { Interaction } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { privateBrowserGate, questionOptions } from "@ace/ui-core";
 import { PrivateBrowserNotice } from "@/components/private-browser-notice.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
-import {
-  ButtonKey,
-  CardActions,
-  CardError,
-  OpenThreadAction,
-  useCardFocused,
-} from "./card-frame.tsx";
+import { CardActions, CardError, OpenThreadAction, useCardFocused } from "./card-frame.tsx";
 import { confirmations, useAnswer } from "./use-answer.ts";
 
 export { requestTitle } from "./request-title.ts";
@@ -79,13 +72,8 @@ function OptionButton(props: {
       type="button"
       disabled={props.disabled}
       onClick={props.onChoose}
-      className="flex items-center gap-2.5 rounded-[10px] bg-muted px-3 py-[9px] text-left text-ui transition-colors duration-(--dur-1) hover:bg-accent disabled:cursor-default disabled:hover:bg-muted"
+      className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left text-ui transition-colors duration-(--dur-1) hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent"
     >
-      {key && (
-        <Kbd aria-hidden className="shrink-0">
-          {key}
-        </Kbd>
-      )}
       <span className="min-w-0">
         {props.label}
         {props.description && <span className="text-muted-foreground"> · {props.description}</span>}
@@ -135,11 +123,9 @@ function PlanReviewBody(props: { interaction: Interaction; cardKey: string }) {
       <CardActions>
         <Button variant="ghost" disabled={sending} onClick={reject}>
           Request changes
-          <ButtonKey>D</ButtonKey>
         </Button>
         <Button variant="primary" disabled={sending} onClick={approve}>
           Approve plan
-          <ButtonKey primary>A</ButtonKey>
         </Button>
       </CardActions>
       <CardError message={failure} />

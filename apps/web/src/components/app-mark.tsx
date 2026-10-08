@@ -1,16 +1,14 @@
+import { AppWindowIcon } from "@phosphor-icons/react";
+import { useAppIcon } from "@/lib/app-icons.ts";
 import { cn } from "@/lib/cn.ts";
 
-/** An app's mark: its initial on a tile, wherever an app is named (computer use, approvals). */
-export function AppMark(props: { name: string; className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "grid size-6 shrink-0 place-items-center rounded-md bg-foreground/8 text-xs font-medium text-foreground",
-        props.className,
-      )}
-    >
-      {props.name.charAt(0).toUpperCase()}
-    </span>
+/** The installed app's own OS icon; an app glyph while metadata isn't available. */
+export function AppMark(props: { name: string; bundleId?: string; className?: string }) {
+  const icon = useAppIcon(props.bundleId);
+  const className = cn("size-5 shrink-0", props.className);
+  return icon ? (
+    <img alt="" src={icon} className={className} />
+  ) : (
+    <AppWindowIcon aria-hidden className={className} />
   );
 }

@@ -48,7 +48,7 @@ export function FeedRow(props: {
       }}
       className={cn(
         compactViewRowClass,
-        "h-9 items-center pr-12 py-0 hover:bg-transparent aria-[current=page]:bg-transparent",
+        "h-9 items-center justify-start text-left pr-12 py-0 hover:bg-transparent aria-[current=page]:bg-transparent",
       )}
     >
       <span

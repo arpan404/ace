@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useSidebarThread } from "@ace/client-react";
 import type { ScreenState } from "@ace/protocol";
 import { screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
@@ -23,8 +24,10 @@ export function SessionCard(props: {
   threadId?: string | undefined;
   /** Draw the live picture (off in compact lists such as the rail's popover). */
   live?: boolean;
+  compact?: boolean | undefined;
 }) {
   const { state, use } = props;
+  const [expanded, setExpanded] = useState(false);
   const holderName = useAgentLabel(state.holder?.threadId, state.holder?.agentId);
   const holderThread = useSidebarThread(state.holder?.threadId ?? "")?.title;
   const view = screenSession(state, () => holderName);
@@ -33,6 +36,22 @@ export function SessionCard(props: {
   const delegateThread = props.threadId ?? state.holder?.threadId ?? previous?.threadId;
   const session = use.session;
   const busy = use.pending;
+  if (props.compact)
+    return (
+      <article aria-label={view.app} className="border-b">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+          className="focus-ring flex h-9 w-full min-w-0 items-center gap-2 text-left text-ui"
+        >
+          <AppMark name={view.app} bundleId={view.bundleId} />
+          <span className="min-w-0 flex-1 truncate">{view.app}</span>
+          {!expanded && <StatusLabel tone={view.tone} label={view.status} />}
+        </button>
+        {expanded && <SessionCard state={state} use={use} threadId={props.threadId} />}
+      </article>
+    );
   return (
     <article aria-label={view.app} className="flex min-w-0 flex-col overflow-hidden border-b">
       {props.live !== false && session && state.lifecycle === "live" && (
@@ -42,7 +61,7 @@ export function SessionCard(props: {
       )}
       <div className="flex min-w-0 flex-col gap-2 p-3">
         <div className="flex min-w-0 items-center gap-2">
-          <AppMark name={view.app} />
+          <AppMark name={view.app} bundleId={view.bundleId} />
           <h3 className="min-w-0 flex-1 truncate text-ui font-medium">{view.app}</h3>
           {view.capturing && (
             <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
