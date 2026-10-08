@@ -10,6 +10,7 @@ test("native MCP controls require thread authority and stop working after the pr
   let projectStatus = "failed";
   providers.bind(
     f.thread.id,
+    f.thread.provider,
     {
       async status() {
         return [
@@ -101,4 +102,62 @@ test("native MCP controls require thread authority and stop working after the pr
     code: "mcp_failed",
     requestId: "expired",
   });
+});
+
+test("Settings reaches the provider's live MCP servers without a thread, and a server waiting for sign-in says so", async () => {
+  const providers = new McpProviderSessions();
+  const f = await setup({ mcp: { providers } });
+  const provider = f.thread.provider;
+  const other = provider === "codex" ? "claude" : "codex";
+  const lifetime = new AbortController();
+  let vercel = "needs-auth";
+  providers.bind(
+    f.thread.id,
+    provider,
+    {
+      async status() {
+        return [
+          { name: "vercel", status: vercel },
+          { name: "ace", status: "connected" },
+        ];
+      },
+      async replace() {
+        return {};
+      },
+      async reconnect(name) {
+        if (name === "vercel") vercel = "connected";
+      },
+      async enable() {},
+      async disable() {},
+    },
+    lifetime.signal,
+  );
+  const host = await f.connect();
+  await host.next();
+  const sources = async (scope: typeof provider, requestId: string) => {
+    host.send({ type: "mcp.provider.sources", provider: scope, requestId });
+    return host.next();
+  };
+  expect(await sources(provider, "before")).toEqual({
+    type: "mcp.result",
+    provider,
+    requestId: "before",
+    result: {
+      groups: [],
+      servers: [{ name: "vercel", status: "needs_auth" }],
+      live: true,
+      canAdd: false,
+      appliesNextTurn: false,
+    },
+  });
+  host.send({ type: "mcp.provider.reconnect", provider, name: "vercel", requestId: "reconnect" });
+  expect(await host.next()).toMatchObject({ type: "mcp.result", requestId: "reconnect" });
+  expect(await sources(provider, "after")).toMatchObject({
+    result: { servers: [{ name: "vercel", status: "connected" }] },
+  });
+  expect(await sources(other, "other")).toMatchObject({ result: { live: false, servers: [] } });
+  host.send({ type: "mcp.provider.reconnect", provider: other, name: "vercel", requestId: "idle" });
+  expect(await host.next()).toMatchObject({ type: "error", code: "mcp_failed", requestId: "idle" });
+  lifetime.abort();
+  expect(await sources(provider, "ended")).toMatchObject({ result: { live: false, servers: [] } });
 });

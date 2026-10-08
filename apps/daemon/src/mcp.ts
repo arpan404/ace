@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { ItemId, type McpScope } from "@ace/protocol";
 import {
   type StatusReader,
-  mcpStatusGroups,
   ToolRegistry,
   nodeScheduler,
   registerBuiltins,
@@ -92,26 +91,6 @@ export async function startDaemonMcp(
     toolsChanged: server.toolsChanged,
     action: (name: string, input: unknown) => registry.action(name, input),
     providers: new McpProviderSessions(),
-    groups(
-      threadId: import("@ace/protocol").ThreadId,
-      capabilities: import("@ace/protocol").McpCapability[],
-    ) {
-      const thread = store.getThread(threadId);
-      if (!thread?.rootAgentId) return [];
-      const state = status?.({
-        threadId,
-        agentId: thread.rootAgentId,
-        sessionId: "sources",
-      });
-      return mcpStatusGroups(
-        registry.capabilities(),
-        capabilities,
-        state?.disabled,
-        state?.permissionMode,
-      )
-        .filter((group) => group.enabled)
-        .map((group) => group.name);
-    },
     /** Provider adapters own this lease, and end it or abort lifetime on every exit path. */
     openSession(scope: McpScope, lifetime: AbortSignal) {
       if (!store.getMcpAgent(scope.threadId, scope.agentId)) throw new Error("Unknown MCP caller");

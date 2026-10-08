@@ -10,6 +10,7 @@
       "type": "boolean"
     },
     "groups": {
+      "default": [],
       "items": {
         "maxLength": 64,
         "type": "string"
@@ -29,7 +30,6 @@
     }
   },
   "required": [
-    "groups",
     "servers",
     "live",
     "canAdd"
