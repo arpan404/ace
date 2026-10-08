@@ -1,4 +1,4 @@
-import { aceToolThreadIds } from "./ace-tools.ts";
+import { aceToolThreadIds } from "./ace-tool-results.ts";
 import { automationList, automationRuns } from "../catalog/automations.ts";
 import { pluginCatalog } from "../catalog/plugins.ts";
 import { pullRequests } from "../catalog/pull-requests.ts";

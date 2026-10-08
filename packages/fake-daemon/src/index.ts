@@ -28,6 +28,14 @@ export {
   smoothnessMeasurements,
 } from "./scenarios/smoothness.ts";
 export { homeList } from "./scenarios/home-list.ts";
+export {
+  aceCall,
+  aceTools,
+  aceToolsBrowser,
+  aceToolsComputerUse,
+  aceToolsDevices,
+  screenAudit,
+} from "./scenarios/ace-tools.ts";
 export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
@@ -79,4 +87,4 @@ export { uxAudit, uxAuditScreens } from "./scenarios/ux-audit.ts";
 
 export { FakeScreen, type FakeScreenOptions } from "./screen.ts";
 
-export { aceToolRows, aceToolThreadIds } from "./scenarios/ace-tools.ts";
+export { aceToolRows, aceToolThreadIds } from "./scenarios/ace-tool-results.ts";

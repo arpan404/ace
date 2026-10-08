@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { PermissionReviewFacts } from "@/components/permission-review.tsx";
 import { displayCommand, patchLines, stepPath } from "@ace/ui-core";
+import type { AceToolView } from "@ace/ui-core/ace-tools";
 import { useItemInteraction } from "../interactions/use-item-interaction.ts";
 import { readOutputText } from "@/lib/output-read.ts";
 
@@ -14,8 +15,14 @@ import { readOutputText } from "@/lib/output-read.ts";
  * arguments, the plan, reasoning, the error in full, and the review of the approval that gated
  * it. With `threadId`, paths read relative to the agent's directory and the review shows.
  */
-export function StepDetail(props: { item: Item; threadId?: string | undefined }) {
+export function StepDetail(props: {
+  item: Item;
+  threadId?: string | undefined;
+  /** One of ace's own steps, as its row read it. */
+  ace?: AceToolView | undefined;
+}) {
   const item = props.item;
+  if (props.ace) return <AceStepDetail item={item} view={props.ace} />;
   if (item.type === "reasoning")
     return (
       <p className="text-ui leading-normal whitespace-pre-wrap text-muted-foreground">
@@ -141,6 +148,56 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined }) {
       {(detail.kind === "mcp" ||
         ["browser", "image", "notebook", "custom"].includes(detail.kind)) &&
         raw.length > 0 && <JsonBlock label="Raw" value={raw} collapsed />}
+    </div>
+  );
+}
+
+/**
+ * An ace step opened: what to do about a failure, what it tried, and everything raw (its code,
+ * the tool, its arguments and payloads) behind Details.
+ */
+function AceStepDetail(props: { item: Item; view: AceToolView }) {
+  const { item, view } = props;
+  const [open, setOpen] = useState(false);
+  const call = item.type === "tool_call" ? item.call : undefined;
+  const tried = `${view.words.awaiting}${view.words.target ? ` ${view.words.target}` : ""}`;
+  return (
+    <div className="flex flex-col gap-1">
+      {view.problem && (
+        <p className="text-ui text-muted-foreground">
+          {view.problem.hint ? `${view.problem.hint} ` : ""}
+          <span className="text-subtle-foreground">
+            Tried to {tried.charAt(0).toLowerCase() + tried.slice(1)}.
+          </span>
+        </p>
+      )}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="self-start text-xs text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline"
+      >
+        Details
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2">
+          <p className="font-mono text-xs break-all text-muted-foreground">
+            {[view.tool, view.problem?.code, item.type === "notice" ? item.text : undefined]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          {call?.detail.kind === "mcp" && call.detail.arguments !== undefined && (
+            <JsonBlock label="Arguments" value={call.detail.arguments} />
+          )}
+          {call?.error && (
+            <p className="text-ui whitespace-pre-wrap text-muted-foreground">{call.error}</p>
+          )}
+          {"raw" in item && item.raw.length > 0 && (
+            <JsonBlock label="Raw" value={item.raw} collapsed />
+          )}
+          {call && call.raw.length > 0 && <JsonBlock label="Raw" value={call.raw} collapsed />}
+        </div>
+      )}
     </div>
   );
 }
