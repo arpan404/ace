@@ -9,6 +9,7 @@ interface Job {
   requestId: string;
   progress: ProviderLoginProgress;
   scenario: Scenario;
+  settled?: ((state: "succeeded" | "failed" | "cancelled") => void) | undefined;
   terminalOwner?: (message: ServerMessage) => void;
 }
 /** Browser completion is explicit through complete(), so fixtures do not depend on wall time. */
@@ -62,10 +63,30 @@ export class FakeProviderLogin {
         if (job.progress.manual) delete job.progress.manual.terminalId;
       }
   }
+  finishTerminal(session: string): void {
+    const job = this.jobs.get(session);
+    if (!job?.progress.manual || job.progress.state !== "failed") return;
+    job.settled?.("succeeded");
+    job.settled = undefined;
+    this.changed(
+      job.progress.provider,
+      job.progress.action === "login",
+      job.progress.instance,
+      job.progress.method,
+    );
+  }
   complete(session: string, success = true): void {
     const job = this.jobs.get(session);
-    if (!job || ["succeeded", "failed", "cancelled"].includes(job.progress.state)) return;
+    if (
+      !job ||
+      job.progress.state === "succeeded" ||
+      job.progress.state === "cancelled" ||
+      (job.progress.state === "failed" && !job.progress.manual)
+    )
+      return;
     this.update(job, { state: "verifying" });
+    job.settled?.(success ? "succeeded" : "failed");
+    job.settled = undefined;
     if (success)
       this.changed(
         job.progress.provider,
@@ -128,6 +149,7 @@ export class FakeProviderLogin {
     owner: string,
     push: (message: ServerMessage) => void,
     respond = push,
+    settled?: Job["settled"],
   ): boolean {
     const onboarding = OnboardingRequest.safeParse(message);
     if (onboarding.success) {
@@ -166,8 +188,11 @@ export class FakeProviderLogin {
       });
     for (const [id, job] of this.jobs)
       if (job.progress.expiresAt <= this.now()) {
-        if (!["succeeded", "failed", "cancelled"].includes(job.progress.state))
+        if (job.settled || !["succeeded", "failed", "cancelled"].includes(job.progress.state)) {
+          job.settled?.("failed");
+          job.settled = undefined;
           this.update(job, { state: "failed", message: "Sign-in timed out. Try again." });
+        }
         this.jobs.delete(id);
       }
     if (input.type === "provider.login.start" || input.type === "provider.logout") {
@@ -215,6 +240,7 @@ export class FakeProviderLogin {
         owner,
         requestId: input.requestId,
         scenario,
+        settled,
         progress: {
           session: `fake-login-${++this.sequence}`,
           provider: input.provider,
@@ -272,8 +298,11 @@ export class FakeProviderLogin {
       this.complete(job.progress.session, job.scenario !== "failure");
     }
     if (input.type === "provider.login.cancel") {
-      if (!["succeeded", "failed", "cancelled"].includes(job.progress.state))
+      if (job.settled || !["succeeded", "failed", "cancelled"].includes(job.progress.state)) {
+        job.settled?.("cancelled");
+        job.settled = undefined;
         this.update(job, { state: "cancelled", message: "Sign-in cancelled." });
+      }
     }
     if (input.type === "provider.login.terminal") {
       if (!job.progress.manual) {

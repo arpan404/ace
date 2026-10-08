@@ -31,7 +31,7 @@ export function fakeProviderAccounts(
       result: { ok: false, error },
     });
   let instanceId = "instanceId" in request ? request.instanceId : undefined;
-  const accounts = options.accounts();
+  const accounts = [...options.accounts()];
   if (request.type === "provider.accounts.add") {
     if (
       request.method === "api_key" &&
@@ -96,6 +96,10 @@ export function fakeProviderAccounts(
             ? { ok: true, accounts: rows(), apiKey, progress: result.result.progress }
             : { ok: false, error: "failed", instanceId },
         });
+      },
+      (state) => {
+        if (request.type === "provider.accounts.add" && state === "succeeded" && account)
+          options.replace([...options.accounts(), account]);
       },
     );
     return true;

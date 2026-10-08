@@ -164,3 +164,66 @@ test("read-only fake clients can list accounts but cannot add or submit credenti
     await client.close();
   }
 });
+
+for (const method of ["login", "api_key"] as const) {
+  test(`a cancelled new ${method} account is absent from every list and leaves the CLI's own login intact`, async () => {
+    const daemon = new FakeDaemon({ clock: () => 1000 });
+    const client = await connected(daemon);
+    try {
+      const before = await client.request({ type: "accounts.list" });
+      const added = await client.request({
+        type: "provider.accounts.add",
+        provider: "codex",
+        label: "Unfinished",
+        method,
+      });
+      if (!added.result.ok || !added.result.progress) throw new Error("Missing login");
+      expect((await client.request({ type: "accounts.list" })).accounts).toEqual(before.accounts);
+      await client.request({
+        type: "provider.login.cancel",
+        session: added.result.progress.session,
+      });
+      expect((await client.request({ type: "accounts.list" })).accounts).toEqual(before.accounts);
+      expect(
+        (await client.request({ type: "provider.accounts.list", provider: "codex" })).result,
+      ).toMatchObject({
+        accounts: before.accounts.filter((account) => account.provider === "codex"),
+      });
+    } finally {
+      await client.close();
+    }
+  });
+}
+
+test("a successful isolated Codex login gets models without inventing usage windows or changing the CLI's own email", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const client = await connected(daemon);
+  try {
+    const before = await client.request({ type: "providers.request", operation: "readiness" });
+    const added = await client.request({
+      type: "provider.accounts.add",
+      provider: "codex",
+      label: "Client work",
+      method: "login",
+    });
+    if (!added.result.ok || !added.result.progress?.instance) throw new Error("Missing login");
+    const { session, instance } = added.result.progress;
+    daemon.services.providerLogin.complete(session);
+    const list = await client.request({ type: "accounts.list" });
+    expect(list.accounts.find((account) => account.id === instance)).toMatchObject({
+      label: "Client work",
+      authMethod: "browser",
+      quota: { auth: "logged_in", windows: {} },
+    });
+    const models = await client.request({ type: "models.list" });
+    expect(
+      "models" in models.result &&
+        models.result.models.some((model) => model.instance === instance),
+    ).toBe(true);
+    expect(
+      (await client.request({ type: "providers.request", operation: "readiness" })).result,
+    ).toEqual(before.result);
+  } finally {
+    await client.close();
+  }
+});

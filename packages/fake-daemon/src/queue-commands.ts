@@ -1,3 +1,5 @@
+import { accountName, providerDisplayName } from "@ace/ui-core";
+import type { AccountSummary } from "@ace/protocol/accounts";
 import type { Fact } from "@ace/core";
 import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
 import {
@@ -76,6 +78,7 @@ export function queueCommand(
   payload: QueueCommand,
   now: number,
   commandId: string,
+  destination?: AccountSummary,
 ): ThreadCommandOutcome {
   if (payload.expectedRevision !== host.queue.revision) return fail("queue_conflict");
   const index =
@@ -164,7 +167,7 @@ export function queueCommand(
                     type: "notice",
                     complete: true,
                     level: "info",
-                    text: `Moved to ${payload.instanceId ?? "another account"} after the usage limit.`,
+                    text: `Moved to ${destination ? accountName({ ...destination, providerLabel: providerDisplayName(destination.provider) }) : "another account"} after the usage limit.`,
                   },
                 },
               ];
