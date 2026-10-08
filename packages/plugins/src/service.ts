@@ -7,7 +7,26 @@ export class PluginService {
   constructor(manager: PluginManager) {
     this.manager = manager;
   }
+  private readonly listeners = new Set<() => void>();
+  subscribeCatalog(listener: () => void): () => void {
+    if (this.listeners.size >= 64) throw new Error("Plugin catalog listener limit");
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  extensions(provider: import("@ace/protocol").ProviderKind) {
+    return this.manager.extensions(provider);
+  }
   async handle(input: unknown): Promise<PluginResponse> {
+    const result = await this.respond(input);
+    if (
+      ["plugins.availability", "plugins.accept", "plugins.remove"].includes(
+        PluginRequest.parse(input).type,
+      )
+    )
+      for (const listener of this.listeners) listener();
+    return result;
+  }
+  private async respond(input: unknown): Promise<PluginResponse> {
     const request = PluginRequest.parse(input);
     switch (request.type) {
       case "plugins.availability":

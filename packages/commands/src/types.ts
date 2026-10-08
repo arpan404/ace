@@ -1,7 +1,8 @@
 import type { PaletteCommand, CommandDiagnostic, ProviderKind } from "@ace/protocol";
 export interface Definition extends PaletteCommand {
+  extension?: import("@ace/protocol").CatalogEntry;
   body: string;
-  format: "library" | "claude" | "codex" | "opencode" | "runtime" | "ace";
+  format: "library" | "claude" | "codex" | "opencode" | "cursor" | "pi" | "runtime" | "ace";
   raw: Record<string, unknown>;
   instance?: string;
   session?: string;
@@ -17,9 +18,12 @@ export interface ParseContext {
   source: string;
   name: string;
   scope: "user" | "workspace";
-  format: "library" | "claude" | "codex" | "opencode";
+  format: "library" | "claude" | "codex" | "opencode" | "cursor" | "pi";
   instance?: string;
   skill?: boolean;
+  kind?: import("@ace/protocol").CatalogKind;
+  path?: string;
+  plugin?: string;
 }
 export interface Target {
   provider: ProviderKind;

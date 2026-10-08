@@ -8,6 +8,8 @@ export interface DiscoveryRoot {
   scope: "user" | "workspace";
   instance?: string | undefined;
   skill?: boolean | undefined;
+  kind?: import("@ace/protocol").CatalogKind | undefined;
+  plugin?: string | undefined;
   trustedRoot?: string | undefined;
 }
 export function discoveryRoots(
@@ -24,11 +26,83 @@ export function discoveryRoots(
       scope: "workspace",
     },
   ];
+  for (const scope of [
+    { path: aceHome, scope: "user" as const },
+    { path: join(workspace, ".ace"), scope: "workspace" as const },
+  ])
+    roots.push({
+      path: join(scope.path, "skills"),
+      trustedRoot: scope.scope === "workspace" ? workspace : aceHome,
+      format: "library",
+      scope: scope.scope,
+      skill: true,
+    });
   for (const instance of instances) {
     const scopes = [
       { path: instance.home, scope: "user" as const },
       { path: join(workspace, `.${instance.provider}`), scope: "workspace" as const },
     ];
+    if (["claude", "codex", "cursor", "opencode"].includes(instance.provider))
+      for (const scope of scopes) {
+        for (const folder of instance.provider === "opencode" ? ["agent", "agents"] : ["agents"])
+          roots.push({
+            path: join(scope.path, folder),
+            trustedRoot: scope.scope === "workspace" ? workspace : instance.home,
+            format:
+              instance.provider === "opencode"
+                ? "opencode"
+                : instance.provider === "cursor"
+                  ? "cursor"
+                  : instance.provider === "codex"
+                    ? "codex"
+                    : "claude",
+            scope: scope.scope,
+            instance: instance.id,
+            kind: "agent",
+          });
+      }
+    if (instance.provider === "cursor" || instance.provider === "pi")
+      for (const scope of scopes) {
+        for (const folder of instance.provider === "pi"
+          ? ["skills", "prompts"]
+          : ["skills", "commands"])
+          roots.push({
+            path: join(scope.path, folder),
+            trustedRoot: scope.scope === "workspace" ? workspace : instance.home,
+            format: instance.provider,
+            scope: scope.scope,
+            instance: instance.id,
+            skill: folder === "skills",
+          });
+      }
+    if (instance.provider === "codex" || instance.provider === "opencode") {
+      for (const scope of scopes)
+        roots.push({
+          path: join(scope.path, "skills"),
+          trustedRoot: scope.scope === "workspace" ? workspace : instance.home,
+          format: instance.provider,
+          scope: scope.scope,
+          instance: instance.id,
+          skill: true,
+        });
+      roots.push({
+        path: join(workspace, ".agents/skills"),
+        trustedRoot: workspace,
+        format: instance.provider,
+        scope: "workspace",
+        instance: instance.id,
+        skill: true,
+      });
+      if (instance.skillsHome)
+        roots.push({
+          path: join(instance.skillsHome, ".agents/skills"),
+          trustedRoot: instance.skillsHome,
+          format: instance.provider,
+          scope: "user",
+          instance: instance.id,
+          skill: true,
+        });
+    }
     if (instance.provider === "claude")
       for (const scope of scopes) {
         roots.push({

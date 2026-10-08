@@ -66,7 +66,7 @@ export function resolveCommand(
     if (missing !== undefined) return failure("invalid_argument", missing);
     if (text === undefined) return failure("limit_exceeded");
     plan = { kind: "prompt", provider, text };
-  } else if (command.format === "codex") {
+  } else if (command.format === "codex" || command.format === "pi" || command.format === "cursor") {
     let missing: string | undefined;
     const joined = pos.data.join(" ");
     const text = expandTemplate(

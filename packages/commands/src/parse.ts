@@ -1,3 +1,4 @@
+import { parse as parseToml } from "smol-toml";
 import { parseDocument } from "yaml";
 import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { z } from "zod";
@@ -28,7 +29,12 @@ const configCommand = z
     subtask: z.boolean().optional(),
   })
   .passthrough();
-const config = z.object({ command: z.record(PaletteName, z.unknown()).default({}) }).passthrough();
+const config = z
+  .object({
+    command: z.record(PaletteName, z.unknown()).default({}),
+    agent: z.record(PaletteName, z.unknown()).default({}),
+  })
+  .passthrough();
 const diagnostic = (source: string): ParsedSource => ({
   commands: [],
   diagnostics: [{ source, message: "Invalid command metadata or document" }],
@@ -36,9 +42,46 @@ const diagnostic = (source: string): ParsedSource => ({
 function definition(ctx: ParseContext, body: string, raw: Record<string, unknown>): Definition {
   const meta = providerMeta.parse(raw);
   const lib = ctx.format === "library" ? libraryMeta.parse(raw) : undefined;
-  const name = PaletteName.parse(ctx.skill || lib ? (meta.name ?? ctx.name) : ctx.name);
+  const name = PaletteName.parse(
+    ctx.skill || ctx.kind === "agent" || lib ? (meta.name ?? ctx.name) : ctx.name,
+  );
   return {
     id: `${ctx.source}#${name}`,
+    extension: {
+      id: `${ctx.source}#${name}`,
+      kind: ctx.kind ?? (ctx.skill ? "skill" : "command"),
+      name: ctx.plugin ? `${ctx.plugin}:${name}` : name,
+      description: meta.description,
+      source: {
+        provider: ctx.format === "library" ? "ace" : ctx.format,
+        scope: ctx.plugin ? "plugin" : ctx.scope === "workspace" ? "project" : "global",
+        ...(ctx.path ? { path: ctx.path } : {}),
+        ...(ctx.plugin ? { plugin: ctx.plugin } : {}),
+      },
+      invocation:
+        ctx.kind === "agent"
+          ? { type: "agent", name: ctx.plugin ? `${ctx.plugin}:${name}` : name }
+          : ctx.skill &&
+              (ctx.format === "codex" || ctx.format === "opencode" || ctx.format === "cursor") &&
+              ctx.path
+            ? { type: "skill", name, path: ctx.path }
+            : ctx.format === "codex" ||
+                ctx.format === "library" ||
+                (["pi", "cursor"].includes(ctx.format) && !ctx.skill)
+              ? {
+                  type: "prompt",
+                  commandId: `${ctx.source}#${name}`,
+                  ...(lib ? { parameters: lib.arguments } : {}),
+                }
+              : {
+                  type: "slash",
+                  name: ctx.plugin
+                    ? `${ctx.plugin}:${name}`
+                    : ctx.format === "pi" && ctx.skill
+                      ? `skill:${name}`
+                      : name,
+                },
+    },
     name,
     description: meta.description,
     namespace: lib ? "prompt" : "provider",
@@ -51,8 +94,18 @@ function definition(ctx: ParseContext, body: string, raw: Record<string, unknown
     ...(ctx.instance === undefined ? {} : { instance: ctx.instance }),
     ...(meta["argument-hint"] === undefined ? {} : { argumentHint: meta["argument-hint"] }),
     ...(meta["user-invocable"] === false ? { unavailable: true } : {}),
-    priority: (ctx.scope === "workspace" ? 20 : 10) + (ctx.skill ? 1 : 0),
-    nativeName: ctx.format === "codex" ? `prompts:${name}` : name,
+    priority:
+      ctx.format === "claude" && ctx.skill
+        ? ctx.scope === "user"
+          ? 22
+          : 21
+        : (ctx.scope === "workspace" ? 20 : 10) + (ctx.skill ? 1 : 0),
+    nativeName:
+      ctx.format === "codex" && !ctx.skill && ctx.kind !== "agent"
+        ? `prompts:${name}`
+        : ctx.plugin
+          ? `${ctx.plugin}:${name}`
+          : name,
   };
 }
 export function parseMarkdown(text: string, ctx: ParseContext): ParsedSource {
@@ -91,9 +144,35 @@ export function parseOpenCodeConfig(text: string, ctx: Omit<ParseContext, "forma
         definition({ ...ctx, name, format: "opencode" }, item.data.template, item.data),
       );
     }
+    for (const [name, value] of Object.entries(parsed.agent).slice(0, 256)) {
+      const agent = z
+        .object({
+          description: z.string().max(2048).default(""),
+          disable: z.boolean().default(false),
+        })
+        .passthrough()
+        .safeParse(value);
+      if (agent.success && !agent.data.disable)
+        result.commands.push(
+          definition({ ...ctx, name, format: "opencode", kind: "agent" }, "", agent.data),
+        );
+    }
     if (Object.keys(parsed.command).length > 256)
       result.diagnostics.push({ source: ctx.source, message: "Command count limit exceeded" });
     return result;
+  } catch {
+    return diagnostic(ctx.source);
+  }
+}
+
+export function parseCodexAgent(text: string, ctx: Omit<ParseContext, "format">): ParsedSource {
+  if (Buffer.byteLength(text) > 65536) return diagnostic(ctx.source);
+  try {
+    const raw = z.record(z.string(), z.unknown()).parse(parseToml(text));
+    return {
+      commands: [definition({ ...ctx, format: "codex", kind: "agent" }, "", raw)],
+      diagnostics: [],
+    };
   } catch {
     return diagnostic(ctx.source);
   }
