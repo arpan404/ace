@@ -9,29 +9,39 @@ function app() {
   const made = harness();
   for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
   made.daemon.seedServices({
+    historyTranscripts: {
+      "saved-claude": [
+        { role: "user", text: "Check reconnect retries." },
+        { role: "assistant", text: "Retries now stop at the configured cap." },
+      ],
+      "saved-codex": [
+        { role: "user", text: "Trace replay order." },
+        { role: "assistant", text: "Saved events arrive before live events." },
+      ],
+    },
     history: [
       HistorySession.parse({
         id: "saved-claude",
-        instanceId: "claude",
+        instanceId: "claude-personal",
         provider: "claude",
         nativeId: "native",
         cwd: "/Users/dev/relay",
         title: "Fix the old retry loop",
         lastActivity: Date.now(),
-        messageCount: 3,
+        messageCount: 2,
         countAccuracy: "exact",
         support: { status: "supported" },
         continuation: { status: "supported" },
       }),
       HistorySession.parse({
         id: "saved-codex",
-        instanceId: "codex",
+        instanceId: "codex-personal",
         provider: "codex",
         nativeId: "native-codex",
         cwd: "/Users/dev/relay",
         title: "Trace delivery order",
         lastActivity: Date.now() - 1000,
-        messageCount: 3,
+        messageCount: 2,
         countAccuracy: "exact",
         support: { status: "supported" },
         continuation: {
@@ -57,7 +67,15 @@ test("New thread lists the selected project's sessions and Import opens their sa
   );
   await screen.findByRole("heading", { level: 1, name: "Fix the old retry loop" });
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(within(feed).getByText("Fix the old retry loop")).toBeTruthy();
+  expect(within(feed).getByText("Check reconnect retries.")).toBeTruthy();
+  expect(await within(feed).findByText("Retries now stop at the configured cap.")).toBeTruthy();
+  expect(within(feed).queryByText("Starting")).toBeNull();
+  await userEvent.type(
+    screen.getByRole("combobox", { name: "Message" }),
+    "Add regression coverage",
+  );
+  await userEvent.keyboard("{Enter}");
+  expect(await within(feed).findByText("Add regression coverage")).toBeTruthy();
 });
 
 test("Continue opens a resumed conversation without sending a made-up message", async () => {

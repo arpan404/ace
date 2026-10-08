@@ -4,18 +4,21 @@ import {
   type ServerMessage,
   type HistorySession,
 } from "@ace/protocol";
+import { rootAgent, message as transcriptMessage } from "./scenarios/facts.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 
 /** Fixture-only history, using the same import/continue wire operations as local history. */
 export class FakeHistory {
   private sessions: HistorySession[] = [];
+  private transcripts: Record<string, { role: "user" | "assistant"; text: string }[]> = {};
   private imported = new Map<string, ThreadId>();
   private host: FakeServiceContext;
   constructor(host: FakeServiceContext) {
     this.host = host;
   }
-  seed(sessions: HistorySession[]) {
+  seed(sessions: HistorySession[], transcripts = this.transcripts) {
     this.sessions = sessions;
+    this.transcripts = transcripts;
   }
   handle(message: ClientMessage, send: (message: ServerMessage) => void): boolean {
     const scan = {
@@ -73,7 +76,11 @@ export class FakeHistory {
     if (message.type === "history.import") {
       progress("preparing");
       const session = this.sessions.find((entry) => entry.id === message.sourceId);
-      if (!session || session.support.status !== "supported") {
+      if (
+        !session ||
+        session.support.status !== "supported" ||
+        !this.transcripts[session.id]?.length
+      ) {
         progress("unsupported");
         send({
           type: "history.import",
@@ -99,18 +106,13 @@ export class FakeHistory {
           },
         });
         this.imported.set(session.id, id);
+        const root = rootAgent(session.provider, session.cwd);
+        if (root.type === "agent.seen") root.native.nativeId = session.nativeId;
         this.host.apply?.(id, [
-          {
-            type: "item.upsert",
-            agent: "root",
-            item: "saved-message",
-            draft: {
-              type: "message",
-              role: "user",
-              parts: [{ type: "text", text: session.title }],
-              complete: true,
-            },
-          },
+          root,
+          ...(this.transcripts[session.id] ?? []).map((entry, index) =>
+            transcriptMessage("root", `saved-${index}`, entry.role, entry.text),
+          ),
         ]);
       }
       progress("completed");
