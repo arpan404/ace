@@ -12,6 +12,20 @@ function Buttons() {
   const toast = useToast();
   return (
     <>
+      <button
+        type="button"
+        onClick={() => {
+          toast.add({ title: "Signed in to Codex · Work", kind: "provider-auth", eventId: "work" });
+          toast.add({ title: "Signed in to Codex · Work", kind: "provider-auth", eventId: "work" });
+          toast.add({
+            title: "Signed in to Codex · Personal",
+            kind: "provider-auth",
+            eventId: "personal",
+          });
+        }}
+      >
+        Sign in twice
+      </button>
       <button type="button" onClick={() => toast.add({ title: "Copied" })}>
         Copy
       </button>
@@ -22,6 +36,21 @@ function Buttons() {
         }
       >
         Archive
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          for (const name of ["first", "second"])
+            toast.add({
+              title: "Archived",
+              actionProps: {
+                children: "Undo",
+                onClick: () => toast.add({ title: `Restored ${name}` }),
+              },
+            });
+        }}
+      >
+        Archive twice
       </button>
       <button
         type="button"
@@ -115,4 +144,21 @@ test("an error toast's Retry and Dismiss can be found by role and used", async (
   await userEvent.click(within(card).getByRole("button", { name: "Retry" }));
   expect(await screen.findByText("Saved")).toBeTruthy();
   expect(within(card).getByRole("button", { name: "Dismiss", hidden: false })).toBeTruthy();
+});
+
+test("a repeated sign-in event announces once and a newer sign-in replaces its wording", async () => {
+  setup();
+  await userEvent.click(screen.getByRole("button", { name: "Sign in twice" }));
+  expect(await screen.findByText("Signed in to Codex · Personal")).toBeTruthy();
+  expect(screen.queryByText("Signed in to Codex · Work")).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Dismiss" })).toHaveLength(1);
+});
+
+test("a newer confirmation of the same kind replaces its action too", async () => {
+  setup();
+  await userEvent.click(screen.getByRole("button", { name: "Archive twice" }));
+  expect(screen.getAllByRole("button", { name: "Undo" })).toHaveLength(1);
+  await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+  expect(await screen.findByText("Restored second")).toBeTruthy();
+  expect(screen.queryByText("Restored first")).toBeNull();
 });

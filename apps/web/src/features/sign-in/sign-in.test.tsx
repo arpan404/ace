@@ -229,7 +229,7 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   await screen.findByRole("feed", { name: "Transcript" });
   const popover = await openModelControl(/^Model: /);
   const list = await openModelPicker(popover);
-  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor · Your CLI login" }));
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: "Sign in" }));
 
@@ -248,7 +248,7 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   );
   await userEvent.click(
     within(screen.getByRole("dialog", { name: "Model and effort" })).getByRole("tab", {
-      name: "Cursor",
+      name: "Cursor · Your CLI login",
     }),
   );
   await waitFor(() => expect(within(again).queryByText("Cursor sign-in has expired.")).toBeNull());

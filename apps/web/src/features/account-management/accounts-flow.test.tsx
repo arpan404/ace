@@ -74,7 +74,7 @@ test("a renamed default account immediately names the new-thread composer and pi
   await app.open("/settings/providers/claude");
   const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
   await userEvent.click(within(accounts).getByRole("button", { name: "Manage Work" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit label…" }));
   const field = screen.getByRole("textbox", { name: "Account name" });
   await userEvent.clear(field);
   await userEvent.type(field, "Studio Work{Enter}");
@@ -85,7 +85,9 @@ test("a renamed default account immediately names the new-thread composer and pi
   await screen.findByText("Near its limit · Studio Work");
   await userEvent.click(screen.getByRole("link", { name: /^New thread/ }));
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio Work/ });
-  expect(within(chip).getByText("· Studio Work")).toBeTruthy();
+  expect(
+    within(chip).getByRole("img", { name: "Claude Code · Studio Work · label W" }),
+  ).toBeTruthy();
   const popover = await openModelControl(/^Model: Opus 5.5, Studio Work/);
   const list = await openModelPicker(popover);
   expect(await within(list).findByRole("group", { name: "Studio Work" })).toBeTruthy();
@@ -116,14 +118,33 @@ test("a limited current account remains selected and its notice opens the shared
   app.play(scenario).runThrough("limited");
   await app.open(`/t/${scenario.thread.id}`);
   const popover = await openModelControl();
-  const account = within(popover).getByRole("combobox", { name: "Account" });
-  expect(account.getAttribute("aria-disabled")).not.toBe("true");
-  await userEvent.click(account);
-  const selected = await screen.findByRole("option", { name: "Team · Limit reached" });
+  await openModelPicker(popover);
+  const selected = within(popover).getByRole("tab", { name: "Codex · Team" });
   expect(selected.getAttribute("aria-selected")).toBe("true");
-  expect(selected.getAttribute("aria-disabled")).not.toBe("true");
-  await userEvent.keyboard("{Escape}");
+  expect(selected.getAttribute("aria-disabled")).toBe("true");
   await closeModelControl();
   await userEvent.click(screen.getByRole("button", { name: "Add another account" }));
   expect(await screen.findByRole("form", { name: "Add account" })).toBeTruthy();
+});
+
+test("successive account sign-ins announce one consistently named success, replacing the previous one", async () => {
+  const app = harness();
+  await app.open("/settings/providers/codex");
+  const accounts = await screen.findByRole("list", { name: "Codex accounts" });
+  for (const [name, session] of [
+    ["Team", "fake-login-1"],
+    ["Personal", "fake-login-2"],
+  ]) {
+    await userEvent.click(within(accounts).getByRole("button", { name: `Manage ${name}` }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
+    const dialog = await screen.findByRole("dialog", { name: "Sign in to Codex" });
+    await within(dialog).findByLabelText("Sign-in code");
+    app.daemon.services.providerLogin.complete(session ?? "");
+    const notices = screen.getByRole("region", { name: "Notifications" });
+    await within(notices).findByText(`Signed in to Codex · ${name}`);
+    expect(within(notices).getAllByText(/^Signed in to/)).toHaveLength(1);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Sign in to Codex" })).toBeNull(),
+    );
+  }
 });
