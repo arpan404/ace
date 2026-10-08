@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
-import { AccountId } from "./accounts.ts";
+import { AccountInstanceId } from "./accounts.ts";
 import { ProviderStatus } from "./provider-status.ts";
 
 const id = z.string().min(1).max(128);
-const target = { provider: ProviderKind, instance: AccountId.optional() };
+const target = { provider: ProviderKind, instance: AccountInstanceId.optional() };
 export const ProviderApiKey = z
   .string()
   .min(1)
@@ -91,7 +91,7 @@ export const ProviderLoginProgress = z.strictObject({
       terminalId: id.optional(),
       command: z.string().max(256),
       instruction: z.string().max(1024),
-      instance: AccountId.optional(),
+      instance: AccountInstanceId.optional(),
     })
     .optional(),
 });

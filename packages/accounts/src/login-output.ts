@@ -1,6 +1,13 @@
 import type { ProviderKind } from "@ace/protocol";
 import type { LoginUpdate } from "./login-sessions.ts";
 
+const claudeEndpoints = [
+  ["claude.ai", /^\/oauth\/authorize\/?$/],
+  ["console.anthropic.com", /^\/oauth\/authorize\/?$/],
+  ["platform.claude.com", /^\/oauth\/authorize\/?$/],
+] as const;
+const cursorEndpoints = [["cursor.com", /^\/(?:login|loginDeepControl)\/?$/]] as const;
+
 /** Only reviewed verification/authorization endpoints may cross the wire. */
 export function loginUrl(provider: ProviderKind, candidate: string): string | undefined {
   if (candidate.length > 8192 || /\s/.test(candidate)) return;
@@ -15,20 +22,22 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     provider === "codex"
       ? ([["auth.openai.com", /^\/(?:codex\/device|oauth\/authorize|authorize)\/?$/]] as const)
       : provider === "claude"
-        ? ([
-            ["claude.ai", /^\/oauth\/authorize\/?$/],
-            ["console.anthropic.com", /^\/oauth\/authorize\/?$/],
-            ["platform.claude.com", /^\/oauth\/authorize\/?$/],
-          ] as const)
+        ? claudeEndpoints
         : provider === "cursor"
-          ? ([["cursor.com", /^\/(?:login|loginDeepControl)\/?$/]] as const)
+          ? cursorEndpoints
           : ([
+              ...(provider === "acp" ? [...claudeEndpoints, ...cursorEndpoints] : []),
+              ...(provider === "acp" || provider === "antigravity"
+                ? [["accounts.google.com", /^\/o\/oauth2\/(?:v2\/auth|auth)\/?$/] as const]
+                : []),
               ["github.com", /^\/login\/device\/?$/],
               ["auth.openai.com", /^\/codex\/device\/?$/],
             ] as const);
   if (!allowed.some(([host, path]) => url.hostname === host && path.test(url.pathname))) return;
   const fields = new Set([
-    ...(provider === "cursor" ? ["challenge", "uuid", "mode", "redirect", "redirectTarget"] : []),
+    ...(provider === "cursor" || provider === "acp"
+      ? ["challenge", "uuid", "mode", "redirect", "redirectTarget"]
+      : []),
     "client_id",
     "redirect_uri",
     "response_type",
@@ -38,6 +47,9 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     "code_challenge_method",
     "audience",
     "originator",
+    ...(provider === "acp" || provider === "antigravity"
+      ? ["access_type", "prompt", "login_hint", "include_granted_scopes"]
+      : []),
     "id_token_add_organizations",
     "codex_cli_simplified_flow",
   ]);

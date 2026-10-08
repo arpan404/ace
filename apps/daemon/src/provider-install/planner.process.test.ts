@@ -3,6 +3,60 @@ import { writeFile, symlink, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { installFixture } from "./testing.ts";
 
+test("Pi with an older Node offers the official prerequisite instead of starting npm", async () => {
+  const f = await installFixture({ managers: ["npm"], nodeVersion: "v22.18.0" });
+  try {
+    const plan = await f.installs.plan({ provider: "pi" }, "install");
+    expect(plan).toMatchObject({
+      status: "unavailable",
+      prerequisite: { name: "Node.js", sourceUrl: "https://nodejs.org/en/download" },
+      commands: [],
+    });
+    expect(await f.calls()).not.toContainEqual([
+      "npm",
+      "install",
+      "-g",
+      "--ignore-scripts",
+      "@earendil-works/pi-coding-agent@latest",
+    ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("Homebrew installs a missing Node prerequisite before Pi and verifies the resulting CLI", async () => {
+  const f = await installFixture({ managers: ["brew"], nodeVersion: null });
+  try {
+    expect(await f.installs.plan({ provider: "pi" }, "install")).toMatchObject({
+      status: "ready",
+      method: "brew",
+      prerequisite: { name: "Node.js" },
+    });
+    await f.request({
+      type: "provider.install.run",
+      requestId: "bootstrap",
+      provider: "pi",
+      action: "install",
+      method: "brew",
+    });
+    expect(await f.wait((event) => ["succeeded", "failed"].includes(event.state))).toMatchObject({
+      state: "succeeded",
+      version: "2.0.0",
+    });
+    const calls = await f.calls();
+    expect(calls).toContainEqual(["brew", "install", "node"]);
+    expect(calls).toContainEqual([
+      "npm",
+      "install",
+      "-g",
+      "--ignore-scripts",
+      "@earendil-works/pi-coding-agent@latest",
+    ]);
+  } finally {
+    await f.close();
+  }
+});
+
 test.each(["npm", "brew", "script", "bun"] as const)(
   "existing %s installs retain their method and exact official package",
   async (method) => {
@@ -90,7 +144,7 @@ test("Homebrew latest versions use cask metadata while unknown paths and bundled
       commands: [],
     });
     expect(await f.installs.plan({ provider: "antigravity" }, "install")).toMatchObject({
-      status: "manual",
+      status: "unavailable",
       commands: [],
     });
     expect(await f.installs.plan({ provider: "acp", agent: "gemini" }, "install")).toMatchObject({

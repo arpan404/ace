@@ -1,6 +1,6 @@
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { onboardingKey } from "@/lib/provider-readiness.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 
@@ -18,14 +18,12 @@ export function RediscoverButton() {
     },
   });
   return (
-    <Button
+    <IconButton
       size="sm"
-      variant="ghost"
+      icon={ArrowClockwiseIcon}
+      label={rediscover.isPending ? "Checking…" : "Check again"}
       onClick={() => rediscover.mutate()}
       disabled={rediscover.isPending}
-    >
-      <ArrowClockwiseIcon aria-hidden size={13} />
-      {rediscover.isPending ? "Checking…" : "Check again"}
-    </Button>
+    />
   );
 }

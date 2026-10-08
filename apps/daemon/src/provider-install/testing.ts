@@ -7,7 +7,7 @@ import { ProviderStatuses } from "../provider-status.ts";
 import type { ProviderInstallProgress, ProviderInstallRequest } from "@ace/protocol";
 
 export async function installFixture(
-  options: { writable?: boolean; managers?: readonly string[] } = {},
+  options: { writable?: boolean; managers?: readonly string[]; nodeVersion?: string | null } = {},
 ) {
   const node = process.execPath;
   const home = await mkdtemp(join(tmpdir(), "ace-install-"));
@@ -41,6 +41,11 @@ appendFileSync(process.env.ACE_INSTALL_CALLS, JSON.stringify([manager, ...args])
 if (args.join(' ') === 'root -g') console.log(process.env.ACE_INSTALL_ROOT);
 else if (args.join(' ') === '--prefix') console.log(process.env.ACE_BREW_ROOT);
 else if (args.join(' ') === 'pm bin -g') console.log(process.env.ACE_BUN_BIN);
+else if (manager === 'brew' && args.join(' ') === 'install node') {
+  const destination = join(process.env.ACE_BREW_ROOT, 'bin');
+  mkdirSync(destination, {recursive:true});
+  writeFileSync(join(destination, 'npm'), readFileSync(process.argv[1]), {mode:0o755});
+}
 else if (args[0] === 'view' || args[0] === 'info') {
   const version = readFileSync(home + '/latest', 'utf8').trim();
   if (version === 'offline') process.exit(1);
@@ -64,6 +69,7 @@ else if (args[0] === 'view' || args[0] === 'info') {
       writeFileSync(target, ${JSON.stringify(agentSource)}, {mode:0o755});
       rmSync(join(process.env.ACE_INSTALL_BIN,name), {force:true});
       symlinkSync(target,join(process.env.ACE_INSTALL_BIN,name));
+      if (manager === 'npm' && process.argv[1].startsWith(process.env.ACE_BREW_ROOT)) symlinkSync(target,join(process.env.ACE_BREW_ROOT,'bin',name));
       writeFileSync(home + '/installed-version','2.0.0');
       for(let i=0;i<130;i++) console.log('progress '+i);
       console.log('\\u001b[31mfinished\\u001b[0m NPM_TOKEN=' + (process.env.NPM_TOKEN ?? 'none'));
@@ -72,6 +78,12 @@ else if (args[0] === 'view' || args[0] === 'info') {
 }`;
   for (const name of options.managers ?? ["npm", "brew", "bun"])
     await writeFile(join(bin, name), `#!${node}\n${source}`, { mode: 0o755 });
+  if (options.nodeVersion !== null)
+    await writeFile(
+      join(bin, "node"),
+      `#!${node}\nconsole.log(${JSON.stringify(options.nodeVersion ?? "v24.0.0")})`,
+      { mode: 0o755 },
+    );
   let now = 1000;
   const logs: string[] = [];
   const events: ProviderInstallProgress[] = [];

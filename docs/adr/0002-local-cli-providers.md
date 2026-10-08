@@ -97,3 +97,22 @@ isolated credential worker. Only the SDK serializes or writes its credential fil
 
 See [account and sign-in contract](../daemon/provider-login.md#provider-account-operations-and-api-keys)
 for messages, capability reporting, fixtures and verification limits.
+
+## Amendment: installed ACP agent sign-in
+
+Accepted by the owner's 2026-10-08 request for Install and Sign in for every provider.
+ace may supervise authentication advertised by the user's installed ACP agent,
+including Antigravity's official ACP server. The agent owns OAuth, credential
+entry, persistence and provider requests. ace sends only `initialize` and the
+selected advertised `authenticate` method, or opens the agent's advertised
+terminal command with its configured launch arguments and environment. Terminal
+methods reconnect after exit; they do not also call `authenticate`.
+
+This supersedes the default-to-API-key clause for Antigravity's agent-owned login.
+It does not authorize an ace OAuth implementation, token exchange or credential
+proxy. API-key-only ACP methods remain unsupported by this browser sign-in flow.
+Only reviewed verification URLs and fixed progress cross the login session;
+credential-shaped output is discarded. Live auth terminals have no history or
+replay. Installation does not prove authentication. Confirmed ACP auth stores only
+an account readiness fact, never credentials. Actual vendor sign-in and account
+eligibility still require validation outside fake tests.

@@ -9,6 +9,7 @@ import { AgentId } from "@ace/protocol";
 import { withDaemonMcp } from "./provider-mcp.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
+import { registerAntigravity } from "./antigravity.ts";
 import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
@@ -39,7 +40,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     (await discoverAdapters(
       configuredDiscovery(context, engineOptions.adapterDiscovery),
       (cli) => daemonClaudeAdapter(context, cli),
-      (adapters) => registerPi(context, adapters),
+      async (adapters) => {
+        await registerPi(context, adapters);
+        await registerAntigravity(context, adapters);
+      },
       cursorOptions,
       services.providerConfigurations?.for("cursor").enabled === false
         ? async () => ({ installed: false, supported: false })
@@ -135,6 +139,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           (cli) => daemonClaudeAdapter(context, cli),
           async (adapters) => {
             if (!adapters.has("pi")) await registerPi(context, adapters);
+            await registerAntigravity(context, adapters);
           },
           cursorOptions,
           services.providerConfigurations?.for("cursor").enabled === false

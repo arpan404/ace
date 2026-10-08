@@ -39,3 +39,33 @@ test("device codes and fixed prompts can be relayed while arbitrary diagnostics 
   expect(loginObservation("codex", "access_token=sk-SYNTHETIC0123456789")).toBeUndefined();
   expect(loginObservation("claude", "Error: the CLI said something private")).toBeUndefined();
 });
+
+test("Google authorization challenges belong only to ACP sign-in and never carry tokens", () => {
+  const url =
+    "https://accounts.google.com/o/oauth2/v2/auth?client_id=synthetic&response_type=code&access_type=offline&prompt=consent";
+  expect(loginUrl("antigravity", url)).toBe(url);
+  expect(loginUrl("acp", url)).toBe(url);
+  expect(loginUrl("opencode", url)).toBeUndefined();
+  expect(loginUrl("acp", `${url}&access_token=private-value`)).toBeUndefined();
+  expect(
+    loginUrl("acp", url.replace("accounts.google.com", "accounts.google.com.evil.test")),
+  ).toBeUndefined();
+});
+
+test("ACP bridges can relay reviewed vendor sign-in links without exposing credentials", () => {
+  for (const url of [
+    "https://claude.ai/oauth/authorize?client_id=synthetic&code_challenge=public-pkce",
+    "https://cursor.com/loginDeepControl?uuid=synthetic&challenge=public-pkce&redirectTarget=sdk",
+  ]) {
+    expect(loginObservation("acp", `Continue at ${url}`)).toMatchObject({
+      state: "awaiting_browser",
+      url,
+    });
+    expect(
+      loginObservation("acp", `Continue at ${url}&access_token=private-value`),
+    ).toBeUndefined();
+  }
+  expect(
+    loginUrl("acp", "https://cursor.com/loginDeepControl?redirectTarget=private-destination"),
+  ).toBeUndefined();
+});

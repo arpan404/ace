@@ -6,6 +6,7 @@ import { ArrowClockwiseIcon, ArrowRightIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -13,7 +14,7 @@ import { dismissOnboarding, refreshProviders, useOnboarding } from "@/lib/provid
 import { useProviderAccountModels } from "@/features/accounts/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
-import { MissingRow, ProviderRow } from "./provider-card.tsx";
+import { ProviderRow } from "./provider-card.tsx";
 
 const names = new Intl.ListFormat("en", { type: "conjunction" });
 
@@ -111,15 +112,13 @@ export function SetupScreen() {
               <>
                 <div className="flex items-center gap-3">
                   <Progress ready={ready} total={installed.length} />
-                  <Button
+                  <IconButton
                     size="sm"
-                    variant="ghost"
+                    icon={ArrowClockwiseIcon}
+                    label={checking ? "Checking…" : "Check again"}
                     disabled={checking}
                     onClick={() => void checkAgain()}
-                  >
-                    <ArrowClockwiseIcon aria-hidden size={13} />
-                    {checking ? "Checking…" : "Check again"}
-                  </Button>
+                  />
                 </div>
                 {installed.length > 0 && (
                   <ul aria-label="Providers on this computer" className="flex flex-col">
@@ -140,7 +139,7 @@ export function SetupScreen() {
                     </h3>
                     <ul className="flex flex-col">
                       {missing.map(({ row, view }) => (
-                        <MissingRow key={row.provider} row={row} view={view} />
+                        <ProviderRow key={row.provider} row={row} view={view} />
                       ))}
                     </ul>
                   </section>

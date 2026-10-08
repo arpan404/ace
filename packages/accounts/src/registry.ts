@@ -303,6 +303,21 @@ export class AccountRegistry {
       JSON.stringify(account.quota),
     );
   }
+  /** An installed ACP agent confirmed authentication; arbitrary ACP frames stay opaque. */
+  recordAcpAuth(id: string, auth: "logged_in" | "logged_out", observedAt: number): void {
+    const account = this.get(id);
+    if (!account || account.instance.provider !== "acp") throw new Error("ACP account required");
+    const quota = AccountQuota.parse({ ...account.quota, auth, observedAt });
+    this.loginChanged(id);
+    this.updateQuota.run(JSON.stringify(quota), id);
+    for (const listener of this.quotaListeners) {
+      try {
+        listener(id);
+      } catch {
+        /* Reader owns delivery. */
+      }
+    }
+  }
   recordAuth(id: string, method: "browser" | "api_key" | "unknown", signedInAs?: string): void {
     const account = this.get(id);
     if (!account) throw new Error("Unknown instance");

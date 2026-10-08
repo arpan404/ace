@@ -95,76 +95,59 @@ test("a stale cache shows at once, then the background refresh brings the new li
   expect(await within(dialog).findByText("Updated just now")).toBeTruthy();
 }, 30_000);
 
-test("install shows the plan, asks once more, sends the intent with the plan's digest, then shows progress and the result", async () => {
-  const { app, dialog, registry } = await openRegistry();
-  expect(await openEntry(dialog, "kimi")).toHaveProperty("textContent", "Kimi CLI");
-  const plan = await within(dialog).findByLabelText("Install plan", {}, { timeout: 5_000 });
-  expect(plan.textContent).toContain("Download from github.com");
-  expect(plan.textContent).toContain("Prebuilt binary for macOS on Apple silicon");
-  expect(plan.textContent).toContain("SHA-256 checksum from the registry");
-  expect(plan.textContent).not.toMatch(/installations\/[a-f0-9]{64}/);
-  await userEvent.click(within(dialog).getByText("Details", { exact: true }));
-  expect(within(dialog).getByText(/installations\/[a-f0-9]{64}\/kimi acp/)).toBeTruthy();
-
-  await userEvent.click(within(dialog).getByRole("button", { name: "Install" }));
-  // Nothing is sent until the person confirms.
-  expect(registry.intents).toEqual([]);
-  await userEvent.click(within(dialog).getByRole("button", { name: "Confirm install" }));
-  const [reviewed] = [...registry.plans.keys()];
-  await waitFor(() =>
-    expect(registry.intents).toEqual([{ intentId: expect.any(String), digest: reviewed }]),
-  );
-
-  registry.step(); // preparing → downloading
+test("one click installs a registry agent, then its own sign-in makes it ready in the same dialog", async () => {
+  const { app, dialog } = await openRegistry();
+  app.daemon.services.providerInstalls.autoComplete = false;
+  await openEntry(dialog, "kimi");
+  await userEvent.click(await within(dialog).findByRole("button", { name: "Install" }));
+  await within(dialog).findByRole("progressbar", { name: "Kimi CLI installation progress" });
+  app.daemon.services.providerInstalls.complete("fake-install-1");
+  await userEvent.click(await within(dialog).findByRole("button", { name: "Sign in to Kimi CLI" }));
+  const login = await screen.findByRole("dialog", { name: "Sign in to Kimi CLI" });
+  await within(login).findByRole("link", { name: "Open sign-in page" });
+  app.daemon.services.providerLogin.complete("fake-login-1");
+  await userEvent.click(await within(login).findByRole("button", { name: "Done" }));
+  expect(await within(dialog).findByText("Ready")).toBeTruthy();
+  await userEvent.click(within(dialog).getByRole("button", { name: "Close agent setup" }));
   expect(
-    await within(dialog).findByText(/Downloading · 7\.5 MB/, {}, { timeout: 5_000 }),
+    await within(await screen.findByRole("region", { name: "ACP agents" })).findByRole("link", {
+      name: "Kimi CLI",
+    }),
   ).toBeTruthy();
-  while (registry.step()) await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(
-    await within(dialog).findByText("Kimi CLI 1.52.0 is installed", {}, { timeout: 5_000 }),
-  ).toBeTruthy();
-  expect(within(dialog).getByText(/signs in with its own CLI/)).toBeTruthy();
-
-  // It's a provider now.
-  await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
-  const agents = await screen.findByRole("region", { name: "ACP agents" });
-  expect(await within(agents).findByRole("link", { name: "Kimi CLI" })).toBeTruthy();
-  expect(app.daemon.services.registry.installations.at(-1)?.acpAgentId).toBe("official:kimi");
 }, 30_000);
 
-test("cancel stops an install and nothing is installed", async () => {
-  const { dialog, registry } = await openRegistry();
+test("cancelling a registry install leaves the agent available to install again", async () => {
+  const { app, dialog, registry } = await openRegistry();
+  app.daemon.services.providerInstalls.autoComplete = false;
+  const before = registry.installations.length;
   await openEntry(dialog, "mistral");
   await userEvent.click(await within(dialog).findByRole("button", { name: "Install" }));
-  await userEvent.click(within(dialog).getByRole("button", { name: "Confirm install" }));
-  registry.step();
-  await within(dialog).findByText(/Downloading/, {}, { timeout: 5_000 });
-  const before = registry.installations.length;
-  await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-  expect(
-    await within(dialog).findByText("Installation cancelled. Nothing was changed."),
-  ).toBeTruthy();
-  while (registry.step());
+  await within(dialog).findByRole("progressbar");
+  await userEvent.click(
+    within(dialog).getByRole("button", { name: "Cancel Mistral Vibe installation" }),
+  );
+  expect(await within(dialog).findByText("Cancelled")).toBeTruthy();
+  expect(await within(dialog).findByRole("button", { name: "Install" })).toBeTruthy();
   expect(registry.installations).toHaveLength(before);
 }, 30_000);
 
-test("failures read as fixed, friendly words, never the daemon's raw output", async () => {
-  const { dialog, registry } = await openRegistry();
-  registry.missingManagers.add("npm");
+test("registry prerequisites and failures give a way to retry on the agent's page", async () => {
+  const { app, dialog } = await openRegistry();
+  app.daemon.services.providerInstalls.scenarios.acp = "missing_prerequisite";
   await openEntry(dialog, "cline");
-  expect(
-    await within(dialog).findByText(/ace couldn't find the package manager this agent needs/),
-  ).toBeTruthy();
-
-  await userEvent.click(within(dialog).getByRole("button", { name: "Back to the registry" }));
-  registry.failInstall = "npm ERR! 401 token=sk-secret-value in /Users/ada/.npmrc";
-  await openEntry(dialog, "amp");
   await userEvent.click(await within(dialog).findByRole("button", { name: "Install" }));
-  await userEvent.click(within(dialog).getByRole("button", { name: "Confirm install" }));
-  while (registry.step()) await new Promise((resolve) => setTimeout(resolve, 0));
-  const alert = await within(dialog).findByRole("alert", {}, { timeout: 5_000 });
-  expect(alert.textContent).toBe("That didn't work. Try again.");
-  expect(dialog.textContent).not.toMatch(/npm ERR|sk-secret|npmrc/);
+  expect(await within(dialog).findByRole("link", { name: "Get Node.js" })).toBeTruthy();
+  app.daemon.services.providerInstalls.scenarios.acp = "failure";
+  await userEvent.click(
+    within(dialog).getByRole("button", {
+      name: "Retry Cline installation after installing prerequisites",
+    }),
+  );
+  expect(await within(dialog).findByRole("button", { name: "Retry" })).toBeTruthy();
+  expect(dialog.textContent).toContain("The installer couldn't finish");
+  app.daemon.services.providerInstalls.scenarios.acp = "success";
+  await userEvent.click(within(dialog).getByRole("button", { name: "Retry" }));
+  expect(await within(dialog).findByRole("button", { name: "Sign in to Cline" })).toBeTruthy();
 }, 30_000);
 
 test("an agent the registry doesn't list is added by command, from a quiet link", async () => {
@@ -180,22 +163,18 @@ test("an agent the registry doesn't list is added by command, from a quiet link"
   expect(await within(agents).findByRole("link", { name: "House Agent" })).toBeTruthy();
 }, 30_000);
 
-test("an agent installed a release behind offers Update on its page, which opens its plan", async () => {
+test("an outdated registry agent updates directly from its Setup row", async () => {
   const app = harness();
-  app.daemon.services.registry.stepMs = null;
+  app.daemon.services.providerInstalls.autoComplete = false;
   await app.open("/settings/providers");
   await userEvent.click(
     await screen.findByRole("link", { name: "Gemini CLI" }, { timeout: 10_000 }),
   );
-  const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
-  expect(within(about).getByText("ACP registry")).toBeTruthy();
-  const cli = await screen.findByRole("region", { name: "CLI" });
-  await userEvent.click(within(cli).getByRole("button", { name: "Check for updates" }));
-  expect(
-    await within(cli).findByRole("link", { name: "Official setup instructions" }),
-  ).toBeTruthy();
-  expect(await within(cli).findByRole("button", { name: "Update CLI" })).toBeTruthy();
-  expect(within(cli).getByText(/npm install/).textContent).toContain("@google/gemini-cli");
+  const setup = await screen.findByRole("region", { name: "Setup" });
+  await userEvent.click(await within(setup).findByRole("button", { name: "Update" }));
+  await within(setup).findByRole("progressbar", { name: "Gemini CLI installation progress" });
+  app.daemon.services.providerInstalls.complete("fake-install-1");
+  await waitFor(() => expect(within(setup).queryByRole("button", { name: "Update" })).toBeNull());
 }, 30_000);
 
 test("registry identifies agents already available through their native provider", async () => {

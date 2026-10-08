@@ -49,10 +49,10 @@ it("system discovery uses only version and login-status commands on fake provide
 it("Antigravity discovery reports an installed version and unknown login without entering a session", async () => {
   const root = await temporary();
   await writeFile(
-    join(root, "agy"),
+    join(root, "agy_acp_server"),
     '#!/bin/sh\ncase "$*" in\n"--version") echo "agy 1.2.3";;\n*) exit 99;;\nesac\n',
   );
-  await chmod(join(root, "agy"), 0o700);
+  await chmod(join(root, "agy_acp_server"), 0o700);
   const probes = createSystemProbes(
     { dataDir: root, port: 0, env: { PATH: root } },
     systemProbeRuntime,
@@ -66,7 +66,8 @@ it("Antigravity discovery reports an installed version and unknown login without
   expect(check?.status).toBe("warn");
   expect(check?.message).toContain("1.2.3, unknown");
   expect(check?.message).toContain("interactive verification");
-  expect(check?.fix).toContain("agy interactively");
+  expect(check?.fix).toContain("its own ACP authentication");
+  expect(check?.fix).not.toContain("agy interactively");
 });
 it("first-run creation needs write/search permission on the ancestor without requiring directory listing", async () => {
   const root = await temporary();
