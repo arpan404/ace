@@ -5,6 +5,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "pattern": "^official:[a-z0-9-]+$",
+          "type": "string"
+        },
         "action": {
           "$ref": "https://ace.local/protocol/v1/InstallAction.json",
           "default": "install"
@@ -35,6 +40,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "pattern": "^official:[a-z0-9-]+$",
+          "type": "string"
+        },
         "action": {
           "$ref": "https://ace.local/protocol/v1/InstallAction.json"
         },

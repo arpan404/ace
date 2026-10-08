@@ -1,6 +1,8 @@
+import { createAcpInstance } from "@ace/accounts";
+import { registryInstaller } from "../provider-install/registry.ts";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { ProviderInstallRequest } from "@ace/protocol";
+import { ProviderInstallRequest, ProviderConfigurations } from "@ace/protocol";
 import { ProviderInstalls } from "../provider-install/sessions.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -10,6 +12,44 @@ export function startProviderInstalls(context: ServiceContext): void {
     {
       env: { ...process.env, ...context.options.providerStatus?.env },
       home: context.options.providerStatus?.env?.HOME ?? process.env.HOME ?? homedir(),
+      ...(context.services.agentRegistry
+        ? {
+            registry: registryInstaller(
+              context.services.agentRegistry,
+              async (installation, command) => {
+                if (installation.acpAgentId === "official:antigravity-acp") {
+                  const settings = context.services.settings;
+                  const configurations = context.services.providerConfigurations?.current() ?? [];
+                  if (!settings) throw new Error("Settings unavailable");
+                  const existing = configurations.find(
+                    (entry) => entry.provider === "antigravity" && !entry.instance,
+                  );
+                  await settings.set(
+                    "providers.configuration",
+                    ProviderConfigurations.parse([
+                      ...configurations.filter((entry) => entry !== existing),
+                      { ...existing, provider: "antigravity", binaryPath: command },
+                    ]),
+                    { kind: "global" },
+                  );
+                  await settings.settled({ kind: "global" });
+                } else if (context.services.accountRegistry) {
+                  await context.services.accountRegistry.register(
+                    createAcpInstance({
+                      identity: installation,
+                      installation,
+                      label:
+                        context.services.agentRegistry?.catalog.entry(installation.acpAgentId)
+                          ?.name ?? "ACP agent",
+                      userHome:
+                        context.options.providerStatus?.env?.HOME ?? process.env.HOME ?? homedir(),
+                    }),
+                  );
+                }
+              },
+            ),
+          }
+        : {}),
       binaryPath: (provider) => context.services.providerConfigurations?.for(provider).binaryPath,
     },
     {
@@ -64,7 +104,12 @@ export function createProviderInstallsSession(context: SocketContext): SocketSer
           requestId: input.data.requestId,
           result: { ok: false, error },
         });
-      if (!context.authorize("operate")) reply("forbidden");
+      const registryMutation =
+        (input.data.type === "provider.install.plan" ||
+          input.data.type === "provider.install.run") &&
+        (input.data.provider === "antigravity" || !!input.data.acpAgentId);
+      if (!context.authorize("operate") || (registryMutation && !context.authorize("admin")))
+        reply("forbidden");
       else if (!context.options.providerInstalls) reply("unavailable");
       else if (pending >= 8) reply("busy");
       else {

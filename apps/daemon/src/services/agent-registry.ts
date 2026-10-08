@@ -23,7 +23,7 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
     root: join(root, "installations"),
     target,
     storage: fileInventoryStorage(join(root, "inventory.json"), id),
-    env: process.env,
+    env: { ...process.env, ...options.providerStatus?.env },
     ...(options.acpManagers ? { managers: options.acpManagers } : {}),
   });
   resources.own(() => registry.close());
