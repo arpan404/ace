@@ -10,7 +10,7 @@ export interface AccentColours {
   /** Labels on an accent fill (`--ring-foreground`), black or white: always AA. */
   foreground: string;
   /**
-   * The accent as text (`--ring-text`: links, the current rail view): the accent, moved toward
+   * The accent as text (`--ring-text`: links): the accent, moved toward
    * the text colour just enough to read at AA on every surface of the theme. A custom white
    * accent on Light still gives readable links.
    */

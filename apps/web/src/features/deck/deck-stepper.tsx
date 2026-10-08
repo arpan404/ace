@@ -13,7 +13,7 @@ export function DeckStepper(props: { steps: readonly DeckStep[]; paused: boolean
   const { steps: list, paused } = props;
   return (
     <ol
-      aria-label="Deck progress"
+      aria-label="Offshift progress"
       className="mt-3.5 flex flex-col items-start gap-1.5 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-2.5"
     >
       {list.map((step, index) => (

@@ -13,8 +13,9 @@
   /* Motion tokens live in motion.css. */
 
   /* Layout. */
-  --rail-w: 40px;
   --sidebar-w: 280px;
+  /* A view's own list beside its column (Offshifts, Automations, Skills, Activity). */
+  --pane-w: 272px;
   --header-h: 50px;
   --column: 760px;
   /* Every composer footer control: plus, permission, model, meter, send and stop. */
@@ -29,7 +30,6 @@
   --glass-k: calc(var(--glass) * var(--glass-on));
 
   /* Materials that let the wallpaper show through. */
-  --rail: rgb(var(--rail-rgb) / calc(1 - 0.62 * var(--glass-k)));
   --sidebar: rgb(var(--sidebar-rgb) / calc(1 - 0.5 * var(--glass-k)));
   /* The reading column is a page, not glass: opaque enough that the washes never read as discs. */
   --reading: rgb(var(--reading-rgb) / calc(1 - 0.1 * var(--glass-k)));

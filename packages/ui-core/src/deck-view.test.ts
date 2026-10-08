@@ -132,7 +132,7 @@ test("a lane on the installed CLI's own login reads as that provider's default l
 
 const threads: DeckThreads = (id) =>
   ({
-    "thread-worker": { title: "Deck worker: seq", createdAt: 200, updatedAt: 400 },
+    "thread-worker": { title: "Offshift worker: seq", createdAt: 200, updatedAt: 400 },
     "thread-review": { title: "Deck reviewer: seq", createdAt: 450, updatedAt: 700 },
   })[id];
 
@@ -267,7 +267,7 @@ test("a card stopped on a person comes first: escalations, an agent's question, 
   expect(ask?.interaction).toEqual({ threadId: "thread-worker", interactionId: "interaction-1" });
   expect(ask?.gatedAt).toBe(500);
   expect(run.gates[3]?.body).toBe(
-    "Client ack passed review at a1b2c3d. Approve to merge it into the deck's branch.",
+    "Client ack passed review at a1b2c3d. Approve to merge it into the offshift's branch.",
   );
   // Conductor gates are answered with conductor.approve; they carry no interaction.
   expect(run.gate?.interaction).toBeNull();
@@ -323,10 +323,10 @@ test("a deck that is still stopping its lanes says so and holds its stepper", ()
 
 test("an execution error reads as a sentence, and an unknown one keeps its code", () => {
   expect(deckErrorText("deck_workspace_not_found")).toBe(
-    "The deck's project is no longer on this daemon.",
+    "The offshift's project is no longer on this daemon.",
   );
   expect(deckErrorText("deck_new_failure")).toBe(
-    "The daemon couldn't run the deck's next step (deck_new_failure).",
+    "The daemon couldn't run the offshift's next step (deck_new_failure).",
   );
 });
 
@@ -355,7 +355,7 @@ test("a budget gate is its own decision, saying how much was used and what raisi
   );
   expect(run.gate).toMatchObject({
     ask: "budget",
-    title: "The deck used its budget",
+    title: "The offshift used its budget",
     body: "50 of 50 lane starts used. Raise the budget to keep going.",
     detail: "Reserved cost 51 exceeds budget 50",
   });
@@ -386,7 +386,7 @@ test("an escalation's machine line reads as what happened to the card's lane", (
     "Client ack's reviewer hit its account's limit.",
   );
   expect(escalated("Review retention limit reached; start a new run", null)?.body).toBe(
-    "This card has had too many review rounds. Start a new deck for it.",
+    "This card has had too many review rounds. Start a new offshift for it.",
   );
   // A reviewer's own words stay the body.
   expect(escalated("The inbox stays empty for 3s.", null)).toMatchObject({

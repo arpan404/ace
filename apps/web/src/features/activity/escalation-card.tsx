@@ -66,7 +66,7 @@ function DecisionCard(props: { event: FeedEvent }) {
         setFailure(
           error instanceof Error && error.message !== "not_found"
             ? error.message
-            : "The deck didn't accept that. Open the deck to see why.",
+            : "The offshift didn't accept that. Open the offshift to see why.",
         );
       },
     );
@@ -75,8 +75,8 @@ function DecisionCard(props: { event: FeedEvent }) {
   useHotkey("a", () => primary && take(primary.id), { enabled: live && !!primary });
   const openDeck = () =>
     event.runId
-      ? void navigate({ to: "/deck/$runId", params: { runId: event.runId } })
-      : void navigate({ to: "/deck" });
+      ? void navigate({ to: "/offshifts/$runId", params: { runId: event.runId } })
+      : void navigate({ to: "/offshifts" });
   useHotkey("o", openDeck, { enabled: focused });
   return (
     <CardFrame
@@ -90,13 +90,13 @@ function DecisionCard(props: { event: FeedEvent }) {
       )}
       {choice && !choice.approve && (
         <p className="text-sm text-muted-foreground">
-          Answering this needs a new value. Open the deck to set it.
+          Answering this needs a new value. Open the offshift to set it.
         </p>
       )}
       <CardActions>
         {/* A gate that needs a value is answered in the deck: opening it is the main action. */}
         <Button variant={primary ? "ghost" : "primary"} onClick={openDeck}>
-          Open deck
+          Open offshift
           <ButtonKey primary={!primary}>O</ButtonKey>
         </Button>
         {actions.map((action) => (

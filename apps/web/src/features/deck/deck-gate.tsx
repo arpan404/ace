@@ -545,7 +545,7 @@ function PlanReview(props: {
       {/* WP-1: DialogContent size="lg" with a max height and a scrolling body. */}
       <DialogContent className="flex max-h-[86vh] w-[min(640px,calc(100vw-2rem))] flex-col">
         <DialogHeader>
-          <DialogTitle>The deck&apos;s plan</DialogTitle>
+          <DialogTitle>The offshift&apos;s plan</DialogTitle>
           <DialogDescription>
             {count} {count === 1 ? "card" : "cards"} in {stages} {stages === 1 ? "stage" : "stages"}
             . {props.plan.summary}

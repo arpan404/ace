@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
-import { Screen } from "@/features/shell/index.ts";
+import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { useInstallDialog } from "./install-plugin.tsx";
 import type { Skill } from "./skills-model.ts";
 import { catalogOrder } from "./skills-sidebar.tsx";
@@ -21,7 +21,14 @@ export function SkillsLandingScreen() {
   const [firstLoad, setFirstLoad] = useState<readonly Skill[]>();
   if (firstLoad === undefined && skills.data !== undefined) setFirstLoad(skills.data);
   const first = firstLoad?.length ? catalogOrder(skills.data ?? [])[0] : undefined;
-  if (first) return <Navigate to="/skills/$skillId" params={{ skillId: first.id }} replace />;
+  // A narrow window shows the catalog as the page; a wide one opens its first entry.
+  if (first)
+    return (
+      <ViewListPage
+        title="Skills"
+        fallback={<Navigate to="/skills/$skillId" params={{ skillId: first.id }} replace />}
+      />
+    );
   return (
     <Screen title="Skills">
       {skills.isError ? (

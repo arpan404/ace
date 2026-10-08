@@ -33,17 +33,17 @@ const gateOrder: Record<NeedsUser["kind"], number> = {
 function gateTitle(gate: NeedsUser, card: string | undefined): string {
   switch (gate.kind) {
     case "plan":
-      return "Deck plan needs your approval";
+      return "Offshift plan needs your approval";
     case "merge":
       return card ? `Merge needs your approval: ${card}` : "Merge needs your approval";
     case "budget":
-      return "The deck used its budget";
+      return "The offshift used its budget";
     case "deadline":
-      return "The deck passed its deadline";
+      return "The offshift passed its deadline";
     case "destructive":
       return card ? `Destructive change in ${card}` : "A destructive change needs approval";
     case "escalation":
-      return card ? `Escalated: ${card}` : "The deck escalated a decision";
+      return card ? `Escalated: ${card}` : "The offshift escalated a decision";
     case "provider":
       return card ? `${card} needs your answer` : "An agent needs your answer";
   }
@@ -74,11 +74,11 @@ function escalationBody(message: string, card: string, role: string): string | u
   if (/^Lane \S+ is done without its \w+ artifact$/.test(message))
     return `${card}'s ${role} finished without reporting its result.`;
   if (/retention limit reached/.test(message))
-    return "This card has had too many review rounds. Start a new deck for it.";
+    return "This card has had too many review rounds. Start a new offshift for it.";
   if (message === "Deck PR head or CI did not pass")
     return `${card} merged, but CI didn't pass at the reviewed revision.`;
   if (message === "Deck integration revision or worktree changed")
-    return `${card} merged, but the deck's branch changed before it could be checked.`;
+    return `${card} merged, but the offshift's branch changed before it could be checked.`;
   return undefined;
 }
 
@@ -98,7 +98,7 @@ function gateText(
       const merge = /^Merge \S+ at ([0-9a-f]{7,64})$/.exec(gate.message);
       if (!merge?.[1]) return raw;
       return {
-        body: `${card ?? "The card"} passed review at ${merge[1].slice(0, 7)}. Approve to merge it into the deck's branch.`,
+        body: `${card ?? "The card"} passed review at ${merge[1].slice(0, 7)}. Approve to merge it into the offshift's branch.`,
         detail: gate.message,
       };
     }
@@ -111,7 +111,7 @@ function gateText(
         : raw;
     case "deadline":
       return {
-        body: "The deck stops starting work at its deadline. Extend it to keep going.",
+        body: "The offshift stops starting work at its deadline. Extend it to keep going.",
         detail: undefined,
       };
     case "destructive":
@@ -179,29 +179,30 @@ export function raisedBudget(budget: number): number {
 }
 
 const executionErrors: Record<string, string> = {
-  deck_workspace_not_found: "The deck's project is no longer on this daemon.",
-  deck_planner_missing: "The deck has no planner model to start with.",
-  deck_root_agent_missing: "The daemon couldn't start the deck's own thread.",
-  deck_root_missing: "The deck lost its own thread.",
-  deck_lane_binding_missing: "The daemon lost track of one of the deck's lanes.",
+  deck_workspace_not_found: "The offshift's project is no longer on this daemon.",
+  deck_planner_missing: "The offshift has no planner model to start with.",
+  deck_root_agent_missing: "The daemon couldn't start the offshift's own thread.",
+  deck_root_missing: "The offshift lost its own thread.",
+  deck_lane_binding_missing: "The daemon lost track of one of the offshift's lanes.",
   deck_engine_unavailable: "The daemon's agent engine isn't running.",
   deck_migration_pending: "A lane is still moving to another account.",
-  deck_capacity_wait: "Every account the deck may use is busy. It carries on when one frees up.",
-  conductor_execution_failed: "The daemon couldn't run the deck's next step.",
+  deck_capacity_wait:
+    "Every account the offshift may use is busy. It carries on when one frees up.",
+  conductor_execution_failed: "The daemon couldn't run the offshift's next step.",
 };
 
 /** Why a deck stopped executing, as a sentence; the code stays visible for unknown cases. */
 export function deckErrorText(code: string): string {
-  return executionErrors[code] ?? `The daemon couldn't run the deck's next step (${code}).`;
+  return executionErrors[code] ?? `The daemon couldn't run the offshift's next step (${code}).`;
 }
 
 /** Rejecting what stops the whole deck, as `conductor.cancel` does. */
 const stopDeck = {
-  label: "Stop the deck…",
-  title: "Reject and cancel this deck?",
-  body: "Every lane stops and nothing else merges. Cards already merged stay on the deck's branch.",
-  confirm: "Cancel deck",
-  toast: "Stopping the deck",
+  label: "Stop the offshift…",
+  title: "Reject and cancel this offshift?",
+  body: "Every lane stops and nothing else merges. Cards already merged stay on the offshift's branch.",
+  confirm: "Cancel offshift",
+  toast: "Stopping the offshift",
   stopsDeck: true,
 };
 
@@ -230,20 +231,20 @@ export function gateDecision(gate: Pick<Gate, "ask" | "workstream">, card?: stri
   const decline = {
     label: "Decline card…",
     title: `Decline ${name}?`,
-    body: "It won't merge, and cards that depend on it won't start. The rest of the deck carries on.",
+    body: "It won't merge, and cards that depend on it won't start. The rest of the offshift carries on.",
     confirm: "Decline card",
-    toast: `Declined ${name} · the deck carries on`,
+    toast: `Declined ${name} · the offshift carries on`,
     stopsDeck: false,
   };
   const onCard = gate.workstream !== null;
   switch (gate.ask) {
     case "plan":
       return {
-        approve: { label: "Approve plan", toast: "Deck plan approved · lanes are starting" },
+        approve: { label: "Approve plan", toast: "Offshift plan approved · lanes are starting" },
         reject: {
           label: "Draft a new plan…",
           title: "Draft a new plan?",
-          body: "The deck drops this plan and the planner drafts another. No lane has started yet.",
+          body: "The offshift drops this plan and the planner drafts another. No lane has started yet.",
           confirm: "Draft again",
           toast: "Drafting a new plan",
           stopsDeck: false,

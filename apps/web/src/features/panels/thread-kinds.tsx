@@ -56,8 +56,8 @@ export const changesKind = defineTabKind({
 });
 
 /**
- * Files of the thread's checkout: one tab per file (the empty one is "Open file"), each with the
- * tree beside it. ⌘P opens the quick-open palette rather than toggling a tab.
+ * Files of the thread's checkout: the pinned Files tab (the tree, no file yet) and one tab per
+ * file, each with the tree beside it. ⌘P opens the quick-open palette rather than toggling a tab.
  */
 export const filesKind = defineTabKind({
   kind: "files",
@@ -66,7 +66,7 @@ export const filesKind = defineTabKind({
   launcher: 30,
   title: (tab) => {
     const path = field(tab.data, "path");
-    return path ? (path.split("/").at(-1) ?? path) : "Open file";
+    return path ? (path.split("/").at(-1) ?? path) : "Files";
   },
   Skeleton: FilesSkeleton,
   load: () => import("./files/file-tab.tsx"),
@@ -181,7 +181,7 @@ export const agentKind = defineTabKind({
 /** One lane of the deck a thread works for (id `run/card`); the whole deck stays in Deck. */
 export const deckLaneKind = defineTabKind({
   kind: "deck-lane",
-  label: "Deck lane",
+  label: "Offshift lane",
   icon: CardsIcon,
   load: () => import("./deck-lane-view.tsx").then((m) => ({ default: m.DeckLaneView })),
 });

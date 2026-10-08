@@ -139,7 +139,7 @@ test("a deck worker's question is answered from Needs you, under its deck's name
   expect(within(asking).getByText(/Mobile cold start under 1s/)).toBeTruthy();
   // Its feed row names the deck's card, and the deck's own threads aren't listed again.
   expect(within(feed).getByText("Precompile Hermes bytecode needs your answer")).toBeTruthy();
-  expect(within(feed).queryByText("Deck needs your decision")).toBeNull();
+  expect(within(feed).queryByText("Offshift needs your decision")).toBeNull();
 
   await userEvent.click(within(asking).getByRole("button", { name: /Ship it in the APK/ }));
 
@@ -181,7 +181,7 @@ test("declining a deck's card from Activity asks first and says the deck carries
   await userEvent.click(within(confirm).getByRole("button", { name: "Decline card" }));
 
   expect(
-    await screen.findByText("Declined Server-side replay cursor · the deck carries on"),
+    await screen.findByText("Declined Server-side replay cursor · the offshift carries on"),
   ).toBeTruthy();
   await waitFor(() =>
     expect(
@@ -197,15 +197,15 @@ test("a used-up budget isn't approved blind from Activity: it opens the deck, an
   app.daemon.seedServices({ ...workbenchServices(now), decks: deckRuns(now, ["budget"]) });
   await app.open("/activity");
   const sidebar = await screen.findByRole("complementary", { name: "Activity" });
-  await userEvent.click(await within(sidebar).findByText("The deck used its budget"));
-  const budget = await screen.findByRole("article", { name: "The deck used its budget" });
+  await userEvent.click(await within(sidebar).findByText("The offshift used its budget"));
+  const budget = await screen.findByRole("article", { name: "The offshift used its budget" });
 
   expect(within(budget).queryByRole("button", { name: /^Approve/ })).toBeNull();
-  await userEvent.click(within(budget).getByRole("button", { name: "Stop the deck…" }));
-  const confirm = await screen.findByRole("dialog", { name: "Reject and cancel this deck?" });
+  await userEvent.click(within(budget).getByRole("button", { name: "Stop the offshift…" }));
+  const confirm = await screen.findByRole("dialog", { name: "Reject and cancel this offshift?" });
   await userEvent.click(within(confirm).getByRole("button", { name: "Keep it running" }));
-  expect(screen.getByRole("article", { name: "The deck used its budget" })).toBeTruthy();
+  expect(screen.getByRole("article", { name: "The offshift used its budget" })).toBeTruthy();
 
-  await userEvent.click(within(budget).getByRole("button", { name: /^Open deck/ }));
-  expect(await screen.findByRole("region", { name: "The deck used its budget" })).toBeTruthy();
+  await userEvent.click(within(budget).getByRole("button", { name: /^Open offshift/ }));
+  expect(await screen.findByRole("region", { name: "The offshift used its budget" })).toBeTruthy();
 });

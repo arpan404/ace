@@ -96,8 +96,14 @@ test("a query nothing matches falls through to searching every thread", async ()
   await userEvent.type(search, "qqqzzz");
   await waitFor(() => expect(options()).toEqual(["Search all threads for “qqqzzz”"]));
   await userEvent.keyboard("{Enter}");
-  expect(await screen.findByRole("heading", { level: 1, name: "Search" })).toBeTruthy();
-  expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull();
+  // The search dialog takes the palette's place, with the words typed so far.
+  const dialog = await screen.findByRole("dialog", { name: "Search" });
+  expect(
+    within(dialog).getByRole<HTMLInputElement>("combobox", { name: "Search every thread" }).value,
+  ).toBe("qqqzzz");
+  await waitFor(() =>
+    expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull(),
+  );
 });
 
 test("threads opened lately come first with an empty query, the open one aside", async () => {

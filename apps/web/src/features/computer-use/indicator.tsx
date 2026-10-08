@@ -16,7 +16,7 @@ import { useComputerUse, type ComputerUse } from "./use-computer-use.ts";
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
- * The rail's quiet sign that agents are working on this Mac: shown only while an agent controls
+ * The sidebar's quiet sign that agents are working on this Mac: shown only while an agent controls
  * an app (capturing or not) or a browser page open in this window, or a page is held privately.
  * Its popover lists each with Take over and Stop, and opens the live sessions.
  */
@@ -38,7 +38,7 @@ export default function ComputerUseIndicator() {
   const capturing = sessions.some((state) => state.indicator);
   return (
     <Popover>
-      <Tip label={label} side="right">
+      <Tip label={label} side="top">
         <PopoverTrigger
           aria-label={label}
           className="relative grid size-8 place-items-center rounded-lg text-link transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent pointer-coarse:size-11"
@@ -48,12 +48,12 @@ export default function ComputerUseIndicator() {
             <span
               aria-hidden
               data-tone="needs-you"
-              className="absolute top-1 right-1 size-[7px] rounded-full bg-(--tone) shadow-[0_0_0_2px_var(--rail)]"
+              className="absolute top-1 right-1 size-[7px] rounded-full bg-(--tone) shadow-[0_0_0_2px_var(--sidebar)]"
             />
           )}
         </PopoverTrigger>
       </Tip>
-      <PopoverContent side="right" align="end" className="flex w-96 flex-col gap-2">
+      <PopoverContent side="top" align="start" className="flex w-96 flex-col gap-2">
         <PopoverTitle className="text-ui font-medium">{label}</PopoverTitle>
         <ul className="flex flex-col">
           {sessions.map((state) => (

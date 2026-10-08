@@ -1,12 +1,12 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { DeckSidebar } from "@/features/deck/index.ts";
-import { ViewFrame } from "@/features/shell/index.ts";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { legacyPath } from "@/lib/legacy-paths.ts";
 
-/** Deck: multi-agent runs (internally @ace/conductor). */
+/** Deck's old addresses: Deck is called Offshift in the UI, at `/offshifts…`. */
 export const Route = createFileRoute("/deck")({
-  component: () => (
-    <ViewFrame label="Decks" sidebar={<DeckSidebar />}>
-      <Outlet />
-    </ViewFrame>
-  ),
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      href: `${legacyPath(location.pathname) ?? "/offshifts"}${location.searchStr}`,
+      replace: true,
+    });
+  },
 });

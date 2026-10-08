@@ -18,9 +18,7 @@ import {
 async function connect(page: Page) {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
 }
 
 const threads = (page: Page) => page.getByRole("navigation", { name: "Threads" });
@@ -45,9 +43,7 @@ test("a settled thread moves under Settled and comes back when unsettled, across
   await expect(threads(page).getByRole("link", { name: new RegExp(settleTitle) })).toHaveCount(0);
 
   await page.reload();
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   await expect(threads(page).getByRole("link", { name: new RegExp(settleTitle) })).toHaveCount(0);
   await threads(page)
     .getByRole("button", { name: /^Settled \(\d+\)/ })
@@ -61,9 +57,7 @@ test("a settled thread moves under Settled and comes back when unsettled, across
   await page.getByRole("menuitem", { name: "Unsettle" }).click();
   await expect(page.getByText(`Back in the list · ${settleTitle}`)).toBeVisible();
   await page.reload();
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   await page.getByRole("button", { name: "More actions" }).click();
   await expect(page.getByRole("menuitem", { name: "Settle", exact: true })).toBeVisible();
 });
@@ -88,9 +82,7 @@ test("a snoozed thread shows when it wakes, and Wake now clears it across a relo
   await page.getByRole("menuitem", { name: "Wake now" }).click();
   await expect(wake).toHaveCount(0);
   await page.reload();
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   await expect(threads(page).getByRole("link", { name: new RegExp(snoozeTitle) })).toBeVisible();
   await expect(wake).toHaveCount(0);
 });
@@ -136,9 +128,7 @@ test("a deleted thread leaves the list and stays gone after a reload", async ({ 
   await expect(threads(page).getByRole("link", { name: new RegExp(deleteTitle) })).toHaveCount(0);
   await expect(deleted).toBeHidden({ timeout: 15_000 });
   await page.reload();
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   await expect(
     threads(page)
       .getByRole("link", { name: /on a real daemon/ })

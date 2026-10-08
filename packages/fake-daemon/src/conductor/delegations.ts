@@ -5,7 +5,7 @@ import type { FakeDeckCard, FakeDeckRun } from "./types.ts";
 /*
  * The fake Deck's threads, as the native executor leaves them: a root thread per deck that holds
  * the conductor's gates as host interactions, and a delegated thread per lane, titled the way the
- * daemon titles them ("Deck worker: <card>"). A worker's question is a real interaction on its
+ * daemon titles them ("Offshift worker: <card>"). A worker's question is a real interaction on its
  * thread, so it is answered with `interaction.resolve` like any provider question.
  */
 
@@ -69,7 +69,7 @@ export function fakeDelegations(
           host.createThread?.({
             id: threadId,
             workspaceId: run.workspaceId,
-            title: `Deck ${role}: ${card.id}`,
+            title: `Offshift ${role}: ${card.id}`,
             provider,
           });
           host.apply?.(threadId, [
@@ -263,7 +263,7 @@ export function fakeDeckRoot(run: FakeDeckRun, host?: FakeServiceContext) {
     host.createThread?.({
       id,
       workspaceId: run.workspaceId,
-      title: `Deck: ${run.goal}`,
+      title: `Offshift: ${run.goal}`,
       provider: "codex",
     });
     host.apply?.(id, [
@@ -305,7 +305,7 @@ export function fakeDeckRoot(run: FakeDeckRun, host?: FakeServiceContext) {
         blocking: true,
         request: {
           kind: "plan_review",
-          title: "Deck needs your decision",
+          title: "Offshift needs your decision",
           markdown: run.gate.body,
         },
         raw: [

@@ -16,9 +16,11 @@ test("a rebound shortcut works at once, its old keys stop, and the palette shows
   expect(settings.textContent).toBe("Shift+Ctrl+Y");
 
   await userEvent.click(
-    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", { name: /^Home/ }),
+    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
+      name: "Offshifts",
+    }),
   );
-  await heading("Home");
+  await heading("Offshifts");
   await userEvent.keyboard("{Control>},{/Control}");
   expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeNull();
   await userEvent.keyboard("{Control>}{Shift>}y{/Shift}{/Control}");
@@ -135,7 +137,7 @@ test("keys another shortcut still answers through its browser alias are refused"
   await harness().open("/settings/keyboard");
   const newThread = await recorder("New thread");
   await userEvent.click(newThread);
-  // In a browser tab New deck shows Alt+Shift+Ctrl+N but still answers Shift+Ctrl+N.
+  // In a browser tab New offshift shows Alt+Shift+Ctrl+N but still answers Shift+Ctrl+N.
   record(newThread, { key: "n", code: "KeyN", ctrlKey: true, shiftKey: true });
-  expect(screen.getByRole("alert").textContent).toBe("Shift+Ctrl+N is already New deck.");
+  expect(screen.getByRole("alert").textContent).toBe("Shift+Ctrl+N is already New offshift.");
 });

@@ -33,7 +33,7 @@ export class Organizer {
   private storage: KeyValueStorage | undefined;
   constructor(storage: KeyValueStorage | undefined, now: number) {
     this.storage = storage;
-    // The first launch may already have been recorded (by the rail) before the rest of this.
+    // The first launch may already have been recorded (by Activity) before the rest of this.
     const fresh: Stored = {
       baseline: firstLaunch(storage, now),
       project: null,

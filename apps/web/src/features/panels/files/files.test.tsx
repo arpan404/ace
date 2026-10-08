@@ -183,21 +183,30 @@ test("an upload lands in the checkout and opens; an existing name asks before re
   );
 });
 
-test("an empty Open file tab shows the checkout tree, and a tab remembers hiding it", async () => {
+test("the thread's Files tab is the checkout tree; it opens files beside itself and remembers hiding the tree", async () => {
   await openThread();
   await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
   const side = await panel();
+  await userEvent.click(within(side).getByRole("tab", { name: "Files" }));
+  const tree = await within(side).findByRole("tree", { name: "Files this thread touched" });
+  expect(within(side).getByRole("complementary", { name: "Checkout files" })).toBeTruthy();
+
+  // A file picked there opens in a tab of its own: the Files tab stays the tree.
+  await userEvent.click(within(tree).getByRole("treeitem", { name: "outbox.ts" }));
+  await within(side).findByRole("tab", { name: "outbox.ts", selected: true });
+  expect(within(side).getByRole("tab", { name: "Files" })).toBeTruthy();
+  // The launcher's Files brings the same tab forward rather than adding another.
   await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
   const tools = await within(side).findByRole("list", { name: "Tools" });
   await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
-  expect(await within(side).findByRole("tab", { name: "Open file", selected: true })).toBeTruthy();
-  expect(within(side).getByRole("complementary", { name: "Checkout files" })).toBeTruthy();
+  expect(await within(side).findByRole("tab", { name: "Files", selected: true })).toBeTruthy();
+  expect(within(side).getAllByRole("tab", { name: "Files" })).toHaveLength(1);
 
   await userEvent.click(within(side).getByRole("button", { name: "Hide the file tree" }));
   expect(within(side).queryByRole("complementary", { name: "Checkout files" })).toBeNull();
   // Away and back: the tab kept the choice.
   await userEvent.click(within(side).getByRole("tab", { name: /^Changes/ }));
-  await userEvent.click(within(side).getByRole("tab", { name: "Open file" }));
+  await userEvent.click(within(side).getByRole("tab", { name: "Files" }));
   expect(within(side).queryByRole("complementary", { name: "Checkout files" })).toBeNull();
   expect(within(side).getByRole("button", { name: "Show the file tree" })).toBeTruthy();
 });

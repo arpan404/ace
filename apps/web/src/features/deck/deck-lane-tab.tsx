@@ -30,11 +30,11 @@ export function DeckLaneTab(props: { runId: string; cardId: string }) {
     return ready ? (
       <EmptyState
         icon={CardsIcon}
-        title="This deck isn't on the daemon"
-        description="It may have been removed, or it ran on another daemon. Close this tab, or look for it in Deck."
+        title="This offshift isn't on the daemon"
+        description="It may have been removed, or it ran on another daemon. Close this tab, or look for it in Offshifts."
         action={
-          <Link to="/deck" className={buttonVariants({ size: "sm", variant: "outline" })}>
-            Open Deck
+          <Link to="/offshifts" className={buttonVariants({ size: "sm", variant: "outline" })}>
+            Open Offshifts
           </Link>
         }
       />
@@ -51,12 +51,12 @@ export function DeckLaneTab(props: { runId: string; cardId: string }) {
           <b className="font-medium text-foreground">{run.title}</b> · {deckRunSummary(run)}
         </span>
         <Link
-          to="/deck/$runId"
+          to="/offshifts/$runId"
           params={{ runId: run.id }}
           search={{ tab: "plan", card: props.cardId }}
           className={buttonVariants({ size: "sm", variant: "ghost" })}
         >
-          Open deck
+          Open offshift
           <ArrowUpRightIcon aria-hidden size={12} />
         </Link>
       </div>
@@ -69,7 +69,7 @@ export function DeckLaneTab(props: { runId: string; cardId: string }) {
               compact
               onOpenCard={(cardId) =>
                 void navigate({
-                  to: "/deck/$runId",
+                  to: "/offshifts/$runId",
                   params: { runId: run.id },
                   search: { tab: "plan", card: cardId },
                 })
@@ -82,7 +82,7 @@ export function DeckLaneTab(props: { runId: string; cardId: string }) {
         <EmptyState
           icon={CardsIcon}
           title="This lane isn't in the plan any more"
-          description="The deck's plan changed since this tab opened. The deck itself lists the lanes it has now."
+          description="The offshift's plan changed since this tab opened. The offshift itself lists the lanes it has now."
           className="h-auto pt-12"
         />
       )}
@@ -103,17 +103,17 @@ export function DeckOfThread(props: {
   if (!run)
     return ready ? (
       <p className="px-2 py-1.5 text-sm text-muted-foreground">
-        This thread belongs to a deck the daemon no longer lists.
+        This thread belongs to an offshift the daemon no longer lists.
       </p>
     ) : (
-      <LoadingRegion label="deck" className="px-2 py-1.5">
+      <LoadingRegion label="offshift" className="px-2 py-1.5">
         <Skeleton className="h-4 w-48" />
       </LoadingRegion>
     );
   return (
     <div>
       <Link
-        to="/deck/$runId"
+        to="/offshifts/$runId"
         params={{ runId: run.id }}
         search={{ tab: "plan" }}
         className="flex h-8 min-w-0 items-center gap-2 rounded-lg px-2 text-ui outline-none hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"

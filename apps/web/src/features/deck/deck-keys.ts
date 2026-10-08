@@ -28,5 +28,5 @@ export function useDeckToast(): { done(title: string): void; error(title: string
 
 /** A command's failure as a sentence: the daemon's refusal, or that it didn't answer. */
 export function failure(error: unknown): string {
-  return error instanceof Error ? error.message : "The deck didn't answer.";
+  return error instanceof Error ? error.message : "The offshift didn't answer.";
 }

@@ -9,16 +9,15 @@ function previewStyle(theme: Theme): CSSProperties {
   };
 }
 
-/** A miniature window (rail, sidebar, reading column) drawn from the theme's own tokens. */
+/** A miniature window (sidebar, reading column) drawn from the theme's own tokens. */
 function Miniature(props: { theme: Theme; className?: string }) {
   const t = props.theme.tokens;
   return (
     <div className={cn("absolute inset-0", props.className)} style={previewStyle(props.theme)}>
       <div
-        className="absolute inset-x-3.5 top-3.5 bottom-0 grid grid-cols-[18px_42px_1fr] overflow-hidden rounded-t-md"
+        className="absolute inset-x-3.5 top-3.5 bottom-0 grid grid-cols-[60px_1fr] overflow-hidden rounded-t-md"
         style={{ boxShadow: `0 0 0 0.5px ${t["--border"]}` }}
       >
-        <i style={{ background: `rgb(${t["--rail-rgb"]} / 0.85)` }} />
         <i style={{ background: `rgb(${t["--sidebar-rgb"]} / 0.85)` }} />
         <i style={{ background: `rgb(${t["--reading-rgb"]} / 0.92)` }} />
       </div>

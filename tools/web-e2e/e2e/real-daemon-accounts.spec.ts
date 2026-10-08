@@ -13,15 +13,13 @@ async function connect(page: Page, path: string) {
   await page.goto(
     `${path}#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`,
   );
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
 }
 
 test("the run-out policy is stored by the daemon and read back after a reload", async ({
   page,
 }) => {
-  await connect(page, "/more/accounts");
+  await connect(page, "/accounts");
   const policy = page.getByRole("radiogroup", { name: "When an account runs out" });
   const resume = policy.getByRole("radio", { name: /Resume when the window resets/ });
   const manual = policy.getByRole("radio", { name: /Stop and let me decide/ });

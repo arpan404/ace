@@ -28,7 +28,7 @@ export function DeckLaneView(props: TabViewProps) {
       <EmptyState
         icon={CardsIcon}
         title="This lane can't show here"
-        description="Deck lanes open beside a thread. Open the deck from the Deck view instead."
+        description="Offshift lanes open beside a thread. Open the offshift from the Offshifts view instead."
       />
     );
   return <DeckLane runId={lane.runId} cardId={lane.cardId} />;

@@ -72,7 +72,7 @@ async function openWeek(stage: {
   app.daemon.services.usage.sources = stage.sources;
   app.daemon.services.usage.sessions = stage.sessions ?? {};
   if (stage.timezone) app.daemon.services.usage.timezone = stage.timezone;
-  await app.open("/more/accounts");
+  await app.open("/accounts");
   await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
   return app;
 }
@@ -223,7 +223,7 @@ test("sessions count from the start of the range in the daemon's time zone, not 
 test("when usage by model can't be read, the page says so and reads it again on Try again", async () => {
   const app = harness();
   app.daemon.failRequests("usage.summary");
-  await app.open("/more/accounts");
+  await app.open("/accounts");
 
   const failed = (
     await screen.findByText("Usage by model couldn't be read.", {}, { timeout: 8000 })

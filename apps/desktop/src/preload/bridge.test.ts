@@ -229,7 +229,7 @@ describe("page hooks", () => {
 
   it("does not push the page it is already on", () => {
     const main = fakeIpc();
-    const target = page("/deck");
+    const target = page("/offshifts");
     attachPageHooks(createBridge(main.ipc, info), target.window, deepLinkRoute);
     main.emit(eventChannel("deep-link"), { kind: "deck" });
     expect(target.pushed).toEqual([]);

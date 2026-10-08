@@ -4,17 +4,27 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+type Harness = ReturnType<typeof harness>;
+
 const results = () => screen.findByRole("listbox", { name: "Results" });
+const field = () => screen.getByRole<HTMLInputElement>("combobox", { name: "Search every thread" });
+
+/** Open the app, then the search dialog from the sidebar's Search, and type `query`. */
+async function search(query = "", app: Harness = harness()) {
+  const view = await app.open("/new");
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  await userEvent.click(
+    within(screen.getByRole("navigation", { name: "App" })).getByRole("button", { name: "Search" }),
+  );
+  await screen.findByRole("dialog", { name: "Search" });
+  if (query) await userEvent.type(field(), query);
+  return view;
+}
 
 afterEach(() => localStorage.clear());
 
 test("every word must match, and matches are highlighted in the snippet", async () => {
-  await harness().open("/more/search");
-
-  await userEvent.type(
-    await screen.findByRole("combobox", { name: "Search every thread" }),
-    "retry budget",
-  );
+  await search("retry budget");
 
   const options = within(await results()).getAllByRole("option");
   expect(options).toHaveLength(2);
@@ -30,13 +40,10 @@ test("every word must match, and matches are highlighted in the snippet", async 
 });
 
 test("the kind filter keeps only commands", async () => {
-  await harness().open("/more/search?q=dedupe");
+  await search("dedupe");
   expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(0);
 
-  await userEvent.type(
-    screen.getByRole("combobox", { name: "Search every thread" }),
-    "{Control>}a{/Control}push",
-  );
+  await userEvent.type(field(), "{Control>}a{/Control}push");
   await userEvent.click(screen.getByRole("button", { name: "Commands" }));
 
   await waitFor(async () => {
@@ -49,10 +56,7 @@ test("the kind filter keeps only commands", async () => {
 test("arrow keys move through results and Enter opens the thread", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  await app.open("/more/search");
-  const input = await screen.findByRole("combobox", { name: "Search every thread" });
-
-  await userEvent.type(input, "the");
+  await search("the", app);
   const options = within(await results()).getAllByRole("option");
   expect(options[0]?.textContent).toContain("Dedupe thread events after reconnect");
   expect(options[0]?.getAttribute("aria-selected")).toBe("true");
@@ -66,52 +70,73 @@ test("arrow keys move through results and Enter opens the thread", async () => {
   expect(
     await screen.findByRole("heading", { level: 1, name: "Retry budget for app-server restarts" }),
   ).toBeTruthy();
+  // Opening a result puts the dialog away.
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull());
 });
 
 test("a search with no matches says so", async () => {
-  await harness().open("/more/search?q=kubernetes");
+  await search("kubernetes");
   expect(await screen.findByText("No results")).toBeTruthy();
 });
 
-test("Clear empties the query and the results; Esc clears, then leaves the field", async () => {
-  await harness().open("/more/search?q=replay");
+test("emptying the field empties the results; Esc puts the dialog away, and it opens fresh", async () => {
+  await search("replay");
   expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(2);
   expect(screen.getByText(/^\d+\+? results?$/)).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Clear" }));
-  const input = screen.getByRole("combobox", { name: "Search every thread" });
-  expect(input).toHaveProperty("value", "");
+  await userEvent.clear(field());
   expect(screen.queryByRole("option")).toBeNull();
 
-  await userEvent.type(input, "replay");
+  await userEvent.type(field(), "replay");
   await userEvent.keyboard("{Escape}");
-  expect(input).toHaveProperty("value", "");
-  await userEvent.keyboard("{Escape}");
-  expect(document.activeElement).not.toBe(input);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull());
+  await userEvent.keyboard("{Shift>}{Meta>}k{/Meta}{/Shift}");
+  await screen.findByRole("dialog", { name: "Search" });
+  expect(field().value).toBe("");
+  expect(document.activeElement).toBe(field());
 });
 
-test("results are options themselves, with nothing focusable inside them", async () => {
-  await harness().open("/more/search?q=dedupe");
-  const options = within(await results()).getAllByRole("option");
-  for (const option of options) expect(option.querySelector("a, button, [tabindex]")).toBeNull();
+test("the palette hands its words to search", async () => {
+  await harness().open("/new");
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  const palette = await screen.findByRole("dialog", { name: "Command palette" });
+  await userEvent.type(within(palette).getByRole("combobox"), "retry budget");
+  await userEvent.click(
+    within(palette).getByRole("option", { name: "Search all threads for “retry budget”" }),
+  );
+  await screen.findByRole("dialog", { name: "Search" });
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull());
+  expect(field().value).toBe("retry budget");
+  expect(within(await results()).getAllByRole("option")).toHaveLength(2);
+});
+
+test("Tab skips results and cycles through the search dialog's controls", async () => {
+  await search("retry budget");
+  await results();
+  field().focus();
+  await userEvent.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close search" }));
+  await userEvent.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "All" }));
+  await userEvent.tab();
+  await waitFor(() => expect(document.activeElement).toBe(field()));
 });
 
 test("a search that was opened is offered again from Recent, and can be forgotten", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  const first = await app.open("/more/search");
-  const input = await screen.findByRole("combobox", { name: "Search every thread" });
-  await userEvent.type(input, "retry budget");
+  const first = await search("retry budget", app);
   await within(await results()).findAllByRole("option");
   await userEvent.keyboard("{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Retry budget for app-server restarts" });
   first.unmount();
 
-  await harness().open("/more/search");
+  await search();
   const recent = await screen.findByRole("region", { name: "Recent" });
   await userEvent.click(within(recent).getByRole("button", { name: "retry budget" }));
   expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(0);
 
-  await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+  await userEvent.clear(field());
   await userEvent.click(
     within(await screen.findByRole("region", { name: "Recent" })).getByRole("button", {
       name: 'Forget "retry budget"',
@@ -120,10 +145,10 @@ test("a search that was opened is offered again from Recent, and can be forgotte
   expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
 });
 
-test("when search fails, the page says why and tries again", async () => {
+test("when search fails, the dialog says why and tries again", async () => {
   const app = harness();
   app.daemon.failRequests("search.query");
-  await app.open("/more/search?q=dedupe");
+  await search("dedupe", app);
   expect(await screen.findByText("Search unavailable", {}, { timeout: 4000 })).toBeTruthy();
   expect(screen.queryByText("unavailable")).toBeNull();
   app.daemon.restoreRequests();

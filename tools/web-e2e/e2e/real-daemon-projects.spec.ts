@@ -24,9 +24,7 @@ const handoff = () => {
 };
 async function connect(page: Page, path = "/new") {
   await page.goto(`${path}${handoff()}`);
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
 }
 const root = () => realpathSync(projectsRoot);
 const dialog = (page: Page) => page.getByRole("dialog", { name: "Add project" });

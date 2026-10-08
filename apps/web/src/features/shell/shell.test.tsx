@@ -13,19 +13,17 @@ test("every view and settings page opens in the shell under its own title", asyn
     ["/", "Home"],
     ["/new", "New thread"],
     ["/activity", "Activity"],
-    ["/deck", "Deck"],
-    ["/deck/new", "New deck"],
+    ["/offshifts", "Offshifts"],
+    ["/offshifts/new", "New offshift"],
     ["/automations", "Automations"],
     ["/skills", "Skills"],
-    ["/more", "Usage & accounts"],
-    ["/more/files", "Files"],
-    ["/more/search", "Search"],
+    ["/accounts", "Usage & accounts"],
     ["/settings", "Settings"],
   ];
   for (const [path, name] of pages) {
     const view = await harness().open(path);
     await title(name);
-    expect(screen.getByRole("navigation", { name: "Views" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "App" })).toBeTruthy();
     view.unmount();
   }
   await harness().open("/settings");
@@ -47,16 +45,40 @@ test("every view and settings page opens in the shell under its own title", asyn
   await screen.findByRole("heading", { level: 2, name: "Theme editor" });
 });
 
+test("old addresses land where their pages live now", async () => {
+  for (const [path, name] of [
+    ["/deck", "Offshifts"],
+    ["/deck/new", "New offshift"],
+    ["/offsets", "Offshifts"],
+    ["/offsets/new", "New offshift"],
+    ["/more", "Usage & accounts"],
+    ["/more/accounts", "Usage & accounts"],
+    ["/more/files", "Home"],
+  ] as const) {
+    const view = await harness().open(path);
+    await title(name);
+    view.unmount();
+  }
+  // An old search address opens the search dialog with its words, over Home.
+  await harness().open("/more/search?q=retry%20budget");
+  const dialog = await screen.findByRole("dialog", { name: "Search" });
+  expect(
+    within(dialog).getByRole<HTMLInputElement>("combobox", { name: "Search every thread" }).value,
+  ).toBe("retry budget");
+  await userEvent.keyboard("{Escape}");
+  await title("Home");
+});
+
 test("the sidebar marks the current view and the header's back and forward follow history", async () => {
   await harness().open("/");
   await title("Home");
-  const views = screen.getByRole("navigation", { name: "Views" });
+  const views = screen.getByRole("navigation", { name: "App" });
   expect(button("Back").disabled).toBe(true);
   expect(button("Forward").disabled).toBe(true);
 
-  await userEvent.click(within(views).getByRole("link", { name: /^Deck/ }));
-  await title("Deck");
-  expect(within(views).getByRole("link", { name: /^Deck/ }).getAttribute("aria-current")).toBe(
+  await userEvent.click(within(views).getByRole("link", { name: "Offshifts" }));
+  await title("Offshifts");
+  expect(within(views).getByRole("link", { name: "Offshifts" }).getAttribute("aria-current")).toBe(
     "page",
   );
   expect(button("Back").disabled).toBe(false);
@@ -67,7 +89,7 @@ test("the sidebar marks the current view and the header's back and forward follo
   expect(button("Forward").disabled).toBe(false);
 
   await userEvent.keyboard("{Meta>}]{/Meta}");
-  await title("Deck");
+  await title("Offshifts");
   expect(button("Forward").disabled).toBe(true);
 });
 

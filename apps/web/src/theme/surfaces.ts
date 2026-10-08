@@ -4,8 +4,8 @@ import type { ThemeTokens } from "./tokens.ts";
 /*
  * Every surface text can sit on, as the browser composites it, so contrast checks hold where
  * text is actually drawn and not only on the page background. Covers both glass extremes: solid
- * (glass intensity 0 or Reduce transparency) and fully clear, where the rail, sidebar, reading
- * column and floating glass show the wallpaper through their own alpha (tokens.css). Rows and
+ * (glass intensity 0 or Reduce transparency) and fully clear, where the sidebar, reading column
+ * and floating glass show the wallpaper through their own alpha (tokens.css). Rows and
  * tabs add the strongest ink wash (10%) on top of the surface under them.
  */
 
@@ -41,7 +41,6 @@ export function themeSurfaces(tokens: ThemeTokens): Surface[] {
   };
   add("page", parseOpaqueColor(tokens["--background"]));
   add("popover", parseOpaqueColor(tokens["--popover"]));
-  // The rail carries icons only, never text, so it is not a text surface.
   const materials = {
     sidebar: triple(tokens["--sidebar-rgb"]),
     reading: triple(tokens["--reading-rgb"]),

@@ -625,7 +625,7 @@ export class Engine {
     return this.openHostApproval(
       threadId,
       key,
-      { kind: "plan_review", title: "Deck needs your decision", markdown: message },
+      { kind: "plan_review", title: "Offshift needs your decision", markdown: message },
       [{ type: "ace.conductor.gate", data: { key } }],
     );
   }

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useSidebarInline } from "@/lib/breakpoints.ts";
+import { cn } from "@/lib/cn.ts";
 import { Screen } from "./screen.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
@@ -18,39 +19,67 @@ interface ViewList {
   setInPage(inPage: boolean): void;
 }
 const ViewListContext = createContext<ViewList | null>(null);
+/** The list is drawn as a pane beside its column, so its heading lines up with the column's title. */
+const InPaneContext = createContext(false);
 
 /**
- * A view: its own list, drawn into the body of the one sidebar (the thread list for Home, the
- * feed for Activity, …), and its main column beside it. On a narrow window the view's index
- * page may show the list itself (`ViewListPage`).
+ * Where a view's own list goes. `threads`: the view is the thread list the sidebar always shows
+ * (Home, and pages that keep it, like Usage & accounts). `sidebar`: the list takes the sidebar's
+ * body in its place (Settings' pages). `pane`: the sidebar keeps the threads and the list is a
+ * pane at the start of the view's column (Offshifts, Automations, Skills, Activity).
  */
-export function ViewFrame(props: { label: string; sidebar: ReactNode; children: ReactNode }) {
-  const { body } = useViewFrame();
+export type ViewListPlace = "threads" | "sidebar" | "pane";
+
+/**
+ * A view: its own list (`place`) and its main column. On a narrow window, where the sidebar is a
+ * sheet, the view's index page may show the list itself (`ViewListPage`), and a pane isn't drawn.
+ */
+export function ViewFrame(props: {
+  label: string;
+  /** The view's list; a `threads` view's is the thread list, shown as a page on a phone. */
+  sidebar?: ReactNode;
+  place: ViewListPlace;
+  children: ReactNode;
+}) {
+  const { body, claimBody } = useViewFrame();
+  const wide = useSidebarInline();
   const [inPage, setInPage] = useState(false);
   const list = useMemo<ViewList>(
     () => ({ label: props.label, sidebar: props.sidebar, setInPage }),
     [props.label, props.sidebar],
   );
+  const inSidebar = props.place === "sidebar" && !inPage;
+  // The thread list steps out of the sidebar's body while this list is in it.
+  useLayoutEffect(() => (inSidebar ? claimBody() : undefined), [inSidebar, claimBody]);
   return (
     <ViewListContext.Provider value={list}>
-      {body &&
-        !inPage &&
+      {inSidebar &&
+        body &&
         createPortal(
           <aside aria-label={props.label} className="flex min-h-0 flex-1 flex-col">
             {props.sidebar}
           </aside>,
           body,
         )}
-      <div className="relative flex min-w-0 flex-1 flex-col bg-reading">{props.children}</div>
+      <div className="relative flex min-w-0 flex-1 bg-reading">
+        {props.place === "pane" && wide && (
+          <aside
+            aria-label={props.label}
+            className="flex w-(--pane-w) min-h-0 shrink-0 flex-col border-r"
+          >
+            <InPaneContext.Provider value>{props.sidebar}</InPaneContext.Provider>
+          </aside>
+        )}
+        <div className="relative flex min-w-0 flex-1 flex-col">{props.children}</div>
+      </div>
     </ViewListContext.Provider>
   );
 }
 
 /**
- * A view's index page. On a narrow window, where the list lives in a sheet, the list is the
- * page: tapping Home (or Deck, Skills…) shows its list, and a row opens the item. On a wide
- * window the list is already beside the page, so `fallback` shows (usually a redirect to the
- * first item).
+ * A view's index page. On a narrow window, where the sidebar is a sheet, the list is the page:
+ * tapping Home (or Offshifts, Skills…) shows its list, and a row opens the item. On a wide window
+ * the list is already on screen, so `fallback` shows (usually a redirect to the first item).
  */
 export function ViewListPage(props: { title: string; fallback: ReactNode }) {
   const wide = useSidebarInline();
@@ -76,8 +105,15 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
 
 /** The heading of a view's list in the sidebar, with an optional filter or actions. */
 export function SidebarHeader(props: { title: string; actions?: ReactNode }) {
+  const inPane = useContext(InPaneContext);
   return (
-    <div className="group/heading flex h-10 shrink-0 items-center gap-1.5 pt-1 pr-2.5 pl-4">
+    <div
+      className={cn(
+        "group/heading flex shrink-0 items-center gap-1.5 pr-2.5 pl-4",
+        // Beside a column, the heading takes the header's height so both titles share a line.
+        inPane ? "h-(--header-h)" : "h-10 pt-1",
+      )}
+    >
       <h2 className="min-w-0 flex-1 truncate text-ui text-muted-foreground">{props.title}</h2>
       {props.actions}
     </div>

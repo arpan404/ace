@@ -1,11 +1,4 @@
-import {
-  ChartBarIcon,
-  GearSixIcon,
-  InfoIcon,
-  KeyboardIcon,
-  MoonIcon,
-  UserIcon,
-} from "@phosphor-icons/react";
+import { ChartBarIcon, InfoIcon, KeyboardIcon, MoonIcon, UserIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   MenuContent,
@@ -36,9 +29,10 @@ function desktopVersion(): string | undefined {
 }
 
 /**
- * The avatar's menu, loaded after the first paint (`SidebarMenu`): the person and the app,
- * never the daemon (that is the sidebar's "ace ▾"). Who this is, Settings, the light or dark
- * scheme, shortcuts, usage, and which ace this is.
+ * The profile's menu, loaded after the first paint (`SidebarMenu`): the person and the app,
+ * never the daemon (that is the sidebar's "ace ▾"). Who this is, the light or dark scheme,
+ * shortcuts, usage and accounts (its only way in), and which ace this is. Settings is the gear
+ * beside the profile, so it isn't repeated here.
  */
 export function AccountMenuContent() {
   const [name] = useProfileName();
@@ -49,19 +43,12 @@ export function AccountMenuContent() {
     : undefined;
   const version = desktopVersion();
   return (
-    <MenuContent side="right" align="end">
+    <MenuContent side="top" align="start" className="min-w-(--anchor-width)">
       <div className="flex items-center gap-2 truncate px-2.5 py-1.5 text-ui font-medium text-foreground">
         <UserIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         <span className="truncate">{name || "You"}</span>
       </div>
       <MenuSeparator />
-      <MenuItem
-        icon={<GearSixIcon aria-hidden />}
-        shortcut="settings"
-        onClick={() => void navigate({ to: "/settings" })}
-      >
-        Settings
-      </MenuItem>
       <MenuSub>
         <MenuSubTrigger icon={<MoonIcon aria-hidden />}>Appearance</MenuSubTrigger>
         <MenuContent side="right" align="start" sideOffset={4} className="min-w-[160px]">
@@ -85,7 +72,7 @@ export function AccountMenuContent() {
       </MenuItem>
       <MenuItem
         icon={<ChartBarIcon aria-hidden />}
-        onClick={() => void navigate({ to: "/more/accounts" })}
+        onClick={() => void navigate({ to: "/accounts" })}
       >
         Usage & accounts
       </MenuItem>

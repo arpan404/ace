@@ -19,9 +19,7 @@ async function connect(page: Page, path: string) {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   const daemon = encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`);
   await page.goto(`${path}#token=${token}&daemon=${daemon}`);
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
 }
 
 /**
@@ -36,9 +34,7 @@ async function shoot(page: Page, name: string, ready: (page: Page) => Promise<vo
       theme,
     );
     await page.reload();
-    await expect(
-      page.getByRole("button", { name: "Account and connection", exact: true }),
-    ).toBeAttached();
+    await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
     await ready(page);
     await page.waitForTimeout(600);
     await page.screenshot({ path: `${shots}/real-${name}-${theme}.png` });
@@ -51,23 +47,23 @@ test("a deck starts on the real daemon, waits on its plan and a worker's questio
   test.setTimeout(120_000);
   const run = Date.now().toString(36);
   const goal = `Add a health note ${deckAskMarker} and document it in the README (${run}).`;
-  await connect(page, "/deck/new");
+  await connect(page, "/offshifts/new");
 
   // The form offers what this daemon can run: its CLIs' own logins, no accounts to pick.
-  const form = page.getByRole("form", { name: "New deck" });
+  const form = page.getByRole("form", { name: "New offshift" });
   await expect(form.getByText(/Workers run .+ on Claude Code · default login/)).toBeVisible();
   await form.getByLabel("Goal").fill(goal);
   await form.getByRole("radio", { name: /Merge when every review passes/ }).click();
-  await form.getByRole("button", { name: /Start deck/ }).click();
+  await form.getByRole("button", { name: /Start offshift/ }).click();
 
   // The planner works on its own thread, then the plan waits for approval.
   await expect(page.getByRole("heading", { level: 1, name: /^Add a health note/ })).toBeVisible();
-  const planGate = page.getByRole("region", { name: "Deck plan needs your approval" });
+  const planGate = page.getByRole("region", { name: "Offshift plan needs your approval" });
   await expect(planGate).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/^Started (just now|\d+m ago)/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Health note/ }).first()).toContainText("Planned");
   await shoot(page, "deck-plan-gate", (shown) =>
-    expect(shown.getByRole("region", { name: "Deck plan needs your approval" })).toBeVisible(),
+    expect(shown.getByRole("region", { name: "Offshift plan needs your approval" })).toBeVisible(),
   );
   await planGate.getByRole("button", { name: "Approve plan" }).click();
 
@@ -93,17 +89,15 @@ test("a deck starts on the real daemon, waits on its plan and a worker's questio
 
   // Back on the deck: the cards work, pass review and merge, and the deck finishes.
   await page.goto(deck);
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   await expect(asking).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Health note/ }).first()).toContainText(
     /Working|In review|Merging|Merged/,
   );
-  await expect(page.getByRole("list", { name: "Deck progress" })).toContainText("Merged", {
+  await expect(page.getByRole("list", { name: "Offshift progress" })).toContainText("Merged", {
     timeout: 60_000,
   });
-  const decks = page.getByRole("navigation", { name: "Decks" });
+  const decks = page.getByRole("navigation", { name: "Offshifts" });
   await expect(
     decks.getByRole("region", { name: "Finished" }).getByText(/^Add a health note/),
   ).toBeVisible();
@@ -117,5 +111,7 @@ test("a deck starts on the real daemon, waits on its plan and a worker's questio
     expect(shown.getByRole("region", { name: "Lane: Health note" })).toBeVisible(),
   );
   await lane.getByRole("link", { name: "Open the worker thread" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Deck worker: health" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Offshift worker: health" }),
+  ).toBeVisible();
 });

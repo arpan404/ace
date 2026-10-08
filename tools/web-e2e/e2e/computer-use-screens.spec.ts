@@ -40,7 +40,7 @@ const screens: Record<string, Setup> = {
     await openTool(page, "/t/thread-cold-start", "Computer use");
     await expect(panel(page).getByRole("article", { name: "TextEdit" })).toBeVisible();
   },
-  "rail-indicator": async (page) => {
+  "sidebar-indicator": async (page) => {
     await page.goto("/t/thread-cold-start");
     const indicator = page.getByRole("button", { name: /Agents are using/ });
     await indicator.click({ timeout: 15_000 });
