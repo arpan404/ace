@@ -7,6 +7,7 @@ const id = z.string().min(1).max(128);
 export const FileVersion = z.string().min(1).max(256);
 const expected = FileVersion.nullable();
 export const FileOperation = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("list"), path, limit: z.number().int().min(1).max(1000).default(1000) }),
   z.object({ op: z.literal("stat"), path }),
   z.object({
     op: z.literal("download"),

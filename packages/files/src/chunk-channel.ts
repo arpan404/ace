@@ -155,6 +155,7 @@ export function chunkFilesChannel(options: {
     assertOpening();
     const op = message.operation;
     const access = [
+      "list",
       "stat",
       "download",
       "artifact.download",

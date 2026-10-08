@@ -31,3 +31,5 @@ export {
   useWorkspaceStore,
 } from "./react.tsx";
 export { defaultSize, WorkspaceStore, type ClosedTab } from "./store.ts";
+
+export { fileTab, fileTabId } from "./file-tab.ts";

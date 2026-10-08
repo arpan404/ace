@@ -1,14 +1,16 @@
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useThreadMeta } from "@ace/client-react";
+import { isCheckoutPath } from "@ace/ui-core";
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { projectRelative } from "./attachment-format.ts";
-import { UnavailableImage } from "./attachment-message.tsx";
+const ArtifactActions = lazy(() =>
+  import("./artifact-actions.tsx").then((module) => ({ default: module.ArtifactActions })),
+);
 
 /**
  * A file the agent saved (a browser screenshot, a download), named relative to the project.
- * An artifact item carries only the daemon's path, not a content id this device can fetch, so
- * an image shows the neutral unavailable tile under its name instead of a thumbnail.
+ * Workspace artifacts open in Files or download through the owning thread's file channel.
  */
 const Preview = lazy(() =>
   import("./attachment-preview.tsx").then((module) => ({ default: module.AttachmentPreview })),
@@ -44,6 +46,13 @@ export function ArtifactLine(props: {
     thread?.details?.worktree,
     thread?.details?.workspace?.path,
   ]);
+  const root = (thread?.details?.worktree ?? thread?.details?.workspace?.path)?.replace(/\/+$/, "");
+  const relative = props.path.startsWith("/")
+    ? root && props.path.startsWith(`${root}/`)
+      ? props.path.slice(root.length + 1)
+      : undefined
+    : props.path;
+  const available = relative !== undefined && isCheckoutPath(relative);
   return (
     <div className="flex flex-col items-start gap-2">
       <p className="flex min-w-0 max-w-full items-center gap-2 text-ui text-muted-foreground">
@@ -55,6 +64,11 @@ export function ArtifactLine(props: {
         >
           {props.filename ?? name}
         </code>
+        {available && (
+          <Suspense fallback={null}>
+            <ArtifactActions threadId={props.threadId} path={relative} />
+          </Suspense>
+        )}
       </p>
       {props.artifactId && (
         <Button ref={trigger} variant="ghost" size="sm" onClick={() => setOpen(true)}>

@@ -5,9 +5,9 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
-import { checkoutFiles } from "./services/checkout-contents.ts";
+import { FakeCheckout, type CheckoutFile } from "./fake-checkout.ts";
 
-type File = { bytes: Uint8Array; version: string };
+type File = CheckoutFile;
 type Upload = {
   key: string;
   device: string;
@@ -34,44 +34,24 @@ export class FakeFilesWire {
     if (bytes.length > 16 * 1024 * 1024) throw new Error("Artifact fixture too large");
     this.files.set(this.key(threadId, `artifacts/${artifactId}`), { bytes, version: artifactId });
   }
-  private files = new Map<string, File>();
+  private checkout: FakeCheckout;
+  private files: Map<string, File>;
   private uploads = new Map<string, Upload>();
   private sequence = 0;
   private host: FakeServiceContext;
   constructor(host: FakeServiceContext) {
     this.host = host;
+    this.checkout = new FakeCheckout(host);
+    this.files = this.checkout.files;
+  }
+  paths(threadId: string): string[] {
+    return this.checkout.paths(threadId);
   }
   private key(threadId: string, path: string): string {
-    const thread = this.host.thread(threadId)?.thread;
-    if (!thread || thread.deletedAt !== undefined) throw new Error("NOT_FOUND");
-    if (
-      thread.details?.workspaceChange?.state === "preparing" ||
-      thread.details?.workspaceChange?.uncertain
-    )
-      throw new Error("BUSY");
-    if (
-      !path ||
-      path.startsWith("/") ||
-      path.includes("\\") ||
-      path.split("/").some((part) => part === ".." || part === ".") ||
-      path.includes("\0")
-    )
-      throw new Error("OUTSIDE_WORKSPACE");
-    return `${thread.details?.worktree ?? `/fake/${thread.workspaceId}`}\0${path}`;
+    return this.checkout.key(threadId, path);
   }
-  /**
-   * The file at `key`: one uploaded or written here, else the project checkout's own copy
-   * (`checkout-contents.ts`), kept from then on so uploads over it see its version.
-   */
-  private file(threadId: string, path: string, key: string): File | undefined {
-    const known = this.files.get(key);
-    if (known) return known;
-    const workspaceId = this.host.thread(threadId)?.thread.workspaceId ?? "";
-    const text = checkoutFiles(workspaceId)[path];
-    if (text === undefined) return undefined;
-    const file = { bytes: new TextEncoder().encode(text), version: `checkout-${++this.sequence}` };
-    this.files.set(key, file);
-    return file;
+  private file(_threadId: string, _path: string, key: string): File | undefined {
+    return this.files.get(key);
   }
   reviewTarget(threadId: string): { workspaceId: string; worktree: string } | undefined {
     const thread = this.host.thread(threadId)?.thread;
@@ -222,11 +202,12 @@ export class FakeFilesWire {
                   path: op.path,
                   size: file.bytes.length,
                   version: file.version,
-                  type: "file",
+                  type: file.folder ? "directory" : "file",
                 },
               });
               return;
             }
+            if (file.folder) throw new Error("INVALID_PATH");
             if (
               (op.offset > 0 && !op.validator) ||
               (op.validator && op.validator !== file.version) ||
@@ -261,7 +242,7 @@ export class FakeFilesWire {
               if ((this.file(threadId, op.path, key)?.version ?? null) !== op.expected)
                 throw new Error("CONFLICT");
               const total =
-                [...this.files.values()].reduce((n, value) => n + value.bytes.length, 0) +
+                this.checkout.retainedBytes() +
                 [...this.uploads.values()].reduce((n, value) => n + value.size, 0);
               if (this.uploads.size >= 64 || total + op.size > 16 * 1024 * 1024)
                 throw new Error("QUOTA");
@@ -325,7 +306,50 @@ export class FakeFilesWire {
             emit({ type: "files.result", requestId: message.requestId, value: { ok: true } });
             return;
           }
-          throw new Error("UNSUPPORTED");
+          if (op.op === "archive.download") {
+            const preview = this.checkout.previews.get(op.previewId);
+            if (!preview || preview.root !== this.key(threadId, "")) throw new Error("NOT_FOUND");
+            const contents = preview.paths.map((path, index) => {
+              const file = this.files.get(preview.root + path);
+              if (!file || file.version !== preview.versions[index]) throw new Error("CONFLICT");
+              return { path, bytes: file.bytes, folder: file.folder === true };
+            });
+            const { fixtureArchive } = await import("./fixture-archive.ts");
+            const bytes = await fixtureArchive(contents);
+            const channel = allocate();
+            channels.set(channel, {
+              kind: "read",
+              threadId,
+              key: preview.root,
+              requestId: message.requestId,
+              file: { bytes, version: op.previewId },
+              offset: 0,
+            });
+            emit({
+              type: "files.ready",
+              requestId: message.requestId,
+              channel,
+              offset: 0,
+              size: bytes.length,
+              validator: op.previewId,
+            });
+            return;
+          }
+          if (op.op === "create" || op.op === "write") {
+            const key = this.key(threadId, op.path);
+            const reserved =
+              this.checkout.retainedBytes() +
+              [...this.uploads.values()].reduce((size, upload) => size + upload.size, 0);
+            if (
+              reserved +
+                new TextEncoder().encode(op.text).length -
+                (this.files.get(key)?.bytes.length ?? 0) >
+              16 * 1024 * 1024
+            )
+              throw new Error("QUOTA");
+          }
+          const value = this.checkout.apply(threadId, op);
+          emit({ type: "files.result", requestId: message.requestId, value });
         } catch (error) {
           emit({
             type: "files.error",

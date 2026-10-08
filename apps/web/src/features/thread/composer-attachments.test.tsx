@@ -6,6 +6,7 @@ import { ThreadId } from "@ace/protocol";
 import { createHash } from "node:crypto";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test } from "vitest";
+import { ToastProvider } from "@/components/ui/toast.tsx";
 import { harness } from "@/test/harness.tsx";
 import { AttachmentChips, useAttachments } from "./composer/attachments.tsx";
 
@@ -131,17 +132,14 @@ test("each chip names its file's kind and size, and Delete removes it, focus mov
   expect(document.activeElement).toBe(message);
 });
 
-test("a long name keeps its extension in view while its middle gives way", async () => {
+test("a long attachment name can be read in full in its preview", async () => {
   const user = userEvent.setup();
   await openComposer();
   const name = "quarterly-infrastructure-cost-review-final-v3.xlsx";
   await user.upload(screen.getByLabelText("Files to attach"), new File(["x"], name));
-  const chip = await screen.findByRole("button", { name: `Preview ${name}` });
-  const shown = chip.querySelector("span.truncate")?.parentElement;
-  // The whole name reads in order; only the part before the tail truncates.
-  expect(shown?.textContent).toBe(name);
-  expect(shown?.lastElementChild?.textContent).toMatch(/\.xlsx$/);
-  expect(shown?.lastElementChild?.classList.contains("truncate")).toBe(false);
+  await user.click(await screen.findByRole("button", { name: `Preview ${name}` }));
+  const preview = await screen.findByRole("dialog", { name });
+  expect(within(preview).getByRole("heading", { name }).textContent).toBe(name);
 });
 
 test("files adding up past the message limit are refused before uploading, naming the limit", async () => {
@@ -221,7 +219,9 @@ test("a failed upload offers Retry, which uploads the same file again", async ()
   await app.client.start();
   render(
     <ClientProvider client={app.client}>
-      <Chips />
+      <ToastProvider>
+        <Chips />
+      </ToastProvider>
     </ClientProvider>,
   );
   app.daemon.failRequests("context.request");
@@ -310,7 +310,9 @@ async function hookAgainstDaemon() {
   app.play(longHistory(2)).runUntilBlocked();
   await app.client.start();
   const wrapper = (props: { children: ReactNode }) => (
-    <ClientProvider client={app.client}>{props.children}</ClientProvider>
+    <ClientProvider client={app.client}>
+      <ToastProvider>{props.children}</ToastProvider>
+    </ClientProvider>
   );
   return renderHook(() => useAttachments(thread), { wrapper });
 }
@@ -342,4 +344,90 @@ test("a handed-off message keeps its image previews until it releases them", asy
   expect(await handed?.settled).toHaveLength(1);
   handed?.release();
   expect(objectUrls.has(previewUrl)).toBe(false);
+});
+
+test("removing a ready chip releases its thread attachment", async () => {
+  const { app } = await openComposer();
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["draft"], "notes.txt", { type: "text/plain" }),
+  );
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  await userEvent.click(within(chips).getByRole("button", { name: "Remove notes.txt" }));
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull());
+  const reply = await app.client.request({
+    type: "context.request",
+    operation: { op: "attachment.list", threadId: ThreadId.parse(thread.id) },
+  });
+  expect(reply.result).toMatchObject({ kind: "attachments", attachments: [] });
+});
+
+test("the Attachments sheet lists kept files and removal clears a ready chip and its reference", async () => {
+  const { app } = await openComposer();
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["draft"], "notes.txt", { type: "text/plain" }),
+  );
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Attachments" }));
+  const sheet = await screen.findByRole("dialog", { name: "Attachments" });
+  expect(await within(sheet).findByText("1 of 256 attachments")).toBeTruthy();
+  await userEvent.click(within(sheet).getByRole("button", { name: "Remove notes.txt" }));
+  expect(await within(sheet).findByText("No attachments in this thread.")).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull());
+  const reply = await app.client.request({
+    type: "context.request",
+    operation: { op: "attachment.list", threadId: ThreadId.parse(thread.id) },
+  });
+  expect(reply.result).toMatchObject({ kind: "attachments", attachments: [] });
+});
+
+test("removing a chip before upload completion releases the eventual attachment", async () => {
+  const { app } = await openComposer();
+  const entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>(),
+    committed = Promise.withResolvers<void>();
+  const file = new File(["pending draft"], "pending.txt", { type: "text/plain" });
+  const slice = file.slice.bind(file);
+  file.slice = (start, end, type) => {
+    const part = slice(start, end, type),
+      read = part.arrayBuffer.bind(part);
+    part.arrayBuffer = async () => {
+      entered.resolve();
+      await release.promise;
+      return read();
+    };
+    return part;
+  };
+  const unsubscribe = app.client.onMessage((message) => {
+    if (
+      message.type === "context.result" &&
+      message.result.kind === "attachment" &&
+      message.result.attachment.name === "pending.txt"
+    )
+      committed.resolve();
+  });
+  try {
+    await userEvent.upload(screen.getByLabelText("Files to attach"), file);
+    await entered.promise;
+    const chips = await screen.findByRole("list", { name: "Attachments" });
+    await userEvent.click(within(chips).getByRole("button", { name: "Remove pending.txt" }));
+    expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
+    release.resolve();
+    await committed.promise;
+    await waitFor(async () => {
+      const reply = await app.client.request({
+        type: "context.request",
+        operation: { op: "attachment.list", threadId: ThreadId.parse(thread.id) },
+      });
+      expect(reply.result).toMatchObject({ kind: "attachments", attachments: [] });
+    });
+  } finally {
+    release.resolve();
+    unsubscribe();
+  }
 });
