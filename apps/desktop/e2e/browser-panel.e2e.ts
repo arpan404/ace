@@ -146,6 +146,11 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(async () => (await geometry()).native?.visible ?? false).toBe(false);
       await p.getByRole("button", { name: "Right panel", exact: true }).click();
       await expect.poll(exact).toBe(true);
+      // The page left the person's view with the panel, which ends a shared hold: the agent
+      // drives again until the person takes over.
+      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
+      await p.getByRole("button", { name: "Take over", exact: true }).click();
+      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("human");
       const resize = p.getByRole("separator", { name: "Resize thread panel" });
       const grip = await resize.boundingBox();
       if (!grip) throw new Error("Splitter missing");
