@@ -1,7 +1,7 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { highlight, type CodeToken, type TokenKind } from "./highlight.ts";
 
 /** Tonal classes per token kind: the design is near-monochrome, so no hues. */
@@ -39,6 +39,7 @@ export function CodeBlock(props: {
   tokens?: CodeToken[];
   /** Still being written: plain text until it settles, rather than highlighting each update. */
   plain?: boolean;
+  tail?: ReactNode;
 }) {
   const local = useMemo(
     () =>
@@ -72,6 +73,7 @@ export function CodeBlock(props: {
               {token.text}
             </span>
           ))}
+          {props.tail}
         </code>
       </pre>
     </figure>

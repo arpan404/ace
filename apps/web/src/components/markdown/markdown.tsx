@@ -114,22 +114,36 @@ const headingClass = [
 
 /** Inside a block still being written: its code shows plain until the block settles. */
 const Writing = createContext(false);
+const Tail = createContext<ReactNode>(undefined);
 
 function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode {
   const writing = useContext(Writing);
+  const tail = useContext(Tail);
   const token = props.token;
-  if (!isKnown(token)) return <p>{token.raw}</p>;
+  if (!isKnown(token))
+    return (
+      <p>
+        {token.raw}
+        {tail}
+      </p>
+    );
   switch (token.type) {
     case "space":
     case "def":
       return null;
     case "paragraph":
-      return <p className="[&+*]:mt-3">{inline(token.tokens)}</p>;
+      return (
+        <p className="[&+*]:mt-3">
+          {inline(token.tokens)}
+          {tail}
+        </p>
+      );
     case "heading": {
       const Tag = `h${Math.min(6, Math.max(3, token.depth + 2))}` as "h3" | "h4" | "h5" | "h6";
       return (
         <Tag className={headingClass[Math.min(3, token.depth)] ?? headingClass[3]}>
           {inline(token.tokens)}
+          {tail}
         </Tag>
       );
     }
@@ -138,6 +152,7 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
         <CodeBlock
           code={token.text}
           lang={token.lang}
+          tail={tail}
           {...(props.code ? { tokens: props.code } : writing ? { plain: true } : {})}
         />
       );
@@ -153,7 +168,9 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
       const items = token.items.map((item, index) => (
         <li key={index} className={item.task ? "list-none [&+li]:mt-1" : "pl-0.5 [&+li]:mt-1"}>
           {/* Task items carry their own checkbox token. */}
-          {item.loose ? <Blocks tokens={item.tokens} /> : <Tight tokens={item.tokens} />}
+          <Tail.Provider value={index === token.items.length - 1 ? tail : undefined}>
+            {item.loose ? <Blocks tokens={item.tokens} /> : <Tight tokens={item.tokens} />}
+          </Tail.Provider>
         </li>
       ));
       return token.ordered ? (
@@ -194,6 +211,7 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
                       className="border-b px-2 py-1.5"
                     >
                       {inline(cell.tokens)}
+                      {rowIndex === token.rows.length - 1 && index === row.length - 1 && tail}
                     </td>
                   ))}
                 </tr>
@@ -203,27 +221,53 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
         </div>
       );
     case "html":
-      return <p className="whitespace-pre-wrap">{token.text}</p>;
+      return (
+        <p className="whitespace-pre-wrap">
+          {token.text}
+          {tail}
+        </p>
+      );
     case "text":
-      return <p>{token.tokens ? inline(token.tokens) : token.text}</p>;
+      return (
+        <p>
+          {token.tokens ? inline(token.tokens) : token.text}
+          {tail}
+        </p>
+      );
     default:
-      return <Inline token={token} />;
+      return (
+        <>
+          <Inline token={token} />
+          {tail}
+        </>
+      );
   }
 }
 
 /** List items without blank lines between them hold bare inline text, not paragraphs. */
 function Tight(props: { tokens: readonly Token[] }) {
+  const tail = useContext(Tail);
   return props.tokens.map((token, index) =>
     token.type === "text" ? (
-      <Inline key={index} token={token} />
+      <span key={index}>
+        <Inline token={token} />
+        {index === props.tokens.length - 1 && tail}
+      </span>
     ) : (
-      <Block key={index} token={token} />
+      <Tail.Provider key={index} value={index === props.tokens.length - 1 ? tail : undefined}>
+        <Block token={token} />
+      </Tail.Provider>
     ),
   );
 }
 
 function Blocks(props: { tokens: readonly Token[] }) {
-  return props.tokens.map((token, index) => <Block key={index} token={token} />);
+  const tail = useContext(Tail);
+  return props.tokens.map((token, index) => (
+    <Tail.Provider key={index} value={index === props.tokens.length - 1 ? tail : undefined}>
+      <Block token={token} />
+    </Tail.Provider>
+  ));
 }
 
 /**
@@ -250,14 +294,18 @@ export const Markdown = memo(function Markdown(props: {
   stream?: string | undefined;
   streaming?: boolean | undefined;
   className?: string | undefined;
+  tail?: ReactNode;
 }) {
   const doc = useMarkdown(props.text, props.stream, !props.streaming);
   if (!doc) return <MarkdownLoading text={props.text} className={props.className} />;
   return (
     <div className={props.className}>
+      {doc.blocks.length === 0 && props.tail}
       {doc.blocks.map((block, index) => (
         // A block's place is its identity: the open block keeps it when it settles.
-        <TopBlock key={index} block={block} writing={index >= doc.settled} />
+        <Tail.Provider key={index} value={index === doc.blocks.length - 1 ? props.tail : undefined}>
+          <TopBlock block={block} writing={index >= doc.settled} />
+        </Tail.Provider>
       ))}
     </div>
   );
